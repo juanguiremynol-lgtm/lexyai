@@ -1,11 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Clock, AlertTriangle, CheckCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { FileText, Clock, AlertTriangle } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { KANBAN_COLUMNS, FILING_STATUSES } from "@/lib/constants";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { SlaBadge } from "@/components/ui/sla-badge";
-import { useNavigate } from "react-router-dom";
+import { KanbanBoard } from "@/components/kanban/KanbanBoard";
 import type { FilingStatus } from "@/lib/constants";
 
 interface Filing {
@@ -18,47 +15,62 @@ interface Filing {
 }
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [filings, setFilings] = useState<Filing[]>([]);
-  const [stats, setStats] = useState({ actaPending: 0, radicadoPending: 0, overdueTasks: 0, criticalAlerts: 0 });
+  const [stats, setStats] = useState({
+    actaPending: 0,
+    radicadoPending: 0,
+    overdueTasks: 0,
+    criticalAlerts: 0,
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     const { data: filingsData } = await supabase
-      .from('filings')
-      .select('id, status, filing_type, sla_acta_due_at, sla_court_reply_due_at, matter:matters(client_name, matter_name)')
-      .neq('status', 'CLOSED');
+      .from("filings")
+      .select(
+        "id, status, filing_type, sla_acta_due_at, sla_court_reply_due_at, matter:matters(client_name, matter_name)"
+      )
+      .neq("status", "CLOSED");
 
     setFilings((filingsData as unknown as Filing[]) || []);
 
-    const actaPending = filingsData?.filter(f => f.status === 'ACTA_PENDING').length || 0;
-    const radicadoPending = filingsData?.filter(f => f.status === 'RADICADO_PENDING').length || 0;
+    const actaPending =
+      filingsData?.filter((f) => f.status === "ACTA_PENDING").length || 0;
+    const radicadoPending =
+      filingsData?.filter((f) => f.status === "RADICADO_PENDING").length || 0;
 
     const { count: overdueTasks } = await supabase
-      .from('tasks')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'OPEN')
-      .lt('due_at', new Date().toISOString());
+      .from("tasks")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "OPEN")
+      .lt("due_at", new Date().toISOString());
 
     const { count: criticalAlerts } = await supabase
-      .from('alerts')
-      .select('*', { count: 'exact', head: true })
-      .eq('severity', 'CRITICAL')
-      .eq('is_read', false);
+      .from("alerts")
+      .select("*", { count: "exact", head: true })
+      .eq("severity", "CRITICAL")
+      .eq("is_read", false);
 
-    setStats({ actaPending, radicadoPending, overdueTasks: overdueTasks || 0, criticalAlerts: criticalAlerts || 0 });
-  };
+    setStats({
+      actaPending,
+      radicadoPending,
+      overdueTasks: overdueTasks || 0,
+      criticalAlerts: criticalAlerts || 0,
+    });
+  }, []);
 
-  const getFilingsByStatus = (status: FilingStatus) => filings.filter(f => f.status === status);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">Vista general de tus radicaciones</p>
+        <h1 className="font-display text-3xl font-bold text-foreground">
+          Dashboard
+        </h1>
+        <p className="text-muted-foreground">
+          Vista general de tus radicaciones
+        </p>
       </div>
 
       {/* KPI Cards */}
@@ -74,7 +86,9 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Radicado Pendiente</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Radicado Pendiente
+            </CardTitle>
             <FileText className="h-4 w-4 text-status-pending" />
           </CardHeader>
           <CardContent>
@@ -92,7 +106,9 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Alertas Críticas
+            </CardTitle>
             <AlertTriangle className="h-4 w-4 text-sla-critical" />
           </CardHeader>
           <CardContent>
@@ -103,40 +119,10 @@ export default function Dashboard() {
 
       {/* Kanban Board */}
       <div>
-        <h2 className="font-display text-xl font-semibold mb-4">Pipeline de Radicaciones</h2>
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {KANBAN_COLUMNS.map((status) => (
-            <div key={status} className="flex-shrink-0 w-72">
-              <div className="bg-muted/50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-3">
-                  <StatusBadge status={status} size="sm" />
-                  <span className="text-xs text-muted-foreground">{getFilingsByStatus(status).length}</span>
-                </div>
-                <div className="space-y-2">
-                  {getFilingsByStatus(status).map((filing) => (
-                    <Card 
-                      key={filing.id} 
-                      className="cursor-pointer hover:shadow-md transition-shadow"
-                      onClick={() => navigate(`/filings/${filing.id}`)}
-                    >
-                      <CardContent className="p-3">
-                        <p className="font-medium text-sm truncate">{filing.matter?.client_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{filing.matter?.matter_name}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs text-muted-foreground">{filing.filing_type}</span>
-                          {filing.sla_acta_due_at && <SlaBadge dueDate={filing.sla_acta_due_at} size="sm" />}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                  {getFilingsByStatus(status).length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-4">Sin radicaciones</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <h2 className="font-display text-xl font-semibold mb-4">
+          Pipeline de Radicaciones
+        </h2>
+        <KanbanBoard filings={filings} onFilingUpdated={fetchData} />
       </div>
     </div>
   );
