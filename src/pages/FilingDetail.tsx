@@ -19,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SlaBadge } from "@/components/ui/sla-badge";
+import { DocumentUpload } from "@/components/filings/DocumentUpload";
+import { DocumentList } from "@/components/filings/DocumentList";
 import {
   ArrowLeft,
   Building2,
@@ -407,7 +409,16 @@ export default function FilingDetail() {
             <TabsContent value="documents" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Documentos</CardTitle>
+                  <CardTitle>Cargar Documento</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DocumentUpload filingId={filing.id} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Documentos Adjuntos</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {(filing.documents as unknown[])?.length === 0 ? (
@@ -416,29 +427,18 @@ export default function FilingDetail() {
                       <p className="mt-2 text-muted-foreground">
                         No hay documentos adjuntos
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        La funcionalidad de carga de documentos estará disponible próximamente
-                      </p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {(filing.documents as Array<{ id: string; kind: string; original_filename: string }>)?.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                        >
-                          <div className="flex items-center gap-3">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">{doc.original_filename}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {doc.kind}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <DocumentList
+                      documents={filing.documents as Array<{
+                        id: string;
+                        kind: "DEMANDA" | "ACTA_REPARTO" | "AUTO_RECEIPT" | "COURT_RESPONSE" | "OTHER";
+                        original_filename: string;
+                        file_path: string;
+                        uploaded_at: string;
+                      }>}
+                      filingId={filing.id}
+                    />
                   )}
                 </CardContent>
               </Card>
