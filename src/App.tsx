@@ -8,6 +8,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
+import Matters from "./pages/Matters";
+import Filings from "./pages/Filings";
+import FilingDetail from "./pages/FilingDetail";
+import Tasks from "./pages/Tasks";
+import Alerts from "./pages/Alerts";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -48,12 +54,12 @@ const App = () => (
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/matters" element={<Dashboard />} />
-            <Route path="/filings" element={<Dashboard />} />
-            <Route path="/filings/:id" element={<Dashboard />} />
-            <Route path="/tasks" element={<Dashboard />} />
-            <Route path="/alerts" element={<Dashboard />} />
-            <Route path="/settings" element={<Dashboard />} />
+            <Route path="/matters" element={<Matters />} />
+            <Route path="/filings" element={<Filings />} />
+            <Route path="/filings/:id" element={<FilingDetail />} />
+            <Route path="/tasks" element={<Tasks />} />
+            <Route path="/alerts" element={<Alerts />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
