@@ -6,7 +6,8 @@ import {
   Bell, 
   Settings,
   Scale,
-  LogOut
+  LogOut,
+  Eye,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Asuntos", url: "/matters", icon: Briefcase },
   { title: "Radicaciones", url: "/filings", icon: FileText },
+  { title: "Estado Procesos", url: "/process-status", icon: Eye },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/alerts", icon: Bell },
 ];

@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import Matters from "./pages/Matters";
 import Filings from "./pages/Filings";
 import FilingDetail from "./pages/FilingDetail";
+import ProcessStatus from "./pages/ProcessStatus";
+import ProcessStatusDetail from "./pages/ProcessStatusDetail";
 import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
@@ -57,6 +59,8 @@ const App = () => (
             <Route path="/matters" element={<Matters />} />
             <Route path="/filings" element={<Filings />} />
             <Route path="/filings/:id" element={<FilingDetail />} />
+            <Route path="/process-status" element={<ProcessStatus />} />
+            <Route path="/process-status/:id" element={<ProcessStatusDetail />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/settings" element={<Settings />} />
