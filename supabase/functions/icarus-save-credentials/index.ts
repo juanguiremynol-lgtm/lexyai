@@ -178,7 +178,7 @@ Deno.serve(async (req) => {
         .update({
           username,
           password_encrypted: encryptedPassword,
-          status: 'PENDING',
+          status: 'DISCONNECTED', // Valid status per check constraint
           last_error: null,
           session_encrypted: null, // Clear old session
           updated_at: new Date().toISOString(),
@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
       }
       integrationId = existing.id;
     } else {
-      // Insert new
+      // Insert new - use DISCONNECTED (valid) until auth succeeds
       console.log(`[icarus-save-credentials] Creating new integration for user ${userId.substring(0, 8)}...`);
       const { data: newIntegration, error: insertError } = await supabase
         .from('integrations')
@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
           provider: 'ICARUS',
           username,
           password_encrypted: encryptedPassword,
-          status: 'PENDING',
+          status: 'DISCONNECTED', // Valid status per check constraint
         })
         .select('id')
         .single();
