@@ -99,26 +99,38 @@ async function finalizeRun(supabase: any, runId: string, status: string, startTi
   }).eq('id', runId);
 }
 
-// CPNU URLs
+// CPNU Search URL - The CPNU SPA requires JavaScript execution to show results
+// We need to scrape with longer wait time to allow JS to render
 const CPNU_SEARCH_URL = (radicado: string) => 
-  `https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion?numero=${radicado}&SoloActivos=false`;
+  `https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion`;
 
-// Firecrawl scraping
-async function scrapeWithFirecrawl(url: string): Promise<{ success: boolean; markdown?: string; html?: string; error?: string; statusCode?: number }> {
+// Firecrawl scraping with enhanced options for SPAs
+async function scrapeWithFirecrawl(url: string, waitTime: number = 5000): Promise<{ 
+  success: boolean; 
+  markdown?: string; 
+  html?: string; 
+  error?: string; 
+  statusCode?: number 
+}> {
   const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
   if (!apiKey) {
     return { success: false, error: 'FIRECRAWL_API_KEY not configured' };
   }
 
   try {
-    console.log('Firecrawl: Scraping URL:', url);
+    console.log('Firecrawl: Scraping URL:', url, 'with waitFor:', waitTime);
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url, formats: ['markdown'], waitFor: 3000 }),
+      body: JSON.stringify({ 
+        url, 
+        formats: ['markdown', 'html'],
+        waitFor: waitTime,
+        onlyMainContent: false, // Include all content for better parsing
+      }),
     });
 
     const statusCode = response.status;
@@ -129,39 +141,68 @@ async function scrapeWithFirecrawl(url: string): Promise<{ success: boolean; mar
     }
 
     const data = await response.json();
-    return { success: true, markdown: data.data?.markdown || '', statusCode };
+    const markdown = data.data?.markdown || data.markdown || '';
+    const html = data.data?.html || data.html || '';
+    console.log('Firecrawl success, markdown length:', markdown.length, 'html length:', html.length);
+    return { success: true, markdown, html, statusCode };
   } catch (error) {
     console.error('Firecrawl fetch error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-// Parse search results from markdown
-function parseSearchResults(markdown: string, radicado: string): SearchResult[] {
+// Parse search results from markdown AND HTML - improved parsing
+function parseSearchResults(markdown: string, html: string, radicado: string): { results: SearchResult[]; parseMethod: string } {
   const results: SearchResult[] = [];
-  const lines = markdown.split('\n');
   
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // Look for 23-digit radicado
-    const radicadoMatch = line.match(/(\d{23})/);
-    if (radicadoMatch && radicadoMatch[1] === radicado) {
-      // Found matching radicado, look for details nearby
-      const context = lines.slice(Math.max(0, i - 5), Math.min(lines.length, i + 10)).join('\n');
-      const idMatch = context.match(/idProceso[=:]?\s*(\d+)/i);
-      const despachoMatch = context.match(/(Juzgado|Tribunal|Corte)[^\n]*/i);
-      
-      results.push({
-        radicado: radicadoMatch[1],
-        despacho: despachoMatch ? despachoMatch[0].trim() : 'No disponible',
-        id_proceso: idMatch ? parseInt(idMatch[1], 10) : undefined,
-        detail_url: idMatch ? `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${idMatch[1]}` : undefined,
-      });
-      break;
+  console.log('Parsing content, markdown length:', markdown.length, 'html length:', html.length);
+  console.log('Looking for radicado:', radicado);
+  
+  // First try: Check if radicado appears in the content
+  const contentToCheck = markdown + html;
+  
+  if (contentToCheck.includes(radicado)) {
+    console.log('Found radicado in content!');
+    
+    // Look for idProceso in the content (it's usually in links or data attributes)
+    const idMatches = contentToCheck.match(/idProceso[=:"]?\s*(\d+)/gi);
+    console.log('idProceso matches:', idMatches);
+    
+    // Look for despacho patterns
+    const despachoMatch = contentToCheck.match(/(Juzgado|Tribunal|Corte)[^\n\|<]*/i);
+    
+    let idProceso: number | undefined;
+    if (idMatches && idMatches.length > 0) {
+      const numMatch = idMatches[0].match(/(\d+)/);
+      if (numMatch) {
+        idProceso = parseInt(numMatch[1], 10);
+      }
     }
+    
+    results.push({
+      radicado,
+      despacho: despachoMatch ? despachoMatch[0].trim() : 'Despacho encontrado',
+      id_proceso: idProceso,
+      detail_url: idProceso 
+        ? `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${idProceso}` 
+        : undefined,
+    });
+    return { results, parseMethod: 'CONTENT_MATCH' };
   }
   
-  return results;
+  // Check if this is just the search form (not results)
+  const isSearchForm = markdown.includes('Número de Radicación') && 
+                       markdown.includes('0 / 23') && 
+                       !markdown.includes('Código');
+  
+  if (isSearchForm) {
+    console.log('Detected empty search form - CPNU SPA requires form submission');
+    return { results: [], parseMethod: 'SPA_FORM_NOT_SUBMITTED' };
+  }
+  
+  console.log('Radicado NOT found in content');
+  console.log('Markdown sample:', markdown.substring(0, 500));
+  return { results: [], parseMethod: 'NO_MATCH' };
 }
 
 // Parse events from detail page markdown
@@ -252,7 +293,8 @@ Deno.serve(async (req) => {
 
       if (runId) await addStep(supabase, runId, 'PARSE', true, `Markdown length: ${scrapeResult.markdown?.length || 0}`);
       
-      const results = parseSearchResults(scrapeResult.markdown || '', radicadoStr);
+      const parseResult = parseSearchResults(scrapeResult.markdown || '', scrapeResult.html || '', radicadoStr);
+      const results = parseResult.results;
       
       // If we found results with idProceso, scrape detail page for events
       let events: ProcessEvent[] = [];
@@ -266,10 +308,19 @@ Deno.serve(async (req) => {
       }
 
       const status = results.length > 0 ? 'SUCCESS' : 'EMPTY';
-      const whyEmpty = results.length === 0 ? (scrapeResult.markdown?.includes('No se encontraron') ? 'EMPTY_NO_MATCH' : 'EMPTY_PARSE_ZERO_ITEMS') : undefined;
+      let whyEmpty: string | undefined;
+      if (results.length === 0) {
+        if (parseResult.parseMethod === 'SPA_FORM_NOT_SUBMITTED') {
+          whyEmpty = 'SPA_REQUIRES_INTERACTION';
+        } else if (scrapeResult.markdown?.includes('No se encontraron')) {
+          whyEmpty = 'EMPTY_NO_MATCH';
+        } else {
+          whyEmpty = 'EMPTY_PARSE_ZERO_ITEMS';
+        }
+      }
       
       if (runId) await finalizeRun(supabase, runId, status, startTime, 200, undefined, undefined, 
-        { results_count: results.length, events_count: events.length, why_empty: whyEmpty },
+        { results_count: results.length, events_count: events.length, why_empty: whyEmpty, parse_method: parseResult.parseMethod },
         scrapeResult.markdown?.substring(0, 10000));
 
       return new Response(JSON.stringify({

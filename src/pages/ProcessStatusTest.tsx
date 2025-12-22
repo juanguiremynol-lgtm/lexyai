@@ -22,6 +22,8 @@ interface TestResult {
   events?: unknown[];
   duration_ms?: number;
   raw_response?: unknown;
+  search_url?: string;
+  why_empty?: string;
 }
 
 export default function ProcessStatusTest() {
@@ -185,8 +187,25 @@ export default function ProcessStatusTest() {
                       <AlertDescription>
                         {Array.isArray(result.results) && `${result.results.length} resultado(s) encontrado(s). `}
                         {Array.isArray(result.events) && `${result.events.length} evento(s).`}
+                        {(result.raw_response as any)?.why_empty === 'SPA_REQUIRES_INTERACTION' && (
+                          <span className="block text-xs mt-1 text-amber-600">
+                            ⚠️ El portal CPNU requiere interacción de formulario JavaScript.
+                            El scraping directo no puede ejecutar la búsqueda.
+                          </span>
+                        )}
+                        {(result.raw_response as any)?.why_empty && 
+                         (result.raw_response as any)?.why_empty !== 'SPA_REQUIRES_INTERACTION' && (
+                          <span className="block text-xs mt-1">Nota: {(result.raw_response as any).why_empty}</span>
+                        )}
                       </AlertDescription>
                     </Alert>
+                    {result.run_id && (
+                      <Link to={`/process-status/diagnostics/${result.run_id}`}>
+                        <Button variant="outline" size="sm">
+                          Ver diagnóstico
+                        </Button>
+                      </Link>
+                    )}
                     <ScrollArea className="h-48 rounded border p-2">
                       <pre className="text-xs">{JSON.stringify(result.raw_response, null, 2)}</pre>
                     </ScrollArea>
@@ -196,11 +215,24 @@ export default function ProcessStatusTest() {
                     <Alert variant="destructive">
                       <AlertTriangle className="h-4 w-4" />
                       <AlertTitle>Error</AlertTitle>
-                      <AlertDescription>
-                        {result.error}
-                        {result.http_status && ` (HTTP ${result.http_status})`}
+                      <AlertDescription className="space-y-1">
+                        <p>{result.error}</p>
+                        {result.http_status && <p className="text-xs">HTTP Status: {result.http_status}</p>}
+                        {(result.raw_response as any)?.why_empty && (
+                          <p className="text-xs">Razón: {(result.raw_response as any).why_empty}</p>
+                        )}
+                        {(result.raw_response as any)?.search_url && (
+                          <p className="text-xs font-mono break-all">URL: {(result.raw_response as any).search_url}</p>
+                        )}
                       </AlertDescription>
                     </Alert>
+                    {result.run_id && (
+                      <Link to={`/process-status/diagnostics/${result.run_id}`}>
+                        <Button variant="outline" size="sm" className="w-full">
+                          Ver diagnóstico completo
+                        </Button>
+                      </Link>
+                    )}
                     {result.raw_response && (
                       <ScrollArea className="h-32 rounded border p-2">
                         <pre className="text-xs">{JSON.stringify(result.raw_response, null, 2)}</pre>
