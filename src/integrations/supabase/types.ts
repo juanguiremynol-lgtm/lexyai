@@ -232,13 +232,16 @@ export type Database = {
           court_department: string | null
           court_email: string | null
           court_name: string | null
+          crawler_enabled: boolean | null
           created_at: string
           filing_type: string
           id: string
+          last_crawled_at: string | null
           last_event_at: string | null
           matter_id: string
           owner_id: string
           radicado: string | null
+          rama_judicial_url: string | null
           reparto_email_to: string | null
           reparto_reference: string | null
           sent_at: string | null
@@ -254,13 +257,16 @@ export type Database = {
           court_department?: string | null
           court_email?: string | null
           court_name?: string | null
+          crawler_enabled?: boolean | null
           created_at?: string
           filing_type: string
           id?: string
+          last_crawled_at?: string | null
           last_event_at?: string | null
           matter_id: string
           owner_id: string
           radicado?: string | null
+          rama_judicial_url?: string | null
           reparto_email_to?: string | null
           reparto_reference?: string | null
           sent_at?: string | null
@@ -276,13 +282,16 @@ export type Database = {
           court_department?: string | null
           court_email?: string | null
           court_name?: string | null
+          crawler_enabled?: boolean | null
           created_at?: string
           filing_type?: string
           id?: string
+          last_crawled_at?: string | null
           last_event_at?: string | null
           matter_id?: string
           owner_id?: string
           radicado?: string | null
+          rama_judicial_url?: string | null
           reparto_email_to?: string | null
           reparto_reference?: string | null
           sent_at?: string | null
@@ -302,6 +311,69 @@ export type Database = {
           },
           {
             foreignKeyName: "filings_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearings: {
+        Row: {
+          auto_detected: boolean | null
+          created_at: string
+          filing_id: string
+          id: string
+          is_virtual: boolean | null
+          location: string | null
+          notes: string | null
+          owner_id: string
+          reminder_sent: boolean | null
+          scheduled_at: string
+          title: string
+          updated_at: string
+          virtual_link: string | null
+        }
+        Insert: {
+          auto_detected?: boolean | null
+          created_at?: string
+          filing_id: string
+          id?: string
+          is_virtual?: boolean | null
+          location?: string | null
+          notes?: string | null
+          owner_id: string
+          reminder_sent?: boolean | null
+          scheduled_at: string
+          title: string
+          updated_at?: string
+          virtual_link?: string | null
+        }
+        Update: {
+          auto_detected?: boolean | null
+          created_at?: string
+          filing_id?: string
+          id?: string
+          is_virtual?: boolean | null
+          location?: string | null
+          notes?: string | null
+          owner_id?: string
+          reminder_sent?: boolean | null
+          scheduled_at?: string
+          title?: string
+          updated_at?: string
+          virtual_link?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearings_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearings_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -346,6 +418,57 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "matters_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      process_events: {
+        Row: {
+          created_at: string
+          description: string
+          event_date: string | null
+          event_type: string
+          filing_id: string
+          id: string
+          owner_id: string
+          raw_data: Json | null
+          source_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          description: string
+          event_date?: string | null
+          event_type: string
+          filing_id: string
+          id?: string
+          owner_id: string
+          raw_data?: Json | null
+          source_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          event_date?: string | null
+          event_type?: string
+          filing_id?: string
+          id?: string
+          owner_id?: string
+          raw_data?: Json | null
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_events_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_events_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"

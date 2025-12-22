@@ -1,1 +1,7 @@
 project_id = "qvuukbqcvlnvmcvcruji"
+
+[functions.crawl-rama-judicial]
+verify_jwt = false
+
+[functions.scheduled-crawler]
+verify_jwt = false
