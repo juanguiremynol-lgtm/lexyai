@@ -539,6 +539,101 @@ export type Database = {
           },
         ]
       }
+      icarus_import_rows: {
+        Row: {
+          created_at: string
+          id: string
+          owner_id: string
+          radicado_norm: string | null
+          radicado_raw: string | null
+          reason: string | null
+          row_index: number
+          run_id: string
+          source_payload: Json | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          owner_id: string
+          radicado_norm?: string | null
+          radicado_raw?: string | null
+          reason?: string | null
+          row_index: number
+          run_id: string
+          source_payload?: Json | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          owner_id?: string
+          radicado_norm?: string | null
+          radicado_raw?: string | null
+          reason?: string | null
+          row_index?: number
+          run_id?: string
+          source_payload?: Json | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "icarus_import_rows_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "icarus_import_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      icarus_import_runs: {
+        Row: {
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          file_hash: string | null
+          file_name: string
+          id: string
+          owner_id: string
+          rows_imported: number | null
+          rows_skipped: number | null
+          rows_total: number | null
+          rows_updated: number | null
+          rows_valid: number | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          file_hash?: string | null
+          file_name: string
+          id?: string
+          owner_id: string
+          rows_imported?: number | null
+          rows_skipped?: number | null
+          rows_total?: number | null
+          rows_updated?: number | null
+          rows_valid?: number | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          file_hash?: string | null
+          file_name?: string
+          id?: string
+          owner_id?: string
+          rows_imported?: number | null
+          rows_skipped?: number | null
+          rows_total?: number | null
+          rows_updated?: number | null
+          rows_valid?: number | null
+          status?: string
+        }
+        Relationships: []
+      }
       icarus_sync_runs: {
         Row: {
           attempts: Json | null
@@ -707,10 +802,15 @@ export type Database = {
       monitored_processes: {
         Row: {
           created_at: string
+          demandados: string | null
+          demandantes: string | null
           department: string | null
           despacho_name: string | null
           id: string
+          juez_ponente: string | null
           jurisdiction: string | null
+          last_action_date: string | null
+          last_action_date_raw: string | null
           last_change_at: string | null
           last_checked_at: string | null
           monitoring_enabled: boolean | null
@@ -719,15 +819,23 @@ export type Database = {
           notes: string | null
           owner_id: string
           radicado: string
+          source: string | null
+          source_payload: Json | null
+          source_run_id: string | null
           sources_enabled: Json | null
           updated_at: string
         }
         Insert: {
           created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
           department?: string | null
           despacho_name?: string | null
           id?: string
+          juez_ponente?: string | null
           jurisdiction?: string | null
+          last_action_date?: string | null
+          last_action_date_raw?: string | null
           last_change_at?: string | null
           last_checked_at?: string | null
           monitoring_enabled?: boolean | null
@@ -736,15 +844,23 @@ export type Database = {
           notes?: string | null
           owner_id: string
           radicado: string
+          source?: string | null
+          source_payload?: Json | null
+          source_run_id?: string | null
           sources_enabled?: Json | null
           updated_at?: string
         }
         Update: {
           created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
           department?: string | null
           despacho_name?: string | null
           id?: string
+          juez_ponente?: string | null
           jurisdiction?: string | null
+          last_action_date?: string | null
+          last_action_date_raw?: string | null
           last_change_at?: string | null
           last_checked_at?: string | null
           monitoring_enabled?: boolean | null
@@ -753,6 +869,9 @@ export type Database = {
           notes?: string | null
           owner_id?: string
           radicado?: string
+          source?: string | null
+          source_payload?: Json | null
+          source_run_id?: string | null
           sources_enabled?: Json | null
           updated_at?: string
         }
