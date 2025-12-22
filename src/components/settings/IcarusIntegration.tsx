@@ -370,210 +370,183 @@ export function IcarusIntegration() {
 
   return (
     <>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {isConnected ? (
-            <Cloud className="h-5 w-5 text-green-500" />
-          ) : (
-            <CloudOff className="h-5 w-5 text-muted-foreground" />
-          )}
-          Integración ICARUS
-        </CardTitle>
-        <CardDescription>
-          Sincroniza tus procesos desde ICARUS con tus credenciales de acceso
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Status */}
-        <div className="flex items-center gap-4 flex-wrap">
-          {getStatusBadge()}
-          
-          {integration?.username && (
-            <span className="text-sm text-muted-foreground">
-              Usuario: {integration.username}
-            </span>
-          )}
-          
-          {integration?.last_sync_at && (
-            <span className="text-sm text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              Última sync: {formatDistanceToNow(new Date(integration.last_sync_at), { 
-                addSuffix: true, 
-                locale: es 
-              })}
-            </span>
-          )}
-
-          <Link 
-            to="/process-status/test-icarus" 
-            className="text-sm text-primary hover:underline flex items-center gap-1"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Test Harness
-          </Link>
-        </div>
-
-        {/* Error Display with Details */}
-        {(integration?.last_error || lastError) && (
-          <Collapsible open={showErrorDetails} onOpenChange={setShowErrorDetails}>
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle className="flex items-center gap-2">
-                Error
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-6 px-2">
-                    <ChevronDown className={`h-3 w-3 transition-transform ${showErrorDetails ? 'rotate-180' : ''}`} />
-                    Detalles
-                  </Button>
-                </CollapsibleTrigger>
-              </AlertTitle>
-              <AlertDescription>
-                {lastError?.message || integration?.last_error}
-              </AlertDescription>
-              <CollapsibleContent className="mt-2">
-                <div className="bg-background/50 rounded p-2 text-xs font-mono space-y-1">
-                  {lastError?.functionName && <div><strong>Function:</strong> {lastError.functionName}</div>}
-                  {lastError?.code && <div><strong>Código:</strong> {lastError.code}</div>}
-                  {lastError?.status && <div><strong>HTTP Status:</strong> {lastError.status}</div>}
-                  {lastError?.timestamp && <div><strong>Timestamp:</strong> {lastError.timestamp}</div>}
-                  {lastError?.body && (
-                    <div>
-                      <strong>Response Body:</strong>
-                      <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] max-h-32 overflow-auto">
-                        {lastError.body}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              </CollapsibleContent>
-            </Alert>
-          </Collapsible>
-        )}
-
-        {/* Last Sync Run Info */}
-        {lastSyncRun && (
-          <div className="p-3 bg-muted rounded-lg text-sm">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span>
-                Último resultado: <strong>{lastSyncRun.classification || lastSyncRun.status}</strong>
-                {lastSyncRun.processes_found !== null && ` — ${lastSyncRun.processes_found} procesos`}
-                {lastSyncRun.events_created !== null && `, ${lastSyncRun.events_created} eventos nuevos`}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {isConnected ? (
+              <Cloud className="h-5 w-5 text-green-500" />
+            ) : (
+              <CloudOff className="h-5 w-5 text-muted-foreground" />
+            )}
+            Integración ICARUS
+          </CardTitle>
+          <CardDescription>
+            Sincroniza tus procesos desde ICARUS con tus credenciales de acceso
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Status */}
+          <div className="flex items-center gap-4 flex-wrap">
+            {getStatusBadge()}
+            
+            {integration?.username && (
+              <span className="text-sm text-muted-foreground">
+                Usuario: {integration.username}
               </span>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => window.open(`/process-status/test-icarus?run=${lastSyncRun.id}`, '_blank')}
-              >
-                <ExternalLink className="h-3 w-3 mr-1" />
-                Diagnóstico
-              </Button>
-            </div>
+            )}
+            
+            {integration?.last_sync_at && (
+              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Última sync: {formatDistanceToNow(new Date(integration.last_sync_at), { 
+                  addSuffix: true, 
+                  locale: es 
+                })}
+              </span>
+            )}
+
+            <Link 
+              to="/process-status/test-icarus" 
+              className="text-sm text-primary hover:underline flex items-center gap-1"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Test Harness
+            </Link>
           </div>
-        )}
 
-        {/* Login Form - show if not connected or needs reauth */}
-        {(!isConnected || needsReauth || !hasCredentials) && (
-          <div className="space-y-4 border rounded-lg p-4">
-            <div className="space-y-2">
-              <Label htmlFor="icarus-username">Usuario ICARUS (email)</Label>
-              <Input
-                id="icarus-username"
-                type="email"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="usuario@ejemplo.com"
-                autoComplete="username"
-              />
-            </div>
+          {/* Error Display with Details */}
+          {(integration?.last_error || lastError) && (
+            <Collapsible open={showErrorDetails} onOpenChange={setShowErrorDetails}>
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle className="flex items-center gap-2">
+                  Error
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-6 px-2">
+                      <ChevronDown className={`h-3 w-3 transition-transform ${showErrorDetails ? 'rotate-180' : ''}`} />
+                      Detalles
+                    </Button>
+                  </CollapsibleTrigger>
+                </AlertTitle>
+                <AlertDescription>
+                  {lastError?.message || integration?.last_error}
+                </AlertDescription>
+                <CollapsibleContent className="mt-2">
+                  <div className="bg-background/50 rounded p-2 text-xs font-mono space-y-1">
+                    {lastError?.functionName && <div><strong>Function:</strong> {lastError.functionName}</div>}
+                    {lastError?.code && <div><strong>Código:</strong> {lastError.code}</div>}
+                    {lastError?.status && <div><strong>HTTP Status:</strong> {lastError.status}</div>}
+                    {lastError?.timestamp && <div><strong>Timestamp:</strong> {lastError.timestamp}</div>}
+                    {lastError?.body && (
+                      <div>
+                        <strong>Response Body:</strong>
+                        <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] max-h-32 overflow-auto">
+                          {lastError.body}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Alert>
+            </Collapsible>
+          )}
 
-            <div className="space-y-2">
-              <Label htmlFor="icarus-password">Contraseña</Label>
-              <div className="relative">
-                <Input
-                  id="icarus-password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="pr-10"
-                  autoComplete="current-password"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full"
-                  onClick={() => setShowPassword(!showPassword)}
+          {/* Last Sync Run Info */}
+          {lastSyncRun && (
+            <div className="p-3 bg-muted rounded-lg text-sm">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span>
+                  Último resultado: <strong>{lastSyncRun.classification || lastSyncRun.status}</strong>
+                  {lastSyncRun.processes_found !== null && ` — ${lastSyncRun.processes_found} procesos`}
+                  {lastSyncRun.events_created !== null && `, ${lastSyncRun.events_created} eventos nuevos`}
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => window.open(`/process-status/test-icarus?run=${lastSyncRun.id}`, '_blank')}
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  Diagnóstico
                 </Button>
               </div>
             </div>
+          )}
 
-            <div className="flex gap-2">
-              <Button
-                onClick={() => saveAndTest.mutate({ username, password })}
-                disabled={!username || !password || isPending}
-                className="flex-1"
-              >
-                {saveAndTest.isPending ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
-                )}
-                Guardar y Probar
-              </Button>
-              
-              <Button
-                variant="outline"
-                onClick={() => saveCredentials.mutate({ username, password })}
-                disabled={!username || !password || isPending}
-              >
-                {saveCredentials.isPending ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 mr-2" />
-                )}
-                Solo Guardar
-              </Button>
+          {/* Login Form - show if not connected or needs reauth */}
+          {(!isConnected || needsReauth || !hasCredentials) && (
+            <div className="space-y-4 border rounded-lg p-4">
+              <div className="space-y-2">
+                <Label htmlFor="icarus-username">Usuario ICARUS (email)</Label>
+                <Input
+                  id="icarus-username"
+                  type="email"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="usuario@ejemplo.com"
+                  autoComplete="username"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="icarus-password">Contraseña</Label>
+                <div className="relative">
+                  <Input
+                    id="icarus-password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="pr-10"
+                    autoComplete="current-password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => saveAndTest.mutate({ username, password })}
+                  disabled={!username || !password || isPending}
+                  className="flex-1"
+                >
+                  {saveAndTest.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Guardar y Probar
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  onClick={() => saveCredentials.mutate({ username, password })}
+                  disabled={!username || !password || isPending}
+                >
+                  {saveCredentials.isPending ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Solo Guardar
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Tus credenciales se almacenan encriptadas y solo se usan para sincronizar tus procesos.
+              </p>
             </div>
+          )}
 
-            <p className="text-xs text-muted-foreground">
-              Tus credenciales se almacenan encriptadas y solo se usan para sincronizar tus procesos.
-            </p>
-          </div>
-        )}
-
-        {/* Test Login Button - show if credentials exist but not connected */}
-        {hasCredentials && !isConnected && (
-          <Button
-            variant="outline"
-            onClick={() => testLogin.mutate()}
-            disabled={isPending}
-          >
-            {testLogin.isPending ? (
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <LogIn className="h-4 w-4 mr-2" />
-            )}
-            Probar Login
-          </Button>
-        )}
-
-        {/* Connected Actions */}
-        {isConnected && (
-          <div className="flex gap-2 flex-wrap">
-            <Button
-              onClick={() => syncNow.mutate()}
-              disabled={isPending}
-            >
-              {syncNow.isPending ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Sincronizar Ahora
-            </Button>
+          {/* Test Login Button - show if credentials exist but not connected */}
+          {hasCredentials && !isConnected && (
             <Button
               variant="outline"
               onClick={() => testLogin.mutate()}
@@ -586,28 +559,56 @@ export function IcarusIntegration() {
               )}
               Probar Login
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => disconnect.mutate()}
-              disabled={isPending}
-            >
-              <Unlink className="h-4 w-4 mr-2" />
-              Desconectar
-            </Button>
-          </div>
-        )}
+          )}
 
-        <p className="text-xs text-muted-foreground">
-          La sincronización automática se ejecuta diariamente a las 7:00 AM (hora Colombia).
-        </p>
-      </CardContent>
-    </Card>
+          {/* Connected Actions */}
+          {isConnected && (
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={() => syncNow.mutate()}
+                disabled={isPending}
+              >
+                {syncNow.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Sincronizar Ahora
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => testLogin.mutate()}
+                disabled={isPending}
+              >
+                {testLogin.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <LogIn className="h-4 w-4 mr-2" />
+                )}
+                Probar Login
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => disconnect.mutate()}
+                disabled={isPending}
+              >
+                <Unlink className="h-4 w-4 mr-2" />
+                Desconectar
+              </Button>
+            </div>
+          )}
 
-    {/* Excel Import Section */}
-    <IcarusExcelImport />
-    
-    {/* Import History */}
-    <IcarusImportHistory />
+          <p className="text-xs text-muted-foreground">
+            La sincronización automática se ejecuta diariamente a las 7:00 AM (hora Colombia).
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Excel Import Section */}
+      <IcarusExcelImport />
+      
+      {/* Import History */}
+      <IcarusImportHistory />
     </>
   );
 }
