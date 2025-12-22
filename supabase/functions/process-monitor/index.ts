@@ -60,9 +60,12 @@ Deno.serve(async (req) => {
         });
         
         const cpnuData = await cpnuResponse.json();
-        if (cpnuData.success) {
+        // Handle new response format with ok/run_id
+        if (cpnuData.ok !== false && cpnuData.success !== false) {
           results.CPNU = cpnuData;
         } else {
+          // Include the full response so UI can access run_id for diagnostics
+          results.CPNU = cpnuData;
           errors.CPNU = cpnuData.error || 'Unknown error';
         }
       } catch (e) {

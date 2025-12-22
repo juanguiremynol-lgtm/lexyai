@@ -13,6 +13,8 @@ import Filings from "./pages/Filings";
 import FilingDetail from "./pages/FilingDetail";
 import ProcessStatus from "./pages/ProcessStatus";
 import ProcessStatusDetail from "./pages/ProcessStatusDetail";
+import ProcessStatusTest from "./pages/ProcessStatusTest";
+import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
 import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
@@ -60,6 +62,8 @@ const App = () => (
             <Route path="/filings" element={<Filings />} />
             <Route path="/filings/:id" element={<FilingDetail />} />
             <Route path="/process-status" element={<ProcessStatus />} />
+            <Route path="/process-status/test" element={<ProcessStatusTest />} />
+            <Route path="/process-status/diagnostics/:runId" element={<CrawlerDiagnostics />} />
             <Route path="/process-status/:id" element={<ProcessStatusDetail />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/alerts" element={<Alerts />} />
