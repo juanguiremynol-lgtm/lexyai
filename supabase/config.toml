@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.icarus-sync]
 verify_jwt = false
+
+[functions.icarus-auth]
+verify_jwt = false

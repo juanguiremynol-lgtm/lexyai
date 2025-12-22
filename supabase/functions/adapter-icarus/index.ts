@@ -18,15 +18,19 @@ interface AttemptLog {
   success: boolean;
 }
 
+interface CookieJar {
+  cookies: { name: string; value: string; domain: string; path: string }[];
+  viewState?: string;
+}
+
 interface IcarusProcess {
   icarus_id?: string;
   radicado: string;
-  despacho: string;
+  despacho?: string;
   demandante?: string;
   demandado?: string;
   tipo_proceso?: string;
-  ciudad?: string;
-  last_update_at?: string;
+  detail_url?: string;
 }
 
 interface IcarusEvent {
@@ -37,37 +41,57 @@ interface IcarusEvent {
   fecha_final?: string;
 }
 
-// ============= ENCRYPTION =============
-// Simple XOR encryption for cookie storage (in production, use proper encryption)
+type Classification = 
+  | 'SUCCESS'
+  | 'PARTIAL'
+  | 'AUTH_FAILED'
+  | 'NEEDS_REAUTH'
+  | 'CAPTCHA_REQUIRED'
+  | 'RATE_LIMITED'
+  | 'BLOCKED'
+  | 'PARSE_BROKE'
+  | 'JSF_AJAX_NOT_REPLAYED'
+  | 'ENDPOINT_CHANGED'
+  | 'NETWORK_ERROR'
+  | 'UNKNOWN';
 
-const ENCRYPTION_KEY = Deno.env.get('ICARUS_ENCRYPTION_KEY') || 'default-key-change-me-in-production';
+// ============= AES-256-GCM ENCRYPTION =============
 
-function encrypt(text: string): string {
-  let result = '';
-  for (let i = 0; i < text.length; i++) {
-    const charCode = text.charCodeAt(i) ^ ENCRYPTION_KEY.charCodeAt(i % ENCRYPTION_KEY.length);
-    result += String.fromCharCode(charCode);
+const ENCRYPTION_KEY_B64 = Deno.env.get('ICARUS_ENCRYPTION_KEY') || '';
+
+async function getEncryptionKey(): Promise<CryptoKey> {
+  if (!ENCRYPTION_KEY_B64) {
+    throw new Error('ICARUS_ENCRYPTION_KEY not configured');
   }
-  return btoa(result);
+  const keyBytes = Uint8Array.from(atob(ENCRYPTION_KEY_B64), c => c.charCodeAt(0));
+  if (keyBytes.length !== 32) {
+    throw new Error('ICARUS_ENCRYPTION_KEY must be 32 bytes (base64 encoded)');
+  }
+  return await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
-function decrypt(encrypted: string): string {
+async function decryptSecret(encrypted: string): Promise<string> {
   try {
-    const decoded = atob(encrypted);
-    let result = '';
-    for (let i = 0; i < decoded.length; i++) {
-      const charCode = decoded.charCodeAt(i) ^ ENCRYPTION_KEY.charCodeAt(i % ENCRYPTION_KEY.length);
-      result += String.fromCharCode(charCode);
-    }
-    return result;
-  } catch {
+    const key = await getEncryptionKey();
+    const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch (err) {
+    console.error('[DECRYPT] Error:', err);
     return '';
   }
-}
-
-function getLast4(text: string): string {
-  if (!text || text.length < 4) return '****';
-  return text.slice(-4);
 }
 
 // ============= UTILITIES =============
@@ -75,6 +99,24 @@ function getLast4(text: string): string {
 function truncate(str: string, maxLen: number): string {
   if (!str) return '';
   return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+}
+
+function cookieJarToHeader(cookieJar: CookieJar): string {
+  return cookieJar.cookies.map(c => `${c.name}=${c.value}`).join('; ');
+}
+
+function extractViewState(html: string): string | null {
+  const patterns = [
+    /name="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
+    /id="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
+    /<input[^>]*name="javax\.faces\.ViewState"[^>]*value="([^"]+)"/i,
+    /name="javax\.faces\.ViewState"[^>]*value='([^']+)'/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
 }
 
 function computeFingerprint(
@@ -97,11 +139,9 @@ function computeFingerprint(
 
 function parseIcarusDate(dateStr: string): string | null {
   if (!dateStr) return null;
-  // Try ISO format
   if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
     try { return new Date(dateStr).toISOString(); } catch { return null; }
   }
-  // DD/MM/YYYY or DD-MM-YYYY
   const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
   if (!match) return null;
   let [, day, month, year] = match;
@@ -114,191 +154,425 @@ function parseIcarusDate(dateStr: string): string | null {
   } catch { return null; }
 }
 
-// ============= ICARUS SCRAPING =============
+const ICARUS_BASE_URL = 'https://icarus.com.co';
+const PROCESS_LIST_URL = `${ICARUS_BASE_URL}/main/process/list.xhtml`;
 
-const ICARUS_BASE_URL = 'https://www.icarus.com.co'; // TODO: Discover actual ICARUS URLs
+// ============= JSF/PRIMEFACES DATATABLE HANDLING =============
 
-async function scrapeWithCookie(
-  url: string,
-  cookie: string,
-  attempts: AttemptLog[],
-  phase: string
-): Promise<{ success: boolean; html?: string; markdown?: string; error?: string }> {
-  const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
-  if (!apiKey) {
-    return { success: false, error: 'FIRECRAWL_API_KEY not configured' };
+interface DataTableInfo {
+  tableId: string;
+  paginatorId?: string;
+  first: number;
+  rows: number;
+  totalRecords: number;
+}
+
+function extractDataTableInfo(html: string): DataTableInfo | null {
+  // Look for PrimeFaces DataTable patterns
+  const tableIdMatch = html.match(/id="([^"]*:?processTable[^"]*)"/) || 
+                       html.match(/id="([^"]*:?dataTable[^"]*)"/) ||
+                       html.match(/id="([^"]*:?listTable[^"]*)"/) ||
+                       html.match(/class="[^"]*ui-datatable[^"]*"[^>]*id="([^"]+)"/);
+  
+  if (!tableIdMatch) return null;
+  
+  const tableId = tableIdMatch[1];
+  
+  // Look for paginator info "1-10 de 25"
+  const paginatorMatch = html.match(/(\d+)\s*-\s*(\d+)\s+de\s+(\d+)/);
+  let first = 0;
+  let rows = 10;
+  let totalRecords = 0;
+  
+  if (paginatorMatch) {
+    first = parseInt(paginatorMatch[1]) - 1;
+    rows = parseInt(paginatorMatch[2]) - first;
+    totalRecords = parseInt(paginatorMatch[3]);
   }
+  
+  // Look for paginator component ID
+  const paginatorIdMatch = html.match(/id="([^"]*paginator[^"]*)"/i);
+  
+  return {
+    tableId,
+    paginatorId: paginatorIdMatch?.[1],
+    first,
+    rows,
+    totalRecords,
+  };
+}
 
-  const startMs = Date.now();
+function parseProcessesFromHtml(html: string): IcarusProcess[] {
+  const processes: IcarusProcess[] = [];
+  
+  // Pattern 1: Look for radicado patterns in table rows
+  const radicadoPattern = /(\d{2}-\d{3}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5})/g;
+  const foundRadicados = new Set<string>();
+  
+  let match;
+  while ((match = radicadoPattern.exec(html)) !== null) {
+    foundRadicados.add(match[1]);
+  }
+  
+  // Pattern 2: Look for table rows with process data
+  const rowPattern = /<tr[^>]*class="[^"]*ui-widget-content[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
+  const rows: string[] = [];
+  while ((match = rowPattern.exec(html)) !== null) {
+    rows.push(match[1]);
+  }
+  
+  // Pattern 3: Try to extract from each row
+  for (const row of rows) {
+    const radicadoMatch = row.match(/(\d{2}-\d{3}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5})/);
+    if (radicadoMatch) {
+      const radicado = radicadoMatch[1];
+      
+      // Try to extract detail link
+      const linkMatch = row.match(/href="([^"]*(?:detail|detalle)[^"]*)"/i) ||
+                       row.match(/onclick="[^"]*window\.location\s*=\s*'([^']+)'/i);
+      
+      // Try to extract despacho
+      const despachoMatch = row.match(/(?:juzgado|tribunal|corte)[^<]*/i);
+      
+      processes.push({
+        radicado,
+        detail_url: linkMatch?.[1],
+        despacho: despachoMatch?.[0]?.trim(),
+      });
+    }
+  }
+  
+  // If no rows found but we have radicados, add them
+  if (processes.length === 0) {
+    for (const radicado of foundRadicados) {
+      processes.push({ radicado });
+    }
+  }
+  
+  return processes;
+}
+
+async function fetchWithJsfAjax(
+  cookieJar: CookieJar,
+  tableInfo: DataTableInfo,
+  pageNumber: number,
+  attempts: AttemptLog[]
+): Promise<{ ok: boolean; html?: string; error?: string; classification?: Classification }> {
   const attempt: AttemptLog = {
-    phase,
-    url,
-    method: 'SCRAPE_WITH_COOKIE',
+    phase: `JSF_AJAX_PAGE_${pageNumber}`,
+    url: PROCESS_LIST_URL,
+    method: 'POST',
     status: null,
     latency_ms: 0,
     success: false,
   };
-
+  
+  const startMs = Date.now();
+  
   try {
-    console.log(`[${phase}] Scraping with cookie: ${url}`);
-
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    const formData = new URLSearchParams();
+    formData.append('javax.faces.partial.ajax', 'true');
+    formData.append('javax.faces.source', tableInfo.tableId);
+    formData.append('javax.faces.partial.execute', tableInfo.tableId);
+    formData.append('javax.faces.partial.render', tableInfo.tableId);
+    formData.append(`${tableInfo.tableId}_pagination`, 'true');
+    formData.append(`${tableInfo.tableId}_first`, String(pageNumber * tableInfo.rows));
+    formData.append(`${tableInfo.tableId}_rows`, String(tableInfo.rows));
+    
+    if (cookieJar.viewState) {
+      formData.append('javax.faces.ViewState', cookieJar.viewState);
+    }
+    
+    // Add form ID (usually the parent form)
+    const formId = tableInfo.tableId.split(':')[0] || 'form';
+    formData.append(formId, formId);
+    
+    const response = await fetch(PROCESS_LIST_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': cookieJarToHeader(cookieJar),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Faces-Request': 'partial/ajax',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/xml, text/xml, */*; q=0.01',
+        'Referer': PROCESS_LIST_URL,
       },
-      body: JSON.stringify({
-        url,
-        formats: ['markdown', 'html'],
-        headers: {
-          'Cookie': cookie,
-        },
-        waitFor: 3000,
-        onlyMainContent: false,
-      }),
+      body: formData.toString(),
     });
-
+    
     attempt.status = response.status;
     attempt.latency_ms = Date.now() - startMs;
-
+    
     if (!response.ok) {
-      const errorText = await response.text();
       attempt.error_type = 'HTTP_ERROR';
-      attempt.response_snippet = truncate(errorText, 500);
       attempts.push(attempt);
-      return { success: false, error: `HTTP ${response.status}` };
+      return { ok: false, error: `HTTP ${response.status}`, classification: 'NETWORK_ERROR' };
     }
-
-    const data = await response.json();
-    const markdown = data.data?.markdown || data.markdown || '';
-    const html = data.data?.html || data.html || '';
-
+    
+    const xml = await response.text();
+    attempt.response_snippet = truncate(xml, 500);
+    
+    // Parse partial-response XML
+    // Extract content from <update> blocks
+    const updateMatch = xml.match(/<update[^>]*id="[^"]*"[^>]*><!\[CDATA\[([\s\S]*?)\]\]><\/update>/);
+    const html = updateMatch?.[1] || xml;
+    
+    // Update ViewState if present in response
+    const newViewState = extractViewState(xml);
+    if (newViewState) {
+      cookieJar.viewState = newViewState;
+    }
+    
     attempt.success = true;
-    attempt.response_snippet = truncate(markdown, 500);
     attempts.push(attempt);
-
-    return { success: true, html, markdown };
+    
+    return { ok: true, html };
+    
   } catch (err) {
     attempt.latency_ms = Date.now() - startMs;
     attempt.error_type = 'NETWORK_ERROR';
     attempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
     attempts.push(attempt);
-    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error', classification: 'NETWORK_ERROR' };
   }
 }
 
-async function testIcarusConnection(
-  cookie: string,
+async function listProcesses(
+  cookieJar: CookieJar,
   attempts: AttemptLog[]
-): Promise<{ ok: boolean; error?: string }> {
-  // For ICARUS, we need to discover the actual login check endpoint
-  // This is a placeholder - needs actual ICARUS URL discovery
+): Promise<{ ok: boolean; processes: IcarusProcess[]; classification: Classification; evidenceSnapshot?: string }> {
   
-  // Try to access the main process list page
-  const testUrl = `${ICARUS_BASE_URL}/procesos`;
-  const result = await scrapeWithCookie(testUrl, cookie, attempts, 'TEST_CONNECTION');
+  // Step 1: Fetch initial list page
+  const attempt: AttemptLog = {
+    phase: 'LIST_INITIAL',
+    url: PROCESS_LIST_URL,
+    method: 'GET',
+    status: null,
+    latency_ms: 0,
+    success: false,
+  };
   
-  if (!result.success) {
-    return { ok: false, error: result.error || 'Failed to connect' };
-  }
-
-  // Check if we got a login page (session expired) or actual content
-  const markdown = result.markdown || '';
-  if (markdown.includes('login') || markdown.includes('iniciar sesión') || markdown.includes('usuario')) {
-    // Might be login page - check more carefully
-    if (!markdown.includes('proceso') && !markdown.includes('radicado')) {
-      return { ok: false, error: 'Cookie expired or invalid - got login page' };
-    }
-  }
-
-  return { ok: true };
-}
-
-async function listIcarusProcesses(
-  cookie: string,
-  attempts: AttemptLog[]
-): Promise<{ ok: boolean; processes: IcarusProcess[]; error?: string }> {
-  // Scrape the process list page
-  const listUrl = `${ICARUS_BASE_URL}/procesos/lista`;
-  const result = await scrapeWithCookie(listUrl, cookie, attempts, 'LIST_PROCESSES');
+  const startMs = Date.now();
   
-  if (!result.success) {
-    return { ok: false, processes: [], error: result.error };
-  }
-
-  // Parse the HTML/markdown to extract processes
-  // This is a placeholder - needs actual ICARUS HTML structure
-  const processes: IcarusProcess[] = [];
-  
-  // Try to parse from markdown table or HTML structure
-  const markdown = result.markdown || '';
-  const lines = markdown.split('\n');
-  
-  // Look for table rows with radicado patterns
-  const radicadoPattern = /(\d{2}-\d{3}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5})/g;
-  let currentProcess: Partial<IcarusProcess> = {};
-  
-  for (const line of lines) {
-    const radicadoMatch = line.match(radicadoPattern);
-    if (radicadoMatch) {
-      if (currentProcess.radicado) {
-        processes.push(currentProcess as IcarusProcess);
+  try {
+    const response = await fetch(PROCESS_LIST_URL, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': cookieJarToHeader(cookieJar),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      redirect: 'manual',
+    });
+    
+    attempt.status = response.status;
+    attempt.latency_ms = Date.now() - startMs;
+    
+    // Check for redirect to login
+    if (response.status === 302 || response.status === 303) {
+      const location = response.headers.get('location');
+      if (location?.includes('login')) {
+        attempt.error_type = 'AUTH_FAILED';
+        attempt.response_snippet = `Redirected to: ${location}`;
+        attempts.push(attempt);
+        return { ok: false, processes: [], classification: 'NEEDS_REAUTH' };
       }
-      currentProcess = {
-        radicado: radicadoMatch[0],
-        despacho: '',
-      };
     }
-    // Try to extract despacho/court name from context
-    if (currentProcess.radicado && line.toLowerCase().includes('juzgado')) {
-      currentProcess.despacho = line.trim();
+    
+    const html = await response.text();
+    attempt.response_snippet = truncate(html, 500);
+    
+    // Check if we're on login page
+    if (html.toLowerCase().includes('login') && !html.toLowerCase().includes('salir')) {
+      attempt.error_type = 'AUTH_FAILED';
+      attempts.push(attempt);
+      return { ok: false, processes: [], classification: 'NEEDS_REAUTH' };
     }
+    
+    attempt.success = true;
+    attempts.push(attempt);
+    
+    // Extract ViewState for future requests
+    const viewState = extractViewState(html);
+    if (viewState) {
+      cookieJar.viewState = viewState;
+    }
+    
+    // Extract DataTable info
+    const tableInfo = extractDataTableInfo(html);
+    console.log('[LIST] DataTable info:', tableInfo);
+    
+    // Parse processes from initial page
+    let allProcesses = parseProcessesFromHtml(html);
+    console.log(`[LIST] Found ${allProcesses.length} processes on initial page`);
+    
+    // DIAGNOSTIC RULE: If authenticated but 0 processes and total > 0, this is PARSE_BROKE
+    if (tableInfo && tableInfo.totalRecords > 0 && allProcesses.length === 0) {
+      console.log('[LIST] Authenticated but found 0 processes when expecting', tableInfo.totalRecords);
+      
+      // Try JSF AJAX pagination
+      if (tableInfo.tableId && viewState) {
+        console.log('[LIST] Attempting JSF AJAX to hydrate table...');
+        const ajaxResult = await fetchWithJsfAjax(cookieJar, tableInfo, 0, attempts);
+        
+        if (ajaxResult.ok && ajaxResult.html) {
+          const ajaxProcesses = parseProcessesFromHtml(ajaxResult.html);
+          if (ajaxProcesses.length > 0) {
+            allProcesses = ajaxProcesses;
+            console.log(`[LIST] JSF AJAX returned ${ajaxProcesses.length} processes`);
+          }
+        }
+      }
+      
+      // Still 0? Return PARSE_BROKE with evidence
+      if (allProcesses.length === 0) {
+        return {
+          ok: false,
+          processes: [],
+          classification: 'JSF_AJAX_NOT_REPLAYED',
+          evidenceSnapshot: html.substring(0, 5000),
+        };
+      }
+    }
+    
+    // If we have processes and there are more pages, fetch them
+    if (tableInfo && tableInfo.totalRecords > allProcesses.length && viewState) {
+      const totalPages = Math.ceil(tableInfo.totalRecords / tableInfo.rows);
+      console.log(`[LIST] Total pages: ${totalPages}, fetching remaining...`);
+      
+      for (let page = 1; page < totalPages && page < 10; page++) { // Cap at 10 pages for safety
+        const pageResult = await fetchWithJsfAjax(cookieJar, tableInfo, page, attempts);
+        if (pageResult.ok && pageResult.html) {
+          const pageProcesses = parseProcessesFromHtml(pageResult.html);
+          allProcesses.push(...pageProcesses);
+          console.log(`[LIST] Page ${page + 1}: found ${pageProcesses.length} more processes`);
+        }
+        
+        // Small delay between requests
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
+    
+    // Deduplicate by radicado
+    const uniqueProcesses = new Map<string, IcarusProcess>();
+    for (const process of allProcesses) {
+      if (!uniqueProcesses.has(process.radicado)) {
+        uniqueProcesses.set(process.radicado, process);
+      }
+    }
+    
+    const finalProcesses = Array.from(uniqueProcesses.values());
+    console.log(`[LIST] Final unique processes: ${finalProcesses.length}`);
+    
+    return {
+      ok: true,
+      processes: finalProcesses,
+      classification: 'SUCCESS',
+    };
+    
+  } catch (err) {
+    attempt.latency_ms = Date.now() - startMs;
+    attempt.error_type = 'NETWORK_ERROR';
+    attempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
+    attempts.push(attempt);
+    return { ok: false, processes: [], classification: 'NETWORK_ERROR' };
   }
-  
-  if (currentProcess.radicado) {
-    processes.push(currentProcess as IcarusProcess);
-  }
-
-  console.log(`[LIST_PROCESSES] Found ${processes.length} processes`);
-  return { ok: true, processes };
 }
 
-async function fetchIcarusProcessDetail(
-  cookie: string,
+async function fetchProcessDetail(
+  cookieJar: CookieJar,
   process: IcarusProcess,
   attempts: AttemptLog[]
 ): Promise<{ ok: boolean; events: IcarusEvent[]; error?: string }> {
-  // Fetch detail page for specific process
-  const detailUrl = `${ICARUS_BASE_URL}/procesos/detalle/${encodeURIComponent(process.radicado)}`;
-  const result = await scrapeWithCookie(detailUrl, cookie, attempts, 'FETCH_DETAIL');
   
-  if (!result.success) {
-    return { ok: false, events: [], error: result.error };
-  }
-
-  // Parse events from the detail page
-  // This is a placeholder - needs actual ICARUS HTML structure
-  const events: IcarusEvent[] = [];
+  const detailUrl = process.detail_url 
+    ? (process.detail_url.startsWith('http') ? process.detail_url : `${ICARUS_BASE_URL}${process.detail_url}`)
+    : `${ICARUS_BASE_URL}/main/process/detail.xhtml?radicado=${encodeURIComponent(process.radicado)}`;
   
-  const markdown = result.markdown || '';
-  const lines = markdown.split('\n');
+  const attempt: AttemptLog = {
+    phase: `DETAIL_${process.radicado.substring(0, 20)}`,
+    url: detailUrl,
+    method: 'GET',
+    status: null,
+    latency_ms: 0,
+    success: false,
+  };
   
-  // Look for date patterns followed by descriptions
-  const datePattern = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/;
+  const startMs = Date.now();
   
-  for (const line of lines) {
-    const dateMatch = line.match(datePattern);
-    if (dateMatch && line.length > 20) {
-      events.push({
-        fecha: dateMatch[0],
-        actuacion: line.replace(dateMatch[0], '').trim(),
-      });
+  try {
+    const response = await fetch(detailUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': cookieJarToHeader(cookieJar),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    
+    attempt.status = response.status;
+    attempt.latency_ms = Date.now() - startMs;
+    
+    if (!response.ok) {
+      attempt.error_type = 'HTTP_ERROR';
+      attempts.push(attempt);
+      return { ok: false, events: [], error: `HTTP ${response.status}` };
     }
+    
+    const html = await response.text();
+    attempt.response_snippet = truncate(html, 500);
+    attempt.success = true;
+    attempts.push(attempt);
+    
+    // Parse events from detail page
+    const events: IcarusEvent[] = [];
+    
+    // Pattern 1: Table rows with date and description
+    const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+    let match;
+    while ((match = rowPattern.exec(html)) !== null) {
+      const rowHtml = match[1];
+      const dateMatch = rowHtml.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
+      if (dateMatch) {
+        // Extract text from cells
+        const cellPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        const cells: string[] = [];
+        let cellMatch;
+        while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
+          const cellText = cellMatch[1].replace(/<[^>]+>/g, '').trim();
+          if (cellText) cells.push(cellText);
+        }
+        
+        if (cells.length >= 2) {
+          events.push({
+            fecha: dateMatch[1],
+            actuacion: cells.slice(1).join(' - '),
+          });
+        }
+      }
+    }
+    
+    // Pattern 2: Look for actuaciones in text format
+    if (events.length === 0) {
+      const datePattern = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*[-:]\s*([^\n<]+)/g;
+      while ((match = datePattern.exec(html)) !== null) {
+        events.push({
+          fecha: match[1],
+          actuacion: match[2].trim(),
+        });
+      }
+    }
+    
+    return { ok: true, events };
+    
+  } catch (err) {
+    attempt.latency_ms = Date.now() - startMs;
+    attempt.error_type = 'NETWORK_ERROR';
+    attempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
+    attempts.push(attempt);
+    return { ok: false, events: [], error: err instanceof Error ? err.message : 'Unknown error' };
   }
-
-  console.log(`[FETCH_DETAIL] Found ${events.length} events for ${process.radicado}`);
-  return { ok: true, events };
 }
 
 // ============= MAIN HANDLER =============
@@ -308,12 +582,15 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const { action, cookie } = await req.json();
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const attempts: AttemptLog[] = [];
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const { action = 'list' } = body;
 
     // Get user from auth header
     const authHeader = req.headers.get('Authorization');
@@ -334,104 +611,215 @@ Deno.serve(async (req) => {
       );
     }
 
-    const attempts: AttemptLog[] = [];
+    // Load integration
+    const { data: integration, error: integrationError } = await supabase
+      .from('integrations')
+      .select('*')
+      .eq('owner_id', userId)
+      .eq('provider', 'ICARUS')
+      .single();
 
-    // ============= ACTION: TEST =============
-    if (action === 'test') {
-      if (!cookie) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Cookie is required' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const result = await testIcarusConnection(cookie, attempts);
-      
+    if (integrationError || !integration) {
       return new Response(
-        JSON.stringify({ ...result, attempts }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ ok: false, error: 'ICARUS not connected', classification: 'AUTH_FAILED' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // ============= ACTION: SAVE =============
-    if (action === 'save') {
-      if (!cookie) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Cookie is required' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // First test the connection
-      const testResult = await testIcarusConnection(cookie, attempts);
-      if (!testResult.ok) {
-        return new Response(
-          JSON.stringify({ ok: false, error: testResult.error || 'Connection test failed', attempts }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Encrypt and save
-      const encryptedCookie = encrypt(cookie);
-      const last4 = getLast4(cookie);
-
-      const { error: upsertError } = await supabase
-        .from('integrations')
-        .upsert({
-          owner_id: userId,
-          provider: 'ICARUS',
-          status: 'CONNECTED',
-          secret_encrypted: encryptedCookie,
-          secret_last4: last4,
-          last_error: null,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'owner_id,provider',
-        });
-
-      if (upsertError) {
-        console.error('Failed to save integration:', upsertError);
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Failed to save integration' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
+    if (!integration.session_encrypted) {
       return new Response(
-        JSON.stringify({ ok: true, message: 'Integration saved successfully' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ ok: false, error: 'No session available - login required', classification: 'NEEDS_REAUTH' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // ============= ACTION: LIST_PROCESSES =============
+    // Decrypt session
+    const sessionJson = await decryptSecret(integration.session_encrypted);
+    if (!sessionJson) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Failed to decrypt session', classification: 'AUTH_FAILED' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    let cookieJar: CookieJar;
+    try {
+      cookieJar = JSON.parse(sessionJson);
+    } catch {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Invalid session data', classification: 'AUTH_FAILED' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ============= ACTION: LIST =============
     if (action === 'list') {
-      // Get stored cookie
-      const { data: integration } = await supabase
-        .from('integrations')
-        .select('*')
-        .eq('owner_id', userId)
-        .eq('provider', 'ICARUS')
-        .single();
+      const result = await listProcesses(cookieJar, attempts);
+      
+      // Update session if ViewState changed
+      if (cookieJar.viewState) {
+        const encryptedSession = await encryptSession(cookieJar);
+        if (encryptedSession) {
+          await supabase.from('integrations').update({
+            session_encrypted: encryptedSession,
+            session_last_ok_at: result.ok ? new Date().toISOString() : undefined,
+          }).eq('id', integration.id);
+        }
+      }
 
-      if (!integration || integration.status !== 'CONNECTED') {
+      if (!result.ok) {
+        // Update integration status if auth failed
+        if (result.classification === 'NEEDS_REAUTH') {
+          await supabase.from('integrations').update({
+            status: 'NEEDS_REAUTH',
+            last_error: 'Session expired',
+          }).eq('id', integration.id);
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: result.ok,
+          processes: result.processes,
+          classification: result.classification,
+          evidenceSnapshot: result.evidenceSnapshot?.substring(0, 2000),
+          attempts,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ============= ACTION: SYNC (full sync with events) =============
+    if (action === 'sync') {
+      const listResult = await listProcesses(cookieJar, attempts);
+      
+      if (!listResult.ok) {
         return new Response(
-          JSON.stringify({ ok: false, error: 'ICARUS not connected' }),
+          JSON.stringify({
+            ok: false,
+            error: 'Failed to list processes',
+            classification: listResult.classification,
+            attempts,
+          }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      const decryptedCookie = decrypt(integration.secret_encrypted);
-      if (!decryptedCookie) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Failed to decrypt cookie' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      let eventsCreated = 0;
+      let processesUpserted = 0;
+
+      for (const process of listResult.processes) {
+        try {
+          // Upsert monitored_process
+          const { data: monitoredProcess } = await supabase
+            .from('monitored_processes')
+            .upsert({
+              owner_id: userId,
+              radicado: process.radicado,
+              despacho_name: process.despacho,
+              monitoring_enabled: true,
+              sources_enabled: ['ICARUS'],
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'owner_id,radicado',
+            })
+            .select('id')
+            .single();
+
+          if (monitoredProcess) {
+            processesUpserted++;
+          }
+
+          // Fetch details
+          const detailResult = await fetchProcessDetail(cookieJar, process, attempts);
+          
+          if (detailResult.ok && detailResult.events.length > 0) {
+            // Find or create filing
+            let { data: filing } = await supabase
+              .from('filings')
+              .select('id')
+              .eq('owner_id', userId)
+              .eq('radicado', process.radicado)
+              .maybeSingle();
+
+            if (!filing) {
+              const { data: matters } = await supabase
+                .from('matters')
+                .select('id')
+                .eq('owner_id', userId)
+                .limit(1);
+
+              if (matters && matters.length > 0) {
+                const { data: newFiling } = await supabase
+                  .from('filings')
+                  .insert({
+                    owner_id: userId,
+                    matter_id: matters[0].id,
+                    radicado: process.radicado,
+                    filing_type: 'ICARUS_IMPORT',
+                    status: 'MONITORING_ACTIVE',
+                    court_name: process.despacho,
+                  })
+                  .select('id')
+                  .single();
+                filing = newFiling;
+              }
+            }
+
+            if (filing) {
+              for (const event of detailResult.events) {
+                const eventDate = parseIcarusDate(event.fecha);
+                const fingerprint = computeFingerprint('ICARUS', process.radicado, eventDate, event.actuacion);
+
+                const { data: existing } = await supabase
+                  .from('process_events')
+                  .select('id')
+                  .eq('hash_fingerprint', fingerprint)
+                  .maybeSingle();
+
+                if (!existing) {
+                  await supabase.from('process_events').insert({
+                    owner_id: userId,
+                    filing_id: filing.id,
+                    monitored_process_id: monitoredProcess?.id,
+                    source: 'ICARUS',
+                    event_type: 'ACTUACION',
+                    event_date: eventDate,
+                    description: event.actuacion,
+                    detail: event.anotacion,
+                    hash_fingerprint: fingerprint,
+                  });
+                  eventsCreated++;
+                }
+              }
+            }
+          }
+
+          // Small delay between processes
+          await new Promise(resolve => setTimeout(resolve, 200));
+
+        } catch (err) {
+          console.error(`[SYNC] Error processing ${process.radicado}:`, err);
+        }
       }
 
-      const result = await listIcarusProcesses(decryptedCookie, attempts);
-      
+      // Update integration
+      await supabase.from('integrations').update({
+        last_sync_at: new Date().toISOString(),
+        session_last_ok_at: new Date().toISOString(),
+        status: 'CONNECTED',
+        last_error: null,
+      }).eq('id', integration.id);
+
       return new Response(
-        JSON.stringify({ ...result, attempts }),
+        JSON.stringify({
+          ok: true,
+          processes_found: listResult.processes.length,
+          processes_upserted: processesUpserted,
+          events_created: eventsCreated,
+          classification: 'SUCCESS',
+          attempts,
+        }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -442,10 +830,34 @@ Deno.serve(async (req) => {
     );
 
   } catch (err) {
-    console.error('adapter-icarus error:', err);
+    console.error('[adapter-icarus] Error:', err);
     return new Response(
-      JSON.stringify({ ok: false, error: err instanceof Error ? err.message : 'Unknown error' }),
+      JSON.stringify({ 
+        ok: false, 
+        error: err instanceof Error ? err.message : 'Unknown error',
+        attempts 
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
+
+// Helper to encrypt session
+async function encryptSession(cookieJar: CookieJar): Promise<string | null> {
+  try {
+    const key = await getEncryptionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(JSON.stringify(cookieJar));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      encoded
+    );
+    const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(ciphertext), iv.length);
+    return btoa(String.fromCharCode(...combined));
+  } catch {
+    return null;
+  }
+}
