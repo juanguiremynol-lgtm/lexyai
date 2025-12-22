@@ -475,22 +475,24 @@ export default function ProcessStatusTest() {
                           size="sm"
                           onClick={() => {
                             const redact = (data: unknown): unknown => {
-                              if (!data || typeof data !== 'object') return data;
+                              if (data === null || data === undefined) return data;
                               if (typeof data === 'string') {
                                 return data
                                   .replace(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+){2,}[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g, 'NOMBRE_TEST')
                                   .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, 'email@test.com');
                               }
+                              if (typeof data !== 'object') return data;
                               if (Array.isArray(data)) return data.map(redact);
-                              const result: Record<string, unknown> = {};
-                              for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+                              const obj = data as Record<string, unknown>;
+                              const out: Record<string, unknown> = {};
+                              for (const [key, value] of Object.entries(obj)) {
                                 if (['demandante', 'demandado', 'nombre', 'cedula'].some(f => key.toLowerCase().includes(f))) {
-                                  result[key] = 'REDACTED_TEST';
+                                  out[key] = 'REDACTED_TEST';
                                 } else {
-                                  result[key] = redact(value);
+                                  out[key] = redact(value);
                                 }
                               }
-                              return result;
+                              return out;
                             };
                             const redacted = redact(result.raw_response);
                             const blob = new Blob([JSON.stringify(redacted, null, 2)], { type: 'application/json' });
