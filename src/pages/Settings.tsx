@@ -9,9 +9,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Save, Download, Plus, Trash2, Clock, FileText, Mail } from "lucide-react";
+import { Save, Download, Plus, Trash2, Clock, FileText, Mail, Plug } from "lucide-react";
 import { toast } from "sonner";
 import type { RepartoEntry } from "@/types/database";
+import { IcarusIntegration } from "@/components/settings/IcarusIntegration";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -164,6 +165,7 @@ export default function Settings() {
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="reparto">Directorio Reparto</TabsTrigger>
+          <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
         </TabsList>
 
@@ -386,6 +388,10 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="integrations">
+          <IcarusIntegration />
         </TabsContent>
 
         <TabsContent value="export">
