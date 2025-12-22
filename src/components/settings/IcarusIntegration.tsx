@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { Link } from "react-router-dom";
+import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 
 interface EdgeFunctionError {
   code?: string;
@@ -368,7 +369,7 @@ export function IcarusIntegration() {
   }
 
   return (
-    <Card>
+    <>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {isConnected ? (
@@ -601,5 +602,12 @@ export function IcarusIntegration() {
         </p>
       </CardContent>
     </Card>
+
+    {/* Excel Import Section */}
+    <IcarusExcelImport />
+    
+    {/* Import History */}
+    <IcarusImportHistory />
+    </>
   );
 }

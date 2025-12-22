@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.whoami]
 verify_jwt = false
+
+[functions.icarus-import-excel]
+verify_jwt = false
