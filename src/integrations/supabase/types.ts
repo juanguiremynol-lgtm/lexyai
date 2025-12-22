@@ -225,6 +225,64 @@ export type Database = {
           },
         ]
       }
+      evidence_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          monitored_process_id: string | null
+          owner_id: string
+          process_event_id: string | null
+          raw_html: string | null
+          raw_markdown: string | null
+          screenshot_path: string | null
+          source_url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          monitored_process_id?: string | null
+          owner_id: string
+          process_event_id?: string | null
+          raw_html?: string | null
+          raw_markdown?: string | null
+          screenshot_path?: string | null
+          source_url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          monitored_process_id?: string | null
+          owner_id?: string
+          process_event_id?: string | null
+          raw_html?: string | null
+          raw_markdown?: string | null
+          screenshot_path?: string | null
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "evidence_snapshots_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_snapshots_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "evidence_snapshots_process_event_id_fkey"
+            columns: ["process_event_id"]
+            isOneToOne: false
+            referencedRelation: "process_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       filings: {
         Row: {
           acta_received_at: string | null
@@ -425,39 +483,119 @@ export type Database = {
           },
         ]
       }
-      process_events: {
+      monitored_processes: {
         Row: {
           created_at: string
-          description: string
-          event_date: string | null
-          event_type: string
-          filing_id: string
+          department: string | null
+          despacho_name: string | null
           id: string
+          jurisdiction: string | null
+          last_change_at: string | null
+          last_checked_at: string | null
+          monitoring_enabled: boolean | null
+          monitoring_schedule: string | null
+          municipality: string | null
+          notes: string | null
           owner_id: string
-          raw_data: Json | null
-          source_url: string | null
+          radicado: string
+          sources_enabled: Json | null
+          updated_at: string
         }
         Insert: {
           created_at?: string
-          description: string
-          event_date?: string | null
-          event_type: string
-          filing_id: string
+          department?: string | null
+          despacho_name?: string | null
           id?: string
+          jurisdiction?: string | null
+          last_change_at?: string | null
+          last_checked_at?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_schedule?: string | null
+          municipality?: string | null
+          notes?: string | null
           owner_id: string
-          raw_data?: Json | null
-          source_url?: string | null
+          radicado: string
+          sources_enabled?: Json | null
+          updated_at?: string
         }
         Update: {
           created_at?: string
+          department?: string | null
+          despacho_name?: string | null
+          id?: string
+          jurisdiction?: string | null
+          last_change_at?: string | null
+          last_checked_at?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_schedule?: string | null
+          municipality?: string | null
+          notes?: string | null
+          owner_id?: string
+          radicado?: string
+          sources_enabled?: Json | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monitored_processes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      process_events: {
+        Row: {
+          attachments: Json | null
+          created_at: string
+          description: string
+          detail: string | null
+          event_date: string | null
+          event_type: string
+          filing_id: string
+          hash_fingerprint: string | null
+          id: string
+          monitored_process_id: string | null
+          owner_id: string
+          raw_data: Json | null
+          source: string | null
+          source_url: string | null
+          title: string | null
+        }
+        Insert: {
+          attachments?: Json | null
+          created_at?: string
+          description: string
+          detail?: string | null
+          event_date?: string | null
+          event_type: string
+          filing_id: string
+          hash_fingerprint?: string | null
+          id?: string
+          monitored_process_id?: string | null
+          owner_id: string
+          raw_data?: Json | null
+          source?: string | null
+          source_url?: string | null
+          title?: string | null
+        }
+        Update: {
+          attachments?: Json | null
+          created_at?: string
           description?: string
+          detail?: string | null
           event_date?: string | null
           event_type?: string
           filing_id?: string
+          hash_fingerprint?: string | null
           id?: string
+          monitored_process_id?: string | null
           owner_id?: string
           raw_data?: Json | null
+          source?: string | null
           source_url?: string | null
+          title?: string | null
         }
         Relationships: [
           {
@@ -465,6 +603,13 @@ export type Database = {
             columns: ["filing_id"]
             isOneToOne: false
             referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_events_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
             referencedColumns: ["id"]
           },
           {
@@ -584,6 +729,7 @@ export type Database = {
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"
+      data_source: "CPNU" | "PUBLICACIONES" | "HISTORICO"
       document_kind:
         | "DEMANDA"
         | "ACTA_REPARTO"
@@ -604,6 +750,17 @@ export type Database = {
         | "ICARUS_SYNC_PENDING"
         | "MONITORING_ACTIVE"
         | "CLOSED"
+      process_event_type:
+        | "ACTUACION"
+        | "ESTADO_ELECTRONICO"
+        | "NOTIFICACION"
+        | "AUTO"
+        | "SENTENCIA"
+        | "PROVIDENCIA"
+        | "MEMORIAL"
+        | "TRASLADO"
+        | "AUDIENCIA"
+        | "OTRO"
       task_status: "OPEN" | "DONE" | "SNOOZED"
       task_type:
         | "FOLLOW_UP_REPARTO"
@@ -740,6 +897,7 @@ export const Constants = {
   public: {
     Enums: {
       alert_severity: ["INFO", "WARN", "CRITICAL"],
+      data_source: ["CPNU", "PUBLICACIONES", "HISTORICO"],
       document_kind: [
         "DEMANDA",
         "ACTA_REPARTO",
@@ -761,6 +919,18 @@ export const Constants = {
         "ICARUS_SYNC_PENDING",
         "MONITORING_ACTIVE",
         "CLOSED",
+      ],
+      process_event_type: [
+        "ACTUACION",
+        "ESTADO_ELECTRONICO",
+        "NOTIFICACION",
+        "AUTO",
+        "SENTENCIA",
+        "PROVIDENCIA",
+        "MEMORIAL",
+        "TRASLADO",
+        "AUDIENCIA",
+        "OTRO",
       ],
       task_status: ["OPEN", "DONE", "SNOOZED"],
       task_type: [
