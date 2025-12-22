@@ -238,12 +238,21 @@ export function IcarusExcelImport() {
               }}
               className="hidden"
               id="excel-file-input"
+              ref={(input) => {
+                // Store ref for programmatic click
+                if (input) (window as any).__excelFileInput = input;
+              }}
             />
-            <label htmlFor="excel-file-input">
-              <Button variant="secondary" asChild>
-                <span>Seleccionar archivo</span>
-              </Button>
-            </label>
+            <Button 
+              variant="secondary" 
+              type="button"
+              onClick={() => {
+                const input = document.getElementById('excel-file-input') as HTMLInputElement;
+                input?.click();
+              }}
+            >
+              Seleccionar archivo
+            </Button>
             <p className="text-xs text-muted-foreground mt-4">
               Formatos: .xls, .xlsx • Máximo: 20MB
             </p>
