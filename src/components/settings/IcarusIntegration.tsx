@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
   Cloud, 
   CloudOff, 
@@ -19,18 +20,52 @@ import {
   Eye,
   EyeOff,
   Save,
-  LogIn
+  LogIn,
+  ChevronDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { Link } from "react-router-dom";
 
+interface EdgeFunctionError {
+  code?: string;
+  message?: string;
+  status?: number;
+  ok?: boolean;
+  timestamp?: string;
+}
+
+function parseEdgeFunctionError(data: any, error: any): EdgeFunctionError {
+  // Try to extract structured error from response
+  if (data && typeof data === 'object' && data.ok === false) {
+    return {
+      code: data.code || 'UNKNOWN',
+      message: data.message || data.error || 'Unknown error',
+      ok: false,
+      timestamp: data.timestamp,
+    };
+  }
+  
+  // Supabase functions.invoke error
+  if (error) {
+    return {
+      code: 'INVOKE_ERROR',
+      message: error.message || String(error),
+      ok: false,
+    };
+  }
+  
+  return { code: 'UNKNOWN', message: 'Unknown error', ok: false };
+}
+
 export function IcarusIntegration() {
   const queryClient = useQueryClient();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [lastError, setLastError] = useState<EdgeFunctionError | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   const { data: integration, isLoading, refetch } = useQuery({
     queryKey: ["icarus-integration"],
@@ -72,11 +107,23 @@ export function IcarusIntegration() {
   // Step 1: Save credentials (encrypts and stores)
   const saveCredentials = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("icarus-save-credentials", {
         body: { username, password },
       });
-      if (error) throw error;
-      if (!data.ok) throw new Error(data.error || "Failed to save credentials");
+      
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
       return data;
     },
     onSuccess: () => {
@@ -91,11 +138,23 @@ export function IcarusIntegration() {
   // Step 2: Test login (uses stored credentials to create session)
   const testLogin = useMutation({
     mutationFn: async () => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("icarus-auth", {
         body: { action: "refresh" },
       });
-      if (error) throw error;
-      if (!data.ok) throw new Error(data.error || "Login failed");
+      
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
       return data;
     },
     onSuccess: (data) => {
@@ -110,19 +169,41 @@ export function IcarusIntegration() {
   // Combined: Save and test
   const saveAndTest = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      setLastError(null);
+      
       // First save credentials
       const saveResult = await supabase.functions.invoke("icarus-save-credentials", {
         body: { username, password },
       });
-      if (saveResult.error) throw saveResult.error;
-      if (!saveResult.data.ok) throw new Error(saveResult.data.error || "Failed to save credentials");
+      
+      if (saveResult.error) {
+        const parsed = parseEdgeFunctionError(saveResult.data, saveResult.error);
+        setLastError(parsed);
+        throw new Error(`Save failed: ${parsed.message}`);
+      }
+      
+      if (saveResult.data && !saveResult.data.ok) {
+        const parsed = parseEdgeFunctionError(saveResult.data, null);
+        setLastError(parsed);
+        throw new Error(`Save failed: ${parsed.message}`);
+      }
 
       // Then test login
       const loginResult = await supabase.functions.invoke("icarus-auth", {
         body: { action: "refresh" },
       });
-      if (loginResult.error) throw loginResult.error;
-      if (!loginResult.data.ok) throw new Error(loginResult.data.error || "Login failed");
+      
+      if (loginResult.error) {
+        const parsed = parseEdgeFunctionError(loginResult.data, loginResult.error);
+        setLastError(parsed);
+        throw new Error(`Login failed: ${parsed.message}`);
+      }
+      
+      if (loginResult.data && !loginResult.data.ok) {
+        const parsed = parseEdgeFunctionError(loginResult.data, null);
+        setLastError(parsed);
+        throw new Error(`Login failed: ${parsed.message}`);
+      }
       
       return loginResult.data;
     },
@@ -131,6 +212,7 @@ export function IcarusIntegration() {
       queryClient.invalidateQueries({ queryKey: ["icarus-last-sync"] });
       setUsername("");
       setPassword("");
+      setLastError(null);
       toast.success("Conexión ICARUS exitosa");
     },
     onError: (error) => {
@@ -155,6 +237,7 @@ export function IcarusIntegration() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["icarus-integration"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-last-sync"] });
+      setLastError(null);
       toast.success("Integración ICARUS desconectada");
     },
     onError: (error) => {
@@ -164,11 +247,23 @@ export function IcarusIntegration() {
 
   const syncNow = useMutation({
     mutationFn: async () => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("icarus-sync", {
         body: { mode: "manual", fullSync: true },
       });
-      if (error) throw error;
-      if (!data.ok) throw new Error(data.error || "Sync failed");
+      
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      
       return data;
     },
     onSuccess: (data) => {
@@ -294,12 +389,32 @@ export function IcarusIntegration() {
           </Link>
         </div>
 
-        {/* Error Display */}
-        {integration?.last_error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{integration.last_error}</AlertDescription>
-          </Alert>
+        {/* Error Display with Details */}
+        {(integration?.last_error || lastError) && (
+          <Collapsible open={showErrorDetails} onOpenChange={setShowErrorDetails}>
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle className="flex items-center gap-2">
+                Error
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 px-2">
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showErrorDetails ? 'rotate-180' : ''}`} />
+                    Detalles
+                  </Button>
+                </CollapsibleTrigger>
+              </AlertTitle>
+              <AlertDescription>
+                {lastError?.message || integration?.last_error}
+              </AlertDescription>
+              <CollapsibleContent className="mt-2">
+                <div className="bg-background/50 rounded p-2 text-xs font-mono space-y-1">
+                  {lastError?.code && <div><strong>Código:</strong> {lastError.code}</div>}
+                  {lastError?.timestamp && <div><strong>Timestamp:</strong> {lastError.timestamp}</div>}
+                  {lastError?.status && <div><strong>HTTP Status:</strong> {lastError.status}</div>}
+                </div>
+              </CollapsibleContent>
+            </Alert>
+          </Collapsible>
         )}
 
         {/* Last Sync Run Info */}
