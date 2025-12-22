@@ -864,6 +864,7 @@ export type Database = {
           demandantes: string | null
           department: string | null
           despacho_name: string | null
+          expediente_digital_url: string | null
           id: string
           juez_ponente: string | null
           jurisdiction: string | null
@@ -890,6 +891,7 @@ export type Database = {
           demandantes?: string | null
           department?: string | null
           despacho_name?: string | null
+          expediente_digital_url?: string | null
           id?: string
           juez_ponente?: string | null
           jurisdiction?: string | null
@@ -916,6 +918,7 @@ export type Database = {
           demandantes?: string | null
           department?: string | null
           despacho_name?: string | null
+          expediente_digital_url?: string | null
           id?: string
           juez_ponente?: string | null
           jurisdiction?: string | null
