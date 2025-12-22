@@ -266,75 +266,100 @@ export default function ClientDetail() {
                 <Edit className="mr-2 h-4 w-4" /> Editar
               </Button>
             </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Editar Cliente</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                updateClient.mutate(new FormData(e.currentTarget));
-              }}
-              className="space-y-4"
-            >
-              <div className="space-y-2">
-                <Label htmlFor="name">Nombre *</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  required
-                  defaultValue={client.name}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="id_number">Cédula / NIT</Label>
-                <Input
-                  id="id_number"
-                  name="id_number"
-                  defaultValue={client.id_number || ""}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Correo</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  defaultValue={client.email || ""}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Editar Cliente</DialogTitle>
+              </DialogHeader>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  updateClient.mutate(new FormData(e.currentTarget));
+                }}
+                className="space-y-4"
+              >
                 <div className="space-y-2">
-                  <Label htmlFor="city">Ciudad</Label>
+                  <Label htmlFor="name">Nombre *</Label>
                   <Input
-                    id="city"
-                    name="city"
-                    defaultValue={client.city || ""}
+                    id="name"
+                    name="name"
+                    required
+                    defaultValue={client.name}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="address">Dirección</Label>
+                  <Label htmlFor="id_number">Cédula / NIT</Label>
                   <Input
-                    id="address"
-                    name="address"
-                    defaultValue={client.address || ""}
+                    id="id_number"
+                    name="id_number"
+                    defaultValue={client.id_number || ""}
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notas</Label>
-                <Textarea
-                  id="notes"
-                  name="notes"
-                  defaultValue={client.notes || ""}
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={updateClient.isPending}>
-                {updateClient.isPending ? "Guardando..." : "Guardar Cambios"}
+                <div className="space-y-2">
+                  <Label htmlFor="email">Correo</Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    defaultValue={client.email || ""}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">Ciudad</Label>
+                    <Input
+                      id="city"
+                      name="city"
+                      defaultValue={client.city || ""}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="address">Dirección</Label>
+                    <Input
+                      id="address"
+                      name="address"
+                      defaultValue={client.address || ""}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notas</Label>
+                  <Textarea
+                    id="notes"
+                    name="notes"
+                    defaultValue={client.notes || ""}
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={updateClient.isPending}>
+                  {updateClient.isPending ? "Guardando..." : "Guardar Cambios"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="icon" className="text-destructive hover:text-destructive">
+                <Trash2 className="h-4 w-4" />
               </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Eliminar cliente?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta acción eliminará permanentemente a "{client.name}" y todos sus asuntos asociados.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteClient.mutate()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Eliminar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
 
       {/* Client Info Card */}
