@@ -45,6 +45,8 @@ export default function ProcessStatusTest() {
       else if (adapter === 'PUBLICACIONES') functionName = 'adapter-publicaciones';
       else if (adapter === 'HISTORICO') functionName = 'adapter-historico';
       else if (adapter === 'PIPELINE') functionName = 'process-monitor';
+      
+      console.log(`Testing ${adapter} with radicado: ${radicado}`);
 
       const { data, error } = await supabase.functions.invoke(functionName, {
         body: {
