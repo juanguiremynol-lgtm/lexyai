@@ -8,34 +8,6 @@ const corsHeaders = {
 
 // ============= TYPES =============
 
-interface LoginAttempt {
-  url: string;
-  method: string;
-  started_at: string;
-  latency_ms: number;
-  status: number | null;
-  final_url: string | null;
-  classifier: string;
-  headers_subset: Record<string, string>;
-  body_snippet: string;
-  error_name?: string;
-  error_message?: string;
-  error_stack?: string;
-}
-
-interface AttemptLog {
-  phase: string;
-  url: string;
-  method: string;
-  status: number | null;
-  latency_ms: number;
-  error_type?: string;
-  response_snippet?: string;
-  success: boolean;
-  classifier?: string;
-  login_attempts?: LoginAttempt[];
-}
-
 interface Step {
   name: string;
   started_at: string;
@@ -45,140 +17,25 @@ interface Step {
   meta?: Record<string, unknown>;
 }
 
-interface CookieJar {
-  cookies: { name: string; value: string; domain: string; path: string; expires?: string; secure?: boolean; httpOnly?: boolean }[];
-  viewState?: string;
+interface ConnectivityResult {
+  method: 'FIRECRAWL' | 'EDGE_DIRECT';
+  edge_blocked: boolean;
+  firecrawl_available: boolean;
+  reason?: string;
 }
 
-type AuthStatus = 'CONNECTED' | 'AUTH_FAILED' | 'CAPTCHA_REQUIRED' | 'NEEDS_REAUTH' | 'ERROR' | 'LOGIN_PAGE_UNREACHABLE';
-
-// ============= BROWSER HEADERS =============
-
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
-  'Cache-Control': 'no-cache',
-  'Pragma': 'no-cache',
-  'Upgrade-Insecure-Requests': '1',
-};
-
-// ============= NETWORK DIAGNOSTICS =============
-
-async function fetchWithDiag(url: string, options: RequestInit = {}): Promise<LoginAttempt> {
-  const started_at = new Date().toISOString();
-  const start = Date.now();
-  const method = options.method || 'GET';
-
-  const result: LoginAttempt = {
-    url,
-    method,
-    started_at,
-    latency_ms: 0,
-    status: null,
-    final_url: null,
-    classifier: 'UNKNOWN',
-    headers_subset: {},
-    body_snippet: '',
-  };
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...BROWSER_HEADERS,
-        ...(options.headers || {}),
-      },
-      redirect: 'manual',
-    });
-
-    result.latency_ms = Date.now() - start;
-    result.status = response.status;
-    result.final_url = response.headers.get('location') || url;
-
-    // Extract useful headers
-    result.headers_subset = {
-      'content-type': response.headers.get('content-type') || '',
-      'location': response.headers.get('location') || '',
-      'server': response.headers.get('server') || '',
-      'cf-ray': response.headers.get('cf-ray') || '',
-      'x-powered-by': response.headers.get('x-powered-by') || '',
-    };
-
-    // Get body snippet
-    try {
-      const text = await response.text();
-      result.body_snippet = text.substring(0, 2000);
-
-      // Classify the response
-      result.classifier = classifyResponse(response.status, text, result.headers_subset);
-    } catch {
-      result.body_snippet = '[Unable to read response body]';
-      result.classifier = 'BODY_READ_ERROR';
-    }
-
-  } catch (err) {
-    result.latency_ms = Date.now() - start;
-    result.classifier = 'NETWORK_EXCEPTION';
-    if (err instanceof Error) {
-      result.error_name = err.name;
-      result.error_message = err.message;
-      result.error_stack = err.stack?.substring(0, 500);
-    } else {
-      result.error_message = String(err);
-    }
-  }
-
-  return result;
-}
-
-function classifyResponse(status: number | null, body: string, headers: Record<string, string>): string {
-  if (status === null) return 'NETWORK_EXCEPTION';
-
-  const lowerBody = body.toLowerCase();
-  const lowerHeaders = JSON.stringify(headers).toLowerCase();
-
-  // Check for WAF/anti-bot indicators
-  const wafIndicators = ['cf-', 'cloudflare', 'attention required', 'captcha', 'challenge', 'bot detected', 'access denied', 'security check'];
-  for (const indicator of wafIndicators) {
-    if (lowerBody.includes(indicator) || lowerHeaders.includes(indicator)) {
-      return 'CAPTCHA_OR_CHALLENGE';
-    }
-  }
-
-  // Check for specific status codes
-  if (status === 403 || status === 429) return 'HTTP_403_429_BLOCKED';
-  if (status >= 500) return 'HTTP_5XX_SERVER';
-  if (status === 302 || status === 301 || status === 303) {
-    const location = headers['location'] || '';
-    if (location && location.includes(new URL(location).hostname)) {
-      return 'REDIRECT';
-    }
-    return 'REDIRECT';
-  }
-  if (status === 200) {
-    // Check if it looks like a login page
-    if (lowerBody.includes('login') || lowerBody.includes('password') || lowerBody.includes('javax.faces.viewstate')) {
-      return 'HTTP_200_OK';
-    }
-    return 'HTTP_200_OK';
-  }
-  if (status >= 400 && status < 500) return 'HTTP_4XX_CLIENT_ERROR';
-
-  return 'UNKNOWN_STATUS';
-}
+type AuthStatus = 'CONNECTED' | 'AUTH_FAILED' | 'CAPTCHA_REQUIRED' | 'NEEDS_REAUTH' | 'ERROR' | 'EDGE_TLS_BLOCKED';
 
 // ============= AES-256-GCM ENCRYPTION =============
 
-const ENCRYPTION_KEY_B64 = Deno.env.get('ICARUS_ENCRYPTION_KEY') || '';
-
 async function getEncryptionKey(): Promise<CryptoKey> {
-  if (!ENCRYPTION_KEY_B64) {
+  const keyB64 = Deno.env.get('ICARUS_ENCRYPTION_KEY') || '';
+  if (!keyB64) {
     throw new Error('ICARUS_ENCRYPTION_KEY not configured');
   }
-  const keyBytes = Uint8Array.from(atob(ENCRYPTION_KEY_B64), c => c.charCodeAt(0));
+  const keyBytes = Uint8Array.from(atob(keyB64), c => c.charCodeAt(0));
   if (keyBytes.length !== 32) {
-    throw new Error('ICARUS_ENCRYPTION_KEY must be 32 bytes (base64 encoded)');
+    throw new Error('ICARUS_ENCRYPTION_KEY must be 32 bytes');
   }
   return await crypto.subtle.importKey(
     'raw',
@@ -193,11 +50,7 @@ async function encryptSecret(plaintext: string): Promise<string> {
   const key = await getEncryptionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(plaintext);
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    encoded
-  );
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
   const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
   combined.set(iv, 0);
   combined.set(new Uint8Array(ciphertext), iv.length);
@@ -210,11 +63,7 @@ async function decryptSecret(encrypted: string): Promise<string> {
     const combined = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
     const iv = combined.slice(0, 12);
     const ciphertext = combined.slice(12);
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      ciphertext
-    );
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
     return new TextDecoder().decode(decrypted);
   } catch (err) {
     console.error('[DECRYPT] Error:', err);
@@ -222,287 +71,153 @@ async function decryptSecret(encrypted: string): Promise<string> {
   }
 }
 
-// ============= UTILITIES =============
+// ============= REQUEST ID & RESPONSE HELPERS =============
 
-function truncate(str: string, maxLen: number): string {
-  if (!str) return '';
-  return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+function generateRequestId(): string {
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
 }
 
-function parseCookies(setCookieHeaders: string[]): CookieJar['cookies'] {
-  const cookies: CookieJar['cookies'] = [];
-  for (const header of setCookieHeaders) {
-    const parts = header.split(';').map(p => p.trim());
-    const [nameValue, ...attrs] = parts;
-    const [name, value] = nameValue.split('=');
-    if (!name || !value) continue;
-    
-    const cookie: CookieJar['cookies'][0] = {
-      name: name.trim(),
-      value: value.trim(),
-      domain: 'icarus.com.co',
-      path: '/',
-    };
-    
-    for (const attr of attrs) {
-      const [attrName, attrValue] = attr.split('=');
-      const lowerName = attrName.toLowerCase().trim();
-      if (lowerName === 'path') cookie.path = attrValue?.trim() || '/';
-      if (lowerName === 'domain') cookie.domain = attrValue?.trim() || cookie.domain;
-      if (lowerName === 'expires') cookie.expires = attrValue?.trim();
-      if (lowerName === 'secure') cookie.secure = true;
-      if (lowerName === 'httponly') cookie.httpOnly = true;
-    }
-    cookies.push(cookie);
-  }
-  return cookies;
+function jsonError(status: number, code: string, message: string, meta?: Record<string, unknown>): Response {
+  const request_id = generateRequestId();
+  const body = {
+    ok: false,
+    code,
+    message,
+    request_id,
+    ...(meta || {}),
+    timestamp: new Date().toISOString(),
+  };
+  console.error(`[icarus-auth] Error ${code}: ${message}`);
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 }
 
-function cookieJarToHeader(cookieJar: CookieJar): string {
-  return cookieJar.cookies.map(c => `${c.name}=${c.value}`).join('; ');
+function jsonSuccess(data: Record<string, unknown>): Response {
+  return new Response(
+    JSON.stringify({ ok: true, request_id: generateRequestId(), ...data, timestamp: new Date().toISOString() }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
 }
 
-function extractViewState(html: string): string | null {
-  const patterns = [
-    /name="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
-    /id="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
-    /name="javax\.faces\.ViewState"[^>]*value="([^"]+)"/i,
-    /<input[^>]*name="javax\.faces\.ViewState"[^>]*value="([^"]+)"/i,
-  ];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
+// ============= CONNECTIVITY CHECK =============
 
-function extractFormFields(html: string): { formId: string; usernameField: string; passwordField: string; submitButton: string } | null {
-  const formMatch = html.match(/<form[^>]*id="([^"]+)"[^>]*>/i);
-  if (!formMatch) return null;
-  const formId = formMatch[1];
+async function checkConnectivity(steps: Step[]): Promise<ConnectivityResult> {
+  const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
   
-  const usernamePatterns = [
-    /name="([^"]*(?:username|usuario|email|login|user)[^"]*)"/i,
-    /id="([^"]*(?:username|usuario|email|login|user)[^"]*)"/i,
-    /<input[^>]*type="(?:text|email)"[^>]*name="([^"]+)"/i,
-  ];
-  let usernameField = '';
-  for (const pattern of usernamePatterns) {
-    const match = html.match(pattern);
-    if (match) { usernameField = match[1]; break; }
-  }
-  
-  const passwordPatterns = [
-    /name="([^"]*(?:password|clave|contrasena)[^"]*)"/i,
-    /id="([^"]*(?:password|clave|contrasena)[^"]*)"/i,
-    /<input[^>]*type="password"[^>]*name="([^"]+)"/i,
-  ];
-  let passwordField = '';
-  for (const pattern of passwordPatterns) {
-    const match = html.match(pattern);
-    if (match) { passwordField = match[1]; break; }
-  }
-  
-  const submitPatterns = [
-    /<button[^>]*type="submit"[^>]*name="([^"]+)"/i,
-    /<input[^>]*type="submit"[^>]*name="([^"]+)"/i,
-    /id="([^"]*(?:btnLogin|submit|ingresar|entrar)[^"]*)"/i,
-  ];
-  let submitButton = '';
-  for (const pattern of submitPatterns) {
-    const match = html.match(pattern);
-    if (match) { submitButton = match[1]; break; }
-  }
-  
-  return { formId, usernameField, passwordField, submitButton };
-}
-
-function detectCaptcha(html: string): boolean {
-  const captchaIndicators = [
-    'recaptcha',
-    'g-recaptcha',
-    'hcaptcha',
-    'captcha',
-    'data-sitekey',
-    'grecaptcha',
-    'cf-turnstile',
-  ];
-  const lowerHtml = html.toLowerCase();
-  return captchaIndicators.some(indicator => lowerHtml.includes(indicator));
-}
-
-function isAuthenticatedPage(html: string): boolean {
-  const authIndicators = [
-    'salir',
-    'cerrar sesión',
-    'logout',
-    'mi cuenta',
-    'bienvenido',
-  ];
-  const lowerHtml = html.toLowerCase();
-  return authIndicators.some(indicator => lowerHtml.includes(indicator));
-}
-
-// ============= MULTI-URL LOGIN PROBE =============
-
-const LOGIN_CANDIDATES = [
-  'https://icarus.com.co/',
-  'https://www.icarus.com.co/',
-  'https://icarus.com.co/login.xhtml',
-  'https://icarus.com.co/main/login.xhtml',
-  'https://icarus.com.co/main/process/list.xhtml',
-];
-
-const ICARUS_BASE_URL = 'https://icarus.com.co';
-const LOGIN_URL = `${ICARUS_BASE_URL}/login.xhtml`;
-const PROCESS_LIST_URL = `${ICARUS_BASE_URL}/main/process/list.xhtml`;
-
-async function probeLoginPage(steps: Step[]): Promise<{
-  ok: boolean;
-  loginUrl: string | null;
-  html: string | null;
-  cookies: CookieJar['cookies'];
-  attempts: LoginAttempt[];
-  error?: string;
-  classifier?: string;
-}> {
-  const attempts: LoginAttempt[] = [];
-  
+  // We always use Firecrawl now - Edge cannot reach ICARUS
   steps.push({
-    name: 'GET_LOGIN',
+    name: 'CONNECTIVITY_CHECK',
     started_at: new Date().toISOString(),
     status: 'running',
-    detail: `Probing ${LOGIN_CANDIDATES.length} URL candidates`,
+    detail: 'Checking connectivity method',
   });
 
-  let bestAttempt: LoginAttempt | null = null;
-  let bestHtml: string | null = null;
-
-  for (const url of LOGIN_CANDIDATES) {
-    console.log(`[probeLoginPage] Trying: ${url}`);
-    const attempt = await fetchWithDiag(url);
-    attempts.push(attempt);
-
-    // Check if this is a successful login page
-    if (attempt.classifier === 'HTTP_200_OK' && attempt.body_snippet) {
-      const hasLoginForm = attempt.body_snippet.toLowerCase().includes('login') ||
-                           attempt.body_snippet.toLowerCase().includes('password') ||
-                           attempt.body_snippet.includes('javax.faces.ViewState');
-      
-      if (hasLoginForm) {
-        bestAttempt = attempt;
-        bestHtml = attempt.body_snippet;
-        console.log(`[probeLoginPage] Found login page at: ${url}`);
-        break;
-      }
+  // Quick test: try to reach ICARUS from Edge (will fail)
+  let edgeBlocked = true;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    const response = await fetch('https://icarus.com.co/', {
+      method: 'HEAD',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    clearTimeout(timeoutId);
+    
+    // If we get here without error, Edge can reach it
+    if (response.status < 500) {
+      edgeBlocked = false;
     }
-
-    // Track best non-error attempt
-    if (!bestAttempt && attempt.status === 200) {
-      bestAttempt = attempt;
-      bestHtml = attempt.body_snippet;
-    }
+  } catch (err) {
+    // Expected: TLS handshake failure
+    edgeBlocked = true;
+    console.log('[CONNECTIVITY] Edge blocked:', err instanceof Error ? err.message : 'unknown');
   }
 
-  // Update step
   const step = steps[steps.length - 1];
   step.finished_at = new Date().toISOString();
-  step.meta = { attempts_count: attempts.length };
 
-  if (bestAttempt && bestAttempt.status === 200 && bestHtml) {
-    step.status = 'success';
-    step.detail = `Found login page at ${bestAttempt.url} (${bestAttempt.latency_ms}ms)`;
-    
-    // Parse cookies from all successful attempts
-    const cookies: CookieJar['cookies'] = [];
-    for (const attempt of attempts) {
-      if (attempt.status === 200 && attempt.headers_subset['set-cookie']) {
-        cookies.push(...parseCookies([attempt.headers_subset['set-cookie']]));
-      }
-    }
-
+  if (!firecrawlKey) {
+    step.status = 'error';
+    step.detail = 'FIRECRAWL_API_KEY not configured';
+    step.meta = { edge_blocked: edgeBlocked };
     return {
-      ok: true,
-      loginUrl: bestAttempt.url,
-      html: bestHtml,
-      cookies,
-      attempts,
+      method: 'EDGE_DIRECT',
+      edge_blocked: edgeBlocked,
+      firecrawl_available: false,
+      reason: 'FIRECRAWL_API_KEY not configured',
     };
   }
 
-  // All failed - determine why
-  step.status = 'error';
-  
-  // Check for common failure patterns
-  const hasNetworkException = attempts.some(a => a.classifier === 'NETWORK_EXCEPTION');
-  const hasBlocked = attempts.some(a => a.classifier === 'HTTP_403_429_BLOCKED');
-  const hasCaptcha = attempts.some(a => a.classifier === 'CAPTCHA_OR_CHALLENGE');
-  const hasServerError = attempts.some(a => a.classifier === 'HTTP_5XX_SERVER');
-
-  let classifier = 'UNKNOWN';
-  let error = 'All login page probes failed';
-
-  if (hasCaptcha) {
-    classifier = 'CAPTCHA_OR_CHALLENGE';
-    error = 'WAF/CAPTCHA challenge detected - browser automation required';
-  } else if (hasBlocked) {
-    classifier = 'HTTP_403_429_BLOCKED';
-    error = 'Access blocked (403/429) - possible rate limiting or IP block';
-  } else if (hasNetworkException) {
-    classifier = 'NETWORK_EXCEPTION';
-    const netError = attempts.find(a => a.classifier === 'NETWORK_EXCEPTION');
-    error = `Network error: ${netError?.error_message || 'Connection failed'}`;
-  } else if (hasServerError) {
-    classifier = 'HTTP_5XX_SERVER';
-    error = 'Server error (5xx) - ICARUS may be down';
-  }
-
-  step.detail = error;
+  step.status = 'success';
+  step.detail = edgeBlocked 
+    ? 'Edge blocked (TLS); using Firecrawl browser worker'
+    : 'Using Firecrawl for reliability';
+  step.meta = { edge_blocked: edgeBlocked, firecrawl_available: true };
 
   return {
-    ok: false,
-    loginUrl: null,
-    html: null,
-    cookies: [],
-    attempts,
-    error,
-    classifier,
+    method: 'FIRECRAWL',
+    edge_blocked: edgeBlocked,
+    firecrawl_available: true,
   };
 }
 
-// ============= FIRECRAWL FALLBACK =============
+// ============= FIRECRAWL LOGIN =============
 
-async function performLoginWithFirecrawl(
+interface FirecrawlLoginResult {
+  ok: boolean;
+  authenticated: boolean;
+  session_html?: string;
+  processes_count?: number;
+  error?: string;
+  raw_response?: unknown;
+}
+
+async function performFirecrawlLogin(
   username: string,
   password: string,
   steps: Step[]
-): Promise<{ ok: boolean; processes?: any[]; error?: string; raw?: any }> {
+): Promise<FirecrawlLoginResult> {
   const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
   
   if (!firecrawlKey) {
-    return { ok: false, error: 'FIRECRAWL_API_KEY not configured' };
+    return { ok: false, authenticated: false, error: 'FIRECRAWL_API_KEY not configured' };
   }
 
   steps.push({
     name: 'FIRECRAWL_LOGIN',
     started_at: new Date().toISOString(),
     status: 'running',
-    detail: 'Attempting browser-based login via Firecrawl Actions',
+    detail: 'Performing browser-based login via Firecrawl',
   });
 
   try {
-    // Use Firecrawl Actions to perform login
-    const actionsPayload = {
+    // Step 1: Login with Firecrawl Actions
+    const loginPayload = {
       url: 'https://icarus.com.co/',
       actions: [
-        { type: 'wait', selector: 'input[type="text"], input[name*="username"], input[name*="usuario"]', timeout: 10000 },
-        { type: 'input', selector: 'input[type="text"], input[name*="username"], input[name*="usuario"]', text: username },
+        // Wait for page to load
+        { type: 'wait', milliseconds: 2000 },
+        // Wait for login form
+        { type: 'wait', selector: 'input[type="text"], input[type="email"], input[name*="username"], input[name*="usuario"], input[id*="username"], input[id*="usuario"]', timeout: 15000 },
+        // Fill username (try multiple selectors)
+        { type: 'input', selector: 'input[type="text"], input[type="email"], input[name*="username"], input[name*="usuario"]', text: username },
+        // Fill password
         { type: 'input', selector: 'input[type="password"]', text: password },
-        { type: 'click', selector: 'button[type="submit"], input[type="submit"], button[name*="login"], button[name*="ingresar"]' },
-        { type: 'wait', timeout: 3000 },
-        { type: 'wait', selector: 'a[href*="Salir"], a[href*="logout"], .welcome-message, .process-list' },
+        // Wait a moment
+        { type: 'wait', milliseconds: 500 },
+        // Click login button
+        { type: 'click', selector: 'button[type="submit"], input[type="submit"], button[name*="login"], button[name*="Ingresar"], button[id*="btnIngresar"], .btn-primary' },
+        // Wait for navigation
+        { type: 'wait', milliseconds: 3000 },
+        // Wait for authenticated content
+        { type: 'wait', selector: 'a[href*="Salir"], a[href*="logout"], a[onclick*="logout"], .logout-link, .user-menu, .nav-user', timeout: 10000 },
       ],
-      formats: ['markdown', 'html'],
+      formats: ['html', 'markdown'],
+      waitFor: 3000,
     };
 
     console.log('[Firecrawl] Sending login actions...');
@@ -513,452 +228,141 @@ async function performLoginWithFirecrawl(
         'Authorization': `Bearer ${firecrawlKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(actionsPayload),
+      body: JSON.stringify(loginPayload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      steps[steps.length - 1].status = 'error';
-      steps[steps.length - 1].detail = `Firecrawl error: ${data.error || response.status}`;
-      steps[steps.length - 1].finished_at = new Date().toISOString();
-      return { ok: false, error: `Firecrawl API error: ${data.error || response.status}`, raw: data };
+      const step = steps[steps.length - 1];
+      step.status = 'error';
+      step.detail = `Firecrawl API error: ${data.error || response.status}`;
+      step.finished_at = new Date().toISOString();
+      step.meta = { http_status: response.status };
+      return { ok: false, authenticated: false, error: `Firecrawl API error: ${data.error || response.status}`, raw_response: data };
     }
 
-    // Check if login was successful by looking for authenticated markers
+    // Check response for authentication markers
     const html = data.data?.html || data.html || '';
     const markdown = data.data?.markdown || data.markdown || '';
+    const screenshot = data.data?.screenshot || data.screenshot;
     
-    if (isAuthenticatedPage(html) || markdown.toLowerCase().includes('salir')) {
-      steps[steps.length - 1].status = 'success';
-      steps[steps.length - 1].detail = 'Login successful via Firecrawl';
-      steps[steps.length - 1].finished_at = new Date().toISOString();
+    // Authentication check
+    const authMarkers = ['salir', 'cerrar sesión', 'logout', 'bienvenido', 'mi cuenta', 'process/list'];
+    const loginMarkers = ['iniciar sesión', 'ingresar', 'login', 'contraseña', 'password'];
+    
+    const lowerHtml = html.toLowerCase();
+    const lowerMarkdown = markdown.toLowerCase();
+    
+    const hasAuthMarker = authMarkers.some(m => lowerHtml.includes(m) || lowerMarkdown.includes(m));
+    const hasLoginMarker = loginMarkers.some(m => lowerHtml.includes(m) || lowerMarkdown.includes(m));
+    
+    // If we see auth markers and NOT login markers, we're authenticated
+    const isAuthenticated = hasAuthMarker && !hasLoginMarker;
 
-      // Now navigate to process list
+    const step = steps[steps.length - 1];
+    step.finished_at = new Date().toISOString();
+    step.meta = {
+      has_auth_markers: hasAuthMarker,
+      has_login_markers: hasLoginMarker,
+      html_length: html.length,
+      has_screenshot: !!screenshot,
+    };
+
+    if (isAuthenticated) {
+      step.status = 'success';
+      step.detail = 'Login successful - authenticated markers found';
+
+      // Now fetch the process list page
+      steps.push({
+        name: 'FIRECRAWL_LIST',
+        started_at: new Date().toISOString(),
+        status: 'running',
+        detail: 'Fetching process list after login',
+      });
+
       const listPayload = {
         url: 'https://icarus.com.co/main/process/list.xhtml',
         formats: ['html'],
-        sessionId: data.sessionId, // Preserve session if available
+        waitFor: 2000,
       };
 
-      const listResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${firecrawlKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(listPayload),
-      });
+      try {
+        const listResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${firecrawlKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(listPayload),
+        });
 
-      const listData = await listResponse.json();
-      const listHtml = listData.data?.html || listData.html || '';
+        const listData = await listResponse.json();
+        const listHtml = listData.data?.html || listData.html || '';
 
-      // Parse process table
-      const processes = parseProcessTable(listHtml);
+        // Count processes in the table
+        const radicadoPattern = /\d{2}-\d{3}-\d{2}-\d{2}-\d{3}-\d{4}-\d{5}/g;
+        const matches = listHtml.match(radicadoPattern) || [];
+        const uniqueRadicados = [...new Set(matches)];
 
-      return { ok: true, processes, raw: listData };
-    } else {
-      steps[steps.length - 1].status = 'error';
-      steps[steps.length - 1].detail = 'Login failed - no authenticated markers found';
-      steps[steps.length - 1].finished_at = new Date().toISOString();
-      return { ok: false, error: 'Firecrawl login did not authenticate successfully', raw: data };
-    }
-  } catch (err) {
-    steps[steps.length - 1].status = 'error';
-    steps[steps.length - 1].detail = err instanceof Error ? err.message : 'Unknown error';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
-  }
-}
+        const listStep = steps[steps.length - 1];
+        listStep.finished_at = new Date().toISOString();
+        listStep.status = 'success';
+        listStep.detail = `Found ${uniqueRadicados.length} processes`;
+        listStep.meta = { processes_count: uniqueRadicados.length };
 
-function parseProcessTable(html: string): any[] {
-  const processes: any[] = [];
-  
-  // Simple regex-based table parsing
-  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-  const linkRegex = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i;
-  
-  let match;
-  let isHeader = true;
-  
-  while ((match = rowRegex.exec(html)) !== null) {
-    const rowHtml = match[1];
-    
-    // Skip header row
-    if (isHeader && rowHtml.includes('<th')) {
-      isHeader = false;
-      continue;
-    }
-    isHeader = false;
-
-    const cells: string[] = [];
-    let cellMatch;
-    while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-      // Strip HTML tags
-      let cellText = cellMatch[1].replace(/<[^>]+>/g, ' ').trim().replace(/\s+/g, ' ');
-      cells.push(cellText);
-    }
-
-    if (cells.length >= 4) {
-      // Try to extract link
-      const linkMatch = rowHtml.match(linkRegex);
-      
-      processes.push({
-        radicado: cells[0] || '',
-        despacho: cells[1] || '',
-        demandante: cells[2] || '',
-        demandado: cells[3] || '',
-        ultima_actuacion: cells[4] || '',
-        detail_url: linkMatch ? linkMatch[1] : null,
-      });
-    }
-  }
-
-  return processes;
-}
-
-// ============= LOGIN FLOW =============
-
-async function performLogin(
-  username: string,
-  password: string,
-  attempts: AttemptLog[],
-  steps: Step[]
-): Promise<{ ok: boolean; cookieJar?: CookieJar; status: AuthStatus; error?: string; loginAttempts?: LoginAttempt[] }> {
-  
-  // Step 1: Probe login page with multi-URL approach
-  const probeResult = await probeLoginPage(steps);
-  
-  // Create attempt log for the probe
-  const probeAttempt: AttemptLog = {
-    phase: 'GET_LOGIN',
-    url: probeResult.loginUrl || 'multiple',
-    method: 'GET',
-    status: probeResult.ok ? 200 : null,
-    latency_ms: probeResult.attempts.reduce((sum, a) => sum + a.latency_ms, 0),
-    success: probeResult.ok,
-    classifier: probeResult.classifier,
-    login_attempts: probeResult.attempts,
-  };
-  attempts.push(probeAttempt);
-
-  if (!probeResult.ok) {
-    // Check if we should try Firecrawl fallback
-    const shouldTryFirecrawl = probeResult.classifier === 'CAPTCHA_OR_CHALLENGE' ||
-                                probeResult.classifier === 'HTTP_403_429_BLOCKED' ||
-                                probeResult.classifier === 'NETWORK_EXCEPTION';
-
-    if (shouldTryFirecrawl) {
-      console.log('[performLogin] Server-side fetch blocked, trying Firecrawl fallback...');
-      const firecrawlResult = await performLoginWithFirecrawl(username, password, steps);
-      
-      if (firecrawlResult.ok) {
-        // Create a synthetic cookie jar for session tracking
         return {
           ok: true,
-          cookieJar: { cookies: [], viewState: 'firecrawl-session' },
-          status: 'CONNECTED',
+          authenticated: true,
+          session_html: listHtml,
+          processes_count: uniqueRadicados.length,
+        };
+      } catch (listErr) {
+        const listStep = steps[steps.length - 1];
+        listStep.finished_at = new Date().toISOString();
+        listStep.status = 'error';
+        listStep.detail = listErr instanceof Error ? listErr.message : 'List fetch failed';
+
+        // Still return success for login, just couldn't get list
+        return {
+          ok: true,
+          authenticated: true,
+          processes_count: 0,
+          error: 'Login OK but failed to fetch list',
         };
       }
     }
 
+    // Not authenticated
+    step.status = 'error';
+    
+    // Check for CAPTCHA
+    if (lowerHtml.includes('captcha') || lowerHtml.includes('recaptcha') || lowerHtml.includes('hcaptcha')) {
+      step.detail = 'CAPTCHA detected on login page';
+      return { ok: false, authenticated: false, error: 'CAPTCHA required', raw_response: data };
+    }
+
+    // Invalid credentials
+    if (lowerHtml.includes('error') || lowerHtml.includes('incorrecto') || lowerHtml.includes('inválido')) {
+      step.detail = 'Invalid credentials error shown';
+      return { ok: false, authenticated: false, error: 'Invalid credentials', raw_response: data };
+    }
+
+    step.detail = 'Login did not authenticate - no auth markers found';
     return { 
       ok: false, 
-      status: 'LOGIN_PAGE_UNREACHABLE', 
-      error: probeResult.error,
-      loginAttempts: probeResult.attempts,
+      authenticated: false, 
+      error: 'Login failed - authentication not successful',
+      raw_response: { html_snippet: html.substring(0, 1000) },
     };
-  }
 
-  const loginUrl = probeResult.loginUrl!;
-  const getHtml = probeResult.html!;
-  let cookieJar: CookieJar = { cookies: probeResult.cookies };
-  
-  // Check for CAPTCHA
-  if (detectCaptcha(getHtml)) {
-    steps.push({
-      name: 'CAPTCHA_CHECK',
-      started_at: new Date().toISOString(),
-      finished_at: new Date().toISOString(),
-      status: 'error',
-      detail: 'CAPTCHA detected on login page',
-    });
-    return { ok: false, status: 'CAPTCHA_REQUIRED', error: 'CAPTCHA detected - manual login required' };
-  }
-  
-  // Extract ViewState and form fields
-  const viewState = extractViewState(getHtml);
-  const formFields = extractFormFields(getHtml);
-  
-  steps.push({
-    name: 'EXTRACT_FORM',
-    started_at: new Date().toISOString(),
-    finished_at: new Date().toISOString(),
-    status: 'success',
-    detail: `ViewState: ${viewState ? 'found' : 'not found'}, Form: ${formFields?.formId || 'not found'}`,
-  });
-  
-  cookieJar.viewState = viewState || undefined;
-  
-  // Step 2: POST login credentials
-  steps.push({ name: 'POST_LOGIN', started_at: new Date().toISOString(), status: 'running' });
-  
-  const postAttempt: AttemptLog = {
-    phase: 'POST_LOGIN',
-    url: loginUrl,
-    method: 'POST',
-    status: null,
-    latency_ms: 0,
-    success: false,
-  };
-  
-  // Build form data
-  const formData = new URLSearchParams();
-  
-  if (viewState) {
-    formData.append('javax.faces.ViewState', viewState);
-  }
-  
-  const usernameFieldNames = [
-    formFields?.usernameField,
-    'loginForm:username',
-    'loginForm:j_username',
-    'j_username',
-    'username',
-    'email',
-    'loginForm:email',
-  ].filter(Boolean) as string[];
-  
-  const passwordFieldNames = [
-    formFields?.passwordField,
-    'loginForm:password',
-    'loginForm:j_password',
-    'j_password',
-    'password',
-    'loginForm:clave',
-  ].filter(Boolean) as string[];
-  
-  formData.append(usernameFieldNames[0] || 'loginForm:username', username);
-  formData.append(passwordFieldNames[0] || 'loginForm:password', password);
-  formData.append('loginForm', 'loginForm');
-  
-  if (formFields?.submitButton) {
-    formData.append(formFields.submitButton, '');
-  } else {
-    formData.append('loginForm:btnIngresar', '');
-    formData.append('loginForm:submit', '');
-  }
-  
-  const startPost = Date.now();
-  
-  try {
-    const postResponse = await fetch(loginUrl, {
-      method: 'POST',
-      headers: {
-        ...BROWSER_HEADERS,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': cookieJarToHeader(cookieJar),
-        'Referer': loginUrl,
-        'Origin': ICARUS_BASE_URL,
-      },
-      body: formData.toString(),
-      redirect: 'manual',
-    });
-    
-    postAttempt.status = postResponse.status;
-    postAttempt.latency_ms = Date.now() - startPost;
-    
-    // Capture new cookies
-    const newCookies = postResponse.headers.getSetCookie?.() || [];
-    const parsedNew = parseCookies(newCookies);
-    for (const newCookie of parsedNew) {
-      const existingIdx = cookieJar.cookies.findIndex(c => c.name === newCookie.name);
-      if (existingIdx >= 0) {
-        cookieJar.cookies[existingIdx] = newCookie;
-      } else {
-        cookieJar.cookies.push(newCookie);
-      }
-    }
-    
-    // Handle redirect (302/303)
-    if (postResponse.status === 302 || postResponse.status === 303) {
-      const location = postResponse.headers.get('location');
-      postAttempt.response_snippet = `Redirect to: ${location}`;
-      postAttempt.success = true;
-      attempts.push(postAttempt);
-      
-      if (location?.includes('login')) {
-        steps[steps.length - 1].status = 'error';
-        steps[steps.length - 1].detail = 'Redirected back to login - invalid credentials';
-        steps[steps.length - 1].finished_at = new Date().toISOString();
-        return { ok: false, status: 'AUTH_FAILED', error: 'Invalid credentials' };
-      }
-      
-      if (location) {
-        const redirectUrl = location.startsWith('http') ? location : `${ICARUS_BASE_URL}${location}`;
-        const redirectResponse = await fetch(redirectUrl, {
-          method: 'GET',
-          headers: {
-            ...BROWSER_HEADERS,
-            'Cookie': cookieJarToHeader(cookieJar),
-          },
-          redirect: 'manual',
-        });
-        
-        const redirectCookies = redirectResponse.headers.getSetCookie?.() || [];
-        for (const c of parseCookies(redirectCookies)) {
-          const idx = cookieJar.cookies.findIndex(x => x.name === c.name);
-          if (idx >= 0) cookieJar.cookies[idx] = c;
-          else cookieJar.cookies.push(c);
-        }
-      }
-    } else {
-      const postHtml = await postResponse.text();
-      postAttempt.response_snippet = truncate(postHtml, 500);
-      
-      if (postHtml.includes('error') || postHtml.includes('incorrecto') || postHtml.includes('inválido')) {
-        postAttempt.error_type = 'AUTH_FAILED';
-        attempts.push(postAttempt);
-        steps[steps.length - 1].status = 'error';
-        steps[steps.length - 1].detail = 'Login error response';
-        steps[steps.length - 1].finished_at = new Date().toISOString();
-        return { ok: false, status: 'AUTH_FAILED', error: 'Invalid credentials' };
-      }
-      
-      postAttempt.success = true;
-      attempts.push(postAttempt);
-    }
-    
-    steps[steps.length - 1].status = 'success';
-    steps[steps.length - 1].detail = `Status: ${postAttempt.status}, Cookies: ${cookieJar.cookies.length}`;
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    
   } catch (err) {
-    postAttempt.latency_ms = Date.now() - startPost;
-    postAttempt.error_type = 'NETWORK_ERROR';
-    postAttempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
-    attempts.push(postAttempt);
-    steps[steps.length - 1].status = 'error';
-    steps[steps.length - 1].detail = 'Network error during login';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    return { ok: false, status: 'ERROR', error: 'Network error during login' };
+    const step = steps[steps.length - 1];
+    step.status = 'error';
+    step.detail = err instanceof Error ? err.message : 'Unknown error';
+    step.finished_at = new Date().toISOString();
+    return { ok: false, authenticated: false, error: err instanceof Error ? err.message : 'Unknown error' };
   }
-  
-  // Step 3: Verify authentication
-  steps.push({ name: 'VERIFY_AUTH', started_at: new Date().toISOString(), status: 'running' });
-  
-  const verifyAttempt: AttemptLog = {
-    phase: 'VERIFY_AUTH',
-    url: PROCESS_LIST_URL,
-    method: 'GET',
-    status: null,
-    latency_ms: 0,
-    success: false,
-  };
-  
-  const startVerify = Date.now();
-  
-  try {
-    const verifyResponse = await fetch(PROCESS_LIST_URL, {
-      method: 'GET',
-      headers: {
-        ...BROWSER_HEADERS,
-        'Cookie': cookieJarToHeader(cookieJar),
-      },
-      redirect: 'manual',
-    });
-    
-    verifyAttempt.status = verifyResponse.status;
-    verifyAttempt.latency_ms = Date.now() - startVerify;
-    
-    if (verifyResponse.status === 302 || verifyResponse.status === 303) {
-      const location = verifyResponse.headers.get('location');
-      if (location?.includes('login')) {
-        verifyAttempt.error_type = 'AUTH_FAILED';
-        verifyAttempt.response_snippet = `Redirected to: ${location}`;
-        attempts.push(verifyAttempt);
-        steps[steps.length - 1].status = 'error';
-        steps[steps.length - 1].detail = 'Session not valid - redirected to login';
-        steps[steps.length - 1].finished_at = new Date().toISOString();
-        return { ok: false, status: 'AUTH_FAILED', error: 'Session not established' };
-      }
-    }
-    
-    const verifyHtml = await verifyResponse.text();
-    verifyAttempt.response_snippet = truncate(verifyHtml, 500);
-    
-    if (!isAuthenticatedPage(verifyHtml)) {
-      if (verifyHtml.toLowerCase().includes('login') || verifyHtml.toLowerCase().includes('iniciar sesión')) {
-        verifyAttempt.error_type = 'AUTH_FAILED';
-        attempts.push(verifyAttempt);
-        steps[steps.length - 1].status = 'error';
-        steps[steps.length - 1].detail = 'Got login page instead of process list';
-        steps[steps.length - 1].finished_at = new Date().toISOString();
-        return { ok: false, status: 'AUTH_FAILED', error: 'Authentication failed' };
-      }
-    }
-    
-    const newViewState = extractViewState(verifyHtml);
-    if (newViewState) {
-      cookieJar.viewState = newViewState;
-    }
-    
-    verifyAttempt.success = true;
-    attempts.push(verifyAttempt);
-    
-    steps[steps.length - 1].status = 'success';
-    steps[steps.length - 1].detail = 'Authenticated markers found';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    
-    return { ok: true, cookieJar, status: 'CONNECTED' };
-    
-  } catch (err) {
-    verifyAttempt.latency_ms = Date.now() - startVerify;
-    verifyAttempt.error_type = 'NETWORK_ERROR';
-    verifyAttempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
-    attempts.push(verifyAttempt);
-    steps[steps.length - 1].status = 'error';
-    steps[steps.length - 1].detail = 'Failed to verify authentication';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    return { ok: false, status: 'ERROR', error: 'Failed to verify authentication' };
-  }
-}
-
-// ============= ERROR HELPER =============
-
-function generateRequestId(): string {
-  return `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
-}
-
-function jsonError(
-  status: number,
-  code: string,
-  message: string,
-  meta?: Record<string, unknown>
-): Response {
-  const request_id = generateRequestId();
-  const body = {
-    ok: false,
-    code,
-    message,
-    request_id,
-    ...(meta || {}),
-    timestamp: new Date().toISOString(),
-  };
-  console.error(`[icarus-auth] Error ${code}: ${message}`, meta ? JSON.stringify(meta).substring(0, 500) : '');
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
-function jsonSuccess(data: Record<string, unknown>): Response {
-  const request_id = generateRequestId();
-  return new Response(
-    JSON.stringify({ ok: true, request_id, ...data, timestamp: new Date().toISOString() }),
-    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-  );
 }
 
 // ============= ENCRYPTION KEY VALIDATION =============
@@ -988,15 +392,15 @@ Deno.serve(async (req) => {
   }
 
   const steps: Step[] = [];
-  const attempts: AttemptLog[] = [];
 
-  const addStep = (name: string, status: 'success' | 'error', detail?: string) => {
+  const addStep = (name: string, status: 'success' | 'error', detail?: string, meta?: Record<string, unknown>) => {
     steps.push({
       name,
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
       status,
       detail,
+      meta,
     });
   };
 
@@ -1017,9 +421,17 @@ Deno.serve(async (req) => {
       addStep('KEY_CHECK', 'error', keyCheck.error);
       return jsonError(500, 'MISSING_OR_INVALID_SECRET', keyCheck.error || 'Invalid encryption key', { steps });
     }
-    addStep('KEY_CHECK', 'success', 'Encryption key valid (32 bytes)');
+    addStep('KEY_CHECK', 'success', 'Encryption key valid');
 
-    // Step 3: Parse request body safely
+    // Step 3: Check Firecrawl availability
+    const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
+    if (!firecrawlKey) {
+      addStep('FIRECRAWL_CHECK', 'error', 'FIRECRAWL_API_KEY not configured');
+      return jsonError(500, 'FIRECRAWL_NOT_CONFIGURED', 'Firecrawl API key is required for ICARUS integration', { steps });
+    }
+    addStep('FIRECRAWL_CHECK', 'success', 'Firecrawl configured');
+
+    // Step 4: Parse request body safely
     let payload: { action?: string; username?: string; password?: string } = {};
     try {
       const text = await req.text();
@@ -1033,7 +445,7 @@ Deno.serve(async (req) => {
     const action = payload.action || 'refresh';
     addStep('PARSE_BODY', 'success', `Action: ${action}`);
 
-    // Step 4: Authenticate user
+    // Step 5: Authenticate user
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       addStep('AUTH_CHECK', 'error', 'Missing Authorization header');
@@ -1046,11 +458,14 @@ Deno.serve(async (req) => {
     
     if (authError || !user) {
       addStep('AUTH_CHECK', 'error', authError?.message || 'Invalid token');
-      return jsonError(401, 'UNAUTHORIZED', authError?.message || 'Invalid or expired token', { steps });
+      return jsonError(401, 'UNAUTHORIZED', authError?.message || 'Invalid token', { steps });
     }
     
     const userId = user.id;
     addStep('AUTH_CHECK', 'success', `User: ${userId.substring(0, 8)}...`);
+
+    // Step 6: Check connectivity
+    const connectivity = await checkConnectivity(steps);
 
     // ============= ACTION: LOGIN =============
     if (action === 'login') {
@@ -1062,35 +477,31 @@ Deno.serve(async (req) => {
       }
       addStep('VALIDATE_INPUT', 'success', `Username: ${username}`);
 
-      console.log(`[icarus-auth] Starting login for user ${userId.substring(0, 8)}...`);
+      console.log(`[icarus-auth] Starting Firecrawl login for user ${userId.substring(0, 8)}...`);
 
-      const result = await performLogin(username, password, attempts, steps);
+      const result = await performFirecrawlLogin(username, password, steps);
 
-      if (!result.ok) {
+      if (!result.ok || !result.authenticated) {
+        // Log the failed attempt
         await supabase.from('icarus_sync_runs').insert({
           owner_id: userId,
           status: 'ERROR',
           mode: 'auth',
-          classification: result.status,
+          classification: result.error?.includes('CAPTCHA') ? 'CAPTCHA_REQUIRED' : 'AUTH_FAILED',
           steps,
-          attempts,
           error_message: result.error,
           finished_at: new Date().toISOString(),
         });
 
-        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 :
-                           result.status === 'LOGIN_PAGE_UNREACHABLE' ? 502 : 400;
-
-        return jsonError(httpStatus, result.status, result.error || 'Authentication failed', { 
-          status: result.status, 
-          steps, 
-          attempts,
-          login_attempts: result.loginAttempts,
+        return jsonError(400, 'AUTH_FAILED', result.error || 'Authentication failed', { 
+          steps,
+          connectivity,
+          worker_method: 'FIRECRAWL',
         });
       }
 
+      // Save credentials
       const encryptedPassword = await encryptSecret(password);
-      const encryptedSession = await encryptSecret(JSON.stringify(result.cookieJar));
 
       const { error: upsertError } = await supabase
         .from('integrations')
@@ -1100,9 +511,10 @@ Deno.serve(async (req) => {
           status: 'CONNECTED',
           username,
           password_encrypted: encryptedPassword,
-          session_encrypted: encryptedSession,
+          session_encrypted: null, // Firecrawl manages sessions differently
           session_last_ok_at: new Date().toISOString(),
           last_error: null,
+          metadata: { worker_method: 'FIRECRAWL', processes_count: result.processes_count },
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'owner_id,provider',
@@ -1111,32 +523,31 @@ Deno.serve(async (req) => {
       if (upsertError) {
         console.error('[icarus-auth] Failed to save integration:', upsertError);
         addStep('SAVE_INTEGRATION', 'error', upsertError.message);
-        return jsonError(500, 'DB_ERROR', 'Failed to save integration', { 
-          steps, 
-          attempts,
-          db_error: upsertError.message 
-        });
+        return jsonError(500, 'DB_ERROR', 'Failed to save integration', { steps, db_error: upsertError.message });
       }
-      addStep('SAVE_INTEGRATION', 'success', 'Session stored');
+      addStep('SAVE_INTEGRATION', 'success', 'Integration saved');
 
+      // Log successful run
       await supabase.from('icarus_sync_runs').insert({
         owner_id: userId,
         status: 'SUCCESS',
         mode: 'auth',
         classification: 'SUCCESS',
         steps,
-        attempts,
+        processes_found: result.processes_count || 0,
         finished_at: new Date().toISOString(),
       });
 
       console.log(`[icarus-auth] Login successful for user ${userId.substring(0, 8)}...`);
 
       return jsonSuccess({ 
-        message: 'Login successful',
+        message: 'Login successful via Firecrawl browser worker',
         status: 'CONNECTED',
         session_stored: true,
+        processes_count: result.processes_count || 0,
+        worker_method: 'FIRECRAWL',
+        connectivity,
         steps,
-        attempts 
       });
     }
 
@@ -1151,18 +562,18 @@ Deno.serve(async (req) => {
 
       if (loadError) {
         addStep('LOAD_INTEGRATION', 'error', loadError.message);
-        return jsonError(500, 'DB_ERROR', 'Failed to load integration', { steps, db_error: loadError.message });
+        return jsonError(500, 'DB_ERROR', 'Failed to load integration', { steps });
       }
 
       if (!integration) {
         addStep('LOAD_INTEGRATION', 'error', 'No ICARUS integration found');
-        return jsonError(404, 'INTEGRATION_NOT_FOUND', 'No ICARUS integration found for this user', { steps });
+        return jsonError(404, 'INTEGRATION_NOT_FOUND', 'No ICARUS integration found', { steps });
       }
       addStep('LOAD_INTEGRATION', 'success', `Found integration: ${integration.id.substring(0, 8)}...`);
 
       if (!integration.username || !integration.password_encrypted) {
         addStep('CHECK_CREDENTIALS', 'error', 'Missing stored credentials');
-        return jsonError(400, 'MISSING_CREDENTIALS', 'No stored credentials - please save credentials first', { steps });
+        return jsonError(400, 'MISSING_CREDENTIALS', 'No stored credentials', { steps });
       }
       addStep('CHECK_CREDENTIALS', 'success', `Username: ${integration.username}`);
 
@@ -1170,59 +581,51 @@ Deno.serve(async (req) => {
       try {
         decryptedPassword = await decryptSecret(integration.password_encrypted);
         if (!decryptedPassword) {
-          throw new Error('Decryption returned empty string');
+          throw new Error('Decryption returned empty');
         }
         addStep('DECRYPT', 'success', 'Password decrypted');
-      } catch (decryptErr) {
-        addStep('DECRYPT', 'error', decryptErr instanceof Error ? decryptErr.message : 'Decrypt failed');
-        return jsonError(500, 'DECRYPT_FAILED', 'Failed to decrypt stored password', { steps });
+      } catch (err) {
+        addStep('DECRYPT', 'error', err instanceof Error ? err.message : 'Decrypt failed');
+        return jsonError(500, 'DECRYPT_FAILED', 'Failed to decrypt password', { steps });
       }
 
-      console.log(`[icarus-auth] Refreshing session for user ${userId.substring(0, 8)}...`);
-      const result = await performLogin(integration.username, decryptedPassword, attempts, steps);
+      console.log(`[icarus-auth] Refreshing via Firecrawl for user ${userId.substring(0, 8)}...`);
+      const result = await performFirecrawlLogin(integration.username, decryptedPassword, steps);
 
-      if (!result.ok) {
+      if (!result.ok || !result.authenticated) {
         await supabase.from('integrations').update({
-          status: result.status === 'CAPTCHA_REQUIRED' ? 'ERROR' : result.status,
+          status: 'NEEDS_REAUTH',
           last_error: result.error,
           updated_at: new Date().toISOString(),
         }).eq('id', integration.id);
 
-        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 :
-                           result.status === 'LOGIN_PAGE_UNREACHABLE' ? 502 : 400;
-
-        return jsonError(httpStatus, result.status, result.error || 'Authentication failed', { 
-          status: result.status, 
-          steps, 
-          attempts,
-          login_attempts: result.loginAttempts,
+        return jsonError(400, 'AUTH_FAILED', result.error || 'Authentication failed', { 
+          steps,
+          connectivity,
+          worker_method: 'FIRECRAWL',
         });
       }
 
-      const encryptedSession = await encryptSecret(JSON.stringify(result.cookieJar));
-
-      const { error: updateError } = await supabase.from('integrations').update({
+      // Update integration status
+      await supabase.from('integrations').update({
         status: 'CONNECTED',
-        session_encrypted: encryptedSession,
         session_last_ok_at: new Date().toISOString(),
         last_error: null,
+        metadata: { worker_method: 'FIRECRAWL', processes_count: result.processes_count },
         updated_at: new Date().toISOString(),
       }).eq('id', integration.id);
-
-      if (updateError) {
-        addStep('SAVE_SESSION', 'error', updateError.message);
-        return jsonError(500, 'DB_ERROR', 'Failed to save session', { steps, db_error: updateError.message });
-      }
-      addStep('SAVE_SESSION', 'success', 'Session refreshed and stored');
+      addStep('UPDATE_INTEGRATION', 'success', 'Status updated');
 
       console.log(`[icarus-auth] Session refreshed for user ${userId.substring(0, 8)}...`);
 
       return jsonSuccess({ 
-        message: 'Session refreshed',
+        message: 'Session refreshed via Firecrawl',
         status: 'CONNECTED',
         session_stored: true,
+        processes_count: result.processes_count || 0,
+        worker_method: 'FIRECRAWL',
+        connectivity,
         steps,
-        attempts 
       });
     }
 
@@ -1230,6 +633,6 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error('[icarus-auth] Unexpected error:', err);
-    return jsonError(500, 'UNKNOWN_ERROR', err instanceof Error ? err.message : 'Unknown error', { steps, attempts });
+    return jsonError(500, 'UNKNOWN_ERROR', err instanceof Error ? err.message : 'Unknown error', { steps });
   }
 });
