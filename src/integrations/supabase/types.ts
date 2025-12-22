@@ -604,11 +604,15 @@ export type Database = {
           last_sync_at: string | null
           metadata: Json | null
           owner_id: string
+          password_encrypted: string | null
           provider: string
           secret_encrypted: string | null
           secret_last4: string | null
+          session_encrypted: string | null
+          session_last_ok_at: string | null
           status: string
           updated_at: string
+          username: string | null
         }
         Insert: {
           created_at?: string
@@ -618,11 +622,15 @@ export type Database = {
           last_sync_at?: string | null
           metadata?: Json | null
           owner_id: string
+          password_encrypted?: string | null
           provider: string
           secret_encrypted?: string | null
           secret_last4?: string | null
+          session_encrypted?: string | null
+          session_last_ok_at?: string | null
           status?: string
           updated_at?: string
+          username?: string | null
         }
         Update: {
           created_at?: string
@@ -632,11 +640,15 @@ export type Database = {
           last_sync_at?: string | null
           metadata?: Json | null
           owner_id?: string
+          password_encrypted?: string | null
           provider?: string
           secret_encrypted?: string | null
           secret_last4?: string | null
+          session_encrypted?: string | null
+          session_last_ok_at?: string | null
           status?: string
           updated_at?: string
+          username?: string | null
         }
         Relationships: [
           {
