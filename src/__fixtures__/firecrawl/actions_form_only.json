@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "data": {
+    "markdown": "# Consulta de Procesos por Número de Radicación\n\nIngrese el número de radicación para consultar:\n\n0 / 23\n\n[  ] Últimas actuaciones (últimos 30 días)\n[x] Todos los Procesos\n\n**Número de Radicación:** ________________\n\n[Consultar]\n\n---\n\n*El formato del número de radicación es de 23 dígitos.*",
+    "html": "<html><body><form id=\"search-form\"><input maxlength=\"23\" placeholder=\"Ingrese radicado\"/><button type=\"submit\">Consultar</button></form></body></html>",
+    "screenshot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "metadata": {
+      "title": "Consulta de Procesos - Rama Judicial",
+      "sourceURL": "https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion"
+    }
+  }
+}

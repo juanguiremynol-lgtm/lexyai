@@ -1,0 +1,20 @@
+[
+  {
+    "phase": "QUERY_LIST",
+    "url": "https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=05001400300220250105400&SoloActivos=false&pagina=1",
+    "method": "GET",
+    "status": 200,
+    "latency_ms": 150,
+    "success": true,
+    "response_snippet_1kb": "{\"procesos\":[{\"idProceso\":12345,..."
+  },
+  {
+    "phase": "FETCH_ACTUACIONES",
+    "url": "https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/12345",
+    "method": "GET",
+    "status": 200,
+    "latency_ms": 120,
+    "success": true,
+    "response_snippet_1kb": "{\"actuaciones\":[{\"fechaActuacion\":..."
+  }
+]

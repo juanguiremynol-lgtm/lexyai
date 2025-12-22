@@ -1,0 +1,26 @@
+[
+  {
+    "source": "CPNU",
+    "event_type": "AUTO",
+    "title": "AUTO ADMISORIO DE LA DEMANDA",
+    "description": "AUTO ADMISORIO DE LA DEMANDA",
+    "attachments": [
+      {
+        "label": "Auto Admisorio",
+        "url": "https://consultaprocesos.ramajudicial.gov.co/docs/auto_12345.pdf"
+      }
+    ]
+  },
+  {
+    "source": "CPNU",
+    "event_type": "ACTUACION",
+    "title": "RADICACIÓN DEMANDA",
+    "description": "RADICACIÓN DEMANDA"
+  },
+  {
+    "source": "CPNU",
+    "event_type": "NOTIFICACION",
+    "title": "NOTIFICACIÓN PERSONAL",
+    "description": "NOTIFICACIÓN PERSONAL"
+  }
+]

@@ -445,7 +445,7 @@ export default function ProcessStatusTest() {
                     </TabsContent>
                     
                     <TabsContent value="raw">
-                      <div className="flex justify-end mb-2">
+                      <div className="flex justify-end mb-2 gap-2">
                         <Button 
                           variant="ghost" 
                           size="sm"
@@ -453,6 +453,57 @@ export default function ProcessStatusTest() {
                         >
                           <Copy className="h-4 w-4 mr-1" />
                           Copy JSON
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const blob = new Blob([JSON.stringify(result.raw_response, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `fixture_raw_${result.adapter}_${Date.now()}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            toast.success("Fixture descargado");
+                          }}
+                        >
+                          Export Raw Fixture
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const redact = (data: unknown): unknown => {
+                              if (!data || typeof data !== 'object') return data;
+                              if (typeof data === 'string') {
+                                return data
+                                  .replace(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+){2,}[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g, 'NOMBRE_TEST')
+                                  .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, 'email@test.com');
+                              }
+                              if (Array.isArray(data)) return data.map(redact);
+                              const result: Record<string, unknown> = {};
+                              for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+                                if (['demandante', 'demandado', 'nombre', 'cedula'].some(f => key.toLowerCase().includes(f))) {
+                                  result[key] = 'REDACTED_TEST';
+                                } else {
+                                  result[key] = redact(value);
+                                }
+                              }
+                              return result;
+                            };
+                            const redacted = redact(result.raw_response);
+                            const blob = new Blob([JSON.stringify(redacted, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `fixture_redacted_${result.adapter}_${Date.now()}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            toast.success("Fixture redactado descargado");
+                          }}
+                        >
+                          Export Redacted Fixture
                         </Button>
                       </div>
                       <ScrollArea className="h-64 rounded border">

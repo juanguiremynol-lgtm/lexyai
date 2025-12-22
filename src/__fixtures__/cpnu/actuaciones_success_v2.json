@@ -1,0 +1,41 @@
+{
+  "actuaciones": [
+    {
+      "idActuacion": 1001,
+      "fechaActuacion": "2025-06-01",
+      "actuacion": "AUTO ADMISORIO DE LA DEMANDA",
+      "anotacion": "Se admite demanda ejecutiva singular. Líbrese mandamiento de pago.",
+      "nombreDespacho": "Juzgado 002 Civil Municipal de Medellín",
+      "fechaInicial": "2025-06-01",
+      "fechaFinal": "2025-06-01",
+      "documentos": [
+        {
+          "nombre": "Auto Admisorio",
+          "url": "https://consultaprocesos.ramajudicial.gov.co/docs/auto_12345.pdf"
+        }
+      ]
+    },
+    {
+      "idActuacion": 1002,
+      "fechaActuacion": "2025-05-20",
+      "actuacion": "RADICACIÓN DEMANDA",
+      "anotacion": "Se radica demanda ejecutiva.",
+      "nombreDespacho": "Juzgado 002 Civil Municipal de Medellín",
+      "fechaInicial": "2025-05-20",
+      "fechaFinal": "2025-05-20",
+      "documentos": []
+    },
+    {
+      "idActuacion": 1003,
+      "fechaActuacion": "2025-06-15",
+      "actuacion": "NOTIFICACIÓN PERSONAL",
+      "anotacion": "Se notifica personalmente al demandado.",
+      "nombreDespacho": "Juzgado 002 Civil Municipal de Medellín",
+      "fechaInicial": "2025-06-15",
+      "fechaFinal": "2025-06-15",
+      "documentos": []
+    }
+  ],
+  "idProceso": 12345,
+  "radicado": "05001400300220250105400"
+}
