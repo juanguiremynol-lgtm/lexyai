@@ -21,6 +21,9 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { DocumentUpload } from "@/components/filings/DocumentUpload";
 import { DocumentList } from "@/components/filings/DocumentList";
+import { ProcessTimeline } from "@/components/filings/ProcessTimeline";
+import { HearingsList } from "@/components/filings/HearingsList";
+import { CrawlerControl } from "@/components/filings/CrawlerControl";
 import {
   ArrowLeft,
   Building2,
@@ -29,6 +32,8 @@ import {
   CheckCircle,
   Copy,
   Save,
+  Clock,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -235,10 +240,18 @@ export default function FilingDetail() {
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
           <Tabs defaultValue="court" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="court">
                 <Building2 className="h-4 w-4 mr-2" />
                 Juzgado
+              </TabsTrigger>
+              <TabsTrigger value="timeline">
+                <Clock className="h-4 w-4 mr-2" />
+                Actuaciones
+              </TabsTrigger>
+              <TabsTrigger value="hearings">
+                <Calendar className="h-4 w-4 mr-2" />
+                Audiencias
               </TabsTrigger>
               <TabsTrigger value="emails">
                 <Mail className="h-4 w-4 mr-2" />
@@ -338,6 +351,32 @@ export default function FilingDetail() {
                       Confirmar Radicado
                     </Button>
                   </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="timeline" className="space-y-4">
+              <CrawlerControl
+                filingId={filing.id}
+                radicado={filing.radicado}
+                crawlerEnabled={filing.crawler_enabled}
+                lastCrawledAt={filing.last_crawled_at}
+                ramaJudicialUrl={filing.rama_judicial_url}
+              />
+              <Card>
+                <CardHeader>
+                  <CardTitle>Actuaciones del Proceso</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ProcessTimeline filingId={filing.id} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="hearings" className="space-y-4">
+              <Card>
+                <CardContent className="pt-6">
+                  <HearingsList filingId={filing.id} />
                 </CardContent>
               </Card>
             </TabsContent>
