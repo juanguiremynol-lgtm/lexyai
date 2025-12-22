@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
   RefreshCw, 
   AlertCircle, 
@@ -21,10 +22,42 @@ import {
   XCircle,
   Zap,
   Settings,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  Activity,
+  Key
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
+
+interface EdgeFunctionError {
+  code?: string;
+  message?: string;
+  status?: number;
+  ok?: boolean;
+  timestamp?: string;
+}
+
+function parseEdgeFunctionError(data: any, error: any): EdgeFunctionError {
+  if (data && typeof data === 'object' && data.ok === false) {
+    return {
+      code: data.code || 'UNKNOWN',
+      message: data.message || data.error || 'Unknown error',
+      ok: false,
+      timestamp: data.timestamp,
+    };
+  }
+  
+  if (error) {
+    return {
+      code: 'INVOKE_ERROR',
+      message: error.message || String(error),
+      ok: false,
+    };
+  }
+  
+  return { code: 'UNKNOWN', message: 'Unknown error', ok: false };
+}
 
 interface AttemptLog {
   phase: string;
@@ -89,7 +122,6 @@ export default function IcarusTest() {
     },
   });
 
-  // Fetch specific run
   const { data: syncRun, isLoading: loadingRun } = useQuery({
     queryKey: ["icarus-sync-run", runIdParam],
     queryFn: async () => {
@@ -122,13 +154,42 @@ export default function IcarusTest() {
     },
   });
 
+  const [lastError, setLastError] = useState<EdgeFunctionError | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [healthResult, setHealthResult] = useState<any>(null);
+
+  // Health check
+  const checkHealth = useMutation({
+    mutationFn: async () => {
+      setLastError(null);
+      const { data, error } = await supabase.functions.invoke("icarus-health");
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      setHealthResult(data);
+      return data;
+    },
+  });
+
   // Test login action (refreshes session using stored credentials)
   const testLogin = useMutation({
     mutationFn: async () => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("icarus-auth", {
         body: { action: "refresh" },
       });
-      if (error) throw error;
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
       return data;
     },
     onSuccess: (data) => {
@@ -141,10 +202,20 @@ export default function IcarusTest() {
   // Test list action
   const testList = useMutation({
     mutationFn: async () => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("adapter-icarus", {
         body: { action: "list" },
       });
-      if (error) throw error;
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
       return data;
     },
     onSuccess: (data) => {
@@ -157,10 +228,20 @@ export default function IcarusTest() {
   // Full sync
   const runSync = useMutation({
     mutationFn: async () => {
+      setLastError(null);
       const { data, error } = await supabase.functions.invoke("icarus-sync", {
         body: { mode: "manual", fullSync: true },
       });
-      if (error) throw error;
+      if (error) {
+        const parsed = parseEdgeFunctionError(data, error);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
+      if (data && !data.ok) {
+        const parsed = parseEdgeFunctionError(data, null);
+        setLastError(parsed);
+        throw new Error(parsed.message);
+      }
       return data;
     },
     onSuccess: (data) => {
