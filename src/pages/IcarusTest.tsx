@@ -100,8 +100,8 @@ export default function IcarusTest() {
   });
 
   const displayRun = syncRun || (recentRuns && recentRuns[0]);
-  const steps = (Array.isArray(displayRun?.steps) ? displayRun.steps : []) as Step[];
-  const attempts = (Array.isArray(displayRun?.attempts) ? displayRun.attempts : Array.isArray(testResult?.attempts) ? testResult.attempts : []) as AttemptLog[];
+  const steps = (Array.isArray(displayRun?.steps) ? displayRun.steps : []) as unknown as Step[];
+  const attempts = (Array.isArray(displayRun?.attempts) ? displayRun.attempts : Array.isArray(testResult?.attempts) ? testResult.attempts : []) as unknown as AttemptLog[];
 
   return (
     <div className="space-y-6">
