@@ -11,7 +11,6 @@ import {
   Cloud, 
   CloudOff, 
   RefreshCw, 
-  Link2, 
   Unlink, 
   AlertCircle, 
   CheckCircle2,
@@ -19,11 +18,13 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Save,
   LogIn
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
+import { Link } from "react-router-dom";
 
 export function IcarusIntegration() {
   const queryClient = useQueryClient();
@@ -31,7 +32,7 @@ export function IcarusIntegration() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  const { data: integration, isLoading } = useQuery({
+  const { data: integration, isLoading, refetch } = useQuery({
     queryKey: ["icarus-integration"],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -68,22 +69,72 @@ export function IcarusIntegration() {
     },
   });
 
-  const login = useMutation({
+  // Step 1: Save credentials (encrypts and stores)
+  const saveCredentials = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      const { data, error } = await supabase.functions.invoke("icarus-save-credentials", {
+        body: { username, password },
+      });
+      if (error) throw error;
+      if (!data.ok) throw new Error(data.error || "Failed to save credentials");
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("Credenciales guardadas");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error("Error al guardar: " + error.message);
+    },
+  });
+
+  // Step 2: Test login (uses stored credentials to create session)
+  const testLogin = useMutation({
+    mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke("icarus-auth", {
-        body: { action: "login", username, password },
+        body: { action: "refresh" },
       });
       if (error) throw error;
       if (!data.ok) throw new Error(data.error || "Login failed");
       return data;
     },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["icarus-integration"] });
+      toast.success("Login exitoso - Estado: " + data.status);
+    },
+    onError: (error) => {
+      toast.error("Error de login: " + error.message);
+    },
+  });
+
+  // Combined: Save and test
+  const saveAndTest = useMutation({
+    mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      // First save credentials
+      const saveResult = await supabase.functions.invoke("icarus-save-credentials", {
+        body: { username, password },
+      });
+      if (saveResult.error) throw saveResult.error;
+      if (!saveResult.data.ok) throw new Error(saveResult.data.error || "Failed to save credentials");
+
+      // Then test login
+      const loginResult = await supabase.functions.invoke("icarus-auth", {
+        body: { action: "refresh" },
+      });
+      if (loginResult.error) throw loginResult.error;
+      if (!loginResult.data.ok) throw new Error(loginResult.data.error || "Login failed");
+      
+      return loginResult.data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["icarus-integration"] });
+      queryClient.invalidateQueries({ queryKey: ["icarus-last-sync"] });
       setUsername("");
       setPassword("");
       toast.success("Conexión ICARUS exitosa");
     },
     onError: (error) => {
+      refetch(); // Refetch to show current state
       toast.error("Error: " + error.message);
     },
   });
@@ -103,6 +154,7 @@ export function IcarusIntegration() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["icarus-integration"] });
+      queryClient.invalidateQueries({ queryKey: ["icarus-last-sync"] });
       toast.success("Integración ICARUS desconectada");
     },
     onError: (error) => {
@@ -131,8 +183,9 @@ export function IcarusIntegration() {
   });
 
   const isConnected = integration?.status === "CONNECTED";
+  const hasCredentials = integration?.username && integration?.password_encrypted;
   const needsReauth = integration?.status === "NEEDS_REAUTH" || integration?.status === "AUTH_FAILED";
-  const isPending = login.isPending || syncNow.isPending;
+  const isPending = saveAndTest.isPending || syncNow.isPending || testLogin.isPending || saveCredentials.isPending;
 
   const getStatusBadge = () => {
     if (isConnected) {
@@ -159,10 +212,26 @@ export function IcarusIntegration() {
         </Badge>
       );
     }
+    if (integration?.status === "PENDING") {
+      return (
+        <Badge variant="secondary">
+          <Clock className="h-3 w-3 mr-1" />
+          Pendiente de verificación
+        </Badge>
+      );
+    }
+    if (hasCredentials) {
+      return (
+        <Badge variant="secondary">
+          <Clock className="h-3 w-3 mr-1" />
+          Credenciales guardadas
+        </Badge>
+      );
+    }
     return (
-      <Badge variant="secondary">
+      <Badge variant="outline">
         <CloudOff className="h-3 w-3 mr-1" />
-        Desconectado
+        No configurado
       </Badge>
     );
   };
@@ -215,6 +284,14 @@ export function IcarusIntegration() {
               })}
             </span>
           )}
+
+          <Link 
+            to="/process-status/test-icarus" 
+            className="text-sm text-primary hover:underline flex items-center gap-1"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Test Harness
+          </Link>
         </div>
 
         {/* Error Display */}
@@ -246,8 +323,8 @@ export function IcarusIntegration() {
           </div>
         )}
 
-        {/* Login Form */}
-        {(!isConnected || needsReauth) && (
+        {/* Login Form - show if not connected or needs reauth */}
+        {(!isConnected || needsReauth || !hasCredentials) && (
           <div className="space-y-4 border rounded-lg p-4">
             <div className="space-y-2">
               <Label htmlFor="icarus-username">Usuario ICARUS (email)</Label>
@@ -285,18 +362,33 @@ export function IcarusIntegration() {
               </div>
             </div>
 
-            <Button
-              onClick={() => login.mutate({ username, password })}
-              disabled={!username || !password || isPending}
-              className="w-full"
-            >
-              {login.isPending ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <LogIn className="h-4 w-4 mr-2" />
-              )}
-              {needsReauth ? "Reconectar" : "Conectar a ICARUS"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => saveAndTest.mutate({ username, password })}
+                disabled={!username || !password || isPending}
+                className="flex-1"
+              >
+                {saveAndTest.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Guardar y Probar
+              </Button>
+              
+              <Button
+                variant="outline"
+                onClick={() => saveCredentials.mutate({ username, password })}
+                disabled={!username || !password || isPending}
+              >
+                {saveCredentials.isPending ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Solo Guardar
+              </Button>
+            </div>
 
             <p className="text-xs text-muted-foreground">
               Tus credenciales se almacenan encriptadas y solo se usan para sincronizar tus procesos.
@@ -304,9 +396,25 @@ export function IcarusIntegration() {
           </div>
         )}
 
+        {/* Test Login Button - show if credentials exist but not connected */}
+        {hasCredentials && !isConnected && (
+          <Button
+            variant="outline"
+            onClick={() => testLogin.mutate()}
+            disabled={isPending}
+          >
+            {testLogin.isPending ? (
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <LogIn className="h-4 w-4 mr-2" />
+            )}
+            Probar Login
+          </Button>
+        )}
+
         {/* Connected Actions */}
         {isConnected && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button
               onClick={() => syncNow.mutate()}
               disabled={isPending}
@@ -317,6 +425,18 @@ export function IcarusIntegration() {
                 <RefreshCw className="h-4 w-4 mr-2" />
               )}
               Sincronizar Ahora
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => testLogin.mutate()}
+              disabled={isPending}
+            >
+              {testLogin.isPending ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <LogIn className="h-4 w-4 mr-2" />
+              )}
+              Probar Login
             </Button>
             <Button
               variant="outline"

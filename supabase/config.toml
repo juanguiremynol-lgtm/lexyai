@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.icarus-auth]
 verify_jwt = false
+
+[functions.icarus-save-credentials]
+verify_jwt = false
