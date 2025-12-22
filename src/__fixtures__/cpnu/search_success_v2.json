@@ -1,0 +1,18 @@
+{
+  "procesos": [
+    {
+      "idProceso": 12345,
+      "numeroRadicacion": "05001400300220250105400",
+      "despacho": "Juzgado 002 Civil Municipal de Medellín",
+      "nombreDespacho": "Juzgado 002 Civil Municipal de Medellín",
+      "demandante": "NOMBRE_TEST",
+      "demandado": "NOMBRE_TEST",
+      "tipoProceso": "EJECUTIVO SINGULAR",
+      "fechaRadicacion": "2025-01-15",
+      "fechaUltimaActuacion": "2025-06-01"
+    }
+  ],
+  "totalProcesos": 1,
+  "pagina": 1,
+  "totalPaginas": 1
+}

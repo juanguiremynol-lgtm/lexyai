@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "data": {
+    "markdown": "# Consulta de Procesos\n\n## Resultados de búsqueda\n\n**Número de Radicación:** 05001400300220250105400\n\n| Radicado | Despacho | Demandante | Demandado |\n|----------|----------|------------|------------|\n| 05001400300220250105400 | Juzgado 002 Civil Municipal de Medellín | NOMBRE_TEST | NOMBRE_TEST |\n\n### Detalle del Proceso\n\n- **idProceso:** 12345\n- **Tipo:** EJECUTIVO SINGULAR\n- **Fecha Radicación:** 2025-01-15\n\n[Ver Detalle](https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=12345)",
+    "html": "<html><body><div class=\"results\"><table data-proceso=\"12345\"><tr><td>05001400300220250105400</td><td>Juzgado 002 Civil Municipal de Medellín</td></tr></table></div></body></html>",
+    "screenshot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "metadata": {
+      "title": "Consulta de Procesos - Rama Judicial",
+      "sourceURL": "https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion"
+    }
+  }
+}
