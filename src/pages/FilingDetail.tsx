@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,17 @@ import { ProcessTimeline } from "@/components/filings/ProcessTimeline";
 import { HearingsList } from "@/components/filings/HearingsList";
 import { CrawlerControl } from "@/components/filings/CrawlerControl";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft,
   Building2,
   Mail,
@@ -34,6 +45,7 @@ import {
   Save,
   Clock,
   Calendar,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -47,6 +59,7 @@ import type { FilingStatus } from "@/types/database";
 
 export default function FilingDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
 
@@ -99,6 +112,23 @@ export default function FilingDetail() {
     },
     onError: (error) => {
       toast.error("Error: " + error.message);
+    },
+  });
+
+  const deleteFiling = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("filings")
+        .delete()
+        .eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Radicación eliminada");
+      navigate("/filings");
+    },
+    onError: (error) => {
+      toast.error("Error al eliminar: " + error.message);
     },
   });
 
@@ -196,21 +226,47 @@ export default function FilingDetail() {
             {filing.filing_type} • {matter?.practice_area || "Sin área"}
           </p>
         </div>
-        <Select
-          value={filing.status}
-          onValueChange={(v) => handleStatusChange(v as FilingStatus)}
-        >
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(FILING_STATUSES).map(([key, { label }]) => (
-              <SelectItem key={key} value={key}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select
+            value={filing.status}
+            onValueChange={(v) => handleStatusChange(v as FilingStatus)}
+          >
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(FILING_STATUSES).map(([key, { label }]) => (
+                <SelectItem key={key} value={key}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="icon" className="text-destructive hover:text-destructive">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Eliminar radicación?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta acción eliminará permanentemente esta radicación y todos sus documentos asociados.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteFiling.mutate()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Eliminar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
