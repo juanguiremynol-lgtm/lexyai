@@ -289,14 +289,76 @@ export default function ProcessStatus() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-serif font-bold">Estado de Procesos</h1>
-          <p className="text-muted-foreground">
-            Busque, agregue y monitoree procesos judiciales
-          </p>
-        </div>
+    <>
+      {/* Add Process Dialog - Outside Tabs so it's accessible from search results */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agregar Proceso a Monitoreo</DialogTitle>
+            <DialogDescription>
+              Ingrese los datos del proceso que desea monitorear
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-radicado">Radicado (23 dígitos)</Label>
+              <Input
+                id="add-radicado"
+                placeholder="11001310301520230001200"
+                value={newProcessRadicado}
+                onChange={(e) => setNewProcessRadicado(e.target.value)}
+                maxLength={23}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-despacho">Despacho (opcional)</Label>
+              <Input
+                id="add-despacho"
+                placeholder="Juzgado 15 Civil del Circuito"
+                value={newProcessDespacho}
+                onChange={(e) => setNewProcessDespacho(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAddDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={() =>
+                addProcessMutation.mutate({
+                  radicado: newProcessRadicado,
+                  despacho: newProcessDespacho,
+                })
+              }
+              disabled={
+                !newProcessRadicado ||
+                newProcessRadicado.length !== 23 ||
+                addProcessMutation.isPending
+              }
+            >
+              {addProcessMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Agregar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-serif font-bold">Estado de Procesos</h1>
+            <p className="text-muted-foreground">
+              Busque, agregue y monitoree procesos judiciales
+            </p>
+          </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" asChild>
             <Link to="/process-status/test">
@@ -499,71 +561,10 @@ export default function ProcessStatus() {
                   Administre los procesos en su lista de seguimiento
                 </CardDescription>
               </div>
-              <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Agregar Proceso
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Agregar Proceso a Monitoreo</DialogTitle>
-                    <DialogDescription>
-                      Ingrese los datos del proceso que desea monitorear
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="radicado">Radicado (23 dígitos)</Label>
-                      <Input
-                        id="radicado"
-                        placeholder="11001310301520230001200"
-                        value={newProcessRadicado}
-                        onChange={(e) => setNewProcessRadicado(e.target.value)}
-                        maxLength={23}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="despacho">Despacho (opcional)</Label>
-                      <Input
-                        id="despacho"
-                        placeholder="Juzgado 15 Civil del Circuito"
-                        value={newProcessDespacho}
-                        onChange={(e) => setNewProcessDespacho(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => setAddDialogOpen(false)}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        addProcessMutation.mutate({
-                          radicado: newProcessRadicado,
-                          despacho: newProcessDespacho,
-                        })
-                      }
-                      disabled={
-                        !newProcessRadicado ||
-                        newProcessRadicado.length !== 23 ||
-                        addProcessMutation.isPending
-                      }
-                    >
-                      {addProcessMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4 mr-2" />
-                      )}
-                      Agregar
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <Button onClick={() => setAddDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Agregar Proceso
+              </Button>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -685,6 +686,7 @@ export default function ProcessStatus() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+      </div>
+    </>
   );
 }
