@@ -59,6 +59,53 @@ export type Database = {
           },
         ]
       }
+      clients: {
+        Row: {
+          address: string | null
+          city: string | null
+          created_at: string
+          email: string | null
+          id: string
+          id_number: string | null
+          name: string
+          notes: string | null
+          owner_id: string
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          city?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          id_number?: string | null
+          name: string
+          notes?: string | null
+          owner_id: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          city?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          id_number?: string | null
+          name?: string
+          notes?: string | null
+          owner_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clients_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crawler_run_steps: {
         Row: {
           created_at: string
@@ -757,6 +804,7 @@ export type Database = {
       }
       matters: {
         Row: {
+          client_id: string | null
           client_id_number: string | null
           client_name: string
           created_at: string
@@ -768,6 +816,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_id?: string | null
           client_id_number?: string | null
           client_name: string
           created_at?: string
@@ -779,6 +828,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_id?: string | null
           client_id_number?: string | null
           client_name?: string
           created_at?: string
@@ -791,6 +841,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "matters_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "matters_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -801,6 +858,7 @@ export type Database = {
       }
       monitored_processes: {
         Row: {
+          client_id: string | null
           created_at: string
           demandados: string | null
           demandantes: string | null
@@ -826,6 +884,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_id?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
@@ -851,6 +910,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_id?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
@@ -876,6 +936,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "monitored_processes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "monitored_processes_owner_id_fkey"
             columns: ["owner_id"]
