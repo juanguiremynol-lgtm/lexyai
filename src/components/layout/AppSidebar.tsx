@@ -31,7 +31,7 @@ import { toast } from "sonner";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Asuntos", url: "/matters", icon: Briefcase },
+  { title: "Clientes", url: "/clients", icon: Briefcase },
   { title: "Radicaciones", url: "/filings", icon: FileText },
   { title: "Estado Procesos", url: "/process-status", icon: Eye },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },

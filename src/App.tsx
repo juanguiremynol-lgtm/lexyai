@@ -9,6 +9,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Matters from "./pages/Matters";
+import Clients from "./pages/Clients";
+import ClientDetail from "./pages/ClientDetail";
 import Filings from "./pages/Filings";
 import FilingDetail from "./pages/FilingDetail";
 import ProcessStatus from "./pages/ProcessStatus";
@@ -20,6 +22,7 @@ import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
 
@@ -60,9 +63,12 @@ const App = () => (
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/matters" element={<Matters />} />
+            <Route path="/clients" element={<Clients />} />
+            <Route path="/clients/:id" element={<ClientDetail />} />
             <Route path="/filings" element={<Filings />} />
             <Route path="/filings/:id" element={<FilingDetail />} />
             <Route path="/process-status" element={<ProcessStatus />} />
+            <Route path="/process-status/link-clients" element={<UnlinkedProcessesPage />} />
             <Route path="/process-status/test" element={<ProcessStatusTest />} />
             <Route path="/process-status/test-icarus" element={<IcarusTest />} />
             <Route path="/process-status/diagnostics/:runId" element={<CrawlerDiagnostics />} />

@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { formatDateColombia, validateRadicado } from "@/lib/constants";
 import { SOURCE_ADAPTERS, type DataSource } from "@/lib/source-adapters";
+import { UnlinkedProcessesAlert } from "@/components/processes";
 
 interface MonitoredProcess {
   id: string;
@@ -352,6 +353,7 @@ export default function ProcessStatus() {
       </Dialog>
 
       <div className="space-y-6">
+        <UnlinkedProcessesAlert />
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-serif font-bold">Estado de Procesos</h1>
