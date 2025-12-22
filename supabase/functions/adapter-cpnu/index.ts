@@ -26,6 +26,7 @@ interface SearchResult {
   tipo_proceso?: string;
   fecha_radicacion?: string;
   detail_url?: string;
+  id_proceso?: number;
 }
 
 // Compute hash fingerprint for deduplication
@@ -40,8 +41,16 @@ function computeFingerprint(source: string, eventDate: string | null, descriptio
   return Math.abs(hash).toString(16).padStart(8, '0');
 }
 
-// Parse Colombian date format (DD/MM/YYYY or DD-MM-YYYY)
+// Parse Colombian date format
 function parseColombianDate(dateStr: string): string | null {
+  if (!dateStr) return null;
+  
+  // Try ISO format first
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return new Date(dateStr).toISOString();
+  }
+  
+  // DD/MM/YYYY or DD-MM-YYYY
   const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
   if (!match) return null;
   
@@ -75,135 +84,239 @@ function determineEventType(description: string): string {
   return 'ACTUACION';
 }
 
-// Parse search results from CPNU
-function parseSearchResults(markdown: string, html: string, baseUrl: string): SearchResult[] {
-  const results: SearchResult[] = [];
-  
-  // Look for process cards/rows in the HTML
-  const processPattern = /(\d{23})\s*[|\-–]\s*([^|\-–\n]+?)(?:\s*[|\-–]\s*([^|\-–\n]+))?/gi;
-  const matches = markdown.matchAll(processPattern);
-  
-  for (const match of matches) {
-    const radicado = match[1];
-    const despacho = match[2]?.trim() || '';
-    
-    if (radicado && despacho) {
-      results.push({
-        radicado,
-        despacho,
-        detail_url: `${baseUrl}/Procesos/Detalle?idProceso=${radicado}`,
-      });
-    }
+// Add a step to the crawler run
+async function addStep(
+  supabase: ReturnType<typeof createClient>,
+  runId: string,
+  stepName: string,
+  ok: boolean,
+  detail?: string,
+  meta?: Record<string, unknown>
+) {
+  try {
+    await (supabase as any).from('crawler_run_steps').insert({
+      run_id: runId,
+      step_name: stepName,
+      ok,
+      detail: detail?.substring(0, 500),
+      meta: meta || {},
+    });
+  } catch (e) {
+    console.error('Failed to add step:', e);
   }
-  
-  // Also try to find in table format
-  const rowPattern = /<tr[^>]*>(.*?)<\/tr>/gis;
-  const cellPattern = /<td[^>]*>(.*?)<\/td>/gis;
-  const rowMatches = html.matchAll(rowPattern);
-  
-  for (const row of rowMatches) {
-    const cells = [...row[1].matchAll(cellPattern)].map(c => 
-      c[1].replace(/<[^>]*>/g, '').trim()
-    );
-    
-    // Look for 23-digit radicado in cells
-    const radicadoCell = cells.find(c => /^\d{23}$/.test(c.replace(/\s/g, '')));
-    if (radicadoCell && cells.length >= 2) {
-      const radicado = radicadoCell.replace(/\s/g, '');
-      const despachoCell = cells.find(c => c.length > 5 && c !== radicadoCell);
-      
-      if (!results.some(r => r.radicado === radicado)) {
-        results.push({
-          radicado,
-          despacho: despachoCell || '',
-          detail_url: `${baseUrl}/Procesos/Detalle?idProceso=${radicado}`,
-        });
-      }
-    }
-  }
-  
-  return results;
 }
 
-// Parse actuaciones/events from CPNU detail page
-function parseActuaciones(markdown: string, html: string, sourceUrl: string): ProcessEvent[] {
-  const events: ProcessEvent[] = [];
-  
-  // Look for actuaciones table patterns
-  const actuacionPattern = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s*[|\-–]\s*(.*?)(?:\n|$)/gi;
-  const matches = markdown.matchAll(actuacionPattern);
-  
-  for (const match of matches) {
-    const dateStr = match[1];
-    const description = match[2]?.trim();
-    
-    if (description && description.length > 5) {
-      const eventDate = parseColombianDate(dateStr);
-      const eventType = determineEventType(description);
-      const fingerprint = computeFingerprint('CPNU', eventDate, description, sourceUrl);
-      
-      events.push({
-        source: 'CPNU',
-        event_type: eventType,
-        event_date: eventDate,
-        title: description.substring(0, 100),
-        description: description,
-        attachments: [],
-        source_url: sourceUrl,
-        hash_fingerprint: fingerprint,
-        raw_data: { original_text: match[0] }
-      });
+// Finalize the crawler run
+async function finalizeRun(
+  supabase: ReturnType<typeof createClient>,
+  runId: string,
+  status: string,
+  startTime: number,
+  httpStatus?: number,
+  errorCode?: string,
+  errorMessage?: string,
+  responseMeta?: Record<string, unknown>,
+  debugExcerpt?: string
+) {
+  const duration = Date.now() - startTime;
+  await (supabase as any).from('crawler_runs').update({
+    finished_at: new Date().toISOString(),
+    status,
+    http_status: httpStatus,
+    error_code: errorCode,
+    error_message: errorMessage?.substring(0, 1000),
+    duration_ms: duration,
+    response_meta: responseMeta || {},
+    debug_excerpt: debugExcerpt?.substring(0, 10000),
+  }).eq('id', runId);
+}
+
+// CPNU API Endpoints (discovered via network inspection)
+const CPNU_API = {
+  // The actual API endpoint that the SPA uses
+  CONSULTA: 'https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Procesos/Consulta',
+  DETALLE: 'https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Proceso/Detalle',
+  ACTUACIONES: 'https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Proceso/Actuaciones',
+};
+
+// Default headers for CPNU API
+function getCPNUHeaders(): Record<string, string> {
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'Content-Type': 'application/json',
+    'Origin': 'https://consultaprocesos.ramajudicial.gov.co',
+    'Referer': 'https://consultaprocesos.ramajudicial.gov.co/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  };
+}
+
+// Search by radicado using direct API
+async function searchByRadicadoAPI(radicado: string): Promise<{
+  success: boolean;
+  results: SearchResult[];
+  httpStatus: number;
+  error?: string;
+  rawResponse?: unknown;
+}> {
+  // The CPNU API expects a specific payload format
+  const payload = {
+    numero: radicado,
+    nombreRazonSocial: '',
+    tipoPersona: 'nat',
+    codificacionDespacho: '',
+    SoloActivos: null,
+    pagina: 1,
+    cantFilas: 20,
+  };
+
+  console.log('CPNU API: Calling search endpoint with payload:', JSON.stringify(payload));
+
+  try {
+    const response = await fetch(CPNU_API.CONSULTA, {
+      method: 'POST',
+      headers: getCPNUHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    const httpStatus = response.status;
+    console.log('CPNU API: Response status:', httpStatus);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('CPNU API: Error response:', errorText.substring(0, 500));
+      return {
+        success: false,
+        results: [],
+        httpStatus,
+        error: `HTTP ${httpStatus}: ${response.statusText}`,
+        rawResponse: errorText.substring(0, 2000),
+      };
     }
-  }
-  
-  // Parse HTML tables more thoroughly
-  const rowPattern = /<tr[^>]*>(.*?)<\/tr>/gis;
-  const cellPattern = /<td[^>]*>(.*?)<\/td>/gis;
-  const linkPattern = /<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi;
-  const rowMatches = html.matchAll(rowPattern);
-  
-  for (const row of rowMatches) {
-    const cells = [...row[1].matchAll(cellPattern)].map(c => 
-      c[1].replace(/<[^>]*>/g, '').trim()
-    );
-    
-    if (cells.length >= 2) {
-      const dateCell = cells.find(c => /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(c));
-      const descCell = cells.find(c => c.length > 10 && !/^\d+$/.test(c) && c !== dateCell);
+
+    const data = await response.json();
+    console.log('CPNU API: Response data keys:', Object.keys(data));
+
+    // Parse the response - CPNU returns { procesos: [...], paginas: X }
+    const procesos = data.procesos || [];
+    console.log('CPNU API: Found', procesos.length, 'processes');
+
+    const results: SearchResult[] = procesos.map((p: any) => {
+      const sujetosProcesales = p.sujetosProcesales || '';
+      const partes = typeof sujetosProcesales === 'string' ? sujetosProcesales.split(' VS ') : [];
       
-      if (dateCell && descCell && !events.some(e => e.description === descCell)) {
-        const eventDate = parseColombianDate(dateCell);
-        const eventType = determineEventType(descCell);
-        const fingerprint = computeFingerprint('CPNU', eventDate, descCell, sourceUrl);
-        
-        // Extract any links/attachments
-        const attachments: Array<{ label: string; url: string }> = [];
-        const links = [...row[1].matchAll(linkPattern)];
-        for (const link of links) {
-          if (link[1] && link[2]) {
+      return {
+        radicado: String(p.numero23 || p.llaveProceso || ''),
+        despacho: String(p.despacho || ''),
+        demandante: partes[0] || String(p.demandante || ''),
+        demandado: partes[1] || String(p.demandado || ''),
+        tipo_proceso: String(p.tipoProceso || ''),
+        fecha_radicacion: String(p.fechaProceso || ''),
+        id_proceso: p.idProceso as number,
+        detail_url: `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${p.idProceso}`,
+      };
+    });
+
+    return {
+      success: true,
+      results,
+      httpStatus,
+      rawResponse: data,
+    };
+  } catch (error) {
+    console.error('CPNU API: Fetch error:', error);
+    return {
+      success: false,
+      results: [],
+      httpStatus: 0,
+      error: error instanceof Error ? error.message : 'Unknown fetch error',
+    };
+  }
+}
+
+// Get actuaciones for a process using direct API
+async function getActuacionesAPI(idProceso: number): Promise<{
+  success: boolean;
+  events: ProcessEvent[];
+  httpStatus: number;
+  error?: string;
+  rawResponse?: unknown;
+}> {
+  console.log('CPNU API: Fetching actuaciones for idProceso:', idProceso);
+
+  try {
+    const response = await fetch(`${CPNU_API.ACTUACIONES}/${idProceso}`, {
+      method: 'GET',
+      headers: getCPNUHeaders(),
+    });
+
+    const httpStatus = response.status;
+    console.log('CPNU API: Actuaciones response status:', httpStatus);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        success: false,
+        events: [],
+        httpStatus,
+        error: `HTTP ${httpStatus}: ${response.statusText}`,
+        rawResponse: errorText.substring(0, 2000),
+      };
+    }
+
+    const data = await response.json();
+    console.log('CPNU API: Actuaciones data keys:', Object.keys(data));
+
+    // Parse actuaciones
+    const actuaciones = data.actuaciones || data || [];
+    const sourceUrl = `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${idProceso}`;
+
+    const events: ProcessEvent[] = (Array.isArray(actuaciones) ? actuaciones : []).map((a: any) => {
+      const fechaActuacion = String(a.fechaActuacion || a.fechaInicial || '');
+      const descripcion = String(a.actuacion || a.anotacion || '');
+      const eventDate = parseColombianDate(fechaActuacion);
+      
+      // Build attachments from documentos if present
+      const attachments: Array<{ label: string; url: string }> = [];
+      if (Array.isArray(a.documentos)) {
+        for (const doc of a.documentos) {
+          if (doc.url || doc.urlDocumento) {
             attachments.push({
-              label: link[2].replace(/<[^>]*>/g, '').trim() || 'Documento',
-              url: link[1].startsWith('http') ? link[1] : `https://consultaprocesos.ramajudicial.gov.co${link[1]}`,
+              label: String(doc.nombre || doc.descripcion || 'Documento'),
+              url: String(doc.url || doc.urlDocumento),
             });
           }
         }
-        
-        events.push({
-          source: 'CPNU',
-          event_type: eventType,
-          event_date: eventDate,
-          title: descCell.substring(0, 100),
-          description: descCell,
-          attachments,
-          source_url: sourceUrl,
-          hash_fingerprint: fingerprint,
-          raw_data: { cells }
-        });
       }
-    }
+
+      return {
+        source: 'CPNU',
+        event_type: determineEventType(descripcion),
+        event_date: eventDate,
+        title: descripcion.substring(0, 100),
+        description: descripcion,
+        detail: String(a.anotacion || ''),
+        attachments,
+        source_url: sourceUrl,
+        hash_fingerprint: computeFingerprint('CPNU', eventDate, descripcion, sourceUrl),
+        raw_data: a,
+      };
+    });
+
+    return {
+      success: true,
+      events,
+      httpStatus,
+      rawResponse: data,
+    };
+  } catch (error) {
+    console.error('CPNU API: Actuaciones fetch error:', error);
+    return {
+      success: false,
+      events: [],
+      httpStatus: 0,
+      error: error instanceof Error ? error.message : 'Unknown fetch error',
+    };
   }
-  
-  return events;
 }
 
 Deno.serve(async (req) => {
@@ -211,175 +324,221 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
+  let runId: string | null = null;
+  let supabase: any = null;
+
   try {
-    const { action, radicado, owner_id, monitored_process_id, include_screenshot } = await req.json();
+    const { action, radicado, owner_id, monitored_process_id } = await req.json();
     
     if (!action || !owner_id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Missing required fields: action, owner_id' }),
+        JSON.stringify({ ok: false, error: 'Missing required fields: action, owner_id' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
-    if (!firecrawlApiKey) {
-      console.error('FIRECRAWL_API_KEY not configured');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Firecrawl not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const baseUrl = 'https://consultaprocesos.ramajudicial.gov.co';
-    
+    // Create crawler run for diagnostics
+    const { data: runData, error: runError } = await supabase
+      .from('crawler_runs')
+      .insert({
+        owner_id,
+        radicado: radicado || 'N/A',
+        adapter: 'CPNU',
+        status: 'RUNNING',
+        request_meta: {
+          action,
+          radicado,
+          api_endpoints: CPNU_API,
+        },
+      })
+      .select('id')
+      .single();
+
+    if (runError) {
+      console.error('Failed to create crawler run:', runError);
+    }
+    runId = runData?.id;
+    console.log('CPNU: Created crawler run:', runId);
+
+    // Search action
     if (action === 'search') {
       if (!radicado) {
+        if (runId) await addStep(supabase, runId, 'VALIDATE', false, 'Missing radicado');
+        if (runId) await finalizeRun(supabase, runId, 'ERROR', startTime, undefined, 'MISSING_PARAM', 'Radicado is required');
         return new Response(
-          JSON.stringify({ success: false, error: 'Radicado is required for search' }),
+          JSON.stringify({ ok: false, error: 'Radicado is required for search', run_id: runId }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
-      const searchUrl = `${baseUrl}/Procesos/NumeroRadicacion?numero=${radicado}`;
-      console.log('CPNU: Searching URL:', searchUrl);
-      
-      const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${firecrawlApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: searchUrl,
-          formats: ['markdown', 'html'],
-          onlyMainContent: true,
-          waitFor: 5000,
-        }),
-      });
 
-      const scrapeData = await scrapeResponse.json();
+      // Ensure radicado is treated as string (preserve leading zeros)
+      const radicadoStr = String(radicado).trim();
+      if (runId) await addStep(supabase, runId, 'VALIDATE', true, `Radicado: ${radicadoStr} (${radicadoStr.length} chars)`);
+
+      // Step 1: Call CPNU API directly
+      if (runId) await addStep(supabase, runId, 'FETCH', true, 'Calling CPNU API endpoint', { endpoint: CPNU_API.CONSULTA });
       
-      if (!scrapeResponse.ok || !scrapeData.success) {
-        console.error('Firecrawl error:', scrapeData);
+      const searchResult = await searchByRadicadoAPI(radicadoStr);
+      
+      if (!searchResult.success) {
+        // API call failed - check if blocked
+        const isBlocked = searchResult.httpStatus === 403 || searchResult.httpStatus === 429;
+        
+        if (runId) await addStep(supabase, runId, 'FETCH', false, searchResult.error, {
+          http_status: searchResult.httpStatus,
+          blocked: isBlocked,
+        });
+
+        if (runId) await finalizeRun(
+          supabase,
+          runId,
+          'ERROR',
+          startTime,
+          searchResult.httpStatus,
+          isBlocked ? 'BLOCKED' : 'HTTP_ERROR',
+          searchResult.error,
+          { blocked_flag: isBlocked },
+          JSON.stringify(searchResult.rawResponse).substring(0, 10000)
+        );
+
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: scrapeData.error || 'Failed to search CPNU',
-            source: 'CPNU'
+          JSON.stringify({
+            ok: false,
+            error: searchResult.error,
+            run_id: runId,
+            http_status: searchResult.httpStatus,
+            blocked: isBlocked,
+            source: 'CPNU',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      const markdown = scrapeData.data?.markdown || '';
-      const html = scrapeData.data?.html || '';
-      
-      const results = parseSearchResults(markdown, html, baseUrl);
-      
-      // If we have a direct match (exact radicado), also fetch actuaciones
-      if (results.length === 1 && results[0].radicado === radicado) {
-        const detailUrl = `${baseUrl}/Procesos/Detalle?idProceso=${radicado}`;
+      if (runId) await addStep(supabase, runId, 'PARSE', true, `Parsed ${searchResult.results.length} results`, {
+        count: searchResult.results.length,
+        http_status: searchResult.httpStatus,
+      });
+
+      // If we found results, get actuaciones for the matching process
+      let events: ProcessEvent[] = [];
+      if (searchResult.results.length > 0) {
+        // Find exact radicado match
+        const exactMatch = searchResult.results.find(r => r.radicado === radicadoStr);
+        const targetResult = exactMatch || searchResult.results[0];
         
-        const detailResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${firecrawlApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            url: detailUrl,
-            formats: ['markdown', 'html', ...(include_screenshot ? ['screenshot'] : [])],
-            onlyMainContent: true,
-            waitFor: 5000,
-          }),
-        });
-        
-        const detailData = await detailResponse.json();
-        
-        if (detailResponse.ok && detailData.success) {
-          const detailMarkdown = detailData.data?.markdown || '';
-          const detailHtml = detailData.data?.html || '';
-          const screenshot = detailData.data?.screenshot;
+        if (targetResult.id_proceso) {
+          if (runId) await addStep(supabase, runId, 'FETCH', true, 'Fetching actuaciones', { id_proceso: targetResult.id_proceso });
           
-          const events = parseActuaciones(detailMarkdown, detailHtml, detailUrl);
+          const actuacionesResult = await getActuacionesAPI(targetResult.id_proceso);
           
-          return new Response(
-            JSON.stringify({
-              success: true,
-              source: 'CPNU',
-              results,
-              events,
-              screenshot,
-              search_url: searchUrl,
-              detail_url: detailUrl
-            }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          if (actuacionesResult.success) {
+            events = actuacionesResult.events;
+            if (runId) await addStep(supabase, runId, 'NORMALIZE', true, `Normalized ${events.length} events`, {
+              count: events.length,
+            });
+          } else {
+            if (runId) await addStep(supabase, runId, 'FETCH', false, actuacionesResult.error, {
+              http_status: actuacionesResult.httpStatus,
+            });
+          }
         }
       }
-      
+
+      // Finalize run
+      const status = searchResult.results.length > 0 ? 'SUCCESS' : 'EMPTY';
+      if (runId) await finalizeRun(
+        supabase,
+        runId,
+        status,
+        startTime,
+        searchResult.httpStatus,
+        undefined,
+        undefined,
+        { results_count: searchResult.results.length, events_count: events.length },
+        JSON.stringify(searchResult.rawResponse).substring(0, 10000)
+      );
+
       return new Response(
         JSON.stringify({
+          ok: true,
           success: true,
           source: 'CPNU',
-          results,
-          events: [],
-          search_url: searchUrl
+          run_id: runId,
+          results: searchResult.results,
+          events,
+          search_url: CPNU_API.CONSULTA,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    
+
+    // Crawl action
     if (action === 'crawl') {
       if (!radicado) {
+        if (runId) await addStep(supabase, runId, 'VALIDATE', false, 'Missing radicado');
+        if (runId) await finalizeRun(supabase, runId, 'ERROR', startTime, undefined, 'MISSING_PARAM', 'Radicado is required');
         return new Response(
-          JSON.stringify({ success: false, error: 'Radicado is required for crawl' }),
+          JSON.stringify({ ok: false, error: 'Radicado is required for crawl', run_id: runId }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
-      const detailUrl = `${baseUrl}/Procesos/Detalle?idProceso=${radicado}`;
-      console.log('CPNU: Crawling detail URL:', detailUrl);
-      
-      const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${firecrawlApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          url: detailUrl,
-          formats: ['markdown', 'html', ...(include_screenshot ? ['screenshot'] : [])],
-          onlyMainContent: true,
-          waitFor: 5000,
-        }),
-      });
 
-      const scrapeData = await scrapeResponse.json();
-      
-      if (!scrapeResponse.ok || !scrapeData.success) {
-        console.error('Firecrawl error:', scrapeData);
+      const radicadoStr = String(radicado).trim();
+      if (runId) await addStep(supabase, runId, 'VALIDATE', true, `Crawling radicado: ${radicadoStr}`);
+
+      // Step 1: Search for the process
+      if (runId) await addStep(supabase, runId, 'FETCH', true, 'Searching process via API');
+      const searchResult = await searchByRadicadoAPI(radicadoStr);
+
+      if (!searchResult.success || searchResult.results.length === 0) {
+        const errorMsg = searchResult.error || 'No process found';
+        if (runId) await addStep(supabase, runId, 'FETCH', false, errorMsg, {
+          http_status: searchResult.httpStatus,
+        });
+        if (runId) await finalizeRun(supabase, runId, 'EMPTY', startTime, searchResult.httpStatus, 'NOT_FOUND', errorMsg);
+
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: scrapeData.error || 'Failed to crawl CPNU detail',
-            source: 'CPNU'
+          JSON.stringify({
+            ok: true,
+            success: true,
+            source: 'CPNU',
+            run_id: runId,
+            events_found: 0,
+            new_events: 0,
+            events: [],
           }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      const markdown = scrapeData.data?.markdown || '';
-      const html = scrapeData.data?.html || '';
-      const screenshot = scrapeData.data?.screenshot;
+      // Get the matching process
+      const exactMatch = searchResult.results.find(r => r.radicado === radicadoStr);
+      const targetResult = exactMatch || searchResult.results[0];
       
-      const events = parseActuaciones(markdown, html, detailUrl);
-      
-      // Get existing fingerprints to detect new events
+      if (runId) await addStep(supabase, runId, 'PARSE', true, `Found process: ${targetResult.despacho}`, {
+        id_proceso: targetResult.id_proceso,
+      });
+
+      // Step 2: Get actuaciones
+      let events: ProcessEvent[] = [];
+      if (targetResult.id_proceso) {
+        if (runId) await addStep(supabase, runId, 'FETCH', true, 'Fetching actuaciones');
+        const actuacionesResult = await getActuacionesAPI(targetResult.id_proceso);
+        
+        if (actuacionesResult.success) {
+          events = actuacionesResult.events;
+          if (runId) await addStep(supabase, runId, 'NORMALIZE', true, `Normalized ${events.length} events`);
+        } else {
+          if (runId) await addStep(supabase, runId, 'FETCH', false, actuacionesResult.error);
+        }
+      }
+
+      // Step 3: Detect new events by fingerprint
       let existingFingerprints: Set<string> = new Set();
       if (monitored_process_id) {
         const { data: existingEvents } = await supabase
@@ -388,96 +547,122 @@ Deno.serve(async (req) => {
           .eq('monitored_process_id', monitored_process_id)
           .eq('source', 'CPNU');
         
-        existingFingerprints = new Set(existingEvents?.map(e => e.hash_fingerprint).filter(Boolean) || []);
+        existingFingerprints = new Set(existingEvents?.map((e: any) => e.hash_fingerprint).filter(Boolean) || []);
       }
-      
+
       const newEvents = events.filter(e => !existingFingerprints.has(e.hash_fingerprint));
-      
-      // Insert new events
+      if (runId) await addStep(supabase, runId, 'UPSERT_DB', true, `New events: ${newEvents.length} of ${events.length}`, {
+        total: events.length,
+        new: newEvents.length,
+        existing_fingerprints: existingFingerprints.size,
+      });
+
+      // Step 4: Insert new events
       if (newEvents.length > 0 && monitored_process_id) {
-        const { error: insertError } = await supabase
-          .from('process_events')
-          .insert(newEvents.map(e => ({
-            owner_id,
-            monitored_process_id,
-            source: e.source,
-            event_type: e.event_type,
-            event_date: e.event_date,
-            title: e.title,
-            description: e.description,
-            detail: e.detail,
-            attachments: e.attachments,
-            source_url: e.source_url,
-            hash_fingerprint: e.hash_fingerprint,
-            raw_data: e.raw_data,
-          })));
-        
-        if (insertError) {
-          console.error('Error inserting events:', insertError);
-        }
-        
-        // Store evidence snapshot if screenshot available
-        if (screenshot && newEvents.length > 0) {
-          await supabase
-            .from('evidence_snapshots')
-            .insert({
+        // Need to get a filing_id - find one linked to this radicado
+        const { data: filing } = await supabase
+          .from('filings')
+          .select('id')
+          .eq('radicado', radicadoStr)
+          .eq('owner_id', owner_id)
+          .maybeSingle();
+
+        if (filing) {
+          const { error: insertError } = await supabase
+            .from('process_events')
+            .insert(newEvents.map(e => ({
               owner_id,
+              filing_id: filing.id,
               monitored_process_id,
-              source_url: detailUrl,
-              raw_markdown: markdown.substring(0, 50000), // Limit size
-              raw_html: html.substring(0, 100000),
+              source: e.source,
+              event_type: e.event_type,
+              event_date: e.event_date,
+              title: e.title,
+              description: e.description,
+              detail: e.detail,
+              attachments: e.attachments,
+              source_url: e.source_url,
+              hash_fingerprint: e.hash_fingerprint,
+              raw_data: e.raw_data,
+            })));
+
+          if (insertError) {
+            console.error('Error inserting events:', insertError);
+            if (runId) await addStep(supabase, runId, 'UPSERT_DB', false, insertError.message);
+          } else {
+            // Create alert
+            await supabase.from('alerts').insert({
+              owner_id,
+              filing_id: filing.id,
+              message: `CPNU: ${newEvents.length} nueva(s) actuación(es) en proceso ${radicadoStr}`,
+              severity: 'INFO',
             });
+          }
         }
-        
+
         // Update monitored_process timestamps
         await supabase
           .from('monitored_processes')
           .update({
             last_checked_at: new Date().toISOString(),
             last_change_at: new Date().toISOString(),
+            despacho_name: targetResult.despacho || undefined,
           })
           .eq('id', monitored_process_id);
-        
-        // Create alert for new events
-        if (newEvents.length > 0) {
-          await supabase.from('alerts').insert({
-            owner_id,
-            message: `CPNU: ${newEvents.length} nueva(s) actuación(es) en proceso ${radicado}`,
-            severity: 'INFO'
-          });
-        }
       } else if (monitored_process_id) {
-        // Just update last_checked_at
         await supabase
           .from('monitored_processes')
-          .update({ last_checked_at: new Date().toISOString() })
+          .update({ 
+            last_checked_at: new Date().toISOString(),
+            despacho_name: targetResult.despacho || undefined,
+          })
           .eq('id', monitored_process_id);
       }
-      
+
+      if (runId) await addStep(supabase, runId, 'RETURN_UI', true, 'Returning results');
+      if (runId) await finalizeRun(supabase, runId, 'SUCCESS', startTime, searchResult.httpStatus, undefined, undefined, {
+        events_found: events.length,
+        new_events: newEvents.length,
+      });
+
       return new Response(
         JSON.stringify({
+          ok: true,
           success: true,
           source: 'CPNU',
+          run_id: runId,
           events_found: events.length,
           new_events: newEvents.length,
           events: newEvents,
-          screenshot: include_screenshot ? screenshot : undefined,
-          detail_url: detailUrl
+          process_info: targetResult,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Unknown action
+    if (runId) await finalizeRun(supabase, runId, 'ERROR', startTime, undefined, 'UNKNOWN_ACTION', `Unknown action: ${action}`);
     
     return new Response(
-      JSON.stringify({ success: false, error: `Unknown action: ${action}` }),
+      JSON.stringify({ ok: false, error: `Unknown action: ${action}`, run_id: runId }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Error in adapter-cpnu:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Try to finalize run if we have one
+    if (runId && supabase) {
+      try {
+        await finalizeRun(supabase, runId, 'ERROR', startTime, undefined, 'EXCEPTION', errorMessage);
+      } catch (e) {
+        console.error('Failed to finalize run on error:', e);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ success: false, error: errorMessage, source: 'CPNU' }),
+      JSON.stringify({ ok: false, error: errorMessage, source: 'CPNU', run_id: runId }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
