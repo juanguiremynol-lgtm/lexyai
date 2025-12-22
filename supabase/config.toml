@@ -5,3 +5,15 @@ verify_jwt = false
 
 [functions.scheduled-crawler]
 verify_jwt = false
+
+[functions.adapter-cpnu]
+verify_jwt = false
+
+[functions.adapter-publicaciones]
+verify_jwt = false
+
+[functions.adapter-historico]
+verify_jwt = false
+
+[functions.process-monitor]
+verify_jwt = false
