@@ -34,29 +34,52 @@ interface EdgeFunctionError {
   status?: number;
   ok?: boolean;
   timestamp?: string;
+  functionName?: string;
+  body?: string;
 }
 
-function parseEdgeFunctionError(data: any, error: any): EdgeFunctionError {
+function parseEdgeFunctionError(data: any, error: any, functionName?: string): EdgeFunctionError {
+  const result: EdgeFunctionError = {
+    code: 'UNKNOWN',
+    message: 'Unknown error',
+    ok: false,
+    functionName,
+  };
+
   // Try to extract structured error from response
   if (data && typeof data === 'object' && data.ok === false) {
-    return {
-      code: data.code || 'UNKNOWN',
-      message: data.message || data.error || 'Unknown error',
-      ok: false,
-      timestamp: data.timestamp,
-    };
+    result.code = data.code || 'UNKNOWN';
+    result.message = data.message || data.error || 'Unknown error';
+    result.timestamp = data.timestamp;
+    return result;
   }
   
-  // Supabase functions.invoke error
+  // Supabase functions.invoke error - check context for real error
   if (error) {
-    return {
-      code: 'INVOKE_ERROR',
-      message: error.message || String(error),
-      ok: false,
-    };
+    result.code = error.code || 'INVOKE_ERROR';
+    result.message = error.message || String(error);
+    
+    // Extract context if available (contains HTTP status and body)
+    if (error.context) {
+      result.status = error.context.status;
+      try {
+        const body = error.context.body;
+        if (body) {
+          result.body = typeof body === 'string' ? body : JSON.stringify(body);
+          // Try to parse body for structured error
+          const parsed = typeof body === 'string' ? JSON.parse(body) : body;
+          if (parsed.code) result.code = parsed.code;
+          if (parsed.message) result.message = parsed.message;
+          if (parsed.timestamp) result.timestamp = parsed.timestamp;
+        }
+      } catch {
+        // Body wasn't JSON, keep as string
+      }
+    }
+    return result;
   }
   
-  return { code: 'UNKNOWN', message: 'Unknown error', ok: false };
+  return result;
 }
 
 export function IcarusIntegration() {
@@ -113,13 +136,13 @@ export function IcarusIntegration() {
       });
       
       if (error) {
-        const parsed = parseEdgeFunctionError(data, error);
+        const parsed = parseEdgeFunctionError(data, error, 'icarus-save-credentials');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
       
       if (data && !data.ok) {
-        const parsed = parseEdgeFunctionError(data, null);
+        const parsed = parseEdgeFunctionError(data, null, 'icarus-save-credentials');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
@@ -144,13 +167,13 @@ export function IcarusIntegration() {
       });
       
       if (error) {
-        const parsed = parseEdgeFunctionError(data, error);
+        const parsed = parseEdgeFunctionError(data, error, 'icarus-auth');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
       
       if (data && !data.ok) {
-        const parsed = parseEdgeFunctionError(data, null);
+        const parsed = parseEdgeFunctionError(data, null, 'icarus-auth');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
@@ -177,13 +200,13 @@ export function IcarusIntegration() {
       });
       
       if (saveResult.error) {
-        const parsed = parseEdgeFunctionError(saveResult.data, saveResult.error);
+        const parsed = parseEdgeFunctionError(saveResult.data, saveResult.error, 'icarus-save-credentials');
         setLastError(parsed);
         throw new Error(`Save failed: ${parsed.message}`);
       }
       
       if (saveResult.data && !saveResult.data.ok) {
-        const parsed = parseEdgeFunctionError(saveResult.data, null);
+        const parsed = parseEdgeFunctionError(saveResult.data, null, 'icarus-save-credentials');
         setLastError(parsed);
         throw new Error(`Save failed: ${parsed.message}`);
       }
@@ -194,13 +217,13 @@ export function IcarusIntegration() {
       });
       
       if (loginResult.error) {
-        const parsed = parseEdgeFunctionError(loginResult.data, loginResult.error);
+        const parsed = parseEdgeFunctionError(loginResult.data, loginResult.error, 'icarus-auth');
         setLastError(parsed);
         throw new Error(`Login failed: ${parsed.message}`);
       }
       
       if (loginResult.data && !loginResult.data.ok) {
-        const parsed = parseEdgeFunctionError(loginResult.data, null);
+        const parsed = parseEdgeFunctionError(loginResult.data, null, 'icarus-auth');
         setLastError(parsed);
         throw new Error(`Login failed: ${parsed.message}`);
       }
@@ -253,13 +276,13 @@ export function IcarusIntegration() {
       });
       
       if (error) {
-        const parsed = parseEdgeFunctionError(data, error);
+        const parsed = parseEdgeFunctionError(data, error, 'icarus-sync');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
       
       if (data && !data.ok) {
-        const parsed = parseEdgeFunctionError(data, null);
+        const parsed = parseEdgeFunctionError(data, null, 'icarus-sync');
         setLastError(parsed);
         throw new Error(parsed.message);
       }
@@ -408,9 +431,18 @@ export function IcarusIntegration() {
               </AlertDescription>
               <CollapsibleContent className="mt-2">
                 <div className="bg-background/50 rounded p-2 text-xs font-mono space-y-1">
+                  {lastError?.functionName && <div><strong>Function:</strong> {lastError.functionName}</div>}
                   {lastError?.code && <div><strong>Código:</strong> {lastError.code}</div>}
-                  {lastError?.timestamp && <div><strong>Timestamp:</strong> {lastError.timestamp}</div>}
                   {lastError?.status && <div><strong>HTTP Status:</strong> {lastError.status}</div>}
+                  {lastError?.timestamp && <div><strong>Timestamp:</strong> {lastError.timestamp}</div>}
+                  {lastError?.body && (
+                    <div>
+                      <strong>Response Body:</strong>
+                      <pre className="mt-1 whitespace-pre-wrap break-all text-[10px] max-h-32 overflow-auto">
+                        {lastError.body}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               </CollapsibleContent>
             </Alert>
