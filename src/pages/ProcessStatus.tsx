@@ -38,7 +38,10 @@ import {
   XCircle,
   Loader2,
   ExternalLink,
+  FlaskConical,
+  AlertTriangle,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { formatDateColombia, validateRadicado } from "@/lib/constants";
@@ -72,10 +75,11 @@ export default function ProcessStatus() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<{
-    CPNU?: { results: SearchResult[]; events: unknown[] };
+    CPNU?: { results: SearchResult[]; events: unknown[]; run_id?: string; ok?: boolean; error?: string };
     PUBLICACIONES?: unknown;
     HISTORICO?: unknown;
   } | null>(null);
+  const [searchError, setSearchError] = useState<{ message: string; run_id?: string } | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newProcessRadicado, setNewProcessRadicado] = useState("");
   const [newProcessDespacho, setNewProcessDespacho] = useState("");
@@ -116,14 +120,28 @@ export default function ProcessStatus() {
       return data;
     },
     onSuccess: (data) => {
+      setSearchError(null);
       setSearchResults(data.results);
-      if (data.results?.CPNU?.results?.length > 0) {
-        toast.success(`Encontrados ${data.results.CPNU.results.length} resultado(s) en CPNU`);
+      
+      // Check for CPNU errors
+      const cpnuResult = data.results?.CPNU;
+      if (cpnuResult?.ok === false) {
+        setSearchError({
+          message: cpnuResult.error || "Error desconocido en CPNU",
+          run_id: cpnuResult.run_id,
+        });
+        toast.error("Error en CPNU - Ver diagnóstico");
+        return;
+      }
+      
+      if (cpnuResult?.results?.length > 0) {
+        toast.success(`Encontrados ${cpnuResult.results.length} resultado(s) en CPNU`);
       } else {
         toast.info("No se encontraron resultados. El proceso podría no estar en el sistema aún.");
       }
     },
     onError: (error) => {
+      setSearchError({ message: error.message });
       toast.error("Error en la búsqueda: " + error.message);
     },
   });
@@ -280,6 +298,12 @@ export default function ProcessStatus() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/process-status/test">
+              <FlaskConical className="h-4 w-4 mr-2" />
+              Test Harness
+            </Link>
+          </Button>
           <Button variant="outline" size="sm">
             <Upload className="h-4 w-4 mr-2" />
             Importar Excel
@@ -355,11 +379,38 @@ export default function ProcessStatus() {
             </CardContent>
           </Card>
 
+          {/* Error Alert with Diagnostics Link */}
+          {searchError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Error en la Búsqueda</AlertTitle>
+              <AlertDescription className="flex items-center justify-between">
+                <span>{searchError.message}</span>
+                {searchError.run_id && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/process-status/diagnostics/${searchError.run_id}`}>
+                      Ver Diagnóstico
+                    </Link>
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Search Results */}
           {searchResults && (
             <Card>
               <CardHeader>
-                <CardTitle>Resultados de Búsqueda</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Resultados de Búsqueda</CardTitle>
+                  {searchResults.CPNU?.run_id && (
+                    <Link to={`/process-status/diagnostics/${searchResults.CPNU.run_id}`}>
+                      <Badge variant="secondary" className="cursor-pointer text-xs">
+                        Run: {searchResults.CPNU.run_id.substring(0, 8)}...
+                      </Badge>
+                    </Link>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {searchResults.CPNU?.results?.length > 0 ? (
