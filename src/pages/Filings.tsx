@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Search, FileText, ExternalLink } from "lucide-react";
+import { Search, FileText, ExternalLink, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { FILING_STATUSES, formatDateColombia } from "@/lib/constants";
@@ -31,6 +43,24 @@ export default function Filings() {
   const matterFilter = searchParams.get("matter");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const queryClient = useQueryClient();
+
+  const deleteFiling = useMutation({
+    mutationFn: async (filingId: string) => {
+      const { error } = await supabase
+        .from("filings")
+        .delete()
+        .eq("id", filingId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      toast.success("Radicación eliminada");
+    },
+    onError: (error) => {
+      toast.error("Error al eliminar: " + error.message);
+    },
+  });
 
   const { data: filings, isLoading } = useQuery({
     queryKey: ["filings", matterFilter],
@@ -181,12 +211,38 @@ export default function Filings() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link to={`/filings/${filing.id}`}>
-                            <ExternalLink className="h-4 w-4 mr-1" />
-                            Ver Detalle
-                          </Link>
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/filings/${filing.id}`}>
+                              <ExternalLink className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>¿Eliminar radicación?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Esta acción eliminará permanentemente esta radicación y todos sus documentos asociados.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteFiling.mutate(filing.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Eliminar
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

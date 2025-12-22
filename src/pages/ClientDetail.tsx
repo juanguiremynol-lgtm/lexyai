@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft,
   User,
   Mail,
@@ -41,6 +52,7 @@ import {
   Plus,
   Edit,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
@@ -88,6 +100,7 @@ interface Filing {
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
   const [newMatterOpen, setNewMatterOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -185,6 +198,23 @@ export default function ClientDetail() {
     },
   });
 
+  const deleteClient = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("clients")
+        .delete()
+        .eq("id", id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cliente eliminado");
+      navigate("/clients");
+    },
+    onError: (error) => {
+      toast.error("Error al eliminar: " + error.message);
+    },
+  });
+
   // Separate filings into radicaciones and procesos
   const allFilings = matters?.flatMap(m => 
     m.filings.map(f => ({ ...f, matter_name: m.matter_name, matter_id: m.id }))
@@ -229,12 +259,13 @@ export default function ClientDetail() {
           <h1 className="text-3xl font-serif font-bold">{client.name}</h1>
           <p className="text-muted-foreground">Detalle del cliente</p>
         </div>
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline">
-              <Edit className="mr-2 h-4 w-4" /> Editar
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Edit className="mr-2 h-4 w-4" /> Editar
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Editar Cliente</DialogTitle>
