@@ -9,7 +9,7 @@ export const FILING_STATUSES = {
   COURT_EMAIL_SENT: { label: 'Correo Juzgado Enviado', color: 'sent', order: 6 },
   RADICADO_PENDING: { label: 'Radicado Pendiente', color: 'pending', order: 7 },
   RADICADO_CONFIRMED: { label: 'Radicado Confirmado', color: 'confirmed', order: 8 },
-  ICARUS_SYNC_PENDING: { label: 'Pendiente Icarus', color: 'pending', order: 9 },
+  ICARUS_SYNC_PENDING: { label: 'Pendiente Auto Admisorio', color: 'pending', order: 9 },
   MONITORING_ACTIVE: { label: 'En Seguimiento', color: 'active', order: 10 },
   CLOSED: { label: 'Cerrado', color: 'closed', order: 11 },
 } as const;
