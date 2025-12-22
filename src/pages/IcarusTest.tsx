@@ -59,6 +59,20 @@ function parseEdgeFunctionError(data: any, error: any): EdgeFunctionError {
   return { code: 'UNKNOWN', message: 'Unknown error', ok: false };
 }
 
+interface LoginAttempt {
+  url: string;
+  method: string;
+  started_at: string;
+  latency_ms: number;
+  status: number | null;
+  final_url: string | null;
+  classifier: string;
+  headers_subset: Record<string, string>;
+  body_snippet: string;
+  error_name?: string;
+  error_message?: string;
+}
+
 interface AttemptLog {
   phase: string;
   url: string;
@@ -68,6 +82,8 @@ interface AttemptLog {
   error_type?: string;
   response_snippet?: string;
   success: boolean;
+  classifier?: string;
+  login_attempts?: LoginAttempt[];
 }
 
 interface Step {
@@ -76,6 +92,7 @@ interface Step {
   finished_at?: string;
   status: 'running' | 'success' | 'error';
   detail?: string;
+  meta?: Record<string, unknown>;
 }
 
 const CLASSIFICATION_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {

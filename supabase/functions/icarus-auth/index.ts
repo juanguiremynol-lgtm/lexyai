@@ -3,9 +3,25 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.89.0';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
 };
 
 // ============= TYPES =============
+
+interface LoginAttempt {
+  url: string;
+  method: string;
+  started_at: string;
+  latency_ms: number;
+  status: number | null;
+  final_url: string | null;
+  classifier: string;
+  headers_subset: Record<string, string>;
+  body_snippet: string;
+  error_name?: string;
+  error_message?: string;
+  error_stack?: string;
+}
 
 interface AttemptLog {
   phase: string;
@@ -16,6 +32,8 @@ interface AttemptLog {
   error_type?: string;
   response_snippet?: string;
   success: boolean;
+  classifier?: string;
+  login_attempts?: LoginAttempt[];
 }
 
 interface Step {
@@ -24,6 +42,7 @@ interface Step {
   finished_at?: string;
   status: 'running' | 'success' | 'error';
   detail?: string;
+  meta?: Record<string, unknown>;
 }
 
 interface CookieJar {
@@ -31,7 +50,123 @@ interface CookieJar {
   viewState?: string;
 }
 
-type AuthStatus = 'CONNECTED' | 'AUTH_FAILED' | 'CAPTCHA_REQUIRED' | 'NEEDS_REAUTH' | 'ERROR';
+type AuthStatus = 'CONNECTED' | 'AUTH_FAILED' | 'CAPTCHA_REQUIRED' | 'NEEDS_REAUTH' | 'ERROR' | 'LOGIN_PAGE_UNREACHABLE';
+
+// ============= BROWSER HEADERS =============
+
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  'Upgrade-Insecure-Requests': '1',
+};
+
+// ============= NETWORK DIAGNOSTICS =============
+
+async function fetchWithDiag(url: string, options: RequestInit = {}): Promise<LoginAttempt> {
+  const started_at = new Date().toISOString();
+  const start = Date.now();
+  const method = options.method || 'GET';
+
+  const result: LoginAttempt = {
+    url,
+    method,
+    started_at,
+    latency_ms: 0,
+    status: null,
+    final_url: null,
+    classifier: 'UNKNOWN',
+    headers_subset: {},
+    body_snippet: '',
+  };
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...BROWSER_HEADERS,
+        ...(options.headers || {}),
+      },
+      redirect: 'manual',
+    });
+
+    result.latency_ms = Date.now() - start;
+    result.status = response.status;
+    result.final_url = response.headers.get('location') || url;
+
+    // Extract useful headers
+    result.headers_subset = {
+      'content-type': response.headers.get('content-type') || '',
+      'location': response.headers.get('location') || '',
+      'server': response.headers.get('server') || '',
+      'cf-ray': response.headers.get('cf-ray') || '',
+      'x-powered-by': response.headers.get('x-powered-by') || '',
+    };
+
+    // Get body snippet
+    try {
+      const text = await response.text();
+      result.body_snippet = text.substring(0, 2000);
+
+      // Classify the response
+      result.classifier = classifyResponse(response.status, text, result.headers_subset);
+    } catch {
+      result.body_snippet = '[Unable to read response body]';
+      result.classifier = 'BODY_READ_ERROR';
+    }
+
+  } catch (err) {
+    result.latency_ms = Date.now() - start;
+    result.classifier = 'NETWORK_EXCEPTION';
+    if (err instanceof Error) {
+      result.error_name = err.name;
+      result.error_message = err.message;
+      result.error_stack = err.stack?.substring(0, 500);
+    } else {
+      result.error_message = String(err);
+    }
+  }
+
+  return result;
+}
+
+function classifyResponse(status: number | null, body: string, headers: Record<string, string>): string {
+  if (status === null) return 'NETWORK_EXCEPTION';
+
+  const lowerBody = body.toLowerCase();
+  const lowerHeaders = JSON.stringify(headers).toLowerCase();
+
+  // Check for WAF/anti-bot indicators
+  const wafIndicators = ['cf-', 'cloudflare', 'attention required', 'captcha', 'challenge', 'bot detected', 'access denied', 'security check'];
+  for (const indicator of wafIndicators) {
+    if (lowerBody.includes(indicator) || lowerHeaders.includes(indicator)) {
+      return 'CAPTCHA_OR_CHALLENGE';
+    }
+  }
+
+  // Check for specific status codes
+  if (status === 403 || status === 429) return 'HTTP_403_429_BLOCKED';
+  if (status >= 500) return 'HTTP_5XX_SERVER';
+  if (status === 302 || status === 301 || status === 303) {
+    const location = headers['location'] || '';
+    if (location && location.includes(new URL(location).hostname)) {
+      return 'REDIRECT';
+    }
+    return 'REDIRECT';
+  }
+  if (status === 200) {
+    // Check if it looks like a login page
+    if (lowerBody.includes('login') || lowerBody.includes('password') || lowerBody.includes('javax.faces.viewstate')) {
+      return 'HTTP_200_OK';
+    }
+    return 'HTTP_200_OK';
+  }
+  if (status >= 400 && status < 500) return 'HTTP_4XX_CLIENT_ERROR';
+
+  return 'UNKNOWN_STATUS';
+}
 
 // ============= AES-256-GCM ENCRYPTION =============
 
@@ -63,7 +198,6 @@ async function encryptSecret(plaintext: string): Promise<string> {
     key,
     encoded
   );
-  // Combine IV + ciphertext and base64 encode
   const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
   combined.set(iv, 0);
   combined.set(new Uint8Array(ciphertext), iv.length);
@@ -129,7 +263,6 @@ function cookieJarToHeader(cookieJar: CookieJar): string {
 }
 
 function extractViewState(html: string): string | null {
-  // Multiple patterns for JSF ViewState
   const patterns = [
     /name="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
     /id="javax\.faces\.ViewState"\s+value="([^"]+)"/i,
@@ -144,12 +277,10 @@ function extractViewState(html: string): string | null {
 }
 
 function extractFormFields(html: string): { formId: string; usernameField: string; passwordField: string; submitButton: string } | null {
-  // Look for login form
   const formMatch = html.match(/<form[^>]*id="([^"]+)"[^>]*>/i);
   if (!formMatch) return null;
   const formId = formMatch[1];
   
-  // Look for username input (various patterns)
   const usernamePatterns = [
     /name="([^"]*(?:username|usuario|email|login|user)[^"]*)"/i,
     /id="([^"]*(?:username|usuario|email|login|user)[^"]*)"/i,
@@ -161,7 +292,6 @@ function extractFormFields(html: string): { formId: string; usernameField: strin
     if (match) { usernameField = match[1]; break; }
   }
   
-  // Look for password input
   const passwordPatterns = [
     /name="([^"]*(?:password|clave|contrasena)[^"]*)"/i,
     /id="([^"]*(?:password|clave|contrasena)[^"]*)"/i,
@@ -173,7 +303,6 @@ function extractFormFields(html: string): { formId: string; usernameField: strin
     if (match) { passwordField = match[1]; break; }
   }
   
-  // Look for submit button
   const submitPatterns = [
     /<button[^>]*type="submit"[^>]*name="([^"]+)"/i,
     /<input[^>]*type="submit"[^>]*name="([^"]+)"/i,
@@ -196,6 +325,7 @@ function detectCaptcha(html: string): boolean {
     'captcha',
     'data-sitekey',
     'grecaptcha',
+    'cf-turnstile',
   ];
   const lowerHtml = html.toLowerCase();
   return captchaIndicators.some(indicator => lowerHtml.includes(indicator));
@@ -213,9 +343,280 @@ function isAuthenticatedPage(html: string): boolean {
   return authIndicators.some(indicator => lowerHtml.includes(indicator));
 }
 
+// ============= MULTI-URL LOGIN PROBE =============
+
+const LOGIN_CANDIDATES = [
+  'https://icarus.com.co/',
+  'https://www.icarus.com.co/',
+  'https://icarus.com.co/login.xhtml',
+  'https://icarus.com.co/main/login.xhtml',
+  'https://icarus.com.co/main/process/list.xhtml',
+];
+
 const ICARUS_BASE_URL = 'https://icarus.com.co';
 const LOGIN_URL = `${ICARUS_BASE_URL}/login.xhtml`;
 const PROCESS_LIST_URL = `${ICARUS_BASE_URL}/main/process/list.xhtml`;
+
+async function probeLoginPage(steps: Step[]): Promise<{
+  ok: boolean;
+  loginUrl: string | null;
+  html: string | null;
+  cookies: CookieJar['cookies'];
+  attempts: LoginAttempt[];
+  error?: string;
+  classifier?: string;
+}> {
+  const attempts: LoginAttempt[] = [];
+  
+  steps.push({
+    name: 'GET_LOGIN',
+    started_at: new Date().toISOString(),
+    status: 'running',
+    detail: `Probing ${LOGIN_CANDIDATES.length} URL candidates`,
+  });
+
+  let bestAttempt: LoginAttempt | null = null;
+  let bestHtml: string | null = null;
+
+  for (const url of LOGIN_CANDIDATES) {
+    console.log(`[probeLoginPage] Trying: ${url}`);
+    const attempt = await fetchWithDiag(url);
+    attempts.push(attempt);
+
+    // Check if this is a successful login page
+    if (attempt.classifier === 'HTTP_200_OK' && attempt.body_snippet) {
+      const hasLoginForm = attempt.body_snippet.toLowerCase().includes('login') ||
+                           attempt.body_snippet.toLowerCase().includes('password') ||
+                           attempt.body_snippet.includes('javax.faces.ViewState');
+      
+      if (hasLoginForm) {
+        bestAttempt = attempt;
+        bestHtml = attempt.body_snippet;
+        console.log(`[probeLoginPage] Found login page at: ${url}`);
+        break;
+      }
+    }
+
+    // Track best non-error attempt
+    if (!bestAttempt && attempt.status === 200) {
+      bestAttempt = attempt;
+      bestHtml = attempt.body_snippet;
+    }
+  }
+
+  // Update step
+  const step = steps[steps.length - 1];
+  step.finished_at = new Date().toISOString();
+  step.meta = { attempts_count: attempts.length };
+
+  if (bestAttempt && bestAttempt.status === 200 && bestHtml) {
+    step.status = 'success';
+    step.detail = `Found login page at ${bestAttempt.url} (${bestAttempt.latency_ms}ms)`;
+    
+    // Parse cookies from all successful attempts
+    const cookies: CookieJar['cookies'] = [];
+    for (const attempt of attempts) {
+      if (attempt.status === 200 && attempt.headers_subset['set-cookie']) {
+        cookies.push(...parseCookies([attempt.headers_subset['set-cookie']]));
+      }
+    }
+
+    return {
+      ok: true,
+      loginUrl: bestAttempt.url,
+      html: bestHtml,
+      cookies,
+      attempts,
+    };
+  }
+
+  // All failed - determine why
+  step.status = 'error';
+  
+  // Check for common failure patterns
+  const hasNetworkException = attempts.some(a => a.classifier === 'NETWORK_EXCEPTION');
+  const hasBlocked = attempts.some(a => a.classifier === 'HTTP_403_429_BLOCKED');
+  const hasCaptcha = attempts.some(a => a.classifier === 'CAPTCHA_OR_CHALLENGE');
+  const hasServerError = attempts.some(a => a.classifier === 'HTTP_5XX_SERVER');
+
+  let classifier = 'UNKNOWN';
+  let error = 'All login page probes failed';
+
+  if (hasCaptcha) {
+    classifier = 'CAPTCHA_OR_CHALLENGE';
+    error = 'WAF/CAPTCHA challenge detected - browser automation required';
+  } else if (hasBlocked) {
+    classifier = 'HTTP_403_429_BLOCKED';
+    error = 'Access blocked (403/429) - possible rate limiting or IP block';
+  } else if (hasNetworkException) {
+    classifier = 'NETWORK_EXCEPTION';
+    const netError = attempts.find(a => a.classifier === 'NETWORK_EXCEPTION');
+    error = `Network error: ${netError?.error_message || 'Connection failed'}`;
+  } else if (hasServerError) {
+    classifier = 'HTTP_5XX_SERVER';
+    error = 'Server error (5xx) - ICARUS may be down';
+  }
+
+  step.detail = error;
+
+  return {
+    ok: false,
+    loginUrl: null,
+    html: null,
+    cookies: [],
+    attempts,
+    error,
+    classifier,
+  };
+}
+
+// ============= FIRECRAWL FALLBACK =============
+
+async function performLoginWithFirecrawl(
+  username: string,
+  password: string,
+  steps: Step[]
+): Promise<{ ok: boolean; processes?: any[]; error?: string; raw?: any }> {
+  const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY');
+  
+  if (!firecrawlKey) {
+    return { ok: false, error: 'FIRECRAWL_API_KEY not configured' };
+  }
+
+  steps.push({
+    name: 'FIRECRAWL_LOGIN',
+    started_at: new Date().toISOString(),
+    status: 'running',
+    detail: 'Attempting browser-based login via Firecrawl Actions',
+  });
+
+  try {
+    // Use Firecrawl Actions to perform login
+    const actionsPayload = {
+      url: 'https://icarus.com.co/',
+      actions: [
+        { type: 'wait', selector: 'input[type="text"], input[name*="username"], input[name*="usuario"]', timeout: 10000 },
+        { type: 'input', selector: 'input[type="text"], input[name*="username"], input[name*="usuario"]', text: username },
+        { type: 'input', selector: 'input[type="password"]', text: password },
+        { type: 'click', selector: 'button[type="submit"], input[type="submit"], button[name*="login"], button[name*="ingresar"]' },
+        { type: 'wait', timeout: 3000 },
+        { type: 'wait', selector: 'a[href*="Salir"], a[href*="logout"], .welcome-message, .process-list' },
+      ],
+      formats: ['markdown', 'html'],
+    };
+
+    console.log('[Firecrawl] Sending login actions...');
+    
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(actionsPayload),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      steps[steps.length - 1].status = 'error';
+      steps[steps.length - 1].detail = `Firecrawl error: ${data.error || response.status}`;
+      steps[steps.length - 1].finished_at = new Date().toISOString();
+      return { ok: false, error: `Firecrawl API error: ${data.error || response.status}`, raw: data };
+    }
+
+    // Check if login was successful by looking for authenticated markers
+    const html = data.data?.html || data.html || '';
+    const markdown = data.data?.markdown || data.markdown || '';
+    
+    if (isAuthenticatedPage(html) || markdown.toLowerCase().includes('salir')) {
+      steps[steps.length - 1].status = 'success';
+      steps[steps.length - 1].detail = 'Login successful via Firecrawl';
+      steps[steps.length - 1].finished_at = new Date().toISOString();
+
+      // Now navigate to process list
+      const listPayload = {
+        url: 'https://icarus.com.co/main/process/list.xhtml',
+        formats: ['html'],
+        sessionId: data.sessionId, // Preserve session if available
+      };
+
+      const listResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${firecrawlKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(listPayload),
+      });
+
+      const listData = await listResponse.json();
+      const listHtml = listData.data?.html || listData.html || '';
+
+      // Parse process table
+      const processes = parseProcessTable(listHtml);
+
+      return { ok: true, processes, raw: listData };
+    } else {
+      steps[steps.length - 1].status = 'error';
+      steps[steps.length - 1].detail = 'Login failed - no authenticated markers found';
+      steps[steps.length - 1].finished_at = new Date().toISOString();
+      return { ok: false, error: 'Firecrawl login did not authenticate successfully', raw: data };
+    }
+  } catch (err) {
+    steps[steps.length - 1].status = 'error';
+    steps[steps.length - 1].detail = err instanceof Error ? err.message : 'Unknown error';
+    steps[steps.length - 1].finished_at = new Date().toISOString();
+    return { ok: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
+function parseProcessTable(html: string): any[] {
+  const processes: any[] = [];
+  
+  // Simple regex-based table parsing
+  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const cellRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  const linkRegex = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i;
+  
+  let match;
+  let isHeader = true;
+  
+  while ((match = rowRegex.exec(html)) !== null) {
+    const rowHtml = match[1];
+    
+    // Skip header row
+    if (isHeader && rowHtml.includes('<th')) {
+      isHeader = false;
+      continue;
+    }
+    isHeader = false;
+
+    const cells: string[] = [];
+    let cellMatch;
+    while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
+      // Strip HTML tags
+      let cellText = cellMatch[1].replace(/<[^>]+>/g, ' ').trim().replace(/\s+/g, ' ');
+      cells.push(cellText);
+    }
+
+    if (cells.length >= 4) {
+      // Try to extract link
+      const linkMatch = rowHtml.match(linkRegex);
+      
+      processes.push({
+        radicado: cells[0] || '',
+        despacho: cells[1] || '',
+        demandante: cells[2] || '',
+        demandado: cells[3] || '',
+        ultima_actuacion: cells[4] || '',
+        detail_url: linkMatch ? linkMatch[1] : null,
+      });
+    }
+  }
+
+  return processes;
+}
 
 // ============= LOGIN FLOW =============
 
@@ -224,70 +625,65 @@ async function performLogin(
   password: string,
   attempts: AttemptLog[],
   steps: Step[]
-): Promise<{ ok: boolean; cookieJar?: CookieJar; status: AuthStatus; error?: string }> {
+): Promise<{ ok: boolean; cookieJar?: CookieJar; status: AuthStatus; error?: string; loginAttempts?: LoginAttempt[] }> {
   
-  // Step 1: GET login page
-  steps.push({ name: 'GET_LOGIN', started_at: new Date().toISOString(), status: 'running' });
+  // Step 1: Probe login page with multi-URL approach
+  const probeResult = await probeLoginPage(steps);
   
-  const getAttempt: AttemptLog = {
+  // Create attempt log for the probe
+  const probeAttempt: AttemptLog = {
     phase: 'GET_LOGIN',
-    url: LOGIN_URL,
+    url: probeResult.loginUrl || 'multiple',
     method: 'GET',
-    status: null,
-    latency_ms: 0,
-    success: false,
+    status: probeResult.ok ? 200 : null,
+    latency_ms: probeResult.attempts.reduce((sum, a) => sum + a.latency_ms, 0),
+    success: probeResult.ok,
+    classifier: probeResult.classifier,
+    login_attempts: probeResult.attempts,
   };
-  
-  const startGet = Date.now();
-  let getResponse: Response;
-  let getHtml: string;
-  let cookieJar: CookieJar = { cookies: [] };
-  
-  try {
-    getResponse = await fetch(LOGIN_URL, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
-      },
-      redirect: 'manual',
-    });
-    
-    getAttempt.status = getResponse.status;
-    getAttempt.latency_ms = Date.now() - startGet;
-    getHtml = await getResponse.text();
-    getAttempt.response_snippet = truncate(getHtml, 500);
-    
-    // Parse cookies from response
-    const setCookies = getResponse.headers.getSetCookie?.() || [];
-    cookieJar.cookies = parseCookies(setCookies);
-    
-    // Also check for Set-Cookie in headers (fallback)
-    const setCookieHeader = getResponse.headers.get('set-cookie');
-    if (setCookieHeader && cookieJar.cookies.length === 0) {
-      cookieJar.cookies = parseCookies([setCookieHeader]);
+  attempts.push(probeAttempt);
+
+  if (!probeResult.ok) {
+    // Check if we should try Firecrawl fallback
+    const shouldTryFirecrawl = probeResult.classifier === 'CAPTCHA_OR_CHALLENGE' ||
+                                probeResult.classifier === 'HTTP_403_429_BLOCKED' ||
+                                probeResult.classifier === 'NETWORK_EXCEPTION';
+
+    if (shouldTryFirecrawl) {
+      console.log('[performLogin] Server-side fetch blocked, trying Firecrawl fallback...');
+      const firecrawlResult = await performLoginWithFirecrawl(username, password, steps);
+      
+      if (firecrawlResult.ok) {
+        // Create a synthetic cookie jar for session tracking
+        return {
+          ok: true,
+          cookieJar: { cookies: [], viewState: 'firecrawl-session' },
+          status: 'CONNECTED',
+        };
+      }
     }
-    
-    getAttempt.success = true;
-    attempts.push(getAttempt);
-    
-  } catch (err) {
-    getAttempt.latency_ms = Date.now() - startGet;
-    getAttempt.error_type = 'NETWORK_ERROR';
-    getAttempt.response_snippet = err instanceof Error ? err.message : 'Unknown error';
-    attempts.push(getAttempt);
-    steps[steps.length - 1].status = 'error';
-    steps[steps.length - 1].detail = 'Failed to reach login page';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
-    return { ok: false, status: 'ERROR', error: 'Failed to reach login page' };
+
+    return { 
+      ok: false, 
+      status: 'LOGIN_PAGE_UNREACHABLE', 
+      error: probeResult.error,
+      loginAttempts: probeResult.attempts,
+    };
   }
+
+  const loginUrl = probeResult.loginUrl!;
+  const getHtml = probeResult.html!;
+  let cookieJar: CookieJar = { cookies: probeResult.cookies };
   
   // Check for CAPTCHA
   if (detectCaptcha(getHtml)) {
-    steps[steps.length - 1].status = 'error';
-    steps[steps.length - 1].detail = 'CAPTCHA detected on login page';
-    steps[steps.length - 1].finished_at = new Date().toISOString();
+    steps.push({
+      name: 'CAPTCHA_CHECK',
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status: 'error',
+      detail: 'CAPTCHA detected on login page',
+    });
     return { ok: false, status: 'CAPTCHA_REQUIRED', error: 'CAPTCHA detected - manual login required' };
   }
   
@@ -295,14 +691,13 @@ async function performLogin(
   const viewState = extractViewState(getHtml);
   const formFields = extractFormFields(getHtml);
   
-  if (!viewState) {
-    console.log('[GET_LOGIN] ViewState not found in HTML, trying alternate patterns...');
-    // Continue anyway - some forms might not have ViewState visible
-  }
-  
-  steps[steps.length - 1].status = 'success';
-  steps[steps.length - 1].detail = `Cookies: ${cookieJar.cookies.length}, ViewState: ${viewState ? 'found' : 'not found'}`;
-  steps[steps.length - 1].finished_at = new Date().toISOString();
+  steps.push({
+    name: 'EXTRACT_FORM',
+    started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    status: 'success',
+    detail: `ViewState: ${viewState ? 'found' : 'not found'}, Form: ${formFields?.formId || 'not found'}`,
+  });
   
   cookieJar.viewState = viewState || undefined;
   
@@ -311,22 +706,20 @@ async function performLogin(
   
   const postAttempt: AttemptLog = {
     phase: 'POST_LOGIN',
-    url: LOGIN_URL,
+    url: loginUrl,
     method: 'POST',
     status: null,
     latency_ms: 0,
     success: false,
   };
   
-  // Build form data - try common JSF field names
+  // Build form data
   const formData = new URLSearchParams();
   
-  // Standard JSF fields
   if (viewState) {
     formData.append('javax.faces.ViewState', viewState);
   }
   
-  // Try different field name patterns
   const usernameFieldNames = [
     formFields?.usernameField,
     'loginForm:username',
@@ -346,12 +739,10 @@ async function performLogin(
     'loginForm:clave',
   ].filter(Boolean) as string[];
   
-  // Use first found or default
   formData.append(usernameFieldNames[0] || 'loginForm:username', username);
   formData.append(passwordFieldNames[0] || 'loginForm:password', password);
-  
-  // Add form and submit identifiers
   formData.append('loginForm', 'loginForm');
+  
   if (formFields?.submitButton) {
     formData.append(formFields.submitButton, '');
   } else {
@@ -362,15 +753,13 @@ async function performLogin(
   const startPost = Date.now();
   
   try {
-    const postResponse = await fetch(LOGIN_URL, {
+    const postResponse = await fetch(loginUrl, {
       method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8',
+        ...BROWSER_HEADERS,
         'Content-Type': 'application/x-www-form-urlencoded',
         'Cookie': cookieJarToHeader(cookieJar),
-        'Referer': LOGIN_URL,
+        'Referer': loginUrl,
         'Origin': ICARUS_BASE_URL,
       },
       body: formData.toString(),
@@ -399,7 +788,6 @@ async function performLogin(
       postAttempt.success = true;
       attempts.push(postAttempt);
       
-      // If redirected back to login, auth failed
       if (location?.includes('login')) {
         steps[steps.length - 1].status = 'error';
         steps[steps.length - 1].detail = 'Redirected back to login - invalid credentials';
@@ -407,19 +795,17 @@ async function performLogin(
         return { ok: false, status: 'AUTH_FAILED', error: 'Invalid credentials' };
       }
       
-      // Follow redirect to get final state
       if (location) {
         const redirectUrl = location.startsWith('http') ? location : `${ICARUS_BASE_URL}${location}`;
         const redirectResponse = await fetch(redirectUrl, {
           method: 'GET',
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            ...BROWSER_HEADERS,
             'Cookie': cookieJarToHeader(cookieJar),
           },
           redirect: 'manual',
         });
         
-        // Capture any new cookies from redirect
         const redirectCookies = redirectResponse.headers.getSetCookie?.() || [];
         for (const c of parseCookies(redirectCookies)) {
           const idx = cookieJar.cookies.findIndex(x => x.name === c.name);
@@ -431,7 +817,6 @@ async function performLogin(
       const postHtml = await postResponse.text();
       postAttempt.response_snippet = truncate(postHtml, 500);
       
-      // Check if we got an error message
       if (postHtml.includes('error') || postHtml.includes('incorrecto') || postHtml.includes('inválido')) {
         postAttempt.error_type = 'AUTH_FAILED';
         attempts.push(postAttempt);
@@ -478,9 +863,8 @@ async function performLogin(
     const verifyResponse = await fetch(PROCESS_LIST_URL, {
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ...BROWSER_HEADERS,
         'Cookie': cookieJarToHeader(cookieJar),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
       redirect: 'manual',
     });
@@ -488,7 +872,6 @@ async function performLogin(
     verifyAttempt.status = verifyResponse.status;
     verifyAttempt.latency_ms = Date.now() - startVerify;
     
-    // If redirected to login, auth failed
     if (verifyResponse.status === 302 || verifyResponse.status === 303) {
       const location = verifyResponse.headers.get('location');
       if (location?.includes('login')) {
@@ -505,9 +888,7 @@ async function performLogin(
     const verifyHtml = await verifyResponse.text();
     verifyAttempt.response_snippet = truncate(verifyHtml, 500);
     
-    // Check for authenticated markers
     if (!isAuthenticatedPage(verifyHtml)) {
-      // Check if it's a login page
       if (verifyHtml.toLowerCase().includes('login') || verifyHtml.toLowerCase().includes('iniciar sesión')) {
         verifyAttempt.error_type = 'AUTH_FAILED';
         attempts.push(verifyAttempt);
@@ -518,7 +899,6 @@ async function performLogin(
       }
     }
     
-    // Extract new ViewState for future requests
     const newViewState = extractViewState(verifyHtml);
     if (newViewState) {
       cookieJar.viewState = newViewState;
@@ -547,20 +927,26 @@ async function performLogin(
 
 // ============= ERROR HELPER =============
 
+function generateRequestId(): string {
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+}
+
 function jsonError(
   status: number,
   code: string,
   message: string,
   meta?: Record<string, unknown>
 ): Response {
+  const request_id = generateRequestId();
   const body = {
     ok: false,
     code,
     message,
+    request_id,
     ...(meta || {}),
     timestamp: new Date().toISOString(),
   };
-  console.error(`[icarus-auth] Error ${code}: ${message}`, meta ? JSON.stringify(meta) : '');
+  console.error(`[icarus-auth] Error ${code}: ${message}`, meta ? JSON.stringify(meta).substring(0, 500) : '');
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -568,8 +954,9 @@ function jsonError(
 }
 
 function jsonSuccess(data: Record<string, unknown>): Response {
+  const request_id = generateRequestId();
   return new Response(
-    JSON.stringify({ ok: true, ...data, timestamp: new Date().toISOString() }),
+    JSON.stringify({ ok: true, request_id, ...data, timestamp: new Date().toISOString() }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
 }
@@ -603,7 +990,6 @@ Deno.serve(async (req) => {
   const steps: Step[] = [];
   const attempts: AttemptLog[] = [];
 
-  // Add diagnostic step
   const addStep = (name: string, status: 'success' | 'error', detail?: string) => {
     steps.push({
       name,
@@ -616,8 +1002,6 @@ Deno.serve(async (req) => {
 
   try {
     // Step 1: Validate environment
-    addStep('ENV_CHECK', 'success', 'Supabase config present');
-    
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
@@ -625,6 +1009,7 @@ Deno.serve(async (req) => {
       addStep('ENV_CHECK', 'error', 'Missing SUPABASE_URL or SERVICE_ROLE_KEY');
       return jsonError(500, 'FUNCTION_MISCONFIG', 'Missing Supabase configuration', { steps });
     }
+    addStep('ENV_CHECK', 'success', 'Supabase config present');
 
     // Step 2: Validate encryption key
     const keyCheck = validateEncryptionKey();
@@ -634,7 +1019,7 @@ Deno.serve(async (req) => {
     }
     addStep('KEY_CHECK', 'success', 'Encryption key valid (32 bytes)');
 
-    // Step 3: Parse request body safely (handle empty body)
+    // Step 3: Parse request body safely
     let payload: { action?: string; username?: string; password?: string } = {};
     try {
       const text = await req.text();
@@ -642,10 +1027,10 @@ Deno.serve(async (req) => {
         payload = JSON.parse(text);
       }
     } catch {
-      // Empty or invalid JSON is OK - we'll use defaults
+      // Empty or invalid JSON is OK
     }
     
-    const action = payload.action || 'refresh'; // Default to refresh
+    const action = payload.action || 'refresh';
     addStep('PARSE_BODY', 'success', `Action: ${action}`);
 
     // Step 4: Authenticate user
@@ -667,7 +1052,7 @@ Deno.serve(async (req) => {
     const userId = user.id;
     addStep('AUTH_CHECK', 'success', `User: ${userId.substring(0, 8)}...`);
 
-    // ============= ACTION: LOGIN (with provided credentials) =============
+    // ============= ACTION: LOGIN =============
     if (action === 'login') {
       const { username, password } = payload;
       
@@ -682,7 +1067,6 @@ Deno.serve(async (req) => {
       const result = await performLogin(username, password, attempts, steps);
 
       if (!result.ok) {
-        // Record failed attempt
         await supabase.from('icarus_sync_runs').insert({
           owner_id: userId,
           status: 'ERROR',
@@ -694,22 +1078,20 @@ Deno.serve(async (req) => {
           finished_at: new Date().toISOString(),
         });
 
-        // Map result.status to appropriate HTTP code
-        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 : 400;
-        const code = result.status === 'CAPTCHA_REQUIRED' ? 'CAPTCHA_REQUIRED' : 'AUTH_FAILED';
+        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 :
+                           result.status === 'LOGIN_PAGE_UNREACHABLE' ? 502 : 400;
 
-        return jsonError(httpStatus, code, result.error || 'Authentication failed', { 
+        return jsonError(httpStatus, result.status, result.error || 'Authentication failed', { 
           status: result.status, 
           steps, 
-          attempts 
+          attempts,
+          login_attempts: result.loginAttempts,
         });
       }
 
-      // Encrypt credentials and session
       const encryptedPassword = await encryptSecret(password);
       const encryptedSession = await encryptSecret(JSON.stringify(result.cookieJar));
 
-      // Save to integrations
       const { error: upsertError } = await supabase
         .from('integrations')
         .upsert({
@@ -737,7 +1119,6 @@ Deno.serve(async (req) => {
       }
       addStep('SAVE_INTEGRATION', 'success', 'Session stored');
 
-      // Create success sync run record
       await supabase.from('icarus_sync_runs').insert({
         owner_id: userId,
         status: 'SUCCESS',
@@ -759,9 +1140,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ============= ACTION: REFRESH SESSION (using stored credentials) =============
+    // ============= ACTION: REFRESH =============
     if (action === 'refresh') {
-      // Step 5: Load stored integration
       const { data: integration, error: loadError } = await supabase
         .from('integrations')
         .select('*')
@@ -786,7 +1166,6 @@ Deno.serve(async (req) => {
       }
       addStep('CHECK_CREDENTIALS', 'success', `Username: ${integration.username}`);
 
-      // Step 6: Decrypt password
       let decryptedPassword: string;
       try {
         decryptedPassword = await decryptSecret(integration.password_encrypted);
@@ -799,29 +1178,27 @@ Deno.serve(async (req) => {
         return jsonError(500, 'DECRYPT_FAILED', 'Failed to decrypt stored password', { steps });
       }
 
-      // Step 7: Perform login
       console.log(`[icarus-auth] Refreshing session for user ${userId.substring(0, 8)}...`);
       const result = await performLogin(integration.username, decryptedPassword, attempts, steps);
 
       if (!result.ok) {
-        // Update integration with error status
         await supabase.from('integrations').update({
           status: result.status === 'CAPTCHA_REQUIRED' ? 'ERROR' : result.status,
           last_error: result.error,
           updated_at: new Date().toISOString(),
         }).eq('id', integration.id);
 
-        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 : 400;
-        const code = result.status === 'CAPTCHA_REQUIRED' ? 'CAPTCHA_REQUIRED' : 'AUTH_FAILED';
+        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 :
+                           result.status === 'LOGIN_PAGE_UNREACHABLE' ? 502 : 400;
 
-        return jsonError(httpStatus, code, result.error || 'Authentication failed', { 
+        return jsonError(httpStatus, result.status, result.error || 'Authentication failed', { 
           status: result.status, 
           steps, 
-          attempts 
+          attempts,
+          login_attempts: result.loginAttempts,
         });
       }
 
-      // Step 8: Save new session
       const encryptedSession = await encryptSecret(JSON.stringify(result.cookieJar));
 
       const { error: updateError } = await supabase.from('integrations').update({
@@ -849,7 +1226,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Unknown action
     return jsonError(400, 'UNKNOWN_ACTION', `Unknown action: ${action}`, { steps });
 
   } catch (err) {
