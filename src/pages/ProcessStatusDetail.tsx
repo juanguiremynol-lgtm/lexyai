@@ -288,6 +288,18 @@ export default function ProcessStatusDetail() {
               }
             />
           </div>
+          {process.expediente_digital_url && (
+            <Button variant="outline" asChild>
+              <a
+                href={process.expediente_digital_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Expediente Digital
+              </a>
+            </Button>
+          )}
           <Button
             onClick={() => crawlMutation.mutate()}
             disabled={crawlMutation.isPending}
@@ -717,6 +729,38 @@ export default function ProcessStatusDetail() {
                       placeholder="Departamento"
                     />
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <Label>Expediente Digital</Label>
+                <p className="text-sm text-muted-foreground">
+                  Enlace al expediente digital en SharePoint de la Rama Judicial
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    id="expediente_digital_url"
+                    value={process.expediente_digital_url || ""}
+                    onChange={(e) =>
+                      updateProcessMutation.mutate({ expediente_digital_url: e.target.value })
+                    }
+                    placeholder="https://etbcsj-my.sharepoint.com/..."
+                    className="flex-1"
+                  />
+                  {process.expediente_digital_url && (
+                    <Button variant="outline" asChild>
+                      <a
+                        href={process.expediente_digital_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Abrir
+                      </a>
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardContent>
