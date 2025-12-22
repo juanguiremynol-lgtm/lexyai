@@ -539,6 +539,115 @@ export type Database = {
           },
         ]
       }
+      icarus_sync_runs: {
+        Row: {
+          attempts: Json | null
+          classification: string | null
+          created_at: string
+          error_message: string | null
+          events_created: number | null
+          finished_at: string | null
+          id: string
+          mode: string | null
+          owner_id: string
+          processes_found: number | null
+          started_at: string
+          status: string
+          steps: Json | null
+        }
+        Insert: {
+          attempts?: Json | null
+          classification?: string | null
+          created_at?: string
+          error_message?: string | null
+          events_created?: number | null
+          finished_at?: string | null
+          id?: string
+          mode?: string | null
+          owner_id: string
+          processes_found?: number | null
+          started_at?: string
+          status?: string
+          steps?: Json | null
+        }
+        Update: {
+          attempts?: Json | null
+          classification?: string | null
+          created_at?: string
+          error_message?: string | null
+          events_created?: number | null
+          finished_at?: string | null
+          id?: string
+          mode?: string | null
+          owner_id?: string
+          processes_found?: number | null
+          started_at?: string
+          status?: string
+          steps?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "icarus_sync_runs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integrations: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          last_error: string | null
+          last_sync_at: string | null
+          metadata: Json | null
+          owner_id: string
+          provider: string
+          secret_encrypted: string | null
+          secret_last4: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          metadata?: Json | null
+          owner_id: string
+          provider: string
+          secret_encrypted?: string | null
+          secret_last4?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          metadata?: Json | null
+          owner_id?: string
+          provider?: string
+          secret_encrypted?: string | null
+          secret_last4?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrations_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matters: {
         Row: {
           client_id_number: string | null

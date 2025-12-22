@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.process-monitor]
 verify_jwt = false
+
+[functions.adapter-icarus]
+verify_jwt = false
+
+[functions.icarus-sync]
+verify_jwt = false
