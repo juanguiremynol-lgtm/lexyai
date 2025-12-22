@@ -59,6 +59,106 @@ export type Database = {
           },
         ]
       }
+      crawler_run_steps: {
+        Row: {
+          created_at: string
+          detail: string | null
+          id: string
+          meta: Json | null
+          ok: boolean
+          run_id: string
+          step_name: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          meta?: Json | null
+          ok?: boolean
+          run_id: string
+          step_name: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          id?: string
+          meta?: Json | null
+          ok?: boolean
+          run_id?: string
+          step_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crawler_run_steps_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "crawler_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      crawler_runs: {
+        Row: {
+          adapter: string
+          created_at: string
+          debug_excerpt: string | null
+          duration_ms: number | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
+          http_status: number | null
+          id: string
+          owner_id: string
+          radicado: string
+          request_meta: Json | null
+          response_meta: Json | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          adapter: string
+          created_at?: string
+          debug_excerpt?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          http_status?: number | null
+          id?: string
+          owner_id: string
+          radicado: string
+          request_meta?: Json | null
+          response_meta?: Json | null
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          adapter?: string
+          created_at?: string
+          debug_excerpt?: string | null
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          http_status?: number | null
+          id?: string
+          owner_id?: string
+          radicado?: string
+          request_meta?: Json | null
+          response_meta?: Json | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "crawler_runs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           extracted_json: Json | null
