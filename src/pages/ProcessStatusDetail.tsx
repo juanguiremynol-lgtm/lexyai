@@ -46,6 +46,7 @@ import {
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
+import { ProcessClientLink } from "@/components/processes";
 
 interface Attachment {
   label: string;
@@ -84,7 +85,7 @@ export default function ProcessStatusDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("monitored_processes")
-        .select("*")
+        .select("*, clients(id, name)")
         .eq("id", id!)
         .single();
 
@@ -264,6 +265,15 @@ export default function ProcessStatusDetail() {
           <p className="text-muted-foreground">
             {process.despacho_name || "Despacho no especificado"}
           </p>
+          <div className="mt-2">
+            <ProcessClientLink
+              processId={process.id}
+              processRadicado={process.radicado}
+              currentClientId={process.client_id}
+              currentClientName={(process as { clients?: { name: string } | null }).clients?.name}
+              onLinked={() => queryClient.invalidateQueries({ queryKey: ["monitored-process", id] })}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">

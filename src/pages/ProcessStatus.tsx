@@ -46,7 +46,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { formatDateColombia, validateRadicado } from "@/lib/constants";
 import { SOURCE_ADAPTERS, type DataSource } from "@/lib/source-adapters";
-import { UnlinkedProcessesAlert } from "@/components/processes";
+import { UnlinkedProcessesAlert, ProcessClientLink } from "@/components/processes";
 
 interface MonitoredProcess {
   id: string;
@@ -61,6 +61,11 @@ interface MonitoredProcess {
   last_change_at: string | null;
   notes: string | null;
   created_at: string;
+  client_id: string | null;
+  clients: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 interface SearchResult {
@@ -94,7 +99,7 @@ export default function ProcessStatus() {
 
       const { data, error } = await supabase
         .from("monitored_processes")
-        .select("*")
+        .select("*, clients(id, name)")
         .eq("owner_id", user.id)
         .order("created_at", { ascending: false });
 
@@ -586,10 +591,10 @@ export default function ProcessStatus() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Radicado</TableHead>
+                      <TableHead>Cliente</TableHead>
                       <TableHead>Despacho</TableHead>
                       <TableHead>Fuentes</TableHead>
                       <TableHead>Última Consulta</TableHead>
-                      <TableHead>Último Cambio</TableHead>
                       <TableHead>Monitoreo</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
@@ -605,6 +610,15 @@ export default function ProcessStatus() {
                             {process.radicado}
                           </Link>
                         </TableCell>
+                        <TableCell>
+                          <ProcessClientLink
+                            processId={process.id}
+                            processRadicado={process.radicado}
+                            currentClientId={process.client_id}
+                            currentClientName={process.clients?.name}
+                            onLinked={() => queryClient.invalidateQueries({ queryKey: ["monitored-processes"] })}
+                          />
+                        </TableCell>
                         <TableCell className="max-w-48 truncate">
                           {process.despacho_name || "—"}
                         </TableCell>
@@ -618,15 +632,6 @@ export default function ProcessStatus() {
                             <span className="text-sm flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               {formatDateColombia(process.last_checked_at)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {process.last_change_at ? (
-                            <span className="text-sm">
-                              {formatDateColombia(process.last_change_at)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
