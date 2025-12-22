@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,9 @@ import {
   LogIn,
   Play,
   XCircle,
-  Zap
+  Zap,
+  Settings,
+  AlertTriangle
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -56,6 +58,15 @@ const CLASSIFICATION_LABELS: Record<string, { label: string; variant: 'default' 
   UNKNOWN: { label: 'Desconocido', variant: 'outline' },
 };
 
+const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  CONNECTED: { label: 'Conectado', variant: 'default' },
+  PENDING: { label: 'Pendiente', variant: 'secondary' },
+  NEEDS_REAUTH: { label: 'Requiere Login', variant: 'destructive' },
+  AUTH_FAILED: { label: 'Auth Fallida', variant: 'destructive' },
+  CAPTCHA_REQUIRED: { label: 'CAPTCHA', variant: 'destructive' },
+  ERROR: { label: 'Error', variant: 'destructive' },
+};
+
 export default function IcarusTest() {
   const [searchParams] = useSearchParams();
   const runIdParam = searchParams.get("run");
@@ -63,7 +74,7 @@ export default function IcarusTest() {
   const [testResult, setTestResult] = useState<any>(null);
 
   // Check integration status
-  const { data: integration } = useQuery({
+  const { data: integration, isLoading: loadingIntegration, refetch: refetchIntegration } = useQuery({
     queryKey: ["icarus-integration-test"],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -111,22 +122,7 @@ export default function IcarusTest() {
     },
   });
 
-  // Test list action
-  const testList = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("adapter-icarus", {
-        body: { action: "list" },
-      });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      setTestResult(data);
-      refetchRuns();
-    },
-  });
-
-  // Test login action
+  // Test login action (refreshes session using stored credentials)
   const testLogin = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke("icarus-auth", {
@@ -139,6 +135,22 @@ export default function IcarusTest() {
       setTestResult(data);
       queryClient.invalidateQueries({ queryKey: ["icarus-integration-test"] });
       refetchRuns();
+    },
+  });
+
+  // Test list action
+  const testList = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("adapter-icarus", {
+        body: { action: "list" },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      setTestResult(data);
+      refetchRuns();
+      refetchIntegration();
     },
   });
 
@@ -167,7 +179,34 @@ export default function IcarusTest() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
+  const getStatusBadge = (status: string | null) => {
+    const config = STATUS_LABELS[status || ''] || { label: status || 'Desconocido', variant: 'outline' as const };
+    return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
   const isConnected = integration?.status === 'CONNECTED';
+  const hasCredentials = integration?.username && integration?.password_encrypted;
+  const hasSession = !!integration?.session_encrypted;
+  const isPending = testLogin.isPending || testList.isPending || runSync.isPending;
+
+  // Determine integration state for UI
+  const getIntegrationState = () => {
+    if (!integration) return 'NOT_CONFIGURED';
+    if (!hasCredentials) return 'MISSING_CREDENTIALS';
+    if (isConnected) return 'READY';
+    if (hasSession) return 'SESSION_EXISTS';
+    return 'CREDENTIALS_ONLY';
+  };
+
+  const integrationState = getIntegrationState();
+
+  if (loadingIntegration) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -178,38 +217,89 @@ export default function IcarusTest() {
         </p>
       </div>
 
-      {/* Integration Status */}
+      {/* Integration Status Card */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             Estado de Integración
             {isConnected ? (
               <CheckCircle2 className="h-4 w-4 text-green-500" />
+            ) : hasCredentials ? (
+              <AlertTriangle className="h-4 w-4 text-yellow-500" />
             ) : (
               <XCircle className="h-4 w-4 text-destructive" />
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <Badge variant={isConnected ? "default" : "destructive"}>
-              {integration?.status || 'NO CONFIGURADO'}
-            </Badge>
+            {integration ? getStatusBadge(integration.status) : (
+              <Badge variant="outline">NO CONFIGURADO</Badge>
+            )}
+            
             {integration?.username && (
               <span className="text-sm text-muted-foreground">
                 Usuario: {integration.username}
               </span>
             )}
+            
             {integration?.session_last_ok_at && (
               <span className="text-sm text-muted-foreground">
                 Sesión OK: {formatDistanceToNow(new Date(integration.session_last_ok_at), { addSuffix: true, locale: es })}
               </span>
             )}
           </div>
-          {!isConnected && (
-            <p className="text-sm text-muted-foreground mt-2">
-              Configura tus credenciales en Configuración → Integraciones
-            </p>
+
+          {/* Diagnostic info */}
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="space-y-1">
+              <p className="text-muted-foreground">Credenciales guardadas:</p>
+              <Badge variant={hasCredentials ? "default" : "destructive"}>
+                {hasCredentials ? "Sí" : "No"}
+              </Badge>
+            </div>
+            <div className="space-y-1">
+              <p className="text-muted-foreground">Sesión almacenada:</p>
+              <Badge variant={hasSession ? "default" : "secondary"}>
+                {hasSession ? "Sí" : "No"}
+              </Badge>
+            </div>
+          </div>
+
+          {/* CTA if not configured */}
+          {integrationState === 'NOT_CONFIGURED' && (
+            <Alert>
+              <Settings className="h-4 w-4" />
+              <AlertTitle>Integración no configurada</AlertTitle>
+              <AlertDescription className="flex items-center gap-2">
+                Configura tus credenciales ICARUS en Configuración.
+                <Link to="/settings" className="text-primary hover:underline inline-flex items-center gap-1">
+                  <Settings className="h-3 w-3" />
+                  Ir a Configuración
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {integrationState === 'MISSING_CREDENTIALS' && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Credenciales incompletas</AlertTitle>
+              <AlertDescription className="flex items-center gap-2">
+                La integración existe pero faltan las credenciales encriptadas.
+                <Link to="/settings" className="text-primary hover:underline inline-flex items-center gap-1">
+                  <Settings className="h-3 w-3" />
+                  Reconfigurar
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {integration?.last_error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{integration.last_error}</AlertDescription>
+            </Alert>
           )}
         </CardContent>
       </Card>
@@ -219,7 +309,8 @@ export default function IcarusTest() {
         <Button
           variant="outline"
           onClick={() => testLogin.mutate()}
-          disabled={testLogin.isPending || !integration?.username}
+          disabled={isPending || !hasCredentials}
+          title={!hasCredentials ? "Requiere credenciales guardadas" : "Probar login con credenciales almacenadas"}
         >
           {testLogin.isPending ? (
             <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -231,7 +322,8 @@ export default function IcarusTest() {
         <Button
           variant="outline"
           onClick={() => testList.mutate()}
-          disabled={testList.isPending || !isConnected}
+          disabled={isPending || !hasCredentials}
+          title={!hasCredentials ? "Requiere credenciales guardadas" : "Listar procesos desde ICARUS"}
         >
           {testList.isPending ? (
             <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -242,7 +334,8 @@ export default function IcarusTest() {
         </Button>
         <Button
           onClick={() => runSync.mutate()}
-          disabled={runSync.isPending || !isConnected}
+          disabled={isPending || !hasCredentials}
+          title={!hasCredentials ? "Requiere credenciales guardadas" : "Sincronización completa"}
         >
           {runSync.isPending ? (
             <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -251,6 +344,15 @@ export default function IcarusTest() {
           )}
           Sincronización Completa
         </Button>
+
+        {!hasCredentials && (
+          <Link to="/settings">
+            <Button variant="secondary">
+              <Settings className="h-4 w-4 mr-2" />
+              Configurar Credenciales
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Test Result */}
@@ -262,7 +364,7 @@ export default function IcarusTest() {
             <AlertCircle className="h-4 w-4" />
           )}
           <AlertTitle>
-            {testResult.ok ? "Éxito" : "Error"} - {testResult.classification || 'N/A'}
+            {testResult.ok ? "Éxito" : "Error"} - {testResult.classification || testResult.status || 'N/A'}
           </AlertTitle>
           <AlertDescription>
             {testResult.ok
