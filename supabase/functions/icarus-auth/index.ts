@@ -545,57 +545,144 @@ async function performLogin(
   }
 }
 
+// ============= ERROR HELPER =============
+
+function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  meta?: Record<string, unknown>
+): Response {
+  const body = {
+    ok: false,
+    code,
+    message,
+    ...(meta || {}),
+    timestamp: new Date().toISOString(),
+  };
+  console.error(`[icarus-auth] Error ${code}: ${message}`, meta ? JSON.stringify(meta) : '');
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function jsonSuccess(data: Record<string, unknown>): Response {
+  return new Response(
+    JSON.stringify({ ok: true, ...data, timestamp: new Date().toISOString() }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
+// ============= ENCRYPTION KEY VALIDATION =============
+
+function validateEncryptionKey(): { valid: boolean; error?: string } {
+  const keyB64 = Deno.env.get('ICARUS_ENCRYPTION_KEY') || '';
+  if (!keyB64) {
+    return { valid: false, error: 'ICARUS_ENCRYPTION_KEY not configured' };
+  }
+  try {
+    const decoded = atob(keyB64);
+    if (decoded.length !== 32) {
+      return { valid: false, error: `Key is ${decoded.length} bytes, must be 32` };
+    }
+    return { valid: true };
+  } catch {
+    return { valid: false, error: 'Key is not valid base64' };
+  }
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
+  // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
   const steps: Step[] = [];
   const attempts: AttemptLog[] = [];
 
+  // Add diagnostic step
+  const addStep = (name: string, status: 'success' | 'error', detail?: string) => {
+    steps.push({
+      name,
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      status,
+      detail,
+    });
+  };
+
   try {
-    const { action, username, password } = await req.json();
-
-    // Get user from auth header
-    const authHeader = req.headers.get('Authorization');
-    let userId: string | null = null;
+    // Step 1: Validate environment
+    addStep('ENV_CHECK', 'success', 'Supabase config present');
     
-    if (authHeader) {
-      const token = authHeader.replace('Bearer ', '');
-      const { data: { user }, error } = await supabase.auth.getUser(token);
-      if (!error && user) {
-        userId = user.id;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      addStep('ENV_CHECK', 'error', 'Missing SUPABASE_URL or SERVICE_ROLE_KEY');
+      return jsonError(500, 'FUNCTION_MISCONFIG', 'Missing Supabase configuration', { steps });
+    }
+
+    // Step 2: Validate encryption key
+    const keyCheck = validateEncryptionKey();
+    if (!keyCheck.valid) {
+      addStep('KEY_CHECK', 'error', keyCheck.error);
+      return jsonError(500, 'MISSING_OR_INVALID_SECRET', keyCheck.error || 'Invalid encryption key', { steps });
+    }
+    addStep('KEY_CHECK', 'success', 'Encryption key valid (32 bytes)');
+
+    // Step 3: Parse request body safely (handle empty body)
+    let payload: { action?: string; username?: string; password?: string } = {};
+    try {
+      const text = await req.text();
+      if (text && text.trim()) {
+        payload = JSON.parse(text);
       }
+    } catch {
+      // Empty or invalid JSON is OK - we'll use defaults
+    }
+    
+    const action = payload.action || 'refresh'; // Default to refresh
+    addStep('PARSE_BODY', 'success', `Action: ${action}`);
+
+    // Step 4: Authenticate user
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      addStep('AUTH_CHECK', 'error', 'Missing Authorization header');
+      return jsonError(401, 'UNAUTHORIZED', 'Missing Authorization header', { steps });
     }
 
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ ok: false, error: 'Not authenticated' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      addStep('AUTH_CHECK', 'error', authError?.message || 'Invalid token');
+      return jsonError(401, 'UNAUTHORIZED', authError?.message || 'Invalid or expired token', { steps });
     }
+    
+    const userId = user.id;
+    addStep('AUTH_CHECK', 'success', `User: ${userId.substring(0, 8)}...`);
 
-    // ============= ACTION: LOGIN =============
+    // ============= ACTION: LOGIN (with provided credentials) =============
     if (action === 'login') {
+      const { username, password } = payload;
+      
       if (!username || !password) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Username and password are required' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        addStep('VALIDATE_INPUT', 'error', 'Missing username or password');
+        return jsonError(400, 'MISSING_CREDENTIALS', 'Username and password are required', { steps });
       }
+      addStep('VALIDATE_INPUT', 'success', `Username: ${username}`);
 
-      console.log(`[icarus-auth] Starting login for user ${userId}`);
+      console.log(`[icarus-auth] Starting login for user ${userId.substring(0, 8)}...`);
 
       const result = await performLogin(username, password, attempts, steps);
 
       if (!result.ok) {
-        // Create sync run record for diagnostics
+        // Record failed attempt
         await supabase.from('icarus_sync_runs').insert({
           owner_id: userId,
           status: 'ERROR',
@@ -607,16 +694,15 @@ Deno.serve(async (req) => {
           finished_at: new Date().toISOString(),
         });
 
-        return new Response(
-          JSON.stringify({ 
-            ok: false, 
-            error: result.error, 
-            status: result.status,
-            steps,
-            attempts 
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        // Map result.status to appropriate HTTP code
+        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 : 400;
+        const code = result.status === 'CAPTCHA_REQUIRED' ? 'CAPTCHA_REQUIRED' : 'AUTH_FAILED';
+
+        return jsonError(httpStatus, code, result.error || 'Authentication failed', { 
+          status: result.status, 
+          steps, 
+          attempts 
+        });
       }
 
       // Encrypt credentials and session
@@ -642,11 +728,14 @@ Deno.serve(async (req) => {
 
       if (upsertError) {
         console.error('[icarus-auth] Failed to save integration:', upsertError);
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Failed to save integration' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        addStep('SAVE_INTEGRATION', 'error', upsertError.message);
+        return jsonError(500, 'DB_ERROR', 'Failed to save integration', { 
+          steps, 
+          attempts,
+          db_error: upsertError.message 
+        });
       }
+      addStep('SAVE_INTEGRATION', 'success', 'Session stored');
 
       // Create success sync run record
       await supabase.from('icarus_sync_runs').insert({
@@ -659,69 +748,83 @@ Deno.serve(async (req) => {
         finished_at: new Date().toISOString(),
       });
 
-      console.log(`[icarus-auth] Login successful for user ${userId}`);
+      console.log(`[icarus-auth] Login successful for user ${userId.substring(0, 8)}...`);
 
-      return new Response(
-        JSON.stringify({ 
-          ok: true, 
-          message: 'Login successful',
-          status: 'CONNECTED',
-          steps,
-          attempts 
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return jsonSuccess({ 
+        message: 'Login successful',
+        status: 'CONNECTED',
+        session_stored: true,
+        steps,
+        attempts 
+      });
     }
 
-    // ============= ACTION: REFRESH SESSION =============
+    // ============= ACTION: REFRESH SESSION (using stored credentials) =============
     if (action === 'refresh') {
-      // Load stored credentials
-      const { data: integration } = await supabase
+      // Step 5: Load stored integration
+      const { data: integration, error: loadError } = await supabase
         .from('integrations')
         .select('*')
         .eq('owner_id', userId)
         .eq('provider', 'ICARUS')
-        .single();
+        .maybeSingle();
 
-      if (!integration || !integration.username || !integration.password_encrypted) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'No stored credentials' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      if (loadError) {
+        addStep('LOAD_INTEGRATION', 'error', loadError.message);
+        return jsonError(500, 'DB_ERROR', 'Failed to load integration', { steps, db_error: loadError.message });
       }
 
-      const decryptedPassword = await decryptSecret(integration.password_encrypted);
-      if (!decryptedPassword) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'Failed to decrypt password' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      if (!integration) {
+        addStep('LOAD_INTEGRATION', 'error', 'No ICARUS integration found');
+        return jsonError(404, 'INTEGRATION_NOT_FOUND', 'No ICARUS integration found for this user', { steps });
+      }
+      addStep('LOAD_INTEGRATION', 'success', `Found integration: ${integration.id.substring(0, 8)}...`);
+
+      if (!integration.username || !integration.password_encrypted) {
+        addStep('CHECK_CREDENTIALS', 'error', 'Missing stored credentials');
+        return jsonError(400, 'MISSING_CREDENTIALS', 'No stored credentials - please save credentials first', { steps });
+      }
+      addStep('CHECK_CREDENTIALS', 'success', `Username: ${integration.username}`);
+
+      // Step 6: Decrypt password
+      let decryptedPassword: string;
+      try {
+        decryptedPassword = await decryptSecret(integration.password_encrypted);
+        if (!decryptedPassword) {
+          throw new Error('Decryption returned empty string');
+        }
+        addStep('DECRYPT', 'success', 'Password decrypted');
+      } catch (decryptErr) {
+        addStep('DECRYPT', 'error', decryptErr instanceof Error ? decryptErr.message : 'Decrypt failed');
+        return jsonError(500, 'DECRYPT_FAILED', 'Failed to decrypt stored password', { steps });
       }
 
+      // Step 7: Perform login
+      console.log(`[icarus-auth] Refreshing session for user ${userId.substring(0, 8)}...`);
       const result = await performLogin(integration.username, decryptedPassword, attempts, steps);
 
       if (!result.ok) {
+        // Update integration with error status
         await supabase.from('integrations').update({
-          status: result.status,
+          status: result.status === 'CAPTCHA_REQUIRED' ? 'ERROR' : result.status,
           last_error: result.error,
           updated_at: new Date().toISOString(),
         }).eq('id', integration.id);
 
-        return new Response(
-          JSON.stringify({ 
-            ok: false, 
-            error: result.error, 
-            status: result.status,
-            steps,
-            attempts 
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        const httpStatus = result.status === 'CAPTCHA_REQUIRED' ? 403 : 400;
+        const code = result.status === 'CAPTCHA_REQUIRED' ? 'CAPTCHA_REQUIRED' : 'AUTH_FAILED';
+
+        return jsonError(httpStatus, code, result.error || 'Authentication failed', { 
+          status: result.status, 
+          steps, 
+          attempts 
+        });
       }
 
+      // Step 8: Save new session
       const encryptedSession = await encryptSecret(JSON.stringify(result.cookieJar));
 
-      await supabase.from('integrations').update({
+      const { error: updateError } = await supabase.from('integrations').update({
         status: 'CONNECTED',
         session_encrypted: encryptedSession,
         session_last_ok_at: new Date().toISOString(),
@@ -729,33 +832,28 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       }).eq('id', integration.id);
 
-      return new Response(
-        JSON.stringify({ 
-          ok: true, 
-          message: 'Session refreshed',
-          status: 'CONNECTED',
-          steps,
-          attempts 
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      if (updateError) {
+        addStep('SAVE_SESSION', 'error', updateError.message);
+        return jsonError(500, 'DB_ERROR', 'Failed to save session', { steps, db_error: updateError.message });
+      }
+      addStep('SAVE_SESSION', 'success', 'Session refreshed and stored');
 
-    return new Response(
-      JSON.stringify({ ok: false, error: 'Unknown action' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      console.log(`[icarus-auth] Session refreshed for user ${userId.substring(0, 8)}...`);
 
-  } catch (err) {
-    console.error('[icarus-auth] Error:', err);
-    return new Response(
-      JSON.stringify({ 
-        ok: false, 
-        error: err instanceof Error ? err.message : 'Unknown error',
+      return jsonSuccess({ 
+        message: 'Session refreshed',
+        status: 'CONNECTED',
+        session_stored: true,
         steps,
         attempts 
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      });
+    }
+
+    // Unknown action
+    return jsonError(400, 'UNKNOWN_ACTION', `Unknown action: ${action}`, { steps });
+
+  } catch (err) {
+    console.error('[icarus-auth] Unexpected error:', err);
+    return jsonError(500, 'UNKNOWN_ERROR', err instanceof Error ? err.message : 'Unknown error', { steps, attempts });
   }
 });
