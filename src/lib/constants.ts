@@ -75,7 +75,7 @@ export const COLOMBIAN_DEPARTMENTS = [
   'Valle del Cauca', 'Vaupés', 'Vichada',
 ] as const;
 
-// Kanban columns for dashboard
+// Kanban columns for radicaciones pipeline (ends at ICARUS_SYNC_PENDING)
 export const KANBAN_COLUMNS: FilingStatus[] = [
   'SENT_TO_REPARTO',
   'ACTA_PENDING',
@@ -84,8 +84,14 @@ export const KANBAN_COLUMNS: FilingStatus[] = [
   'RADICADO_PENDING',
   'RADICADO_CONFIRMED',
   'ICARUS_SYNC_PENDING',
-  'MONITORING_ACTIVE',
 ];
+
+// Process pipeline stages
+export const PROCESS_STAGES = {
+  EN_SEGUIMIENTO: { label: 'En Seguimiento', color: 'active', order: 0 },
+} as const;
+
+export type ProcessStage = keyof typeof PROCESS_STAGES;
 
 // Email templates
 export const EMAIL_TEMPLATES = {

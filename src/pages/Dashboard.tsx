@@ -3,7 +3,7 @@ import { FileText, Clock, AlertTriangle, Eye } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { KanbanBoard } from "@/components/kanban/KanbanBoard";
-import { MonitoredProcessesSection } from "@/components/processes/MonitoredProcessesSection";
+import { ProcessPipeline } from "@/components/processes/ProcessPipeline";
 import type { FilingStatus } from "@/lib/constants";
 
 interface Filing {
@@ -77,7 +77,7 @@ export default function Dashboard() {
           Dashboard
         </h1>
         <p className="text-muted-foreground">
-          Vista general de tus radicaciones
+          Vista general de radicaciones y procesos
         </p>
       </div>
 
@@ -136,15 +136,26 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Monitored Processes Section */}
-      <MonitoredProcessesSection />
-
-      {/* Kanban Board */}
+      {/* Pipeline de Radicaciones */}
       <div>
         <h2 className="font-display text-xl font-semibold mb-4">
           Pipeline de Radicaciones
         </h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Flujo desde envío a reparto hasta confirmación de auto admisorio
+        </p>
         <KanbanBoard filings={filings} onFilingUpdated={fetchData} />
+      </div>
+
+      {/* Pipeline de Procesos */}
+      <div>
+        <h2 className="font-display text-xl font-semibold mb-4">
+          Pipeline de Procesos
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          Procesos con radicado confirmado y auto admisorio en seguimiento activo
+        </p>
+        <ProcessPipeline />
       </div>
     </div>
   );
