@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { KanbanBoard } from "@/components/kanban/KanbanBoard";
 import { ProcessPipeline } from "@/components/processes/ProcessPipeline";
+import { ReviewAlerts } from "@/components/alerts";
 import type { FilingStatus } from "@/lib/constants";
 
 interface Filing {
@@ -80,6 +81,9 @@ export default function Dashboard() {
           Vista general de radicaciones y procesos
         </p>
       </div>
+
+      {/* Review Alerts */}
+      <ReviewAlerts />
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
