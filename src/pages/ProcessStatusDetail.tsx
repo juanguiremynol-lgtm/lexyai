@@ -42,11 +42,14 @@ import {
   CheckCircle2,
   AlertCircle,
   Trash2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
 import { ProcessClientLink } from "@/components/processes";
+import { EstadosList } from "@/components/estados";
+import { useReviewChecks } from "@/hooks/use-review-checks";
 
 interface Attachment {
   label: string;
@@ -78,6 +81,7 @@ export default function ProcessStatusDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedSource, setSelectedSource] = useState<string>("all");
+  const { markReviewed } = useReviewChecks();
 
   // Fetch process details
   const { data: process, isLoading: processLoading } = useQuery({
@@ -301,6 +305,14 @@ export default function ProcessStatusDetail() {
             </Button>
           )}
           <Button
+            variant="outline"
+            onClick={() => markReviewed.mutate({ entityType: "PROCESS", entityId: id! })}
+            disabled={markReviewed.isPending}
+          >
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+            Marcar Revisado
+          </Button>
+          <Button
             onClick={() => crawlMutation.mutate()}
             disabled={crawlMutation.isPending}
           >
@@ -392,6 +404,10 @@ export default function ProcessStatusDetail() {
           <TabsTrigger value="timeline">
             <Clock className="h-4 w-4 mr-2" />
             Línea de Tiempo
+          </TabsTrigger>
+          <TabsTrigger value="estados">
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Estados
           </TabsTrigger>
           <TabsTrigger value="sources">
             <Eye className="h-4 w-4 mr-2" />
@@ -513,6 +529,10 @@ export default function ProcessStatusDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="estados" className="space-y-4">
+          <EstadosList processId={id!} />
         </TabsContent>
 
         <TabsContent value="sources" className="space-y-4">
