@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Clock, AlertTriangle } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { KanbanBoard } from "@/components/kanban/KanbanBoard";
+import { MonitoredProcessesSection } from "@/components/processes/MonitoredProcessesSection";
 import type { FilingStatus } from "@/lib/constants";
 
 interface Filing {
@@ -21,6 +22,7 @@ export default function Dashboard() {
     radicadoPending: 0,
     overdueTasks: 0,
     criticalAlerts: 0,
+    monitoredProcesses: 0,
   });
 
   const fetchData = useCallback(async () => {
@@ -50,11 +52,17 @@ export default function Dashboard() {
       .eq("severity", "CRITICAL")
       .eq("is_read", false);
 
+    const { count: monitoredProcesses } = await supabase
+      .from("monitored_processes")
+      .select("*", { count: "exact", head: true })
+      .eq("monitoring_enabled", true);
+
     setStats({
       actaPending,
       radicadoPending,
       overdueTasks: overdueTasks || 0,
       criticalAlerts: criticalAlerts || 0,
+      monitoredProcesses: monitoredProcesses || 0,
     });
   }, []);
 
@@ -74,7 +82,7 @@ export default function Dashboard() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
@@ -115,7 +123,21 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.criticalAlerts}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">
+              En Seguimiento
+            </CardTitle>
+            <Eye className="h-4 w-4 text-status-active" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.monitoredProcesses}</div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Monitored Processes Section */}
+      <MonitoredProcessesSection />
 
       {/* Kanban Board */}
       <div>
