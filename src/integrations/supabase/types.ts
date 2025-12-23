@@ -372,6 +372,53 @@ export type Database = {
           },
         ]
       }
+      estados_import_runs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          file_hash: string | null
+          file_name: string
+          id: string
+          owner_id: string
+          rows_matched: number | null
+          rows_total: number | null
+          rows_unmatched: number | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          file_hash?: string | null
+          file_name: string
+          id?: string
+          owner_id: string
+          rows_matched?: number | null
+          rows_total?: number | null
+          rows_unmatched?: number | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          file_hash?: string | null
+          file_name?: string
+          id?: string
+          owner_id?: string
+          rows_matched?: number | null
+          rows_total?: number | null
+          rows_unmatched?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estados_import_runs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       evidence_snapshots: {
         Row: {
           created_at: string
@@ -443,6 +490,7 @@ export type Database = {
           id: string
           last_crawled_at: string | null
           last_event_at: string | null
+          last_reviewed_at: string | null
           matter_id: string
           owner_id: string
           radicado: string | null
@@ -468,6 +516,7 @@ export type Database = {
           id?: string
           last_crawled_at?: string | null
           last_event_at?: string | null
+          last_reviewed_at?: string | null
           matter_id: string
           owner_id: string
           radicado?: string | null
@@ -493,6 +542,7 @@ export type Database = {
           id?: string
           last_crawled_at?: string | null
           last_event_at?: string | null
+          last_reviewed_at?: string | null
           matter_id?: string
           owner_id?: string
           radicado?: string | null
@@ -872,6 +922,7 @@ export type Database = {
           last_action_date_raw: string | null
           last_change_at: string | null
           last_checked_at: string | null
+          last_reviewed_at: string | null
           monitoring_enabled: boolean | null
           monitoring_schedule: string | null
           municipality: string | null
@@ -899,6 +950,7 @@ export type Database = {
           last_action_date_raw?: string | null
           last_change_at?: string | null
           last_checked_at?: string | null
+          last_reviewed_at?: string | null
           monitoring_enabled?: boolean | null
           monitoring_schedule?: string | null
           municipality?: string | null
@@ -926,6 +978,7 @@ export type Database = {
           last_action_date_raw?: string | null
           last_change_at?: string | null
           last_checked_at?: string | null
+          last_reviewed_at?: string | null
           monitoring_enabled?: boolean | null
           monitoring_schedule?: string | null
           municipality?: string | null
@@ -948,6 +1001,79 @@ export type Database = {
           },
           {
             foreignKeyName: "monitored_processes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      process_estados: {
+        Row: {
+          created_at: string
+          demandados: string | null
+          demandantes: string | null
+          despacho: string | null
+          distrito: string | null
+          fecha_ultima_actuacion: string | null
+          fecha_ultima_actuacion_raw: string | null
+          id: string
+          import_run_id: string | null
+          juez_ponente: string | null
+          monitored_process_id: string | null
+          owner_id: string
+          radicado: string
+          source_payload: Json | null
+        }
+        Insert: {
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          despacho?: string | null
+          distrito?: string | null
+          fecha_ultima_actuacion?: string | null
+          fecha_ultima_actuacion_raw?: string | null
+          id?: string
+          import_run_id?: string | null
+          juez_ponente?: string | null
+          monitored_process_id?: string | null
+          owner_id: string
+          radicado: string
+          source_payload?: Json | null
+        }
+        Update: {
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          despacho?: string | null
+          distrito?: string | null
+          fecha_ultima_actuacion?: string | null
+          fecha_ultima_actuacion_raw?: string | null
+          id?: string
+          import_run_id?: string | null
+          juez_ponente?: string | null
+          monitored_process_id?: string | null
+          owner_id?: string
+          radicado?: string
+          source_payload?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_estados_import_run_id_fkey"
+            columns: ["import_run_id"]
+            isOneToOne: false
+            referencedRelation: "estados_import_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_estados_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_estados_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -1034,9 +1160,11 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          estados_import_interval_days: number | null
           firm_name: string | null
           full_name: string | null
           id: string
+          last_estados_import_at: string | null
           reparto_directory: Json | null
           signature_block: string | null
           sla_acta_days: number | null
@@ -1047,9 +1175,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
           id: string
+          last_estados_import_at?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
           sla_acta_days?: number | null
@@ -1060,9 +1190,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
           id?: string
+          last_estados_import_at?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
           sla_acta_days?: number | null
@@ -1072,6 +1204,41 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      review_logs: {
+        Row: {
+          entity_id: string
+          entity_type: string
+          id: string
+          notes: string | null
+          owner_id: string
+          reviewed_at: string
+        }
+        Insert: {
+          entity_id: string
+          entity_type: string
+          id?: string
+          notes?: string | null
+          owner_id: string
+          reviewed_at?: string
+        }
+        Update: {
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          reviewed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_logs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       tasks: {
         Row: {
@@ -1179,6 +1346,9 @@ export type Database = {
         | "ADD_TO_ICARUS"
         | "REVIEW_ACTA_PARSE"
         | "GENERIC"
+        | "REVIEW_PROCESS"
+        | "REVIEW_FILING"
+        | "IMPORT_ESTADOS"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1350,6 +1520,9 @@ export const Constants = {
         "ADD_TO_ICARUS",
         "REVIEW_ACTA_PARSE",
         "GENERIC",
+        "REVIEW_PROCESS",
+        "REVIEW_FILING",
+        "IMPORT_ESTADOS",
       ],
     },
   },
