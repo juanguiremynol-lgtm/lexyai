@@ -34,6 +34,9 @@ export const TASK_TYPES = {
   ENTER_RADICADO: { label: 'Ingresar Radicado', color: 'safe' },
   ADD_TO_ICARUS: { label: 'Agregar a Icarus', color: 'safe' },
   REVIEW_ACTA_PARSE: { label: 'Revisar Acta', color: 'warning' },
+  REVIEW_PROCESS: { label: 'Revisar Proceso', color: 'warning' },
+  REVIEW_FILING: { label: 'Revisar Radicación', color: 'warning' },
+  IMPORT_ESTADOS: { label: 'Importar Estados', color: 'safe' },
   GENERIC: { label: 'Tarea General', color: 'safe' },
 } as const;
 
