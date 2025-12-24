@@ -43,11 +43,12 @@ import {
   AlertCircle,
   Trash2,
   FileSpreadsheet,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
-import { ProcessClientLink } from "@/components/processes";
+import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
 import { useReviewChecks } from "@/hooks/use-review-checks";
 
@@ -405,6 +406,10 @@ export default function ProcessStatusDetail() {
             <Clock className="h-4 w-4 mr-2" />
             Línea de Tiempo
           </TabsTrigger>
+          <TabsTrigger value="info">
+            <Users className="h-4 w-4 mr-2" />
+            Información
+          </TabsTrigger>
           <TabsTrigger value="estados">
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             Estados
@@ -529,6 +534,20 @@ export default function ProcessStatusDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="info" className="space-y-4">
+          <ProcessInfoEditor
+            processId={process.id}
+            despachoName={process.despacho_name}
+            demandantes={process.demandantes}
+            demandados={process.demandados}
+            juezPonente={process.juez_ponente}
+            department={process.department}
+            municipality={process.municipality}
+            cpnuConfirmed={process.cpnu_confirmed || false}
+            onUpdate={() => queryClient.invalidateQueries({ queryKey: ["monitored-process", id] })}
+          />
         </TabsContent>
 
         <TabsContent value="estados" className="space-y-4">

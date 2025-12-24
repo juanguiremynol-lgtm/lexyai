@@ -934,6 +934,8 @@ export type Database = {
       monitored_processes: {
         Row: {
           client_id: string | null
+          cpnu_confirmed: boolean | null
+          cpnu_confirmed_at: string | null
           created_at: string
           demandados: string | null
           demandantes: string | null
@@ -962,6 +964,8 @@ export type Database = {
         }
         Insert: {
           client_id?: string | null
+          cpnu_confirmed?: boolean | null
+          cpnu_confirmed_at?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
@@ -990,6 +994,8 @@ export type Database = {
         }
         Update: {
           client_id?: string | null
+          cpnu_confirmed?: boolean | null
+          cpnu_confirmed_at?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
