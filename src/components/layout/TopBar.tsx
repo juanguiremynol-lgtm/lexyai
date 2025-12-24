@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { NewProcessDialog } from "@/components/processes/NewProcessDialog";
 import { ColombianClock } from "./ColombianClock";
+import logo from "@/assets/logo.png";
 export function TopBar() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -58,6 +59,11 @@ export function TopBar() {
         <div className="flex items-center gap-4">
           <SidebarTrigger className="-ml-1" />
           
+          <img 
+            src={logo} 
+            alt="Lex et Lit" 
+            className="h-10 w-auto object-contain hidden md:block"
+          />
           <form onSubmit={handleSearch} className="hidden md:block">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
