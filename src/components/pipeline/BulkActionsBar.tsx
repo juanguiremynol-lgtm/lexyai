@@ -11,7 +11,8 @@ interface BulkActionsBarProps {
   onSelectAllProcesses: () => void;
   onClearSelection: () => void;
   onBulkReclassify: () => void;
-  onBulkDelete?: () => void;
+  onBulkDelete: () => void;
+  isDeleting?: boolean;
 }
 
 export function BulkActionsBar({
@@ -23,6 +24,7 @@ export function BulkActionsBar({
   onClearSelection,
   onBulkReclassify,
   onBulkDelete,
+  isDeleting = false,
 }: BulkActionsBarProps) {
   if (selectedCount === 0) return null;
 
@@ -90,17 +92,16 @@ export function BulkActionsBar({
           <ArrowRightLeft className="h-4 w-4" />
           Reclasificar
         </Button>
-        {onBulkDelete && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onBulkDelete}
-            className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
-          >
-            <Trash2 className="h-4 w-4" />
-            Eliminar
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onBulkDelete}
+          disabled={isDeleting}
+          className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+        >
+          <Trash2 className="h-4 w-4" />
+          {isDeleting ? "Eliminando..." : "Eliminar"}
+        </Button>
       </div>
 
       <div className="h-6 w-px bg-border" />
