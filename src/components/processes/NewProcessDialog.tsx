@@ -133,17 +133,21 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       }
 
       // Create the monitored process
+      const cpnuVerified = verificationStatus === 'found' && cpnuResult !== null;
+      
       const { data: newProcess, error: insertError } = await supabase
         .from('monitored_processes')
         .insert({
           owner_id: user.id,
           radicado,
           monitoring_enabled: true,
-          source: 'MANUAL',
+          source: cpnuVerified ? 'CPNU' : 'MANUAL',
           sources_enabled: ['CPNU'],
           despacho_name: cpnuResult?.despacho || null,
           demandantes: cpnuResult?.demandante || null,
           demandados: cpnuResult?.demandado || null,
+          cpnu_confirmed: cpnuVerified,
+          cpnu_confirmed_at: cpnuVerified ? new Date().toISOString() : null,
         })
         .select()
         .single();

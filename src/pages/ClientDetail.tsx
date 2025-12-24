@@ -53,6 +53,8 @@ import {
   Edit,
   AlertTriangle,
   Trash2,
+  Scale,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
@@ -115,6 +117,21 @@ export default function ClientDetail() {
         .single();
       if (error) throw error;
       return data as Client;
+    },
+    enabled: !!id,
+  });
+
+  // Fetch monitored processes linked to this client
+  const { data: monitoredProcesses, isLoading: processesLoading } = useQuery({
+    queryKey: ["client-processes", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("monitored_processes")
+        .select("*")
+        .eq("client_id", id)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data;
     },
     enabled: !!id,
   });
@@ -477,7 +494,11 @@ export default function ClientDetail() {
               </TabsTrigger>
               <TabsTrigger value="procesos" className="flex items-center gap-2">
                 <Gavel className="h-4 w-4" />
-                Procesos ({procesos.length})
+                Procesos Filings ({procesos.length})
+              </TabsTrigger>
+              <TabsTrigger value="monitored" className="flex items-center gap-2">
+                <Scale className="h-4 w-4" />
+                Procesos Monitoreados ({monitoredProcesses?.length || 0})
               </TabsTrigger>
             </TabsList>
 
@@ -525,7 +546,7 @@ export default function ClientDetail() {
               {procesos.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Gavel className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay procesos con radicado confirmado</p>
+                  <p>No hay procesos con radicado confirmado (desde radicaciones)</p>
                 </div>
               ) : (
                 <Table>
@@ -556,6 +577,64 @@ export default function ClientDetail() {
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
                             <Link to={`/filings/${filing.id}`}>Ver</Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </TabsContent>
+
+            <TabsContent value="monitored">
+              {!monitoredProcesses || monitoredProcesses.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay procesos monitoreados vinculados a este cliente</p>
+                  <p className="text-sm mt-2">
+                    Vincule procesos desde la página de Procesos o al crear uno nuevo
+                  </p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Despacho</TableHead>
+                      <TableHead>Demandante(s)</TableHead>
+                      <TableHead>Demandado(s)</TableHead>
+                      <TableHead>Monitoreo</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {monitoredProcesses.map((process) => (
+                      <TableRow key={process.id}>
+                        <TableCell>
+                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                            {process.radicado}
+                          </code>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {process.despacho_name || "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {process.demandantes || "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {process.demandados || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
+                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/processes/${process.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
                           </Button>
                         </TableCell>
                       </TableRow>
