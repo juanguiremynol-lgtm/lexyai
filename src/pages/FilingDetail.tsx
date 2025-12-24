@@ -24,6 +24,7 @@ import { DocumentList } from "@/components/filings/DocumentList";
 import { ProcessTimeline } from "@/components/filings/ProcessTimeline";
 import { HearingsList } from "@/components/filings/HearingsList";
 import { CrawlerControl } from "@/components/filings/CrawlerControl";
+import { FilingGoalsCard } from "@/components/filings/FilingGoalsCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +47,9 @@ import {
   Clock,
   Calendar,
   Trash2,
+  Link2,
+  Globe,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -56,6 +60,12 @@ import {
   formatDateColombia,
 } from "@/lib/constants";
 import type { FilingStatus } from "@/types/database";
+
+const FILING_METHOD_LABELS: Record<string, { label: string; icon: typeof Mail }> = {
+  EMAIL: { label: "Correo electrónico", icon: Mail },
+  PLATFORM: { label: "Plataforma digital", icon: Globe },
+  PHYSICAL: { label: "Envío físico", icon: Package },
+};
 
 export default function FilingDetail() {
   const { id } = useParams<{ id: string }>();
@@ -71,6 +81,7 @@ export default function FilingDetail() {
         .select(`
           *,
           matter:matters(id, client_name, matter_name, practice_area),
+          client:clients(id, name),
           documents(*),
           emails(*),
           tasks(*)
@@ -159,6 +170,14 @@ export default function FilingDetail() {
     });
   };
 
+  const handleExpedienteUpdate = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    updateFiling.mutate({
+      expediente_url: form.get("expediente_url"),
+    });
+  };
+
   const handleStatusChange = (newStatus: FilingStatus) => {
     updateFiling.mutate({ status: newStatus });
   };
@@ -206,6 +225,9 @@ export default function FilingDetail() {
   }
 
   const matter = filing.matter as { client_name: string; matter_name: string; practice_area: string | null } | null;
+  const client = filing.client as { name: string } | null;
+  const filingMethod = FILING_METHOD_LABELS[filing.filing_method || "EMAIL"];
+  const MethodIcon = filingMethod?.icon || Mail;
 
   return (
     <div className="space-y-6">
@@ -218,13 +240,22 @@ export default function FilingDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-serif font-bold">
-              {matter?.client_name} – {matter?.matter_name}
+              {client?.name || matter?.client_name} – {filing.filing_type}
             </h1>
             <StatusBadge status={filing.status as FilingStatus} />
           </div>
-          <p className="text-muted-foreground">
-            {filing.filing_type} • {matter?.practice_area || "Sin área"}
-          </p>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <MethodIcon className="h-4 w-4" />
+            <span>{filingMethod?.label}</span>
+            <span>•</span>
+            <span>{matter?.practice_area || "Sin área"}</span>
+            {filing.target_authority && (
+              <>
+                <span>•</span>
+                <span>{filing.target_authority}</span>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Select
@@ -270,6 +301,15 @@ export default function FilingDetail() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Goals Card */}
+        <div className="lg:col-span-3">
+          <FilingGoalsCard
+            radicado={filing.radicado}
+            courtName={filing.court_name}
+            expedienteUrl={filing.expediente_url}
+          />
+        </div>
+
         {/* SLA Badges */}
         <Card className="lg:col-span-3">
           <CardContent className="py-4">
@@ -322,17 +362,17 @@ export default function FilingDetail() {
             <TabsContent value="court" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Datos del Juzgado</CardTitle>
+                  <CardTitle>Datos del Juzgado / Autoridad</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleCourtUpdate} className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="col-span-2 space-y-2">
-                        <Label htmlFor="court_name">Nombre del Juzgado</Label>
+                        <Label htmlFor="court_name">Nombre del Juzgado / Autoridad</Label>
                         <Input
                           id="court_name"
                           name="court_name"
-                          defaultValue={filing.court_name || ""}
+                          defaultValue={filing.court_name || filing.target_authority || ""}
                           placeholder="Ej: Juzgado 15 Civil del Circuito"
                         />
                       </div>
@@ -405,6 +445,36 @@ export default function FilingDetail() {
                     <Button type="submit" disabled={updateFiling.isPending}>
                       <CheckCircle className="h-4 w-4 mr-2" />
                       Confirmar Radicado
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Link2 className="h-5 w-5" />
+                    Expediente Electrónico
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleExpedienteUpdate} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="expediente_url">URL del Expediente Digital</Label>
+                      <Input
+                        id="expediente_url"
+                        name="expediente_url"
+                        type="url"
+                        defaultValue={filing.expediente_url || ""}
+                        placeholder="Ej: https://expedientes.ramajudicial.gov.co/..."
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Enlace para acceder al expediente electrónico del proceso
+                      </p>
+                    </div>
+                    <Button type="submit" disabled={updateFiling.isPending}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Guardar URL
                     </Button>
                   </form>
                 </CardContent>
@@ -549,23 +619,47 @@ export default function FilingDetail() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <p className="text-sm text-muted-foreground">Enviado a Reparto</p>
+                <p className="text-sm text-muted-foreground">Tipo</p>
+                <p className="font-medium">{filing.filing_type}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Medio de Radicación</p>
+                <div className="flex items-center gap-2">
+                  <MethodIcon className="h-4 w-4 text-muted-foreground" />
+                  <p className="font-medium">{filingMethod?.label}</p>
+                </div>
+              </div>
+              {filing.description && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Descripción</p>
+                  <p className="text-sm">{filing.description}</p>
+                </div>
+              )}
+              <Separator />
+              <div>
+                <p className="text-sm text-muted-foreground">Fecha de Radicación</p>
                 <p className="font-medium">
-                  {filing.sent_at ? formatDateColombia(filing.sent_at) : "No enviado"}
+                  {filing.sent_at ? formatDateColombia(filing.sent_at) : "No especificada"}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Correo de Reparto</p>
+                <p className="text-sm text-muted-foreground">Autoridad Destinataria</p>
                 <p className="font-medium">
-                  {filing.reparto_email_to || "No especificado"}
+                  {filing.target_authority || "No especificada"}
                 </p>
               </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Referencia Reparto</p>
-                <p className="font-medium">
-                  {filing.reparto_reference || "Sin referencia"}
-                </p>
-              </div>
+              {filing.reparto_email_to && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Correo de Reparto</p>
+                  <p className="font-medium">{filing.reparto_email_to}</p>
+                </div>
+              )}
+              {filing.reparto_reference && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Referencia Reparto</p>
+                  <p className="font-medium">{filing.reparto_reference}</p>
+                </div>
+              )}
               {filing.acta_received_at && (
                 <div>
                   <p className="text-sm text-muted-foreground">Acta Recibida</p>

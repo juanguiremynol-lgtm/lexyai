@@ -480,12 +480,16 @@ export type Database = {
       filings: {
         Row: {
           acta_received_at: string | null
+          client_id: string | null
           court_city: string | null
           court_department: string | null
           court_email: string | null
           court_name: string | null
           crawler_enabled: boolean | null
           created_at: string
+          description: string | null
+          expediente_url: string | null
+          filing_method: string | null
           filing_type: string
           id: string
           last_crawled_at: string | null
@@ -493,6 +497,7 @@ export type Database = {
           last_reviewed_at: string | null
           matter_id: string
           owner_id: string
+          proof_file_path: string | null
           radicado: string | null
           rama_judicial_url: string | null
           reparto_email_to: string | null
@@ -502,16 +507,21 @@ export type Database = {
           sla_court_reply_due_at: string | null
           sla_receipt_due_at: string | null
           status: Database["public"]["Enums"]["filing_status"]
+          target_authority: string | null
           updated_at: string
         }
         Insert: {
           acta_received_at?: string | null
+          client_id?: string | null
           court_city?: string | null
           court_department?: string | null
           court_email?: string | null
           court_name?: string | null
           crawler_enabled?: boolean | null
           created_at?: string
+          description?: string | null
+          expediente_url?: string | null
+          filing_method?: string | null
           filing_type: string
           id?: string
           last_crawled_at?: string | null
@@ -519,6 +529,7 @@ export type Database = {
           last_reviewed_at?: string | null
           matter_id: string
           owner_id: string
+          proof_file_path?: string | null
           radicado?: string | null
           rama_judicial_url?: string | null
           reparto_email_to?: string | null
@@ -528,16 +539,21 @@ export type Database = {
           sla_court_reply_due_at?: string | null
           sla_receipt_due_at?: string | null
           status?: Database["public"]["Enums"]["filing_status"]
+          target_authority?: string | null
           updated_at?: string
         }
         Update: {
           acta_received_at?: string | null
+          client_id?: string | null
           court_city?: string | null
           court_department?: string | null
           court_email?: string | null
           court_name?: string | null
           crawler_enabled?: boolean | null
           created_at?: string
+          description?: string | null
+          expediente_url?: string | null
+          filing_method?: string | null
           filing_type?: string
           id?: string
           last_crawled_at?: string | null
@@ -545,6 +561,7 @@ export type Database = {
           last_reviewed_at?: string | null
           matter_id?: string
           owner_id?: string
+          proof_file_path?: string | null
           radicado?: string | null
           rama_judicial_url?: string | null
           reparto_email_to?: string | null
@@ -554,9 +571,17 @@ export type Database = {
           sla_court_reply_due_at?: string | null
           sla_receipt_due_at?: string | null
           status?: Database["public"]["Enums"]["filing_status"]
+          target_authority?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "filings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "filings_matter_id_fkey"
             columns: ["matter_id"]
