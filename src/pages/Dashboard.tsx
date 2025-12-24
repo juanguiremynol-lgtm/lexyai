@@ -1,8 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Clock, AlertTriangle, Eye } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText, Clock, AlertTriangle, Eye, Send } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline } from "@/components/pipeline";
+import { PeticionesPipeline } from "@/components/peticiones";
 import { ReviewAlerts } from "@/components/alerts";
 
 export default function Dashboard() {
@@ -12,6 +14,7 @@ export default function Dashboard() {
     overdueTasks: 0,
     criticalAlerts: 0,
     monitoredProcesses: 0,
+    pendingPeticiones: 0,
   });
 
   const fetchStats = useCallback(async () => {
@@ -42,12 +45,18 @@ export default function Dashboard() {
       .select("*", { count: "exact", head: true })
       .eq("monitoring_enabled", true);
 
+    const { count: pendingPeticiones } = await supabase
+      .from("peticiones")
+      .select("*", { count: "exact", head: true })
+      .neq("phase", "RESPUESTA");
+
     setStats({
       actaPending,
       radicadoPending,
       overdueTasks: overdueTasks || 0,
       criticalAlerts: criticalAlerts || 0,
       monitoredProcesses: monitoredProcesses || 0,
+      pendingPeticiones: pendingPeticiones || 0,
     });
   }, []);
 
@@ -62,15 +71,14 @@ export default function Dashboard() {
           Dashboard
         </h1>
         <p className="text-muted-foreground">
-          Vista general de radicaciones y procesos
+          Vista general de radicaciones, procesos y peticiones
         </p>
       </div>
 
-      {/* Review Alerts */}
       <ReviewAlerts />
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
@@ -82,9 +90,7 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Radicado Pendiente
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Radicado Pendiente</CardTitle>
             <FileText className="h-4 w-4 text-status-pending" />
           </CardHeader>
           <CardContent>
@@ -102,9 +108,7 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Alertas Críticas
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
             <AlertTriangle className="h-4 w-4 text-sla-critical" />
           </CardHeader>
           <CardContent>
@@ -113,27 +117,45 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              En Seguimiento
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">En Seguimiento</CardTitle>
             <Eye className="h-4 w-4 text-status-active" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.monitoredProcesses}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Peticiones</CardTitle>
+            <Send className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingPeticiones}</div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Unified Pipeline */}
-      <div>
-        <h2 className="font-display text-xl font-semibold mb-4">
-          Pipeline Unificado
-        </h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Radicaciones y procesos en un flujo único. Arrastra entre etapas para reclasificar.
-        </p>
-        <UnifiedPipeline />
-      </div>
+      {/* Tabbed Pipelines */}
+      <Tabs defaultValue="cgp" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
+          <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="cgp" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
+          </p>
+          <UnifiedPipeline />
+        </TabsContent>
+        
+        <TabsContent value="peticiones" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
+          </p>
+          <PeticionesPipeline />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

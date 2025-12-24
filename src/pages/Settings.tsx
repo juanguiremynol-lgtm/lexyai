@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import type { RepartoEntry } from "@/types/database";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
+import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -225,7 +226,9 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="recordatorios">
+        <TabsContent value="recordatorios" className="space-y-6">
+          <HearingReminderSettings profile={profile} />
+          
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -241,7 +244,7 @@ export default function Settings() {
                 <div className="space-y-1">
                   <p className="font-medium">Recordatorios por correo</p>
                   <p className="text-sm text-muted-foreground">
-                    Reciba alertas automáticas sobre vencimientos de SLA y plazos judiciales
+                    Reciba alertas automáticas sobre vencimientos de SLA, plazos judiciales y peticiones
                   </p>
                 </div>
                 <Switch
@@ -275,9 +278,6 @@ export default function Settings() {
                     Guardar
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Este correo recibirá todas las alertas y recordatorios del sistema
-                </p>
               </div>
 
               <Separator />
@@ -292,19 +292,19 @@ export default function Settings() {
                       </div>
                       <div>
                         <p className="font-medium text-sm">Vencimiento de SLA</p>
-                        <p className="text-xs text-muted-foreground">5, 3 y 1 día(s) antes del vencimiento</p>
+                        <p className="text-xs text-muted-foreground">Según intervalos configurados</p>
                       </div>
                     </div>
                     <Badge variant="default">Activo</Badge>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-full bg-amber-100 text-amber-600">
-                        <FileText className="h-4 w-4" />
+                      <div className="p-2 rounded-full bg-purple-100 text-purple-600">
+                        <Clock className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="font-medium text-sm">Actualización de procesos</p>
-                        <p className="text-xs text-muted-foreground">Cuando se detectan nuevas actuaciones</p>
+                        <p className="font-medium text-sm">Audiencias</p>
+                        <p className="text-xs text-muted-foreground">Según intervalos configurados arriba</p>
                       </div>
                     </div>
                     <Badge variant="default">Activo</Badge>
@@ -312,19 +312,16 @@ export default function Settings() {
                   <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-full bg-blue-100 text-blue-600">
-                        <Mail className="h-4 w-4" />
+                        <FileText className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="font-medium text-sm">Pendientes de radicación</p>
-                        <p className="text-xs text-muted-foreground">Radicaciones sin acta o número asignado</p>
+                        <p className="font-medium text-sm">Peticiones</p>
+                        <p className="text-xs text-muted-foreground">7, 5, 3, 1 días y al vencer</p>
                       </div>
                     </div>
                     <Badge variant="default">Activo</Badge>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground italic">
-                  La configuración individual de cada tipo de recordatorio estará disponible próximamente.
-                </p>
               </div>
 
               <Separator />
@@ -344,7 +341,7 @@ export default function Settings() {
                       return;
                     }
                     try {
-                      const { data, error } = await supabase.functions.invoke("send-reminder", {
+                      const { error } = await supabase.functions.invoke("send-reminder", {
                         body: {
                           type: "test",
                           recipientEmail: email,
