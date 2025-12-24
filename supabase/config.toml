@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.hearing-reminders]
 verify_jwt = false
+
+[functions.peticion-reminders]
+verify_jwt = false

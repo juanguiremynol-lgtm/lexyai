@@ -225,13 +225,13 @@ export function PeticionesPipeline() {
     const items: { id: string; type: "peticion" }[] = [];
     PETICION_STAGES.forEach(stage => {
       itemsByStage[stage.id]?.forEach(item => {
-        items.push({ id: item.id, type: "peticion" });
+        items.push({ id: item.id, type: "peticion" as const });
       });
     });
     return items;
   }, [itemsByStage]);
 
-  // Batch selection - adapting the hook for peticiones
+  // Batch selection - now supports peticion type natively
   const {
     isSelectionMode,
     toggleSelection,
@@ -240,17 +240,15 @@ export function PeticionesPipeline() {
     clearSelection,
     getSelectedItems,
     selectedCount,
-  } = useBatchSelection({ 
-    allItems: allItemsFlat.map(i => ({ id: i.id, type: "filing" as const })) // Reuse hook with type cast
-  });
+  } = useBatchSelection({ allItems: allItemsFlat });
 
   // Wrapper to adapt selection
   const isItemSelected = useCallback((item: { id: string; type: "peticion" }) => {
-    return isSelected({ id: item.id, type: "filing" });
+    return isSelected(item);
   }, [isSelected]);
 
   const toggleItemSelection = useCallback((item: { id: string; type: "peticion" }, shiftKey: boolean) => {
-    toggleSelection({ id: item.id, type: "filing" }, shiftKey);
+    toggleSelection(item, shiftKey);
   }, [toggleSelection]);
 
   const toggleSelectionMode = useCallback(() => {

@@ -286,10 +286,10 @@ export function TutelasPipeline() {
 
   // Flatten items for batch selection
   const allItemsFlat = useMemo(() => {
-    const items: { id: string; type: "filing" }[] = [];
+    const items: { id: string; type: "tutela" }[] = [];
     TUTELA_STAGES.forEach(stage => {
       itemsByStage[stage.id]?.forEach(item => {
-        items.push({ id: item.id, type: "filing" });
+        items.push({ id: item.id, type: "tutela" as const });
       });
     });
     return items;
@@ -308,11 +308,11 @@ export function TutelasPipeline() {
 
   // Wrapper to adapt selection for tutela type
   const isItemSelected = useCallback((item: { id: string; type: "tutela" }) => {
-    return isSelected({ id: item.id, type: "filing" });
+    return isSelected(item);
   }, [isSelected]);
 
   const toggleItemSelection = useCallback((item: { id: string; type: "tutela" }, shiftKey: boolean) => {
-    toggleSelection({ id: item.id, type: "filing" }, shiftKey);
+    toggleSelection(item, shiftKey);
   }, [toggleSelection]);
 
   const toggleSelectionMode = useCallback(() => {

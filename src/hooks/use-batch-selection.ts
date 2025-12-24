@@ -1,8 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 
+export type SelectableItemType = "filing" | "process" | "peticion" | "tutela";
+
 interface SelectableItem {
   id: string;
-  type: "filing" | "process";
+  type: SelectableItemType;
 }
 
 interface UseBatchSelectionProps {
@@ -65,7 +67,7 @@ export function useBatchSelection({ allItems }: UseBatchSelectionProps) {
   }, [allItems, getItemKey]);
 
   // Select all of a specific type
-  const selectAllOfType = useCallback((type: "filing" | "process") => {
+  const selectAllOfType = useCallback((type: SelectableItemType) => {
     const filtered = allItems.filter(i => i.type === type);
     setSelectedIds(prev => {
       const newSet = new Set(prev);
@@ -94,6 +96,8 @@ export function useBatchSelection({ allItems }: UseBatchSelectionProps) {
       total: items.length,
       filings: items.filter(i => i.type === "filing").length,
       processes: items.filter(i => i.type === "process").length,
+      peticiones: items.filter(i => i.type === "peticion").length,
+      tutelas: items.filter(i => i.type === "tutela").length,
     };
   }, [getSelectedItems]);
 
