@@ -100,7 +100,80 @@ export const KANBAN_COLUMNS: FilingStatus[] = [
   'ICARUS_SYNC_PENDING',
 ];
 
-// Process pipeline stages
+// Process phases - legal process stages
+export const PROCESS_PHASES = {
+  PENDIENTE_REGISTRO_MEDIDA_CAUTELAR: { 
+    label: 'Registro Medida Cautelar', 
+    shortLabel: 'Medida Cautelar',
+    color: 'amber', 
+    order: 0 
+  },
+  PENDIENTE_NOTIFICACION_PERSONAL: { 
+    label: 'Notificación Personal', 
+    shortLabel: 'Not. Personal',
+    color: 'orange', 
+    order: 1 
+  },
+  PENDIENTE_NOTIFICACION_AVISO_EMPLAZAMIENTO: { 
+    label: 'Notificación por Aviso/Emplazamiento', 
+    shortLabel: 'Aviso/Emplaz.',
+    color: 'rose', 
+    order: 2 
+  },
+  PENDIENTE_CONTESTAR_EXCEPCIONES_PREVIAS: { 
+    label: 'Contestar Excepciones Previas', 
+    shortLabel: 'Exc. Previas',
+    color: 'violet', 
+    order: 3 
+  },
+  PENDIENTE_PRONUNCIARSE_EXCEPCIONES: { 
+    label: 'Pronunciarse Sobre Excepciones', 
+    shortLabel: 'Pron. Excepc.',
+    color: 'purple', 
+    order: 4 
+  },
+  PENDIENTE_AUDIENCIA_INICIAL: { 
+    label: 'Audiencia Inicial', 
+    shortLabel: 'Aud. Inicial',
+    color: 'blue', 
+    order: 5 
+  },
+  PENDIENTE_AUDIENCIA_INSTRUCCION: { 
+    label: 'Audiencia de Instrucción', 
+    shortLabel: 'Aud. Instrucción',
+    color: 'cyan', 
+    order: 6 
+  },
+  PENDIENTE_ALEGATOS_SENTENCIA: { 
+    label: 'Alegatos y Sentencia', 
+    shortLabel: 'Alegatos/Sent.',
+    color: 'teal', 
+    order: 7 
+  },
+  PENDIENTE_SUSTENTAR_APELACION: { 
+    label: 'Sustentar Apelación', 
+    shortLabel: 'Apelación',
+    color: 'emerald', 
+    order: 8 
+  },
+} as const;
+
+export type ProcessPhase = keyof typeof PROCESS_PHASES;
+
+// Ordered array of process phases for pipeline display
+export const PROCESS_PHASES_ORDER: ProcessPhase[] = [
+  'PENDIENTE_REGISTRO_MEDIDA_CAUTELAR',
+  'PENDIENTE_NOTIFICACION_PERSONAL',
+  'PENDIENTE_NOTIFICACION_AVISO_EMPLAZAMIENTO',
+  'PENDIENTE_CONTESTAR_EXCEPCIONES_PREVIAS',
+  'PENDIENTE_PRONUNCIARSE_EXCEPCIONES',
+  'PENDIENTE_AUDIENCIA_INICIAL',
+  'PENDIENTE_AUDIENCIA_INSTRUCCION',
+  'PENDIENTE_ALEGATOS_SENTENCIA',
+  'PENDIENTE_SUSTENTAR_APELACION',
+];
+
+// Legacy process stages (keeping for backwards compatibility)
 export const PROCESS_STAGES = {
   EN_SEGUIMIENTO: { label: 'En Seguimiento', color: 'active', order: 0 },
 } as const;

@@ -955,6 +955,7 @@ export type Database = {
           municipality: string | null
           notes: string | null
           owner_id: string
+          phase: Database["public"]["Enums"]["process_phase"] | null
           radicado: string
           source: string | null
           source_payload: Json | null
@@ -985,6 +986,7 @@ export type Database = {
           municipality?: string | null
           notes?: string | null
           owner_id: string
+          phase?: Database["public"]["Enums"]["process_phase"] | null
           radicado: string
           source?: string | null
           source_payload?: Json | null
@@ -1015,6 +1017,7 @@ export type Database = {
           municipality?: string | null
           notes?: string | null
           owner_id?: string
+          phase?: Database["public"]["Enums"]["process_phase"] | null
           radicado?: string
           source?: string | null
           source_payload?: Json | null
@@ -1375,6 +1378,16 @@ export type Database = {
         | "TRASLADO"
         | "AUDIENCIA"
         | "OTRO"
+      process_phase:
+        | "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR"
+        | "PENDIENTE_NOTIFICACION_PERSONAL"
+        | "PENDIENTE_NOTIFICACION_AVISO_EMPLAZAMIENTO"
+        | "PENDIENTE_CONTESTAR_EXCEPCIONES_PREVIAS"
+        | "PENDIENTE_PRONUNCIARSE_EXCEPCIONES"
+        | "PENDIENTE_AUDIENCIA_INICIAL"
+        | "PENDIENTE_AUDIENCIA_INSTRUCCION"
+        | "PENDIENTE_ALEGATOS_SENTENCIA"
+        | "PENDIENTE_SUSTENTAR_APELACION"
       task_status: "OPEN" | "DONE" | "SNOOZED"
       task_type:
         | "FOLLOW_UP_REPARTO"
@@ -1548,6 +1561,17 @@ export const Constants = {
         "TRASLADO",
         "AUDIENCIA",
         "OTRO",
+      ],
+      process_phase: [
+        "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR",
+        "PENDIENTE_NOTIFICACION_PERSONAL",
+        "PENDIENTE_NOTIFICACION_AVISO_EMPLAZAMIENTO",
+        "PENDIENTE_CONTESTAR_EXCEPCIONES_PREVIAS",
+        "PENDIENTE_PRONUNCIARSE_EXCEPCIONES",
+        "PENDIENTE_AUDIENCIA_INICIAL",
+        "PENDIENTE_AUDIENCIA_INSTRUCCION",
+        "PENDIENTE_ALEGATOS_SENTENCIA",
+        "PENDIENTE_SUSTENTAR_APELACION",
       ],
       task_status: ["OPEN", "DONE", "SNOOZED"],
       task_type: [
