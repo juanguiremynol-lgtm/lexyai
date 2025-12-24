@@ -1,7 +1,8 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "@/components/ui/card";
-import { GripVertical, User, ExternalLink } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { User, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -36,33 +37,35 @@ export function ProcessPipelineCard({ process, isDragging = false }: ProcessPipe
       }
     : undefined;
 
-  const handleClick = (e: React.MouseEvent) => {
-    // Only navigate if not dragging
-    if (!transform) {
-      navigate(`/process-status/${process.id}`);
-    }
-  };
-
   return (
     <Card
       ref={setNodeRef}
       style={style}
+      {...attributes}
+      {...listeners}
       className={cn(
-        "cursor-grab active:cursor-grabbing transition-all duration-200",
+        "cursor-grab active:cursor-grabbing transition-all duration-200 group",
         isDragging && "opacity-90 shadow-lg scale-105 rotate-2 ring-2 ring-primary",
         !isDragging && "hover:shadow-md hover:ring-2 hover:ring-primary/30"
       )}
     >
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
-          <div
-            {...attributes}
-            {...listeners}
-            className="flex-shrink-0 text-muted-foreground hover:text-foreground mt-0.5"
+          {/* Navigation button - top left corner */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              navigate(`/process-status/${process.id}`);
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
           >
-            <GripVertical className="h-4 w-4" />
-          </div>
-          <div className="flex-1 min-w-0" onClick={handleClick}>
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+          <div className="flex-1 min-w-0">
             <p className="font-mono text-xs truncate">
               {process.radicado}
             </p>
@@ -86,15 +89,6 @@ export function ProcessPipelineCard({ process, isDragging = false }: ProcessPipe
               </p>
             )}
           </div>
-          <button
-            className="flex-shrink-0 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/process-status/${process.id}`);
-            }}
-          >
-            <ExternalLink className="h-3 w-3" />
-          </button>
         </div>
       </CardContent>
     </Card>
