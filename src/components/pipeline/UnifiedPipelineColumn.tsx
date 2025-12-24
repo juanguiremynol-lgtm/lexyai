@@ -16,6 +16,7 @@ export interface StageConfig {
 interface UnifiedPipelineColumnProps {
   stage: StageConfig;
   items: UnifiedItem[];
+  focusedItemId?: string | null;
   onReclassify?: (item: UnifiedItem) => void;
 }
 
@@ -58,6 +59,7 @@ const BADGE_COLORS: Record<string, string> = {
 export function UnifiedPipelineColumn({ 
   stage, 
   items,
+  focusedItemId,
   onReclassify,
 }: UnifiedPipelineColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
@@ -118,13 +120,17 @@ export function UnifiedPipelineColumn({
         
         {/* Cards container */}
         <div className="space-y-3">
-          {items.map((item) => (
-            <UnifiedPipelineCard 
-              key={`${item.type}:${item.id}`} 
-              item={item}
-              onReclassify={onReclassify}
-            />
-          ))}
+          {items.map((item) => {
+            const itemKey = `${item.type}:${item.id}`;
+            return (
+              <UnifiedPipelineCard 
+                key={itemKey} 
+                item={item}
+                isFocused={focusedItemId === itemKey}
+                onReclassify={onReclassify}
+              />
+            );
+          })}
           {items.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className={cn(
