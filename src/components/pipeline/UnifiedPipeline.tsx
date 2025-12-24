@@ -24,6 +24,7 @@ import { UnifiedPipelineColumn, StageConfig } from "./UnifiedPipelineColumn";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { ClassificationDialog } from "./ClassificationDialog";
 import { BulkActionsBar } from "./BulkActionsBar";
+import { BulkDeleteDialog } from "./BulkDeleteDialog";
 import { useUndoReclassification } from "@/hooks/use-undo-reclassification";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
@@ -136,6 +137,8 @@ export function UnifiedPipeline() {
     item: UnifiedItem | null;
     targetStage: StageConfig | null;
   }>({ open: false, item: null, targetStage: null });
+  
+  const [deleteDialog, setDeleteDialog] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -398,6 +401,65 @@ export function UnifiedPipeline() {
     onError: () => toast.error("Error al clasificar"),
   });
 
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (items: { id: string; type: "filing" | "process" }[]) => {
+      const filingIds = items.filter(i => i.type === "filing").map(i => i.id);
+      const processIds = items.filter(i => i.type === "process").map(i => i.id);
+
+      // Delete filings and their related data
+      if (filingIds.length > 0) {
+        // Delete related documents
+        await supabase.from("documents").delete().in("filing_id", filingIds);
+        // Delete related hearings
+        await supabase.from("hearings").delete().in("filing_id", filingIds);
+        // Delete related process_events
+        await supabase.from("process_events").delete().in("filing_id", filingIds);
+        // Delete related emails
+        await supabase.from("emails").delete().in("filing_id", filingIds);
+        // Delete related email_threads
+        await supabase.from("email_threads").delete().in("filing_id", filingIds);
+        // Delete related tasks
+        await supabase.from("tasks").delete().in("filing_id", filingIds);
+        // Delete related alerts
+        await supabase.from("alerts").delete().in("filing_id", filingIds);
+        // Finally delete the filings
+        const { error } = await supabase.from("filings").delete().in("id", filingIds);
+        if (error) throw error;
+      }
+
+      // Delete processes and their related data
+      if (processIds.length > 0) {
+        // Delete related process_events
+        await supabase.from("process_events").delete().in("monitored_process_id", processIds);
+        // Delete related evidence_snapshots
+        await supabase.from("evidence_snapshots").delete().in("monitored_process_id", processIds);
+        // Delete related process_estados
+        await supabase.from("process_estados").delete().in("monitored_process_id", processIds);
+        // Finally delete the processes
+        const { error } = await supabase.from("monitored_processes").delete().in("id", processIds);
+        if (error) throw error;
+      }
+
+      return { filingIds, processIds };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["unified-pipeline-filings"] });
+      queryClient.invalidateQueries({ queryKey: ["unified-pipeline-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["processes"] });
+      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      clearSelection();
+      setDeleteDialog(false);
+      
+      const total = data.filingIds.length + data.processIds.length;
+      toast.success(`${total} elemento${total !== 1 ? "s" : ""} eliminado${total !== 1 ? "s" : ""}`);
+    },
+    onError: () => {
+      toast.error("Error al eliminar elementos");
+    },
+  });
+
   const handleDragStart = (event: DragStartEvent) => {
     const itemId = event.active.id as string;
     const [type, id] = itemId.split(":");
@@ -573,6 +635,7 @@ export function UnifiedPipeline() {
     selectAllOfType,
     clearSelection,
     getSelectionCounts,
+    getSelectedItems,
     selectedCount,
   } = useBatchSelection({ allItems: allItemsFlat });
 
@@ -705,6 +768,17 @@ export function UnifiedPipeline() {
         onSelectAllProcesses={() => selectAllOfType("process")}
         onClearSelection={clearSelection}
         onBulkReclassify={handleBulkReclassify}
+        onBulkDelete={() => setDeleteDialog(true)}
+        isDeleting={bulkDeleteMutation.isPending}
+      />
+
+      <BulkDeleteDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        filingsCount={selectionCounts.filings}
+        processesCount={selectionCounts.processes}
+        onConfirm={() => bulkDeleteMutation.mutate(getSelectedItems())}
+        isDeleting={bulkDeleteMutation.isPending}
       />
     </>
   );
