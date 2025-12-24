@@ -48,10 +48,8 @@ import {
   MapPin,
   CreditCard,
   FileText,
-  Gavel,
   Plus,
   Edit,
-  AlertTriangle,
   Trash2,
   Scale,
   Eye,
@@ -61,25 +59,6 @@ import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Client } from "@/types/client";
 
-// Statuses that indicate a radicación (before radicado confirmed)
-const RADICACION_STATUSES = [
-  'DRAFTED',
-  'SENT_TO_REPARTO',
-  'RECEIPT_CONFIRMED',
-  'ACTA_PENDING',
-  'ACTA_RECEIVED_PARSED',
-  'COURT_EMAIL_DRAFTED',
-  'COURT_EMAIL_SENT',
-  'RADICADO_PENDING',
-];
-
-// Statuses that indicate a proceso (after radicado confirmed)
-const PROCESO_STATUSES = [
-  'RADICADO_CONFIRMED',
-  'ICARUS_SYNC_PENDING',
-  'MONITORING_ACTIVE',
-  'CLOSED',
-];
 
 interface Matter {
   id: string;
@@ -128,6 +107,35 @@ export default function ClientDetail() {
       const { data, error } = await supabase
         .from("monitored_processes")
         .select("*")
+        .eq("client_id", id)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  // Fetch filings linked directly to this client
+  const { data: clientFilings, isLoading: filingsLoading } = useQuery({
+    queryKey: ["client-filings", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("filings")
+        .select(`
+          id,
+          filing_type,
+          status,
+          radicado,
+          court_name,
+          created_at,
+          updated_at,
+          filing_method,
+          target_authority,
+          matters (
+            id,
+            matter_name
+          )
+        `)
         .eq("client_id", id)
         .order("updated_at", { ascending: false });
       if (error) throw error;
@@ -232,18 +240,8 @@ export default function ClientDetail() {
     },
   });
 
-  // Separate filings into radicaciones and procesos
-  const allFilings = matters?.flatMap(m => 
-    m.filings.map(f => ({ ...f, matter_name: m.matter_name, matter_id: m.id }))
-  ) || [];
-
-  const radicaciones = allFilings.filter(f => 
-    RADICACION_STATUSES.includes(f.status)
-  );
-
-  const procesos = allFilings.filter(f => 
-    PROCESO_STATUSES.includes(f.status)
-  );
+  // All matters for display
+  
 
   if (clientLoading) {
     return (
@@ -486,15 +484,11 @@ export default function ClientDetail() {
           </Dialog>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="radicaciones">
+          <Tabs defaultValue="filings">
             <TabsList className="mb-4">
-              <TabsTrigger value="radicaciones" className="flex items-center gap-2">
+              <TabsTrigger value="filings" className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Radicaciones ({radicaciones.length})
-              </TabsTrigger>
-              <TabsTrigger value="procesos" className="flex items-center gap-2">
-                <Gavel className="h-4 w-4" />
-                Procesos Filings ({procesos.length})
+                Radicaciones ({clientFilings?.length || 0})
               </TabsTrigger>
               <TabsTrigger value="monitored" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
@@ -502,11 +496,14 @@ export default function ClientDetail() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="radicaciones">
-              {radicaciones.length === 0 ? (
+            <TabsContent value="filings">
+              {!clientFilings || clientFilings.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay radicaciones en trámite</p>
+                  <p>No hay radicaciones vinculadas a este cliente</p>
+                  <p className="text-sm mt-2">
+                    Cree una nueva radicación desde la página de Radicaciones
+                  </p>
                 </div>
               ) : (
                 <Table>
@@ -514,69 +511,40 @@ export default function ClientDetail() {
                     <TableRow>
                       <TableHead>Asunto</TableHead>
                       <TableHead>Tipo</TableHead>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Autoridad</TableHead>
                       <TableHead>Estado</TableHead>
-                      <TableHead>Creado</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {radicaciones.map((filing) => (
+                    {clientFilings.map((filing) => (
                       <TableRow key={filing.id}>
                         <TableCell className="font-medium">
-                          {(filing as any).matter_name}
+                          {filing.matters?.matter_name || "—"}
                         </TableCell>
                         <TableCell>{filing.filing_type}</TableCell>
                         <TableCell>
-                          <StatusBadge status={filing.status as any} />
+                          {filing.radicado ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                              {filing.radicado}
+                            </code>
+                          ) : (
+                            <span className="text-muted-foreground">Pendiente</span>
+                          )}
                         </TableCell>
-                        <TableCell>{formatDateColombia(filing.created_at)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/filings/${filing.id}`}>Ver</Link>
-                          </Button>
+                        <TableCell className="max-w-[200px] truncate">
+                          {filing.court_name || filing.target_authority || "—"}
                         </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </TabsContent>
-
-            <TabsContent value="procesos">
-              {procesos.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Gavel className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay procesos con radicado confirmado (desde radicaciones)</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Asunto</TableHead>
-                      <TableHead>Radicado</TableHead>
-                      <TableHead>Juzgado</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {procesos.map((filing) => (
-                      <TableRow key={filing.id}>
-                        <TableCell className="font-medium">
-                          {(filing as any).matter_name}
-                        </TableCell>
-                        <TableCell>
-                          <code className="text-xs bg-muted px-2 py-1 rounded">
-                            {filing.radicado || "—"}
-                          </code>
-                        </TableCell>
-                        <TableCell>{filing.court_name || "—"}</TableCell>
                         <TableCell>
                           <StatusBadge status={filing.status as any} />
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/filings/${filing.id}`}>Ver</Link>
+                            <Link to={`/filings/${filing.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
                           </Button>
                         </TableCell>
                       </TableRow>
