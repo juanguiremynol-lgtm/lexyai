@@ -440,35 +440,56 @@ export function UnifiedPipeline() {
   const allFilings = filings || [];
   const allProcesses = processes || [];
 
+  // Create a Set to track which items have already been placed (prevent duplicates)
+  const placedItemIds = new Set<string>();
+
   // Group items by stage
   const itemsByStage: Record<string, UnifiedItem[]> = {};
   ALL_STAGES.forEach((stage) => {
     itemsByStage[stage.id] = [];
   });
 
+  // Place filings - only in filing stages
   allFilings.forEach((filing) => {
+    const uniqueKey = `filing:${filing.id}`;
+    if (placedItemIds.has(uniqueKey)) return; // Skip if already placed
+    
     const stageId = `filing:${filing.filingStatus}`;
     if (itemsByStage[stageId]) {
       itemsByStage[stageId].push(filing);
+      placedItemIds.add(uniqueKey);
     } else {
       // Fallback: put in first filing stage if status not in KANBAN_COLUMNS
       const firstFilingStage = FILING_STAGES[0];
       if (firstFilingStage && itemsByStage[firstFilingStage.id]) {
         itemsByStage[firstFilingStage.id].push(filing);
+        placedItemIds.add(uniqueKey);
       }
     }
   });
 
+  // Place processes - only in process stages, skip if linked to a filing that's already shown
   allProcesses.forEach((process) => {
+    const uniqueKey = `process:${process.id}`;
+    if (placedItemIds.has(uniqueKey)) return; // Skip if already placed
+    
+    // Skip processes that are linked to filings (the filing will show instead)
+    if (process.linkedFilingId) {
+      const linkedFilingShown = allFilings.some(f => f.id === process.linkedFilingId);
+      if (linkedFilingShown) return;
+    }
+    
     const phase = process.phase || "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR";
     const stageId = `process:${phase}`;
     if (itemsByStage[stageId]) {
       itemsByStage[stageId].push(process);
+      placedItemIds.add(uniqueKey);
     } else {
       // Fallback: put in first process stage
       const firstProcessStage = PROCESS_STAGES[0];
       if (firstProcessStage && itemsByStage[firstProcessStage.id]) {
         itemsByStage[firstProcessStage.id].push(process);
+        placedItemIds.add(uniqueKey);
       }
     }
   });
