@@ -3,5 +3,7 @@ export { UnlinkedProcessesAlert, UnlinkedProcessesPage } from "./UnlinkedProcess
 export { ProcessClassificationDialog } from "./ProcessClassificationDialog";
 export { MonitoredProcessesSection } from "./MonitoredProcessesSection";
 export { ProcessPipeline } from "./ProcessPipeline";
+export { ProcessPipelineColumn } from "./ProcessPipelineColumn";
+export { ProcessPipelineCard } from "./ProcessPipelineCard";
 export { NewProcessDialog } from "./NewProcessDialog";
 export { ProcessInfoEditor } from "./ProcessInfoEditor";

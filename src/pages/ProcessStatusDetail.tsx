@@ -270,11 +270,26 @@ export default function ProcessStatusDetail() {
           <p className="text-muted-foreground">
             {process.despacho_name || "Despacho no especificado"}
           </p>
-          {process.phase && (
-            <Badge variant="outline" className="mt-2">
-              Fase: {PROCESS_PHASES[process.phase as ProcessPhase]?.label || process.phase}
-            </Badge>
-          )}
+          <div className="flex items-center gap-3 mt-2">
+            <Label htmlFor="phase-select" className="text-sm text-muted-foreground">
+              Fase:
+            </Label>
+            <Select
+              value={process.phase || "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR"}
+              onValueChange={(value) => updateProcessMutation.mutate({ phase: value })}
+            >
+              <SelectTrigger id="phase-select" className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROCESS_PHASES_ORDER.map((phase) => (
+                  <SelectItem key={phase} value={phase}>
+                    {PROCESS_PHASES[phase].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="mt-2">
             <ProcessClientLink
               processId={process.id}
