@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
+import { TutelasPipeline } from "@/components/tutelas";
 import { ReviewAlerts } from "@/components/alerts";
 
 export default function Dashboard() {
@@ -140,6 +141,7 @@ export default function Dashboard() {
         <TabsList>
           <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
           <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
+          <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
         </TabsList>
         
         <TabsContent value="cgp" className="space-y-4">
@@ -154,6 +156,13 @@ export default function Dashboard() {
             Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
           </p>
           <PeticionesPipeline />
+        </TabsContent>
+
+        <TabsContent value="tutelas" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
+          </p>
+          <TutelasPipeline />
         </TabsContent>
       </Tabs>
     </div>
