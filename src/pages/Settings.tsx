@@ -227,7 +227,7 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="recordatorios" className="space-y-6">
-          <HearingReminderSettings profile={profile} />
+          <HearingReminderSettings profile={profile as Record<string, unknown> | null} />
           
           <Card>
             <CardHeader>
