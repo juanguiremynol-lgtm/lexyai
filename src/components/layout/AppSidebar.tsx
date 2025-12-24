@@ -1,13 +1,11 @@
 import { 
   LayoutDashboard, 
   Briefcase, 
-  FileText, 
   CheckSquare, 
   Bell, 
   Settings,
   Scale,
   LogOut,
-  Eye,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -32,8 +30,7 @@ import { toast } from "sonner";
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Clientes", url: "/clients", icon: Briefcase },
-  { title: "Radicaciones", url: "/filings", icon: FileText },
-  { title: "Estado Procesos", url: "/process-status", icon: Eye },
+  { title: "Procesos", url: "/processes", icon: Scale },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/alerts", icon: Bell },
 ];
