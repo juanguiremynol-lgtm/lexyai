@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
@@ -15,7 +15,8 @@ import {
   Bell,
   FileSignature,
   ScrollText,
-  Wrench
+  Wrench,
+  CalendarDays
 } from "lucide-react";
 
 const EXTERNAL_TOOLS = [
@@ -101,8 +102,12 @@ export default function Utilities() {
         <p className="text-muted-foreground">Herramientas para el ejercicio profesional.</p>
       </div>
 
-      <Tabs defaultValue="externas" className="w-full">
+      <Tabs defaultValue="terminos" className="w-full">
         <TabsList>
+          <TabsTrigger value="terminos" className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4" />
+            Calculadora de Términos
+          </TabsTrigger>
           <TabsTrigger value="externas" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
             Herramientas Externas
@@ -112,6 +117,10 @@ export default function Utilities() {
             Constructor de Radicado
           </TabsTrigger>
         </TabsList>
+        
+        <TabsContent value="terminos" className="mt-6">
+          <TerminosCalculator />
+        </TabsContent>
         
         <TabsContent value="externas" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
