@@ -3,6 +3,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { User, ExternalLink, Scale, FileText, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -39,19 +40,26 @@ interface UnifiedPipelineCardProps {
   item: UnifiedItem;
   isDragging?: boolean;
   isFocused?: boolean;
+  isSelected?: boolean;
+  isSelectionMode?: boolean;
   onReclassify?: (item: UnifiedItem) => void;
+  onToggleSelection?: (item: UnifiedItem, shiftKey: boolean) => void;
 }
 
 export function UnifiedPipelineCard({ 
   item, 
   isDragging = false,
   isFocused = false,
+  isSelected = false,
+  isSelectionMode = false,
   onReclassify,
+  onToggleSelection,
 }: UnifiedPipelineCardProps) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `${item.type}:${item.id}`,
     data: { item },
+    disabled: isSelectionMode,
   });
 
   const style = transform
@@ -70,18 +78,28 @@ export function UnifiedPipelineCard({
 
   const isLinked = item.linkedFilingId || item.linkedProcessId;
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (isSelectionMode && onToggleSelection) {
+      e.preventDefault();
+      e.stopPropagation();
+      onToggleSelection(item, e.shiftKey);
+    }
+  };
+
   return (
     <Card
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(isSelectionMode ? {} : { ...attributes, ...listeners })}
+      onClick={handleCardClick}
       className={cn(
-        "cursor-grab active:cursor-grabbing transition-all duration-200 group",
+        "transition-all duration-200 group",
         "border-l-4 shadow-card",
+        isSelectionMode ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-90 shadow-elevated scale-105 rotate-2 ring-2 ring-primary z-50",
-        isFocused && !isDragging && "ring-2 ring-primary shadow-elevated -translate-y-0.5",
-        !isDragging && !isFocused && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
+        isSelected && "ring-2 ring-primary bg-primary/5",
+        isFocused && !isDragging && !isSelected && "ring-2 ring-primary shadow-elevated -translate-y-0.5",
+        !isDragging && !isFocused && !isSelected && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
         // Enhanced type-specific styling for noir theme
         item.type === "filing" && "border-l-blue-500 bg-gradient-to-r from-blue-500/10 to-transparent",
         item.type === "process" && "border-l-primary bg-gradient-to-r from-primary/10 to-transparent"
@@ -89,42 +107,55 @@ export function UnifiedPipelineCard({
     >
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
-          {/* Navigation and reclassify buttons */}
+          {/* Selection checkbox or navigation buttons */}
           <div className="flex flex-col gap-1 flex-shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-7 w-7 transition-all",
-                item.type === "filing" 
-                  ? "hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/50" 
-                  : "hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/50"
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                navigate(detailPath);
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              title="Ver detalle"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </Button>
-            {onReclassify && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50 transition-all"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  onReclassify(item);
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                title="Reclasificar"
-              >
-                <ArrowRightLeft className="h-4 w-4" />
-              </Button>
+            {isSelectionMode ? (
+              <div className="h-7 w-7 flex items-center justify-center">
+                <Checkbox 
+                  checked={isSelected}
+                  onCheckedChange={() => onToggleSelection?.(item, false)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                />
+              </div>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-7 transition-all",
+                    item.type === "filing" 
+                      ? "hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/50" 
+                      : "hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/50"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    navigate(detailPath);
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  title="Ver detalle"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+                {onReclassify && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50 transition-all"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onReclassify(item);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    title="Reclasificar"
+                  >
+                    <ArrowRightLeft className="h-4 w-4" />
+                  </Button>
+                )}
+              </>
             )}
           </div>
 

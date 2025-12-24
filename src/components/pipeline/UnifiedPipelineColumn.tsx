@@ -17,7 +17,10 @@ interface UnifiedPipelineColumnProps {
   stage: StageConfig;
   items: UnifiedItem[];
   focusedItemId?: string | null;
+  isSelectionMode?: boolean;
+  isItemSelected?: (item: UnifiedItem) => boolean;
   onReclassify?: (item: UnifiedItem) => void;
+  onToggleSelection?: (item: UnifiedItem, shiftKey: boolean) => void;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -60,7 +63,10 @@ export function UnifiedPipelineColumn({
   stage, 
   items,
   focusedItemId,
+  isSelectionMode = false,
+  isItemSelected,
   onReclassify,
+  onToggleSelection,
 }: UnifiedPipelineColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -127,7 +133,10 @@ export function UnifiedPipelineColumn({
                 key={itemKey} 
                 item={item}
                 isFocused={focusedItemId === itemKey}
+                isSelected={isItemSelected?.(item) ?? false}
+                isSelectionMode={isSelectionMode}
                 onReclassify={onReclassify}
+                onToggleSelection={onToggleSelection}
               />
             );
           })}

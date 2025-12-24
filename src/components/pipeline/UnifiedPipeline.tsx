@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Scale, Keyboard } from "lucide-react";
+import { FileText, Scale, Keyboard, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { KANBAN_COLUMNS, PROCESS_PHASES_ORDER, PROCESS_PHASES, FILING_STATUSES } from "@/lib/constants";
 import type { FilingStatus, ProcessPhase } from "@/lib/constants";
@@ -23,8 +23,10 @@ import { toast } from "sonner";
 import { UnifiedPipelineColumn, StageConfig } from "./UnifiedPipelineColumn";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { ClassificationDialog } from "./ClassificationDialog";
+import { BulkActionsBar } from "./BulkActionsBar";
 import { useUndoReclassification } from "@/hooks/use-undo-reclassification";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
+import { useBatchSelection } from "@/hooks/use-batch-selection";
 
 // Build unified stages configuration
 const FILING_STAGE_COLORS: Record<string, string> = {
@@ -554,6 +556,36 @@ export function UnifiedPipeline() {
   const totalFilings = allFilings.length;
   const totalProcesses = allProcesses.filter(p => !p.linkedFilingId || !allFilings.some(f => f.id === p.linkedFilingId)).length;
 
+  // Flatten all items for batch selection
+  const allItemsFlat = useMemo(() => {
+    const items: UnifiedItem[] = [];
+    ALL_STAGES.forEach(stage => {
+      items.push(...(itemsByStage[stage.id] || []));
+    });
+    return items;
+  }, [itemsByStage]);
+
+  // Batch selection
+  const {
+    isSelectionMode,
+    toggleSelection,
+    isSelected,
+    selectAllOfType,
+    clearSelection,
+    getSelectionCounts,
+    selectedCount,
+  } = useBatchSelection({ allItems: allItemsFlat });
+
+  const selectionCounts = getSelectionCounts();
+
+  // Handle bulk reclassify - show dialog for first selected item
+  const handleBulkReclassify = useCallback(() => {
+    if (selectedCount === 0) return;
+    toast.info("Selecciona un item individual para reclasificar", {
+      description: "La reclasificación en lote no está disponible aún",
+    });
+  }, [selectedCount]);
+
   // Keyboard navigation - memoize stages for hook
   const stagesForKeyboard = useMemo(() => 
     ALL_STAGES.map(s => ({ id: s.id, type: s.type })), 
@@ -568,9 +600,22 @@ export function UnifiedPipeline() {
     stages: stagesForKeyboard,
     itemsByStage,
     onReclassify: handleReclassify,
+    enabled: !isSelectionMode,
   });
 
   const focusedItemId = getFocusedItemId();
+
+  // Toggle selection mode
+  const toggleSelectionMode = useCallback(() => {
+    if (isSelectionMode) {
+      clearSelection();
+    } else {
+      toast.info("Modo selección activado", {
+        description: "Shift+click para seleccionar rango",
+        duration: 3000,
+      });
+    }
+  }, [isSelectionMode, clearSelection]);
 
   return (
     <>
@@ -589,15 +634,27 @@ export function UnifiedPipeline() {
             </Badge>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={startNavigation}
-          className={isNavigating ? "ring-2 ring-primary" : ""}
-        >
-          <Keyboard className="h-4 w-4 mr-2" />
-          {isNavigating ? "Navegando" : "Tab para navegar"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleSelectionMode}
+            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            {isSelectionMode ? "Cancelar selección" : "Seleccionar"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNavigation}
+            className={isNavigating ? "ring-2 ring-primary" : ""}
+            disabled={isSelectionMode}
+          >
+            <Keyboard className="h-4 w-4 mr-2" />
+            {isNavigating ? "Navegando" : "Tab para navegar"}
+          </Button>
+        </div>
       </div>
 
       <DndContext
@@ -615,7 +672,10 @@ export function UnifiedPipeline() {
                 stage={stage}
                 items={itemsByStage[stage.id]}
                 focusedItemId={focusedItemId}
+                isSelectionMode={isSelectionMode}
+                isItemSelected={isSelected}
                 onReclassify={handleReclassify}
+                onToggleSelection={toggleSelection}
               />
             ))}
           </div>
@@ -635,6 +695,16 @@ export function UnifiedPipeline() {
         radicado={classificationDialog.item?.radicado || null}
         currentType={classificationDialog.item?.type || "filing"}
         onClassify={handleClassify}
+      />
+
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        filingsCount={selectionCounts.filings}
+        processesCount={selectionCounts.processes}
+        onSelectAllFilings={() => selectAllOfType("filing")}
+        onSelectAllProcesses={() => selectAllOfType("process")}
+        onClearSelection={clearSelection}
+        onBulkReclassify={handleBulkReclassify}
       />
     </>
   );
