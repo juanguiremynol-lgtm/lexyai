@@ -119,7 +119,10 @@ export function EstadosImport() {
           fecha_ultima_actuacion: row.fecha_ultima_actuacion,
           fecha_ultima_actuacion_raw: row.fecha_ultima_actuacion_raw,
           import_run_id: importRun.id,
-          source_payload: row as unknown as Record<string, unknown>,
+          source_payload: {
+            ...row,
+            all_columns: row.all_columns,
+          } as unknown as Record<string, unknown>,
         } as never);
 
         if (!error) inserted++;
