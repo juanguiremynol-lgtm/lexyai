@@ -46,7 +46,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { formatDateColombia } from "@/lib/constants";
+import { formatDateColombia, PROCESS_PHASES, PROCESS_PHASES_ORDER, type ProcessPhase } from "@/lib/constants";
 import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
 import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
@@ -270,6 +270,11 @@ export default function ProcessStatusDetail() {
           <p className="text-muted-foreground">
             {process.despacho_name || "Despacho no especificado"}
           </p>
+          {process.phase && (
+            <Badge variant="outline" className="mt-2">
+              Fase: {PROCESS_PHASES[process.phase as ProcessPhase]?.label || process.phase}
+            </Badge>
+          )}
           <div className="mt-2">
             <ProcessClientLink
               processId={process.id}
@@ -668,6 +673,38 @@ export default function ProcessStatusDetail() {
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-4">
+          {/* Phase Selector */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Fase del Proceso</CardTitle>
+              <CardDescription>
+                Seleccione la fase procesal actual para el seguimiento en el pipeline
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={process.phase || "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR"}
+                onValueChange={(value) =>
+                  updateProcessMutation.mutate({ phase: value })
+                }
+              >
+                <SelectTrigger className="w-full md:w-96">
+                  <SelectValue placeholder="Seleccionar fase" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROCESS_PHASES_ORDER.map((phase) => (
+                    <SelectItem key={phase} value={phase}>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{PROCESS_PHASES_ORDER.indexOf(phase) + 1}.</span>
+                        {PROCESS_PHASES[phase].label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Configuración del Monitoreo</CardTitle>
