@@ -63,6 +63,7 @@ const App = () => (
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:id" element={<ClientDetail />} />
             <Route path="/processes" element={<Processes />} />
+            <Route path="/processes/:id" element={<ProcessStatusDetail />} />
             <Route path="/process-status" element={<ProcessStatus />} />
             <Route path="/process-status/link-clients" element={<UnlinkedProcessesPage />} />
             <Route path="/process-status/test" element={<ProcessStatusTest />} />
