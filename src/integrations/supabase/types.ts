@@ -1191,11 +1191,13 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          email_reminders_enabled: boolean | null
           estados_import_interval_days: number | null
           firm_name: string | null
           full_name: string | null
           id: string
           last_estados_import_at: string | null
+          reminder_email: string | null
           reparto_directory: Json | null
           signature_block: string | null
           sla_acta_days: number | null
@@ -1206,11 +1208,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
           id: string
           last_estados_import_at?: string | null
+          reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
           sla_acta_days?: number | null
@@ -1221,11 +1225,13 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
           id?: string
           last_estados_import_at?: string | null
+          reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
           sla_acta_days?: number | null

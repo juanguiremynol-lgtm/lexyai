@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.icarus-import-excel]
 verify_jwt = false
+
+[functions.send-reminder]
+verify_jwt = false

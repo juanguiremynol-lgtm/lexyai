@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Save, Download, Plus, Trash2, Clock, FileText, Mail, Plug, FileSpreadsheet } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Save, Download, Plus, Trash2, Clock, FileText, Mail, Plug, FileSpreadsheet, Bell } from "lucide-react";
 import { toast } from "sonner";
 import type { RepartoEntry } from "@/types/database";
 import { IcarusIntegration } from "@/components/settings/IcarusIntegration";
@@ -162,8 +163,9 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
+          <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="reparto">Directorio Reparto</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
@@ -219,6 +221,149 @@ export default function Settings() {
                   Guardar Perfil
                 </Button>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="recordatorios">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5" />
+                Recordatorios por Correo
+              </CardTitle>
+              <CardDescription>
+                Configure las alertas y recordatorios automáticos por correo electrónico
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-1">
+                  <p className="font-medium">Recordatorios por correo</p>
+                  <p className="text-sm text-muted-foreground">
+                    Reciba alertas automáticas sobre vencimientos de SLA y plazos judiciales
+                  </p>
+                </div>
+                <Switch
+                  checked={profile?.email_reminders_enabled ?? true}
+                  onCheckedChange={(checked) => {
+                    updateProfile.mutate({ email_reminders_enabled: checked });
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reminder_email">Correo para recordatorios</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="reminder_email"
+                    type="email"
+                    placeholder="su-correo@ejemplo.com"
+                    defaultValue={profile?.reminder_email || ""}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={() => {
+                      const input = document.getElementById("reminder_email") as HTMLInputElement;
+                      if (input?.value) {
+                        updateProfile.mutate({ reminder_email: input.value });
+                      }
+                    }}
+                    disabled={updateProfile.isPending}
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Guardar
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Este correo recibirá todas las alertas y recordatorios del sistema
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h4 className="font-medium">Tipos de recordatorios</h4>
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-red-100 text-red-600">
+                        <Clock className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Vencimiento de SLA</p>
+                        <p className="text-xs text-muted-foreground">5, 3 y 1 día(s) antes del vencimiento</p>
+                      </div>
+                    </div>
+                    <Badge variant="default">Activo</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-amber-100 text-amber-600">
+                        <FileText className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Actualización de procesos</p>
+                        <p className="text-xs text-muted-foreground">Cuando se detectan nuevas actuaciones</p>
+                      </div>
+                    </div>
+                    <Badge variant="default">Activo</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-full bg-blue-100 text-blue-600">
+                        <Mail className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Pendientes de radicación</p>
+                        <p className="text-xs text-muted-foreground">Radicaciones sin acta o número asignado</p>
+                      </div>
+                    </div>
+                    <Badge variant="default">Activo</Badge>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground italic">
+                  La configuración individual de cada tipo de recordatorio estará disponible próximamente.
+                </p>
+              </div>
+
+              <Separator />
+
+              <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                <h4 className="font-medium text-sm mb-2">Probar recordatorios</h4>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Envíe un correo de prueba para verificar la configuración
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    const email = profile?.reminder_email;
+                    if (!email) {
+                      toast.error("Configure un correo para recordatorios primero");
+                      return;
+                    }
+                    try {
+                      const { data, error } = await supabase.functions.invoke("send-reminder", {
+                        body: {
+                          type: "test",
+                          recipientEmail: email,
+                          recipientName: profile?.full_name,
+                          subject: "Correo de prueba",
+                          message: "Este es un correo de prueba para verificar que los recordatorios funcionan correctamente.",
+                        },
+                      });
+                      if (error) throw error;
+                      toast.success("Correo de prueba enviado");
+                    } catch (err) {
+                      toast.error("Error al enviar: " + (err as Error).message);
+                    }
+                  }}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Enviar correo de prueba
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
