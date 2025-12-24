@@ -47,26 +47,50 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <img 
-              src={logo} 
-              alt="Lex et Lit Abogados" 
-              className="h-24 w-auto object-contain"
-            />
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Background decorative elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/10 via-transparent to-transparent rounded-full blur-3xl" />
+        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
+      </div>
+      
+      {/* Gold accent lines */}
+      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+      <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+
+      <Card className="w-full max-w-md relative border-primary/20 bg-card/80 backdrop-blur-xl shadow-elevated">
+        {/* Top gold accent */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-gold rounded-b-full" />
+        
+        <CardHeader className="text-center pt-8">
+          <div className="flex justify-center mb-6 relative">
+            <div className="relative">
+              <img 
+                src={logo} 
+                alt="Lex et Lit Abogados" 
+                className="h-28 w-auto object-contain relative z-10"
+              />
+              {/* Glow effect */}
+              <div className="absolute inset-0 blur-2xl bg-primary/30 rounded-full -z-10 scale-110" />
+            </div>
           </div>
-          <CardTitle className="font-display text-2xl">Lex et Lit Abogados</CardTitle>
-          <CardDescription>
+          <CardTitle className="font-display text-3xl text-gold-gradient">
+            Lex et Lit
+          </CardTitle>
+          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mt-1">
+            Abogados
+          </p>
+          <CardDescription className="mt-4 text-muted-foreground">
             {isLogin ? "Inicia sesión para continuar" : "Crea tu cuenta"}
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="pb-8">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div className="space-y-2">
-                <Label htmlFor="fullName">Nombre Completo</Label>
+                <Label htmlFor="fullName" className="text-sm text-muted-foreground">
+                  Nombre Completo
+                </Label>
                 <Input
                   id="fullName"
                   value={fullName}
@@ -77,7 +101,9 @@ export default function Auth() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email">Correo Electrónico</Label>
+              <Label htmlFor="email" className="text-sm text-muted-foreground">
+                Correo Electrónico
+              </Label>
               <Input
                 id="email"
                 type="email"
@@ -88,7 +114,9 @@ export default function Auth() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password" className="text-sm text-muted-foreground">
+                Contraseña
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -99,15 +127,20 @@ export default function Auth() {
                 minLength={6}
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button 
+              type="submit" 
+              variant="gold"
+              className="w-full mt-6" 
+              disabled={loading}
+            >
               {loading ? "Cargando..." : isLogin ? "Iniciar Sesión" : "Crear Cuenta"}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
+          <div className="mt-6 text-center text-sm">
             <button
               type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-primary hover:underline"
+              className="text-primary hover:text-primary/80 hover:underline transition-colors"
             >
               {isLogin ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Inicia sesión"}
             </button>

@@ -60,26 +60,30 @@ export function AppSidebar() {
   };
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border">
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border/50">
+      <SidebarHeader className="border-b border-primary/20">
         <div className={cn(
-          "flex items-center gap-3 px-2 py-4",
+          "flex items-center gap-3 px-3 py-4",
           collapsed && "justify-center"
         )}>
-          <img 
-            src={logo} 
-            alt="Lex et Lit Abogados" 
-            className={cn(
-              "object-contain",
-              collapsed ? "h-10 w-10" : "h-14 w-14"
-            )} 
-          />
+          <div className={cn(
+            "relative",
+            collapsed ? "h-10 w-10" : "h-14 w-14"
+          )}>
+            <img 
+              src={logo} 
+              alt="Lex et Lit Abogados" 
+              className="h-full w-full object-contain"
+            />
+            {/* Gold glow effect behind logo */}
+            <div className="absolute inset-0 -z-10 blur-xl bg-primary/20 rounded-full" />
+          </div>
           {!collapsed && (
             <div className="flex flex-col">
-              <span className="font-display text-lg font-semibold text-sidebar-foreground">
+              <span className="font-display text-xl font-semibold text-gold-gradient">
                 Lex et Lit
               </span>
-              <span className="text-xs text-sidebar-foreground/60">
+              <span className="text-xs text-sidebar-foreground/60 tracking-wider uppercase">
                 Abogados
               </span>
             </div>
@@ -87,59 +91,91 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="px-2">
         <SidebarGroup>
-          <SidebarGroupLabel>Navegación</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-primary/80 text-xs uppercase tracking-widest font-medium">
+            Navegación
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === item.url}
-                    tooltip={item.title}
-                  >
-                    <NavLink to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                      className={cn(
+                        "transition-all duration-200",
+                        isActive && "bg-primary/15 text-primary border-l-2 border-primary"
+                      )}
+                    >
+                      <NavLink to={item.url} className="flex items-center gap-3">
+                        <item.icon className={cn(
+                          "h-4 w-4 transition-colors",
+                          isActive ? "text-primary" : "text-sidebar-foreground/70"
+                        )} />
+                        <span className={cn(
+                          isActive ? "text-primary font-medium" : "text-sidebar-foreground"
+                        )}>
+                          {item.title}
+                        </span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Sistema</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-primary/80 text-xs uppercase tracking-widest font-medium">
+            Sistema
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {settingsItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === item.url}
-                    tooltip={item.title}
-                  >
-                    <NavLink to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {settingsItems.map((item) => {
+                const isActive = location.pathname === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                      className={cn(
+                        "transition-all duration-200",
+                        isActive && "bg-primary/15 text-primary border-l-2 border-primary"
+                      )}
+                    >
+                      <NavLink to={item.url} className="flex items-center gap-3">
+                        <item.icon className={cn(
+                          "h-4 w-4 transition-colors",
+                          isActive ? "text-primary" : "text-sidebar-foreground/70"
+                        )} />
+                        <span className={cn(
+                          isActive ? "text-primary font-medium" : "text-sidebar-foreground"
+                        )}>
+                          {item.title}
+                        </span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border">
+      <SidebarFooter className="border-t border-primary/20 px-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={handleLogout}
               tooltip="Cerrar sesión"
-              className="text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              className="text-sidebar-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all duration-200"
             >
               <LogOut className="h-4 w-4" />
               <span>Cerrar sesión</span>
