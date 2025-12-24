@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { UnifiedPipelineColumn, StageConfig } from "./UnifiedPipelineColumn";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { ClassificationDialog } from "./ClassificationDialog";
+import { useUndoReclassification } from "@/hooks/use-undo-reclassification";
 
 // Build unified stages configuration
 const FILING_STAGE_COLORS: Record<string, string> = {
@@ -124,6 +125,7 @@ function processToUnifiedItem(process: RawProcess): UnifiedItem {
 
 export function UnifiedPipeline() {
   const queryClient = useQueryClient();
+  const { registerFilingToProcessUndo, registerProcessToFilingUndo } = useUndoReclassification();
   const [activeItem, setActiveItem] = useState<UnifiedItem | null>(null);
   const [classificationDialog, setClassificationDialog] = useState<{
     open: boolean;
@@ -224,6 +226,12 @@ export function UnifiedPipeline() {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
 
+      // Store original state for undo
+      const originalStatus = filing.filingStatus as FilingStatus;
+      const originalHasAutoAdmisorio = filing.hasAutoAdmisorio;
+      const originalLinkedProcessId = filing.linkedProcessId || null;
+      let newProcessId: string | null = null;
+
       if (hasAutoAdmisorio) {
         // Create a linked process
         const { data: newProcess, error: processError } = await supabase
@@ -243,6 +251,7 @@ export function UnifiedPipeline() {
           .single();
 
         if (processError) throw processError;
+        newProcessId = newProcess.id;
 
         // Update filing to link and mark as having auto admisorio
         const { error: filingError } = await supabase
@@ -263,11 +272,22 @@ export function UnifiedPipeline() {
           .eq("id", filing.id);
         if (error) throw error;
       }
+
+      return { filing, newProcessId, originalStatus, originalHasAutoAdmisorio, originalLinkedProcessId };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["unified-pipeline-filings"] });
       queryClient.invalidateQueries({ queryKey: ["unified-pipeline-processes"] });
-      toast.success("Clasificación actualizada");
+      
+      // Register undo
+      registerFilingToProcessUndo(
+        data.filing.id,
+        data.newProcessId,
+        data.originalStatus,
+        data.originalHasAutoAdmisorio,
+        data.originalLinkedProcessId,
+        data.filing.radicado
+      );
     },
     onError: () => toast.error("Error al clasificar"),
   });
@@ -277,6 +297,13 @@ export function UnifiedPipeline() {
     mutationFn: async ({ process, hasAutoAdmisorio, targetStatus }: { process: UnifiedItem; hasAutoAdmisorio: boolean; targetStatus?: FilingStatus }) => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
+
+      // Store original state for undo
+      const originalPhase = process.phase as ProcessPhase | null;
+      const originalHasAutoAdmisorio = process.hasAutoAdmisorio;
+      const originalLinkedFilingId = process.linkedFilingId || null;
+      const originalMonitoringEnabled = process.monitoringEnabled ?? true;
+      let newFilingId: string | null = null;
 
       if (!hasAutoAdmisorio) {
         // Create a linked filing
@@ -325,6 +352,7 @@ export function UnifiedPipeline() {
           .single();
 
         if (filingError) throw filingError;
+        newFilingId = newFiling.id;
 
         // Update process to link and disable monitoring (no longer shown in pipeline)
         const { error: processError } = await supabase
@@ -345,11 +373,23 @@ export function UnifiedPipeline() {
           .eq("id", process.id);
         if (error) throw error;
       }
+
+      return { process, newFilingId, originalPhase, originalHasAutoAdmisorio, originalLinkedFilingId, originalMonitoringEnabled };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["unified-pipeline-filings"] });
       queryClient.invalidateQueries({ queryKey: ["unified-pipeline-processes"] });
-      toast.success("Clasificación actualizada");
+      
+      // Register undo
+      registerProcessToFilingUndo(
+        data.process.id,
+        data.newFilingId,
+        data.originalPhase,
+        data.originalHasAutoAdmisorio,
+        data.originalLinkedFilingId,
+        data.originalMonitoringEnabled,
+        data.process.radicado
+      );
     },
     onError: () => toast.error("Error al clasificar"),
   });
