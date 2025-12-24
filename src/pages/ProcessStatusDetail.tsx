@@ -44,6 +44,7 @@ import {
   Trash2,
   FileSpreadsheet,
   Users,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia, PROCESS_PHASES, PROCESS_PHASES_ORDER, type ProcessPhase } from "@/lib/constants";
@@ -51,6 +52,8 @@ import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@
 import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
 import { useReviewChecks } from "@/hooks/use-review-checks";
+import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
+import { useReclassification } from "@/hooks/use-reclassification";
 
 interface Attachment {
   label: string;
@@ -82,7 +85,9 @@ export default function ProcessStatusDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedSource, setSelectedSource] = useState<string>("all");
+  const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
   const { markReviewed } = useReviewChecks();
+  const { reclassify, isPending: reclassifyPending } = useReclassification();
 
   // Fetch process details
   const { data: process, isLoading: processLoading } = useQuery({
@@ -344,6 +349,16 @@ export default function ProcessStatusDetail() {
             )}
             Consultar Ahora
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setReclassifyDialogOpen(true)}
+            disabled={reclassifyPending}
+            title="Convertir a radicación"
+            className="hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50"
+          >
+            <ArrowRightLeft className="h-4 w-4" />
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="icon" className="text-destructive hover:text-destructive">
@@ -370,6 +385,32 @@ export default function ProcessStatusDetail() {
           </AlertDialog>
         </div>
       </div>
+
+      {/* Reclassification Dialog */}
+      <ClassificationDialog
+        open={reclassifyDialogOpen}
+        onOpenChange={setReclassifyDialogOpen}
+        radicado={process.radicado}
+        currentType="process"
+        onClassify={async (hasAutoAdmisorio) => {
+          const result = await reclassify(
+            {
+              id: process.id,
+              type: "process",
+              radicado: process.radicado,
+              clientName: (process as { clients?: { name: string } | null }).clients?.name,
+              despachoName: process.despacho_name,
+              demandantes: process.demandantes,
+              demandados: process.demandados,
+            },
+            hasAutoAdmisorio
+          );
+          setReclassifyDialogOpen(false);
+          if (!hasAutoAdmisorio && "newFilingId" in result && result.newFilingId) {
+            navigate(`/filings/${result.newFilingId}`);
+          }
+        }}
+      />
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

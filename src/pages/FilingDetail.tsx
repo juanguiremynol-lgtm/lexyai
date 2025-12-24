@@ -52,6 +52,7 @@ import {
   Package,
   Sparkles,
   Check,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -63,6 +64,8 @@ import {
 } from "@/lib/constants";
 import { findCourtEmail } from "@/lib/court-emails-directory";
 import type { FilingStatus } from "@/types/database";
+import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
+import { useReclassification } from "@/hooks/use-reclassification";
 
 const FILING_METHOD_LABELS: Record<string, { label: string; icon: typeof Mail }> = {
   EMAIL: { label: "Correo electrónico", icon: Mail },
@@ -78,6 +81,8 @@ export default function FilingDetail() {
   const [courtNameInput, setCourtNameInput] = useState<string>("");
   const [courtCityInput, setCourtCityInput] = useState<string>("");
   const [suggestedEmail, setSuggestedEmail] = useState<string | null>(null);
+  const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
+  const { reclassify, isPending: reclassifyPending } = useReclassification();
 
   const { data: filing, isLoading } = useQuery({
     queryKey: ["filing", id],
@@ -289,6 +294,16 @@ export default function FilingDetail() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setReclassifyDialogOpen(true)}
+            disabled={reclassifyPending}
+            title="Convertir a proceso"
+            className="hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50"
+          >
+            <ArrowRightLeft className="h-4 w-4" />
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="icon" className="text-destructive hover:text-destructive">
@@ -315,6 +330,32 @@ export default function FilingDetail() {
           </AlertDialog>
         </div>
       </div>
+
+      {/* Reclassification Dialog */}
+      <ClassificationDialog
+        open={reclassifyDialogOpen}
+        onOpenChange={setReclassifyDialogOpen}
+        radicado={filing.radicado}
+        currentType="filing"
+        onClassify={async (hasAutoAdmisorio) => {
+          await reclassify(
+            {
+              id: filing.id,
+              type: "filing",
+              radicado: filing.radicado,
+              clientName: client?.name || matter?.client_name,
+              despachoName: filing.court_name,
+              demandantes: filing.demandantes,
+              demandados: filing.demandados,
+            },
+            hasAutoAdmisorio
+          );
+          setReclassifyDialogOpen(false);
+          if (hasAutoAdmisorio) {
+            queryClient.invalidateQueries({ queryKey: ["filing", id] });
+          }
+        }}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Goals Card */}

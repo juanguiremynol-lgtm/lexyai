@@ -13,6 +13,8 @@ import {
 } from "@dnd-kit/core";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { FileText, Scale } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { KANBAN_COLUMNS, PROCESS_PHASES_ORDER, PROCESS_PHASES, FILING_STATUSES } from "@/lib/constants";
 import type { FilingStatus, ProcessPhase } from "@/lib/constants";
@@ -494,8 +496,29 @@ export function UnifiedPipeline() {
     }
   });
 
+  // Calculate counts
+  const totalFilings = allFilings.length;
+  const totalProcesses = allProcesses.filter(p => !p.linkedFilingId || !allFilings.some(f => f.id === p.linkedFilingId)).length;
+
   return (
     <>
+      {/* Pipeline Header with Counts */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold">Pipeline Unificado</h2>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 px-3 py-1">
+              <FileText className="h-3.5 w-3.5 mr-1.5" />
+              {totalFilings} Radicaciones
+            </Badge>
+            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 px-3 py-1">
+              <Scale className="h-3.5 w-3.5 mr-1.5" />
+              {totalProcesses} Procesos
+            </Badge>
+          </div>
+        </div>
+      </div>
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
