@@ -487,14 +487,18 @@ export type Database = {
           court_name: string | null
           crawler_enabled: boolean | null
           created_at: string
+          demandados: string | null
+          demandantes: string | null
           description: string | null
           expediente_url: string | null
           filing_method: string | null
           filing_type: string
+          has_auto_admisorio: boolean | null
           id: string
           last_crawled_at: string | null
           last_event_at: string | null
           last_reviewed_at: string | null
+          linked_process_id: string | null
           matter_id: string
           owner_id: string
           proof_file_path: string | null
@@ -519,14 +523,18 @@ export type Database = {
           court_name?: string | null
           crawler_enabled?: boolean | null
           created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
           description?: string | null
           expediente_url?: string | null
           filing_method?: string | null
           filing_type: string
+          has_auto_admisorio?: boolean | null
           id?: string
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_reviewed_at?: string | null
+          linked_process_id?: string | null
           matter_id: string
           owner_id: string
           proof_file_path?: string | null
@@ -551,14 +559,18 @@ export type Database = {
           court_name?: string | null
           crawler_enabled?: boolean | null
           created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
           description?: string | null
           expediente_url?: string | null
           filing_method?: string | null
           filing_type?: string
+          has_auto_admisorio?: boolean | null
           id?: string
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_reviewed_at?: string | null
+          linked_process_id?: string | null
           matter_id?: string
           owner_id?: string
           proof_file_path?: string | null
@@ -580,6 +592,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "filings_linked_process_id_fkey"
+            columns: ["linked_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
             referencedColumns: ["id"]
           },
           {
@@ -942,6 +961,7 @@ export type Database = {
           department: string | null
           despacho_name: string | null
           expediente_digital_url: string | null
+          has_auto_admisorio: boolean | null
           id: string
           juez_ponente: string | null
           jurisdiction: string | null
@@ -950,6 +970,7 @@ export type Database = {
           last_change_at: string | null
           last_checked_at: string | null
           last_reviewed_at: string | null
+          linked_filing_id: string | null
           monitoring_enabled: boolean | null
           monitoring_schedule: string | null
           municipality: string | null
@@ -973,6 +994,7 @@ export type Database = {
           department?: string | null
           despacho_name?: string | null
           expediente_digital_url?: string | null
+          has_auto_admisorio?: boolean | null
           id?: string
           juez_ponente?: string | null
           jurisdiction?: string | null
@@ -981,6 +1003,7 @@ export type Database = {
           last_change_at?: string | null
           last_checked_at?: string | null
           last_reviewed_at?: string | null
+          linked_filing_id?: string | null
           monitoring_enabled?: boolean | null
           monitoring_schedule?: string | null
           municipality?: string | null
@@ -1004,6 +1027,7 @@ export type Database = {
           department?: string | null
           despacho_name?: string | null
           expediente_digital_url?: string | null
+          has_auto_admisorio?: boolean | null
           id?: string
           juez_ponente?: string | null
           jurisdiction?: string | null
@@ -1012,6 +1036,7 @@ export type Database = {
           last_change_at?: string | null
           last_checked_at?: string | null
           last_reviewed_at?: string | null
+          linked_filing_id?: string | null
           monitoring_enabled?: boolean | null
           monitoring_schedule?: string | null
           municipality?: string | null
@@ -1031,6 +1056,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monitored_processes_linked_filing_id_fkey"
+            columns: ["linked_filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
             referencedColumns: ["id"]
           },
           {
