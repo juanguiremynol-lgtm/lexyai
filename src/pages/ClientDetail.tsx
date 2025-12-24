@@ -53,10 +53,12 @@ import {
   Trash2,
   Scale,
   Eye,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ContractsTab } from "@/components/clients";
 import type { Client } from "@/types/client";
 
 
@@ -492,7 +494,11 @@ export default function ClientDetail() {
               </TabsTrigger>
               <TabsTrigger value="monitored" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
-                Procesos Monitoreados ({monitoredProcesses?.length || 0})
+                Procesos ({monitoredProcesses?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="contracts" className="flex items-center gap-2">
+                <Wallet className="h-4 w-4" />
+                Contratos
               </TabsTrigger>
             </TabsList>
 
@@ -610,6 +616,10 @@ export default function ClientDetail() {
                   </TableBody>
                 </Table>
               )}
+            </TabsContent>
+
+            <TabsContent value="contracts">
+              <ContractsTab clientId={id!} clientName={client.name} />
             </TabsContent>
           </Tabs>
         </CardContent>

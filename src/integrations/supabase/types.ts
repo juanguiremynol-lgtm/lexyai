@@ -106,6 +106,111 @@ export type Database = {
           },
         ]
       }
+      contract_payments: {
+        Row: {
+          amount: number
+          contract_id: string
+          created_at: string
+          description: string
+          due_date: string | null
+          id: string
+          owner_id: string
+          paid_at: string | null
+        }
+        Insert: {
+          amount?: number
+          contract_id: string
+          created_at?: string
+          description: string
+          due_date?: string | null
+          id?: string
+          owner_id: string
+          paid_at?: string | null
+        }
+        Update: {
+          amount?: number
+          contract_id?: string
+          created_at?: string
+          description?: string
+          due_date?: string | null
+          id?: string
+          owner_id?: string
+          paid_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_payments_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_payments_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contracts: {
+        Row: {
+          client_id: string
+          contract_date: string
+          contract_value: number
+          created_at: string
+          id: string
+          notes: string | null
+          owner_id: string
+          payment_modality: string
+          service_description: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          contract_date?: string
+          contract_value?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          owner_id: string
+          payment_modality?: string
+          service_description: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          contract_date?: string
+          contract_value?: number
+          created_at?: string
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          payment_modality?: string
+          service_description?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contracts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crawler_run_steps: {
         Row: {
           created_at: string
