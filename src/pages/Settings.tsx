@@ -10,11 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Plus, Trash2, Clock, FileText, Mail, Plug, FileSpreadsheet, Bell } from "lucide-react";
+import { Save, Download, Plus, Trash2, Clock, FileText, Mail, FileSpreadsheet, Bell, Upload } from "lucide-react";
 import { toast } from "sonner";
 import type { RepartoEntry } from "@/types/database";
-import { IcarusIntegration } from "@/components/settings/IcarusIntegration";
 import { EstadosImport } from "@/components/estados";
+import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -542,7 +542,24 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="integrations">
-          <IcarusIntegration />
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5" />
+                  Importar Procesos (Excel)
+                </CardTitle>
+                <CardDescription>
+                  Importa procesos desde un archivo Excel exportado de tu sistema de gestión
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <IcarusExcelImport />
+                <Separator className="my-6" />
+                <IcarusImportHistory />
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="export">
