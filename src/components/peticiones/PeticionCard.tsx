@@ -3,12 +3,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Building2, Calendar, Clock, ExternalLink, Gavel, User } from "lucide-react";
+import { AlertTriangle, Building2, Calendar, Clock, ExternalLink, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatDistanceToNow, differenceInBusinessDays, isPast, format } from "date-fns";
+import { isPast, format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
 import type { PeticionPhase } from "@/lib/peticiones-constants";
+import { EntityClientLink } from "@/components/shared/EntityClientLink";
 
 export interface PeticionItem {
   id: string;
@@ -23,6 +24,7 @@ export interface PeticionItem {
   phase: PeticionPhase;
   escalatedToTutela: boolean;
   tutelaFilingId: string | null;
+  clientId: string | null;
   clientName: string | null;
 }
 
@@ -182,13 +184,17 @@ export function PeticionCard({
           )}
         </div>
 
-        {/* Client name */}
-        {item.clientName && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <User className="h-3 w-3" />
-            <span className="truncate">{item.clientName}</span>
-          </div>
-        )}
+        {/* Client link */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <EntityClientLink
+            entityId={item.id}
+            entityType="peticion"
+            entityLabel={`Petición: ${item.subject}`}
+            currentClientId={item.clientId}
+            currentClientName={item.clientName}
+            compact
+          />
+        </div>
 
         {/* Filed date and deadline */}
         {item.filedAt && (

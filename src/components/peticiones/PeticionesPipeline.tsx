@@ -74,6 +74,7 @@ function rawToPeticionItem(raw: RawPeticion): PeticionItem {
     phase: raw.phase,
     escalatedToTutela: raw.escalated_to_tutela ?? false,
     tutelaFilingId: raw.tutela_filing_id,
+    clientId: raw.client_id,
     clientName: raw.clients?.name || null,
   };
 }
