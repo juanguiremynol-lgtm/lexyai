@@ -57,8 +57,10 @@ export const PRACTICE_AREAS = [
 
 // Filing types
 export const FILING_TYPES = [
+  'Petición',
   'Demanda',
-  'Tutela',
+  'Acción de Tutela',
+  'Habeas Corpus',
   'Denuncia',
   'Querella',
   'Incidente',
@@ -66,6 +68,15 @@ export const FILING_TYPES = [
   'Memorial',
   'Otro',
 ] as const;
+
+// Filing methods
+export const FILING_METHODS = {
+  EMAIL: { label: 'Correo electrónico', icon: 'Mail' },
+  PLATFORM: { label: 'Plataforma digital', icon: 'Globe' },
+  PHYSICAL: { label: 'Envío físico', icon: 'Package' },
+} as const;
+
+export type FilingMethod = keyof typeof FILING_METHODS;
 
 // Colombian departments
 export const COLOMBIAN_DEPARTMENTS = [
