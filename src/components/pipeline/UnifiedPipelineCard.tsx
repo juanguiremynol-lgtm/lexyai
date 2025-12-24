@@ -38,12 +38,14 @@ export interface UnifiedItem {
 interface UnifiedPipelineCardProps {
   item: UnifiedItem;
   isDragging?: boolean;
+  isFocused?: boolean;
   onReclassify?: (item: UnifiedItem) => void;
 }
 
 export function UnifiedPipelineCard({ 
   item, 
   isDragging = false,
+  isFocused = false,
   onReclassify,
 }: UnifiedPipelineCardProps) {
   const navigate = useNavigate();
@@ -78,7 +80,8 @@ export function UnifiedPipelineCard({
         "cursor-grab active:cursor-grabbing transition-all duration-200 group",
         "border-l-4 shadow-card",
         isDragging && "opacity-90 shadow-elevated scale-105 rotate-2 ring-2 ring-primary z-50",
-        !isDragging && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
+        isFocused && !isDragging && "ring-2 ring-primary shadow-elevated -translate-y-0.5",
+        !isDragging && !isFocused && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
         // Enhanced type-specific styling for noir theme
         item.type === "filing" && "border-l-blue-500 bg-gradient-to-r from-blue-500/10 to-transparent",
         item.type === "process" && "border-l-primary bg-gradient-to-r from-primary/10 to-transparent"

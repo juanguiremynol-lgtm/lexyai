@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -14,7 +14,8 @@ import {
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Scale } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Scale, Keyboard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { KANBAN_COLUMNS, PROCESS_PHASES_ORDER, PROCESS_PHASES, FILING_STATUSES } from "@/lib/constants";
 import type { FilingStatus, ProcessPhase } from "@/lib/constants";
@@ -23,6 +24,7 @@ import { UnifiedPipelineColumn, StageConfig } from "./UnifiedPipelineColumn";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { ClassificationDialog } from "./ClassificationDialog";
 import { useUndoReclassification } from "@/hooks/use-undo-reclassification";
+import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
 // Build unified stages configuration
 const FILING_STAGE_COLORS: Record<string, string> = {
@@ -552,6 +554,24 @@ export function UnifiedPipeline() {
   const totalFilings = allFilings.length;
   const totalProcesses = allProcesses.filter(p => !p.linkedFilingId || !allFilings.some(f => f.id === p.linkedFilingId)).length;
 
+  // Keyboard navigation - memoize stages for hook
+  const stagesForKeyboard = useMemo(() => 
+    ALL_STAGES.map(s => ({ id: s.id, type: s.type })), 
+    []
+  );
+  
+  const { 
+    isNavigating, 
+    startNavigation, 
+    getFocusedItemId 
+  } = usePipelineKeyboard({
+    stages: stagesForKeyboard,
+    itemsByStage,
+    onReclassify: handleReclassify,
+  });
+
+  const focusedItemId = getFocusedItemId();
+
   return (
     <>
       {/* Pipeline Header with Counts */}
@@ -569,6 +589,15 @@ export function UnifiedPipeline() {
             </Badge>
           </div>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={startNavigation}
+          className={isNavigating ? "ring-2 ring-primary" : ""}
+        >
+          <Keyboard className="h-4 w-4 mr-2" />
+          {isNavigating ? "Navegando" : "Tab para navegar"}
+        </Button>
       </div>
 
       <DndContext
@@ -585,6 +614,7 @@ export function UnifiedPipeline() {
                 key={stage.id}
                 stage={stage}
                 items={itemsByStage[stage.id]}
+                focusedItemId={focusedItemId}
                 onReclassify={handleReclassify}
               />
             ))}
