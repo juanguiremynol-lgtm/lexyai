@@ -9,10 +9,7 @@ import { Bell, Save } from "lucide-react";
 import { toast } from "sonner";
 
 interface HearingReminderSettingsProps {
-  profile: {
-    id: string;
-    hearing_reminder_days?: number[] | null;
-  } | null;
+  profile: Record<string, unknown> | null | undefined;
 }
 
 const AVAILABLE_REMINDER_DAYS = [
@@ -32,10 +29,10 @@ export function HearingReminderSettings({ profile }: HearingReminderSettingsProp
   useEffect(() => {
     if (profile?.hearing_reminder_days) {
       // Handle both array and JSON formats
-      const days = Array.isArray(profile.hearing_reminder_days)
-        ? profile.hearing_reminder_days
-        : [];
-      setSelectedDays(days);
+      const rawDays = profile.hearing_reminder_days;
+      if (Array.isArray(rawDays)) {
+        setSelectedDays(rawDays.filter((d): d is number => typeof d === 'number'));
+      }
     }
   }, [profile]);
 
