@@ -19,6 +19,7 @@ import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
 import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
+import Utilities from "./pages/Utilities";
 import NotFound from "./pages/NotFound";
 import { UnlinkedProcessesPage } from "./components/processes";
 
@@ -72,6 +73,7 @@ const App = () => (
             <Route path="/process-status/:id" element={<ProcessStatusDetail />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/utilities" element={<Utilities />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<NotFound />} />
