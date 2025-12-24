@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { NewProcessDialog } from "@/components/processes/NewProcessDialog";
-
+import { ColombianClock } from "./ColombianClock";
 export function TopBar() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -72,7 +72,8 @@ export function TopBar() {
           </form>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <ColombianClock />
           <Button
             onClick={() => setShowNewProcessDialog(true)}
             className="gap-2"
