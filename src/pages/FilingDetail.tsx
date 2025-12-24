@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -50,6 +50,8 @@ import {
   Link2,
   Globe,
   Package,
+  Sparkles,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -59,6 +61,7 @@ import {
   validateRadicado,
   formatDateColombia,
 } from "@/lib/constants";
+import { findCourtEmail } from "@/lib/court-emails-directory";
 import type { FilingStatus } from "@/types/database";
 
 const FILING_METHOD_LABELS: Record<string, { label: string; icon: typeof Mail }> = {
@@ -72,6 +75,9 @@ export default function FilingDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [courtNameInput, setCourtNameInput] = useState<string>("");
+  const [courtCityInput, setCourtCityInput] = useState<string>("");
+  const [suggestedEmail, setSuggestedEmail] = useState<string | null>(null);
 
   const { data: filing, isLoading } = useQuery({
     queryKey: ["filing", id],
@@ -108,6 +114,16 @@ export default function FilingDetail() {
       return data;
     },
   });
+
+  // Auto-detect court email when court name or city changes
+  useEffect(() => {
+    const name = courtNameInput || filing?.court_name || "";
+    const city = courtCityInput || filing?.court_city || "";
+    if (name) {
+      const email = findCourtEmail(name, city || undefined);
+      setSuggestedEmail(email);
+    }
+  }, [courtNameInput, courtCityInput, filing?.court_name, filing?.court_city]);
 
   const updateFiling = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
