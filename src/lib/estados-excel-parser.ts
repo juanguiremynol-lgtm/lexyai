@@ -10,6 +10,16 @@ export interface EstadosExcelRow {
   demandados: string;
   fecha_ultima_actuacion_raw: string;
   fecha_ultima_actuacion: string | null;
+  // Additional columns that may be present
+  actuacion: string;
+  anotacion: string;
+  inicia_termino: string;
+  fecha_inicia_termino: string | null;
+  fecha_inicia_termino_raw: string;
+  fecha_registro: string | null;
+  fecha_registro_raw: string;
+  // Store all raw columns for display
+  all_columns: Record<string, string>;
   matched_process_id: string | null; // Will be filled after matching
 }
 
@@ -19,6 +29,7 @@ export interface EstadosParseResult {
   rows: EstadosExcelRow[];
   header_row_index: number;
   total_rows: number;
+  headers: string[]; // Original headers for display
   errors: string[];
 }
 
@@ -47,6 +58,11 @@ const HEADER_MAPPINGS: Record<string, string[]> = {
   demandantes: ["demandante", "demandantes", "actor", "actores"],
   demandados: ["demandado", "demandados"],
   last_action_date: ["fecha de la ultima actuacion", "fecha última actuación", "ultima actuacion", "última actuación", "fecha actuacion"],
+  actuacion: ["actuacion", "actuación", "ultima actuacion", "última actuación"],
+  anotacion: ["anotacion", "anotación"],
+  inicia_termino: ["inicia termino", "inicia término", "termino", "término"],
+  fecha_inicia_termino: ["fecha inicia termino", "fecha inicia término", "fecha termino", "fecha término"],
+  fecha_registro: ["fecha registro", "fecha de registro"],
 };
 
 function normalizeHeader(header: string): string {
@@ -184,6 +200,11 @@ export async function parseEstadosExcel(file: File): Promise<EstadosParseResult>
     demandantes: findColumnIndex(headers, HEADER_MAPPINGS.demandantes),
     demandados: findColumnIndex(headers, HEADER_MAPPINGS.demandados),
     last_action_date: findColumnIndex(headers, HEADER_MAPPINGS.last_action_date),
+    actuacion: findColumnIndex(headers, HEADER_MAPPINGS.actuacion),
+    anotacion: findColumnIndex(headers, HEADER_MAPPINGS.anotacion),
+    inicia_termino: findColumnIndex(headers, HEADER_MAPPINGS.inicia_termino),
+    fecha_inicia_termino: findColumnIndex(headers, HEADER_MAPPINGS.fecha_inicia_termino),
+    fecha_registro: findColumnIndex(headers, HEADER_MAPPINGS.fecha_registro),
   };
   
   if (columnIndices.radicado === -1) {
@@ -207,6 +228,22 @@ export async function parseEstadosExcel(file: File): Promise<EstadosParseResult>
     const lastActionRaw = String(row[columnIndices.last_action_date] || "").trim();
     const lastActionIso = parseSpanishDate(lastActionRaw);
     
+    const fechaIniciaTerminoRaw = columnIndices.fecha_inicia_termino >= 0 
+      ? String(row[columnIndices.fecha_inicia_termino] || "").trim() 
+      : "";
+    const fechaRegistroRaw = columnIndices.fecha_registro >= 0 
+      ? String(row[columnIndices.fecha_registro] || "").trim() 
+      : "";
+    
+    // Build all_columns object with all header:value pairs
+    const allColumns: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      const headerName = headers[j]?.trim();
+      if (headerName) {
+        allColumns[headerName] = normalizeText(String(row[j] || ""));
+      }
+    }
+    
     const parsedRow: EstadosExcelRow = {
       radicado_raw: radicadoRaw,
       radicado_norm: radicadoNorm,
@@ -217,6 +254,20 @@ export async function parseEstadosExcel(file: File): Promise<EstadosParseResult>
       demandados: normalizeText(String(row[columnIndices.demandados] || "")),
       fecha_ultima_actuacion_raw: lastActionRaw,
       fecha_ultima_actuacion: lastActionIso,
+      actuacion: columnIndices.actuacion >= 0 
+        ? normalizeText(String(row[columnIndices.actuacion] || "")) 
+        : "",
+      anotacion: columnIndices.anotacion >= 0 
+        ? normalizeText(String(row[columnIndices.anotacion] || "")) 
+        : "",
+      inicia_termino: columnIndices.inicia_termino >= 0 
+        ? normalizeText(String(row[columnIndices.inicia_termino] || "")) 
+        : "",
+      fecha_inicia_termino_raw: fechaIniciaTerminoRaw,
+      fecha_inicia_termino: parseSpanishDate(fechaIniciaTerminoRaw),
+      fecha_registro_raw: fechaRegistroRaw,
+      fecha_registro: parseSpanishDate(fechaRegistroRaw),
+      all_columns: allColumns,
       matched_process_id: null,
     };
     
@@ -229,6 +280,7 @@ export async function parseEstadosExcel(file: File): Promise<EstadosParseResult>
     rows,
     header_row_index: headerRowIndex,
     total_rows: rows.length,
+    headers,
     errors,
   };
 }
