@@ -22,6 +22,7 @@ import Settings from "./pages/Settings";
 import Utilities from "./pages/Utilities";
 import Filings from "./pages/Filings";
 import FilingDetail from "./pages/FilingDetail";
+import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
 import { UnlinkedProcessesPage } from "./components/processes";
 
@@ -69,6 +70,7 @@ const App = () => (
             <Route path="/filings/:id" element={<FilingDetail />} />
             <Route path="/processes" element={<Processes />} />
             <Route path="/processes/:id" element={<ProcessStatusDetail />} />
+            <Route path="/hearings" element={<Hearings />} />
             <Route path="/process-status" element={<ProcessStatus />} />
             <Route path="/process-status/link-clients" element={<UnlinkedProcessesPage />} />
             <Route path="/process-status/test" element={<ProcessStatusTest />} />
