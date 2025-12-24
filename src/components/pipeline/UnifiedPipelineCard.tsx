@@ -76,10 +76,12 @@ export function UnifiedPipelineCard({
       {...listeners}
       className={cn(
         "cursor-grab active:cursor-grabbing transition-all duration-200 group",
-        isDragging && "opacity-90 shadow-lg scale-105 rotate-2 ring-2 ring-primary",
-        !isDragging && "hover:shadow-md hover:ring-2 hover:ring-primary/30",
-        item.type === "filing" && "border-l-2 border-l-blue-500",
-        item.type === "process" && "border-l-2 border-l-emerald-500"
+        "shadow-sm",
+        isDragging && "opacity-90 shadow-xl scale-105 rotate-2 ring-2 ring-primary z-50",
+        !isDragging && "hover:shadow-lg hover:ring-2 hover:ring-primary/40 hover:-translate-y-0.5",
+        // Enhanced type-specific styling
+        item.type === "filing" && "border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-950/30",
+        item.type === "process" && "border-l-4 border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent dark:from-emerald-950/30"
       )}
     >
       <CardContent className="p-3">
@@ -89,7 +91,12 @@ export function UnifiedPipelineCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 opacity-60 hover:opacity-100 transition-opacity"
+              className={cn(
+                "h-7 w-7 transition-all",
+                item.type === "filing" 
+                  ? "hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/50" 
+                  : "hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/50"
+              )}
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
@@ -98,13 +105,13 @@ export function UnifiedPipelineCard({
               onPointerDown={(e) => e.stopPropagation()}
               title="Ver detalle"
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <ExternalLink className="h-4 w-4" />
             </Button>
             {onReclassify && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 opacity-60 hover:opacity-100 transition-opacity"
+                className="h-7 w-7 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50 transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
@@ -113,38 +120,46 @@ export function UnifiedPipelineCard({
                 onPointerDown={(e) => e.stopPropagation()}
                 title="Reclasificar"
               >
-                <ArrowRightLeft className="h-3.5 w-3.5" />
+                <ArrowRightLeft className="h-4 w-4" />
               </Button>
             )}
           </div>
 
           <div className="flex-1 min-w-0">
-            {/* Type indicator and link badge */}
-            <div className="flex items-center gap-1 mb-1">
-              {item.type === "filing" ? (
-                <FileText className="h-3 w-3 text-blue-500" />
-              ) : (
-                <Scale className="h-3 w-3 text-emerald-500" />
-              )}
-              <span className="text-[10px] text-muted-foreground uppercase">
+            {/* Type indicator badge */}
+            <div className="flex items-center gap-1.5 mb-2">
+              <Badge 
+                variant="secondary" 
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 font-medium",
+                  item.type === "filing" 
+                    ? "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800" 
+                    : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
+                )}
+              >
+                {item.type === "filing" ? (
+                  <FileText className="h-3 w-3 mr-1" />
+                ) : (
+                  <Scale className="h-3 w-3 mr-1" />
+                )}
                 {item.type === "filing" ? "Radicación" : "Proceso"}
-              </span>
+              </Badge>
               {isLinked && (
-                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-violet-50 text-violet-600 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300">
                   Vinculado
                 </Badge>
               )}
             </div>
 
-            {/* Radicado */}
+            {/* Radicado - more prominent */}
             {item.radicado && (
-              <p className="font-mono text-xs truncate">
+              <p className="font-mono text-sm font-semibold text-foreground truncate mb-1">
                 {item.radicado}
               </p>
             )}
 
             {/* Client/Matter info */}
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-sm font-medium text-foreground/80 truncate">
               {item.clientName || item.matterName || "Sin cliente"}
             </p>
 
@@ -157,26 +172,30 @@ export function UnifiedPipelineCard({
 
             {/* Parties for processes */}
             {item.type === "process" && (item.demandantes || item.demandados) && (
-              <div className="flex items-center gap-1 mt-1">
-                <User className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground truncate">
+              <div className="flex items-center gap-1.5 mt-2 p-1.5 bg-muted/50 rounded">
+                <User className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                <span className="text-xs text-muted-foreground truncate">
                   {item.demandantes?.split(",")[0] || item.demandados?.split(",")[0]}
                 </span>
               </div>
             )}
 
             {/* SLA for filings or last checked for processes */}
-            <div className="flex items-center justify-between mt-2">
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
               {item.type === "filing" && relevantSla && (
                 <SlaBadge dueDate={relevantSla} size="sm" />
               )}
               {item.type === "process" && item.lastCheckedAt && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   {formatDistanceToNow(new Date(item.lastCheckedAt), {
                     addSuffix: true,
                     locale: es,
                   })}
                 </p>
+              )}
+              {!relevantSla && !item.lastCheckedAt && (
+                <span className="text-xs text-muted-foreground italic">Sin fecha</span>
               )}
             </div>
           </div>

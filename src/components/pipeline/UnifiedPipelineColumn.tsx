@@ -69,32 +69,55 @@ export function UnifiedPipelineColumn({
   const badgeClass = BADGE_COLORS[stage.color] || BADGE_COLORS.blue;
 
   return (
-    <div className="flex-shrink-0 w-64">
+    <div className="flex-shrink-0 w-72">
       <div
         ref={setNodeRef}
         className={cn(
-          "rounded-lg p-3 min-h-[400px] border transition-colors duration-200",
+          "rounded-xl p-4 min-h-[450px] border-2 transition-all duration-200",
           colorClass,
-          isOver && "ring-2 ring-primary/50 bg-primary/10"
+          isOver && "ring-2 ring-primary/50 bg-primary/10 scale-[1.02]",
+          !isOver && "hover:border-opacity-40"
         )}
       >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1">
-            <Badge variant="outline" className={`text-[10px] ${badgeClass}`}>
+        {/* Enhanced header */}
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-current/10">
+          <div className="flex flex-col gap-1">
+            <Badge 
+              variant="outline" 
+              className={cn(
+                "text-xs font-semibold px-2 py-1",
+                badgeClass
+              )}
+            >
               {stage.shortLabel}
             </Badge>
             <span className={cn(
-              "text-[9px] uppercase font-medium px-1 rounded",
-              stage.type === "filing" ? "text-blue-600 bg-blue-500/10" : "text-emerald-600 bg-emerald-500/10"
+              "text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full inline-flex items-center gap-1 w-fit",
+              stage.type === "filing" 
+                ? "text-blue-700 bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300" 
+                : "text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300"
             )}>
-              {stage.type === "filing" ? "RAD" : "PRO"}
+              <span className={cn(
+                "w-2 h-2 rounded-full",
+                stage.type === "filing" ? "bg-blue-500" : "bg-emerald-500"
+              )} />
+              {stage.type === "filing" ? "Radicación" : "Proceso"}
             </span>
           </div>
-          <span className="text-xs text-muted-foreground font-medium">
+          <div className={cn(
+            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold",
+            items.length > 0 
+              ? stage.type === "filing" 
+                ? "bg-blue-500 text-white" 
+                : "bg-emerald-500 text-white"
+              : "bg-muted text-muted-foreground"
+          )}>
             {items.length}
-          </span>
+          </div>
         </div>
-        <div className="space-y-2">
+        
+        {/* Cards container */}
+        <div className="space-y-3">
           {items.map((item) => (
             <UnifiedPipelineCard 
               key={`${item.type}:${item.id}`} 
@@ -103,9 +126,20 @@ export function UnifiedPipelineColumn({
             />
           ))}
           {items.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-8">
-              Arrastra aquí
-            </p>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className={cn(
+                "w-12 h-12 rounded-full flex items-center justify-center mb-3",
+                stage.type === "filing" ? "bg-blue-100 dark:bg-blue-900/30" : "bg-emerald-100 dark:bg-emerald-900/30"
+              )}>
+                <span className="text-2xl">📋</span>
+              </div>
+              <p className="text-sm text-muted-foreground font-medium">
+                Sin items
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Arrastra aquí para mover
+              </p>
+            </div>
           )}
         </div>
       </div>
