@@ -777,7 +777,10 @@ export function UnifiedPipeline() {
         onOpenChange={setDeleteDialog}
         filingsCount={selectionCounts.filings}
         processesCount={selectionCounts.processes}
-        onConfirm={() => bulkDeleteMutation.mutate(getSelectedItems())}
+        onConfirm={() => {
+          const selected = getSelectedItems() as { id: string; type: "filing" | "process" }[];
+          bulkDeleteMutation.mutate(selected);
+        }}
         isDeleting={bulkDeleteMutation.isPending}
       />
     </>

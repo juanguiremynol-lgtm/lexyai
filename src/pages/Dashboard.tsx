@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Clock, AlertTriangle, Eye, Send } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline } from "@/components/pipeline";
@@ -16,6 +16,7 @@ export default function Dashboard() {
     criticalAlerts: 0,
     monitoredProcesses: 0,
     pendingPeticiones: 0,
+    pendingTutelas: 0,
   });
 
   const fetchStats = useCallback(async () => {
@@ -51,6 +52,12 @@ export default function Dashboard() {
       .select("*", { count: "exact", head: true })
       .neq("phase", "RESPUESTA");
 
+    const { count: pendingTutelas } = await supabase
+      .from("filings")
+      .select("*", { count: "exact", head: true })
+      .eq("filing_type", "TUTELA")
+      .neq("status", "CLOSED");
+
     setStats({
       actaPending,
       radicadoPending,
@@ -58,6 +65,7 @@ export default function Dashboard() {
       criticalAlerts: criticalAlerts || 0,
       monitoredProcesses: monitoredProcesses || 0,
       pendingPeticiones: pendingPeticiones || 0,
+      pendingTutelas: pendingTutelas || 0,
     });
   }, []);
 
@@ -79,7 +87,7 @@ export default function Dashboard() {
       <ReviewAlerts />
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
@@ -132,6 +140,15 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingPeticiones}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">Tutelas</CardTitle>
+            <Gavel className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingTutelas}</div>
           </CardContent>
         </Card>
       </div>
