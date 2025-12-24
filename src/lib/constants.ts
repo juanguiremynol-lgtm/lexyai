@@ -89,7 +89,7 @@ export const COLOMBIAN_DEPARTMENTS = [
   'Valle del Cauca', 'Vaupés', 'Vichada',
 ] as const;
 
-// Kanban columns for radicaciones pipeline (ends at ICARUS_SYNC_PENDING)
+// Kanban columns for radicaciones pipeline (includes MONITORING_ACTIVE for linked filings)
 export const KANBAN_COLUMNS: FilingStatus[] = [
   'SENT_TO_REPARTO',
   'ACTA_PENDING',
@@ -98,6 +98,7 @@ export const KANBAN_COLUMNS: FilingStatus[] = [
   'RADICADO_PENDING',
   'RADICADO_CONFIRMED',
   'ICARUS_SYNC_PENDING',
+  'MONITORING_ACTIVE',
 ];
 
 // Process phases - legal process stages

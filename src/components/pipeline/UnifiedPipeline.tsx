@@ -22,11 +22,22 @@ import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { ClassificationDialog } from "./ClassificationDialog";
 
 // Build unified stages configuration
-const FILING_STAGES: StageConfig[] = KANBAN_COLUMNS.map((status, index) => ({
+const FILING_STAGE_COLORS: Record<string, string> = {
+  SENT_TO_REPARTO: "gray",
+  ACTA_PENDING: "amber",
+  ACTA_RECEIVED_PARSED: "sky",
+  COURT_EMAIL_DRAFTED: "slate",
+  RADICADO_PENDING: "zinc",
+  RADICADO_CONFIRMED: "indigo",
+  ICARUS_SYNC_PENDING: "violet",
+  MONITORING_ACTIVE: "emerald",
+};
+
+const FILING_STAGES: StageConfig[] = KANBAN_COLUMNS.map((status) => ({
   id: `filing:${status}`,
   label: FILING_STATUSES[status].label,
   shortLabel: FILING_STATUSES[status].label.split(" ").slice(0, 2).join(" "),
-  color: ["gray", "slate", "zinc", "sky", "indigo", "blue", "cyan"][index] || "blue",
+  color: FILING_STAGE_COLORS[status] || "blue",
   type: "filing" as const,
 }));
 
@@ -439,6 +450,12 @@ export function UnifiedPipeline() {
     const stageId = `filing:${filing.filingStatus}`;
     if (itemsByStage[stageId]) {
       itemsByStage[stageId].push(filing);
+    } else {
+      // Fallback: put in first filing stage if status not in KANBAN_COLUMNS
+      const firstFilingStage = FILING_STAGES[0];
+      if (firstFilingStage && itemsByStage[firstFilingStage.id]) {
+        itemsByStage[firstFilingStage.id].push(filing);
+      }
     }
   });
 
@@ -447,6 +464,12 @@ export function UnifiedPipeline() {
     const stageId = `process:${phase}`;
     if (itemsByStage[stageId]) {
       itemsByStage[stageId].push(process);
+    } else {
+      // Fallback: put in first process stage
+      const firstProcessStage = PROCESS_STAGES[0];
+      if (firstProcessStage && itemsByStage[firstProcessStage.id]) {
+        itemsByStage[firstProcessStage.id].push(process);
+      }
     }
   });
 
