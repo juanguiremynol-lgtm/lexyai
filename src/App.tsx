@@ -20,6 +20,8 @@ import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Utilities from "./pages/Utilities";
+import Filings from "./pages/Filings";
+import FilingDetail from "./pages/FilingDetail";
 import NotFound from "./pages/NotFound";
 import { UnlinkedProcessesPage } from "./components/processes";
 
@@ -63,6 +65,8 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:id" element={<ClientDetail />} />
+            <Route path="/filings" element={<Filings />} />
+            <Route path="/filings/:id" element={<FilingDetail />} />
             <Route path="/processes" element={<Processes />} />
             <Route path="/processes/:id" element={<ProcessStatusDetail />} />
             <Route path="/process-status" element={<ProcessStatus />} />
