@@ -106,6 +106,7 @@ function rawToTutelaItem(raw: RawTutela): TutelaItem {
     createdAt: raw.created_at,
     status: raw.status,
     phase: statusToPhase(raw.status),
+    clientId: raw.client_id,
     clientName: raw.clients?.name || null,
     demandantes: raw.demandantes,
     demandados: raw.demandados,

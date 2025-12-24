@@ -3,13 +3,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Calendar, User, FileText, Gavel, Archive, ExternalLink } from "lucide-react";
+import { Calendar, FileText, Gavel, Archive, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
 import type { TutelaPhase } from "@/lib/tutela-constants";
 import { TUTELA_FINAL_PHASES } from "@/lib/tutela-constants";
+import { EntityClientLink } from "@/components/shared/EntityClientLink";
 
 export interface TutelaItem {
   id: string;
@@ -19,6 +20,7 @@ export interface TutelaItem {
   createdAt: string;
   status: string;
   phase: TutelaPhase;
+  clientId: string | null;
   clientName: string | null;
   demandantes: string | null;
   demandados: string | null;
@@ -131,13 +133,17 @@ export function TutelaCard({
           </div>
         )}
 
-        {/* Client name */}
-        {item.clientName && (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <User className="h-3 w-3" />
-            <span className="truncate">{item.clientName}</span>
-          </div>
-        )}
+        {/* Client link */}
+        <div onClick={(e) => e.stopPropagation()}>
+          <EntityClientLink
+            entityId={item.id}
+            entityType="tutela"
+            entityLabel={`Tutela: ${item.radicado || item.demandantes || "Sin radicado"}`}
+            currentClientId={item.clientId}
+            currentClientName={item.clientName}
+            compact
+          />
+        </div>
 
         {/* Parties */}
         {item.demandantes && (
