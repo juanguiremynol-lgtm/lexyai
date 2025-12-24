@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { Scale } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -51,11 +51,13 @@ export default function Auth() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary">
-              <Scale className="h-9 w-9 text-primary-foreground" />
-            </div>
+            <img 
+              src={logo} 
+              alt="Lex et Lit Abogados" 
+              className="h-24 w-auto object-contain"
+            />
           </div>
-          <CardTitle className="font-display text-2xl">Lex Docket</CardTitle>
+          <CardTitle className="font-display text-2xl">Lex et Lit Abogados</CardTitle>
           <CardDescription>
             {isLogin ? "Inicia sesión para continuar" : "Crea tu cuenta"}
           </CardDescription>

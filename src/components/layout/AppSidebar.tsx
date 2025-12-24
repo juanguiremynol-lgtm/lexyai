@@ -9,6 +9,7 @@ import {
   Wrench,
   FileText,
 } from "lucide-react";
+import logo from "@/assets/logo.png";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -65,16 +66,21 @@ export function AppSidebar() {
           "flex items-center gap-3 px-2 py-4",
           collapsed && "justify-center"
         )}>
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sidebar-primary">
-            <Scale className="h-6 w-6 text-sidebar-primary-foreground" />
-          </div>
+          <img 
+            src={logo} 
+            alt="Lex et Lit Abogados" 
+            className={cn(
+              "object-contain",
+              collapsed ? "h-10 w-10" : "h-14 w-14"
+            )} 
+          />
           {!collapsed && (
             <div className="flex flex-col">
               <span className="font-display text-lg font-semibold text-sidebar-foreground">
-                Lex Docket
+                Lex et Lit
               </span>
               <span className="text-xs text-sidebar-foreground/60">
-                Asistente Legal
+                Abogados
               </span>
             </div>
           )}
