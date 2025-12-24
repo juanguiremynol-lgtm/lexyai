@@ -2,22 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText, Clock, AlertTriangle, Eye } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { KanbanBoard } from "@/components/kanban/KanbanBoard";
-import { ProcessPipeline } from "@/components/processes/ProcessPipeline";
+import { UnifiedPipeline } from "@/components/pipeline";
 import { ReviewAlerts } from "@/components/alerts";
-import type { FilingStatus } from "@/lib/constants";
-
-interface Filing {
-  id: string;
-  status: FilingStatus;
-  filing_type: string;
-  sla_acta_due_at: string | null;
-  sla_court_reply_due_at: string | null;
-  matter: { client_name: string; matter_name: string } | null;
-}
 
 export default function Dashboard() {
-  const [filings, setFilings] = useState<Filing[]>([]);
   const [stats, setStats] = useState({
     actaPending: 0,
     radicadoPending: 0,
@@ -26,15 +14,11 @@ export default function Dashboard() {
     monitoredProcesses: 0,
   });
 
-  const fetchData = useCallback(async () => {
+  const fetchStats = useCallback(async () => {
     const { data: filingsData } = await supabase
       .from("filings")
-      .select(
-        "id, status, filing_type, sla_acta_due_at, sla_court_reply_due_at, matter:matters(client_name, matter_name)"
-      )
+      .select("status")
       .neq("status", "CLOSED");
-
-    setFilings((filingsData as unknown as Filing[]) || []);
 
     const actaPending =
       filingsData?.filter((f) => f.status === "ACTA_PENDING").length || 0;
@@ -68,8 +52,8 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchStats();
+  }, [fetchStats]);
 
   return (
     <div className="space-y-6">
@@ -140,26 +124,15 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Pipeline de Radicaciones */}
+      {/* Unified Pipeline */}
       <div>
         <h2 className="font-display text-xl font-semibold mb-4">
-          Pipeline de Radicaciones
+          Pipeline Unificado
         </h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Flujo desde envío a reparto hasta confirmación de auto admisorio
+          Radicaciones y procesos en un flujo único. Arrastra entre etapas para reclasificar.
         </p>
-        <KanbanBoard filings={filings} onFilingUpdated={fetchData} />
-      </div>
-
-      {/* Pipeline de Procesos */}
-      <div>
-        <h2 className="font-display text-xl font-semibold mb-4">
-          Pipeline de Procesos
-        </h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          Procesos con radicado confirmado y auto admisorio en seguimiento activo
-        </p>
-        <ProcessPipeline />
+        <UnifiedPipeline />
       </div>
     </div>
   );
