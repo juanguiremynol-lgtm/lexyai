@@ -1074,6 +1074,160 @@ export type Database = {
           },
         ]
       }
+      peticion_alerts: {
+        Row: {
+          alert_type: string
+          created_at: string
+          id: string
+          is_read: boolean | null
+          message: string
+          owner_id: string
+          peticion_id: string
+          sent_at: string | null
+          severity: string
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message: string
+          owner_id: string
+          peticion_id: string
+          sent_at?: string | null
+          severity: string
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          owner_id?: string
+          peticion_id?: string
+          sent_at?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "peticion_alerts_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticion_alerts_peticion_id_fkey"
+            columns: ["peticion_id"]
+            isOneToOne: false
+            referencedRelation: "peticiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      peticiones: {
+        Row: {
+          client_id: string | null
+          constancia_received_at: string | null
+          created_at: string
+          deadline_at: string | null
+          description: string | null
+          entity_address: string | null
+          entity_email: string | null
+          entity_name: string
+          entity_type: string | null
+          escalated_to_tutela: boolean | null
+          filed_at: string | null
+          id: string
+          notes: string | null
+          owner_id: string
+          phase: Database["public"]["Enums"]["peticion_phase"]
+          proof_file_path: string | null
+          prorogation_deadline_at: string | null
+          prorogation_requested: boolean | null
+          radicado: string | null
+          response_file_path: string | null
+          response_received_at: string | null
+          subject: string
+          tutela_filing_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_id?: string | null
+          constancia_received_at?: string | null
+          created_at?: string
+          deadline_at?: string | null
+          description?: string | null
+          entity_address?: string | null
+          entity_email?: string | null
+          entity_name: string
+          entity_type?: string | null
+          escalated_to_tutela?: boolean | null
+          filed_at?: string | null
+          id?: string
+          notes?: string | null
+          owner_id: string
+          phase?: Database["public"]["Enums"]["peticion_phase"]
+          proof_file_path?: string | null
+          prorogation_deadline_at?: string | null
+          prorogation_requested?: boolean | null
+          radicado?: string | null
+          response_file_path?: string | null
+          response_received_at?: string | null
+          subject: string
+          tutela_filing_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string | null
+          constancia_received_at?: string | null
+          created_at?: string
+          deadline_at?: string | null
+          description?: string | null
+          entity_address?: string | null
+          entity_email?: string | null
+          entity_name?: string
+          entity_type?: string | null
+          escalated_to_tutela?: boolean | null
+          filed_at?: string | null
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          phase?: Database["public"]["Enums"]["peticion_phase"]
+          proof_file_path?: string | null
+          prorogation_deadline_at?: string | null
+          prorogation_requested?: boolean | null
+          radicado?: string | null
+          response_file_path?: string | null
+          response_received_at?: string | null
+          subject?: string
+          tutela_filing_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "peticiones_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticiones_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "peticiones_tutela_filing_id_fkey"
+            columns: ["tutela_filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       process_estados: {
         Row: {
           created_at: string
@@ -1230,6 +1384,7 @@ export type Database = {
           estados_import_interval_days: number | null
           firm_name: string | null
           full_name: string | null
+          hearing_reminder_days: Json | null
           id: string
           last_estados_import_at: string | null
           reminder_email: string | null
@@ -1247,6 +1402,7 @@ export type Database = {
           estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
+          hearing_reminder_days?: Json | null
           id: string
           last_estados_import_at?: string | null
           reminder_email?: string | null
@@ -1264,6 +1420,7 @@ export type Database = {
           estados_import_interval_days?: number | null
           firm_name?: string | null
           full_name?: string | null
+          hearing_reminder_days?: Json | null
           id?: string
           last_estados_import_at?: string | null
           reminder_email?: string | null
@@ -1399,6 +1556,10 @@ export type Database = {
         | "ICARUS_SYNC_PENDING"
         | "MONITORING_ACTIVE"
         | "CLOSED"
+      peticion_phase:
+        | "PETICION_RADICADA"
+        | "CONSTANCIA_RADICACION"
+        | "RESPUESTA"
       process_event_type:
         | "ACTUACION"
         | "ESTADO_ELECTRONICO"
@@ -1581,6 +1742,11 @@ export const Constants = {
         "ICARUS_SYNC_PENDING",
         "MONITORING_ACTIVE",
         "CLOSED",
+      ],
+      peticion_phase: [
+        "PETICION_RADICADA",
+        "CONSTANCIA_RADICACION",
+        "RESPUESTA",
       ],
       process_event_type: [
         "ACTUACION",
