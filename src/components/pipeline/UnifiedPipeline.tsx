@@ -274,7 +274,7 @@ export function UnifiedPipeline() {
 
   // Mutation for converting process to filing
   const convertProcessToFiling = useMutation({
-    mutationFn: async ({ process, hasAutoAdmisorio }: { process: UnifiedItem; hasAutoAdmisorio: boolean }) => {
+    mutationFn: async ({ process, hasAutoAdmisorio, targetStatus }: { process: UnifiedItem; hasAutoAdmisorio: boolean; targetStatus?: FilingStatus }) => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
 
@@ -304,6 +304,9 @@ export function UnifiedPipeline() {
           matterId = newMatter.id;
         }
 
+        // Use target status from drag or fallback
+        const filingStatus = targetStatus || ("SENT_TO_REPARTO" as FilingStatus);
+
         const { data: newFiling, error: filingError } = await supabase
           .from("filings")
           .insert({
@@ -316,14 +319,14 @@ export function UnifiedPipeline() {
             filing_type: "Demanda",
             has_auto_admisorio: false,
             linked_process_id: process.id,
-            status: "ICARUS_SYNC_PENDING" as FilingStatus,
+            status: filingStatus,
           })
           .select("id")
           .single();
 
         if (filingError) throw filingError;
 
-        // Update process to link
+        // Update process to link and disable monitoring (no longer shown in pipeline)
         const { error: processError } = await supabase
           .from("monitored_processes")
           .update({
@@ -415,13 +418,17 @@ export function UnifiedPipeline() {
   };
 
   const handleClassify = (hasAutoAdmisorio: boolean) => {
-    const { item } = classificationDialog;
+    const { item, targetStage } = classificationDialog;
     if (!item) return;
 
     if (item.type === "filing") {
       convertFilingToProcess.mutate({ filing: item, hasAutoAdmisorio });
     } else {
-      convertProcessToFiling.mutate({ process: item, hasAutoAdmisorio });
+      // Extract target status from stage id if converting process to filing
+      const targetStatus = targetStage?.type === "filing" 
+        ? (targetStage.id.replace("filing:", "") as FilingStatus)
+        : undefined;
+      convertProcessToFiling.mutate({ process: item, hasAutoAdmisorio, targetStatus });
     }
 
     setClassificationDialog({ open: false, item: null, targetStage: null });
@@ -471,6 +478,7 @@ export function UnifiedPipeline() {
   });
 
   // Place processes - only in process stages, skip if linked to a filing that's already shown
+  // OR if a filing is linked to this process (filing takes precedence)
   allProcesses.forEach((process) => {
     const uniqueKey = `process:${process.id}`;
     if (placedItemIds.has(uniqueKey)) return; // Skip if already placed
@@ -480,6 +488,10 @@ export function UnifiedPipeline() {
       const linkedFilingShown = allFilings.some(f => f.id === process.linkedFilingId);
       if (linkedFilingShown) return;
     }
+    
+    // Skip processes that have a filing linked TO them (filing takes precedence)
+    const hasLinkedFiling = allFilings.some(f => f.linkedProcessId === process.id);
+    if (hasLinkedFiling) return;
     
     const phase = process.phase || "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR";
     const stageId = `process:${phase}`;
