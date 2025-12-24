@@ -6,6 +6,7 @@ import {
   Settings,
   Scale,
   LogOut,
+  Wrench,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ const navItems = [
   { title: "Procesos", url: "/processes", icon: Scale },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/alerts", icon: Bell },
+  { title: "Utilidades", url: "/utilities", icon: Wrench },
 ];
 
 const settingsItems = [
