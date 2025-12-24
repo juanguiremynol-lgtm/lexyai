@@ -76,12 +76,12 @@ export function UnifiedPipelineCard({
       {...listeners}
       className={cn(
         "cursor-grab active:cursor-grabbing transition-all duration-200 group",
-        "shadow-sm",
-        isDragging && "opacity-90 shadow-xl scale-105 rotate-2 ring-2 ring-primary z-50",
-        !isDragging && "hover:shadow-lg hover:ring-2 hover:ring-primary/40 hover:-translate-y-0.5",
-        // Enhanced type-specific styling
-        item.type === "filing" && "border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-950/30",
-        item.type === "process" && "border-l-4 border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent dark:from-emerald-950/30"
+        "border-l-4 shadow-card",
+        isDragging && "opacity-90 shadow-elevated scale-105 rotate-2 ring-2 ring-primary z-50",
+        !isDragging && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
+        // Enhanced type-specific styling for noir theme
+        item.type === "filing" && "border-l-blue-500 bg-gradient-to-r from-blue-500/10 to-transparent",
+        item.type === "process" && "border-l-primary bg-gradient-to-r from-primary/10 to-transparent"
       )}
     >
       <CardContent className="p-3">
@@ -133,8 +133,8 @@ export function UnifiedPipelineCard({
                 className={cn(
                   "text-[10px] px-1.5 py-0.5 font-medium",
                   item.type === "filing" 
-                    ? "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800" 
-                    : "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800"
+                    ? "bg-blue-500/20 text-blue-400 border-blue-500/30" 
+                    : "bg-primary/20 text-primary border-primary/30"
                 )}
               >
                 {item.type === "filing" ? (
@@ -145,7 +145,7 @@ export function UnifiedPipelineCard({
                 {item.type === "filing" ? "Radicación" : "Proceso"}
               </Badge>
               {isLinked && (
-                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-violet-50 text-violet-600 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300">
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-violet-500/20 text-violet-400 border-violet-500/30">
                   Vinculado
                 </Badge>
               )}
