@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.send-reminder]
 verify_jwt = false
+
+[functions.hearing-reminders]
+verify_jwt = false

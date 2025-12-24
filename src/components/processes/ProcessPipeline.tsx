@@ -18,6 +18,7 @@ import { PROCESS_PHASES_ORDER, type ProcessPhase } from "@/lib/constants";
 import { toast } from "sonner";
 import { ProcessPipelineColumn } from "./ProcessPipelineColumn";
 import { ProcessPipelineCard } from "./ProcessPipelineCard";
+import { HearingPromptDialog, HEARING_PHASES } from "@/components/hearings";
 
 interface MonitoredProcess {
   id: string;
@@ -27,12 +28,20 @@ interface MonitoredProcess {
   last_checked_at: string | null;
   last_change_at: string | null;
   phase: ProcessPhase | null;
+  linked_filing_id: string | null;
   clients: { id: string; name: string } | null;
 }
 
 export function ProcessPipeline() {
   const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [hearingPrompt, setHearingPrompt] = useState<{
+    open: boolean;
+    processId: string;
+    filingId: string | null;
+    radicado: string | null;
+    targetPhase: ProcessPhase;
+  } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -52,7 +61,7 @@ export function ProcessPipeline() {
       const { data, error } = await supabase
         .from("monitored_processes")
         .select(
-          "id, radicado, despacho_name, monitoring_enabled, last_checked_at, last_change_at, phase, clients(id, name)"
+          "id, radicado, despacho_name, monitoring_enabled, last_checked_at, last_change_at, phase, linked_filing_id, clients(id, name)"
         )
         .eq("owner_id", user.user.id)
         .eq("monitoring_enabled", true)
@@ -71,10 +80,25 @@ export function ProcessPipeline() {
         .eq("id", processId);
 
       if (error) throw error;
+      return { processId, newPhase };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["process-pipeline"] });
       toast.success("Fase actualizada");
+
+      // Check if we need to prompt for hearing date
+      if (HEARING_PHASES.includes(data.newPhase)) {
+        const process = processes?.find((p) => p.id === data.processId);
+        if (process) {
+          setHearingPrompt({
+            open: true,
+            processId: data.processId,
+            filingId: process.linked_filing_id,
+            radicado: process.radicado,
+            targetPhase: data.newPhase,
+          });
+        }
+      }
     },
     onError: () => {
       toast.error("Error al actualizar la fase");
@@ -104,7 +128,6 @@ export function ProcessPipeline() {
     const currentPhase = process.phase || "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR";
     if (currentPhase === newPhase) return;
 
-    // Validate phase is valid
     if (!PROCESS_PHASES_ORDER.includes(newPhase)) return;
 
     updatePhaseMutation.mutate({ processId, newPhase });
@@ -126,7 +149,6 @@ export function ProcessPipeline() {
 
   const allProcesses = processes || [];
 
-  // Group processes by phase
   const processesByPhase: Record<ProcessPhase, MonitoredProcess[]> = {} as Record<ProcessPhase, MonitoredProcess[]>;
   PROCESS_PHASES_ORDER.forEach((phase) => {
     processesByPhase[phase] = [];
@@ -140,31 +162,45 @@ export function ProcessPipeline() {
   });
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <ScrollArea className="w-full whitespace-nowrap">
-        <div className="flex gap-3 pb-4">
-          {PROCESS_PHASES_ORDER.map((phase) => (
-            <ProcessPipelineColumn
-              key={phase}
-              phase={phase}
-              processes={processesByPhase[phase]}
-            />
-          ))}
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <ScrollArea className="w-full whitespace-nowrap">
+          <div className="flex gap-3 pb-4">
+            {PROCESS_PHASES_ORDER.map((phase) => (
+              <ProcessPipelineColumn
+                key={phase}
+                phase={phase}
+                processes={processesByPhase[phase]}
+              />
+            ))}
+          </div>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
 
-      <DragOverlay>
-        {activeProcess ? (
-          <ProcessPipelineCard process={activeProcess} isDragging />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay>
+          {activeProcess ? (
+            <ProcessPipelineCard process={activeProcess} isDragging />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {hearingPrompt && (
+        <HearingPromptDialog
+          open={hearingPrompt.open}
+          onOpenChange={(open) => !open && setHearingPrompt(null)}
+          processId={hearingPrompt.processId}
+          filingId={hearingPrompt.filingId}
+          radicado={hearingPrompt.radicado}
+          targetPhase={hearingPrompt.targetPhase}
+          onComplete={() => setHearingPrompt(null)}
+        />
+      )}
+    </>
   );
 }
