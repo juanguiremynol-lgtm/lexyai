@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
@@ -63,24 +64,24 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/clients" element={<Clients />} />
-            <Route path="/clients/:id" element={<ClientDetail />} />
-            <Route path="/filings" element={<Filings />} />
-            <Route path="/filings/:id" element={<FilingDetail />} />
-            <Route path="/processes" element={<Processes />} />
-            <Route path="/processes/:id" element={<ProcessStatusDetail />} />
-            <Route path="/hearings" element={<Hearings />} />
-            <Route path="/process-status" element={<ProcessStatus />} />
-            <Route path="/process-status/link-clients" element={<UnlinkedProcessesPage />} />
-            <Route path="/process-status/test" element={<ProcessStatusTest />} />
-            <Route path="/process-status/test-icarus" element={<IcarusTest />} />
-            <Route path="/process-status/diagnostics/:runId" element={<CrawlerDiagnostics />} />
-            <Route path="/process-status/:id" element={<ProcessStatusDetail />} />
-            <Route path="/tasks" element={<Tasks />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/utilities" element={<Utilities />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
+            <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
+            <Route path="/filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
+            <Route path="/filings/:id" element={<ErrorBoundary><FilingDetail /></ErrorBoundary>} />
+            <Route path="/processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
+            <Route path="/processes/:id" element={<ErrorBoundary><ProcessStatusDetail /></ErrorBoundary>} />
+            <Route path="/hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
+            <Route path="/process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
+            <Route path="/process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
+            <Route path="/process-status/test" element={<ErrorBoundary><ProcessStatusTest /></ErrorBoundary>} />
+            <Route path="/process-status/test-icarus" element={<ErrorBoundary><IcarusTest /></ErrorBoundary>} />
+            <Route path="/process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
+            <Route path="/process-status/:id" element={<ErrorBoundary><ProcessStatusDetail /></ErrorBoundary>} />
+            <Route path="/tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
+            <Route path="/alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
+            <Route path="/utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
+            <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
