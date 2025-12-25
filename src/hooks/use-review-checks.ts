@@ -54,7 +54,7 @@ export function useReviewChecks() {
         .from("profiles")
         .select("last_estados_import_at, estados_import_interval_days")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       const importInterval = profile?.estados_import_interval_days || ESTADOS_IMPORT_INTERVAL_DAYS;
       const lastImport = profile?.last_estados_import_at;
@@ -164,7 +164,7 @@ export function useReviewChecks() {
         .from("profiles")
         .select("last_estados_import_at, estados_import_interval_days")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
       const importInterval = profile?.estados_import_interval_days || ESTADOS_IMPORT_INTERVAL_DAYS;
       const lastImport = profile?.last_estados_import_at;
