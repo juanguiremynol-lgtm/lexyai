@@ -1,10 +1,11 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Mail, Shield } from "lucide-react";
+import { ExternalLink, Mail, Shield, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=eyJrIjoiMjllZTNjNGYtNjYzMi00ZjUzLTgyMGYtNzE0OWNlZjM0YTY2IiwidCI6IjYyMmNiYTk4LTgwZjgtNDFmMy04ZGY1LThlYjk5OTAxNTk4YiIsImMiOjR9";
 const TUTELA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/TutelaEnLinea";
+const DEMANDA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/demandaenlinea/";
 
 export default function Links() {
   return (
@@ -23,6 +24,10 @@ export default function Links() {
           <TabsTrigger value="tutela" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             Tutela en Línea
+          </TabsTrigger>
+          <TabsTrigger value="demanda" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Demanda en Línea
           </TabsTrigger>
         </TabsList>
 
@@ -101,6 +106,48 @@ export default function Links() {
                 <iframe
                   title="Tutela en Línea"
                   src={TUTELA_EN_LINEA_URL}
+                  className="w-full h-full"
+                  frameBorder="0"
+                  allowFullScreen
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="demanda" className="mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <FileText className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">Recepción de Demandas en Línea</CardTitle>
+                    <CardDescription>
+                      Portal oficial para radicar demandas electrónicamente
+                    </CardDescription>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href={DEMANDA_EN_LINEA_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Abrir en nueva pestaña
+                  </a>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="w-full h-[700px] border-t">
+                <iframe
+                  title="Demanda en Línea"
+                  src={DEMANDA_EN_LINEA_URL}
                   className="w-full h-full"
                   frameBorder="0"
                   allowFullScreen
