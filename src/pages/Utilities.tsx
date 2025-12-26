@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator, CourtEmailLookup } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
@@ -16,8 +16,7 @@ import {
   FileSignature,
   ScrollText,
   Wrench,
-  CalendarDays,
-  Mail
+  CalendarDays
 } from "lucide-react";
 
 const EXTERNAL_TOOLS = [
@@ -109,10 +108,6 @@ export default function Utilities() {
             <CalendarDays className="h-4 w-4" />
             Calculadora de Términos
           </TabsTrigger>
-          <TabsTrigger value="correos" className="flex items-center gap-2">
-            <Mail className="h-4 w-4" />
-            Directorio de Correos
-          </TabsTrigger>
           <TabsTrigger value="externas" className="flex items-center gap-2">
             <Wrench className="h-4 w-4" />
             Herramientas Externas
@@ -125,10 +120,6 @@ export default function Utilities() {
         
         <TabsContent value="terminos" className="mt-6">
           <TerminosCalculator />
-        </TabsContent>
-
-        <TabsContent value="correos" className="mt-6">
-          <CourtEmailLookup />
         </TabsContent>
         
         <TabsContent value="externas" className="mt-6">

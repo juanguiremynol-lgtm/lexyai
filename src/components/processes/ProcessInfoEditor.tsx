@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,14 +15,9 @@ import {
   Users, 
   Building2,
   AlertTriangle,
-  CheckCircle2,
-  Mail,
-  Sparkles,
-  Copy,
-  Check
+  CheckCircle2
 } from "lucide-react";
 import { toast } from "sonner";
-import { findCourtEmail } from "@/lib/court-emails-directory";
 
 interface ProcessInfoEditorProps {
   processId: string;
@@ -60,30 +54,6 @@ export function ProcessInfoEditor({
   const [demandadosList, setDemandadosList] = useState<string[]>(parseParties(demandados));
   const [newDemandante, setNewDemandante] = useState("");
   const [newDemandado, setNewDemandado] = useState("");
-  const [suggestedEmail, setSuggestedEmail] = useState<string | null>(null);
-  const [copiedEmail, setCopiedEmail] = useState(false);
-
-  // Auto-detect court email when despacho or municipality changes
-  useEffect(() => {
-    if (despachoName) {
-      const email = findCourtEmail(despachoName, municipality || undefined);
-      setSuggestedEmail(email);
-    } else {
-      setSuggestedEmail(null);
-    }
-  }, [despachoName, municipality]);
-
-  const handleCopyEmail = async () => {
-    if (!suggestedEmail) return;
-    try {
-      await navigator.clipboard.writeText(suggestedEmail);
-      setCopiedEmail(true);
-      toast.success("Correo copiado al portapapeles");
-      setTimeout(() => setCopiedEmail(false), 2000);
-    } catch {
-      toast.error("No se pudo copiar el correo");
-    }
-  };
 
   const updateProcess = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
@@ -221,40 +191,6 @@ export function ProcessInfoEditor({
             )}
           </form>
 
-          {/* Court Email - Auto-detected */}
-          {suggestedEmail && (
-            <div className="mt-4 p-4 bg-muted/50 rounded-lg border border-dashed">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-full bg-primary/10">
-                    <Mail className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">Correo del Despacho</p>
-                      <Badge variant="secondary" className="text-xs">
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        Auto-detectado
-                      </Badge>
-                    </div>
-                    <p className="text-sm font-mono text-muted-foreground">{suggestedEmail}</p>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCopyEmail}
-                >
-                  {copiedEmail ? (
-                    <Check className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
