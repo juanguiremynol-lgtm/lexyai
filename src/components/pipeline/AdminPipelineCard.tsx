@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { Building2, ExternalLink, MapPin, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -24,6 +25,7 @@ export interface AdminItem {
   municipality: string | null;
   demandantes: string | null;
   demandados: string | null;
+  clientId: string | null;
   clientName: string | null;
   adminPhase: AdminProcessPhase | null;
   lastCheckedAt: string | null;
@@ -139,9 +141,12 @@ export function AdminPipelineCard({
             </div>
 
             {/* Expediente number */}
-            <p className="font-mono text-sm font-semibold text-foreground truncate mb-1">
-              {displayExpediente}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="font-mono text-sm font-semibold text-foreground truncate mb-1">
+                {displayExpediente}
+              </p>
+              <ClientRequiredBadge hasClient={!!item.clientId} />
+            </div>
 
             {/* Authority / Entity */}
             {displayAuthority && (

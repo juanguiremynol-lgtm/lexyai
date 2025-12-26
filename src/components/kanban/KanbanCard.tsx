@@ -2,6 +2,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "@/components/ui/card";
 import { SlaBadge } from "@/components/ui/sla-badge";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +15,7 @@ interface Filing {
   sla_acta_due_at: string | null;
   sla_court_reply_due_at: string | null;
   matter: { client_name: string; matter_name: string } | null;
+  client_id: string | null;
 }
 
 interface KanbanCardProps {
@@ -72,9 +74,12 @@ export function KanbanCard({ filing, isDragging = false }: KanbanCardProps) {
               {filing.matter?.matter_name}
             </p>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-muted-foreground">
-                {filing.filing_type}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-muted-foreground">
+                  {filing.filing_type}
+                </span>
+                <ClientRequiredBadge hasClient={!!filing.client_id} />
+              </div>
               {relevantSla && <SlaBadge dueDate={relevantSla} size="sm" />}
             </div>
           </div>
