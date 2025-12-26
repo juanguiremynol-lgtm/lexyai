@@ -36,7 +36,7 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { Badge } from "@/components/ui/badge";
-import { NewFilingDialog } from "@/components/filings/NewFilingDialog";
+import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
 import { FILING_STATUSES, formatDateColombia } from "@/lib/constants";
 import type { FilingStatus } from "@/types/database";
 
@@ -143,7 +143,7 @@ export default function Filings() {
           </p>
         </div>
         <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Nueva Radicación
+          <Plus className="mr-2 h-4 w-4" /> + Radicado
         </Button>
       </div>
 
@@ -187,7 +187,7 @@ export default function Filings() {
                 Crea una nueva radicación para comenzar el seguimiento
               </p>
               <Button onClick={() => setDialogOpen(true)} className="mt-4">
-                <Plus className="mr-2 h-4 w-4" /> Nueva Radicación
+                <Plus className="mr-2 h-4 w-4" /> + Radicado
               </Button>
             </div>
           ) : (
@@ -318,7 +318,7 @@ export default function Filings() {
         </CardContent>
       </Card>
 
-      <NewFilingDialog
+      <UnifiedFilingCreator
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => {

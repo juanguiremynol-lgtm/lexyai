@@ -19,15 +19,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 interface NewTutelaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBack?: () => void;
+  onSuccess?: () => void;
 }
 
-export function NewTutelaDialog({ open, onOpenChange }: NewTutelaDialogProps) {
+export function NewTutelaDialog({ open, onOpenChange, onBack, onSuccess }: NewTutelaDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     clientId: "",
@@ -106,6 +108,7 @@ export function NewTutelaDialog({ open, onOpenChange }: NewTutelaDialogProps) {
         radicado: "",
         description: "",
       });
+      onSuccess?.();
     },
     onError: (error) => {
       toast.error("Error al crear tutela: " + error.message);
@@ -116,10 +119,19 @@ export function NewTutelaDialog({ open, onOpenChange }: NewTutelaDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nueva Acción de Tutela</DialogTitle>
-          <DialogDescription>
-            Registre una nueva acción de tutela para seguimiento
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div>
+              <DialogTitle>Nueva Acción de Tutela</DialogTitle>
+              <DialogDescription>
+                Registre una nueva acción de tutela para seguimiento
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form

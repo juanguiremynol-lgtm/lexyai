@@ -5,3 +5,7 @@ export { HearingsList } from "./HearingsList";
 export { ProcessTimeline } from "./ProcessTimeline";
 export { NewFilingDialog } from "./NewFilingDialog";
 export { FilingGoalsCard } from "./FilingGoalsCard";
+export { NewFilingTypeSelector } from "./NewFilingTypeSelector";
+export { NewCGPFilingDialog } from "./NewCGPFilingDialog";
+export { UnifiedFilingCreator } from "./UnifiedFilingCreator";
+export type { FilingCategory } from "./NewFilingTypeSelector";
