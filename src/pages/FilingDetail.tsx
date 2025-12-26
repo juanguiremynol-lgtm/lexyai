@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,7 @@ import { ProcessTimeline } from "@/components/filings/ProcessTimeline";
 import { HearingsList } from "@/components/filings/HearingsList";
 import { CrawlerControl } from "@/components/filings/CrawlerControl";
 import { FilingGoalsCard } from "@/components/filings/FilingGoalsCard";
+import { SharepointHub } from "@/components/shared";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,8 +51,6 @@ import {
   Link2,
   Globe,
   Package,
-  Sparkles,
-  Check,
   ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -91,7 +90,7 @@ export default function FilingDetail() {
         .from("filings")
         .select(`
           *,
-          matter:matters(id, client_name, matter_name, practice_area),
+          matter:matters(id, client_name, matter_name, practice_area, sharepoint_url, sharepoint_alerts_dismissed),
           client:clients(id, name),
           documents(*),
           emails(*),
@@ -245,7 +244,14 @@ export default function FilingDetail() {
     );
   }
 
-  const matter = filing.matter as { client_name: string; matter_name: string; practice_area: string | null } | null;
+  const matter = filing.matter as { 
+    id: string;
+    client_name: string; 
+    matter_name: string; 
+    practice_area: string | null;
+    sharepoint_url: string | null;
+    sharepoint_alerts_dismissed: boolean | null;
+  } | null;
   const client = filing.client as { name: string } | null;
   const filingMethod = FILING_METHOD_LABELS[filing.filing_method || "EMAIL"];
   const MethodIcon = filingMethod?.icon || Mail;
@@ -358,6 +364,19 @@ export default function FilingDetail() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Sharepoint Document Hub - Central Focus */}
+        {matter && (
+          <div className="lg:col-span-3">
+            <SharepointHub
+              matterId={matter.id}
+              sharepointUrl={matter.sharepoint_url}
+              alertsDismissed={matter.sharepoint_alerts_dismissed ?? false}
+              matterName={matter.matter_name}
+              onUpdate={() => queryClient.invalidateQueries({ queryKey: ["filing", id] })}
+            />
+          </div>
+        )}
+
         {/* Goals Card */}
         <div className="lg:col-span-3">
           <FilingGoalsCard

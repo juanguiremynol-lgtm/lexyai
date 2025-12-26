@@ -51,6 +51,7 @@ import { formatDateColombia, PROCESS_PHASES, PROCESS_PHASES_ORDER, type ProcessP
 import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
 import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
+import { SharepointHub } from "@/components/shared";
 import { useReviewChecks } from "@/hooks/use-review-checks";
 import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
 import { useReclassification } from "@/hooks/use-reclassification";
@@ -89,13 +90,20 @@ export default function ProcessStatusDetail() {
   const { markReviewed } = useReviewChecks();
   const { reclassify, isPending: reclassifyPending } = useReclassification();
 
-  // Fetch process details
+  // Fetch process details with linked filing's matter for Sharepoint
   const { data: process, isLoading: processLoading } = useQuery({
     queryKey: ["monitored-process", id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("monitored_processes")
-        .select("*, clients(id, name)")
+        .select(`
+          *, 
+          clients(id, name),
+          linked_filing:filings!monitored_processes_linked_filing_id_fkey(
+            id,
+            matter:matters(id, matter_name, sharepoint_url, sharepoint_alerts_dismissed)
+          )
+        `)
         .eq("id", id!)
         .single();
 
@@ -411,6 +419,28 @@ export default function ProcessStatusDetail() {
           }
         }}
       />
+
+      {/* Sharepoint Document Hub - Central Focus */}
+      {(() => {
+        const linkedFiling = process.linked_filing as { 
+          id: string; 
+          matter: { id: string; matter_name: string; sharepoint_url: string | null; sharepoint_alerts_dismissed: boolean | null } | null 
+        } | null;
+        const matter = linkedFiling?.matter;
+        
+        if (matter) {
+          return (
+            <SharepointHub
+              matterId={matter.id}
+              sharepointUrl={matter.sharepoint_url}
+              alertsDismissed={matter.sharepoint_alerts_dismissed ?? false}
+              matterName={matter.matter_name}
+              onUpdate={() => queryClient.invalidateQueries({ queryKey: ["monitored-process", id] })}
+            />
+          );
+        }
+        return null;
+      })()}
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
