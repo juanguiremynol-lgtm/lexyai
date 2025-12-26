@@ -23,13 +23,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ADMIN_ACTUACION_TYPES, ADMIN_PROCESS_PHASES_ORDER } from "@/lib/admin-constants";
 import { COLOMBIAN_DEPARTMENTS } from "@/lib/constants";
+import { ArrowLeft } from "lucide-react";
 
 interface NewAdminProcessDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBack?: () => void;
+  onSuccess?: () => void;
 }
 
-export function NewAdminProcessDialog({ open, onOpenChange }: NewAdminProcessDialogProps) {
+export function NewAdminProcessDialog({ open, onOpenChange, onBack, onSuccess }: NewAdminProcessDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     radicado: "",
@@ -111,6 +114,7 @@ export function NewAdminProcessDialog({ open, onOpenChange }: NewAdminProcessDia
         notes: "",
         client_id: "",
       });
+      onSuccess?.();
     },
     onError: () => toast.error("Error al crear proceso"),
   });
@@ -124,10 +128,19 @@ export function NewAdminProcessDialog({ open, onOpenChange }: NewAdminProcessDia
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nuevo Proceso Administrativo</DialogTitle>
-          <DialogDescription>
-            Crea un nuevo proceso ante autoridad administrativa (inspecciones, superintendencias, etc.)
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div>
+              <DialogTitle>Nuevo Proceso Administrativo</DialogTitle>
+              <DialogDescription>
+                Crea un nuevo proceso ante autoridad administrativa (inspecciones, superintendencias, etc.)
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">

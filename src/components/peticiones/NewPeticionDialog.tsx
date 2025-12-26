@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -33,9 +33,11 @@ import { PETICION_DEADLINE_DAYS } from "@/lib/peticiones-constants";
 interface NewPeticionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBack?: () => void;
+  onSuccess?: () => void;
 }
 
-export function NewPeticionDialog({ open, onOpenChange }: NewPeticionDialogProps) {
+export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess }: NewPeticionDialogProps) {
   const queryClient = useQueryClient();
   const [entityName, setEntityName] = useState("");
   const [entityType, setEntityType] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
@@ -115,6 +117,7 @@ export function NewPeticionDialog({ open, onOpenChange }: NewPeticionDialogProps
       toast.success("Petición creada exitosamente");
       resetForm();
       onOpenChange(false);
+      onSuccess?.();
     },
     onError: (error) => {
       toast.error("Error al crear petición: " + error.message);
@@ -150,10 +153,19 @@ export function NewPeticionDialog({ open, onOpenChange }: NewPeticionDialogProps
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nueva Petición</DialogTitle>
-          <DialogDescription>
-            Registre una nueva petición (Derecho de Petición Art. 23 Constitución)
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div>
+              <DialogTitle>Nueva Petición</DialogTitle>
+              <DialogDescription>
+                Registre una nueva petición (Derecho de Petición Art. 23 Constitución)
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
