@@ -90,9 +90,8 @@ export default function Dashboard() {
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
-        <Button onClick={() => setCreateDialogOpen(true)} size="lg" className="gap-2">
+        <Button onClick={() => setCreateDialogOpen(true)} size="icon" className="h-10 w-10">
           <Plus className="h-5 w-5" />
-          <span className="hidden sm:inline">Nuevo</span>
         </Button>
       </div>
 

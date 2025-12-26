@@ -7,7 +7,6 @@ import {
   Scale,
   LogOut,
   Wrench,
-  FileText,
   CalendarDays,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
@@ -34,7 +33,6 @@ import { toast } from "sonner";
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Clientes", url: "/clients", icon: Briefcase },
-  { title: "Radicaciones", url: "/filings", icon: FileText },
   { title: "Procesos", url: "/processes", icon: Scale },
   { title: "Audiencias", url: "/hearings", icon: CalendarDays },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
