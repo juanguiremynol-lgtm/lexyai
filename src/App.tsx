@@ -25,6 +25,9 @@ import Filings from "./pages/Filings";
 import FilingDetail from "./pages/FilingDetail";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
+import DocumentSearch from "./pages/DocumentSearch";
+import PeticionDetail from "./pages/PeticionDetail";
+import AdminProcessDetail from "./pages/AdminProcessDetail";
 import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
@@ -81,6 +84,9 @@ const App = () => (
             <Route path="/tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
             <Route path="/alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
             <Route path="/utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
+            <Route path="/documents" element={<ErrorBoundary><DocumentSearch /></ErrorBoundary>} />
+            <Route path="/peticiones/:id" element={<ErrorBoundary><PeticionDetail /></ErrorBoundary>} />
+            <Route path="/admin-processes/:id" element={<ErrorBoundary><AdminProcessDetail /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
           <Route path="*" element={<NotFound />} />
