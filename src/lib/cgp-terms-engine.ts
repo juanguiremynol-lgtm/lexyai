@@ -12,6 +12,7 @@ import { addDays, addMonths, addYears, differenceInDays, differenceInMonths, isA
 import { supabase } from "@/integrations/supabase/client";
 import { addBusinessDaysWithRegime, isBusinessDay } from "./term-calculator";
 import { getActiveJudicialSuspensions, JudicialTermSuspension } from "./judicial-suspensions";
+import type { Json } from "@/integrations/supabase/types";
 
 // ============= Types =============
 
@@ -85,7 +86,7 @@ export interface CgpMilestone {
   event_time?: string | null;
   in_audience: boolean;
   notes?: string | null;
-  attachments?: unknown;
+  attachments?: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -366,7 +367,7 @@ export async function fetchMilestones(
     return [];
   }
 
-  return data || [];
+  return (data || []) as CgpMilestone[];
 }
 
 /**
@@ -407,7 +408,16 @@ export async function createMilestone(
     .from('cgp_milestones')
     .insert({
       owner_id: ownerId,
-      ...milestone,
+      filing_id: milestone.filing_id,
+      process_id: milestone.process_id,
+      milestone_type: milestone.milestone_type,
+      custom_type_name: milestone.custom_type_name,
+      occurred: milestone.occurred,
+      event_date: milestone.event_date,
+      event_time: milestone.event_time,
+      in_audience: milestone.in_audience,
+      notes: milestone.notes,
+      attachments: milestone.attachments,
     })
     .select()
     .single();
@@ -419,10 +429,10 @@ export async function createMilestone(
 
   // If milestone occurred, check for triggered terms
   if (data.occurred && data.event_date) {
-    await triggerTermsForMilestone(ownerId, data);
+    await triggerTermsForMilestone(ownerId, data as CgpMilestone);
   }
 
-  return data;
+  return data as CgpMilestone;
 }
 
 /**
@@ -432,9 +442,20 @@ export async function updateMilestone(
   id: string,
   updates: Partial<CgpMilestone>
 ): Promise<CgpMilestone | null> {
+  // Create a clean update object with proper types
+  const updateData: Record<string, unknown> = {};
+  if (updates.milestone_type !== undefined) updateData.milestone_type = updates.milestone_type;
+  if (updates.custom_type_name !== undefined) updateData.custom_type_name = updates.custom_type_name;
+  if (updates.occurred !== undefined) updateData.occurred = updates.occurred;
+  if (updates.event_date !== undefined) updateData.event_date = updates.event_date;
+  if (updates.event_time !== undefined) updateData.event_time = updates.event_time;
+  if (updates.in_audience !== undefined) updateData.in_audience = updates.in_audience;
+  if (updates.notes !== undefined) updateData.notes = updates.notes;
+  if (updates.attachments !== undefined) updateData.attachments = updates.attachments;
+
   const { data, error } = await supabase
     .from('cgp_milestones')
-    .update(updates)
+    .update(updateData)
     .eq('id', id)
     .select()
     .single();
@@ -444,7 +465,7 @@ export async function updateMilestone(
     return null;
   }
 
-  return data;
+  return data as CgpMilestone;
 }
 
 /**
@@ -581,11 +602,20 @@ export async function satisfyTerm(
   }
 
   // Cancel pending alerts for this term
-  await supabase
+  // Note: JSON path filtering requires casting, using contains instead
+  const { data: alerts } = await supabase
     .from('alert_instances')
-    .update({ status: 'CANCELLED' })
-    .eq('payload->term_instance_id', termId)
-    .eq('status', 'SCHEDULED');
+    .select('id')
+    .eq('status', 'SCHEDULED')
+    .contains('payload', { term_instance_id: termId });
+
+  if (alerts && alerts.length > 0) {
+    const alertIds = alerts.map(a => a.id);
+    await supabase
+      .from('alert_instances')
+      .update({ status: 'CANCELLED' })
+      .in('id', alertIds);
+  }
 }
 
 /**
