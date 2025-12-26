@@ -1,14 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Building2, Plus } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { ReviewAlerts } from "@/components/alerts";
-import { UnifiedFilingCreator, FilingCategory } from "@/components/filings";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -20,13 +18,6 @@ export default function Dashboard() {
     pendingPeticiones: 0,
     pendingTutelas: 0,
   });
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createType, setCreateType] = useState<FilingCategory | undefined>(undefined);
-
-  const openCreateDialog = (type: FilingCategory) => {
-    setCreateType(type);
-    setCreateDialogOpen(true);
-  };
 
   const fetchStats = useCallback(async () => {
     const { data: filingsData } = await supabase
@@ -93,10 +84,6 @@ export default function Dashboard() {
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
-        <Button onClick={() => { setCreateType(undefined); setCreateDialogOpen(true); }}>
-          <Plus className="h-4 w-4 mr-2" />
-          + Radicado
-        </Button>
       </div>
 
       <ReviewAlerts />
@@ -178,73 +165,33 @@ export default function Dashboard() {
         </TabsList>
         
         <TabsContent value="cgp" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
-            </p>
-            <Button size="sm" variant="outline" onClick={() => openCreateDialog("CGP")}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nueva Demanda CGP
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
+          </p>
           <UnifiedPipeline />
         </TabsContent>
 
         <TabsContent value="administrativos" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Procesos ante autoridades administrativas (inspecciones, superintendencias, tránsito, disciplinarios). Arrastra entre fases.
-            </p>
-            <Button size="sm" variant="outline" onClick={() => openCreateDialog("ADMINISTRATIVO")}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nuevo Proceso Administrativo
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Procesos ante autoridades administrativas (inspecciones, superintendencias, tránsito, disciplinarios). Arrastra entre fases.
+          </p>
           <AdminPipeline />
         </TabsContent>
         
         <TabsContent value="peticiones" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
-            </p>
-            <Button size="sm" variant="outline" onClick={() => openCreateDialog("PETICION")}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nueva Petición
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
+          </p>
           <PeticionesPipeline />
         </TabsContent>
 
         <TabsContent value="tutelas" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => openCreateDialog("TUTELA")}>
-                <Plus className="h-4 w-4 mr-1" />
-                Nueva Tutela
-              </Button>
-              <Button size="sm" variant="outline" className="border-red-500/50 text-red-500 hover:bg-red-500/10" onClick={() => openCreateDialog("HABEAS_CORPUS")}>
-                <Plus className="h-4 w-4 mr-1" />
-                Habeas Corpus
-              </Button>
-            </div>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
+          </p>
           <TutelasPipeline />
         </TabsContent>
       </Tabs>
-
-      {/* Unified Filing Creator */}
-      <UnifiedFilingCreator
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        initialType={createType}
-        onSuccess={() => {
-          fetchStats();
-        }}
-      />
     </div>
   );
 }

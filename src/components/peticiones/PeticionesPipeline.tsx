@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Plus, CheckSquare } from "lucide-react";
+import { FileText, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addBusinessDays } from "@/lib/colombian-holidays";
@@ -287,19 +287,16 @@ export function PeticionesPipeline() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleSelectionMode}
-            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
-          >
-            <CheckSquare className="h-4 w-4 mr-2" />
-            {isSelectionMode ? "Cancelar" : "Seleccionar"}
-          </Button>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Petición
-          </Button>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSelectionMode}
+              onChange={toggleSelectionMode}
+              className="rounded border-muted-foreground/50"
+            />
+            <CheckSquare className="h-4 w-4" />
+            Selección
+          </label>
         </div>
       </div>
 
@@ -313,7 +310,7 @@ export function PeticionesPipeline() {
       >
         <ScrollArea className="w-full whitespace-nowrap">
           <div className="flex gap-3 pb-4">
-            {PETICION_STAGES.map((stage) => (
+            {PETICION_STAGES.map((stage, index) => (
               <PeticionColumn
                 key={stage.id}
                 stage={stage}
@@ -322,6 +319,8 @@ export function PeticionesPipeline() {
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onEscalateToTutela={(peticion) => setEscalateDialog({ open: true, peticion })}
+                showCreateButton={index === 0}
+                onCreateClick={() => setNewDialogOpen(true)}
               />
             ))}
           </div>

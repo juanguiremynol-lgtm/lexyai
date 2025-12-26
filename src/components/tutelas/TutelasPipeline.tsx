@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Gavel, Plus, CheckSquare } from "lucide-react";
+import { Gavel, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -27,6 +27,7 @@ import {
 import { TutelaColumn, TutelaStageConfig } from "./TutelaColumn";
 import { TutelaCard, TutelaItem } from "./TutelaCard";
 import { NewTutelaDialog } from "./NewTutelaDialog";
+import { NewHabeasCorpusDialog } from "./NewHabeasCorpusDialog";
 import { FalloOutcomeDialog } from "./FalloOutcomeDialog";
 import { ArchivePromptDialog } from "./ArchivePromptDialog";
 import { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";
@@ -119,6 +120,7 @@ export function TutelasPipeline() {
   const queryClient = useQueryClient();
   const [activeItem, setActiveItem] = useState<TutelaItem | null>(null);
   const [newDialogOpen, setNewDialogOpen] = useState(false);
+  const [habeasDialogOpen, setHabeasDialogOpen] = useState(false);
   const [falloDialog, setFalloDialog] = useState<{
     open: boolean;
     tutela: TutelaItem | null;
@@ -351,19 +353,16 @@ export function TutelasPipeline() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleSelectionMode}
-            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
-          >
-            <CheckSquare className="h-4 w-4 mr-2" />
-            {isSelectionMode ? "Cancelar" : "Seleccionar"}
-          </Button>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nueva Tutela
-          </Button>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSelectionMode}
+              onChange={toggleSelectionMode}
+              className="rounded border-muted-foreground/50"
+            />
+            <CheckSquare className="h-4 w-4" />
+            Selección
+          </label>
         </div>
       </div>
 
@@ -377,7 +376,7 @@ export function TutelasPipeline() {
       >
         <ScrollArea className="w-full whitespace-nowrap">
           <div className="flex gap-3 pb-4">
-            {TUTELA_STAGES.map((stage) => (
+            {TUTELA_STAGES.map((stage, index) => (
               <TutelaColumn
                 key={stage.id}
                 stage={stage}
@@ -386,6 +385,9 @@ export function TutelasPipeline() {
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onArchivePrompt={handleArchivePrompt}
+                showCreateButton={index === 0}
+                onCreateTutela={() => setNewDialogOpen(true)}
+                onCreateHabeas={() => setHabeasDialogOpen(true)}
               />
             ))}
           </div>
@@ -399,6 +401,7 @@ export function TutelasPipeline() {
 
       {/* Dialogs */}
       <NewTutelaDialog open={newDialogOpen} onOpenChange={setNewDialogOpen} />
+      <NewHabeasCorpusDialog open={habeasDialogOpen} onOpenChange={setHabeasDialogOpen} />
       
       <FalloOutcomeDialog
         open={falloDialog.open}
