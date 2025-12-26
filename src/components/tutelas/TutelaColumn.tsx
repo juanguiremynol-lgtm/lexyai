@@ -1,14 +1,6 @@
 import { useDroppable } from "@dnd-kit/core";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Plus, Gavel, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TutelaCard, TutelaItem } from "./TutelaCard";
 import type { TutelaPhase } from "@/lib/tutela-constants";
@@ -28,9 +20,6 @@ interface TutelaColumnProps {
   isItemSelected: (item: { id: string; type: "tutela" }) => boolean;
   onToggleSelection: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt: (item: TutelaItem) => void;
-  showCreateButton?: boolean;
-  onCreateTutela?: () => void;
-  onCreateHabeas?: () => void;
 }
 
 export function TutelaColumn({
@@ -40,9 +29,6 @@ export function TutelaColumn({
   isItemSelected,
   onToggleSelection,
   onArchivePrompt,
-  showCreateButton = false,
-  onCreateTutela,
-  onCreateHabeas,
 }: TutelaColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -67,26 +53,6 @@ export function TutelaColumn({
               {items.length}
             </Badge>
           </div>
-          {showCreateButton && (onCreateTutela || onCreateHabeas) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-7 px-2">
-                  <Plus className="h-4 w-4 mr-1" />
-                  Crear
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={onCreateTutela}>
-                  <Gavel className="h-4 w-4 mr-2" />
-                  Nueva Tutela
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onCreateHabeas} className="text-red-600">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Habeas Corpus
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
         </div>
       </div>
 

@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Building2, Keyboard, CheckSquare, Plus } from "lucide-react";
+import { Building2, Keyboard, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { 
   ADMIN_PROCESS_PHASES, 
@@ -29,7 +29,6 @@ import { BulkActionsBar } from "./BulkActionsBar";
 import { BulkDeleteDialog } from "./BulkDeleteDialog";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
-import { NewAdminProcessDialog } from "./NewAdminProcessDialog";
 
 // Build admin stages configuration
 const ADMIN_STAGES: AdminStageConfig[] = ADMIN_PROCESS_PHASES_ORDER.map((phase) => ({
@@ -87,7 +86,6 @@ export function AdminPipeline() {
   const queryClient = useQueryClient();
   const [activeItem, setActiveItem] = useState<AdminItem | null>(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
-  const [newProcessDialog, setNewProcessDialog] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -315,14 +313,6 @@ export function AdminPipeline() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setNewProcessDialog(true)}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Nuevo
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={toggleSelectionMode}
             className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
           >
@@ -395,11 +385,6 @@ export function AdminPipeline() {
           bulkDeleteMutation.mutate(selected);
         }}
         isDeleting={bulkDeleteMutation.isPending}
-      />
-
-      <NewAdminProcessDialog
-        open={newProcessDialog}
-        onOpenChange={setNewProcessDialog}
       />
     </>
   );

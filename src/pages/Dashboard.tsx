@@ -1,11 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
+import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -17,6 +19,7 @@ export default function Dashboard() {
     pendingPeticiones: 0,
     pendingTutelas: 0,
   });
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const fetchStats = useCallback(async () => {
     const { data: filingsData } = await supabase
@@ -72,6 +75,10 @@ export default function Dashboard() {
     fetchStats();
   }, [fetchStats]);
 
+  const handleCreationSuccess = () => {
+    fetchStats();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -83,6 +90,10 @@ export default function Dashboard() {
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
+        <Button onClick={() => setCreateDialogOpen(true)} size="lg" className="gap-2">
+          <Plus className="h-5 w-5" />
+          <span className="hidden sm:inline">Nuevo</span>
+        </Button>
       </div>
 
       {/* KPI Cards */}
@@ -189,6 +200,13 @@ export default function Dashboard() {
           <TutelasPipeline />
         </TabsContent>
       </Tabs>
+
+      {/* Universal Creation Dialog */}
+      <UnifiedFilingCreator
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onSuccess={handleCreationSuccess}
+      />
     </div>
   );
 }
