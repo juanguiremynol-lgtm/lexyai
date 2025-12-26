@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { isBusinessDay, isColombianHoliday } from "@/lib/colombian-holidays";
-import { Clock, Calendar, PartyPopper, Briefcase } from "lucide-react";
+import { Clock, Calendar, PartyPopper, Briefcase, PauseCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -10,9 +10,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useTermStatus } from "@/hooks/use-term-status";
 
 export function ColombianClock() {
   const [now, setNow] = useState(new Date());
+  const { data: termStatus } = useTermStatus();
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -27,6 +29,10 @@ export function ColombianClock() {
   const timeStr = format(now, "HH:mm:ss");
   const dateStr = format(now, "EEEE, d 'de' MMMM", { locale: es });
   const capitalizedDate = dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+
+  // Determine judicial term status
+  const isJudicialSuspended = termStatus?.activeSuspension !== null && termStatus?.activeSuspension !== undefined;
+  const suspensionName = termStatus?.activeSuspension?.title;
 
   return (
     <TooltipProvider>
@@ -44,6 +50,8 @@ export function ColombianClock() {
               <Calendar className="h-4 w-4" />
               <span className="text-sm">{capitalizedDate}</span>
             </div>
+            
+            {/* Admin day status */}
             {holiday.isHoliday ? (
               <Badge variant="secondary" className="gap-1 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
                 <PartyPopper className="h-3 w-3" />
@@ -59,34 +67,60 @@ export function ColombianClock() {
                 Fin de semana
               </Badge>
             )}
+
+            {/* Judicial term status - shows suspension if active */}
+            {isJudicialSuspended && (
+              <Badge variant="secondary" className="gap-1 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                <PauseCircle className="h-3 w-3" />
+                Términos Suspendidos
+              </Badge>
+            )}
           </div>
         </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xs">
-          {holiday.isHoliday ? (
-            <p className="text-sm">
-              <strong>Festivo:</strong> {holiday.name}
-              <br />
-              <span className="text-muted-foreground text-xs">
-                Los términos judiciales no corren hoy.
-              </span>
-            </p>
-          ) : isWorkDay ? (
-            <p className="text-sm">
-              <strong>Día hábil</strong>
-              <br />
-              <span className="text-muted-foreground text-xs">
-                Los términos judiciales corren normalmente.
-              </span>
-            </p>
-          ) : (
-            <p className="text-sm">
-              <strong>Fin de semana</strong>
-              <br />
-              <span className="text-muted-foreground text-xs">
-                Los términos judiciales no corren hoy.
-              </span>
-            </p>
-          )}
+        <TooltipContent side="bottom" className="max-w-sm">
+          <div className="space-y-2">
+            {/* Admin regime info */}
+            <div>
+              <p className="text-sm font-medium">Régimen Administrativo (Peticiones)</p>
+              {holiday.isHoliday ? (
+                <p className="text-xs text-muted-foreground">
+                  Festivo: {holiday.name}. No es día hábil administrativo.
+                </p>
+              ) : isWorkDay ? (
+                <p className="text-xs text-muted-foreground">
+                  Día hábil. Los términos de peticiones corren.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Fin de semana. No es día hábil administrativo.
+                </p>
+              )}
+            </div>
+
+            {/* Judicial regime info */}
+            <div className="border-t pt-2">
+              <p className="text-sm font-medium">Régimen Judicial (CGP/Tutelas)</p>
+              {isJudicialSuspended ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  <strong>SUSPENDIDO:</strong> {suspensionName}
+                  <br />
+                  Los términos judiciales no corren. Peticiones NO se ven afectadas.
+                </p>
+              ) : holiday.isHoliday ? (
+                <p className="text-xs text-muted-foreground">
+                  Festivo: {holiday.name}. Los términos judiciales no corren.
+                </p>
+              ) : isWorkDay ? (
+                <p className="text-xs text-muted-foreground">
+                  Día hábil judicial. Los términos judiciales corren normalmente.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Fin de semana. Los términos judiciales no corren.
+                </p>
+              )}
+            </div>
+          </div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

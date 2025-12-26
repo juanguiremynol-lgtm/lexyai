@@ -1,9 +1,14 @@
 /**
  * Alert System v2 - Utility functions for creating and managing alerts
+ * 
+ * REGIME RULES:
+ * - Peticiones/Admin: Use ADMIN regime (not affected by judicial suspensions)
+ * - CGP/Tutelas: Use JUDICIAL regime (respects judicial suspensions)
  */
 
 import { supabase } from "@/integrations/supabase/client";
 import { addBusinessDays } from "./colombian-holidays";
+import { addBusinessDaysAsync, TermRegime } from "./term-calculator";
 
 export type EntityType = 'CGP_FILING' | 'CGP_CASE' | 'ADMIN_PROCESS' | 'PETICION' | 'TUTELA';
 export type RuleKind = 'DATE_DUE' | 'REPEAT_INTERVAL' | 'PHASE_TRIGGER';

@@ -1207,6 +1207,56 @@ export type Database = {
           },
         ]
       }
+      judicial_term_suspensions: {
+        Row: {
+          active: boolean
+          created_at: string
+          end_date: string
+          id: string
+          owner_id: string
+          reason: string | null
+          scope: string
+          scope_value: string | null
+          start_date: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          end_date: string
+          id?: string
+          owner_id: string
+          reason?: string | null
+          scope?: string
+          scope_value?: string | null
+          start_date: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          end_date?: string
+          id?: string
+          owner_id?: string
+          reason?: string | null
+          scope?: string
+          scope_value?: string | null
+          start_date?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "judicial_term_suspensions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matter_files: {
         Row: {
           created_at: string
