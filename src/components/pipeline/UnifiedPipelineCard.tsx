@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { User, ExternalLink, Scale, FileText, ArrowRightLeft } from "lucide-react";
+import { User, ExternalLink, Scale, FileText, ArrowRightLeft, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -36,6 +36,8 @@ export interface UnifiedItem {
   linkedFilingId?: string | null;
   linkedProcessId?: string | null;
   hasAutoAdmisorio?: boolean;
+  // Flagging
+  isFlagged?: boolean;
 }
 
 interface UnifiedPipelineCardProps {
@@ -46,6 +48,7 @@ interface UnifiedPipelineCardProps {
   isSelectionMode?: boolean;
   onReclassify?: (item: UnifiedItem) => void;
   onToggleSelection?: (item: UnifiedItem, shiftKey: boolean) => void;
+  onToggleFlag?: (item: UnifiedItem) => void;
 }
 
 export function UnifiedPipelineCard({ 
@@ -56,6 +59,7 @@ export function UnifiedPipelineCard({
   isSelectionMode = false,
   onReclassify,
   onToggleSelection,
+  onToggleFlag,
 }: UnifiedPipelineCardProps) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
@@ -104,7 +108,9 @@ export function UnifiedPipelineCard({
         !isDragging && !isFocused && !isSelected && "hover:shadow-elevated hover:ring-1 hover:ring-primary/30 hover:-translate-y-0.5",
         // Enhanced type-specific styling for noir theme
         item.type === "filing" && "border-l-blue-500 bg-gradient-to-r from-blue-500/10 to-transparent",
-        item.type === "process" && "border-l-primary bg-gradient-to-r from-primary/10 to-transparent"
+        item.type === "process" && "border-l-primary bg-gradient-to-r from-primary/10 to-transparent",
+        // Flagged styling
+        item.isFlagged && "ring-2 ring-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20"
       )}
     >
       <CardContent className="p-3">
@@ -157,6 +163,27 @@ export function UnifiedPipelineCard({
                     <ArrowRightLeft className="h-4 w-4" />
                   </Button>
                 )}
+                {onToggleFlag && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7 transition-all",
+                      item.isFlagged 
+                        ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/50" 
+                        : "hover:bg-muted hover:text-amber-500"
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onToggleFlag(item);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    title={item.isFlagged ? "Quitar bandera" : "Marcar con bandera"}
+                  >
+                    <Flag className={cn("h-4 w-4", item.isFlagged && "fill-current")} />
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -183,6 +210,12 @@ export function UnifiedPipelineCard({
               {isLinked && (
                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-violet-500/20 text-violet-400 border-violet-500/30">
                   Vinculado
+                </Badge>
+              )}
+              {item.isFlagged && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-amber-500/20 text-amber-500 border-amber-500/30">
+                  <Flag className="h-2.5 w-2.5 mr-0.5 fill-current" />
+                  Marcado
                 </Badge>
               )}
             </div>

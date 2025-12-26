@@ -72,6 +72,7 @@ interface RawFiling {
   has_auto_admisorio: boolean | null;
   linked_process_id: string | null;
   client_id: string | null;
+  is_flagged: boolean | null;
   matter: { client_name: string; matter_name: string } | null;
   clients: { id: string; name: string } | null;
 }
@@ -89,6 +90,7 @@ interface RawProcess {
   has_auto_admisorio: boolean | null;
   linked_filing_id: string | null;
   client_id: string | null;
+  is_flagged: boolean | null;
   clients: { id: string; name: string } | null;
 }
 
@@ -109,6 +111,7 @@ function filingToUnifiedItem(filing: RawFiling): UnifiedItem {
     filingStatus: filing.status,
     linkedProcessId: filing.linked_process_id,
     hasAutoAdmisorio: filing.has_auto_admisorio ?? false,
+    isFlagged: filing.is_flagged ?? false,
   };
 }
 
@@ -127,6 +130,7 @@ function processToUnifiedItem(process: RawProcess): UnifiedItem {
     phase: process.phase,
     linkedFilingId: process.linked_filing_id,
     hasAutoAdmisorio: process.has_auto_admisorio ?? true,
+    isFlagged: process.is_flagged ?? false,
   };
 }
 
@@ -141,6 +145,8 @@ export function UnifiedPipeline() {
   }>({ open: false, item: null, targetStage: null });
   
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [createFilingOpen, setCreateFilingOpen] = useState(false);
+  const [createProcessOpen, setCreateProcessOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -162,7 +168,7 @@ export function UnifiedPipeline() {
         .from("filings")
         .select(`
           id, status, filing_type, radicado, sla_acta_due_at, sla_court_reply_due_at,
-          demandantes, demandados, court_name, has_auto_admisorio, linked_process_id, client_id,
+          demandantes, demandados, court_name, has_auto_admisorio, linked_process_id, client_id, is_flagged,
           matter:matters(client_name, matter_name),
           clients(id, name)
         `)
@@ -186,7 +192,7 @@ export function UnifiedPipeline() {
         .from("monitored_processes")
         .select(`
           id, radicado, despacho_name, monitoring_enabled, last_checked_at, last_change_at, phase,
-          demandantes, demandados, has_auto_admisorio, linked_filing_id, client_id,
+          demandantes, demandados, has_auto_admisorio, linked_filing_id, client_id, is_flagged,
           clients(id, name)
         `)
         .eq("owner_id", user.user.id)

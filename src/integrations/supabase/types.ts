@@ -651,6 +651,7 @@ export type Database = {
           filing_type: string
           has_auto_admisorio: boolean | null
           id: string
+          is_flagged: boolean | null
           last_crawled_at: string | null
           last_event_at: string | null
           last_reviewed_at: string | null
@@ -687,6 +688,7 @@ export type Database = {
           filing_type: string
           has_auto_admisorio?: boolean | null
           id?: string
+          is_flagged?: boolean | null
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_reviewed_at?: string | null
@@ -723,6 +725,7 @@ export type Database = {
           filing_type?: string
           has_auto_admisorio?: boolean | null
           id?: string
+          is_flagged?: boolean | null
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_reviewed_at?: string | null
@@ -1185,6 +1188,7 @@ export type Database = {
           expediente_digital_url: string | null
           has_auto_admisorio: boolean | null
           id: string
+          is_flagged: boolean | null
           juez_ponente: string | null
           jurisdiction: string | null
           last_action_date: string | null
@@ -1226,6 +1230,7 @@ export type Database = {
           expediente_digital_url?: string | null
           has_auto_admisorio?: boolean | null
           id?: string
+          is_flagged?: boolean | null
           juez_ponente?: string | null
           jurisdiction?: string | null
           last_action_date?: string | null
@@ -1267,6 +1272,7 @@ export type Database = {
           expediente_digital_url?: string | null
           has_auto_admisorio?: boolean | null
           id?: string
+          is_flagged?: boolean | null
           juez_ponente?: string | null
           jurisdiction?: string | null
           last_action_date?: string | null
@@ -1379,6 +1385,7 @@ export type Database = {
           escalated_to_tutela: boolean | null
           filed_at: string | null
           id: string
+          is_flagged: boolean | null
           notes: string | null
           owner_id: string
           phase: Database["public"]["Enums"]["peticion_phase"]
@@ -1405,6 +1412,7 @@ export type Database = {
           escalated_to_tutela?: boolean | null
           filed_at?: string | null
           id?: string
+          is_flagged?: boolean | null
           notes?: string | null
           owner_id: string
           phase?: Database["public"]["Enums"]["peticion_phase"]
@@ -1431,6 +1439,7 @@ export type Database = {
           escalated_to_tutela?: boolean | null
           filed_at?: string | null
           id?: string
+          is_flagged?: boolean | null
           notes?: string | null
           owner_id?: string
           phase?: Database["public"]["Enums"]["peticion_phase"]
