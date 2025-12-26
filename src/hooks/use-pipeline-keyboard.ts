@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 interface PipelineItem {
   id: string;
-  type: "filing" | "process";
+  type: "filing" | "process" | "tutela" | "peticion" | "admin";
   radicado?: string | null;
 }
 
@@ -12,6 +12,7 @@ interface UsePipelineKeyboardProps {
   stages: { id: string; type: "filing" | "process" }[];
   itemsByStage: Record<string, PipelineItem[]>;
   onReclassify: (item: PipelineItem) => void;
+  onDelete?: (item: PipelineItem) => void;
   enabled?: boolean;
 }
 
@@ -19,6 +20,7 @@ export function usePipelineKeyboard({
   stages,
   itemsByStage,
   onReclassify,
+  onDelete,
   enabled = true,
 }: UsePipelineKeyboardProps) {
   const navigate = useNavigate();
@@ -58,7 +60,7 @@ export function usePipelineKeyboard({
       setFocusedItemIndex(0);
       setIsNavigating(true);
       toast.info("Navegación por teclado activada", {
-        description: "↑↓ items, ←→ columnas, Enter ver, R reclasificar, Esc salir",
+        description: "↑↓ items, ←→ columnas, Enter ver, R reclasificar, Del eliminar, Esc salir",
         duration: 3000,
       });
     }
@@ -153,12 +155,25 @@ export function usePipelineKeyboard({
           e.preventDefault();
           const item = getFocusedItem();
           if (item) {
-            if (item.type === "filing") {
+            if (item.type === "filing" || item.type === "tutela") {
               navigate(`/filings/${item.id}`);
-            } else {
+            } else if (item.type === "process" || item.type === "admin") {
               navigate(`/process-status/${item.id}`);
+            } else if (item.type === "peticion") {
+              // Peticiones don't have a detail page yet
+              toast.info("Detalle de petición no disponible aún");
             }
             stopNavigation();
+          }
+          break;
+        }
+
+        case "Delete":
+        case "Backspace": {
+          e.preventDefault();
+          const item = getFocusedItem();
+          if (item && onDelete) {
+            onDelete(item);
           }
           break;
         }
@@ -204,6 +219,7 @@ export function usePipelineKeyboard({
     getFocusedItem,
     navigate,
     onReclassify,
+    onDelete,
   ]);
 
   return {
@@ -212,6 +228,7 @@ export function usePipelineKeyboard({
     isNavigating,
     startNavigation,
     stopNavigation,
+    getFocusedItem,
     getFocusedItemId: useCallback(() => {
       const item = getFocusedItem();
       return item ? `${item.type}:${item.id}` : null;

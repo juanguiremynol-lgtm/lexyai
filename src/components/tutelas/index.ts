@@ -1,6 +1,7 @@
 export { TutelaCard } from "./TutelaCard";
 export { TutelaColumn } from "./TutelaColumn";
 export { NewTutelaDialog } from "./NewTutelaDialog";
+export { NewHabeasCorpusDialog } from "./NewHabeasCorpusDialog";
 export { FalloOutcomeDialog } from "./FalloOutcomeDialog";
 export { ArchivePromptDialog } from "./ArchivePromptDialog";
 export { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";

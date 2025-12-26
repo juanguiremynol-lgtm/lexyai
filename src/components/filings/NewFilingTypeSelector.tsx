@@ -8,9 +8,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Scale, FileText, Building2, ShieldAlert } from "lucide-react";
+import { Scale, FileText, Building2, ShieldAlert, Lock } from "lucide-react";
 
-export type FilingCategory = "CGP" | "TUTELA" | "PETICION" | "ADMINISTRATIVO";
+export type FilingCategory = "CGP" | "TUTELA" | "HABEAS_CORPUS" | "PETICION" | "ADMINISTRATIVO";
 
 interface NewFilingTypeSelectorProps {
   open: boolean;
@@ -31,11 +31,20 @@ const FILING_CATEGORIES = [
   {
     type: "TUTELA" as FilingCategory,
     title: "Acción de Tutela",
-    description: "Protección de derechos fundamentales (incluye Habeas Corpus)",
+    description: "Protección de derechos fundamentales",
     icon: ShieldAlert,
-    examples: "Tutela, Habeas Corpus, Habeas Data",
+    examples: "Salud, educación, debido proceso, vivienda",
     color: "text-amber-500",
     bgColor: "bg-amber-500/10 hover:bg-amber-500/20",
+  },
+  {
+    type: "HABEAS_CORPUS" as FilingCategory,
+    title: "Habeas Corpus",
+    description: "Protección de la libertad personal (Art. 30 Constitución)",
+    icon: Lock,
+    examples: "Detención ilegal, prolongación indebida, captura irregular",
+    color: "text-red-500",
+    bgColor: "bg-red-500/10 hover:bg-red-500/20",
   },
   {
     type: "PETICION" as FilingCategory,
@@ -49,7 +58,7 @@ const FILING_CATEGORIES = [
   {
     type: "ADMINISTRATIVO" as FilingCategory,
     title: "Proceso Administrativo",
-    description: "Actuaciones ante autoridades administrativas con funciones jurisdiccionales",
+    description: "Actuaciones ante autoridades administrativas",
     icon: Building2,
     examples: "Policivo, sancionatorio, tránsito, disciplinario, SIC",
     color: "text-purple-500",
@@ -64,7 +73,7 @@ export function NewFilingTypeSelector({
 }: NewFilingTypeSelectorProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px]">
+      <DialogContent className="sm:max-w-[750px]">
         <DialogHeader>
           <DialogTitle>Nueva Radicación</DialogTitle>
           <DialogDescription>
@@ -72,7 +81,7 @@ export function NewFilingTypeSelector({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
           {FILING_CATEGORIES.map((category) => {
             const Icon = category.icon;
             return (
@@ -111,3 +120,4 @@ export function NewFilingTypeSelector({
     </Dialog>
   );
 }
+
