@@ -1,9 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Building2 } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { UnifiedPipeline } from "@/components/pipeline";
+import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { ReviewAlerts } from "@/components/alerts";
@@ -157,6 +157,7 @@ export default function Dashboard() {
       <Tabs defaultValue="cgp" className="space-y-4">
         <TabsList>
           <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
+          <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
           <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
           <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
         </TabsList>
@@ -166,6 +167,13 @@ export default function Dashboard() {
             Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
           </p>
           <UnifiedPipeline />
+        </TabsContent>
+
+        <TabsContent value="administrativos" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Procesos ante autoridades administrativas (inspecciones, superintendencias, tránsito, disciplinarios). Arrastra entre fases.
+          </p>
+          <AdminPipeline />
         </TabsContent>
         
         <TabsContent value="peticiones" className="space-y-4">

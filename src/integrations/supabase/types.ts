@@ -1057,14 +1057,20 @@ export type Database = {
       }
       monitored_processes: {
         Row: {
+          admin_phase: string | null
+          autoridad: string | null
           client_id: string | null
+          correo_autoridad: string | null
           cpnu_confirmed: boolean | null
           cpnu_confirmed_at: string | null
           created_at: string
           demandados: string | null
           demandantes: string | null
           department: string | null
+          dependencia: string | null
           despacho_name: string | null
+          entidad: string | null
+          expediente_administrativo: string | null
           expediente_digital_url: string | null
           has_auto_admisorio: boolean | null
           id: string
@@ -1082,22 +1088,30 @@ export type Database = {
           notes: string | null
           owner_id: string
           phase: Database["public"]["Enums"]["process_phase"] | null
+          process_type: string
           radicado: string
           source: string | null
           source_payload: Json | null
           source_run_id: string | null
           sources_enabled: Json | null
+          tipo_actuacion: string | null
           updated_at: string
         }
         Insert: {
+          admin_phase?: string | null
+          autoridad?: string | null
           client_id?: string | null
+          correo_autoridad?: string | null
           cpnu_confirmed?: boolean | null
           cpnu_confirmed_at?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
           department?: string | null
+          dependencia?: string | null
           despacho_name?: string | null
+          entidad?: string | null
+          expediente_administrativo?: string | null
           expediente_digital_url?: string | null
           has_auto_admisorio?: boolean | null
           id?: string
@@ -1115,22 +1129,30 @@ export type Database = {
           notes?: string | null
           owner_id: string
           phase?: Database["public"]["Enums"]["process_phase"] | null
+          process_type?: string
           radicado: string
           source?: string | null
           source_payload?: Json | null
           source_run_id?: string | null
           sources_enabled?: Json | null
+          tipo_actuacion?: string | null
           updated_at?: string
         }
         Update: {
+          admin_phase?: string | null
+          autoridad?: string | null
           client_id?: string | null
+          correo_autoridad?: string | null
           cpnu_confirmed?: boolean | null
           cpnu_confirmed_at?: string | null
           created_at?: string
           demandados?: string | null
           demandantes?: string | null
           department?: string | null
+          dependencia?: string | null
           despacho_name?: string | null
+          entidad?: string | null
+          expediente_administrativo?: string | null
           expediente_digital_url?: string | null
           has_auto_admisorio?: boolean | null
           id?: string
@@ -1148,11 +1170,13 @@ export type Database = {
           notes?: string | null
           owner_id?: string
           phase?: Database["public"]["Enums"]["process_phase"] | null
+          process_type?: string
           radicado?: string
           source?: string | null
           source_payload?: Json | null
           source_run_id?: string | null
           sources_enabled?: Json | null
+          tipo_actuacion?: string | null
           updated_at?: string
         }
         Relationships: [
