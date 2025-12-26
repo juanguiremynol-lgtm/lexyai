@@ -1001,6 +1001,60 @@ export type Database = {
           },
         ]
       }
+      matter_files: {
+        Row: {
+          created_at: string
+          description: string | null
+          file_path: string
+          file_size: number
+          file_type: string | null
+          id: string
+          matter_id: string
+          original_filename: string
+          owner_id: string
+          uploaded_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          file_path: string
+          file_size?: number
+          file_type?: string | null
+          id?: string
+          matter_id: string
+          original_filename: string
+          owner_id: string
+          uploaded_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          file_path?: string
+          file_size?: number
+          file_type?: string | null
+          id?: string
+          matter_id?: string
+          original_filename?: string
+          owner_id?: string
+          uploaded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "matter_files_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matter_files_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matters: {
         Row: {
           client_id: string | null
@@ -1012,6 +1066,8 @@ export type Database = {
           notes: string | null
           owner_id: string
           practice_area: string | null
+          sharepoint_alerts_dismissed: boolean | null
+          sharepoint_url: string | null
           updated_at: string
         }
         Insert: {
@@ -1024,6 +1080,8 @@ export type Database = {
           notes?: string | null
           owner_id: string
           practice_area?: string | null
+          sharepoint_alerts_dismissed?: boolean | null
+          sharepoint_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -1036,6 +1094,8 @@ export type Database = {
           notes?: string | null
           owner_id?: string
           practice_area?: string | null
+          sharepoint_alerts_dismissed?: boolean | null
+          sharepoint_url?: string | null
           updated_at?: string
         }
         Relationships: [
