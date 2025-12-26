@@ -63,7 +63,7 @@ import {
   validateRadicado,
   formatDateColombia,
 } from "@/lib/constants";
-import { findCourtEmail } from "@/lib/court-emails-directory";
+
 import type { FilingStatus } from "@/types/database";
 import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
 import { useReclassification } from "@/hooks/use-reclassification";
@@ -81,7 +81,7 @@ export default function FilingDetail() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [courtNameInput, setCourtNameInput] = useState<string>("");
   const [courtCityInput, setCourtCityInput] = useState<string>("");
-  const [suggestedEmail, setSuggestedEmail] = useState<string | null>(null);
+  
   const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
   const { reclassify, isPending: reclassifyPending } = useReclassification();
 
@@ -121,15 +121,6 @@ export default function FilingDetail() {
     },
   });
 
-  // Auto-detect court email when court name or city changes
-  useEffect(() => {
-    const name = courtNameInput || filing?.court_name || "";
-    const city = courtCityInput || filing?.court_city || "";
-    if (name) {
-      const email = findCourtEmail(name, city || undefined);
-      setSuggestedEmail(email);
-    }
-  }, [courtNameInput, courtCityInput, filing?.court_name, filing?.court_city]);
 
   const updateFiling = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {

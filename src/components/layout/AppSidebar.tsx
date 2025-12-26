@@ -8,6 +8,7 @@ import {
   LogOut,
   Wrench,
   CalendarDays,
+  Link2,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -38,6 +39,7 @@ const navItems = [
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/alerts", icon: Bell },
   { title: "Utilidades", url: "/utilities", icon: Wrench },
+  { title: "Enlaces", url: "/links", icon: Link2 },
 ];
 
 const settingsItems = [
