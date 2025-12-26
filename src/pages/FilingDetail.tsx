@@ -26,6 +26,7 @@ import { HearingsList } from "@/components/filings/HearingsList";
 import { CrawlerControl } from "@/components/filings/CrawlerControl";
 import { FilingGoalsCard } from "@/components/filings/FilingGoalsCard";
 import { SharepointHub } from "@/components/shared";
+import { TermsPanel } from "@/components/cgp-terms";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,6 +53,7 @@ import {
   Globe,
   Package,
   ArrowRightLeft,
+  Gavel,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -689,6 +691,13 @@ export default function FilingDetail() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* CGP Terms Panel - for judicial filings */}
+          {filing.filing_type === 'Demanda' && profile?.id && (
+            <TermsPanel
+              filingId={filing.id}
+              ownerId={profile.id}
+            />
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Información</CardTitle>
