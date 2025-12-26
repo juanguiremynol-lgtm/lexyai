@@ -22,13 +22,15 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Loader2, ArrowLeft } from "lucide-react";
+import { CalendarIcon, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { addBusinessDays } from "@/lib/colombian-holidays";
 import { PETICION_DEADLINE_DAYS } from "@/lib/peticiones-constants";
+import { createPeticionAlerts } from "@/lib/alert-system";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface NewPeticionDialogProps {
   open: boolean;
@@ -99,15 +101,17 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess }: New
 
       if (error) throw error;
 
-      // Create initial alert for the peticion if it has a deadline
-      if (deadlineAt) {
-        await supabase.from("peticion_alerts").insert({
-          owner_id: user.user.id,
-          peticion_id: data.id,
-          alert_type: "DEADLINE_WARNING",
-          severity: "INFO",
-          message: `Petición radicada. Vence el ${format(deadlineAt, "dd/MM/yyyy")}`,
-        });
+      // Create automatic alerts for petición (15 business days tracking)
+      if (filedAt && deadlineAt) {
+        await createPeticionAlerts(
+          user.user.id,
+          data.id,
+          filedAt,
+          subject,
+          entityName,
+          false, // email disabled by default
+          undefined
+        );
       }
 
       return data;
@@ -295,13 +299,14 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess }: New
           </div>
 
           {filedAt && (
-            <div className="p-3 bg-muted/50 rounded-lg text-sm">
-              <p className="text-muted-foreground">
+            <Alert className="border-primary/30 bg-primary/5">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
                 <strong>Fecha límite de respuesta:</strong>{" "}
                 {format(addBusinessDays(filedAt, PETICION_DEADLINE_DAYS), "dd/MM/yyyy", { locale: es })}
-                {" "}(15 días hábiles)
-              </p>
-            </div>
+                {" "}(15 días hábiles). Se crearán alertas automáticas 3 días antes, 1 día antes y el día del vencimiento.
+              </AlertDescription>
+            </Alert>
           )}
 
           <DialogFooter>

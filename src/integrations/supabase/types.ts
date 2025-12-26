@@ -14,6 +14,158 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_instances: {
+        Row: {
+          acknowledged_at: string | null
+          actions: Json | null
+          alert_rule_id: string | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          fired_at: string
+          id: string
+          message: string
+          next_fire_at: string | null
+          owner_id: string
+          payload: Json | null
+          resolved_at: string | null
+          sent_at: string | null
+          severity: string
+          status: string
+          title: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          actions?: Json | null
+          alert_rule_id?: string | null
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          fired_at?: string
+          id?: string
+          message: string
+          next_fire_at?: string | null
+          owner_id: string
+          payload?: Json | null
+          resolved_at?: string | null
+          sent_at?: string | null
+          severity?: string
+          status?: string
+          title: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          actions?: Json | null
+          alert_rule_id?: string | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          fired_at?: string
+          id?: string
+          message?: string
+          next_fire_at?: string | null
+          owner_id?: string
+          payload?: Json | null
+          resolved_at?: string | null
+          sent_at?: string | null
+          severity?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_instances_alert_rule_id_fkey"
+            columns: ["alert_rule_id"]
+            isOneToOne: false
+            referencedRelation: "alert_rules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alert_instances_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      alert_rules: {
+        Row: {
+          active: boolean | null
+          channels: string[]
+          created_at: string
+          description: string | null
+          due_at: string | null
+          email_recipients: string[] | null
+          entity_id: string
+          entity_type: string
+          first_fire_at: string | null
+          id: string
+          is_optional_user_defined: boolean | null
+          is_system_mandatory: boolean | null
+          next_fire_at: string | null
+          owner_id: string
+          repeat_every_business_days: number | null
+          repeat_every_days: number | null
+          rule_kind: string
+          stop_condition: Json | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          channels?: string[]
+          created_at?: string
+          description?: string | null
+          due_at?: string | null
+          email_recipients?: string[] | null
+          entity_id: string
+          entity_type: string
+          first_fire_at?: string | null
+          id?: string
+          is_optional_user_defined?: boolean | null
+          is_system_mandatory?: boolean | null
+          next_fire_at?: string | null
+          owner_id: string
+          repeat_every_business_days?: number | null
+          repeat_every_days?: number | null
+          rule_kind: string
+          stop_condition?: Json | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          channels?: string[]
+          created_at?: string
+          description?: string | null
+          due_at?: string | null
+          email_recipients?: string[] | null
+          entity_id?: string
+          entity_type?: string
+          first_fire_at?: string | null
+          id?: string
+          is_optional_user_defined?: boolean | null
+          is_system_mandatory?: boolean | null
+          next_fire_at?: string | null
+          owner_id?: string
+          repeat_every_business_days?: number | null
+          repeat_every_days?: number | null
+          rule_kind?: string
+          stop_condition?: Json | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alert_rules_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       alerts: {
         Row: {
           created_at: string
@@ -1392,6 +1544,7 @@ export type Database = {
           proof_file_path: string | null
           prorogation_deadline_at: string | null
           prorogation_requested: boolean | null
+          prorogation_started_at: string | null
           radicado: string | null
           response_file_path: string | null
           response_received_at: string | null
@@ -1419,6 +1572,7 @@ export type Database = {
           proof_file_path?: string | null
           prorogation_deadline_at?: string | null
           prorogation_requested?: boolean | null
+          prorogation_started_at?: string | null
           radicado?: string | null
           response_file_path?: string | null
           response_received_at?: string | null
@@ -1446,6 +1600,7 @@ export type Database = {
           proof_file_path?: string | null
           prorogation_deadline_at?: string | null
           prorogation_requested?: boolean | null
+          prorogation_started_at?: string | null
           radicado?: string | null
           response_file_path?: string | null
           response_received_at?: string | null

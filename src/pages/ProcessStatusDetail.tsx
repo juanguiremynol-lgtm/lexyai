@@ -52,7 +52,6 @@ import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@
 import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
 import { SharepointHub } from "@/components/shared";
-import { useReviewChecks } from "@/hooks/use-review-checks";
 import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
 import { useReclassification } from "@/hooks/use-reclassification";
 
@@ -87,7 +86,6 @@ export default function ProcessStatusDetail() {
   const queryClient = useQueryClient();
   const [selectedSource, setSelectedSource] = useState<string>("all");
   const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
-  const { markReviewed } = useReviewChecks();
   const { reclassify, isPending: reclassifyPending } = useReclassification();
 
   // Fetch process details with linked filing's matter for Sharepoint
@@ -338,14 +336,6 @@ export default function ProcessStatusDetail() {
               </a>
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={() => markReviewed.mutate({ entityType: "PROCESS", entityId: id! })}
-            disabled={markReviewed.isPending}
-          >
-            <CheckCircle2 className="h-4 w-4 mr-2" />
-            Marcar Revisado
-          </Button>
           <Button
             onClick={() => crawlMutation.mutate()}
             disabled={crawlMutation.isPending}
