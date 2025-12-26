@@ -89,7 +89,7 @@ export const COLOMBIAN_DEPARTMENTS = [
   'Valle del Cauca', 'Vaupés', 'Vichada',
 ] as const;
 
-// Kanban columns for radicaciones pipeline (includes MONITORING_ACTIVE for linked filings)
+// Kanban columns for radicaciones pipeline
 export const KANBAN_COLUMNS: FilingStatus[] = [
   'SENT_TO_REPARTO',
   'ACTA_PENDING',
@@ -98,14 +98,13 @@ export const KANBAN_COLUMNS: FilingStatus[] = [
   'RADICADO_PENDING',
   'RADICADO_CONFIRMED',
   'ICARUS_SYNC_PENDING',
-  'MONITORING_ACTIVE',
 ];
 
 // Process phases - legal process stages
 export const PROCESS_PHASES = {
   PENDIENTE_REGISTRO_MEDIDA_CAUTELAR: { 
-    label: 'Registro Medida Cautelar', 
-    shortLabel: 'Medida Cautelar',
+    label: 'Auto Admisorio y/o Medida Cautelar', 
+    shortLabel: 'Auto/Medida',
     color: 'amber', 
     order: 0 
   },
