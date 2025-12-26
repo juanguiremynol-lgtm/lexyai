@@ -1,9 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { parseEstadosExcel, type EstadosExcelRow, type EstadosParseResult } from "@/lib/estados-excel-parser";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -32,11 +31,9 @@ export function EstadosImport() {
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [importStats, setImportStats] = useState({ matched: 0, unmatched: 0, total: 0 });
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = useCallback(async (file: File) => {
     try {
       const result = await parseEstadosExcel(file);
       setParseResult(result);
@@ -47,7 +44,22 @@ export function EstadosImport() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al parsear el archivo");
     }
+  }, []);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
   };
+
+  const handleFileDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      processFile(droppedFile);
+    }
+  }, [processFile]);
 
   const matchWithProcesses = async (rows: EstadosExcelRow[]) => {
     const { data: processes } = await supabase
@@ -178,17 +190,43 @@ export function EstadosImport() {
       </CardHeader>
       <CardContent className="space-y-4">
         {step === "upload" && (
-          <div className="border-2 border-dashed rounded-lg p-8 text-center">
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              isDragging
+                ? "border-primary bg-primary/5"
+                : "border-muted-foreground/25 hover:border-primary/50"
+            }`}
+            onDrop={handleFileDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+          >
             <Upload className="h-10 w-10 mx-auto mb-4 text-muted-foreground" />
-            <Input
+            <p className="text-lg font-medium mb-2">
+              Arrastra tu archivo Excel aquí
+            </p>
+            <p className="text-muted-foreground text-sm mb-4">
+              o haz clic para seleccionar
+            </p>
+            <input
               ref={fileInputRef}
               type="file"
               accept=".xls,.xlsx"
               onChange={handleFileSelect}
-              className="max-w-xs mx-auto"
+              className="hidden"
+              id="estados-file-input"
             />
-            <p className="text-sm text-muted-foreground mt-2">
-              Formatos aceptados: .xls, .xlsx
+            <Button 
+              variant="secondary" 
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Seleccionar archivo
+            </Button>
+            <p className="text-xs text-muted-foreground mt-4">
+              Formatos: .xls, .xlsx
             </p>
           </div>
         )}
