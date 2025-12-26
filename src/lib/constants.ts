@@ -251,13 +251,22 @@ export function validateRadicado(radicado: string): boolean {
 }
 
 // Format date for Colombia
-export function formatDateColombia(date: Date | string): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('es-CO', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+export function formatDateColombia(date: Date | string | null | undefined): string {
+  if (!date) return '—';
+  
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    // Check for invalid date
+    if (isNaN(d.getTime())) return '—';
+    
+    return d.toLocaleDateString('es-CO', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  } catch {
+    return '—';
+  }
 }
 
 // Calculate SLA status
