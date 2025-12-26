@@ -58,7 +58,7 @@ import {
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ContractsTab } from "@/components/clients";
+import { ContractsTab, ClientDocumentsTab } from "@/components/clients";
 import type { Client } from "@/types/client";
 
 
@@ -500,6 +500,10 @@ export default function ClientDetail() {
                 <Wallet className="h-4 w-4" />
                 Contratos
               </TabsTrigger>
+              <TabsTrigger value="documents" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Documentos
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="filings">
@@ -620,6 +624,17 @@ export default function ClientDetail() {
 
             <TabsContent value="contracts">
               <ContractsTab clientId={id!} clientName={client.name} />
+            </TabsContent>
+
+            <TabsContent value="documents">
+              <ClientDocumentsTab 
+                client={{ 
+                  id: client.id, 
+                  name: client.name, 
+                  id_number: client.id_number, 
+                  email: client.email 
+                }} 
+              />
             </TabsContent>
           </Tabs>
         </CardContent>

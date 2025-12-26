@@ -59,6 +59,57 @@ export type Database = {
           },
         ]
       }
+      client_documents: {
+        Row: {
+          client_id: string
+          created_at: string
+          document_content: string
+          document_type: string
+          file_path_docx: string | null
+          file_path_pdf: string | null
+          id: string
+          owner_id: string
+          variables_snapshot: Json
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          document_content: string
+          document_type: string
+          file_path_docx?: string | null
+          file_path_pdf?: string | null
+          id?: string
+          owner_id: string
+          variables_snapshot?: Json
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          document_content?: string
+          document_type?: string
+          file_path_docx?: string | null
+          file_path_pdf?: string | null
+          id?: string
+          owner_id?: string
+          variables_snapshot?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_documents_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_documents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null
@@ -1572,6 +1623,10 @@ export type Database = {
           email_reminders_enabled: boolean | null
           estados_import_interval_days: number | null
           firm_name: string | null
+          firma_abogado_cc: string | null
+          firma_abogado_correo: string | null
+          firma_abogado_nombre_completo: string | null
+          firma_abogado_tp: string | null
           full_name: string | null
           hearing_reminder_days: Json | null
           id: string
@@ -1590,6 +1645,10 @@ export type Database = {
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
+          firma_abogado_cc?: string | null
+          firma_abogado_correo?: string | null
+          firma_abogado_nombre_completo?: string | null
+          firma_abogado_tp?: string | null
           full_name?: string | null
           hearing_reminder_days?: Json | null
           id: string
@@ -1608,6 +1667,10 @@ export type Database = {
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
+          firma_abogado_cc?: string | null
+          firma_abogado_correo?: string | null
+          firma_abogado_nombre_completo?: string | null
+          firma_abogado_tp?: string | null
           full_name?: string | null
           hearing_reminder_days?: Json | null
           id?: string
