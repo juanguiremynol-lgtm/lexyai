@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { AlertTriangle, Building2, Calendar, Clock, ExternalLink, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isPast, format } from "date-fns";
@@ -147,7 +148,10 @@ export function PeticionCard({
               />
             )}
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">{item.subject}</p>
+              <div className="flex items-center gap-1">
+                <p className="text-sm font-medium truncate">{item.subject}</p>
+                <ClientRequiredBadge hasClient={!!item.clientId} />
+              </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                 <Building2 className="h-3 w-3" />
                 <span className="truncate">{item.entityName}</span>

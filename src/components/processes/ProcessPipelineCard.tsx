@@ -2,6 +2,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { User, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -17,6 +18,7 @@ interface MonitoredProcess {
   last_checked_at: string | null;
   last_change_at: string | null;
   phase: ProcessPhase | null;
+  client_id: string | null;
   clients: { id: string; name: string } | null;
 }
 
@@ -66,9 +68,12 @@ export function ProcessPipelineCard({ process, isDragging = false }: ProcessPipe
             <ExternalLink className="h-3.5 w-3.5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <p className="font-mono text-xs truncate">
-              {process.radicado}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="font-mono text-xs truncate">
+                {process.radicado}
+              </p>
+              <ClientRequiredBadge hasClient={!!process.client_id} />
+            </div>
             <p className="text-xs text-muted-foreground truncate mt-1">
               {process.despacho_name || "Sin despacho"}
             </p>

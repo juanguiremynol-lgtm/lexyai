@@ -75,6 +75,7 @@ function rawToAdminItem(raw: RawAdminProcess): AdminItem {
     municipality: raw.municipality,
     demandantes: raw.demandantes,
     demandados: raw.demandados,
+    clientId: raw.client_id,
     clientName: raw.clients?.name || null,
     adminPhase: raw.admin_phase as AdminProcessPhase | null,
     lastCheckedAt: raw.last_checked_at,

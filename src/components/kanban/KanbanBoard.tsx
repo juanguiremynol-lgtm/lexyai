@@ -24,6 +24,7 @@ interface Filing {
   sla_acta_due_at: string | null;
   sla_court_reply_due_at: string | null;
   matter: { client_name: string; matter_name: string } | null;
+  client_id: string | null;
 }
 
 interface KanbanBoardProps {

@@ -29,6 +29,7 @@ interface MonitoredProcess {
   last_change_at: string | null;
   phase: ProcessPhase | null;
   linked_filing_id: string | null;
+  client_id: string | null;
   clients: { id: string; name: string } | null;
 }
 
@@ -61,7 +62,7 @@ export function ProcessPipeline() {
       const { data, error } = await supabase
         .from("monitored_processes")
         .select(
-          "id, radicado, despacho_name, monitoring_enabled, last_checked_at, last_change_at, phase, linked_filing_id, clients(id, name)"
+          "id, radicado, despacho_name, monitoring_enabled, last_checked_at, last_change_at, phase, linked_filing_id, client_id, clients(id, name)"
         )
         .eq("owner_id", user.user.id)
         .eq("monitoring_enabled", true)

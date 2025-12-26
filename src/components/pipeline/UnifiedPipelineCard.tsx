@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SlaBadge } from "@/components/ui/sla-badge";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { User, ExternalLink, Scale, FileText, ArrowRightLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +17,7 @@ export interface UnifiedItem {
   type: "filing" | "process";
   radicado: string | null;
   // Shared fields
+  clientId: string | null;
   clientName: string | null;
   despachoName: string | null;
   demandantes: string | null;
@@ -193,9 +195,12 @@ export function UnifiedPipelineCard({
             )}
 
             {/* Client/Matter info */}
-            <p className="text-sm font-medium text-foreground/80 truncate">
-              {item.clientName || item.matterName || "Sin cliente"}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="text-sm font-medium text-foreground/80 truncate">
+                {item.clientName || item.matterName || "Sin cliente"}
+              </p>
+              <ClientRequiredBadge hasClient={!!item.clientId} />
+            </div>
 
             {/* Filing type or despacho */}
             <p className="text-xs text-muted-foreground truncate mt-0.5">

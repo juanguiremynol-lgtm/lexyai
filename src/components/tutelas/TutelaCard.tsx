@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { Calendar, FileText, Gavel, Archive, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -107,6 +108,7 @@ export function TutelaCard({
               <div className="flex items-center gap-2">
                 <Gavel className="h-4 w-4 text-purple-500" />
                 <p className="text-sm font-medium">Tutela</p>
+                <ClientRequiredBadge hasClient={!!item.clientId} />
               </div>
               {item.radicado && (
                 <p className="text-xs font-mono text-muted-foreground mt-1">

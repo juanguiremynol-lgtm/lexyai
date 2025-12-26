@@ -13,6 +13,7 @@ interface MonitoredProcess {
   last_checked_at: string | null;
   last_change_at: string | null;
   phase: ProcessPhase | null;
+  client_id: string | null;
   clients: { id: string; name: string } | null;
 }
 
