@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NewFilingTypeSelector, FilingCategory } from "./NewFilingTypeSelector";
 import { NewCGPFilingDialog } from "./NewCGPFilingDialog";
 import { NewTutelaDialog } from "@/components/tutelas/NewTutelaDialog";
+import { NewHabeasCorpusDialog } from "@/components/tutelas/NewHabeasCorpusDialog";
 import { NewPeticionDialog } from "@/components/peticiones/NewPeticionDialog";
 import { NewAdminProcessDialog } from "@/components/pipeline/NewAdminProcessDialog";
 
@@ -69,6 +70,18 @@ export function UnifiedFilingCreator({
   if (currentStep === "TUTELA") {
     return (
       <NewTutelaDialog
+        open={open}
+        onOpenChange={handleClose}
+        onBack={initialType ? undefined : handleBack}
+        onSuccess={handleSuccess}
+      />
+    );
+  }
+
+  // Habeas Corpus Dialog
+  if (currentStep === "HABEAS_CORPUS") {
+    return (
+      <NewHabeasCorpusDialog
         open={open}
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
