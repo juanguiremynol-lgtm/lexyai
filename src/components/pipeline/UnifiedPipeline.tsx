@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Scale, Keyboard, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { KANBAN_COLUMNS, PROCESS_PHASES_ORDER, PROCESS_PHASES, FILING_STATUSES } from "@/lib/constants";
+import { PROCESS_PHASES_ORDER, PROCESS_PHASES, FILING_STATUSES } from "@/lib/constants";
 import type { FilingStatus, ProcessPhase } from "@/lib/constants";
 import { toast } from "sonner";
 import { UnifiedPipelineColumn, StageConfig } from "./UnifiedPipelineColumn";
@@ -29,25 +29,39 @@ import { useUndoReclassification } from "@/hooks/use-undo-reclassification";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 
-// Build unified stages configuration
-const FILING_STAGE_COLORS: Record<string, string> = {
-  SENT_TO_REPARTO: "gray",
-  ACTA_PENDING: "amber",
-  ACTA_RECEIVED_PARSED: "sky",
-  COURT_EMAIL_DRAFTED: "slate",
-  RADICADO_PENDING: "zinc",
-  RADICADO_CONFIRMED: "indigo",
-  ICARUS_SYNC_PENDING: "violet",
-  MONITORING_ACTIVE: "emerald",
-};
+// Build unified stages configuration with merged stages for CGP pipeline
+// Merge 1: "Enviado a Reparto" + "Acta Pendiente" → "Enviado y Acta Pendiente"
+// Merge 2: "Acta Recibida" + "Radicado Pendiente" → "Acta Recibida, Radicado Pendiente"  
+// Merge 3: "Radicado Confirmado" + "Pendiente Auto" → "Radicado Confirmado, Pendiente Auto"
 
-const FILING_STAGES: StageConfig[] = KANBAN_COLUMNS.map((status) => ({
-  id: `filing:${status}`,
-  label: FILING_STATUSES[status].label,
-  shortLabel: FILING_STATUSES[status].label.split(" ").slice(0, 2).join(" "),
-  color: FILING_STAGE_COLORS[status] || "blue",
-  type: "filing" as const,
-}));
+const MERGED_FILING_STAGES: StageConfig[] = [
+  {
+    id: "filing:SENT_TO_REPARTO,ACTA_PENDING",
+    label: "Enviado y Acta Pendiente",
+    shortLabel: "Enviado/Acta",
+    color: "amber",
+    type: "filing" as const,
+    mergedStatuses: ["SENT_TO_REPARTO", "ACTA_PENDING"] as FilingStatus[],
+  },
+  {
+    id: "filing:ACTA_RECEIVED_PARSED,RADICADO_PENDING",
+    label: "Acta Recibida, Radicado Pendiente",
+    shortLabel: "Acta/Radicado",
+    color: "sky",
+    type: "filing" as const,
+    mergedStatuses: ["ACTA_RECEIVED_PARSED", "COURT_EMAIL_DRAFTED", "RADICADO_PENDING"] as FilingStatus[],
+  },
+  {
+    id: "filing:RADICADO_CONFIRMED,ICARUS_SYNC_PENDING",
+    label: "Radicado Confirmado, Pendiente Auto",
+    shortLabel: "Radicado/Auto",
+    color: "indigo",
+    type: "filing" as const,
+    mergedStatuses: ["RADICADO_CONFIRMED", "ICARUS_SYNC_PENDING"] as FilingStatus[],
+  },
+];
+
+const FILING_STAGES: StageConfig[] = MERGED_FILING_STAGES;
 
 const PROCESS_STAGES: StageConfig[] = PROCESS_PHASES_ORDER.map((phase) => ({
   id: `process:${phase}`,
@@ -485,7 +499,6 @@ export function UnifiedPipeline() {
 
     const activeId = active.id as string;
     const [itemType, itemId] = activeId.split(":");
-    const [targetType, targetStatus] = (over.id as string).split(":");
 
     const allItems = [...(filings || []), ...(processes || [])];
     const item = allItems.find(i => i.type === itemType && i.id === itemId);
@@ -493,6 +506,9 @@ export function UnifiedPipeline() {
 
     const targetStage = ALL_STAGES.find(s => s.id === over.id);
     if (!targetStage) return;
+
+    // Determine target type from stage
+    const targetType = targetStage.type;
 
     // Check if moving between types (filing <-> process)
     if (itemType !== targetType) {
@@ -508,13 +524,27 @@ export function UnifiedPipeline() {
     // Same type movement
     if (itemType === "filing") {
       const currentStatus = item.filingStatus as FilingStatus;
-      if (currentStatus !== targetStatus) {
-        updateFilingMutation.mutate({ filingId: itemId, newStatus: targetStatus as FilingStatus });
+      // For merged stages, use the first status in the merged list
+      let targetStatus: FilingStatus;
+      if (targetStage.mergedStatuses && targetStage.mergedStatuses.length > 0) {
+        targetStatus = targetStage.mergedStatuses[0] as FilingStatus;
+      } else {
+        targetStatus = targetStage.id.replace("filing:", "") as FilingStatus;
+      }
+      
+      // Only update if current status is NOT in the target stage's merged statuses
+      const isInSameStage = targetStage.mergedStatuses 
+        ? targetStage.mergedStatuses.includes(currentStatus)
+        : currentStatus === targetStatus;
+      
+      if (!isInSameStage) {
+        updateFilingMutation.mutate({ filingId: itemId, newStatus: targetStatus });
       }
     } else {
       const currentPhase = item.phase as ProcessPhase;
-      if (currentPhase !== targetStatus) {
-        updateProcessMutation.mutate({ processId: itemId, newPhase: targetStatus as ProcessPhase });
+      const targetPhase = targetStage.id.replace("process:", "") as ProcessPhase;
+      if (currentPhase !== targetPhase) {
+        updateProcessMutation.mutate({ processId: itemId, newPhase: targetPhase });
       }
     }
   }, [filings, processes, updateFilingMutation, updateProcessMutation]);
@@ -538,10 +568,15 @@ export function UnifiedPipeline() {
     if (item.type === "filing") {
       convertFilingToProcess.mutate({ filing: item, hasAutoAdmisorio });
     } else {
-      // Extract target status from stage id if converting process to filing
-      const targetStatus = targetStage?.type === "filing" 
-        ? (targetStage.id.replace("filing:", "") as FilingStatus)
-        : undefined;
+      // Extract target status from stage - for merged stages, use the first status
+      let targetStatus: FilingStatus | undefined;
+      if (targetStage?.type === "filing") {
+        if (targetStage.mergedStatuses && targetStage.mergedStatuses.length > 0) {
+          targetStatus = targetStage.mergedStatuses[0] as FilingStatus;
+        } else {
+          targetStatus = targetStage.id.replace("filing:", "") as FilingStatus;
+        }
+      }
       convertProcessToFiling.mutate({ process: item, hasAutoAdmisorio, targetStatus });
     }
 
@@ -562,14 +597,24 @@ export function UnifiedPipeline() {
 
     const placedItemIds = new Set<string>();
 
-    // Place filings - only in filing stages
+    // Helper to find the merged filing stage for a status
+    const findFilingStage = (status: string): StageConfig | undefined => {
+      return FILING_STAGES.find(stage => {
+        if (stage.mergedStatuses) {
+          return stage.mergedStatuses.includes(status);
+        }
+        return stage.id === `filing:${status}`;
+      });
+    };
+
+    // Place filings - only in filing stages (now supports merged stages)
     allFilings.forEach((filing) => {
       const uniqueKey = `filing:${filing.id}`;
       if (placedItemIds.has(uniqueKey)) return;
       
-      const stageId = `filing:${filing.filingStatus}`;
-      if (result[stageId]) {
-        result[stageId].push(filing);
+      const stage = findFilingStage(filing.filingStatus as string);
+      if (stage && result[stage.id]) {
+        result[stage.id].push(filing);
         placedItemIds.add(uniqueKey);
       } else {
         const firstFilingStage = FILING_STAGES[0];

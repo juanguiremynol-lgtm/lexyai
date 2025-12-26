@@ -11,6 +11,7 @@ export interface StageConfig {
   shortLabel: string;
   color: string;
   type: StageType;
+  mergedStatuses?: string[]; // For merged stages, the list of statuses that map to this stage
 }
 
 interface UnifiedPipelineColumnProps {
