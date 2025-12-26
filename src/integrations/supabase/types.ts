@@ -211,6 +211,379 @@ export type Database = {
           },
         ]
       }
+      cgp_inactivity_tracker: {
+        Row: {
+          created_at: string
+          filing_id: string | null
+          has_favorable_sentencia: boolean
+          id: string
+          inactivity_threshold_months: number
+          is_at_risk: boolean
+          last_activity_date: string
+          last_activity_description: string | null
+          last_activity_milestone_id: string | null
+          owner_id: string
+          process_id: string | null
+          risk_since: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          filing_id?: string | null
+          has_favorable_sentencia?: boolean
+          id?: string
+          inactivity_threshold_months?: number
+          is_at_risk?: boolean
+          last_activity_date: string
+          last_activity_description?: string | null
+          last_activity_milestone_id?: string | null
+          owner_id: string
+          process_id?: string | null
+          risk_since?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          filing_id?: string | null
+          has_favorable_sentencia?: boolean
+          id?: string
+          inactivity_threshold_months?: number
+          is_at_risk?: boolean
+          last_activity_date?: string
+          last_activity_description?: string | null
+          last_activity_milestone_id?: string | null
+          owner_id?: string
+          process_id?: string | null
+          risk_since?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_inactivity_tracker_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_last_activity_milestone_id_fkey"
+            columns: ["last_activity_milestone_id"]
+            isOneToOne: false
+            referencedRelation: "cgp_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cgp_milestones: {
+        Row: {
+          attachments: Json | null
+          created_at: string
+          created_by: string | null
+          custom_type_name: string | null
+          event_date: string | null
+          event_time: string | null
+          filing_id: string | null
+          id: string
+          in_audience: boolean
+          milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          notes: string | null
+          occurred: boolean
+          owner_id: string
+          process_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attachments?: Json | null
+          created_at?: string
+          created_by?: string | null
+          custom_type_name?: string | null
+          event_date?: string | null
+          event_time?: string | null
+          filing_id?: string | null
+          id?: string
+          in_audience?: boolean
+          milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          notes?: string | null
+          occurred?: boolean
+          owner_id: string
+          process_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attachments?: Json | null
+          created_at?: string
+          created_by?: string | null
+          custom_type_name?: string | null
+          event_date?: string | null
+          event_time?: string | null
+          filing_id?: string | null
+          id?: string
+          in_audience?: boolean
+          milestone_type?: Database["public"]["Enums"]["cgp_milestone_type"]
+          notes?: string | null
+          occurred?: boolean
+          owner_id?: string
+          process_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_milestones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cgp_term_instances: {
+        Row: {
+          computed_with_suspensions: boolean
+          created_at: string
+          due_date: string
+          filing_id: string | null
+          id: string
+          in_audience: boolean
+          last_computed_at: string
+          original_due_date: string
+          owner_id: string
+          pause_reason: string | null
+          paused_at: string | null
+          paused_days_accumulated: number | null
+          process_id: string | null
+          satisfaction_notes: string | null
+          satisfied_at: string | null
+          satisfied_by_milestone_id: string | null
+          start_date: string
+          status: Database["public"]["Enums"]["cgp_term_status"]
+          term_name: string
+          term_template_code: string
+          term_template_id: string | null
+          trigger_date: string
+          trigger_milestone_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          computed_with_suspensions?: boolean
+          created_at?: string
+          due_date: string
+          filing_id?: string | null
+          id?: string
+          in_audience?: boolean
+          last_computed_at?: string
+          original_due_date: string
+          owner_id: string
+          pause_reason?: string | null
+          paused_at?: string | null
+          paused_days_accumulated?: number | null
+          process_id?: string | null
+          satisfaction_notes?: string | null
+          satisfied_at?: string | null
+          satisfied_by_milestone_id?: string | null
+          start_date: string
+          status?: Database["public"]["Enums"]["cgp_term_status"]
+          term_name: string
+          term_template_code: string
+          term_template_id?: string | null
+          trigger_date: string
+          trigger_milestone_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          computed_with_suspensions?: boolean
+          created_at?: string
+          due_date?: string
+          filing_id?: string | null
+          id?: string
+          in_audience?: boolean
+          last_computed_at?: string
+          original_due_date?: string
+          owner_id?: string
+          pause_reason?: string | null
+          paused_at?: string | null
+          paused_days_accumulated?: number | null
+          process_id?: string | null
+          satisfaction_notes?: string | null
+          satisfied_at?: string | null
+          satisfied_by_milestone_id?: string | null
+          start_date?: string
+          status?: Database["public"]["Enums"]["cgp_term_status"]
+          term_name?: string
+          term_template_code?: string
+          term_template_id?: string | null
+          trigger_date?: string
+          trigger_milestone_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_term_instances_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_satisfied_by_milestone_id_fkey"
+            columns: ["satisfied_by_milestone_id"]
+            isOneToOne: false
+            referencedRelation: "cgp_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_term_template_id_fkey"
+            columns: ["term_template_id"]
+            isOneToOne: false
+            referencedRelation: "cgp_term_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_trigger_milestone_id_fkey"
+            columns: ["trigger_milestone_id"]
+            isOneToOne: false
+            referencedRelation: "cgp_milestones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cgp_term_templates: {
+        Row: {
+          active: boolean
+          alerts_days_before: Json | null
+          code: string
+          consequence_summary: string | null
+          created_at: string
+          description: string | null
+          duration_unit: Database["public"]["Enums"]["cgp_duration_unit"]
+          duration_value: number
+          id: string
+          is_system: boolean
+          legal_basis: string | null
+          name: string
+          owner_id: string | null
+          pause_on_expediente_al_despacho: boolean
+          pause_on_judicial_suspension: boolean
+          pause_on_resource_filed: boolean
+          process_family: string
+          process_type: Database["public"]["Enums"]["cgp_process_type"]
+          satisfied_by_milestone_type:
+            | Database["public"]["Enums"]["cgp_milestone_type"]
+            | null
+          start_rule: Database["public"]["Enums"]["cgp_start_rule"]
+          trigger_milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          alerts_days_before?: Json | null
+          code: string
+          consequence_summary?: string | null
+          created_at?: string
+          description?: string | null
+          duration_unit?: Database["public"]["Enums"]["cgp_duration_unit"]
+          duration_value: number
+          id?: string
+          is_system?: boolean
+          legal_basis?: string | null
+          name: string
+          owner_id?: string | null
+          pause_on_expediente_al_despacho?: boolean
+          pause_on_judicial_suspension?: boolean
+          pause_on_resource_filed?: boolean
+          process_family?: string
+          process_type?: Database["public"]["Enums"]["cgp_process_type"]
+          satisfied_by_milestone_type?:
+            | Database["public"]["Enums"]["cgp_milestone_type"]
+            | null
+          start_rule?: Database["public"]["Enums"]["cgp_start_rule"]
+          trigger_milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          alerts_days_before?: Json | null
+          code?: string
+          consequence_summary?: string | null
+          created_at?: string
+          description?: string | null
+          duration_unit?: Database["public"]["Enums"]["cgp_duration_unit"]
+          duration_value?: number
+          id?: string
+          is_system?: boolean
+          legal_basis?: string | null
+          name?: string
+          owner_id?: string | null
+          pause_on_expediente_al_despacho?: boolean
+          pause_on_judicial_suspension?: boolean
+          pause_on_resource_filed?: boolean
+          process_family?: string
+          process_type?: Database["public"]["Enums"]["cgp_process_type"]
+          satisfied_by_milestone_type?:
+            | Database["public"]["Enums"]["cgp_milestone_type"]
+            | null
+          start_rule?: Database["public"]["Enums"]["cgp_start_rule"]
+          trigger_milestone_type?: Database["public"]["Enums"]["cgp_milestone_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_term_templates_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_documents: {
         Row: {
           client_id: string
@@ -1834,6 +2207,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          default_alert_email: string | null
           email_reminders_enabled: boolean | null
           estados_import_interval_days: number | null
           firm_name: string | null
@@ -1856,6 +2230,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          default_alert_email?: string | null
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
@@ -1878,6 +2253,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          default_alert_email?: string | null
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
@@ -2001,6 +2377,59 @@ export type Database = {
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"
+      cgp_duration_unit: "BUSINESS_DAYS" | "CALENDAR_DAYS" | "MONTHS" | "YEARS"
+      cgp_milestone_type:
+        | "DEMANDA_RADICADA"
+        | "AUTO_ADMISORIO_NOTIFICADO"
+        | "MANDAMIENTO_EJECUTIVO_NOTIFICADO"
+        | "REQUERIMIENTO_PAGO_NOTIFICADO"
+        | "TRASLADO_EXCEPCIONES_NOTIFICADO"
+        | "TRASLADO_DEMANDA_NOTIFICADO"
+        | "CONTESTACION_PRESENTADA"
+        | "EXCEPCIONES_PROPUESTAS"
+        | "EXCEPCIONES_RESUELTAS"
+        | "RECURSO_REPOSICION_INTERPUESTO"
+        | "RECURSO_REPOSICION_RESUELTO"
+        | "RECURSO_APELACION_INTERPUESTO"
+        | "RECURSO_APELACION_CONCEDIDO"
+        | "RECURSO_APELACION_RESUELTO"
+        | "RECURSO_SUPLICA_INTERPUESTO"
+        | "RECURSO_QUEJA_INTERPUESTO"
+        | "EXPEDIENTE_AL_DESPACHO"
+        | "EXPEDIENTE_A_SECRETARIA"
+        | "AUDIENCIA_PROGRAMADA"
+        | "AUDIENCIA_CELEBRADA"
+        | "SENTENCIA_PRIMERA_INSTANCIA"
+        | "SENTENCIA_SEGUNDA_INSTANCIA"
+        | "EXPEDIENTE_RECIBIDO_SUPERIOR"
+        | "ULTIMA_ACTUACION"
+        | "SILENCIO_DEUDOR"
+        | "OPOSICION_MONITORIO"
+        | "EMBARGO_SECUESTRO_PRACTICADO"
+        | "SENTENCIA_EJECUTORIA"
+        | "AVALUO_BIENES"
+        | "CUSTOM"
+      cgp_process_type:
+        | "VERBAL"
+        | "VERBAL_SUMARIO"
+        | "MONITORIO"
+        | "EJECUTIVO"
+        | "EJECUTIVO_HIPOTECARIO"
+        | "RECURSOS"
+        | "GENERAL"
+      cgp_start_rule:
+        | "NEXT_DAY_AFTER_NOTIFICATION"
+        | "SAME_DAY_IN_AUDIENCE"
+        | "NEXT_DAY_AFTER_LAST_NOTIFICATION"
+        | "IMMEDIATE"
+      cgp_term_status:
+        | "PENDING"
+        | "RUNNING"
+        | "PAUSED"
+        | "EXPIRED"
+        | "SATISFIED"
+        | "NOT_APPLICABLE"
+        | "INTERRUPTED"
       data_source: "CPNU" | "PUBLICACIONES" | "HISTORICO"
       document_kind:
         | "DEMANDA"
@@ -2186,6 +2615,63 @@ export const Constants = {
   public: {
     Enums: {
       alert_severity: ["INFO", "WARN", "CRITICAL"],
+      cgp_duration_unit: ["BUSINESS_DAYS", "CALENDAR_DAYS", "MONTHS", "YEARS"],
+      cgp_milestone_type: [
+        "DEMANDA_RADICADA",
+        "AUTO_ADMISORIO_NOTIFICADO",
+        "MANDAMIENTO_EJECUTIVO_NOTIFICADO",
+        "REQUERIMIENTO_PAGO_NOTIFICADO",
+        "TRASLADO_EXCEPCIONES_NOTIFICADO",
+        "TRASLADO_DEMANDA_NOTIFICADO",
+        "CONTESTACION_PRESENTADA",
+        "EXCEPCIONES_PROPUESTAS",
+        "EXCEPCIONES_RESUELTAS",
+        "RECURSO_REPOSICION_INTERPUESTO",
+        "RECURSO_REPOSICION_RESUELTO",
+        "RECURSO_APELACION_INTERPUESTO",
+        "RECURSO_APELACION_CONCEDIDO",
+        "RECURSO_APELACION_RESUELTO",
+        "RECURSO_SUPLICA_INTERPUESTO",
+        "RECURSO_QUEJA_INTERPUESTO",
+        "EXPEDIENTE_AL_DESPACHO",
+        "EXPEDIENTE_A_SECRETARIA",
+        "AUDIENCIA_PROGRAMADA",
+        "AUDIENCIA_CELEBRADA",
+        "SENTENCIA_PRIMERA_INSTANCIA",
+        "SENTENCIA_SEGUNDA_INSTANCIA",
+        "EXPEDIENTE_RECIBIDO_SUPERIOR",
+        "ULTIMA_ACTUACION",
+        "SILENCIO_DEUDOR",
+        "OPOSICION_MONITORIO",
+        "EMBARGO_SECUESTRO_PRACTICADO",
+        "SENTENCIA_EJECUTORIA",
+        "AVALUO_BIENES",
+        "CUSTOM",
+      ],
+      cgp_process_type: [
+        "VERBAL",
+        "VERBAL_SUMARIO",
+        "MONITORIO",
+        "EJECUTIVO",
+        "EJECUTIVO_HIPOTECARIO",
+        "RECURSOS",
+        "GENERAL",
+      ],
+      cgp_start_rule: [
+        "NEXT_DAY_AFTER_NOTIFICATION",
+        "SAME_DAY_IN_AUDIENCE",
+        "NEXT_DAY_AFTER_LAST_NOTIFICATION",
+        "IMMEDIATE",
+      ],
+      cgp_term_status: [
+        "PENDING",
+        "RUNNING",
+        "PAUSED",
+        "EXPIRED",
+        "SATISFIED",
+        "NOT_APPLICABLE",
+        "INTERRUPTED",
+      ],
       data_source: ["CPNU", "PUBLICACIONES", "HISTORICO"],
       document_kind: [
         "DEMANDA",
