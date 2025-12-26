@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
-import { ReviewAlerts } from "@/components/alerts";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -85,8 +84,6 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
-
-      <ReviewAlerts />
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
