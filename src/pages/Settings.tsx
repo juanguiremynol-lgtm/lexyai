@@ -10,12 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Plus, Trash2, Clock, FileText, Mail, FileSpreadsheet, Bell, Upload } from "lucide-react";
+import { Save, Download, Plus, Trash2, Clock, FileText, Mail, FileSpreadsheet, Bell, Upload, CalendarOff } from "lucide-react";
 import { toast } from "sonner";
 import type { RepartoEntry } from "@/types/database";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
+import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -167,6 +168,7 @@ export default function Settings() {
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
+          <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="reparto">Directorio Reparto</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
@@ -363,6 +365,10 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="suspensiones">
+          <JudicialSuspensionsSettings />
         </TabsContent>
 
         <TabsContent value="sla">
