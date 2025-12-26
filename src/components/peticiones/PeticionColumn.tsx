@@ -1,7 +1,5 @@
 import { useDroppable } from "@dnd-kit/core";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PeticionCard, PeticionItem } from "./PeticionCard";
 import type { PeticionPhase } from "@/lib/peticiones-constants";
@@ -23,8 +21,6 @@ interface PeticionColumnProps {
   isItemSelected?: (item: { id: string; type: "peticion" }) => boolean;
   onToggleSelection?: (item: { id: string; type: "peticion" }, shiftKey: boolean) => void;
   onEscalateToTutela?: (item: PeticionItem) => void;
-  showCreateButton?: boolean;
-  onCreateClick?: () => void;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -47,8 +43,6 @@ export function PeticionColumn({
   isItemSelected,
   onToggleSelection,
   onEscalateToTutela,
-  showCreateButton = false,
-  onCreateClick,
 }: PeticionColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -75,12 +69,6 @@ export function PeticionColumn({
               {items.length}
             </Badge>
           </div>
-          {showCreateButton && onCreateClick && (
-            <Button size="sm" onClick={onCreateClick} className="h-7 px-2">
-              <Plus className="h-4 w-4 mr-1" />
-              Nueva Petición
-            </Button>
-          )}
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           {PETICION_PHASES[stage.phase].description}

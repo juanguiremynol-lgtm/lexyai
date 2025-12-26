@@ -1,14 +1,6 @@
 import { useDroppable } from "@dnd-kit/core";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Plus, FileText, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type StageType = "filing" | "process";
@@ -30,9 +22,6 @@ interface UnifiedPipelineColumnProps {
   onReclassify?: (item: UnifiedItem) => void;
   onToggleSelection?: (item: UnifiedItem, shiftKey: boolean) => void;
   onToggleFlag?: (item: UnifiedItem) => void;
-  showCreateButton?: boolean;
-  onCreateFiling?: () => void;
-  onCreateProcess?: () => void;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -80,9 +69,6 @@ export function UnifiedPipelineColumn({
   onReclassify,
   onToggleSelection,
   onToggleFlag,
-  showCreateButton = false,
-  onCreateFiling,
-  onCreateProcess,
 }: UnifiedPipelineColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -136,29 +122,6 @@ export function UnifiedPipelineColumn({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            {showCreateButton && (onCreateFiling || onCreateProcess) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="h-7 px-2">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {onCreateFiling && (
-                    <DropdownMenuItem onClick={onCreateFiling}>
-                      <FileText className="h-4 w-4 mr-2" />
-                      Nueva Radicación CGP
-                    </DropdownMenuItem>
-                  )}
-                  {onCreateProcess && (
-                    <DropdownMenuItem onClick={onCreateProcess}>
-                      <Scale className="h-4 w-4 mr-2" />
-                      Nuevo Proceso
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
             <div className={cn(
               "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold",
               items.length > 0 

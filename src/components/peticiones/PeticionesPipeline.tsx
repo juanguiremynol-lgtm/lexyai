@@ -310,7 +310,7 @@ export function PeticionesPipeline() {
       >
         <ScrollArea className="w-full whitespace-nowrap">
           <div className="flex gap-3 pb-4">
-            {PETICION_STAGES.map((stage, index) => (
+            {PETICION_STAGES.map((stage) => (
               <PeticionColumn
                 key={stage.id}
                 stage={stage}
@@ -319,8 +319,6 @@ export function PeticionesPipeline() {
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onEscalateToTutela={(peticion) => setEscalateDialog({ open: true, peticion })}
-                showCreateButton={index === 0}
-                onCreateClick={() => setNewDialogOpen(true)}
               />
             ))}
           </div>

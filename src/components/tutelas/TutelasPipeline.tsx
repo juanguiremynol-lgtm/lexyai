@@ -376,7 +376,7 @@ export function TutelasPipeline() {
       >
         <ScrollArea className="w-full whitespace-nowrap">
           <div className="flex gap-3 pb-4">
-            {TUTELA_STAGES.map((stage, index) => (
+            {TUTELA_STAGES.map((stage) => (
               <TutelaColumn
                 key={stage.id}
                 stage={stage}
@@ -385,9 +385,6 @@ export function TutelasPipeline() {
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onArchivePrompt={handleArchivePrompt}
-                showCreateButton={index === 0}
-                onCreateTutela={() => setNewDialogOpen(true)}
-                onCreateHabeas={() => setHabeasDialogOpen(true)}
               />
             ))}
           </div>
