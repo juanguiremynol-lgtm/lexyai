@@ -1,6 +1,14 @@
 import { useDroppable } from "@dnd-kit/core";
 import { UnifiedPipelineCard, UnifiedItem } from "./UnifiedPipelineCard";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, FileText, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type StageType = "filing" | "process";
@@ -21,6 +29,10 @@ interface UnifiedPipelineColumnProps {
   isItemSelected?: (item: UnifiedItem) => boolean;
   onReclassify?: (item: UnifiedItem) => void;
   onToggleSelection?: (item: UnifiedItem, shiftKey: boolean) => void;
+  onToggleFlag?: (item: UnifiedItem) => void;
+  showCreateButton?: boolean;
+  onCreateFiling?: () => void;
+  onCreateProcess?: () => void;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -67,6 +79,10 @@ export function UnifiedPipelineColumn({
   isItemSelected,
   onReclassify,
   onToggleSelection,
+  onToggleFlag,
+  showCreateButton = false,
+  onCreateFiling,
+  onCreateProcess,
 }: UnifiedPipelineColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -75,6 +91,13 @@ export function UnifiedPipelineColumn({
 
   const colorClass = STAGE_COLORS[stage.color] || STAGE_COLORS.blue;
   const badgeClass = BADGE_COLORS[stage.color] || BADGE_COLORS.blue;
+
+  // Sort items: flagged first
+  const sortedItems = [...items].sort((a, b) => {
+    if (a.isFlagged && !b.isFlagged) return -1;
+    if (!a.isFlagged && b.isFlagged) return 1;
+    return 0;
+  });
 
   return (
     <div className="flex-shrink-0 w-72">
@@ -112,21 +135,46 @@ export function UnifiedPipelineColumn({
               {stage.type === "filing" ? "Radicación" : "Proceso"}
             </span>
           </div>
-          <div className={cn(
-            "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold",
-            items.length > 0 
-              ? stage.type === "filing" 
-                ? "bg-blue-500 text-white" 
-                : "bg-emerald-500 text-white"
-              : "bg-muted text-muted-foreground"
-          )}>
-            {items.length}
+          <div className="flex items-center gap-2">
+            {showCreateButton && (onCreateFiling || onCreateProcess) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" className="h-7 px-2">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onCreateFiling && (
+                    <DropdownMenuItem onClick={onCreateFiling}>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Nueva Radicación CGP
+                    </DropdownMenuItem>
+                  )}
+                  {onCreateProcess && (
+                    <DropdownMenuItem onClick={onCreateProcess}>
+                      <Scale className="h-4 w-4 mr-2" />
+                      Nuevo Proceso
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <div className={cn(
+              "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold",
+              items.length > 0 
+                ? stage.type === "filing" 
+                  ? "bg-blue-500 text-white" 
+                  : "bg-emerald-500 text-white"
+                : "bg-muted text-muted-foreground"
+            )}>
+              {items.length}
+            </div>
           </div>
         </div>
         
         {/* Cards container */}
         <div className="space-y-3">
-          {items.map((item) => {
+          {sortedItems.map((item) => {
             const itemKey = `${item.type}:${item.id}`;
             return (
               <UnifiedPipelineCard 
@@ -137,6 +185,7 @@ export function UnifiedPipelineColumn({
                 isSelectionMode={isSelectionMode}
                 onReclassify={onReclassify}
                 onToggleSelection={onToggleSelection}
+                onToggleFlag={onToggleFlag}
               />
             );
           })}
