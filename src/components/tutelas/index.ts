@@ -7,5 +7,8 @@ export { ArchivePromptDialog } from "./ArchivePromptDialog";
 export { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";
 export { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
 export { TutelasPipeline } from "./TutelasPipeline";
+export { DesacatoPipeline } from "./DesacatoPipeline";
+export { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
 export type { TutelaItem } from "./TutelaCard";
 export type { TutelaStageConfig } from "./TutelaColumn";
+export type { DesacatoItem } from "./DesacatoPipeline";

@@ -4,6 +4,13 @@ export type TutelaPhase =
   | "FALLO_PRIMERA_INSTANCIA"
   | "FALLO_SEGUNDA_INSTANCIA";
 
+export type DesacatoPhase =
+  | "DESACATO_RADICACION"
+  | "DESACATO_REQUERIMIENTO"
+  | "DESACATO_SEGUNDA_SOLICITUD"
+  | "DESACATO_APERTURA_INCIDENTE"
+  | "DESACATO_FALLO_INCIDENTE";
+
 export const TUTELA_PHASES: Record<TutelaPhase, { label: string; shortLabel: string; color: string }> = {
   TUTELA_RADICADA: {
     label: "Tutela Radicada",
@@ -27,6 +34,34 @@ export const TUTELA_PHASES: Record<TutelaPhase, { label: string; shortLabel: str
   },
 };
 
+export const DESACATO_PHASES: Record<DesacatoPhase, { label: string; shortLabel: string; color: string }> = {
+  DESACATO_RADICACION: {
+    label: "Radicación Desacato",
+    shortLabel: "Radicación",
+    color: "bg-orange-500",
+  },
+  DESACATO_REQUERIMIENTO: {
+    label: "Requerimiento",
+    shortLabel: "Requerimiento",
+    color: "bg-yellow-500",
+  },
+  DESACATO_SEGUNDA_SOLICITUD: {
+    label: "Segunda Solicitud",
+    shortLabel: "2da Solicitud",
+    color: "bg-amber-600",
+  },
+  DESACATO_APERTURA_INCIDENTE: {
+    label: "Apertura Incidente",
+    shortLabel: "Apertura",
+    color: "bg-red-500",
+  },
+  DESACATO_FALLO_INCIDENTE: {
+    label: "Fallo Incidente",
+    shortLabel: "Fallo",
+    color: "bg-purple-600",
+  },
+};
+
 export const TUTELA_PHASES_ORDER: TutelaPhase[] = [
   "TUTELA_RADICADA",
   "TUTELA_ADMITIDA",
@@ -34,10 +69,23 @@ export const TUTELA_PHASES_ORDER: TutelaPhase[] = [
   "FALLO_SEGUNDA_INSTANCIA",
 ];
 
+export const DESACATO_PHASES_ORDER: DesacatoPhase[] = [
+  "DESACATO_RADICACION",
+  "DESACATO_REQUERIMIENTO",
+  "DESACATO_SEGUNDA_SOLICITUD",
+  "DESACATO_APERTURA_INCIDENTE",
+  "DESACATO_FALLO_INCIDENTE",
+];
+
 // Final phases that trigger archive prompt
 export const TUTELA_FINAL_PHASES: TutelaPhase[] = [
   "FALLO_PRIMERA_INSTANCIA",
   "FALLO_SEGUNDA_INSTANCIA",
+];
+
+// Final phase for desacato
+export const DESACATO_FINAL_PHASES: DesacatoPhase[] = [
+  "DESACATO_FALLO_INCIDENTE",
 ];
 
 // Days until next archive prompt (business days)

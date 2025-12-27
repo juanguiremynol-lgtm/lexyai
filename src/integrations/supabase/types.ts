@@ -1006,6 +1006,69 @@ export type Database = {
           },
         ]
       }
+      desacato_incidents: {
+        Row: {
+          apertura_date: string | null
+          created_at: string
+          fallo_date: string | null
+          fallo_favorable: boolean | null
+          id: string
+          notes: string | null
+          owner_id: string
+          phase: string
+          radicacion_date: string | null
+          requerimiento_date: string | null
+          segunda_solicitud_date: string | null
+          tutela_id: string
+          updated_at: string
+        }
+        Insert: {
+          apertura_date?: string | null
+          created_at?: string
+          fallo_date?: string | null
+          fallo_favorable?: boolean | null
+          id?: string
+          notes?: string | null
+          owner_id: string
+          phase?: string
+          radicacion_date?: string | null
+          requerimiento_date?: string | null
+          segunda_solicitud_date?: string | null
+          tutela_id: string
+          updated_at?: string
+        }
+        Update: {
+          apertura_date?: string | null
+          created_at?: string
+          fallo_date?: string | null
+          fallo_favorable?: boolean | null
+          id?: string
+          notes?: string | null
+          owner_id?: string
+          phase?: string
+          radicacion_date?: string | null
+          requerimiento_date?: string | null
+          segunda_solicitud_date?: string | null
+          tutela_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "desacato_incidents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "desacato_incidents_tutela_id_fkey"
+            columns: ["tutela_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           extracted_json: Json | null
