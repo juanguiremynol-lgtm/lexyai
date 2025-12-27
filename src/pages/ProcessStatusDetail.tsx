@@ -45,6 +45,7 @@ import {
   FileSpreadsheet,
   Users,
   ArrowRightLeft,
+  Mail,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia, PROCESS_PHASES, PROCESS_PHASES_ORDER, type ProcessPhase } from "@/lib/constants";
@@ -54,6 +55,7 @@ import { EstadosList } from "@/components/estados";
 import { SharepointHub } from "@/components/shared";
 import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog";
 import { useReclassification } from "@/hooks/use-reclassification";
+import { EntityEmailTab } from "@/components/email";
 
 interface Attachment {
   label: string;
@@ -507,6 +509,10 @@ export default function ProcessStatusDetail() {
             <Calendar className="h-4 w-4 mr-2" />
             Configuración
           </TabsTrigger>
+          <TabsTrigger value="emails">
+            <Mail className="h-4 w-4 mr-2" />
+            Correos
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="timeline" className="space-y-4">
@@ -917,6 +923,15 @@ export default function ProcessStatusDetail() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="emails">
+          <EntityEmailTab
+            entityType="CGP_CASE"
+            entityId={process.id}
+            entityTable="monitored_processes"
+            emailLinkingEnabled={process.email_linking_enabled ?? false}
+          />
         </TabsContent>
       </Tabs>
     </div>

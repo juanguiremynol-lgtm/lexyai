@@ -29,6 +29,7 @@ import NotFound from "./pages/NotFound";
 import DocumentSearch from "./pages/DocumentSearch";
 import PeticionDetail from "./pages/PeticionDetail";
 import AdminProcessDetail from "./pages/AdminProcessDetail";
+import EmailInboxPage from "./pages/EmailInboxPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
@@ -89,6 +90,7 @@ const App = () => (
             <Route path="/documents" element={<ErrorBoundary><DocumentSearch /></ErrorBoundary>} />
             <Route path="/peticiones/:id" element={<ErrorBoundary><PeticionDetail /></ErrorBoundary>} />
             <Route path="/admin-processes/:id" element={<ErrorBoundary><AdminProcessDetail /></ErrorBoundary>} />
+            <Route path="/email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
           <Route path="*" element={<NotFound />} />
