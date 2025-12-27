@@ -27,12 +27,13 @@ interface NewTutelaDialogProps {
   onOpenChange: (open: boolean) => void;
   onBack?: () => void;
   onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
-export function NewTutelaDialog({ open, onOpenChange, onBack, onSuccess }: NewTutelaDialogProps) {
+export function NewTutelaDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewTutelaDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
-    clientId: "",
+    clientId: defaultClientId || "",
     demandantes: "",
     demandados: "",
     courtName: "",

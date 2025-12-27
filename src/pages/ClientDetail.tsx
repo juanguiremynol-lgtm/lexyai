@@ -54,11 +54,15 @@ import {
   Scale,
   Eye,
   Wallet,
+  Shield,
+  Building2,
+  ScrollText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ContractsTab, ClientDocumentsTab } from "@/components/clients";
+import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
 import type { Client } from "@/types/client";
 
 
@@ -85,7 +89,7 @@ export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
-  const [newMatterOpen, setNewMatterOpen] = useState(false);
+  const [newFilingOpen, setNewFilingOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: client, isLoading: clientLoading } = useQuery({
@@ -200,30 +204,29 @@ export default function ClientDetail() {
     },
   });
 
-  const createMatter = useMutation({
-    mutationFn: async (form: FormData) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-
-      const { error } = await supabase.from("matters").insert({
-        owner_id: user.id,
-        client_id: id,
-        client_name: client?.name || "",
-        matter_name: form.get("matter_name") as string,
-        practice_area: form.get("practice_area") as string || null,
-        notes: form.get("notes") as string || null,
-      });
+  // Fetch peticiones linked to this client
+  const { data: clientPeticiones } = useQuery({
+    queryKey: ["client-peticiones", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("peticiones")
+        .select("id, entity_name, subject, phase, radicado, deadline_at, filed_at, updated_at")
+        .eq("client_id", id)
+        .order("updated_at", { ascending: false });
       if (error) throw error;
+      return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["client-matters", id] });
-      setNewMatterOpen(false);
-      toast.success("Asunto creado");
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
+    enabled: !!id,
   });
+
+  // Separate tutelas and habeas corpus from regular filings
+  const tutelas = clientFilings?.filter(f => f.filing_type === "TUTELA") || [];
+  const habeasCorpus = clientFilings?.filter(f => f.filing_type === "HABEAS_CORPUS") || [];
+  const cgpFilings = clientFilings?.filter(f => !["TUTELA", "HABEAS_CORPUS"].includes(f.filing_type)) || [];
+
+  // Administrative processes from monitored_processes
+  const adminProcesses = monitoredProcesses?.filter(p => p.process_type === "ADMINISTRATIVE") || [];
+  const judicialProcesses = monitoredProcesses?.filter(p => p.process_type !== "ADMINISTRATIVE") || [];
 
   const deleteClient = useMutation({
     mutationFn: async () => {
@@ -431,70 +434,41 @@ export default function ClientDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle>Radicaciones y Procesos</CardTitle>
+            <CardTitle>Trámites y Procesos</CardTitle>
             <CardDescription>
-              Radicaciones son trámites previos. Procesos son aquellos con radicado confirmado y auto admisorio.
+              Demandas, tutelas, peticiones, habeas corpus y procesos administrativos vinculados a este cliente
             </CardDescription>
           </div>
-          <Dialog open={newMatterOpen} onOpenChange={setNewMatterOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Plus className="mr-2 h-4 w-4" /> Nuevo Asunto
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Crear Asunto para {client.name}</DialogTitle>
-              </DialogHeader>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createMatter.mutate(new FormData(e.currentTarget));
-                }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="matter_name">Nombre del Asunto *</Label>
-                  <Input
-                    id="matter_name"
-                    name="matter_name"
-                    required
-                    placeholder="Ej: Divorcio vs. María López"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="practice_area">Área de Práctica</Label>
-                  <Input
-                    id="practice_area"
-                    name="practice_area"
-                    placeholder="Ej: Familia"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notas</Label>
-                  <Textarea
-                    id="notes"
-                    name="notes"
-                    placeholder="Notas adicionales..."
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={createMatter.isPending}>
-                  {createMatter.isPending ? "Creando..." : "Crear Asunto"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button size="sm" onClick={() => setNewFilingOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo
+          </Button>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="filings">
-            <TabsList className="mb-4">
-              <TabsTrigger value="filings" className="flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Radicaciones ({clientFilings?.length || 0})
-              </TabsTrigger>
-              <TabsTrigger value="monitored" className="flex items-center gap-2">
+          <Tabs defaultValue="cgp">
+            <TabsList className="mb-4 flex-wrap h-auto gap-1">
+              <TabsTrigger value="cgp" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
-                Procesos ({monitoredProcesses?.length || 0})
+                Demandas CGP ({cgpFilings.length})
+              </TabsTrigger>
+              <TabsTrigger value="tutelas" className="flex items-center gap-2">
+                <Shield className="h-4 w-4" />
+                Tutelas ({tutelas.length})
+              </TabsTrigger>
+              <TabsTrigger value="peticiones" className="flex items-center gap-2">
+                <ScrollText className="h-4 w-4" />
+                Peticiones ({clientPeticiones?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="habeas" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Habeas Corpus ({habeasCorpus.length})
+              </TabsTrigger>
+              <TabsTrigger value="admin" className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Administrativos ({adminProcesses.length})
+              </TabsTrigger>
+              <TabsTrigger value="judicial" className="flex items-center gap-2">
+                <Scale className="h-4 w-4" />
+                Procesos Judiciales ({judicialProcesses.length})
               </TabsTrigger>
               <TabsTrigger value="contracts" className="flex items-center gap-2">
                 <Wallet className="h-4 w-4" />
@@ -506,14 +480,15 @@ export default function ClientDetail() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="filings">
-              {!clientFilings || clientFilings.length === 0 ? (
+            {/* CGP Demandas Tab */}
+            <TabsContent value="cgp">
+              {cgpFilings.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <FileText className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay radicaciones vinculadas a este cliente</p>
-                  <p className="text-sm mt-2">
-                    Cree una nueva radicación desde la página de Radicaciones
-                  </p>
+                  <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay demandas CGP vinculadas a este cliente</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Crear Demanda
+                  </Button>
                 </div>
               ) : (
                 <Table>
@@ -528,7 +503,7 @@ export default function ClientDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clientFilings.map((filing) => (
+                    {cgpFilings.map((filing) => (
                       <TableRow key={filing.id}>
                         <TableCell className="font-medium">
                           {filing.matters?.matter_name || "—"}
@@ -564,13 +539,236 @@ export default function ClientDetail() {
               )}
             </TabsContent>
 
-            <TabsContent value="monitored">
-              {!monitoredProcesses || monitoredProcesses.length === 0 ? (
+            {/* Tutelas Tab */}
+            <TabsContent value="tutelas">
+              {tutelas.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Shield className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay tutelas vinculadas a este cliente</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Crear Tutela
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Accionante</TableHead>
+                      <TableHead>Accionado</TableHead>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Juzgado</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tutelas.map((filing) => (
+                      <TableRow key={filing.id}>
+                        <TableCell className="font-medium">
+                          {filing.matters?.matter_name || "—"}
+                        </TableCell>
+                        <TableCell>{filing.court_name || "—"}</TableCell>
+                        <TableCell>
+                          {filing.radicado ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                              {filing.radicado}
+                            </code>
+                          ) : (
+                            <span className="text-muted-foreground">Pendiente</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{filing.court_name || "—"}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={filing.status as any} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/filings/${filing.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </TabsContent>
+
+            {/* Peticiones Tab */}
+            <TabsContent value="peticiones">
+              {!clientPeticiones || clientPeticiones.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <ScrollText className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay peticiones vinculadas a este cliente</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Crear Petición
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Entidad</TableHead>
+                      <TableHead>Asunto</TableHead>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Fase</TableHead>
+                      <TableHead>Vencimiento</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {clientPeticiones.map((peticion) => (
+                      <TableRow key={peticion.id}>
+                        <TableCell className="font-medium">{peticion.entity_name}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{peticion.subject}</TableCell>
+                        <TableCell>
+                          {peticion.radicado ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                              {peticion.radicado}
+                            </code>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{peticion.phase}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {peticion.deadline_at ? formatDateColombia(new Date(peticion.deadline_at)) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/peticiones/${peticion.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </TabsContent>
+
+            {/* Habeas Corpus Tab */}
+            <TabsContent value="habeas">
+              {habeasCorpus.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay habeas corpus vinculados a este cliente</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Crear Habeas Corpus
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asunto</TableHead>
+                      <TableHead>Juzgado</TableHead>
+                      <TableHead>Radicado</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {habeasCorpus.map((filing) => (
+                      <TableRow key={filing.id}>
+                        <TableCell className="font-medium">
+                          {filing.matters?.matter_name || "—"}
+                        </TableCell>
+                        <TableCell>{filing.court_name || "—"}</TableCell>
+                        <TableCell>
+                          {filing.radicado ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                              {filing.radicado}
+                            </code>
+                          ) : (
+                            <span className="text-muted-foreground">Pendiente</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge status={filing.status as any} />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/filings/${filing.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </TabsContent>
+
+            {/* Admin Processes Tab */}
+            <TabsContent value="admin">
+              {adminProcesses.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Building2 className="mx-auto h-10 w-10 mb-2 opacity-50" />
+                  <p>No hay procesos administrativos vinculados a este cliente</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> Crear Proceso Administrativo
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Radicado/Expediente</TableHead>
+                      <TableHead>Autoridad</TableHead>
+                      <TableHead>Tipo Actuación</TableHead>
+                      <TableHead>Monitoreo</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adminProcesses.map((process) => (
+                      <TableRow key={process.id}>
+                        <TableCell>
+                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                            {process.expediente_administrativo || process.radicado}
+                          </code>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {process.autoridad || process.entidad || "—"}
+                        </TableCell>
+                        <TableCell>{process.tipo_actuacion || "—"}</TableCell>
+                        <TableCell>
+                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
+                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/admin-processes/${process.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </TabsContent>
+
+            {/* Judicial Processes Tab */}
+            <TabsContent value="judicial">
+              {judicialProcesses.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay procesos monitoreados vinculados a este cliente</p>
+                  <p>No hay procesos judiciales monitoreados vinculados a este cliente</p>
                   <p className="text-sm mt-2">
-                    Vincule procesos desde la página de Procesos o al crear uno nuevo
+                    Los procesos se vinculan al confirmar radicado desde una demanda
                   </p>
                 </div>
               ) : (
@@ -586,7 +784,7 @@ export default function ClientDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {monitoredProcesses.map((process) => (
+                    {judicialProcesses.map((process) => (
                       <TableRow key={process.id}>
                         <TableCell>
                           <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
@@ -639,6 +837,19 @@ export default function ClientDetail() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Unified Filing Creator */}
+      <UnifiedFilingCreator
+        open={newFilingOpen}
+        onOpenChange={setNewFilingOpen}
+        clientId={id}
+        clientName={client.name}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["client-filings", id] });
+          queryClient.invalidateQueries({ queryKey: ["client-peticiones", id] });
+          queryClient.invalidateQueries({ queryKey: ["client-processes", id] });
+        }}
+      />
     </div>
   );
 }

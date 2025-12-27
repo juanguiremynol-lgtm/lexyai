@@ -11,6 +11,8 @@ interface UnifiedFilingCreatorProps {
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
   initialType?: FilingCategory;
+  clientId?: string;
+  clientName?: string;
 }
 
 export function UnifiedFilingCreator({
@@ -18,6 +20,8 @@ export function UnifiedFilingCreator({
   onOpenChange,
   onSuccess,
   initialType,
+  clientId,
+  clientName,
 }: UnifiedFilingCreatorProps) {
   const [currentStep, setCurrentStep] = useState<"select" | FilingCategory>(
     initialType || "select"
@@ -62,6 +66,7 @@ export function UnifiedFilingCreator({
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
         onSuccess={handleSuccess}
+        defaultClientId={clientId}
       />
     );
   }
@@ -74,6 +79,7 @@ export function UnifiedFilingCreator({
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
         onSuccess={handleSuccess}
+        defaultClientId={clientId}
       />
     );
   }
@@ -86,6 +92,7 @@ export function UnifiedFilingCreator({
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
         onSuccess={handleSuccess}
+        defaultClientId={clientId}
       />
     );
   }
@@ -98,6 +105,7 @@ export function UnifiedFilingCreator({
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
         onSuccess={handleSuccess}
+        defaultClientId={clientId}
       />
     );
   }
@@ -110,6 +118,7 @@ export function UnifiedFilingCreator({
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
         onSuccess={handleSuccess}
+        defaultClientId={clientId}
       />
     );
   }
