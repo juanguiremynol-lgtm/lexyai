@@ -9,6 +9,7 @@ export interface Client {
   city: string | null;
   email: string | null;
   notes: string | null;
+  email_linking_enabled: boolean | null;
   created_at: string;
   updated_at: string;
 }

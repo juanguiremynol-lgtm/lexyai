@@ -27,6 +27,7 @@ import { CrawlerControl } from "@/components/filings/CrawlerControl";
 import { FilingGoalsCard } from "@/components/filings/FilingGoalsCard";
 import { SharepointHub } from "@/components/shared";
 import { TermsPanel } from "@/components/cgp-terms";
+import { EntityEmailTab } from "@/components/email";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -638,6 +639,14 @@ export default function FilingDetail() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Inbound Emails */}
+              <EntityEmailTab
+                entityType="CGP_CASE"
+                entityId={filing.id}
+                entityTable="filings"
+                emailLinkingEnabled={filing.email_linking_enabled ?? false}
+              />
             </TabsContent>
 
             <TabsContent value="documents" className="space-y-4">
