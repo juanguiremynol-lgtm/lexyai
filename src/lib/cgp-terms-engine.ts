@@ -18,8 +18,15 @@ import type { Json } from "@/integrations/supabase/types";
 
 export type CgpMilestoneType = 
   | 'DEMANDA_RADICADA'
+  | 'AUTO_ADMISORIO'
   | 'AUTO_ADMISORIO_NOTIFICADO'
+  | 'MANDAMIENTO_DE_PAGO'
   | 'MANDAMIENTO_EJECUTIVO_NOTIFICADO'
+  | 'NOTIFICACION_EVENT'
+  | 'AUTO_SEGUIR_ADELANTE_EJECUCION'
+  | 'TRASLADO_EVENT'
+  | 'RECURSO_INTERPUESTO'
+  | 'RECURSO_DECIDIDO'
   | 'REQUERIMIENTO_PAGO_NOTIFICADO'
   | 'TRASLADO_EXCEPCIONES_NOTIFICADO'
   | 'TRASLADO_DEMANDA_NOTIFICADO'
@@ -172,8 +179,15 @@ export interface CgpInactivityTracker {
 
 export const MILESTONE_LABELS: Record<CgpMilestoneType, string> = {
   DEMANDA_RADICADA: 'Demanda Radicada',
+  AUTO_ADMISORIO: 'Auto Admisorio',
   AUTO_ADMISORIO_NOTIFICADO: 'Auto Admisorio Notificado',
+  MANDAMIENTO_DE_PAGO: 'Mandamiento de Pago',
   MANDAMIENTO_EJECUTIVO_NOTIFICADO: 'Mandamiento Ejecutivo Notificado',
+  NOTIFICACION_EVENT: 'Notificación',
+  AUTO_SEGUIR_ADELANTE_EJECUCION: 'Auto Seguir Adelante Ejecución',
+  TRASLADO_EVENT: 'Traslado',
+  RECURSO_INTERPUESTO: 'Recurso Interpuesto',
+  RECURSO_DECIDIDO: 'Recurso Decidido',
   REQUERIMIENTO_PAGO_NOTIFICADO: 'Requerimiento de Pago Notificado',
   TRASLADO_EXCEPCIONES_NOTIFICADO: 'Traslado de Excepciones Notificado',
   TRASLADO_DEMANDA_NOTIFICADO: 'Traslado de Demanda Notificado',
