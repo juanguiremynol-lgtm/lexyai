@@ -2390,6 +2390,39 @@ export type Database = {
           },
         ]
       }
+      organizations: {
+        Row: {
+          brand_logo_url: string | null
+          brand_primary_color: string | null
+          brand_tagline: string | null
+          created_at: string
+          id: string
+          name: string
+          slug: string | null
+          updated_at: string
+        }
+        Insert: {
+          brand_logo_url?: string | null
+          brand_primary_color?: string | null
+          brand_tagline?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brand_logo_url?: string | null
+          brand_primary_color?: string | null
+          brand_tagline?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       peticion_alerts: {
         Row: {
           alert_type: string
@@ -2714,6 +2747,7 @@ export type Database = {
           hearing_reminder_days: Json | null
           id: string
           last_estados_import_at: string | null
+          organization_id: string | null
           reminder_email: string | null
           reparto_directory: Json | null
           signature_block: string | null
@@ -2737,6 +2771,7 @@ export type Database = {
           hearing_reminder_days?: Json | null
           id: string
           last_estados_import_at?: string | null
+          organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
@@ -2760,6 +2795,7 @@ export type Database = {
           hearing_reminder_days?: Json | null
           id?: string
           last_estados_import_at?: string | null
+          organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
@@ -2769,7 +2805,15 @@ export type Database = {
           timezone?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       review_logs: {
         Row: {
@@ -2947,7 +2991,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_organization_id: { Args: never; Returns: string }
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"

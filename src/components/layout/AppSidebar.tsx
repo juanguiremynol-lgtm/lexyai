@@ -11,7 +11,7 @@ import {
   Link2,
   Mail,
 } from "lucide-react";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -72,26 +72,16 @@ export function AppSidebar() {
         )}>
           <div className={cn(
             "relative",
-            collapsed ? "h-10 w-10" : "h-14 w-14"
+            collapsed ? "h-10 w-10" : "h-16 w-auto"
           )}>
             <img 
               src={logo} 
-              alt="Lex et Lit Abogados" 
-              className="h-full w-full object-contain"
+              alt="ATENIA" 
+              className="h-full w-auto object-contain"
             />
-            {/* Gold glow effect behind logo */}
-            <div className="absolute inset-0 -z-10 blur-xl bg-primary/20 rounded-full" />
+            {/* Glow effect behind logo */}
+            <div className="absolute inset-0 -z-10 blur-xl bg-primary/10 rounded-full" />
           </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="font-display text-xl font-semibold text-gold-gradient">
-                Lex et Lit
-              </span>
-              <span className="text-xs text-sidebar-foreground/60 tracking-wider uppercase">
-                Abogados
-              </span>
-            </div>
-          )}
         </div>
       </SidebarHeader>
 

@@ -4,16 +4,16 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Lex Docket Design System - Noir Edition with Gold Accents */
+/* ATENIA Design System */
 
 @layer base {
   :root {
     /* Force dark mode by default */
     color-scheme: dark;
     
-    /* Primary: Rich gold for authority and elegance */
-    --primary: 43 85% 55%;
-    --primary-foreground: 0 0% 5%;
+    /* Primary: Deep navy blue matching ATENIA logo */
+    --primary: 222 47% 23%;
+    --primary-foreground: 0 0% 100%;
     
     /* Secondary: Deep charcoal */
     --secondary: 220 15% 18%;
@@ -35,37 +35,37 @@
     --muted: 220 15% 15%;
     --muted-foreground: 220 10% 55%;
     
-    /* Accent: Warm gold */
-    --accent: 43 90% 50%;
-    --accent-foreground: 0 0% 5%;
+    /* Accent: ATENIA blue accent */
+    --accent: 222 60% 35%;
+    --accent-foreground: 0 0% 100%;
     
-    /* Gold variations for design depth */
-    --gold: 43 85% 55%;
-    --gold-muted: 43 50% 40%;
-    --gold-bright: 45 100% 60%;
-    --gold-dark: 40 70% 30%;
+    /* Brand blue variations for design depth */
+    --brand-dark: 222 60% 15%;
+    --brand: 222 47% 23%;
+    --brand-light: 222 50% 35%;
+    --brand-muted: 222 30% 50%;
     
     /* Destructive: Deep crimson */
     --destructive: 0 65% 45%;
     --destructive-foreground: 0 0% 100%;
     
-    /* Border: Subtle gold-tinted */
+    /* Border: Subtle blue-tinted */
     --border: 220 15% 18%;
     --input: 220 15% 20%;
-    --ring: 43 85% 55%;
+    --ring: 222 47% 23%;
     
     /* Radius */
     --radius: 0.5rem;
     
-    /* Sidebar: Ultra dark with gold accents */
+    /* Sidebar: Ultra dark with blue accents */
     --sidebar-background: 220 25% 5%;
-    --sidebar-foreground: 45 15% 85%;
-    --sidebar-primary: 43 85% 55%;
-    --sidebar-primary-foreground: 0 0% 5%;
+    --sidebar-foreground: 220 15% 85%;
+    --sidebar-primary: 222 47% 23%;
+    --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 20% 12%;
-    --sidebar-accent-foreground: 45 20% 92%;
-    --sidebar-border: 43 40% 20%;
-    --sidebar-ring: 43 85% 55%;
+    --sidebar-accent-foreground: 220 20% 92%;
+    --sidebar-border: 222 30% 20%;
+    --sidebar-ring: 222 47% 23%;
     
     /* Status colors - muted for dark theme */
     --status-drafted: 220 10% 40%;
@@ -216,15 +216,25 @@
     font-family: 'Inter', system-ui, sans-serif;
   }
 
-  /* Gold text gradient */
-  .text-gold-gradient {
+  /* Brand text gradient */
+  .text-brand-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, hsl(43 85% 55%) 0%, hsl(45 100% 70%) 50%, hsl(40 70% 45%) 100%);
+    background-image: linear-gradient(135deg, hsl(222 47% 23%) 0%, hsl(222 60% 35%) 50%, hsl(222 47% 23%) 100%);
   }
 
-  /* Gold border glow */
+  /* Legacy alias for text-gold-gradient */
+  .text-gold-gradient {
+    @apply text-brand-gradient;
+  }
+
+  /* Brand border glow */
+  .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(222 47% 23% / 0.3), 0 0 20px -5px hsl(222 60% 35% / 0.2);
+  }
+
+  /* Legacy alias */
   .border-gold-glow {
-    box-shadow: 0 0 0 1px hsl(43 85% 55% / 0.3), 0 0 20px -5px hsl(43 85% 55% / 0.2);
+    @apply border-brand-glow;
   }
 
   /* Card hover effect */
@@ -247,28 +257,47 @@
     }
   }
 
-  .gold-shine {
+  .brand-shine {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      hsl(43 85% 55% / 0.1) 50%,
+      hsl(222 60% 35% / 0.1) 50%,
       transparent 100%
     );
     background-size: 200% 100%;
-    animation: gold-shine 3s ease-in-out infinite;
+    animation: brand-shine 3s ease-in-out infinite;
+  }
+
+  /* Legacy alias */
+  .gold-shine {
+    @apply brand-shine;
+  }
+
+  @keyframes brand-shine {
+    0% {
+      background-position: -200% center;
+    }
+    100% {
+      background-position: 200% center;
+    }
   }
 
   /* Subtle pulse for important elements */
-  .pulse-gold {
-    animation: pulse-gold 2s ease-in-out infinite;
+  .pulse-brand {
+    animation: pulse-brand 2s ease-in-out infinite;
   }
 
-  @keyframes pulse-gold {
+  /* Legacy alias */
+  .pulse-gold {
+    @apply pulse-brand;
+  }
+
+  @keyframes pulse-brand {
     0%, 100% {
-      box-shadow: 0 0 0 0 hsl(43 85% 55% / 0.4);
+      box-shadow: 0 0 0 0 hsl(222 47% 23% / 0.4);
     }
     50% {
-      box-shadow: 0 0 0 8px hsl(43 85% 55% / 0);
+      box-shadow: 0 0 0 8px hsl(222 47% 23% / 0);
     }
   }
 }

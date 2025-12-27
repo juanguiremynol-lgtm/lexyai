@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OrganizationProvider } from "@/contexts";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
@@ -68,7 +69,7 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+          <Route element={<ProtectedRoute><OrganizationProvider><AppLayout /></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />

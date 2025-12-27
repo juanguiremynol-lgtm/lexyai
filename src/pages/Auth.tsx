@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/atenia-logo.png";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -24,7 +24,7 @@ export default function Auth() {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("Bienvenido a Lex Docket");
+        toast.success("Bienvenido a ATENIA");
         navigate("/dashboard");
       } else {
         const { error } = await supabase.auth.signUp({
@@ -54,33 +54,27 @@ export default function Auth() {
         <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
       </div>
       
-      {/* Gold accent lines */}
+      {/* Accent lines */}
       <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
       <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
 
       <Card className="w-full max-w-md relative border-primary/20 bg-card/80 backdrop-blur-xl shadow-elevated">
-        {/* Top gold accent */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-gold rounded-b-full" />
+        {/* Top accent */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50 rounded-b-full" />
         
         <CardHeader className="text-center pt-8">
-          <div className="flex justify-center mb-6 relative">
+          <div className="flex justify-center mb-4 relative">
             <div className="relative">
               <img 
                 src={logo} 
-                alt="Lex et Lit Abogados" 
-                className="h-28 w-auto object-contain relative z-10"
+                alt="ATENIA" 
+                className="h-32 w-auto object-contain relative z-10"
               />
               {/* Glow effect */}
-              <div className="absolute inset-0 blur-2xl bg-primary/30 rounded-full -z-10 scale-110" />
+              <div className="absolute inset-0 blur-2xl bg-primary/20 rounded-full -z-10 scale-110" />
             </div>
           </div>
-          <CardTitle className="font-display text-3xl text-gold-gradient">
-            Lex et Lit
-          </CardTitle>
-          <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground mt-1">
-            Abogados
-          </p>
-          <CardDescription className="mt-4 text-muted-foreground">
+          <CardDescription className="mt-2 text-muted-foreground">
             {isLogin ? "Inicia sesión para continuar" : "Crea tu cuenta"}
           </CardDescription>
         </CardHeader>
@@ -109,7 +103,7 @@ export default function Auth() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="abogado@firma.com"
+                placeholder="usuario@ejemplo.com"
                 required
               />
             </div>
@@ -129,7 +123,6 @@ export default function Auth() {
             </div>
             <Button 
               type="submit" 
-              variant="gold"
               className="w-full mt-6" 
               disabled={loading}
             >

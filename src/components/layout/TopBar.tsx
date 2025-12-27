@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ColombianClock } from "./ColombianClock";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/atenia-logo.png";
 
 export function TopBar() {
   const navigate = useNavigate();
@@ -54,7 +54,7 @@ export function TopBar() {
         
         <img 
           src={logo} 
-          alt="Lex et Lit" 
+          alt="ATENIA" 
           className="h-10 w-auto object-contain hidden md:block"
         />
         <form onSubmit={handleSearch} className="hidden md:block">
