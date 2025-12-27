@@ -320,7 +320,7 @@ export function IcarusExcelImport() {
                     </>
                   ) : (
                     <>
-                      Importar a Lex Docket
+                      Importar a ATENIA
                       <ArrowRight className="h-4 w-4 ml-2" />
                     </>
                   )}
