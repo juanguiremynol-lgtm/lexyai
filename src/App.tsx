@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { OrganizationProvider } from "@/contexts";
+import { OrganizationProvider, SubscriptionProvider } from "@/contexts";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
@@ -31,6 +31,7 @@ import DocumentSearch from "./pages/DocumentSearch";
 import PeticionDetail from "./pages/PeticionDetail";
 import AdminProcessDetail from "./pages/AdminProcessDetail";
 import EmailInboxPage from "./pages/EmailInboxPage";
+import PricingPage from "./pages/PricingPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
@@ -69,7 +70,7 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route element={<ProtectedRoute><OrganizationProvider><AppLayout /></OrganizationProvider></ProtectedRoute>}>
+          <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><AppLayout /></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
@@ -92,6 +93,7 @@ const App = () => (
             <Route path="/peticiones/:id" element={<ErrorBoundary><PeticionDetail /></ErrorBoundary>} />
             <Route path="/admin-processes/:id" element={<ErrorBoundary><AdminProcessDetail /></ErrorBoundary>} />
             <Route path="/email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
+            <Route path="/pricing" element={<ErrorBoundary><PricingPage /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
           <Route path="*" element={<NotFound />} />
