@@ -74,85 +74,69 @@ export default function Links() {
         </TabsContent>
 
         <TabsContent value="tutela" className="mt-6">
-          <Card>
+          <Card className="max-w-2xl">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Shield className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Recepción de Tutela y Habeas Corpus en Línea</CardTitle>
-                    <CardDescription>
-                      Portal oficial para radicar tutelas y habeas corpus electrónicamente
-                    </CardDescription>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <Shield className="h-8 w-8 text-primary" />
                 </div>
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={TUTELA_EN_LINEA_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Abrir en nueva pestaña
-                  </a>
-                </Button>
+                <div>
+                  <CardTitle className="text-xl">Recepción de Tutela y Habeas Corpus en Línea</CardTitle>
+                  <CardDescription className="mt-1">
+                    Portal oficial de la Rama Judicial para radicar tutelas y habeas corpus electrónicamente
+                  </CardDescription>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="w-full h-[700px] border-t">
-                <iframe
-                  title="Tutela en Línea"
-                  src={TUTELA_EN_LINEA_URL}
-                  className="w-full h-full"
-                  frameBorder="0"
-                  allowFullScreen
-                />
-              </div>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                A través de este portal puede registrar una Acción de Tutela a nivel nacional, dentro del horario establecido por el Consejo Seccional de la Judicatura en cada región. Adicionalmente puede registrar Habeas Corpus durante las 24 horas del día.
+              </p>
+              <Button asChild>
+                <a
+                  href={TUTELA_EN_LINEA_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir Portal de Tutelas
+                </a>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="demanda" className="mt-6">
-          <Card>
+          <Card className="max-w-2xl">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <FileText className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Recepción de Demandas en Línea</CardTitle>
-                    <CardDescription>
-                      Portal oficial para radicar demandas electrónicamente
-                    </CardDescription>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <FileText className="h-8 w-8 text-primary" />
                 </div>
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={DEMANDA_EN_LINEA_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Abrir en nueva pestaña
-                  </a>
-                </Button>
+                <div>
+                  <CardTitle className="text-xl">Recepción de Demandas en Línea</CardTitle>
+                  <CardDescription className="mt-1">
+                    Portal oficial de la Rama Judicial para radicar demandas electrónicamente
+                  </CardDescription>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="w-full h-[700px] border-t">
-                <iframe
-                  title="Demanda en Línea"
-                  src={DEMANDA_EN_LINEA_URL}
-                  className="w-full h-full"
-                  frameBorder="0"
-                  allowFullScreen
-                />
-              </div>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Sistema para la recepción electrónica de demandas en las diferentes especialidades judiciales (civil, familia, laboral, etc.) a nivel nacional.
+              </p>
+              <Button asChild>
+                <a
+                  href={DEMANDA_EN_LINEA_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir Portal de Demandas
+                </a>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
