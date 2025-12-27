@@ -14,6 +14,91 @@ export type Database = {
   }
   public: {
     Tables: {
+      actuaciones: {
+        Row: {
+          act_date: string | null
+          act_date_raw: string | null
+          act_time: string | null
+          act_type_guess: string | null
+          adapter_name: string | null
+          attachments: Json | null
+          confidence: number | null
+          created_at: string
+          filing_id: string | null
+          hash_fingerprint: string
+          id: string
+          monitored_process_id: string | null
+          normalized_text: string
+          owner_id: string
+          raw_data: Json | null
+          raw_text: string
+          source: string
+          source_url: string | null
+        }
+        Insert: {
+          act_date?: string | null
+          act_date_raw?: string | null
+          act_time?: string | null
+          act_type_guess?: string | null
+          adapter_name?: string | null
+          attachments?: Json | null
+          confidence?: number | null
+          created_at?: string
+          filing_id?: string | null
+          hash_fingerprint: string
+          id?: string
+          monitored_process_id?: string | null
+          normalized_text: string
+          owner_id: string
+          raw_data?: Json | null
+          raw_text: string
+          source?: string
+          source_url?: string | null
+        }
+        Update: {
+          act_date?: string | null
+          act_date_raw?: string | null
+          act_time?: string | null
+          act_type_guess?: string | null
+          adapter_name?: string | null
+          attachments?: Json | null
+          confidence?: number | null
+          created_at?: string
+          filing_id?: string | null
+          hash_fingerprint?: string
+          id?: string
+          monitored_process_id?: string | null
+          normalized_text?: string
+          owner_id?: string
+          raw_data?: Json | null
+          raw_text?: string
+          source?: string
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actuaciones_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actuaciones_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actuaciones_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       alert_instances: {
         Row: {
           acknowledged_at: string | null
@@ -291,6 +376,7 @@ export type Database = {
       cgp_milestones: {
         Row: {
           attachments: Json | null
+          confidence: number | null
           created_at: string
           created_by: string | null
           custom_type_name: string | null
@@ -300,14 +386,23 @@ export type Database = {
           id: string
           in_audience: boolean
           milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          needs_user_confirmation: boolean | null
           notes: string | null
+          notificacion_subtype:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
           occurred: boolean
           owner_id: string
           process_id: string | null
+          source: Database["public"]["Enums"]["milestone_source"] | null
+          source_actuacion_id: string | null
           updated_at: string
+          user_confirmed_at: string | null
+          user_rejected_at: string | null
         }
         Insert: {
           attachments?: Json | null
+          confidence?: number | null
           created_at?: string
           created_by?: string | null
           custom_type_name?: string | null
@@ -317,14 +412,23 @@ export type Database = {
           id?: string
           in_audience?: boolean
           milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
+          needs_user_confirmation?: boolean | null
           notes?: string | null
+          notificacion_subtype?:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
           occurred?: boolean
           owner_id: string
           process_id?: string | null
+          source?: Database["public"]["Enums"]["milestone_source"] | null
+          source_actuacion_id?: string | null
           updated_at?: string
+          user_confirmed_at?: string | null
+          user_rejected_at?: string | null
         }
         Update: {
           attachments?: Json | null
+          confidence?: number | null
           created_at?: string
           created_by?: string | null
           custom_type_name?: string | null
@@ -334,11 +438,19 @@ export type Database = {
           id?: string
           in_audience?: boolean
           milestone_type?: Database["public"]["Enums"]["cgp_milestone_type"]
+          needs_user_confirmation?: boolean | null
           notes?: string | null
+          notificacion_subtype?:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
           occurred?: boolean
           owner_id?: string
           process_id?: string | null
+          source?: Database["public"]["Enums"]["milestone_source"] | null
+          source_actuacion_id?: string | null
           updated_at?: string
+          user_confirmed_at?: string | null
+          user_rejected_at?: string | null
         }
         Relationships: [
           {
@@ -367,6 +479,13 @@ export type Database = {
             columns: ["process_id"]
             isOneToOne: false
             referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_source_actuacion_id_fkey"
+            columns: ["source_actuacion_id"]
+            isOneToOne: false
+            referencedRelation: "actuaciones"
             referencedColumns: ["id"]
           },
         ]
@@ -1161,6 +1280,8 @@ export type Database = {
       filings: {
         Row: {
           acta_received_at: string | null
+          case_family: string | null
+          case_subtype: string | null
           client_id: string | null
           court_city: string | null
           court_department: string | null
@@ -1185,19 +1306,27 @@ export type Database = {
           owner_id: string
           proof_file_path: string | null
           radicado: string | null
+          radicado_status:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
           rama_judicial_url: string | null
           reparto_email_to: string | null
           reparto_reference: string | null
+          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields: Json | null
           sent_at: string | null
           sla_acta_due_at: string | null
           sla_court_reply_due_at: string | null
           sla_receipt_due_at: string | null
+          source_links: Json | null
           status: Database["public"]["Enums"]["filing_status"]
           target_authority: string | null
           updated_at: string
         }
         Insert: {
           acta_received_at?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
           client_id?: string | null
           court_city?: string | null
           court_department?: string | null
@@ -1222,19 +1351,27 @@ export type Database = {
           owner_id: string
           proof_file_path?: string | null
           radicado?: string | null
+          radicado_status?:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
           rama_judicial_url?: string | null
           reparto_email_to?: string | null
           reparto_reference?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
           sent_at?: string | null
           sla_acta_due_at?: string | null
           sla_court_reply_due_at?: string | null
           sla_receipt_due_at?: string | null
+          source_links?: Json | null
           status?: Database["public"]["Enums"]["filing_status"]
           target_authority?: string | null
           updated_at?: string
         }
         Update: {
           acta_received_at?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
           client_id?: string | null
           court_city?: string | null
           court_department?: string | null
@@ -1259,13 +1396,19 @@ export type Database = {
           owner_id?: string
           proof_file_path?: string | null
           radicado?: string | null
+          radicado_status?:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
           rama_judicial_url?: string | null
           reparto_email_to?: string | null
           reparto_reference?: string | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
           sent_at?: string | null
           sla_acta_due_at?: string | null
           sla_court_reply_due_at?: string | null
           sla_receipt_due_at?: string | null
+          source_links?: Json | null
           status?: Database["public"]["Enums"]["filing_status"]
           target_authority?: string | null
           updated_at?: string
@@ -1744,10 +1887,74 @@ export type Database = {
           },
         ]
       }
+      milestone_mapping_patterns: {
+        Row: {
+          active: boolean | null
+          base_confidence: number | null
+          created_at: string
+          id: string
+          is_system: boolean | null
+          milestone_type: string
+          notes: string | null
+          notificacion_subtype:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
+          owner_id: string | null
+          pattern_keywords: string[]
+          pattern_regex: string
+          priority: number | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          base_confidence?: number | null
+          created_at?: string
+          id?: string
+          is_system?: boolean | null
+          milestone_type: string
+          notes?: string | null
+          notificacion_subtype?:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
+          owner_id?: string | null
+          pattern_keywords?: string[]
+          pattern_regex: string
+          priority?: number | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          base_confidence?: number | null
+          created_at?: string
+          id?: string
+          is_system?: boolean | null
+          milestone_type?: string
+          notes?: string | null
+          notificacion_subtype?:
+            | Database["public"]["Enums"]["notificacion_subtype"]
+            | null
+          owner_id?: string | null
+          pattern_keywords?: string[]
+          pattern_regex?: string
+          priority?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "milestone_mapping_patterns_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       monitored_processes: {
         Row: {
           admin_phase: string | null
           autoridad: string | null
+          case_family: string | null
+          case_subtype: string | null
           client_id: string | null
           correo_autoridad: string | null
           cpnu_confirmed: boolean | null
@@ -1780,7 +1987,13 @@ export type Database = {
           phase: Database["public"]["Enums"]["process_phase"] | null
           process_type: string
           radicado: string
+          radicado_status:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
+          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields: Json | null
           source: string | null
+          source_links: Json | null
           source_payload: Json | null
           source_run_id: string | null
           sources_enabled: Json | null
@@ -1790,6 +2003,8 @@ export type Database = {
         Insert: {
           admin_phase?: string | null
           autoridad?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
           client_id?: string | null
           correo_autoridad?: string | null
           cpnu_confirmed?: boolean | null
@@ -1822,7 +2037,13 @@ export type Database = {
           phase?: Database["public"]["Enums"]["process_phase"] | null
           process_type?: string
           radicado: string
+          radicado_status?:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
           source?: string | null
+          source_links?: Json | null
           source_payload?: Json | null
           source_run_id?: string | null
           sources_enabled?: Json | null
@@ -1832,6 +2053,8 @@ export type Database = {
         Update: {
           admin_phase?: string | null
           autoridad?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
           client_id?: string | null
           correo_autoridad?: string | null
           cpnu_confirmed?: boolean | null
@@ -1864,7 +2087,13 @@ export type Database = {
           phase?: Database["public"]["Enums"]["process_phase"] | null
           process_type?: string
           radicado?: string
+          radicado_status?:
+            | Database["public"]["Enums"]["radicado_verification_status"]
+            | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
           source?: string | null
+          source_links?: Json | null
           source_payload?: Json | null
           source_run_id?: string | null
           sources_enabled?: Json | null
@@ -2311,6 +2540,85 @@ export type Database = {
           },
         ]
       }
+      scraping_jobs: {
+        Row: {
+          actuaciones_found: number | null
+          adapter_name: string | null
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          filing_id: string | null
+          finished_at: string | null
+          id: string
+          milestones_suggested: number | null
+          monitored_process_id: string | null
+          owner_id: string
+          radicado: string
+          request_payload: Json | null
+          response_payload: Json | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          actuaciones_found?: number | null
+          adapter_name?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          filing_id?: string | null
+          finished_at?: string | null
+          id?: string
+          milestones_suggested?: number | null
+          monitored_process_id?: string | null
+          owner_id: string
+          radicado: string
+          request_payload?: Json | null
+          response_payload?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          actuaciones_found?: number | null
+          adapter_name?: string | null
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          filing_id?: string | null
+          finished_at?: string | null
+          id?: string
+          milestones_suggested?: number | null
+          monitored_process_id?: string | null
+          owner_id?: string
+          radicado?: string
+          request_payload?: Json | null
+          response_payload?: Json | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scraping_jobs_filing_id_fkey"
+            columns: ["filing_id"]
+            isOneToOne: false
+            referencedRelation: "filings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scraping_jobs_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scraping_jobs_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tasks: {
         Row: {
           auto_generated: boolean | null
@@ -2380,6 +2688,13 @@ export type Database = {
       cgp_duration_unit: "BUSINESS_DAYS" | "CALENDAR_DAYS" | "MONTHS" | "YEARS"
       cgp_milestone_type:
         | "DEMANDA_RADICADA"
+        | "AUTO_ADMISORIO"
+        | "MANDAMIENTO_DE_PAGO"
+        | "NOTIFICACION_EVENT"
+        | "AUTO_SEGUIR_ADELANTE_EJECUCION"
+        | "TRASLADO_EVENT"
+        | "RECURSO_INTERPUESTO"
+        | "RECURSO_DECIDIDO"
         | "AUTO_ADMISORIO_NOTIFICADO"
         | "MANDAMIENTO_EJECUTIVO_NOTIFICADO"
         | "REQUERIMIENTO_PAGO_NOTIFICADO"
@@ -2451,6 +2766,15 @@ export type Database = {
         | "ICARUS_SYNC_PENDING"
         | "MONITORING_ACTIVE"
         | "CLOSED"
+      milestone_source: "USER" | "RAMA_SCRAPE" | "SYSTEM" | "ICARUS_IMPORT"
+      notificacion_subtype:
+        | "NOTIFICACION_AUTO_ADMISORIO"
+        | "NOTIFICACION_MANDAMIENTO_PAGO"
+        | "NOTIFICACION_PERSONAL"
+        | "NOTIFICACION_POR_AVISO"
+        | "NOTIFICACION_ESTADO"
+        | "NOTIFICACION_ELECTRONICA"
+        | "NOTIFICACION_GENERAL"
       peticion_phase:
         | "PETICION_RADICADA"
         | "CONSTANCIA_RADICACION"
@@ -2476,6 +2800,19 @@ export type Database = {
         | "PENDIENTE_AUDIENCIA_INSTRUCCION"
         | "PENDIENTE_ALEGATOS_SENTENCIA"
         | "PENDIENTE_SUSTENTAR_APELACION"
+      radicado_verification_status:
+        | "NOT_PROVIDED"
+        | "PROVIDED_NOT_VERIFIED"
+        | "VERIFIED_FOUND"
+        | "NOT_FOUND"
+        | "LOOKUP_UNAVAILABLE"
+        | "AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION"
+      scrape_status:
+        | "NOT_ATTEMPTED"
+        | "IN_PROGRESS"
+        | "SUCCESS"
+        | "FAILED"
+        | "PARTIAL_SUCCESS"
       task_status: "OPEN" | "DONE" | "SNOOZED"
       task_type:
         | "FOLLOW_UP_REPARTO"
@@ -2618,6 +2955,13 @@ export const Constants = {
       cgp_duration_unit: ["BUSINESS_DAYS", "CALENDAR_DAYS", "MONTHS", "YEARS"],
       cgp_milestone_type: [
         "DEMANDA_RADICADA",
+        "AUTO_ADMISORIO",
+        "MANDAMIENTO_DE_PAGO",
+        "NOTIFICACION_EVENT",
+        "AUTO_SEGUIR_ADELANTE_EJECUCION",
+        "TRASLADO_EVENT",
+        "RECURSO_INTERPUESTO",
+        "RECURSO_DECIDIDO",
         "AUTO_ADMISORIO_NOTIFICADO",
         "MANDAMIENTO_EJECUTIVO_NOTIFICADO",
         "REQUERIMIENTO_PAGO_NOTIFICADO",
@@ -2695,6 +3039,16 @@ export const Constants = {
         "MONITORING_ACTIVE",
         "CLOSED",
       ],
+      milestone_source: ["USER", "RAMA_SCRAPE", "SYSTEM", "ICARUS_IMPORT"],
+      notificacion_subtype: [
+        "NOTIFICACION_AUTO_ADMISORIO",
+        "NOTIFICACION_MANDAMIENTO_PAGO",
+        "NOTIFICACION_PERSONAL",
+        "NOTIFICACION_POR_AVISO",
+        "NOTIFICACION_ESTADO",
+        "NOTIFICACION_ELECTRONICA",
+        "NOTIFICACION_GENERAL",
+      ],
       peticion_phase: [
         "PETICION_RADICADA",
         "CONSTANCIA_RADICACION",
@@ -2722,6 +3076,21 @@ export const Constants = {
         "PENDIENTE_AUDIENCIA_INSTRUCCION",
         "PENDIENTE_ALEGATOS_SENTENCIA",
         "PENDIENTE_SUSTENTAR_APELACION",
+      ],
+      radicado_verification_status: [
+        "NOT_PROVIDED",
+        "PROVIDED_NOT_VERIFIED",
+        "VERIFIED_FOUND",
+        "NOT_FOUND",
+        "LOOKUP_UNAVAILABLE",
+        "AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION",
+      ],
+      scrape_status: [
+        "NOT_ATTEMPTED",
+        "IN_PROGRESS",
+        "SUCCESS",
+        "FAILED",
+        "PARTIAL_SUCCESS",
       ],
       task_status: ["OPEN", "DONE", "SNOOZED"],
       task_type: [
