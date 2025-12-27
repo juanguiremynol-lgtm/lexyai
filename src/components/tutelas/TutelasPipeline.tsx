@@ -32,6 +32,8 @@ import { FalloOutcomeDialog } from "./FalloOutcomeDialog";
 import { ArchivePromptDialog } from "./ArchivePromptDialog";
 import { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";
 import { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
+import { DesacatoPipeline } from "./DesacatoPipeline";
+import { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 
 // Map filing status to tutela phase
@@ -132,6 +134,10 @@ export function TutelasPipeline() {
     label: string;
   }>({ open: false, tutelaId: null, label: "" });
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [desacatoDialog, setDesacatoDialog] = useState<{
+    open: boolean;
+    tutela: TutelaItem | null;
+  }>({ open: false, tutela: null });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -267,6 +273,11 @@ export function TutelasPipeline() {
     });
   }, []);
 
+  // Handle initiate desacato for items with favorable ruling
+  const handleInitiateDesacato = useCallback((item: TutelaItem) => {
+    setDesacatoDialog({ open: true, tutela: item });
+  }, []);
+
   // Group items by stage
   const itemsByStage = useMemo(() => {
     const result: Record<string, TutelaItem[]> = {};
@@ -385,6 +396,7 @@ export function TutelasPipeline() {
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onArchivePrompt={handleArchivePrompt}
+                onInitiateDesacato={handleInitiateDesacato}
               />
             ))}
           </div>
@@ -433,6 +445,15 @@ export function TutelasPipeline() {
         }}
         isDeleting={bulkDeleteMutation.isPending}
       />
+
+      <InitiateDesacatoDialog
+        open={desacatoDialog.open}
+        onOpenChange={(open) => setDesacatoDialog(prev => ({ ...prev, open }))}
+        tutela={desacatoDialog.tutela}
+      />
+
+      {/* Desacato Pipeline - only shows when there are incidents */}
+      <DesacatoPipeline />
     </>
   );
 }

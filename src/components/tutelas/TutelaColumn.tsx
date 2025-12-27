@@ -20,6 +20,7 @@ interface TutelaColumnProps {
   isItemSelected: (item: { id: string; type: "tutela" }) => boolean;
   onToggleSelection: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt: (item: TutelaItem) => void;
+  onInitiateDesacato: (item: TutelaItem) => void;
 }
 
 export function TutelaColumn({
@@ -29,6 +30,7 @@ export function TutelaColumn({
   isItemSelected,
   onToggleSelection,
   onArchivePrompt,
+  onInitiateDesacato,
 }: TutelaColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -67,6 +69,7 @@ export function TutelaColumn({
               isSelected={isItemSelected({ id: item.id, type: "tutela" })}
               onToggleSelection={onToggleSelection}
               onArchivePrompt={onArchivePrompt}
+              onInitiateDesacato={onInitiateDesacato}
             />
           ))}
           {items.length === 0 && (

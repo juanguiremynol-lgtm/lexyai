@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { Calendar, FileText, Gavel, Archive, ExternalLink } from "lucide-react";
+import { Calendar, FileText, Gavel, Archive, ExternalLink, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -37,6 +37,7 @@ interface TutelaCardProps {
   isSelected?: boolean;
   onToggleSelection?: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt?: (item: TutelaItem) => void;
+  onInitiateDesacato?: (item: TutelaItem) => void;
 }
 
 export function TutelaCard({
@@ -47,6 +48,7 @@ export function TutelaCard({
   isSelected = false,
   onToggleSelection,
   onArchivePrompt,
+  onInitiateDesacato,
 }: TutelaCardProps) {
   const navigate = useNavigate();
   
@@ -76,6 +78,7 @@ export function TutelaCard({
 
   const isFinalPhase = TUTELA_FINAL_PHASES.includes(item.phase);
   const showArchiveButton = isFinalPhase && onArchivePrompt;
+  const showDesacatoButton = isFinalPhase && item.isFavorable && onInitiateDesacato;
 
   return (
     <Card
@@ -168,7 +171,7 @@ export function TutelaCard({
         </div>
 
         {/* Action buttons */}
-        <div className="flex gap-2 pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button
             variant="ghost"
             size="sm"
@@ -194,6 +197,21 @@ export function TutelaCard({
             >
               <Archive className="h-3 w-3 mr-1" />
               Archivar
+            </Button>
+          )}
+
+          {showDesacatoButton && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-orange-300 text-orange-600 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-950/30"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInitiateDesacato(item);
+              }}
+            >
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Desacato
             </Button>
           )}
         </div>
