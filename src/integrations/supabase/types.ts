@@ -760,6 +760,7 @@ export type Database = {
           city: string | null
           created_at: string
           email: string | null
+          email_linking_enabled: boolean | null
           id: string
           id_number: string | null
           name: string
@@ -772,6 +773,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          email_linking_enabled?: boolean | null
           id?: string
           id_number?: string | null
           name: string
@@ -784,6 +786,7 @@ export type Database = {
           city?: string | null
           created_at?: string
           email?: string | null
+          email_linking_enabled?: boolean | null
           id?: string
           id_number?: string | null
           name?: string
@@ -1355,6 +1358,7 @@ export type Database = {
           demandados: string | null
           demandantes: string | null
           description: string | null
+          email_linking_enabled: boolean | null
           expediente_url: string | null
           filing_method: string | null
           filing_type: string
@@ -1400,6 +1404,7 @@ export type Database = {
           demandados?: string | null
           demandantes?: string | null
           description?: string | null
+          email_linking_enabled?: boolean | null
           expediente_url?: string | null
           filing_method?: string | null
           filing_type: string
@@ -1445,6 +1450,7 @@ export type Database = {
           demandados?: string | null
           demandantes?: string | null
           description?: string | null
+          email_linking_enabled?: boolean | null
           expediente_url?: string | null
           filing_method?: string | null
           filing_type?: string
@@ -1721,6 +1727,143 @@ export type Database = {
           },
         ]
       }
+      inbound_attachments: {
+        Row: {
+          content_hash: string | null
+          created_at: string
+          filename: string
+          id: string
+          is_inline: boolean | null
+          message_id: string
+          mime_type: string | null
+          owner_id: string
+          size_bytes: number | null
+          storage_path: string | null
+        }
+        Insert: {
+          content_hash?: string | null
+          created_at?: string
+          filename: string
+          id?: string
+          is_inline?: boolean | null
+          message_id: string
+          mime_type?: string | null
+          owner_id: string
+          size_bytes?: number | null
+          storage_path?: string | null
+        }
+        Update: {
+          content_hash?: string | null
+          created_at?: string
+          filename?: string
+          id?: string
+          is_inline?: boolean | null
+          message_id?: string
+          mime_type?: string | null
+          owner_id?: string
+          size_bytes?: number | null
+          storage_path?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inbound_attachments_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inbound_messages: {
+        Row: {
+          body_preview: string | null
+          cc_emails: string[] | null
+          created_at: string
+          date_header: string | null
+          error_log: string | null
+          from_email: string
+          from_name: string | null
+          html_body: string | null
+          id: string
+          in_reply_to: string | null
+          owner_id: string
+          processing_status: string
+          raw_payload_hash: string
+          received_at: string
+          references_header: string[] | null
+          source_message_id: string | null
+          source_provider: string
+          subject: string
+          text_body: string | null
+          thread_id: string | null
+          to_emails: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          body_preview?: string | null
+          cc_emails?: string[] | null
+          created_at?: string
+          date_header?: string | null
+          error_log?: string | null
+          from_email: string
+          from_name?: string | null
+          html_body?: string | null
+          id?: string
+          in_reply_to?: string | null
+          owner_id: string
+          processing_status?: string
+          raw_payload_hash: string
+          received_at?: string
+          references_header?: string[] | null
+          source_message_id?: string | null
+          source_provider?: string
+          subject?: string
+          text_body?: string | null
+          thread_id?: string | null
+          to_emails?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          body_preview?: string | null
+          cc_emails?: string[] | null
+          created_at?: string
+          date_header?: string | null
+          error_log?: string | null
+          from_email?: string
+          from_name?: string | null
+          html_body?: string | null
+          id?: string
+          in_reply_to?: string | null
+          owner_id?: string
+          processing_status?: string
+          raw_payload_hash?: string
+          received_at?: string
+          references_header?: string[] | null
+          source_message_id?: string | null
+          source_provider?: string
+          subject?: string
+          text_body?: string | null
+          thread_id?: string | null
+          to_emails?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_messages_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           created_at: string
@@ -1950,6 +2093,63 @@ export type Database = {
           },
         ]
       }
+      message_links: {
+        Row: {
+          created_at: string
+          created_by: string
+          dismissed_at: string | null
+          entity_id: string
+          entity_type: string
+          id: string
+          link_confidence: number | null
+          link_reasons: string[] | null
+          link_status: string
+          message_id: string
+          owner_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          dismissed_at?: string | null
+          entity_id: string
+          entity_type: string
+          id?: string
+          link_confidence?: number | null
+          link_reasons?: string[] | null
+          link_status?: string
+          message_id: string
+          owner_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          dismissed_at?: string | null
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          link_confidence?: number | null
+          link_reasons?: string[] | null
+          link_status?: string
+          message_id?: string
+          owner_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_links_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "inbound_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_links_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       milestone_mapping_patterns: {
         Row: {
           active: boolean | null
@@ -2028,6 +2228,7 @@ export type Database = {
           department: string | null
           dependencia: string | null
           despacho_name: string | null
+          email_linking_enabled: boolean | null
           entidad: string | null
           expediente_administrativo: string | null
           expediente_digital_url: string | null
@@ -2078,6 +2279,7 @@ export type Database = {
           department?: string | null
           dependencia?: string | null
           despacho_name?: string | null
+          email_linking_enabled?: boolean | null
           entidad?: string | null
           expediente_administrativo?: string | null
           expediente_digital_url?: string | null
@@ -2128,6 +2330,7 @@ export type Database = {
           department?: string | null
           dependencia?: string | null
           despacho_name?: string | null
+          email_linking_enabled?: boolean | null
           entidad?: string | null
           expediente_administrativo?: string | null
           expediente_digital_url?: string | null
