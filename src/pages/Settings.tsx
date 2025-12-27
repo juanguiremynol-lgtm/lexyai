@@ -10,9 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Plus, Trash2, Clock, FileText, Mail, FileSpreadsheet, Bell, Upload, CalendarOff } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff } from "lucide-react";
 import { toast } from "sonner";
-import type { RepartoEntry } from "@/types/database";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
@@ -20,11 +19,6 @@ import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspe
 
 export default function Settings() {
   const queryClient = useQueryClient();
-  const [newReparto, setNewReparto] = useState<RepartoEntry>({
-    city: "",
-    circuit: "",
-    email: "",
-  });
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
@@ -79,26 +73,6 @@ export default function Settings() {
       sla_court_reply_days: parseInt(form.get("sla_court_reply_days") as string) || 3,
     });
   };
-
-  const addRepartoEntry = () => {
-    if (!newReparto.city || !newReparto.email) {
-      toast.error("Ciudad y correo son requeridos");
-      return;
-    }
-
-    const currentDirectory = (profile?.reparto_directory as unknown as RepartoEntry[]) || [];
-    const updated = [...currentDirectory, newReparto];
-    
-    updateProfile.mutate({ reparto_directory: updated });
-    setNewReparto({ city: "", circuit: "", email: "" });
-  };
-
-  const removeRepartoEntry = (index: number) => {
-    const currentDirectory = (profile?.reparto_directory as unknown as RepartoEntry[]) || [];
-    const updated = currentDirectory.filter((_, i) => i !== index);
-    updateProfile.mutate({ reparto_directory: updated });
-  };
-
   const exportIcarus = async () => {
     const { data, error } = await supabase
       .from("filings")
@@ -145,8 +119,6 @@ export default function Settings() {
     toast.success("Archivo CSV descargado");
   };
 
-  const repartoDirectory = (profile?.reparto_directory as unknown as RepartoEntry[]) || [];
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -170,7 +142,6 @@ export default function Settings() {
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
           <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
-          <TabsTrigger value="reparto">Directorio Reparto</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
@@ -442,100 +413,6 @@ export default function Settings() {
                   Guardar SLAs
                 </Button>
               </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="reparto">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Directorio de Reparto
-              </CardTitle>
-              <CardDescription>
-                Configura los correos de reparto por ciudad/circuito
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div className="space-y-2">
-                  <Label>Ciudad</Label>
-                  <Input
-                    value={newReparto.city}
-                    onChange={(e) =>
-                      setNewReparto({ ...newReparto, city: e.target.value })
-                    }
-                    placeholder="Bogotá"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Circuito (opcional)</Label>
-                  <Input
-                    value={newReparto.circuit}
-                    onChange={(e) =>
-                      setNewReparto({ ...newReparto, circuit: e.target.value })
-                    }
-                    placeholder="Civil"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Correo Electrónico</Label>
-                  <Input
-                    type="email"
-                    value={newReparto.email}
-                    onChange={(e) =>
-                      setNewReparto({ ...newReparto, email: e.target.value })
-                    }
-                    placeholder="repartocivilbog@cendoj.ramajudicial.gov.co"
-                  />
-                </div>
-                <Button onClick={addRepartoEntry}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Agregar
-                </Button>
-              </div>
-
-              <Separator />
-
-              {repartoDirectory.length === 0 ? (
-                <div className="text-center py-8">
-                  <Mail className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                  <p className="mt-2 text-muted-foreground">
-                    No hay entradas en el directorio
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {repartoDirectory.map((entry, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-3 bg-muted rounded-lg"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div>
-                          <p className="font-medium">{entry.city}</p>
-                          {entry.circuit && (
-                            <Badge variant="outline" className="text-xs">
-                              {entry.circuit}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {entry.email}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeRepartoEntry(index)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
