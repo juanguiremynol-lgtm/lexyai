@@ -104,6 +104,8 @@ export default {
       boxShadow: {
         'gold': '0 4px 20px -4px hsl(43 85% 55% / 0.25)',
         'gold-lg': '0 8px 32px -8px hsl(43 85% 55% / 0.35)',
+        'gold-glow': '0 0 24px 6px hsl(43 85% 55% / 0.45), 0 4px 16px -4px hsl(43 85% 55% / 0.3)',
+        'gold-subtle': '0 0 12px 2px hsl(43 85% 55% / 0.15)',
         'card': '0 4px 24px -8px hsl(0 0% 0% / 0.5)',
         'elevated': '0 8px 32px -8px hsl(0 0% 0% / 0.6)',
         'inner-gold': 'inset 0 1px 0 0 hsl(43 85% 55% / 0.1)',
