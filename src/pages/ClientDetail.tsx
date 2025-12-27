@@ -219,14 +219,17 @@ export default function ClientDetail() {
     enabled: !!id,
   });
 
-  // Separate tutelas and habeas corpus from regular filings
+  // Separate tutelas and habeas corpus from regular filings (CGP demandas = procesos judiciales)
   const tutelas = clientFilings?.filter(f => f.filing_type === "TUTELA") || [];
   const habeasCorpus = clientFilings?.filter(f => f.filing_type === "HABEAS_CORPUS") || [];
-  const cgpFilings = clientFilings?.filter(f => !["TUTELA", "HABEAS_CORPUS"].includes(f.filing_type)) || [];
+  const judicialFilings = clientFilings?.filter(f => !["TUTELA", "HABEAS_CORPUS"].includes(f.filing_type)) || [];
 
   // Administrative processes from monitored_processes
   const adminProcesses = monitoredProcesses?.filter(p => p.process_type === "ADMINISTRATIVE") || [];
-  const judicialProcesses = monitoredProcesses?.filter(p => p.process_type !== "ADMINISTRATIVE") || [];
+  const judicialMonitoredProcesses = monitoredProcesses?.filter(p => p.process_type !== "ADMINISTRATIVE") || [];
+  
+  // Count total judicial items (filings + monitored processes)
+  const totalJudicialCount = judicialFilings.length + judicialMonitoredProcesses.length;
 
   const deleteClient = useMutation({
     mutationFn: async () => {
@@ -444,11 +447,11 @@ export default function ClientDetail() {
           </Button>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="cgp">
+          <Tabs defaultValue="judicial">
             <TabsList className="mb-4 flex-wrap h-auto gap-1">
-              <TabsTrigger value="cgp" className="flex items-center gap-2">
+              <TabsTrigger value="judicial" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
-                Demandas CGP ({cgpFilings.length})
+                Procesos Judiciales ({totalJudicialCount})
               </TabsTrigger>
               <TabsTrigger value="tutelas" className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
@@ -466,10 +469,6 @@ export default function ClientDetail() {
                 <Building2 className="h-4 w-4" />
                 Administrativos ({adminProcesses.length})
               </TabsTrigger>
-              <TabsTrigger value="judicial" className="flex items-center gap-2">
-                <Scale className="h-4 w-4" />
-                Procesos Judiciales ({judicialProcesses.length})
-              </TabsTrigger>
               <TabsTrigger value="contracts" className="flex items-center gap-2">
                 <Wallet className="h-4 w-4" />
                 Contratos
@@ -480,12 +479,12 @@ export default function ClientDetail() {
               </TabsTrigger>
             </TabsList>
 
-            {/* CGP Demandas Tab */}
-            <TabsContent value="cgp">
-              {cgpFilings.length === 0 ? (
+            {/* Procesos Judiciales Tab (merged CGP demandas + monitored judicial processes) */}
+            <TabsContent value="judicial">
+              {totalJudicialCount === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay demandas CGP vinculadas a este cliente</p>
+                  <p>No hay procesos judiciales vinculados a este cliente</p>
                   <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" /> Crear Demanda
                   </Button>
@@ -494,21 +493,18 @@ export default function ClientDetail() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Asunto</TableHead>
-                      <TableHead>Tipo</TableHead>
                       <TableHead>Radicado</TableHead>
-                      <TableHead>Autoridad</TableHead>
-                      <TableHead>Estado</TableHead>
+                      <TableHead>Despacho</TableHead>
+                      <TableHead>Demandante(s)</TableHead>
+                      <TableHead>Demandado(s)</TableHead>
+                      <TableHead>Monitoreo</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cgpFilings.map((filing) => (
-                      <TableRow key={filing.id}>
-                        <TableCell className="font-medium">
-                          {filing.matters?.matter_name || "—"}
-                        </TableCell>
-                        <TableCell>{filing.filing_type}</TableCell>
+                    {/* Filings (demandas CGP) */}
+                    {judicialFilings.map((filing) => (
+                      <TableRow key={`filing-${filing.id}`}>
                         <TableCell>
                           {filing.radicado ? (
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
@@ -521,12 +517,48 @@ export default function ClientDetail() {
                         <TableCell className="max-w-[200px] truncate">
                           {filing.court_name || filing.target_authority || "—"}
                         </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {filing.matters?.matter_name || "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">—</TableCell>
                         <TableCell>
                           <StatusBadge status={filing.status as any} />
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
                             <Link to={`/filings/${filing.id}`}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Link>
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {/* Monitored Processes (from CPNU) */}
+                    {judicialMonitoredProcesses.map((process) => (
+                      <TableRow key={`process-${process.id}`}>
+                        <TableCell>
+                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                            {process.radicado}
+                          </code>
+                        </TableCell>
+                        <TableCell className="max-w-[200px] truncate">
+                          {process.despacho_name || "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {process.demandantes || "—"}
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {process.demandados || "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
+                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link to={`/processes/${process.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -761,64 +793,6 @@ export default function ClientDetail() {
               )}
             </TabsContent>
 
-            {/* Judicial Processes Tab */}
-            <TabsContent value="judicial">
-              {judicialProcesses.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay procesos judiciales monitoreados vinculados a este cliente</p>
-                  <p className="text-sm mt-2">
-                    Los procesos se vinculan al confirmar radicado desde una demanda
-                  </p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Radicado</TableHead>
-                      <TableHead>Despacho</TableHead>
-                      <TableHead>Demandante(s)</TableHead>
-                      <TableHead>Demandado(s)</TableHead>
-                      <TableHead>Monitoreo</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {judicialProcesses.map((process) => (
-                      <TableRow key={process.id}>
-                        <TableCell>
-                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                            {process.radicado}
-                          </code>
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {process.despacho_name || "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">
-                          {process.demandantes || "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">
-                          {process.demandados || "—"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
-                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/processes/${process.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              Ver
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </TabsContent>
 
             <TabsContent value="contracts">
               <ContractsTab clientId={id!} clientName={client.name} />
