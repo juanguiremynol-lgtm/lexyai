@@ -29,6 +29,7 @@ interface NewHabeasCorpusDialogProps {
   onOpenChange: (open: boolean) => void;
   onBack?: () => void;
   onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
 export function NewHabeasCorpusDialog({
@@ -36,10 +37,11 @@ export function NewHabeasCorpusDialog({
   onOpenChange,
   onBack,
   onSuccess,
+  defaultClientId,
 }: NewHabeasCorpusDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
-    clientId: "",
+    clientId: defaultClientId || "",
     detenido: "",
     lugarDetencion: "",
     autoridadCaptora: "",

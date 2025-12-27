@@ -50,6 +50,7 @@ interface NewCGPFilingDialogProps {
   onOpenChange: (open: boolean) => void;
   onBack?: () => void;
   onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
 export function NewCGPFilingDialog({
@@ -57,6 +58,7 @@ export function NewCGPFilingDialog({
   onOpenChange,
   onBack,
   onSuccess,
+  defaultClientId,
 }: NewCGPFilingDialogProps) {
   const queryClient = useQueryClient();
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -240,7 +242,7 @@ export function NewCGPFilingDialog({
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="client_id">Cliente *</Label>
-              <Select name="client_id" required>
+              <Select name="client_id" required defaultValue={defaultClientId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar cliente" />
                 </SelectTrigger>

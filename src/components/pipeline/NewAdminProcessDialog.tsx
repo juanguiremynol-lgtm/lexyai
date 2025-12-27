@@ -30,9 +30,10 @@ interface NewAdminProcessDialogProps {
   onOpenChange: (open: boolean) => void;
   onBack?: () => void;
   onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
-export function NewAdminProcessDialog({ open, onOpenChange, onBack, onSuccess }: NewAdminProcessDialogProps) {
+export function NewAdminProcessDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewAdminProcessDialogProps) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     radicado: "",
@@ -47,7 +48,7 @@ export function NewAdminProcessDialog({ open, onOpenChange, onBack, onSuccess }:
     demandados: "",
     correo_autoridad: "",
     notes: "",
-    client_id: "",
+    client_id: defaultClientId || "",
   });
 
   // Fetch clients for linking

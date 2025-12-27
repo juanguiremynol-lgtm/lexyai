@@ -37,9 +37,10 @@ interface NewPeticionDialogProps {
   onOpenChange: (open: boolean) => void;
   onBack?: () => void;
   onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
-export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess }: NewPeticionDialogProps) {
+export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewPeticionDialogProps) {
   const queryClient = useQueryClient();
   const [entityName, setEntityName] = useState("");
   const [entityType, setEntityType] = useState<"PUBLIC" | "PRIVATE">("PUBLIC");
@@ -49,7 +50,7 @@ export function NewPeticionDialog({ open, onOpenChange, onBack, onSuccess }: New
   const [description, setDescription] = useState("");
   const [radicado, setRadicado] = useState("");
   const [filedAt, setFiledAt] = useState<Date | undefined>(undefined);
-  const [clientId, setClientId] = useState<string>("");
+  const [clientId, setClientId] = useState<string>(defaultClientId || "");
 
   // Fetch clients for dropdown
   const { data: clients } = useQuery({
