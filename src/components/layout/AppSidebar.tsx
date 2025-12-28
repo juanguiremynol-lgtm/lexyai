@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Link2,
   Mail,
+  FilePlus,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -34,6 +35,7 @@ import { toast } from "sonner";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "Nuevo Proceso", url: "/new-process", icon: FilePlus },
   { title: "Clientes", url: "/clients", icon: Briefcase },
   { title: "Procesos", url: "/processes", icon: Scale },
   { title: "Audiencias", url: "/hearings", icon: CalendarDays },
