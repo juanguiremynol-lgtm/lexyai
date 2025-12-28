@@ -73,7 +73,6 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
         body: {
           action: 'search',
           radicado,
-          owner_id: user.id,
         }
       });
 
