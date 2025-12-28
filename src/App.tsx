@@ -32,6 +32,7 @@ import PeticionDetail from "./pages/PeticionDetail";
 import AdminProcessDetail from "./pages/AdminProcessDetail";
 import EmailInboxPage from "./pages/EmailInboxPage";
 import PricingPage from "./pages/PricingPage";
+import NewProcess from "./pages/NewProcess";
 import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
@@ -72,6 +73,7 @@ const App = () => (
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><AppLayout /></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="/new-process" element={<ErrorBoundary><NewProcess /></ErrorBoundary>} />
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             <Route path="/filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
