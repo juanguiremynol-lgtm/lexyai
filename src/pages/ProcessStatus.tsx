@@ -366,35 +366,64 @@ export default function ProcessStatus() {
               Busque, agregue y monitoree procesos judiciales
             </p>
           </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/process-status/test">
-              <FlaskConical className="h-4 w-4 mr-2" />
-              Test Harness
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm">
-            <Upload className="h-4 w-4 mr-2" />
-            Importar Excel
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/process-status/test">
+                <FlaskConical className="h-4 w-4 mr-2" />
+                Test Harness
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm">
+              <Upload className="h-4 w-4 mr-2" />
+              Importar Excel
+            </Button>
+            <Button variant="outline" size="sm">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <Tabs defaultValue="search" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="search">
-            <Search className="h-4 w-4 mr-2" />
-            Buscar Proceso
-          </TabsTrigger>
-          <TabsTrigger value="monitoring">
-            <Eye className="h-4 w-4 mr-2" />
-            Lista de Monitoreo ({processes?.length || 0})
-          </TabsTrigger>
-        </TabsList>
+        {/* Sección para registrar radicado */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Registrar Nuevo Radicado</CardTitle>
+            <CardDescription>
+              Ingrese el número de radicado para registrarlo en el sistema
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <Input
+                  placeholder="Ingrese el radicado (23 dígitos)"
+                  value={newProcessRadicado}
+                  onChange={(e) => setNewProcessRadicado(e.target.value)}
+                  maxLength={23}
+                />
+              </div>
+              <Button 
+                onClick={() => setAddDialogOpen(true)}
+                disabled={!newProcessRadicado || newProcessRadicado.length !== 23}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Registrar Radicado
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Tabs defaultValue="search" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="search">
+              <Search className="h-4 w-4 mr-2" />
+              Buscar Proceso
+            </TabsTrigger>
+            <TabsTrigger value="monitoring">
+              <Eye className="h-4 w-4 mr-2" />
+              Lista de Monitoreo ({processes?.length || 0})
+            </TabsTrigger>
+          </TabsList>
 
         <TabsContent value="search" className="space-y-4">
           <Card>
