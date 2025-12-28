@@ -104,9 +104,15 @@ export default function NewProcess() {
     setSearchError(null);
 
     try {
-      const response = await fetch(
-        `https://scraper-rama-judicial.onrender.com/api/consulta?radicado=${encodeURIComponent(radicado)}`
-      );
+      // Usar edge function como proxy para evitar CORS
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scraper-proxy?radicado=${encodeURIComponent(radicado)}`;
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+      });
 
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
