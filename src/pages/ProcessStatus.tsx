@@ -416,7 +416,7 @@ export default function ProcessStatus() {
                     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                   />
                 </div>
-                <div className="flex items-end">
+                <div className="flex items-end gap-2">
                   <Button onClick={handleSearch} disabled={isSearching}>
                     {isSearching ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -424,6 +424,13 @@ export default function ProcessStatus() {
                       <Search className="h-4 w-4 mr-2" />
                     )}
                     Buscar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => window.open("https://scraper-rama-judicial.onrender.com/api/consulta", "_blank")}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Buscar Radicado
                   </Button>
                 </div>
               </div>
