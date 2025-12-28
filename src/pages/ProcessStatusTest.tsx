@@ -86,7 +86,6 @@ export default function ProcessStatusTest() {
         body: {
           action: 'search',
           radicado,
-          owner_id: user.id,
           debug: debugMode,
         },
       });

@@ -5,13 +5,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper to extract and validate user from JWT
+async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseAnonKey: string): Promise<{ user_id: string } | null> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  const token = authHeader.replace('Bearer ', '');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return null;
+  }
+  
+  return { user_id: user.id };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { action, radicado, despacho, sources, owner_id, process_id } = await req.json();
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    // Authenticate user from JWT token
+    const authUser = await getAuthenticatedUser(req, supabaseUrl, supabaseAnonKey);
+    if (!authUser) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized - valid authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Use authenticated user's ID instead of trusting request body
+    const owner_id = authUser.user_id;
+    
+    const { action, radicado, despacho, sources, process_id } = await req.json();
     
     if (!action) {
       return new Response(
@@ -20,15 +54,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Unified search across all sources
     if (action === 'search') {
-      if (!radicado || !owner_id) {
+      if (!radicado) {
         return new Response(
-          JSON.stringify({ success: false, error: 'radicado and owner_id are required' }),
+          JSON.stringify({ success: false, error: 'radicado is required' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -112,9 +144,9 @@ Deno.serve(async (req) => {
     
     // Run full crawl for a monitored process
     if (action === 'crawl') {
-      if (!process_id || !owner_id) {
+      if (!process_id) {
         return new Response(
-          JSON.stringify({ success: false, error: 'process_id and owner_id are required' }),
+          JSON.stringify({ success: false, error: 'process_id is required' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }

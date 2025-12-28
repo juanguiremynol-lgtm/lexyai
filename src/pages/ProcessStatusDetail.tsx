@@ -204,7 +204,6 @@ export default function ProcessStatusDetail() {
         body: {
           action: "crawl",
           process_id: id,
-          owner_id: user.id,
         },
       });
 

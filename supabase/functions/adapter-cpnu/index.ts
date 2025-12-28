@@ -770,6 +770,26 @@ function classifyResult(
   return 'UNKNOWN';
 }
 
+// ============= AUTH HELPER =============
+
+// Helper to extract and validate user from JWT
+async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseAnonKey: string): Promise<{ user_id: string } | null> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  const token = authHeader.replace('Bearer ', '');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return null;
+  }
+  
+  return { user_id: user.id };
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -782,17 +802,31 @@ Deno.serve(async (req) => {
   const attempts: AttemptLog[] = [];
 
   try {
-    const { action, radicado, owner_id, debug } = await req.json();
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    if (!action || !owner_id) {
+    // Authenticate user from JWT token
+    const authUser = await getAuthenticatedUser(req, supabaseUrl, supabaseAnonKey);
+    if (!authUser) {
       return new Response(
-        JSON.stringify({ ok: false, error: 'Missing required fields: action, owner_id' }),
+        JSON.stringify({ ok: false, error: 'Unauthorized - valid authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Use authenticated user's ID instead of trusting request body
+    const owner_id = authUser.user_id;
+    
+    const { action, radicado, debug } = await req.json();
+    
+    if (!action) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Missing required field: action' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Create crawler run record

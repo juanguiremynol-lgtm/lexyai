@@ -183,17 +183,51 @@ function parseYearPages(markdown: string, html: string, baseUrl: string): Array<
   return years.sort((a, b) => b.year - a.year); // Most recent first
 }
 
+// Helper to extract and validate user from JWT
+async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseAnonKey: string): Promise<{ user_id: string } | null> {
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  
+  const token = authHeader.replace('Bearer ', '');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return null;
+  }
+  
+  return { user_id: user.id };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { action, despacho_slug, year, owner_id, monitored_process_id, include_screenshot } = await req.json();
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    if (!action || !owner_id) {
+    // Authenticate user from JWT token
+    const authUser = await getAuthenticatedUser(req, supabaseUrl, supabaseAnonKey);
+    if (!authUser) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Missing required fields: action, owner_id' }),
+        JSON.stringify({ success: false, error: 'Unauthorized - valid authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Use authenticated user's ID instead of trusting request body
+    const owner_id = authUser.user_id;
+    
+    const { action, despacho_slug, year, monitored_process_id, include_screenshot } = await req.json();
+    
+    if (!action) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Missing required field: action' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -207,8 +241,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const baseUrl = 'https://portalhistorico.ramajudicial.gov.co';

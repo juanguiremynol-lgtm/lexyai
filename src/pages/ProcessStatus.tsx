@@ -137,7 +137,6 @@ export default function ProcessStatus() {
         body: {
           action: "search",
           radicado,
-          owner_id: user.id,
         },
       });
 
@@ -257,7 +256,6 @@ export default function ProcessStatus() {
         body: {
           action: "crawl",
           process_id: processId,
-          owner_id: user.id,
         },
       });
 

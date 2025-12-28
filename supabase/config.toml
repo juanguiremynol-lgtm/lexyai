@@ -7,16 +7,16 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.adapter-cpnu]
-verify_jwt = false
+verify_jwt = true
 
 [functions.adapter-publicaciones]
-verify_jwt = false
+verify_jwt = true
 
 [functions.adapter-historico]
-verify_jwt = false
+verify_jwt = true
 
 [functions.process-monitor]
-verify_jwt = false
+verify_jwt = true
 
 [functions.adapter-icarus]
 verify_jwt = false
@@ -49,4 +49,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.inbound-email]
+verify_jwt = false
+
+[functions.scraper-proxy]
 verify_jwt = false
