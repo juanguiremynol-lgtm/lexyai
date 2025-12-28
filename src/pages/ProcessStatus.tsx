@@ -40,6 +40,7 @@ import {
   ExternalLink,
   FlaskConical,
   AlertTriangle,
+  FileSearch,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
@@ -76,6 +77,18 @@ interface SearchResult {
   detail_url?: string;
 }
 
+interface ExternalApiProcess {
+  radicado: string;
+  despacho?: string;
+  demandante?: string;
+  demandado?: string;
+  juez?: string;
+  fecha_ultima_actuacion?: string;
+  ubicacion?: string;
+  tipo_proceso?: string;
+  [key: string]: unknown;
+}
+
 export default function ProcessStatus() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -89,6 +102,12 @@ export default function ProcessStatus() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [newProcessRadicado, setNewProcessRadicado] = useState("");
   const [newProcessDespacho, setNewProcessDespacho] = useState("");
+  
+  // Estado para búsqueda externa de radicado
+  const [externalSearchRadicado, setExternalSearchRadicado] = useState("");
+  const [isExternalSearching, setIsExternalSearching] = useState(false);
+  const [externalProcessData, setExternalProcessData] = useState<ExternalApiProcess | null>(null);
+  const [externalSearchError, setExternalSearchError] = useState<string | null>(null);
 
   // Fetch monitored processes
   const { data: processes, isLoading } = useQuery({
@@ -283,6 +302,75 @@ export default function ProcessStatus() {
     setAddDialogOpen(true);
   };
 
+  // Función para buscar en API externa
+  const handleExternalSearch = async () => {
+    if (!externalSearchRadicado.trim()) {
+      toast.error("Ingrese un radicado para buscar");
+      return;
+    }
+
+    if (externalSearchRadicado.length !== 23) {
+      toast.error("El radicado debe tener exactamente 23 dígitos");
+      return;
+    }
+
+    setIsExternalSearching(true);
+    setExternalProcessData(null);
+    setExternalSearchError(null);
+
+    try {
+      const response = await fetch(
+        `https://scraper-rama-judicial.onrender.com/api/consulta?radicado=${encodeURIComponent(externalSearchRadicado)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data && (data.radicado || data.despacho || Object.keys(data).length > 0)) {
+        setExternalProcessData({
+          radicado: data.radicado || externalSearchRadicado,
+          despacho: data.despacho || data.juzgado || data.dependencia,
+          demandante: data.demandante || data.demandantes,
+          demandado: data.demandado || data.demandados,
+          juez: data.juez || data.juez_ponente,
+          fecha_ultima_actuacion: data.fecha_ultima_actuacion || data.ultima_actuacion,
+          ubicacion: data.ubicacion || data.ciudad || data.departamento,
+          tipo_proceso: data.tipo_proceso || data.tipo,
+          ...data
+        });
+        toast.success("Información del proceso encontrada");
+      } else {
+        setExternalSearchError("No se encontró información para este radicado");
+        toast.error("No se encontró información para este radicado");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+      setExternalSearchError(errorMessage);
+      toast.error("Error al consultar: " + errorMessage);
+    } finally {
+      setIsExternalSearching(false);
+    }
+  };
+
+  // Función para registrar el proceso desde la búsqueda externa
+  const handleRegisterFromExternal = () => {
+    if (externalProcessData) {
+      setNewProcessRadicado(externalProcessData.radicado);
+      setNewProcessDespacho(externalProcessData.despacho || "");
+      setAddDialogOpen(true);
+    }
+  };
+
+  // Limpiar búsqueda externa
+  const handleClearExternalSearch = () => {
+    setExternalSearchRadicado("");
+    setExternalProcessData(null);
+    setExternalSearchError(null);
+  };
+
   const getSourceStatusBadge = (sources: string[]) => {
     return sources.map((source) => {
       const adapter = SOURCE_ADAPTERS[source as DataSource];
@@ -384,32 +472,124 @@ export default function ProcessStatus() {
           </div>
         </div>
 
-        {/* Sección para registrar radicado */}
+        {/* Sección para registrar radicado con búsqueda externa */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Registrar Nuevo Radicado</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileSearch className="h-5 w-5" />
+              Registrar Nuevo Radicado
+            </CardTitle>
             <CardDescription>
-              Ingrese el número de radicado para registrarlo en el sistema
+              Busque la información del proceso en la base de datos de la Rama Judicial antes de registrarlo
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <div className="flex gap-4">
               <div className="flex-1">
                 <Input
                   placeholder="Ingrese el radicado (23 dígitos)"
-                  value={newProcessRadicado}
-                  onChange={(e) => setNewProcessRadicado(e.target.value)}
+                  value={externalSearchRadicado}
+                  onChange={(e) => setExternalSearchRadicado(e.target.value.replace(/\D/g, ''))}
                   maxLength={23}
+                  onKeyDown={(e) => e.key === "Enter" && handleExternalSearch()}
                 />
               </div>
               <Button 
-                onClick={() => setAddDialogOpen(true)}
-                disabled={!newProcessRadicado || newProcessRadicado.length !== 23}
+                onClick={handleExternalSearch}
+                disabled={isExternalSearching || externalSearchRadicado.length !== 23}
+                variant="secondary"
               >
-                <Plus className="h-4 w-4 mr-2" />
-                Registrar Radicado
+                {isExternalSearching ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4 mr-2" />
+                )}
+                Buscar Info
               </Button>
+              {(externalProcessData || externalSearchError) && (
+                <Button variant="ghost" onClick={handleClearExternalSearch}>
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              )}
             </div>
+
+            {/* Mostrar error de búsqueda */}
+            {externalSearchError && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{externalSearchError}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Mostrar información del proceso encontrado */}
+            {externalProcessData && (
+              <Card className="bg-muted/50 border-primary/20">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    Información del Proceso
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="font-medium text-muted-foreground">Radicado:</span>
+                      <p className="font-mono">{externalProcessData.radicado}</p>
+                    </div>
+                    {externalProcessData.despacho && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Despacho:</span>
+                        <p>{externalProcessData.despacho}</p>
+                      </div>
+                    )}
+                    {externalProcessData.demandante && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Demandante:</span>
+                        <p>{externalProcessData.demandante}</p>
+                      </div>
+                    )}
+                    {externalProcessData.demandado && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Demandado:</span>
+                        <p>{externalProcessData.demandado}</p>
+                      </div>
+                    )}
+                    {externalProcessData.juez && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Juez:</span>
+                        <p>{externalProcessData.juez}</p>
+                      </div>
+                    )}
+                    {externalProcessData.tipo_proceso && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Tipo de Proceso:</span>
+                        <p>{externalProcessData.tipo_proceso}</p>
+                      </div>
+                    )}
+                    {externalProcessData.ubicacion && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Ubicación:</span>
+                        <p>{externalProcessData.ubicacion}</p>
+                      </div>
+                    )}
+                    {externalProcessData.fecha_ultima_actuacion && (
+                      <div>
+                        <span className="font-medium text-muted-foreground">Última Actuación:</span>
+                        <p>{externalProcessData.fecha_ultima_actuacion}</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="pt-3 border-t">
+                    <Button onClick={handleRegisterFromExternal} className="w-full">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Registrar Este Proceso
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </CardContent>
         </Card>
 
