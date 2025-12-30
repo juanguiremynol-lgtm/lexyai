@@ -53,6 +53,3 @@ verify_jwt = false
 
 [functions.scraper-proxy]
 verify_jwt = false
-
-[functions.proxy-ramajudicial]
-verify_jwt = false
