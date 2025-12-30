@@ -2,63 +2,58 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 serve(async (req) => {
-  // Handle CORS preflight
+  // Permitir preflight de CORS
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+
+  // Solo aceptar POST
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Método no permitido" }), {
+      status: 405,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    });
   }
 
   try {
-    const url = new URL(req.url);
-    const radicado = url.searchParams.get("radicado");
+    const body = await req.json();
 
-    if (!radicado) {
-      return new Response(
-        JSON.stringify({ error: "Radicado es requerido" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const renderApiUrl = "https://scraper-rama-judicial.onrender.com/api/consulta";
 
-    console.log(`Consultando radicado: ${radicado}`);
+    const fetchRes = await fetch(renderApiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-    const response = await fetch(
-      `https://scraper-rama-judicial.onrender.com/api/consulta?radicado=${encodeURIComponent(radicado)}`,
-      {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-        },
-      }
-    );
+    const data = await fetchRes.text();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Error del scraper: ${response.status} - ${errorText}`);
-      return new Response(
-        JSON.stringify({ 
-          error: `Error del servicio externo: ${response.status}`,
-          details: errorText 
-        }),
-        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const data = await response.json();
-    console.log(`Respuesta del scraper:`, JSON.stringify(data).substring(0, 200));
-
-    return new Response(
-      JSON.stringify(data),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : "Error interno del servidor";
-    console.error("Error en proxy:", errorMessage);
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(data, {
+      status: fetchRes.status,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    });
+  } catch (e) {
+    console.error("Error consultando backend:", e);
+    return new Response(JSON.stringify({ error: "Error consultando backend", detalles: String(e) }), {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    });
   }
 });
