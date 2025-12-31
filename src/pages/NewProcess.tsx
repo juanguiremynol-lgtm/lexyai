@@ -15,6 +15,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
   Search,
   Plus,
   Loader2,
@@ -23,20 +37,45 @@ import {
   AlertTriangle,
   FileSearch,
   Scale,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  User,
+  Building2,
+  FileText,
+  Clock,
+  Bell,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "@/config/api";
 
-interface ExternalApiProcess {
-  radicado: string;
-  despacho?: string;
-  demandante?: string;
-  demandado?: string;
-  juez?: string;
-  fecha_ultima_actuacion?: string;
-  ubicacion?: string;
-  tipo_proceso?: string;
-  [key: string]: unknown;
+interface Proceso {
+  "Fecha de Radicación"?: string;
+  "Tipo de Proceso"?: string;
+  "Despacho"?: string;
+  "Demandante"?: string;
+  "Demandado"?: string;
+  "Clase de Proceso"?: string;
+  "Ubicación"?: string;
+  [key: string]: string | undefined;
+}
+
+interface Actuacion {
+  "Fecha de Actuación"?: string;
+  "Actuación"?: string;
+  "Anotación"?: string;
+  "Fecha inicia Término"?: string;
+  "Fecha finaliza Término"?: string;
+  "Fecha de Registro"?: string;
+}
+
+interface ApiResponse {
+  proceso: Proceso;
+  actuaciones: Actuacion[];
+  total_actuaciones: number;
+  ultima_actuacion: Actuacion;
+  contador_web: number;
 }
 
 export default function NewProcess() {
@@ -45,10 +84,11 @@ export default function NewProcess() {
   
   const [radicado, setRadicado] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [processData, setProcessData] = useState<ExternalApiProcess | null>(null);
+  const [apiResult, setApiResult] = useState<ApiResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [despachoOverride, setDespachoOverride] = useState("");
+  const [actuacionesOpen, setActuacionesOpen] = useState(false);
 
   // Mutation para agregar proceso
   const addProcessMutation = useMutation({
@@ -75,7 +115,6 @@ export default function NewProcess() {
       queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
       toast.success("Proceso registrado exitosamente");
       setConfirmDialogOpen(false);
-      // Navegar al detalle del proceso
       navigate(`/processes/${data.id}`);
     },
     onError: (error) => {
@@ -87,54 +126,44 @@ export default function NewProcess() {
     },
   });
 
+  const formatRadicado = (value: string) => {
+    return value.replace(/\D/g, "").slice(0, 23);
+  };
+
   // Buscar en API externa
   const handleSearch = async () => {
-    if (!radicado.trim()) {
+    const cleanRadicado = radicado.replace(/\D/g, "");
+    
+    if (!cleanRadicado) {
       toast.error("Ingrese un radicado para buscar");
       return;
     }
 
-    if (radicado.length !== 23) {
+    if (cleanRadicado.length !== 23) {
       toast.error("El radicado debe tener exactamente 23 dígitos");
       return;
     }
 
     setIsSearching(true);
-    setProcessData(null);
+    setApiResult(null);
     setSearchError(null);
+    setActuacionesOpen(false);
 
     try {
-      // Usar edge function como proxy para evitar CORS
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scraper-proxy?radicado=${encodeURIComponent(radicado)}`;
-      const response = await fetch(proxyUrl, {
-        headers: {
-          'Authorization': `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(cleanRadicado)}`
+      );
 
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: ApiResponse = await response.json();
       
-      if (data && (data.radicado || data.despacho || Object.keys(data).length > 0)) {
-        const processInfo: ExternalApiProcess = {
-          radicado: data.radicado || radicado,
-          despacho: data.despacho || data.juzgado || data.dependencia,
-          demandante: data.demandante || data.demandantes,
-          demandado: data.demandado || data.demandados,
-          juez: data.juez || data.juez_ponente,
-          fecha_ultima_actuacion: data.fecha_ultima_actuacion || data.ultima_actuacion,
-          ubicacion: data.ubicacion || data.ciudad || data.departamento,
-          tipo_proceso: data.tipo_proceso || data.tipo,
-          ...data
-        };
-        setProcessData(processInfo);
-        setDespachoOverride(processInfo.despacho || "");
-        toast.success("Información del proceso encontrada");
+      if (data && data.proceso) {
+        setApiResult(data);
+        setDespachoOverride(data.proceso["Despacho"] || "");
+        toast.success(`Proceso encontrado con ${data.total_actuaciones} actuaciones`);
       } else {
         setSearchError("No se encontró información para este radicado. Puede registrarlo manualmente.");
       }
@@ -146,16 +175,17 @@ export default function NewProcess() {
     }
   };
 
-  // Registrar proceso
+  // Registrar proceso con datos de API
   const handleRegister = () => {
-    const despacho = processData?.despacho || despachoOverride;
+    if (!apiResult) return;
+    
     addProcessMutation.mutate({
-      radicado: processData?.radicado || radicado,
-      despacho: despacho,
+      radicado: radicado,
+      despacho: apiResult.proceso["Despacho"] || despachoOverride,
     });
   };
 
-  // Registrar manualmente (sin datos de API)
+  // Registrar manualmente
   const handleManualRegister = () => {
     setConfirmDialogOpen(true);
   };
@@ -170,9 +200,10 @@ export default function NewProcess() {
   // Limpiar
   const handleClear = () => {
     setRadicado("");
-    setProcessData(null);
+    setApiResult(null);
     setSearchError(null);
     setDespachoOverride("");
+    setActuacionesOpen(false);
   };
 
   return (
@@ -225,7 +256,7 @@ export default function NewProcess() {
         <div>
           <h1 className="text-2xl font-serif font-bold">Nuevo Proceso</h1>
           <p className="text-muted-foreground">
-            Registre un nuevo proceso judicial para monitoreo
+            Consulte y registre un nuevo proceso judicial para monitoreo
           </p>
         </div>
       </div>
@@ -234,52 +265,67 @@ export default function NewProcess() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileSearch className="h-5 w-5" />
-            Buscar Radicado
+            <FileSearch className="h-5 w-5 text-primary" />
+            Consultar Proceso Judicial
           </CardTitle>
           <CardDescription>
-            Ingrese el número de radicado (23 dígitos) para buscar información en la base de datos de la Rama Judicial
+            Ingrese el número de radicado (23 dígitos) para consultar información en la Rama Judicial
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <Label htmlFor="radicado">Número de Radicado</Label>
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-1">
               <Input
-                id="radicado"
-                placeholder="Ej: 11001310301520230001200"
+                placeholder="Ej: 05001310500120230012300"
                 value={radicado}
-                onChange={(e) => setRadicado(e.target.value.replace(/\D/g, ''))}
-                maxLength={23}
+                onChange={(e) => setRadicado(formatRadicado(e.target.value))}
+                onKeyDown={(e) => e.key === "Enter" && !isSearching && handleSearch()}
+                disabled={isSearching}
                 className="font-mono text-lg"
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                maxLength={23}
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-xs text-muted-foreground">
                 {radicado.length}/23 dígitos
+                {radicado.length === 23 && (
+                  <span className="text-green-600 ml-2">✓ Formato válido</span>
+                )}
               </p>
             </div>
-          </div>
-          
-          <div className="flex gap-2">
             <Button 
               onClick={handleSearch}
               disabled={isSearching || radicado.length !== 23}
-              className="flex-1"
+              size="lg"
             >
               {isSearching ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Consultando...
+                </>
               ) : (
-                <Search className="h-4 w-4 mr-2" />
+                <>
+                  <Search className="mr-2 h-4 w-4" />
+                  Buscar
+                </>
               )}
-              Buscar Información
             </Button>
-            {(processData || searchError || radicado) && (
-              <Button variant="ghost" onClick={handleClear}>
-                <XCircle className="h-4 w-4 mr-2" />
-                Limpiar
+            {(apiResult || searchError || radicado) && (
+              <Button variant="ghost" onClick={handleClear} size="lg">
+                <XCircle className="h-4 w-4" />
               </Button>
             )}
           </div>
+
+          {isSearching && (
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div>
+                <p className="font-medium">Consultando Rama Judicial...</p>
+                <p className="text-sm text-muted-foreground">
+                  Este proceso puede tardar 10-15 segundos
+                </p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -304,91 +350,220 @@ export default function NewProcess() {
         </Alert>
       )}
 
-      {/* Información del proceso encontrado */}
-      {processData && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
-              Información del Proceso
-            </CardTitle>
-            <CardDescription>
-              Se encontró la siguiente información. Revise y confirme para registrar.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs">Radicado</Label>
-                <p className="font-mono font-medium">{processData.radicado}</p>
+      {/* Resultados de la API */}
+      {apiResult && (
+        <div className="space-y-4">
+          {/* Información del Proceso */}
+          <Card className="border-primary/30">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  Información del Proceso
+                </CardTitle>
+                <Badge variant="outline" className="text-sm">
+                  {apiResult.total_actuaciones} actuaciones
+                </Badge>
               </div>
-              
-              {processData.despacho && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Despacho</Label>
-                  <p className="font-medium">{processData.despacho}</p>
-                </div>
-              )}
-              
-              {processData.demandante && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Demandante</Label>
-                  <p>{processData.demandante}</p>
-                </div>
-              )}
-              
-              {processData.demandado && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Demandado</Label>
-                  <p>{processData.demandado}</p>
-                </div>
-              )}
-              
-              {processData.juez && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Juez</Label>
-                  <p>{processData.juez}</p>
-                </div>
-              )}
-              
-              {processData.tipo_proceso && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Tipo de Proceso</Label>
-                  <p>{processData.tipo_proceso}</p>
-                </div>
-              )}
-              
-              {processData.ubicacion && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Ubicación</Label>
-                  <p>{processData.ubicacion}</p>
-                </div>
-              )}
-              
-              {processData.fecha_ultima_actuacion && (
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs">Última Actuación</Label>
-                  <p>{processData.fecha_ultima_actuacion}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="pt-4 border-t flex gap-3">
-              <Button 
-                onClick={handleRegister} 
-                className="flex-1"
-                disabled={addProcessMutation.isPending}
-              >
-                {addProcessMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4 mr-2" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {apiResult.proceso["Tipo de Proceso"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <Scale className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Tipo de Proceso</p>
+                      <p className="font-medium">{apiResult.proceso["Tipo de Proceso"]}</p>
+                    </div>
+                  </div>
                 )}
-                Registrar Proceso
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                
+                {apiResult.proceso["Clase de Proceso"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Clase de Proceso</p>
+                      <p className="font-medium">{apiResult.proceso["Clase de Proceso"]}</p>
+                    </div>
+                  </div>
+                )}
+
+                {apiResult.proceso["Fecha de Radicación"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Fecha de Radicación</p>
+                      <p className="font-medium">{apiResult.proceso["Fecha de Radicación"]}</p>
+                    </div>
+                  </div>
+                )}
+
+                {apiResult.proceso["Despacho"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Despacho</p>
+                      <p className="font-medium">{apiResult.proceso["Despacho"]}</p>
+                    </div>
+                  </div>
+                )}
+
+                {apiResult.proceso["Demandante"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Demandante</p>
+                      <p className="font-medium">{apiResult.proceso["Demandante"]}</p>
+                    </div>
+                  </div>
+                )}
+
+                {apiResult.proceso["Demandado"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Demandado</p>
+                      <p className="font-medium">{apiResult.proceso["Demandado"]}</p>
+                    </div>
+                  </div>
+                )}
+
+                {apiResult.proceso["Ubicación"] && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 md:col-span-2 lg:col-span-3">
+                    <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Ubicación</p>
+                      <p className="font-medium">{apiResult.proceso["Ubicación"]}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botón de registrar */}
+              <div className="pt-4 mt-4 border-t">
+                <Button 
+                  onClick={handleRegister} 
+                  className="w-full"
+                  disabled={addProcessMutation.isPending}
+                  size="lg"
+                >
+                  {addProcessMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Registrar Proceso para Monitoreo
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Última Actuación Destacada */}
+          {apiResult.ultima_actuacion && (
+            <Card className="border-primary/50 bg-primary/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-primary">
+                  <Bell className="h-5 w-5" />
+                  Última Actuación
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge>{apiResult.ultima_actuacion["Fecha de Actuación"]}</Badge>
+                    <span className="font-semibold">{apiResult.ultima_actuacion["Actuación"]}</span>
+                  </div>
+                  {apiResult.ultima_actuacion["Anotación"] && (
+                    <p className="text-muted-foreground bg-background/50 p-3 rounded-md">
+                      {apiResult.ultima_actuacion["Anotación"]}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                    {apiResult.ultima_actuacion["Fecha inicia Término"] && (
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        <span>Inicia: {apiResult.ultima_actuacion["Fecha inicia Término"]}</span>
+                      </div>
+                    )}
+                    {apiResult.ultima_actuacion["Fecha finaliza Término"] && (
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        <span>Finaliza: {apiResult.ultima_actuacion["Fecha finaliza Término"]}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Historial de Actuaciones - Colapsable */}
+          {apiResult.actuaciones && apiResult.actuaciones.length > 0 && (
+            <Collapsible open={actuacionesOpen} onOpenChange={setActuacionesOpen}>
+              <Card>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-primary" />
+                        Historial de Actuaciones
+                        <Badge variant="secondary">{apiResult.total_actuaciones}</Badge>
+                      </CardTitle>
+                      {actuacionesOpen ? (
+                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                      )}
+                    </div>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-[120px]">Fecha</TableHead>
+                            <TableHead>Actuación</TableHead>
+                            <TableHead className="hidden lg:table-cell">Anotación</TableHead>
+                            <TableHead className="w-[100px] hidden md:table-cell">Inicia</TableHead>
+                            <TableHead className="w-[100px] hidden md:table-cell">Finaliza</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {apiResult.actuaciones.map((actuacion, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-mono text-sm">
+                                {actuacion["Fecha de Actuación"] || "-"}
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {actuacion["Actuación"] || "-"}
+                                {actuacion["Anotación"] && (
+                                  <p className="text-sm text-muted-foreground mt-1 lg:hidden">
+                                    {actuacion["Anotación"]}
+                                  </p>
+                                )}
+                              </TableCell>
+                              <TableCell className="hidden lg:table-cell text-muted-foreground text-sm max-w-md">
+                                {actuacion["Anotación"] || "-"}
+                              </TableCell>
+                              <TableCell className="hidden md:table-cell text-sm">
+                                {actuacion["Fecha inicia Término"] || "-"}
+                              </TableCell>
+                              <TableCell className="hidden md:table-cell text-sm">
+                                {actuacion["Fecha finaliza Término"] || "-"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+          )}
+        </div>
       )}
     </div>
   );
