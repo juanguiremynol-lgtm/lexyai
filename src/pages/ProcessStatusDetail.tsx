@@ -49,7 +49,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia, PROCESS_PHASES, PROCESS_PHASES_ORDER, type ProcessPhase } from "@/lib/constants";
-import { SOURCE_ADAPTERS, EVENT_TYPES, type DataSource, type EventType } from "@/lib/source-adapters";
+import { SOURCE_ADAPTERS, type DataSource } from "@/lib/source-adapters";
 import { ProcessClientLink, ProcessInfoEditor } from "@/components/processes";
 import { EstadosList } from "@/components/estados";
 import { SharepointHub } from "@/components/shared";
@@ -57,24 +57,6 @@ import { ClassificationDialog } from "@/components/pipeline/ClassificationDialog
 import { useReclassification } from "@/hooks/use-reclassification";
 import { EntityEmailTab } from "@/components/email";
 import { API_BASE_URL } from "@/config/api";
-
-interface Attachment {
-  label: string;
-  url: string;
-}
-
-interface ProcessEvent {
-  id: string;
-  source: string;
-  event_type: string;
-  event_date: string | null;
-  title: string | null;
-  description: string;
-  detail: string | null;
-  attachments: Array<{ label: string; url: string }>;
-  source_url: string | null;
-  created_at: string;
-}
 
 interface EvidenceSnapshot {
   id: string;
@@ -114,15 +96,15 @@ export default function ProcessStatusDetail() {
     enabled: !!id,
   });
 
-  // Fetch events
-  const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ["process-events", id, selectedSource],
+  // Fetch actuaciones from the actuaciones table (populated by external API)
+  const { data: actuaciones, isLoading: actuacionesLoading } = useQuery({
+    queryKey: ["actuaciones", id, selectedSource],
     queryFn: async () => {
       let query = supabase
-        .from("process_events")
+        .from("actuaciones")
         .select("*")
         .eq("monitored_process_id", id!)
-        .order("event_date", { ascending: false, nullsFirst: false });
+        .order("act_date", { ascending: false, nullsFirst: false });
 
       if (selectedSource !== "all") {
         query = query.eq("source", selectedSource);
@@ -130,14 +112,7 @@ export default function ProcessStatusDetail() {
 
       const { data, error } = await query;
       if (error) throw error;
-      
-      // Transform the data to match our interface
-      return (data || []).map((event) => ({
-        ...event,
-        attachments: (Array.isArray(event.attachments) 
-          ? event.attachments as unknown as Attachment[]
-          : []),
-      })) as ProcessEvent[];
+      return data || [];
     },
     enabled: !!id,
   });
@@ -279,7 +254,7 @@ export default function ProcessStatusDetail() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["monitored-process", id] });
-      queryClient.invalidateQueries({ queryKey: ["process-events", id] });
+      queryClient.invalidateQueries({ queryKey: ["actuaciones", id] });
       
       if (data.new_actuaciones > 0) {
         toast.success(`Proceso actualizado. ${data.new_actuaciones} nuevas actuaciones encontradas`);
@@ -310,7 +285,7 @@ export default function ProcessStatusDetail() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["monitored-process", id] });
-      queryClient.invalidateQueries({ queryKey: ["process-events", id] });
+      queryClient.invalidateQueries({ queryKey: ["actuaciones", id] });
       queryClient.invalidateQueries({ queryKey: ["evidence-snapshots", id] });
 
       if (data.total_new_events > 0) {
@@ -323,27 +298,6 @@ export default function ProcessStatusDetail() {
       toast.error("Error al consultar: " + error.message);
     },
   });
-
-  const getEventTypeBadge = (eventType: string) => {
-    const config = EVENT_TYPES[eventType as EventType];
-    if (!config) {
-      return <Badge variant="outline">{eventType}</Badge>;
-    }
-    return (
-      <Badge variant="secondary" className="text-xs">
-        {config.label}
-      </Badge>
-    );
-  };
-
-  const getSourceBadge = (source: string) => {
-    const adapter = SOURCE_ADAPTERS[source as DataSource];
-    return (
-      <Badge variant="outline" className="text-xs">
-        {adapter?.name.split(" ")[0] || source}
-      </Badge>
-    );
-  };
 
   if (processLoading) {
     return (
@@ -566,7 +520,7 @@ export default function ProcessStatusDetail() {
               <FileText className="h-4 w-4" />
               Actuaciones
             </div>
-            <p className="text-lg font-medium mt-1">{events?.length || 0}</p>
+            <p className="text-lg font-medium mt-1">{actuaciones?.length || 0}</p>
           </CardContent>
         </Card>
         <Card>
@@ -637,83 +591,69 @@ export default function ProcessStatusDetail() {
               </Select>
             </CardHeader>
             <CardContent>
-              {eventsLoading ? (
+              {actuacionesLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
-              ) : events?.length === 0 ? (
+              ) : actuaciones?.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No hay actuaciones registradas</p>
                   <p className="text-sm mt-2">
-                    Haga clic en "Consultar Ahora" para buscar actuaciones
+                    Haga clic en "Actualizar desde Rama Judicial" para buscar actuaciones
                   </p>
                 </div>
               ) : (
                 <ScrollArea className="h-[500px] pr-4">
                   <div className="space-y-4">
-                    {events?.map((event, index) => (
-                      <div key={event.id} className="relative pl-6 pb-4">
-                        {/* Timeline line */}
-                        {index < (events?.length || 0) - 1 && (
-                          <div className="absolute left-[9px] top-6 bottom-0 w-0.5 bg-border" />
-                        )}
-                        {/* Timeline dot */}
-                        <div className="absolute left-0 top-1.5 h-[18px] w-[18px] rounded-full border-2 border-primary bg-background" />
+                    {actuaciones?.map((act, index) => {
+                      const actType = act.act_type_guess || "DEFAULT";
+                      return (
+                        <div key={act.id} className="relative pl-6 pb-4">
+                          {/* Timeline line */}
+                          {index < (actuaciones?.length || 0) - 1 && (
+                            <div className="absolute left-[9px] top-6 bottom-0 w-0.5 bg-border" />
+                          )}
+                          {/* Timeline dot */}
+                          <div className="absolute left-0 top-1.5 h-[18px] w-[18px] rounded-full border-2 border-primary bg-background" />
 
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {getSourceBadge(event.source)}
-                            {getEventTypeBadge(event.event_type)}
-                            {event.event_date && (
-                              <span className="text-sm text-muted-foreground">
-                                {formatDateColombia(event.event_date)}
-                              </span>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="secondary" className="text-xs">
+                                {act.source === "RAMA_JUDICIAL" ? "Rama Judicial" : act.source}
+                              </Badge>
+                              {actType !== "DEFAULT" && (
+                                <Badge variant="outline" className="text-xs">
+                                  {actType.replace(/_/g, " ")}
+                                </Badge>
+                              )}
+                              {act.act_date && (
+                                <span className="text-sm text-muted-foreground">
+                                  {formatDateColombia(act.act_date)}
+                                </span>
+                              )}
+                            </div>
+                            <p className="font-medium">{act.raw_text}</p>
+                            {act.normalized_text && act.normalized_text !== act.raw_text && (
+                              <p className="text-sm text-muted-foreground">
+                                {act.normalized_text}
+                              </p>
+                            )}
+                            {act.source_url && (
+                              <a
+                                href={act.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                Ver en fuente original
+                              </a>
                             )}
                           </div>
-                          <p className="font-medium">
-                            {event.title || event.description.substring(0, 100)}
-                          </p>
-                          {event.description && event.description.length > 100 && (
-                            <p className="text-sm text-muted-foreground">
-                              {event.description}
-                            </p>
-                          )}
-                          {event.attachments && event.attachments.length > 0 && (
-                            <div className="flex gap-2 flex-wrap">
-                              {event.attachments.map((att, idx) => (
-                                <Button
-                                  key={idx}
-                                  variant="outline"
-                                  size="sm"
-                                  asChild
-                                >
-                                  <a
-                                    href={att.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
-                                    <FileText className="h-3 w-3 mr-1" />
-                                    {att.label}
-                                  </a>
-                                </Button>
-                              ))}
-                            </div>
-                          )}
-                          {event.source_url && (
-                            <a
-                              href={event.source_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              Ver en fuente original
-                            </a>
-                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               )}
@@ -742,7 +682,7 @@ export default function ProcessStatusDetail() {
         <TabsContent value="sources" className="space-y-4">
           <div className="grid gap-4">
             {Object.values(SOURCE_ADAPTERS).map((adapter) => {
-              const sourceEvents = events?.filter((e) => e.source === adapter.id) || [];
+              const sourceActuaciones = actuaciones?.filter((a) => a.source === adapter.id) || [];
               const isEnabled = (process.sources_enabled as string[])?.includes(adapter.id);
 
               return (
@@ -759,7 +699,7 @@ export default function ProcessStatusDetail() {
                       </CardTitle>
                       <CardDescription>{adapter.description}</CardDescription>
                     </div>
-                    <Badge variant="secondary">{sourceEvents.length} eventos</Badge>
+                    <Badge variant="secondary">{sourceActuaciones.length} actuaciones</Badge>
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm space-y-1">
