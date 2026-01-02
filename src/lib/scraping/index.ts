@@ -14,6 +14,7 @@
 
 export * from './adapter-interface';
 export * from './default-adapter';
+export * from './external-api-adapter';
 export * from './adapter-registry';
 export * from './milestone-mapper';
 export * from './scraping-service';
