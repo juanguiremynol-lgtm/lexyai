@@ -3,6 +3,8 @@
  * 
  * Orchestrates the verification, scraping, and milestone detection workflow.
  * This is the main entry point for triggering scraping operations.
+ * 
+ * Uses the External API adapter by default for all CGP process lookups.
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -15,12 +17,21 @@ export interface VerifyAndScrapeResult {
   radicadoStatus: string;
   scrapeStatus: string;
   actuacionesFound: number;
+  newActuacionesCount: number;
   milestonesSuggested: number;
   errorMessage?: string;
+  caseMetadata?: {
+    despacho?: string;
+    demandante?: string;
+    demandado?: string;
+    tipoProceso?: string;
+    fechaRadicacion?: string;
+  };
 }
 
 /**
  * Verify radicado and scrape actuaciones (non-blocking)
+ * Uses the External API adapter by default
  */
 export async function verifyAndScrapeRadicado(
   caseId: string,
@@ -55,8 +66,9 @@ export async function verifyAndScrapeRadicado(
         radicadoStatus: 'NOT_FOUND',
         scrapeStatus: 'FAILED',
         actuacionesFound: 0,
+        newActuacionesCount: 0,
         milestonesSuggested: 0,
-        errorMessage: 'Radicado no encontrado en CPNU',
+        errorMessage: 'Radicado no encontrado',
       };
     }
 
@@ -71,6 +83,7 @@ export async function verifyAndScrapeRadicado(
         radicadoStatus: 'LOOKUP_UNAVAILABLE',
         scrapeStatus: 'FAILED',
         actuacionesFound: 0,
+        newActuacionesCount: 0,
         milestonesSuggested: 0,
         errorMessage: lookupResult.errorMessage,
       };
@@ -87,6 +100,7 @@ export async function verifyAndScrapeRadicado(
         radicadoStatus: 'AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION',
         scrapeStatus: 'NOT_ATTEMPTED',
         actuacionesFound: 0,
+        newActuacionesCount: 0,
         milestonesSuggested: 0,
       };
     }
@@ -106,6 +120,7 @@ export async function verifyAndScrapeRadicado(
         radicadoStatus: 'VERIFIED_FOUND',
         scrapeStatus: 'FAILED',
         actuacionesFound: 0,
+        newActuacionesCount: 0,
         milestonesSuggested: 0,
         errorMessage: scrapeResult.errorMessage,
       };
@@ -113,7 +128,7 @@ export async function verifyAndScrapeRadicado(
 
     // Step 3: Normalize and store actuaciones
     const normalized = adapter.normalizeActuaciones(scrapeResult.actuaciones, match.sourceUrl);
-    await storeActuaciones(caseId, ownerId, normalized, isMonitoredProcess);
+    const newActuacionesCount = await storeActuaciones(caseId, ownerId, normalized, isMonitoredProcess);
 
     // Step 4: Map to milestones
     const suggestions = await mapActuacionesToMilestones(normalized);
@@ -121,20 +136,47 @@ export async function verifyAndScrapeRadicado(
       caseId, ownerId, suggestions, isMonitoredProcess
     );
 
-    // Update final status
-    await supabase.from(tableName).update({
+    // Step 5: Create alerts for new actuaciones
+    if (newActuacionesCount > 0) {
+      await createNewActuacionesAlert(caseId, ownerId, radicadoNumber, newActuacionesCount, isMonitoredProcess);
+    }
+
+    // Update final status with case metadata
+    const updateData: Record<string, unknown> = {
       radicado_status: 'VERIFIED_FOUND',
       scrape_status: 'SUCCESS',
       scraped_fields: scrapeResult.caseMetadata || {},
       source_links: [match.sourceUrl],
-    }).eq('id', caseId);
+      last_crawled_at: new Date().toISOString(),
+    };
+
+    // Update additional fields from case metadata
+    if (scrapeResult.caseMetadata?.despacho) {
+      updateData.court_name = scrapeResult.caseMetadata.despacho;
+    }
+    if (scrapeResult.caseMetadata?.demandantes) {
+      updateData.demandantes = scrapeResult.caseMetadata.demandantes;
+    }
+    if (scrapeResult.caseMetadata?.demandados) {
+      updateData.demandados = scrapeResult.caseMetadata.demandados;
+    }
+
+    await supabase.from(tableName).update(updateData).eq('id', caseId);
 
     return {
       success: true,
       radicadoStatus: 'VERIFIED_FOUND',
       scrapeStatus: 'SUCCESS',
       actuacionesFound: normalized.length,
+      newActuacionesCount,
       milestonesSuggested: suggestions.length,
+      caseMetadata: scrapeResult.caseMetadata ? {
+        despacho: scrapeResult.caseMetadata.despacho,
+        demandante: scrapeResult.caseMetadata.demandantes,
+        demandado: scrapeResult.caseMetadata.demandados,
+        tipoProceso: scrapeResult.caseMetadata.tipoProceso,
+        fechaRadicacion: scrapeResult.caseMetadata.fechaRadicacion,
+      } : undefined,
     };
 
   } catch (err) {
@@ -146,6 +188,7 @@ export async function verifyAndScrapeRadicado(
       radicadoStatus: 'PROVIDED_NOT_VERIFIED',
       scrapeStatus: 'FAILED',
       actuacionesFound: 0,
+      newActuacionesCount: 0,
       milestonesSuggested: 0,
       errorMessage: err instanceof Error ? err.message : 'Error desconocido',
     };
@@ -157,8 +200,17 @@ async function storeActuaciones(
   ownerId: string,
   actuaciones: NormalizedActuacion[],
   isMonitoredProcess: boolean
-): Promise<void> {
-  const rows = actuaciones.map(act => ({
+): Promise<number> {
+  // Get existing hashes to avoid duplicates
+  const queryField = isMonitoredProcess ? 'monitored_process_id' : 'filing_id';
+  const { data: existingActs } = await supabase
+    .from('actuaciones')
+    .select('hash_fingerprint')
+    .eq(queryField, caseId);
+
+  const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
+
+  const newRows = actuaciones.filter(act => !existingHashes.has(act.hashFingerprint)).map(act => ({
     owner_id: ownerId,
     filing_id: isMonitoredProcess ? null : caseId,
     monitored_process_id: isMonitoredProcess ? caseId : null,
@@ -173,14 +225,50 @@ async function storeActuaciones(
     confidence: act.confidence,
     hash_fingerprint: act.hashFingerprint,
     attachments: act.attachments,
+    adapter_name: 'external-rama-judicial-api',
   }));
 
-  const { error } = await supabase.from('actuaciones').upsert(rows, {
-    onConflict: 'filing_id,monitored_process_id,hash_fingerprint',
-    ignoreDuplicates: true,
-  });
+  if (newRows.length === 0) return 0;
 
-  if (error) console.error('Error storing actuaciones:', error);
+  const { error } = await supabase.from('actuaciones').insert(newRows);
+
+  if (error) {
+    console.error('Error storing actuaciones:', error);
+    return 0;
+  }
+
+  return newRows.length;
+}
+
+async function createNewActuacionesAlert(
+  caseId: string,
+  ownerId: string,
+  radicado: string,
+  count: number,
+  isMonitoredProcess: boolean
+): Promise<void> {
+  const entityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
+  
+  await supabase.from('alert_instances').insert({
+    owner_id: ownerId,
+    entity_type: entityType,
+    entity_id: caseId,
+    severity: 'INFO',
+    status: 'PENDING',
+    title: `${count} nueva(s) actuación(es) detectada(s)`,
+    message: `Se detectaron ${count} actuación(es) nueva(s) en el radicado ${radicado}`,
+    payload: {
+      radicado,
+      new_count: count,
+    },
+    actions: [
+      { 
+        label: 'Ver Proceso', 
+        action: 'navigate', 
+        params: { path: isMonitoredProcess ? `/processes/${caseId}` : `/filings/${caseId}` } 
+      },
+    ],
+  });
 }
 
 async function createHighConfidenceMilestones(
@@ -212,4 +300,16 @@ async function createHighConfidenceMilestones(
   }
   
   return created;
+}
+
+/**
+ * Trigger manual refresh for a specific case/filing
+ */
+export async function triggerManualRefresh(
+  caseId: string,
+  radicado: string,
+  ownerId: string,
+  isMonitoredProcess: boolean = false
+): Promise<VerifyAndScrapeResult> {
+  return verifyAndScrapeRadicado(caseId, radicado, ownerId, isMonitoredProcess);
 }
