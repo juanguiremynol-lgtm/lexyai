@@ -55,7 +55,10 @@ import {
   Package,
   ArrowRightLeft,
   Gavel,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
+import { API_BASE_URL } from "@/config/api";
 import { toast } from "sonner";
 import {
   FILING_STATUSES,
@@ -137,6 +140,98 @@ export default function FilingDetail() {
     },
     onError: (error) => {
       toast.error("Error: " + error.message);
+    },
+  });
+
+  // API Update mutation - fetches from external API and updates filing
+  const apiUpdateMutation = useMutation({
+    mutationFn: async () => {
+      if (!filing?.radicado) throw new Error("Sin radicado");
+      
+      const cleanRadicado = filing.radicado.replace(/\D/g, "");
+      const response = await fetch(
+        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(cleanRadicado)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data || !data.proceso) {
+        throw new Error("No se encontró información para este radicado");
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      // Update filing with API data
+      const updates: Record<string, unknown> = {
+        court_name: data.proceso["Despacho"] || filing.court_name,
+        demandantes: data.proceso["Demandante"] || filing.demandantes,
+        demandados: data.proceso["Demandado"] || filing.demandados,
+        last_crawled_at: new Date().toISOString(),
+        scrape_status: "SUCCESS",
+      };
+
+      await supabase
+        .from("filings")
+        .update(updates)
+        .eq("id", id!);
+
+      // Insert new actuaciones (dedupe by hash)
+      let newActuaciones = 0;
+      if (data.actuaciones && data.actuaciones.length > 0) {
+        for (const act of data.actuaciones) {
+          const hashFingerprint = `${act["Fecha de Actuación"]}_${act["Actuación"]}_rama_judicial`.replace(/\s/g, "_").toLowerCase();
+          
+          const { data: existing } = await supabase
+            .from("actuaciones")
+            .select("id")
+            .eq("filing_id", id!)
+            .eq("hash_fingerprint", hashFingerprint)
+            .maybeSingle();
+
+          if (!existing) {
+            const dateStr = act["Fecha de Actuación"];
+            let actDate = null;
+            if (dateStr) {
+              const parts = dateStr.split(/[\/\-]/);
+              if (parts.length === 3) {
+                const [day, month, year] = parts;
+                actDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              }
+            }
+
+            await supabase.from("actuaciones").insert({
+              owner_id: user.id,
+              filing_id: id!,
+              raw_text: act["Actuación"] || "",
+              normalized_text: act["Anotación"] || act["Actuación"] || "",
+              act_date: actDate,
+              source: "RAMA_JUDICIAL",
+              adapter_name: "external_api",
+              hash_fingerprint: hashFingerprint,
+            });
+            newActuaciones++;
+          }
+        }
+      }
+
+      return { total_actuaciones: data.total_actuaciones, new_actuaciones: newActuaciones };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["filing", id] });
+      
+      if (data.new_actuaciones > 0) {
+        toast.success(`Radicación actualizada. ${data.new_actuaciones} nuevas actuaciones`);
+      } else {
+        toast.success(`Radicación actualizada. ${data.total_actuaciones} actuaciones totales`);
+      }
+    },
+    onError: (error) => {
+      toast.error("Error al actualizar: " + error.message);
     },
   });
 
@@ -279,6 +374,20 @@ export default function FilingDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {filing.radicado && (
+            <Button
+              onClick={() => apiUpdateMutation.mutate()}
+              disabled={apiUpdateMutation.isPending}
+              variant="default"
+            >
+              {apiUpdateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Actualizar desde Rama Judicial
+            </Button>
+          )}
           <Select
             value={filing.status}
             onValueChange={(v) => handleStatusChange(v as FilingStatus)}
