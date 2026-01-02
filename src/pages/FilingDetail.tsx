@@ -223,6 +223,7 @@ export default function FilingDetail() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["filing", id] });
+      queryClient.invalidateQueries({ queryKey: ["actuaciones-timeline", id] });
       
       if (data.new_actuaciones > 0) {
         toast.success(`Radicación actualizada. ${data.new_actuaciones} nuevas actuaciones`);
