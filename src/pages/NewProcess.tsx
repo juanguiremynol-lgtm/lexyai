@@ -90,25 +90,95 @@ export default function NewProcess() {
   const [despachoOverride, setDespachoOverride] = useState("");
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
 
-  // Mutation para agregar proceso
+  // Check if radicado already exists
+  const checkDuplicateRadicado = async (radicadoNum: string): Promise<boolean> => {
+    const { data: existingProcess } = await supabase
+      .from("monitored_processes")
+      .select("id, radicado")
+      .eq("radicado", radicadoNum)
+      .maybeSingle();
+    
+    if (existingProcess) {
+      toast.error("Este radicado ya está registrado como proceso");
+      return true;
+    }
+
+    const { data: existingFiling } = await supabase
+      .from("filings")
+      .select("id, radicado")
+      .eq("radicado", radicadoNum)
+      .maybeSingle();
+    
+    if (existingFiling) {
+      toast.error("Este radicado ya está registrado como radicación");
+      return true;
+    }
+
+    return false;
+  };
+
+  // Mutation para agregar proceso con datos de API
   const addProcessMutation = useMutation({
-    mutationFn: async ({ radicado, despacho }: { radicado: string; despacho?: string }) => {
+    mutationFn: async ({ 
+      radicado, 
+      despacho,
+      apiData 
+    }: { 
+      radicado: string; 
+      despacho?: string;
+      apiData?: ApiResponse | null;
+    }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
+      // Check for duplicates first
+      const isDuplicate = await checkDuplicateRadicado(radicado);
+      if (isDuplicate) throw new Error("DUPLICATE_RADICADO");
+
+      const processData: Record<string, unknown> = {
+        owner_id: user.id,
+        radicado,
+        despacho_name: despacho || apiData?.proceso["Despacho"] || null,
+        sources_enabled: ["CPNU"],
+        monitoring_enabled: true,
+      };
+
+      // Add API data if available
+      if (apiData?.proceso) {
+        processData.demandantes = apiData.proceso["Demandante"] || null;
+        processData.demandados = apiData.proceso["Demandado"] || null;
+        processData.process_type = apiData.proceso["Tipo de Proceso"] || "CIVIL";
+        processData.jurisdiction = apiData.proceso["Clase de Proceso"] || null;
+        processData.municipality = apiData.proceso["Ubicación"] || null;
+        processData.cpnu_confirmed = true;
+        processData.cpnu_confirmed_at = new Date().toISOString();
+        processData.last_checked_at = new Date().toISOString();
+      }
+
       const { data, error } = await supabase
         .from("monitored_processes")
-        .insert({
-          owner_id: user.id,
-          radicado,
-          despacho_name: despacho || null,
-          sources_enabled: ["CPNU"],
-          monitoring_enabled: true,
-        })
+        .insert(processData as typeof processData & { owner_id: string; radicado: string })
         .select()
         .single();
 
       if (error) throw error;
+
+      // Insert actuaciones if available
+      if (apiData?.actuaciones && apiData.actuaciones.length > 0) {
+        const actuacionesData = apiData.actuaciones.map(act => ({
+          owner_id: user.id,
+          monitored_process_id: data.id,
+          raw_text: act["Actuación"] || "",
+          normalized_text: act["Anotación"] || act["Actuación"] || "",
+          act_date: act["Fecha de Actuación"] ? parseColombianDate(act["Fecha de Actuación"]) : null,
+          source: "RAMA_JUDICIAL",
+          adapter_name: "external_api",
+          hash_fingerprint: `${act["Fecha de Actuación"]}_${act["Actuación"]}_rama_judicial`.replace(/\s/g, "_").toLowerCase(),
+        }));
+
+        await supabase.from("actuaciones").insert(actuacionesData);
+      }
+
       return data;
     },
     onSuccess: (data) => {
@@ -118,13 +188,27 @@ export default function NewProcess() {
       navigate(`/processes/${data.id}`);
     },
     onError: (error) => {
-      if (error.message.includes("duplicate")) {
+      if (error.message === "DUPLICATE_RADICADO") {
+        // Already toasted
+      } else if (error.message.includes("duplicate") || error.message.includes("unique")) {
         toast.error("Este radicado ya está registrado en el sistema");
       } else {
         toast.error("Error: " + error.message);
       }
     },
   });
+
+  // Helper to parse Colombian dates
+  const parseColombianDate = (dateStr: string): string | null => {
+    if (!dateStr) return null;
+    // Format: DD/MM/YYYY or similar
+    const parts = dateStr.split(/[\/\-]/);
+    if (parts.length === 3) {
+      const [day, month, year] = parts;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    return null;
+  };
 
   const formatRadicado = (value: string) => {
     return value.replace(/\D/g, "").slice(0, 23);
@@ -182,6 +266,7 @@ export default function NewProcess() {
     addProcessMutation.mutate({
       radicado: radicado,
       despacho: apiResult.proceso["Despacho"] || despachoOverride,
+      apiData: apiResult,
     });
   };
 
@@ -194,6 +279,7 @@ export default function NewProcess() {
     addProcessMutation.mutate({
       radicado: radicado,
       despacho: despachoOverride || undefined,
+      apiData: null,
     });
   };
 
