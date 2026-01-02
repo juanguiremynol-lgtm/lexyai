@@ -7,3 +7,4 @@ export { ProcessPipelineColumn } from "./ProcessPipelineColumn";
 export { ProcessPipelineCard } from "./ProcessPipelineCard";
 export { NewProcessDialog } from "./NewProcessDialog";
 export { ProcessInfoEditor } from "./ProcessInfoEditor";
+export { BuscarProceso } from "./BuscarProceso";

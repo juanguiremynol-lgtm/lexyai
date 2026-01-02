@@ -48,35 +48,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "@/config/api";
+import {
+  fetchFromRamaJudicial,
+  validateRadicadoFormat,
+  createActuacionesInsertData,
+  parseColombianDate,
+  type RamaJudicialApiResponse,
+  type Actuacion,
+} from "@/lib/rama-judicial-api";
 
-interface Proceso {
-  "Fecha de Radicación"?: string;
-  "Tipo de Proceso"?: string;
-  "Despacho"?: string;
-  "Demandante"?: string;
-  "Demandado"?: string;
-  "Clase de Proceso"?: string;
-  "Ubicación"?: string;
-  [key: string]: string | undefined;
-}
-
-interface Actuacion {
-  "Fecha de Actuación"?: string;
-  "Actuación"?: string;
-  "Anotación"?: string;
-  "Fecha inicia Término"?: string;
-  "Fecha finaliza Término"?: string;
-  "Fecha de Registro"?: string;
-}
-
-interface ApiResponse {
-  proceso: Proceso;
-  actuaciones: Actuacion[];
-  total_actuaciones: number;
-  ultima_actuacion: Actuacion;
-  contador_web: number;
-}
+type ApiResponse = RamaJudicialApiResponse;
 
 export default function NewProcess() {
   const queryClient = useQueryClient();
@@ -165,16 +146,27 @@ export default function NewProcess() {
 
       // Insert actuaciones if available
       if (apiData?.actuaciones && apiData.actuaciones.length > 0) {
-        const actuacionesData = apiData.actuaciones.map(act => ({
-          owner_id: user.id,
-          monitored_process_id: data.id,
-          raw_text: act["Actuación"] || "",
-          normalized_text: act["Anotación"] || act["Actuación"] || "",
-          act_date: act["Fecha de Actuación"] ? parseColombianDate(act["Fecha de Actuación"]) : null,
-          source: "RAMA_JUDICIAL",
-          adapter_name: "external_api",
-          hash_fingerprint: `${act["Fecha de Actuación"]}_${act["Actuación"]}_rama_judicial`.replace(/\s/g, "_").toLowerCase(),
-        }));
+        const { normalizeActuacionText, computeActuacionHash } = await import("@/lib/rama-judicial-api");
+        
+        const actuacionesData = apiData.actuaciones.map(act => {
+          const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
+          const normalizedText = normalizeActuacionText(rawText);
+          const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
+          const hashFingerprint = computeActuacionHash(actDate, normalizedText, radicado);
+          
+          return {
+            owner_id: user.id,
+            monitored_process_id: data.id,
+            raw_text: rawText,
+            normalized_text: normalizedText,
+            act_date: actDate,
+            act_date_raw: act["Fecha de Actuación"] || "",
+            source: "RAMA_JUDICIAL",
+            adapter_name: "external_api",
+            hash_fingerprint: hashFingerprint,
+            confidence: 0.7,
+          };
+        });
 
         await supabase.from("actuaciones").insert(actuacionesData);
       }
@@ -198,33 +190,16 @@ export default function NewProcess() {
     },
   });
 
-  // Helper to parse Colombian dates
-  const parseColombianDate = (dateStr: string): string | null => {
-    if (!dateStr) return null;
-    // Format: DD/MM/YYYY or similar
-    const parts = dateStr.split(/[\/\-]/);
-    if (parts.length === 3) {
-      const [day, month, year] = parts;
-      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-    }
-    return null;
-  };
-
   const formatRadicado = (value: string) => {
     return value.replace(/\D/g, "").slice(0, 23);
   };
 
   // Buscar en API externa
   const handleSearch = async () => {
-    const cleanRadicado = radicado.replace(/\D/g, "");
+    const validation = validateRadicadoFormat(radicado);
     
-    if (!cleanRadicado) {
-      toast.error("Ingrese un radicado para buscar");
-      return;
-    }
-
-    if (cleanRadicado.length !== 23) {
-      toast.error("El radicado debe tener exactamente 23 dígitos");
+    if (!validation.valid) {
+      toast.error(validation.error);
       return;
     }
 
@@ -233,30 +208,17 @@ export default function NewProcess() {
     setSearchError(null);
     setActuacionesOpen(false);
 
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(cleanRadicado)}`
-      );
+    const result = await fetchFromRamaJudicial(validation.cleaned);
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-
-      const data: ApiResponse = await response.json();
-      
-      if (data && data.proceso) {
-        setApiResult(data);
-        setDespachoOverride(data.proceso["Despacho"] || "");
-        toast.success(`Proceso encontrado con ${data.total_actuaciones} actuaciones`);
-      } else {
-        setSearchError("No se encontró información para este radicado. Puede registrarlo manualmente.");
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-      setSearchError(`Error al consultar: ${errorMessage}. Puede registrarlo manualmente.`);
-    } finally {
-      setIsSearching(false);
+    if (!result.success) {
+      setSearchError(`${result.error || "Error desconocido"}. Puede registrarlo manualmente.`);
+    } else if (result.data) {
+      setApiResult(result.data);
+      setDespachoOverride(result.data.proceso["Despacho"] || "");
+      toast.success(`Proceso encontrado con ${result.data.total_actuaciones} actuaciones`);
     }
+    
+    setIsSearching(false);
   };
 
   // Registrar proceso con datos de API
