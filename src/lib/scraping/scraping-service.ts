@@ -128,7 +128,7 @@ export async function verifyAndScrapeRadicado(
 
     // Step 3: Normalize and store actuaciones
     const normalized = adapter.normalizeActuaciones(scrapeResult.actuaciones, match.sourceUrl);
-    const newActuacionesCount = await storeActuaciones(caseId, ownerId, normalized, isMonitoredProcess);
+    const { count: newActuacionesCount, newActuaciones } = await storeActuaciones(caseId, ownerId, normalized, isMonitoredProcess);
 
     // Step 4: Map to milestones
     const suggestions = await mapActuacionesToMilestones(normalized);
@@ -136,9 +136,9 @@ export async function verifyAndScrapeRadicado(
       caseId, ownerId, suggestions, isMonitoredProcess
     );
 
-    // Step 5: Create alerts for new actuaciones
+    // Step 5: Create alerts and send email for new actuaciones
     if (newActuacionesCount > 0) {
-      await createNewActuacionesAlert(caseId, ownerId, radicadoNumber, newActuacionesCount, isMonitoredProcess);
+      await createNewActuacionesAlert(caseId, ownerId, radicadoNumber, newActuacionesCount, isMonitoredProcess, newActuaciones);
     }
 
     // Update final status with case metadata
@@ -195,12 +195,17 @@ export async function verifyAndScrapeRadicado(
   }
 }
 
+interface StoreActuacionesResult {
+  count: number;
+  newActuaciones: NormalizedActuacion[];
+}
+
 async function storeActuaciones(
   caseId: string,
   ownerId: string,
   actuaciones: NormalizedActuacion[],
   isMonitoredProcess: boolean
-): Promise<number> {
+): Promise<StoreActuacionesResult> {
   // Get existing hashes to avoid duplicates
   const queryField = isMonitoredProcess ? 'monitored_process_id' : 'filing_id';
   const { data: existingActs } = await supabase
@@ -210,7 +215,9 @@ async function storeActuaciones(
 
   const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
 
-  const newRows = actuaciones.filter(act => !existingHashes.has(act.hashFingerprint)).map(act => ({
+  const newActuaciones = actuaciones.filter(act => !existingHashes.has(act.hashFingerprint));
+  
+  const newRows = newActuaciones.map(act => ({
     owner_id: ownerId,
     filing_id: isMonitoredProcess ? null : caseId,
     monitored_process_id: isMonitoredProcess ? caseId : null,
@@ -228,16 +235,16 @@ async function storeActuaciones(
     adapter_name: 'external-rama-judicial-api',
   }));
 
-  if (newRows.length === 0) return 0;
+  if (newRows.length === 0) return { count: 0, newActuaciones: [] };
 
   const { error } = await supabase.from('actuaciones').insert(newRows);
 
   if (error) {
     console.error('Error storing actuaciones:', error);
-    return 0;
+    return { count: 0, newActuaciones: [] };
   }
 
-  return newRows.length;
+  return { count: newRows.length, newActuaciones };
 }
 
 async function createNewActuacionesAlert(
@@ -245,21 +252,40 @@ async function createNewActuacionesAlert(
   ownerId: string,
   radicado: string,
   count: number,
-  isMonitoredProcess: boolean
+  isMonitoredProcess: boolean,
+  actuaciones?: NormalizedActuacion[]
 ): Promise<void> {
   const entityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
   
+  // Determine severity based on actuacion types
+  let severity = 'INFO';
+  const importantTypes = ['SENTENCIA', 'AUTO_ADMISORIO', 'AUDIENCIA', 'NOTIFICACION', 'MANDAMIENTO_DE_PAGO'];
+  const hasImportant = actuaciones?.some(a => importantTypes.includes(a.actTypeGuess || ''));
+  if (hasImportant) severity = 'WARNING';
+
+  // Build detailed message
+  const recentActs = actuaciones?.slice(0, 3) || [];
+  const actTypesSummary = recentActs.map(a => a.actTypeGuess || 'Actuación').join(', ');
+  const message = actuaciones?.length 
+    ? `Radicado ${radicado}: ${actTypesSummary}${count > 3 ? ` y ${count - 3} más` : ''}`
+    : `Se detectaron ${count} actuación(es) nueva(s) en el radicado ${radicado}`;
+
   await supabase.from('alert_instances').insert({
     owner_id: ownerId,
     entity_type: entityType,
     entity_id: caseId,
-    severity: 'INFO',
+    severity,
     status: 'PENDING',
     title: `${count} nueva(s) actuación(es) detectada(s)`,
-    message: `Se detectaron ${count} actuación(es) nueva(s) en el radicado ${radicado}`,
+    message,
     payload: {
       radicado,
       new_count: count,
+      actuaciones: actuaciones?.slice(0, 5).map(a => ({
+        text: a.rawText.substring(0, 200),
+        date: a.actDate,
+        type: a.actTypeGuess,
+      })),
     },
     actions: [
       { 
@@ -269,6 +295,75 @@ async function createNewActuacionesAlert(
       },
     ],
   });
+
+  // Send email notification
+  await sendActuacionEmailNotification(ownerId, radicado, count, actuaciones, isMonitoredProcess, caseId);
+}
+
+/**
+ * Send email notification for new actuaciones
+ */
+async function sendActuacionEmailNotification(
+  ownerId: string,
+  radicado: string,
+  count: number,
+  actuaciones?: NormalizedActuacion[],
+  isMonitoredProcess?: boolean,
+  caseId?: string
+): Promise<void> {
+  try {
+    // Get user profile for email
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, reminder_email, default_alert_email')
+      .eq('id', ownerId)
+      .single();
+
+    // Also get user email from auth
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const recipientEmail = profile?.default_alert_email || profile?.reminder_email || user?.email;
+    
+    if (!recipientEmail) {
+      console.log('No email configured for user, skipping email notification');
+      return;
+    }
+
+    // Build email message with actuaciones details
+    let emailMessage = `Se detectaron ${count} nueva(s) actuación(es) en el proceso ${radicado}:\n\n`;
+    
+    if (actuaciones && actuaciones.length > 0) {
+      emailMessage += actuaciones.slice(0, 5).map(a => 
+        `• ${a.actDate || 'Sin fecha'}: ${a.rawText.substring(0, 150)}...`
+      ).join('\n');
+      
+      if (count > 5) {
+        emailMessage += `\n\n... y ${count - 5} actuación(es) más.`;
+      }
+    }
+    
+    emailMessage += '\n\nIngrese a Lex Docket para ver los detalles completos.';
+
+    // Call the send-reminder edge function
+    const { error } = await supabase.functions.invoke('send-reminder', {
+      body: {
+        type: 'process_update',
+        recipientEmail,
+        recipientName: profile?.full_name || undefined,
+        subject: `${count} nueva(s) actuación(es) detectada(s) - ${radicado}`,
+        radicado,
+        message: emailMessage,
+      },
+    });
+
+    if (error) {
+      console.error('Error sending email notification:', error);
+    } else {
+      console.log(`Email notification sent to ${recipientEmail} for radicado ${radicado}`);
+    }
+  } catch (err) {
+    console.error('Error in sendActuacionEmailNotification:', err);
+  }
 }
 
 async function createHighConfidenceMilestones(
