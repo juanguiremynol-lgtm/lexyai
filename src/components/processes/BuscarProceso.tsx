@@ -17,59 +17,31 @@ import {
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Search, Loader2, AlertCircle, ChevronDown, ChevronUp, Scale, Calendar, User, Building2, FileText, Clock, Bell } from "lucide-react";
-import { API_BASE_URL } from "@/config/api";
 import { toast } from "sonner";
+import {
+  fetchFromRamaJudicial,
+  validateRadicadoFormat,
+  type RamaJudicialApiResponse,
+  type Actuacion,
+} from "@/lib/rama-judicial-api";
 
-interface Proceso {
-  "Fecha de Radicación"?: string;
-  "Tipo de Proceso"?: string;
-  "Despacho"?: string;
-  "Demandante"?: string;
-  "Demandado"?: string;
-  "Clase de Proceso"?: string;
-  "Ubicación"?: string;
-  [key: string]: string | undefined;
+interface BuscarProcesoProps {
+  onResultFound?: (data: RamaJudicialApiResponse, radicado: string) => void;
+  showRegisterButton?: boolean;
 }
 
-interface Actuacion {
-  "Fecha de Actuación"?: string;
-  "Actuación"?: string;
-  "Anotación"?: string;
-  "Fecha inicia Término"?: string;
-  "Fecha finaliza Término"?: string;
-  "Fecha de Registro"?: string;
-}
-
-interface ApiResponse {
-  proceso: Proceso;
-  actuaciones: Actuacion[];
-  total_actuaciones: number;
-  ultima_actuacion: Actuacion;
-  contador_web: number;
-}
-
-export function BuscarProceso() {
+export function BuscarProceso({ onResultFound, showRegisterButton = false }: BuscarProcesoProps) {
   const [radicado, setRadicado] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ApiResponse | null>(null);
+  const [result, setResult] = useState<RamaJudicialApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
 
-  const validateRadicado = (value: string): boolean => {
-    const cleanValue = value.replace(/\D/g, "");
-    return cleanValue.length === 23;
-  };
-
   const handleSearch = async () => {
-    const cleanRadicado = radicado.replace(/\D/g, "");
+    const validation = validateRadicadoFormat(radicado);
     
-    if (!cleanRadicado) {
-      toast.error("Ingrese un número de radicación");
-      return;
-    }
-
-    if (!validateRadicado(cleanRadicado)) {
-      toast.error("El número de radicación debe tener 23 dígitos");
+    if (!validation.valid) {
+      toast.error(validation.error);
       return;
     }
 
@@ -78,25 +50,18 @@ export function BuscarProceso() {
     setResult(null);
     setActuacionesOpen(false);
 
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(cleanRadicado)}`
-      );
+    const fetchResult = await fetchFromRamaJudicial(validation.cleaned);
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-
-      const data: ApiResponse = await response.json();
-      setResult(data);
-      toast.success(`Proceso encontrado con ${data.total_actuaciones} actuaciones`);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Error al buscar proceso";
-      setError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setLoading(false);
+    if (!fetchResult.success) {
+      setError(fetchResult.error || "Error al buscar proceso");
+      toast.error(fetchResult.error || "Error al buscar proceso");
+    } else if (fetchResult.data) {
+      setResult(fetchResult.data);
+      toast.success(`Proceso encontrado con ${fetchResult.data.total_actuaciones} actuaciones`);
+      onResultFound?.(fetchResult.data, validation.cleaned);
     }
+
+    setLoading(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -105,9 +70,8 @@ export function BuscarProceso() {
     }
   };
 
-  const formatRadicado = (value: string) => {
-    const digits = value.replace(/\D/g, "").slice(0, 23);
-    return digits;
+  const formatRadicadoInput = (value: string) => {
+    return value.replace(/\D/g, "").slice(0, 23);
   };
 
   return (
@@ -129,7 +93,7 @@ export function BuscarProceso() {
               <Input
                 placeholder="Ej: 05001310500120230012300"
                 value={radicado}
-                onChange={(e) => setRadicado(formatRadicado(e.target.value))}
+                onChange={(e) => setRadicado(formatRadicadoInput(e.target.value))}
                 onKeyDown={handleKeyDown}
                 disabled={loading}
                 className="font-mono text-lg"

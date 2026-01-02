@@ -58,7 +58,7 @@ import {
   RefreshCw,
   Loader2,
 } from "lucide-react";
-import { API_BASE_URL } from "@/config/api";
+import { fetchFromRamaJudicial, parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
 import {
   FILING_STATUSES,
@@ -148,21 +148,13 @@ export default function FilingDetail() {
     mutationFn: async () => {
       if (!filing?.radicado) throw new Error("Sin radicado");
       
-      const cleanRadicado = filing.radicado.replace(/\D/g, "");
-      const response = await fetch(
-        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(cleanRadicado)}`
-      );
+      const result = await fetchFromRamaJudicial(filing.radicado);
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "No se encontró información para este radicado");
       }
 
-      const data = await response.json();
-      
-      if (!data || !data.proceso) {
-        throw new Error("No se encontró información para este radicado");
-      }
-
+      const data = result.data;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
@@ -180,41 +172,38 @@ export default function FilingDetail() {
         .update(updates)
         .eq("id", id!);
 
+      // Get existing hashes for deduplication
+      const { data: existingActs } = await supabase
+        .from("actuaciones")
+        .select("hash_fingerprint")
+        .eq("filing_id", id!);
+      
+      const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
+
       // Insert new actuaciones (dedupe by hash)
       let newActuaciones = 0;
       if (data.actuaciones && data.actuaciones.length > 0) {
         for (const act of data.actuaciones) {
-          const hashFingerprint = `${act["Fecha de Actuación"]}_${act["Actuación"]}_rama_judicial`.replace(/\s/g, "_").toLowerCase();
+          const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
+          const normalizedText = normalizeActuacionText(rawText);
+          const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
+          const hashFingerprint = computeActuacionHash(actDate, normalizedText, filing.radicado);
           
-          const { data: existing } = await supabase
-            .from("actuaciones")
-            .select("id")
-            .eq("filing_id", id!)
-            .eq("hash_fingerprint", hashFingerprint)
-            .maybeSingle();
-
-          if (!existing) {
-            const dateStr = act["Fecha de Actuación"];
-            let actDate = null;
-            if (dateStr) {
-              const parts = dateStr.split(/[\/\-]/);
-              if (parts.length === 3) {
-                const [day, month, year] = parts;
-                actDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-              }
-            }
-
+          if (!existingHashes.has(hashFingerprint)) {
             await supabase.from("actuaciones").insert({
               owner_id: user.id,
               filing_id: id!,
-              raw_text: act["Actuación"] || "",
-              normalized_text: act["Anotación"] || act["Actuación"] || "",
+              raw_text: rawText,
+              normalized_text: normalizedText,
               act_date: actDate,
+              act_date_raw: act["Fecha de Actuación"] || "",
               source: "RAMA_JUDICIAL",
               adapter_name: "external_api",
               hash_fingerprint: hashFingerprint,
+              confidence: 0.7,
             });
             newActuaciones++;
+            existingHashes.add(hashFingerprint);
           }
         }
       }
