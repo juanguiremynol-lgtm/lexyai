@@ -51,6 +51,11 @@ export interface RawActuacion {
   rawData?: Record<string, unknown>;
 }
 
+export interface SujetoProcesal {
+  tipo: string;
+  nombre: string;
+}
+
 export interface CaseMetadata {
   radicado: string;
   despacho?: string;
@@ -63,6 +68,8 @@ export interface CaseMetadata {
   fechaRadicacion?: string;
   ultimaActuacion?: string;
   sourceUrl: string;
+  sujetosProcesales?: SujetoProcesal[];
+  totalActuaciones?: number;
 }
 
 export interface ScrapeResult {
