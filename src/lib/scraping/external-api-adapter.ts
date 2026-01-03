@@ -180,17 +180,31 @@ export class ExternalApiAdapter implements ScrapingAdapter {
       }
 
       const startData: ExternalApiResponse = await startResponse.json();
+      console.log('📋 Respuesta inicial API:', JSON.stringify(startData).substring(0, 500));
       
       let data: ExternalApiResponse;
 
-      // Check if API returns direct data (no jobId) or requires polling
+      // IMPORTANT: Check for jobId FIRST before any other checks
+      // API returns { success: true, jobId: "xxx" } when starting a job
       if (startData.jobId) {
         console.log('📋 Job ID recibido:', startData.jobId);
         // Step 2: Poll for results
-        data = await this.pollForResults(startData.jobId);
+        try {
+          data = await this.pollForResults(startData.jobId);
+          console.log('📊 Polling completado, estado:', data.estado || data.status);
+        } catch (pollError) {
+          const errorMsg = pollError instanceof Error ? pollError.message : 'Error en polling';
+          console.error('❌ Error en polling:', errorMsg);
+          return {
+            status: 'UNAVAILABLE',
+            matches: [],
+            errorMessage: errorMsg,
+            errorCode: errorMsg.includes('TIMEOUT') ? 'TIMEOUT' : 'POLLING_ERROR',
+          };
+        }
       } else if (startData.proceso) {
-        // Direct response with data
-        console.log('✅ Respuesta directa recibida');
+        // Direct response with data (no polling needed)
+        console.log('✅ Respuesta directa recibida con proceso');
         data = startData;
       } else if (startData.estado === 'NO_ENCONTRADO') {
         return {
@@ -198,17 +212,21 @@ export class ExternalApiAdapter implements ScrapingAdapter {
           matches: [],
           errorMessage: 'No se encontró información del proceso',
         };
-      } else if (startData.error || !startData.success) {
+      } else if (startData.error) {
         return {
-          status: 'NOT_FOUND',
+          status: 'ERROR',
           matches: [],
-          errorMessage: startData.error || startData.message || 'Error al iniciar la búsqueda',
+          errorMessage: startData.error,
+          errorCode: 'API_ERROR',
         };
       } else {
+        // Unknown response format - log and return error
+        console.error('❓ Respuesta inesperada:', JSON.stringify(startData));
         return {
-          status: 'NOT_FOUND',
+          status: 'ERROR',
           matches: [],
-          errorMessage: 'Respuesta inesperada del servidor',
+          errorMessage: 'Respuesta inesperada del servidor: ' + JSON.stringify(startData).substring(0, 200),
+          errorCode: 'UNEXPECTED_RESPONSE',
         };
       }
 
@@ -221,11 +239,22 @@ export class ExternalApiAdapter implements ScrapingAdapter {
         };
       }
 
-      if (data.error || !data.proceso) {
+      if (data.error) {
+        return {
+          status: 'ERROR',
+          matches: [],
+          errorMessage: data.error,
+          errorCode: 'API_ERROR',
+        };
+      }
+
+      if (!data.proceso) {
+        console.error('❌ No hay datos de proceso en respuesta:', JSON.stringify(data).substring(0, 500));
         return {
           status: 'NOT_FOUND',
           matches: [],
-          errorMessage: data.error || data.message || 'No se encontró información del proceso',
+          errorMessage: 'No se encontró información del proceso en la respuesta',
+          errorCode: 'NO_PROCESS_DATA',
         };
       }
 
@@ -299,14 +328,28 @@ export class ExternalApiAdapter implements ScrapingAdapter {
       }
 
       const startData: ExternalApiResponse = await startResponse.json();
+      console.log('📋 Scrape respuesta inicial:', JSON.stringify(startData).substring(0, 300));
       
       let data: ExternalApiResponse;
 
-      // Check if API returns direct data (no jobId) or requires polling
+      // IMPORTANT: Check for jobId FIRST before any other checks
       if (startData.jobId) {
         console.log('📋 Scrape Job ID:', startData.jobId);
-        data = await this.pollForResults(startData.jobId);
+        try {
+          data = await this.pollForResults(startData.jobId);
+          console.log('📊 Scrape polling completado, estado:', data.estado || data.status);
+        } catch (pollError) {
+          const errorMsg = pollError instanceof Error ? pollError.message : 'Error en polling';
+          return {
+            status: 'FAILED',
+            actuaciones: [],
+            errorMessage: errorMsg,
+            errorCode: errorMsg.includes('TIMEOUT') ? 'TIMEOUT' : 'POLLING_ERROR',
+            scrapedAt: new Date().toISOString(),
+          };
+        }
       } else if (startData.proceso) {
+        console.log('✅ Scrape respuesta directa con proceso');
         data = startData;
       } else if (startData.estado === 'NO_ENCONTRADO') {
         return {
@@ -317,21 +360,43 @@ export class ExternalApiAdapter implements ScrapingAdapter {
           scrapedAt: new Date().toISOString(),
         };
       } else {
+        console.error('❓ Scrape respuesta inesperada:', JSON.stringify(startData));
         return {
           status: 'FAILED',
           actuaciones: [],
-          errorMessage: startData.error || 'Error al iniciar la búsqueda',
+          errorMessage: startData.error || 'Respuesta inesperada: ' + JSON.stringify(startData).substring(0, 100),
+          errorCode: 'UNEXPECTED_RESPONSE',
+          scrapedAt: new Date().toISOString(),
+        };
+      }
+
+      if (data.estado === 'NO_ENCONTRADO') {
+        return {
+          status: 'FAILED',
+          actuaciones: [],
+          errorMessage: 'No se encontró información del proceso',
           errorCode: 'NO_DATA',
           scrapedAt: new Date().toISOString(),
         };
       }
 
-      if (data.estado === 'NO_ENCONTRADO' || data.error || !data.proceso) {
+      if (data.error) {
         return {
           status: 'FAILED',
           actuaciones: [],
-          errorMessage: data.error || 'No se encontró información del proceso',
-          errorCode: 'NO_DATA',
+          errorMessage: data.error,
+          errorCode: 'API_ERROR',
+          scrapedAt: new Date().toISOString(),
+        };
+      }
+
+      if (!data.proceso) {
+        console.error('❌ Scrape sin datos de proceso:', JSON.stringify(data).substring(0, 300));
+        return {
+          status: 'FAILED',
+          actuaciones: [],
+          errorMessage: 'No se encontró información del proceso en la respuesta',
+          errorCode: 'NO_PROCESS_DATA',
           scrapedAt: new Date().toISOString(),
         };
       }
