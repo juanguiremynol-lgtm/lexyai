@@ -132,15 +132,15 @@ function guessActType(normalizedText: string): string | null {
   return null;
 }
 
-// Fetch data from external API
+// Fetch data from external API using job-based polling (same as frontend)
 async function fetchFromExternalApi(radicado: string): Promise<ExternalApiResponse | null> {
   try {
     const cleanRadicado = radicado.replace(/\D/g, '');
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), CRAWL_TIMEOUT);
+    console.log(`🔍 Starting job for radicado: ${cleanRadicado}`);
 
-    const response = await fetch(
+    // Step 1: Start the search job
+    const startResponse = await fetch(
       `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${cleanRadicado}`,
       {
         method: 'GET',
@@ -148,18 +148,74 @@ async function fetchFromExternalApi(radicado: string): Promise<ExternalApiRespon
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        signal: controller.signal,
       }
     );
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.error(`API returned status ${response.status} for radicado ${radicado}`);
+    if (!startResponse.ok) {
+      console.error(`API returned status ${startResponse.status} for radicado ${radicado}`);
       return null;
     }
 
-    return await response.json();
+    const startData = await startResponse.json();
+    
+    // If API returns direct data (no jobId), handle it directly
+    if (!startData.jobId) {
+      if (startData.error || !startData.success) {
+        console.log(`API returned error for ${radicado}:`, startData.error);
+        return null;
+      }
+      // Direct response with data
+      if (startData.proceso) {
+        return startData;
+      }
+      return null;
+    }
+
+    const jobId = startData.jobId;
+    console.log(`📋 Job ID for ${cleanRadicado}: ${jobId}`);
+
+    // Step 2: Poll for results (max 60 attempts, 2 seconds each = 2 minutes)
+    const maxAttempts = 60;
+    const pollingInterval = 2000;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, pollingInterval));
+      
+      try {
+        const resultResponse = await fetch(
+          `${EXTERNAL_API_BASE}/resultado/${jobId}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        const result = await resultResponse.json();
+        console.log(`⏳ Attempt ${attempt} for ${cleanRadicado}: ${result.status}`);
+
+        if (result.status === 'completed') {
+          if (result.estado === 'NO_ENCONTRADO') {
+            console.log(`❌ Process not found for ${cleanRadicado}`);
+            return null;
+          }
+          console.log(`✅ Process found for ${cleanRadicado} with ${result.total_actuaciones} actuaciones`);
+          return result;
+        } else if (result.status === 'failed') {
+          console.error(`❌ Job failed for ${cleanRadicado}:`, result.error);
+          return null;
+        }
+        // Continue polling if status is 'pending' or 'processing'
+      } catch (pollError) {
+        console.error(`Error polling for ${cleanRadicado}:`, pollError);
+        // Continue trying unless we've hit max attempts
+      }
+    }
+
+    console.error(`⏱️ Timeout waiting for job ${jobId} for ${cleanRadicado}`);
+    return null;
   } catch (error) {
     console.error(`Error fetching from external API for ${radicado}:`, error);
     return null;
