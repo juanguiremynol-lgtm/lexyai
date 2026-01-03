@@ -32,12 +32,20 @@ export interface Actuacion {
   "Fecha de Registro"?: string;
 }
 
+export interface SujetoProcesal {
+  tipo: string;
+  nombre: string;
+}
+
 export interface RamaJudicialApiResponse {
+  success?: boolean;
+  numero_radicacion?: string;
   proceso: Proceso;
+  sujetos_procesales?: SujetoProcesal[];
   actuaciones: Actuacion[];
   total_actuaciones: number;
   ultima_actuacion: Actuacion;
-  contador_web: number;
+  contador_web?: number;
   error?: string;
   message?: string;
 }
@@ -163,6 +171,7 @@ export interface FetchResult {
   success: boolean;
   data?: RamaJudicialApiResponse;
   error?: string;
+  isTimeout?: boolean;
 }
 
 /**
@@ -215,7 +224,11 @@ export async function fetchFromRamaJudicial(radicado: string, timeout = 30000): 
     return { success: true, data };
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      return { success: false, error: "Tiempo de espera agotado (el servicio puede estar ocupado)" };
+      return { 
+        success: false, 
+        error: "El servidor está tardando más de lo esperado. Intenta nuevamente.",
+        isTimeout: true 
+      };
     }
     return { success: false, error: err instanceof Error ? err.message : "Error de conexión" };
   }
