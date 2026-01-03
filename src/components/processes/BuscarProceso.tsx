@@ -16,13 +16,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, AlertCircle, ChevronDown, ChevronUp, Scale, Calendar, User, Building2, FileText, Clock, Bell } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Search, Loader2, AlertCircle, ChevronDown, ChevronUp, Scale, Calendar, User, Building2, FileText, Clock, Bell, Users, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchFromRamaJudicial,
   validateRadicadoFormat,
   type RamaJudicialApiResponse,
-  type Actuacion,
 } from "@/lib/rama-judicial-api";
 
 interface BuscarProcesoProps {
@@ -35,7 +35,9 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RamaJudicialApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const handleSearch = async () => {
     const validation = validateRadicadoFormat(radicado);
@@ -47,13 +49,27 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
 
     setLoading(true);
     setError(null);
+    setIsTimeoutError(false);
     setResult(null);
     setActuacionesOpen(false);
+    setProgress(0);
 
-    const fetchResult = await fetchFromRamaJudicial(validation.cleaned);
+    // Simulate progress for UX (the API takes 15-20 seconds)
+    const progressInterval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 90) return prev;
+        return prev + (90 - prev) * 0.1;
+      });
+    }, 500);
+
+    const fetchResult = await fetchFromRamaJudicial(validation.cleaned, 30000);
+
+    clearInterval(progressInterval);
+    setProgress(100);
 
     if (!fetchResult.success) {
       setError(fetchResult.error || "Error al buscar proceso");
+      setIsTimeoutError(fetchResult.isTimeout || false);
       toast.error(fetchResult.error || "Error al buscar proceso");
     } else if (fetchResult.data) {
       setResult(fetchResult.data);
@@ -125,15 +141,24 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
             </Button>
           </div>
 
+          {/* Enhanced Loading State */}
           {loading && (
-            <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <div>
-                <p className="font-medium">Consultando Rama Judicial...</p>
-                <p className="text-sm text-muted-foreground">
-                  Este proceso puede tardar 10-15 segundos
-                </p>
+            <div className="space-y-4 p-4 rounded-lg bg-muted/50 border border-border">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-foreground">Consultando Rama Judicial...</p>
+                  <p className="text-sm text-muted-foreground">
+                    Esto puede tardar 15-20 segundos
+                  </p>
+                </div>
               </div>
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground text-center">
+                Extrayendo información del proceso judicial en tiempo real
+              </p>
             </div>
           )}
         </CardContent>
@@ -141,13 +166,24 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
 
       {/* Error State */}
       {error && (
-        <Card className="border-destructive">
+        <Card className="border-destructive bg-destructive/5">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-3 text-destructive">
-              <AlertCircle className="h-5 w-5" />
-              <div>
-                <p className="font-medium">Error en la consulta</p>
-                <p className="text-sm">{error}</p>
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-destructive">Error en la consulta</p>
+                <p className="text-sm text-muted-foreground mt-1">{error}</p>
+                {isTimeoutError && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-3"
+                    onClick={handleSearch}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Reintentar
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -203,31 +239,11 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
                 )}
 
                 {result.proceso["Despacho"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 md:col-span-2 lg:col-span-3">
                     <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div>
                       <p className="text-sm text-muted-foreground">Despacho</p>
                       <p className="font-medium">{result.proceso["Despacho"]}</p>
-                    </div>
-                  </div>
-                )}
-
-                {result.proceso["Demandante"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Demandante</p>
-                      <p className="font-medium">{result.proceso["Demandante"]}</p>
-                    </div>
-                  </div>
-                )}
-
-                {result.proceso["Demandado"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Demandado</p>
-                      <p className="font-medium">{result.proceso["Demandado"]}</p>
                     </div>
                   </div>
                 )}
@@ -244,6 +260,75 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
               </div>
             </CardContent>
           </Card>
+
+          {/* Sujetos Procesales */}
+          {result.sujetos_procesales && result.sujetos_procesales.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Sujetos Procesales
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[200px]">Tipo</TableHead>
+                      <TableHead>Nombre</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.sujetos_procesales.map((sujeto, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <Badge variant={sujeto.tipo.toLowerCase().includes('demandante') ? 'default' : 'secondary'}>
+                            {sujeto.tipo}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-medium">{sujeto.nombre}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Fallback: Show Demandante/Demandado from proceso if no sujetos_procesales */}
+          {(!result.sujetos_procesales || result.sujetos_procesales.length === 0) && 
+           (result.proceso["Demandante"] || result.proceso["Demandado"]) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-primary" />
+                  Partes del Proceso
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {result.proceso["Demandante"] && (
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                      <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Demandante</p>
+                        <p className="font-medium">{result.proceso["Demandante"]}</p>
+                      </div>
+                    </div>
+                  )}
+                  {result.proceso["Demandado"] && (
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                      <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Demandado</p>
+                        <p className="font-medium">{result.proceso["Demandado"]}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Last Action Highlighted */}
           {result.ultima_actuacion && (
@@ -310,11 +395,12 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="w-[120px]">Fecha</TableHead>
+                            <TableHead className="w-[120px]">Fecha Actuación</TableHead>
                             <TableHead>Actuación</TableHead>
                             <TableHead className="hidden lg:table-cell">Anotación</TableHead>
-                            <TableHead className="w-[100px] hidden md:table-cell">Inicia</TableHead>
-                            <TableHead className="w-[100px] hidden md:table-cell">Finaliza</TableHead>
+                            <TableHead className="w-[100px] hidden md:table-cell">Inicia Término</TableHead>
+                            <TableHead className="w-[100px] hidden md:table-cell">Finaliza Término</TableHead>
+                            <TableHead className="w-[100px] hidden xl:table-cell">Fecha Registro</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -332,14 +418,19 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
                                   </p>
                                 )}
                               </TableCell>
-                              <TableCell className="hidden lg:table-cell text-muted-foreground text-sm max-w-md truncate">
-                                {actuacion["Anotación"] || "-"}
+                              <TableCell className="hidden lg:table-cell text-muted-foreground text-sm max-w-md">
+                                <div className="line-clamp-2">
+                                  {actuacion["Anotación"] || "-"}
+                                </div>
                               </TableCell>
                               <TableCell className="hidden md:table-cell text-sm">
                                 {actuacion["Fecha inicia Término"] || "-"}
                               </TableCell>
                               <TableCell className="hidden md:table-cell text-sm">
                                 {actuacion["Fecha finaliza Término"] || "-"}
+                              </TableCell>
+                              <TableCell className="hidden xl:table-cell text-sm">
+                                {actuacion["Fecha de Registro"] || "-"}
                               </TableCell>
                             </TableRow>
                           ))}
