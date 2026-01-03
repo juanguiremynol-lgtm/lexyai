@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -19,6 +20,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Search,
   Eye,
   Clock,
@@ -28,10 +39,13 @@ import {
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { formatDateColombia } from "@/lib/constants";
 import { differenceInDays } from "date-fns";
+import { toast } from "sonner";
 
 interface MonitoredProcess {
   id: string;
@@ -73,7 +87,10 @@ interface ProcessEstado {
 }
 
 export default function Processes() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Fetch monitored processes
   const { data: processes, isLoading: loadingProcesses } = useQuery({
@@ -111,6 +128,49 @@ export default function Processes() {
     },
   });
 
+  // Delete processes mutation
+  const deleteProcessesMutation = useMutation({
+    mutationFn: async (processIds: string[]) => {
+      // Delete related data first (cascade manually)
+      for (const processId of processIds) {
+        // Delete actuaciones
+        await supabase.from("actuaciones").delete().eq("monitored_process_id", processId);
+        // Delete process events
+        await supabase.from("process_events").delete().eq("monitored_process_id", processId);
+        // Delete evidence snapshots
+        await supabase.from("evidence_snapshots").delete().eq("monitored_process_id", processId);
+        // Delete cgp milestones
+        await supabase.from("cgp_milestones").delete().eq("process_id", processId);
+        // Delete cgp term instances
+        await supabase.from("cgp_term_instances").delete().eq("process_id", processId);
+        // Delete cgp inactivity tracker
+        await supabase.from("cgp_inactivity_tracker").delete().eq("process_id", processId);
+        // Delete alert rules
+        await supabase.from("alert_rules").delete().eq("entity_id", processId).eq("entity_type", "PROCESS");
+        // Delete alert instances
+        await supabase.from("alert_instances").delete().eq("entity_id", processId).eq("entity_type", "PROCESS");
+      }
+
+      // Delete the processes
+      const { error } = await supabase
+        .from("monitored_processes")
+        .delete()
+        .in("id", processIds);
+      
+      if (error) throw error;
+      return processIds.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
+      toast.success(`${count} proceso${count !== 1 ? "s" : ""} eliminado${count !== 1 ? "s" : ""}`);
+      setSelectedProcesses(new Set());
+      setDeleteDialogOpen(false);
+    },
+    onError: (error) => {
+      toast.error("Error al eliminar: " + error.message);
+    },
+  });
+
   // Filter processes
   const filteredProcesses = processes?.filter((p) => {
     const searchLower = search.toLowerCase();
@@ -122,6 +182,33 @@ export default function Processes() {
       p.clients?.name.toLowerCase().includes(searchLower)
     );
   });
+
+  const toggleSelectProcess = (processId: string) => {
+    setSelectedProcesses((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(processId)) {
+        newSet.delete(processId);
+      } else {
+        newSet.add(processId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!filteredProcesses) return;
+    if (selectedProcesses.size === filteredProcesses.length) {
+      setSelectedProcesses(new Set());
+    } else {
+      setSelectedProcesses(new Set(filteredProcesses.map((p) => p.id)));
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedProcesses.size > 0) {
+      setDeleteDialogOpen(true);
+    }
+  };
 
   const getReviewStatus = (lastReviewed: string | null) => {
     if (!lastReviewed) {
@@ -154,6 +241,31 @@ export default function Processes() {
         </Button>
       </div>
 
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar procesos seleccionados?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción eliminará permanentemente {selectedProcesses.size} proceso{selectedProcesses.size !== 1 ? "s" : ""} y todos sus datos asociados (actuaciones, eventos, audiencias, etc.).
+              <br />
+              <strong>Esta acción no se puede deshacer.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteProcessesMutation.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteProcessesMutation.mutate(Array.from(selectedProcesses))}
+              disabled={deleteProcessesMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteProcessesMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Eliminar {selectedProcesses.size} proceso{selectedProcesses.size !== 1 ? "s" : ""}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-4">
@@ -166,6 +278,16 @@ export default function Processes() {
                 className="pl-10"
               />
             </div>
+            {selectedProcesses.size > 0 && (
+              <Button
+                variant="destructive"
+                onClick={handleDeleteSelected}
+                className="shrink-0"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar ({selectedProcesses.size})
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -186,6 +308,12 @@ export default function Processes() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={filteredProcesses && filteredProcesses.length > 0 && selectedProcesses.size === filteredProcesses.length}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
                     <TableHead>Radicado</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Despacho / Distrito</TableHead>
@@ -211,6 +339,12 @@ export default function Processes() {
                     
                     return (
                       <TableRow key={process.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedProcesses.has(process.id)}
+                            onCheckedChange={() => toggleSelectProcess(process.id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           <div className="space-y-1">
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
