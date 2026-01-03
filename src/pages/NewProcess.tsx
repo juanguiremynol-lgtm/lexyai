@@ -65,8 +65,10 @@ export default function NewProcess() {
   
   const [radicado, setRadicado] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState<{ attempt: number; status: string } | null>(null);
   const [apiResult, setApiResult] = useState<ApiResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [showManualOption, setShowManualOption] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [despachoOverride, setDespachoOverride] = useState("");
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
@@ -194,7 +196,7 @@ export default function NewProcess() {
     return value.replace(/\D/g, "").slice(0, 23);
   };
 
-  // Buscar en API externa
+  // Buscar en API externa con polling
   const handleSearch = async () => {
     const validation = validateRadicadoFormat(radicado);
     
@@ -206,12 +208,24 @@ export default function NewProcess() {
     setIsSearching(true);
     setApiResult(null);
     setSearchError(null);
+    setShowManualOption(false);
+    setPollingStatus(null);
     setActuacionesOpen(false);
 
-    const result = await fetchFromRamaJudicial(validation.cleaned);
+    const result = await fetchFromRamaJudicial(
+      validation.cleaned,
+      60, // max attempts (2 minutes)
+      2000, // polling interval (2 seconds)
+      {
+        onProgress: (attempt, status) => {
+          setPollingStatus({ attempt, status });
+        }
+      }
+    );
 
     if (!result.success) {
-      setSearchError(`${result.error || "Error desconocido"}. Puede registrarlo manualmente.`);
+      setSearchError(result.error || "Error desconocido");
+      setShowManualOption(result.notFound || false);
     } else if (result.data) {
       setApiResult(result.data);
       setDespachoOverride(result.data.proceso["Despacho"] || "");
@@ -219,6 +233,7 @@ export default function NewProcess() {
     }
     
     setIsSearching(false);
+    setPollingStatus(null);
   };
 
   // Registrar proceso con datos de API
@@ -250,6 +265,8 @@ export default function NewProcess() {
     setRadicado("");
     setApiResult(null);
     setSearchError(null);
+    setShowManualOption(false);
+    setPollingStatus(null);
     setDespachoOverride("");
     setActuacionesOpen(false);
   };
@@ -364,13 +381,18 @@ export default function NewProcess() {
           </div>
 
           {isSearching && (
-            <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              <div>
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-primary/5 border border-primary/20">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <div className="flex-1">
                 <p className="font-medium">Consultando Rama Judicial...</p>
                 <p className="text-sm text-muted-foreground">
-                  Este proceso puede tardar 10-15 segundos
+                  Esto puede tardar 20-40 segundos (web scraping en tiempo real)
                 </p>
+                {pollingStatus && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Intento {pollingStatus.attempt} • Estado: {pollingStatus.status}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -379,21 +401,31 @@ export default function NewProcess() {
 
       {/* Error con opción de registro manual */}
       {searchError && (
-        <Alert variant="destructive">
+        <Alert variant={showManualOption ? "default" : "destructive"}>
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Sin resultados</AlertTitle>
+          <AlertTitle>{showManualOption ? "Proceso no encontrado" : "Error en la búsqueda"}</AlertTitle>
           <AlertDescription className="space-y-3">
             <p>{searchError}</p>
-            {radicado.length === 23 && (
+            <div className="flex gap-2">
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={handleManualRegister}
+                onClick={handleSearch}
               >
-                <Plus className="h-4 w-4 mr-2" />
-                Registrar Manualmente
+                <Search className="h-4 w-4 mr-2" />
+                Reintentar
               </Button>
-            )}
+              {radicado.length === 23 && (
+                <Button 
+                  variant="secondary" 
+                  size="sm"
+                  onClick={handleManualRegister}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Registrar Manualmente
+                </Button>
+              )}
+            </div>
           </AlertDescription>
         </Alert>
       )}
