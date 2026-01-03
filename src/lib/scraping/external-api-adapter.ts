@@ -4,8 +4,18 @@
  * Uses the external Render.com API (rama-judicial-api.onrender.com)
  * to search and retrieve process information and actuaciones.
  * 
- * This adapter provides direct access to scraped judicial data
- * without relying on Supabase edge functions.
+ * This adapter uses job-based polling:
+ * 1. POST/GET to /buscar?numero_radicacion={radicado} returns { jobId }
+ * 2. Poll GET /resultado/{jobId} until status is "completed" or "failed"
+ * 
+ * API Response Structure:
+ * {
+ *   proceso: { "Fecha de Radicación", "Tipo de Proceso", "Despacho", "Demandante", "Demandado", ... },
+ *   actuaciones: [{ "Fecha de Actuación", "Actuación", "Anotación", ... }],
+ *   total_actuaciones: number,
+ *   ultima_actuacion: { ... },
+ *   contador_web: number
+ * }
  */
 
 import { API_BASE_URL } from '@/config/api';
@@ -21,6 +31,13 @@ import {
 } from './adapter-interface';
 
 interface ExternalApiResponse {
+  // Job-related fields
+  jobId?: string;
+  success?: boolean;
+  status?: string;
+  estado?: string;
+  
+  // Process data
   proceso?: {
     'Fecha de Radicación'?: string;
     'Tipo de Proceso'?: string;
@@ -30,7 +47,12 @@ interface ExternalApiResponse {
     'Clase de Proceso'?: string;
     'Ubicación'?: string;
     'Ponente'?: string;
+    [key: string]: string | undefined;
   };
+  sujetos_procesales?: Array<{
+    tipo: string;
+    nombre: string;
+  }>;
   actuaciones?: Array<{
     'Fecha de Actuación'?: string;
     'Actuación'?: string;
@@ -49,11 +71,61 @@ interface ExternalApiResponse {
 export class ExternalApiAdapter implements ScrapingAdapter {
   readonly id = 'external-rama-judicial-api';
   readonly name = 'API Externa Rama Judicial (Render)';
-  readonly description = 'API externa alojada en Render para consulta de procesos judiciales';
+  readonly description = 'API externa alojada en Render para consulta de procesos judiciales (usa polling con jobId)';
   readonly active = true;
 
   private readonly baseUrl = API_BASE_URL;
-  private readonly timeout = 30000; // 30 seconds for scraping operations
+  private readonly pollingInterval = 2000; // 2 seconds between polls
+  private readonly maxPollingAttempts = 60; // 2 minutes max
+
+  /**
+   * Perform job-based polling to get results
+   */
+  private async pollForResults(jobId: string): Promise<ExternalApiResponse> {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      
+      const polling = setInterval(async () => {
+        attempts++;
+        
+        try {
+          const response = await fetch(
+            `${this.baseUrl}/resultado/${jobId}`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+            }
+          );
+
+          const result: ExternalApiResponse = await response.json();
+          console.log(`⏳ Polling intento ${attempts}: ${result.status || 'unknown'}`);
+
+          if (result.status === 'completed') {
+            clearInterval(polling);
+            resolve(result);
+          } else if (result.status === 'failed') {
+            clearInterval(polling);
+            reject(new Error(result.error || 'La consulta falló'));
+          }
+
+          // Timeout after max attempts
+          if (attempts >= this.maxPollingAttempts) {
+            clearInterval(polling);
+            reject(new Error('TIMEOUT: La consulta tomó demasiado tiempo'));
+          }
+        } catch (err) {
+          console.error('Error en polling:', err);
+          if (attempts >= this.maxPollingAttempts) {
+            clearInterval(polling);
+            reject(err);
+          }
+        }
+      }, this.pollingInterval);
+    });
+  }
 
   async lookup(radicadoNumber: string): Promise<LookupResult> {
     try {
@@ -69,10 +141,10 @@ export class ExternalApiAdapter implements ScrapingAdapter {
         };
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      console.log('🔍 ExternalApiAdapter: Consultando radicado:', cleanRadicado);
 
-      const response = await fetch(
+      // Step 1: Start the search job
+      const startResponse = await fetch(
         `${this.baseUrl}/buscar?numero_radicacion=${cleanRadicado}`,
         {
           method: 'GET',
@@ -80,21 +152,18 @@ export class ExternalApiAdapter implements ScrapingAdapter {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          signal: controller.signal,
         }
       );
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        if (response.status === 404) {
+      if (!startResponse.ok) {
+        if (startResponse.status === 404) {
           return {
             status: 'NOT_FOUND',
             matches: [],
             errorMessage: 'Proceso no encontrado',
           };
         }
-        if (response.status === 429) {
+        if (startResponse.status === 429) {
           return {
             status: 'UNAVAILABLE',
             matches: [],
@@ -105,28 +174,63 @@ export class ExternalApiAdapter implements ScrapingAdapter {
         return {
           status: 'ERROR',
           matches: [],
-          errorMessage: `Error HTTP: ${response.status}`,
-          errorCode: `HTTP_${response.status}`,
+          errorMessage: `Error HTTP: ${startResponse.status}`,
+          errorCode: `HTTP_${startResponse.status}`,
         };
       }
 
-      const data: ExternalApiResponse = await response.json();
+      const startData: ExternalApiResponse = await startResponse.json();
+      
+      let data: ExternalApiResponse;
 
-      if (data.error || data.message?.toLowerCase().includes('error')) {
+      // Check if API returns direct data (no jobId) or requires polling
+      if (startData.jobId) {
+        console.log('📋 Job ID recibido:', startData.jobId);
+        // Step 2: Poll for results
+        data = await this.pollForResults(startData.jobId);
+      } else if (startData.proceso) {
+        // Direct response with data
+        console.log('✅ Respuesta directa recibida');
+        data = startData;
+      } else if (startData.estado === 'NO_ENCONTRADO') {
         return {
           status: 'NOT_FOUND',
           matches: [],
-          errorMessage: data.error || data.message || 'Proceso no encontrado',
+          errorMessage: 'No se encontró información del proceso',
+        };
+      } else if (startData.error || !startData.success) {
+        return {
+          status: 'NOT_FOUND',
+          matches: [],
+          errorMessage: startData.error || startData.message || 'Error al iniciar la búsqueda',
+        };
+      } else {
+        return {
+          status: 'NOT_FOUND',
+          matches: [],
+          errorMessage: 'Respuesta inesperada del servidor',
         };
       }
 
-      if (!data.proceso) {
+      // Check for NOT_FOUND in polling result
+      if (data.estado === 'NO_ENCONTRADO') {
         return {
           status: 'NOT_FOUND',
           matches: [],
           errorMessage: 'No se encontró información del proceso',
         };
       }
+
+      if (data.error || !data.proceso) {
+        return {
+          status: 'NOT_FOUND',
+          matches: [],
+          errorMessage: data.error || data.message || 'No se encontró información del proceso',
+        };
+      }
+
+      console.log('✅ Proceso encontrado:', data.proceso['Despacho']);
+      console.log('📊 Total actuaciones:', data.total_actuaciones);
 
       // Build the match from the response
       const match: RadicadoMatch = {
@@ -146,9 +250,11 @@ export class ExternalApiAdapter implements ScrapingAdapter {
       };
 
     } catch (err) {
-      console.error('External API lookup error:', err);
+      console.error('ExternalApiAdapter lookup error:', err);
       
-      if (err instanceof Error && err.name === 'AbortError') {
+      const errorMessage = err instanceof Error ? err.message : 'Error de conexión';
+      
+      if (errorMessage.includes('TIMEOUT')) {
         return {
           status: 'UNAVAILABLE',
           matches: [],
@@ -160,7 +266,7 @@ export class ExternalApiAdapter implements ScrapingAdapter {
       return {
         status: 'ERROR',
         matches: [],
-        errorMessage: err instanceof Error ? err.message : 'Error de conexión',
+        errorMessage,
         errorCode: 'NETWORK_ERROR',
       };
     }
@@ -168,10 +274,10 @@ export class ExternalApiAdapter implements ScrapingAdapter {
 
   async scrapeCase(match: RadicadoMatch): Promise<ScrapeResult> {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      console.log('🔍 ExternalApiAdapter: Scraping caso:', match.radicado);
 
-      const response = await fetch(
+      // Step 1: Start the search job
+      const startResponse = await fetch(
         `${this.baseUrl}/buscar?numero_radicacion=${match.radicado}`,
         {
           method: 'GET',
@@ -179,25 +285,48 @@ export class ExternalApiAdapter implements ScrapingAdapter {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
           },
-          signal: controller.signal,
         }
       );
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
+      if (!startResponse.ok) {
         return {
           status: 'FAILED',
           actuaciones: [],
-          errorMessage: `Error HTTP: ${response.status}`,
-          errorCode: `HTTP_${response.status}`,
+          errorMessage: `Error HTTP: ${startResponse.status}`,
+          errorCode: `HTTP_${startResponse.status}`,
           scrapedAt: new Date().toISOString(),
         };
       }
 
-      const data: ExternalApiResponse = await response.json();
+      const startData: ExternalApiResponse = await startResponse.json();
+      
+      let data: ExternalApiResponse;
 
-      if (data.error || !data.proceso) {
+      // Check if API returns direct data (no jobId) or requires polling
+      if (startData.jobId) {
+        console.log('📋 Scrape Job ID:', startData.jobId);
+        data = await this.pollForResults(startData.jobId);
+      } else if (startData.proceso) {
+        data = startData;
+      } else if (startData.estado === 'NO_ENCONTRADO') {
+        return {
+          status: 'FAILED',
+          actuaciones: [],
+          errorMessage: 'No se encontró información del proceso',
+          errorCode: 'NO_DATA',
+          scrapedAt: new Date().toISOString(),
+        };
+      } else {
+        return {
+          status: 'FAILED',
+          actuaciones: [],
+          errorMessage: startData.error || 'Error al iniciar la búsqueda',
+          errorCode: 'NO_DATA',
+          scrapedAt: new Date().toISOString(),
+        };
+      }
+
+      if (data.estado === 'NO_ENCONTRADO' || data.error || !data.proceso) {
         return {
           status: 'FAILED',
           actuaciones: [],
@@ -206,6 +335,8 @@ export class ExternalApiAdapter implements ScrapingAdapter {
           scrapedAt: new Date().toISOString(),
         };
       }
+
+      console.log('✅ Scrape exitoso. Actuaciones:', data.total_actuaciones);
 
       // Transform actuaciones to the expected format
       const actuaciones: RawActuacion[] = (data.actuaciones || []).map(act => ({
@@ -234,19 +365,23 @@ export class ExternalApiAdapter implements ScrapingAdapter {
           fechaRadicacion: data.proceso['Fecha de Radicación'],
           ultimaActuacion: data.ultima_actuacion?.['Fecha de Actuación'] as string | undefined,
           sourceUrl: match.sourceUrl,
+          sujetosProcesales: data.sujetos_procesales,
+          totalActuaciones: data.total_actuaciones,
         },
         actuaciones,
         scrapedAt: new Date().toISOString(),
       };
 
     } catch (err) {
-      console.error('External API scrape error:', err);
+      console.error('ExternalApiAdapter scrape error:', err);
+      
+      const errorMessage = err instanceof Error ? err.message : 'Error de conexión';
 
       return {
         status: 'FAILED',
         actuaciones: [],
-        errorMessage: err instanceof Error ? err.message : 'Error de conexión',
-        errorCode: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR',
+        errorMessage,
+        errorCode: errorMessage.includes('TIMEOUT') ? 'TIMEOUT' : 'NETWORK_ERROR',
         scrapedAt: new Date().toISOString(),
       };
     }
@@ -291,7 +426,7 @@ export class ExternalApiAdapter implements ScrapingAdapter {
         actTime,
         actDateRaw: act.fechaActuacion,
         actTypeGuess: this.guessActType(normalizedText),
-        confidence: 0.7, // Higher base confidence for external API
+        confidence: 0.9, // Higher confidence for external API with polling
         attachments,
         sourceUrl,
         hashFingerprint,
