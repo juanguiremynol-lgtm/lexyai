@@ -18,6 +18,7 @@ import ProcessStatusDetail from "./pages/ProcessStatusDetail";
 import ProcessStatusTest from "./pages/ProcessStatusTest";
 import IcarusTest from "./pages/IcarusTest";
 import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
+import ApiDebugPage from "./pages/ApiDebugPage";
 import Tasks from "./pages/Tasks";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
@@ -86,6 +87,7 @@ const App = () => (
             <Route path="/process-status/test" element={<ErrorBoundary><ProcessStatusTest /></ErrorBoundary>} />
             <Route path="/process-status/test-icarus" element={<ErrorBoundary><IcarusTest /></ErrorBoundary>} />
             <Route path="/process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
+            <Route path="/api-debug" element={<ErrorBoundary><ApiDebugPage /></ErrorBoundary>} />
             <Route path="/process-status/:id" element={<ErrorBoundary><ProcessStatusDetail /></ErrorBoundary>} />
             <Route path="/tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
             <Route path="/alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
