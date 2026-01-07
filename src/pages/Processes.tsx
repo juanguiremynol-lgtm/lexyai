@@ -210,15 +210,20 @@ export default function Processes() {
     let intervalId: number | undefined;
 
     try {
+      console.log('[UpdateAPI] Iniciando búsqueda para radicado:', radicado);
+      
       // 1. Start search
       const res1 = await fetch(`${API_BASE_URL}/buscar?numero_radicacion=${radicado}`);
       const data1 = await res1.json();
       
-      if (!data1.success) {
+      console.log('[UpdateAPI] Respuesta inicial:', data1);
+      
+      if (!data1.success && !data1.jobId) {
         throw new Error(data1.error || 'Error al iniciar búsqueda');
       }
 
       const jobId = data1.jobId;
+      console.log('[UpdateAPI] Job ID:', jobId);
 
       // 2. Polling every 2 seconds
       const result = await new Promise<RamaJudicialApiResponse>((resolve, reject) => {
@@ -230,61 +235,70 @@ export default function Processes() {
             // Timeout after 120 seconds
             if (elapsedSeconds > 120) {
               window.clearInterval(intervalId);
-              reject(new Error("Tiempo de espera agotado"));
+              reject(new Error("Tiempo de espera agotado (120s)"));
               return;
             }
 
             const res2 = await fetch(`${API_BASE_URL}/resultado/${jobId}`);
             const resultado = await res2.json();
             
-            if (resultado.status === 'completed') {
+            console.log('[UpdateAPI] Polling response:', resultado);
+            
+            if (resultado.status === 'completed' || resultado.success === true) {
               window.clearInterval(intervalId);
+              
+              // Handle different response formats
+              const procesoData = resultado.proceso || resultado.data?.proceso || {};
+              const sujetosData = resultado.sujetos_procesales || resultado.data?.sujetos_procesales || {};
+              const actuacionesData = resultado.actuaciones || resultado.data?.actuaciones || [];
+              
+              console.log('[UpdateAPI] Datos extraídos:', { procesoData, sujetosData, actuacionesCount: actuacionesData.length });
               
               // Map response to expected format
               const mappedResult: RamaJudicialApiResponse = {
                 success: true,
                 proceso: {
-                  "Tipo de Proceso": resultado.proceso?.tipo_proceso || "",
-                  "Clase de Proceso": resultado.proceso?.clase_proceso || "",
-                  "Fecha de Radicación": resultado.proceso?.fecha_radicacion || "",
-                  "Despacho": resultado.proceso?.despacho || "",
-                  "Demandante": resultado.sujetos_procesales?.demandantes?.join(", ") || "",
-                  "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || "",
-                  "Ubicación": resultado.proceso?.ubicacion || "",
-                  "Ponente": resultado.proceso?.ponente || "",
+                  "Tipo de Proceso": procesoData.tipo_proceso || procesoData["Tipo de Proceso"] || "",
+                  "Clase de Proceso": procesoData.clase_proceso || procesoData["Clase de Proceso"] || "",
+                  "Fecha de Radicación": procesoData.fecha_radicacion || procesoData["Fecha de Radicación"] || "",
+                  "Despacho": procesoData.despacho || procesoData["Despacho"] || "",
+                  "Demandante": sujetosData.demandantes?.join(", ") || procesoData["Demandante"] || "",
+                  "Demandado": sujetosData.demandados?.join(", ") || procesoData["Demandado"] || "",
+                  "Ubicación": procesoData.ubicacion || procesoData["Ubicación"] || "",
+                  "Ponente": procesoData.ponente || procesoData["Ponente"] || "",
                 },
-                actuaciones: (resultado.actuaciones || []).map((act: Record<string, string>) => ({
-                  "Fecha de Actuación": act.fecha_actuacion || "",
-                  "Actuación": act.actuacion || "",
-                  "Anotación": act.anotacion || "",
+                actuaciones: actuacionesData.map((act: Record<string, string>) => ({
+                  "Fecha de Actuación": act.fecha_actuacion || act["Fecha de Actuación"] || "",
+                  "Actuación": act.actuacion || act["Actuación"] || "",
+                  "Anotación": act.anotacion || act["Anotación"] || "",
                 })),
-                ultima_actuacion: resultado.actuaciones?.[0] ? {
-                  "Fecha de Actuación": resultado.actuaciones[0].fecha_actuacion || "",
-                  "Actuación": resultado.actuaciones[0].actuacion || "",
-                  "Anotación": resultado.actuaciones[0].anotacion || "",
+                ultima_actuacion: actuacionesData[0] ? {
+                  "Fecha de Actuación": actuacionesData[0].fecha_actuacion || actuacionesData[0]["Fecha de Actuación"] || "",
+                  "Actuación": actuacionesData[0].actuacion || actuacionesData[0]["Actuación"] || "",
+                  "Anotación": actuacionesData[0].anotacion || actuacionesData[0]["Anotación"] || "",
                 } : null,
-                total_actuaciones: resultado.actuaciones?.length || 0,
+                total_actuaciones: actuacionesData.length || 0,
                 sujetos_procesales: (() => {
-                  const sujetos = resultado.sujetos_procesales;
-                  if (!sujetos) return undefined;
-                  if (sujetos.demandantes || sujetos.demandados) {
+                  if (sujetosData.demandantes || sujetosData.demandados) {
                     return [
-                      ...(sujetos.demandantes || []).map((nombre: string) => ({ tipo: 'DEMANDANTE', nombre })),
-                      ...(sujetos.demandados || []).map((nombre: string) => ({ tipo: 'DEMANDADO', nombre })),
+                      ...(sujetosData.demandantes || []).map((nombre: string) => ({ tipo: 'DEMANDANTE', nombre })),
+                      ...(sujetosData.demandados || []).map((nombre: string) => ({ tipo: 'DEMANDADO', nombre })),
                     ];
                   }
                   return undefined;
                 })(),
-                estadisticas: resultado.estadisticas,
+                estadisticas: resultado.estadisticas || resultado.data?.estadisticas,
               };
               
+              console.log('[UpdateAPI] Resultado mapeado:', mappedResult);
               resolve(mappedResult);
-            } else if (resultado.status === 'failed') {
+            } else if (resultado.status === 'failed' || resultado.error) {
               window.clearInterval(intervalId);
-              reject(new Error(resultado.error || 'Error en la búsqueda'));
+              reject(new Error(resultado.error || resultado.message || 'Error en la búsqueda'));
             }
+            // If status is 'pending' or 'processing', continue polling
           } catch (pollingError) {
-            console.error('Error en polling:', pollingError);
+            console.error('[UpdateAPI] Error en polling:', pollingError);
           }
         }, 2000);
       });
@@ -297,13 +311,21 @@ export default function Processes() {
         ((result.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
          (result.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
 
-      // Update process with API data
-      const updates: Record<string, unknown> = {
-        despacho_name: result.proceso["Despacho"],
+      console.log('[UpdateAPI] Actualizando proceso con:', {
         demandantes: result.proceso["Demandante"],
         demandados: result.proceso["Demandado"],
-        jurisdiction: result.proceso["Clase de Proceso"],
-        municipality: result.proceso["Ubicación"],
+        despacho: result.proceso["Despacho"],
+        totalSujetos: totalSujetosFromApi,
+        totalActuaciones: result.actuaciones?.length,
+      });
+
+      // Update process with API data
+      const updates: Record<string, unknown> = {
+        despacho_name: result.proceso["Despacho"] || null,
+        demandantes: result.proceso["Demandante"] || null,
+        demandados: result.proceso["Demandado"] || null,
+        jurisdiction: result.proceso["Clase de Proceso"] || null,
+        municipality: result.proceso["Ubicación"] || null,
         cpnu_confirmed: true,
         cpnu_confirmed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
@@ -312,10 +334,16 @@ export default function Processes() {
         total_sujetos_procesales: totalSujetosFromApi,
       };
 
-      await supabase
+      const { error: updateError } = await supabase
         .from("monitored_processes")
         .update(updates)
         .eq("id", processId);
+      
+      if (updateError) {
+        console.error('[UpdateAPI] Error al actualizar proceso:', updateError);
+        throw updateError;
+      }
+      console.log('[UpdateAPI] Proceso actualizado exitosamente');
 
       // Get existing hashes for deduplication
       const { data: existingActs } = await supabase
