@@ -185,7 +185,11 @@ export default function ProcessStatusDetail() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Update process with API data
+      // Update process with API data including statistics
+      const totalSujetosFromApi = data.sujetos_procesales?.length || 
+        ((data.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
+         (data.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
+
       const updates: Record<string, unknown> = {
         despacho_name: data.proceso["Despacho"] || process.despacho_name,
         demandantes: data.proceso["Demandante"] || process.demandantes,
@@ -196,6 +200,9 @@ export default function ProcessStatusDetail() {
         cpnu_confirmed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
         last_change_at: new Date().toISOString(),
+        // Update statistics
+        total_actuaciones: data.total_actuaciones || data.actuaciones?.length || 0,
+        total_sujetos_procesales: totalSujetosFromApi,
       };
 
       await supabase
