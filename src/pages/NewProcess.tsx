@@ -50,12 +50,8 @@ import {
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
-  fetchFromRamaJudicial,
-  validateRadicadoFormat,
-  createActuacionesInsertData,
   parseColombianDate,
   type RamaJudicialApiResponse,
-  type Actuacion,
 } from "@/lib/rama-judicial-api";
 
 type ApiResponse = RamaJudicialApiResponse;
@@ -74,9 +70,6 @@ export default function NewProcess() {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [despachoOverride, setDespachoOverride] = useState("");
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
-
-  // Extended timeout for web scraping (30 seconds)
-  const FETCH_TIMEOUT_MS = 30000;
 
   // Check if radicado already exists
   const checkDuplicateRadicado = async (radicadoNum: string): Promise<boolean> => {
@@ -201,12 +194,14 @@ export default function NewProcess() {
     return value.replace(/\D/g, "").slice(0, 23);
   };
 
-  // Buscar en API externa con polling (30 second timeout)
+  // Buscar en API externa con polling
   const handleSearch = async () => {
-    const validation = validateRadicadoFormat(radicado);
+    const API_URL = 'https://rama-judicial-api.onrender.com';
     
-    if (!validation.valid) {
-      toast.error(validation.error);
+    // Validar número de radicación
+    const soloDigitos = radicado.replace(/\D/g, '');
+    if (soloDigitos.length !== 23) {
+      toast.error('El número debe tener 23 dígitos');
       return;
     }
 
@@ -220,36 +215,97 @@ export default function NewProcess() {
 
     const startTime = Date.now();
 
-    const result = await fetchFromRamaJudicial(
-      validation.cleaned,
-      FETCH_TIMEOUT_MS, // 30 second timeout
-      2000, // polling interval (2 seconds)
-      {
-        onProgress: (attempt, status, elapsedMs) => {
-          const elapsedSeconds = elapsedMs ? Math.floor(elapsedMs / 1000) : Math.floor((Date.now() - startTime) / 1000);
-          setPollingStatus({ attempt, status, elapsedSeconds });
-        }
-      }
-    );
-
-    if (!result.success) {
-      setSearchError(result.error || "Error desconocido");
-      setShowManualOption(result.notFound || false);
-      setIsTimeoutError(result.isTimeout || false);
+    try {
+      // 1. Iniciar búsqueda
+      const res1 = await fetch(`${API_URL}/buscar?numero_radicacion=${soloDigitos}`);
+      const data1 = await res1.json();
       
-      if (result.isTimeout) {
-        toast.error("El servidor está tardando más de lo esperado. Intenta nuevamente.");
-      } else {
-        toast.error(result.error || "Error desconocido");
+      if (!data1.success) {
+        setSearchError(data1.error || 'Error al iniciar búsqueda');
+        setShowManualOption(true);
+        setIsSearching(false);
+        toast.error('Error: ' + data1.error);
+        return;
       }
-    } else if (result.data) {
-      setApiResult(result.data);
-      setDespachoOverride(result.data.proceso["Despacho"] || "");
-      toast.success(`Proceso encontrado con ${result.data.total_actuaciones} actuaciones`);
+
+      const jobId = data1.jobId;
+      console.log('Job ID:', jobId);
+
+      // 2. Polling cada 2 segundos
+      const intervalo = setInterval(async () => {
+        try {
+          const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+          setPollingStatus({ attempt: 0, status: 'processing', elapsedSeconds });
+
+          const res2 = await fetch(`${API_URL}/resultado/${jobId}`);
+          const resultado = await res2.json();
+          
+          console.log('Estado:', resultado.status);
+          
+          if (resultado.status === 'completed') {
+            clearInterval(intervalo);
+            
+            // AQUÍ TIENES TODOS LOS DATOS:
+            console.log('✅ Proceso:', resultado.proceso);
+            console.log('✅ Sujetos:', resultado.sujetos_procesales);
+            console.log('✅ Actuaciones:', resultado.actuaciones);
+            console.log('✅ Estadísticas:', resultado.estadisticas);
+            
+            // Mapear respuesta al formato esperado por la UI
+            const mappedResult: ApiResponse = {
+              success: true,
+              proceso: {
+                "Tipo de Proceso": resultado.proceso?.tipo_proceso || "",
+                "Clase de Proceso": resultado.proceso?.clase_proceso || "",
+                "Fecha de Radicación": resultado.proceso?.fecha_radicacion || "",
+                "Despacho": resultado.proceso?.despacho || "",
+                "Demandante": resultado.sujetos_procesales?.demandantes?.join(", ") || "",
+                "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || "",
+                "Ubicación": resultado.proceso?.ubicacion || "",
+              },
+              actuaciones: (resultado.actuaciones || []).map((act: Record<string, string>) => ({
+                "Fecha de Actuación": act.fecha_actuacion || act["Fecha de Actuación"] || "",
+                "Actuación": act.actuacion || act["Actuación"] || "",
+                "Anotación": act.anotacion || act["Anotación"] || "",
+                "Fecha inicia Término": act.fecha_inicia_termino || act["Fecha inicia Término"] || "",
+                "Fecha finaliza Término": act.fecha_finaliza_termino || act["Fecha finaliza Término"] || "",
+              })),
+              ultima_actuacion: resultado.actuaciones?.[0] ? {
+                "Fecha de Actuación": resultado.actuaciones[0].fecha_actuacion || resultado.actuaciones[0]["Fecha de Actuación"] || "",
+                "Actuación": resultado.actuaciones[0].actuacion || resultado.actuaciones[0]["Actuación"] || "",
+                "Anotación": resultado.actuaciones[0].anotacion || resultado.actuaciones[0]["Anotación"] || "",
+                "Fecha inicia Término": resultado.actuaciones[0].fecha_inicia_termino || resultado.actuaciones[0]["Fecha inicia Término"] || "",
+                "Fecha finaliza Término": resultado.actuaciones[0].fecha_finaliza_termino || resultado.actuaciones[0]["Fecha finaliza Término"] || "",
+              } : null,
+              total_actuaciones: resultado.actuaciones?.length || 0,
+            };
+            
+            setApiResult(mappedResult);
+            setDespachoOverride(mappedResult.proceso["Despacho"] || "");
+            setIsSearching(false);
+            setPollingStatus(null);
+            toast.success(`Proceso encontrado con ${mappedResult.total_actuaciones} actuaciones`);
+            
+          } else if (resultado.status === 'failed') {
+            clearInterval(intervalo);
+            setSearchError(resultado.error || 'Error en la búsqueda');
+            setShowManualOption(true);
+            setIsSearching(false);
+            setPollingStatus(null);
+            toast.error('Error: ' + resultado.error);
+          }
+        } catch (pollingError) {
+          console.error('Error en polling:', pollingError);
+        }
+      }, 2000);
+
+    } catch (error) {
+      setSearchError('Error de conexión: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+      setShowManualOption(true);
+      setIsSearching(false);
+      setPollingStatus(null);
+      toast.error('Error de conexión');
     }
-    
-    setIsSearching(false);
-    setPollingStatus(null);
   };
 
   // Registrar proceso con datos de API
