@@ -128,6 +128,32 @@ export default function Processes() {
     },
   });
 
+  // Fetch latest actuación for each process
+  const { data: latestActuaciones } = useQuery({
+    queryKey: ["latest-actuaciones"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("actuaciones")
+        .select("id, monitored_process_id, normalized_text, act_date, act_date_raw, created_at")
+        .order("act_date", { ascending: false, nullsFirst: false });
+
+      if (error) throw error;
+      
+      // Group by monitored_process_id and get latest
+      const actuacionesByProcess = new Map<string, { normalized_text: string; act_date: string | null; act_date_raw: string | null }>();
+      for (const act of data) {
+        if (act.monitored_process_id && !actuacionesByProcess.has(act.monitored_process_id)) {
+          actuacionesByProcess.set(act.monitored_process_id, {
+            normalized_text: act.normalized_text,
+            act_date: act.act_date,
+            act_date_raw: act.act_date_raw,
+          });
+        }
+      }
+      return actuacionesByProcess;
+    },
+  });
+
   // Delete processes mutation
   const deleteProcessesMutation = useMutation({
     mutationFn: async (processIds: string[]) => {
@@ -420,18 +446,51 @@ export default function Processes() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {lastActionDate ? (
-                            <Badge variant="outline" className="text-xs">
-                              <Calendar className="h-3 w-3 mr-1" />
-                              {formatDateColombia(lastActionDate)}
-                            </Badge>
-                          ) : lastActionRaw ? (
-                            <Badge variant="secondary" className="text-xs">
-                              {lastActionRaw}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
+                          {(() => {
+                            const ultimaActuacion = latestActuaciones?.get(process.id);
+                            const fechaAct = ultimaActuacion?.act_date || lastActionDate;
+                            const textoAct = ultimaActuacion?.normalized_text;
+                            
+                            if (textoAct) {
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="space-y-1 max-w-[200px]">
+                                      <p className="text-xs line-clamp-2">{textoAct}</p>
+                                      {fechaAct && (
+                                        <Badge variant="outline" className="text-xs">
+                                          <Calendar className="h-3 w-3 mr-1" />
+                                          {formatDateColombia(fechaAct)}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-sm">
+                                    <p className="text-xs whitespace-pre-wrap">{textoAct}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              );
+                            }
+                            
+                            if (fechaAct) {
+                              return (
+                                <Badge variant="outline" className="text-xs">
+                                  <Calendar className="h-3 w-3 mr-1" />
+                                  {formatDateColombia(fechaAct)}
+                                </Badge>
+                              );
+                            }
+                            
+                            if (lastActionRaw) {
+                              return (
+                                <Badge variant="secondary" className="text-xs">
+                                  {lastActionRaw}
+                                </Badge>
+                              );
+                            }
+                            
+                            return <span className="text-muted-foreground text-xs">—</span>;
+                          })()}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
