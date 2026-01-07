@@ -12,9 +12,10 @@ export const API_ENDPOINTS = {
 } as const;
 
 export const API_TIMEOUTS = {
-  INITIAL_REQUEST_MS: 30000,
-  POLLING_INTERVAL_MS: 2000,
-  MAX_POLLING_ATTEMPTS: 60,
+  INITIAL_REQUEST_MS: 45000,   // 45s for initial request (scraping takes time)
+  POLLING_INTERVAL_MS: 2000,   // 2s between polls
+  MAX_POLLING_ATTEMPTS: 45,    // 45 attempts * 2s = 90s max polling
+  MAX_TOTAL_TIME_MS: 120000,   // 2 minutes absolute max
   HEALTH_CHECK_MS: 10000,
   RETRY_DELAY_MS: 3000,
   MAX_RETRIES: 3,
