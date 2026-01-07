@@ -713,11 +713,18 @@ export default function NewProcess() {
                     <Clock className="h-4 w-4" />
                     Estadísticas
                   </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {apiResult.estadisticas.total_actuaciones !== undefined && (
                       <div className="p-3 rounded-lg bg-primary/10 text-center">
                         <p className="text-2xl font-bold text-primary">{apiResult.estadisticas.total_actuaciones}</p>
                         <p className="text-xs text-muted-foreground">Total Actuaciones</p>
+                      </div>
+                    )}
+                    {/* Total Sujetos Procesales */}
+                    {apiResult.sujetos_procesales && (
+                      <div className="p-3 rounded-lg bg-secondary/50 text-center">
+                        <p className="text-2xl font-bold text-secondary-foreground">{apiResult.sujetos_procesales.length}</p>
+                        <p className="text-xs text-muted-foreground">Sujetos Procesales</p>
                       </div>
                     )}
                     {apiResult.estadisticas.dias_desde_radicacion !== undefined && (
