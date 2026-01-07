@@ -173,18 +173,25 @@ export interface FetchResult {
   error?: string;
   isTimeout?: boolean;
   notFound?: boolean;
+  isProvisional?: boolean;
+  rawResponse?: unknown;
 }
 
 export interface PollingCallbacks {
-  onProgress?: (attempt: number, status: string) => void;
+  onProgress?: (attempt: number, status: string, elapsedMs?: number) => void;
 }
 
 /**
  * Fetch process data from the Rama Judicial API using job-based polling
+ * 
+ * @param radicado - 23-digit case number
+ * @param timeoutMs - Total timeout in milliseconds (default: 30000)
+ * @param pollingInterval - Interval between polls in milliseconds (default: 2000)
+ * @param callbacks - Optional callbacks for progress updates
  */
 export async function fetchFromRamaJudicial(
   radicado: string, 
-  maxAttempts = 60,
+  timeoutMs = 30000,
   pollingInterval = 2000,
   callbacks?: PollingCallbacks
 ): Promise<FetchResult> {
@@ -193,20 +200,53 @@ export async function fetchFromRamaJudicial(
     return { success: false, error: validation.error };
   }
 
+  const startTime = Date.now();
+  let abortController: AbortController | null = null;
+  let pollingIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  const cleanup = () => {
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      pollingIntervalId = null;
+    }
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+    }
+  };
+
   try {
-    // Step 1: Start the search job
+    // Step 1: Start the search job with timeout
     console.log("🔍 Consultando:", validation.cleaned);
     
-    const startResponse = await fetch(
-      `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(validation.cleaned)}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+    abortController = new AbortController();
+    const initTimeoutId = setTimeout(() => abortController?.abort(), timeoutMs);
+    
+    let startResponse: Response;
+    try {
+      startResponse = await fetch(
+        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(validation.cleaned)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          signal: abortController.signal,
+        }
+      );
+    } catch (err) {
+      clearTimeout(initTimeoutId);
+      if (err instanceof Error && err.name === 'AbortError') {
+        return { 
+          success: false, 
+          error: "El servidor está tardando más de lo esperado. Intenta nuevamente.",
+          isTimeout: true 
+        };
       }
-    );
+      throw err;
+    }
+    clearTimeout(initTimeoutId);
 
     if (!startResponse.ok) {
       if (startResponse.status === 404) {
@@ -222,11 +262,16 @@ export async function fetchFromRamaJudicial(
     
     // If API returns direct data (no jobId), handle it directly
     if (!startData.jobId) {
-      if (startData.error || !startData.success) {
+      if (startData.error || startData.success === false) {
         if (startData.estado === "NO_ENCONTRADO") {
-          return { success: false, error: "No se encontró información del proceso", notFound: true };
+          return { 
+            success: false, 
+            error: "No se encontró información del proceso", 
+            notFound: true,
+            rawResponse: startData,
+          };
         }
-        return { success: false, error: startData.error || "Error al iniciar la búsqueda" };
+        return { success: false, error: startData.error || "Error al iniciar la búsqueda", rawResponse: startData };
       }
       
       // Direct response with data
@@ -238,14 +283,37 @@ export async function fetchFromRamaJudicial(
     const jobId = startData.jobId;
     console.log("📋 Job ID:", jobId);
 
-    // Step 2: Poll for results
+    // Step 2: Poll for results with timeout
     return new Promise((resolve) => {
       let attempts = 0;
+      const maxPollingTime = timeoutMs - (Date.now() - startTime);
       
-      const polling = setInterval(async () => {
+      if (maxPollingTime <= 0) {
+        resolve({ 
+          success: false, 
+          error: "El servidor está tardando más de lo esperado. Intenta nuevamente.",
+          isTimeout: true 
+        });
+        return;
+      }
+
+      const timeoutHandler = setTimeout(() => {
+        cleanup();
+        resolve({ 
+          success: false, 
+          error: "El servidor está tardando más de lo esperado. Intenta nuevamente.",
+          isTimeout: true 
+        });
+      }, maxPollingTime);
+      
+      pollingIntervalId = setInterval(async () => {
         attempts++;
+        const elapsedMs = Date.now() - startTime;
         
         try {
+          const pollController = new AbortController();
+          const pollTimeoutId = setTimeout(() => pollController.abort(), 5000);
+          
           const resultResponse = await fetch(
             `${API_BASE_URL}/resultado/${jobId}`,
             {
@@ -254,58 +322,78 @@ export async function fetchFromRamaJudicial(
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
               },
+              signal: pollController.signal,
             }
           );
+          clearTimeout(pollTimeoutId);
 
           const result = await resultResponse.json();
-          console.log(`⏳ Intento ${attempts}: ${result.status}`);
+          console.log(`⏳ Intento ${attempts}: ${result.status} (${elapsedMs}ms)`);
           
-          callbacks?.onProgress?.(attempts, result.status);
+          callbacks?.onProgress?.(attempts, result.status, elapsedMs);
 
           if (result.status === "completed") {
-            clearInterval(polling);
+            clearTimeout(timeoutHandler);
+            cleanup();
             
-            if (result.estado === "NO_ENCONTRADO") {
+            // Check for NO_ENCONTRADO - this may be a false negative
+            if (result.success === false || result.estado === "NO_ENCONTRADO") {
               resolve({ 
                 success: false, 
-                error: "No se encontró información del proceso. Puede registrarlo manualmente.",
-                notFound: true 
+                error: result.mensaje || "No se encontró información del proceso. Puede registrarlo manualmente.",
+                notFound: true,
+                isProvisional: true, // Mark as provisional - may be false negative
+                rawResponse: result,
               });
-            } else {
+            } else if (result.success === true && result.proceso) {
+              // Validate completeness - check for "silencio"
+              const hasDespacho = result.proceso.Despacho || result.proceso.despacho;
+              const hasSujetos = (result.sujetos_procesales && result.sujetos_procesales.length > 0) ||
+                                 result.proceso.Demandante || result.proceso.Demandado;
+              const hasActuaciones = result.actuaciones && result.actuaciones.length > 0;
+              
+              if (!hasDespacho || !hasSujetos || !hasActuaciones) {
+                console.warn("⚠️ Respuesta incompleta (silencio):", {
+                  hasDespacho: !!hasDespacho,
+                  hasSujetos: !!hasSujetos,
+                  hasActuaciones: !!hasActuaciones,
+                });
+              }
+              
               console.log("✅ Proceso encontrado:", result);
-              resolve({ success: true, data: result });
+              resolve({ success: true, data: result, rawResponse: result });
+            } else {
+              // Unexpected completed state
+              resolve({ success: true, data: result, rawResponse: result });
             }
           } else if (result.status === "failed") {
-            clearInterval(polling);
+            clearTimeout(timeoutHandler);
+            cleanup();
             resolve({ 
               success: false, 
-              error: result.error || "Error al procesar la consulta" 
+              error: result.error || "Error al procesar la consulta",
+              rawResponse: result,
             });
           }
-
-          // Timeout after max attempts
-          if (attempts >= maxAttempts) {
-            clearInterval(polling);
-            resolve({ 
-              success: false, 
-              error: "La consulta tomó demasiado tiempo. Intente nuevamente.",
-              isTimeout: true 
-            });
-          }
+          // For "processing" status, continue polling
         } catch (err) {
           console.error("Error en polling:", err);
-          // Continue polling unless max attempts reached
-          if (attempts >= maxAttempts) {
-            clearInterval(polling);
-            resolve({ 
-              success: false, 
-              error: "Error de conexión durante la consulta" 
-            });
+          // Continue polling unless it's an abort
+          if (err instanceof Error && err.name === 'AbortError') {
+            // This poll was aborted, continue with next iteration
           }
         }
       }, pollingInterval);
     });
   } catch (err) {
+    cleanup();
+    if (err instanceof Error && err.name === 'AbortError') {
+      return { 
+        success: false, 
+        error: "El servidor está tardando más de lo esperado. Intenta nuevamente.",
+        isTimeout: true 
+      };
+    }
     return { success: false, error: err instanceof Error ? err.message : "Error de conexión" };
   }
 }

@@ -45,6 +45,7 @@ import {
   FileText,
   Clock,
   Bell,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -65,13 +66,17 @@ export default function NewProcess() {
   
   const [radicado, setRadicado] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [pollingStatus, setPollingStatus] = useState<{ attempt: number; status: string } | null>(null);
+  const [pollingStatus, setPollingStatus] = useState<{ attempt: number; status: string; elapsedSeconds: number } | null>(null);
   const [apiResult, setApiResult] = useState<ApiResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [showManualOption, setShowManualOption] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [despachoOverride, setDespachoOverride] = useState("");
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
+
+  // Extended timeout for web scraping (30 seconds)
+  const FETCH_TIMEOUT_MS = 30000;
 
   // Check if radicado already exists
   const checkDuplicateRadicado = async (radicadoNum: string): Promise<boolean> => {
@@ -196,7 +201,7 @@ export default function NewProcess() {
     return value.replace(/\D/g, "").slice(0, 23);
   };
 
-  // Buscar en API externa con polling
+  // Buscar en API externa con polling (30 second timeout)
   const handleSearch = async () => {
     const validation = validateRadicadoFormat(radicado);
     
@@ -208,17 +213,21 @@ export default function NewProcess() {
     setIsSearching(true);
     setApiResult(null);
     setSearchError(null);
+    setIsTimeoutError(false);
     setShowManualOption(false);
     setPollingStatus(null);
     setActuacionesOpen(false);
 
+    const startTime = Date.now();
+
     const result = await fetchFromRamaJudicial(
       validation.cleaned,
-      60, // max attempts (2 minutes)
+      FETCH_TIMEOUT_MS, // 30 second timeout
       2000, // polling interval (2 seconds)
       {
-        onProgress: (attempt, status) => {
-          setPollingStatus({ attempt, status });
+        onProgress: (attempt, status, elapsedMs) => {
+          const elapsedSeconds = elapsedMs ? Math.floor(elapsedMs / 1000) : Math.floor((Date.now() - startTime) / 1000);
+          setPollingStatus({ attempt, status, elapsedSeconds });
         }
       }
     );
@@ -226,6 +235,13 @@ export default function NewProcess() {
     if (!result.success) {
       setSearchError(result.error || "Error desconocido");
       setShowManualOption(result.notFound || false);
+      setIsTimeoutError(result.isTimeout || false);
+      
+      if (result.isTimeout) {
+        toast.error("El servidor está tardando más de lo esperado. Intenta nuevamente.");
+      } else {
+        toast.error(result.error || "Error desconocido");
+      }
     } else if (result.data) {
       setApiResult(result.data);
       setDespachoOverride(result.data.proceso["Despacho"] || "");
@@ -265,6 +281,7 @@ export default function NewProcess() {
     setRadicado("");
     setApiResult(null);
     setSearchError(null);
+    setIsTimeoutError(false);
     setShowManualOption(false);
     setPollingStatus(null);
     setDespachoOverride("");
@@ -381,19 +398,50 @@ export default function NewProcess() {
           </div>
 
           {isSearching && (
-            <div className="flex items-center gap-3 p-4 rounded-lg bg-primary/5 border border-primary/20">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <div className="flex-1">
-                <p className="font-medium">Consultando Rama Judicial...</p>
-                <p className="text-sm text-muted-foreground">
-                  Esto puede tardar 20-40 segundos (web scraping en tiempo real)
-                </p>
-                {pollingStatus && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Intento {pollingStatus.attempt} • Estado: {pollingStatus.status}
+            <div className="space-y-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+                  <Loader2 className="h-8 w-8 animate-spin text-primary relative" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold">Consultando Rama Judicial...</p>
+                  <p className="text-sm text-muted-foreground">
+                    Esto puede tardar 15-20 segundos
                   </p>
+                  {pollingStatus && (
+                    <p className="text-xs text-primary mt-1">
+                      {pollingStatus.status === 'processing' 
+                        ? `Procesando consulta...`
+                        : `Estado: ${pollingStatus.status}`
+                      }
+                    </p>
+                  )}
+                </div>
+                {pollingStatus && (
+                  <div className="text-right">
+                    <p className="text-2xl font-mono font-bold text-primary">
+                      {pollingStatus.elapsedSeconds}s
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Tiempo transcurrido
+                    </p>
+                  </div>
                 )}
               </div>
+              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                <div 
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ 
+                    width: pollingStatus 
+                      ? `${Math.min(90, (pollingStatus.elapsedSeconds / 20) * 90)}%` 
+                      : '10%' 
+                  }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                Extrayendo información del proceso judicial en tiempo real (web scraping)
+              </p>
             </div>
           )}
         </CardContent>
@@ -401,19 +449,26 @@ export default function NewProcess() {
 
       {/* Error con opción de registro manual */}
       {searchError && (
-        <Alert variant={showManualOption ? "default" : "destructive"}>
+        <Alert variant={isTimeoutError ? "default" : showManualOption ? "default" : "destructive"}>
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{showManualOption ? "Proceso no encontrado" : "Error en la búsqueda"}</AlertTitle>
+          <AlertTitle>
+            {isTimeoutError 
+              ? "Tiempo de espera agotado" 
+              : showManualOption 
+                ? "Proceso no encontrado" 
+                : "Error en la búsqueda"
+            }
+          </AlertTitle>
           <AlertDescription className="space-y-3">
             <p>{searchError}</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button 
                 variant="outline" 
                 size="sm"
                 onClick={handleSearch}
               >
                 <Search className="h-4 w-4 mr-2" />
-                Reintentar
+                {isTimeoutError ? "Reintentar" : "Reintentar"}
               </Button>
               {radicado.length === 23 && (
                 <Button 

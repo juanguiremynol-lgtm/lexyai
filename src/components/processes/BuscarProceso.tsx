@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,6 +30,9 @@ interface BuscarProcesoProps {
   showRegisterButton?: boolean;
 }
 
+// Timeout extended to 30 seconds for web scraping
+const FETCH_TIMEOUT_MS = 30000;
+
 export function BuscarProceso({ onResultFound, showRegisterButton = false }: BuscarProcesoProps) {
   const [radicado, setRadicado] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,8 +41,10 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
   const [isTimeoutError, setIsTimeoutError] = useState(false);
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     const validation = validateRadicadoFormat(radicado);
     
     if (!validation.valid) {
@@ -53,32 +58,66 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
     setResult(null);
     setActuacionesOpen(false);
     setProgress(0);
+    setStatusMessage("Iniciando consulta...");
+    setElapsedSeconds(0);
 
-    // Simulate progress for UX (the API takes 15-20 seconds)
-    const progressInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 90) return prev;
-        return prev + (90 - prev) * 0.1;
-      });
+    // Track elapsed time for UX
+    const startTime = Date.now();
+    const elapsedInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setElapsedSeconds(elapsed);
+      // Update progress based on expected 15-20 second response time
+      const expectedDuration = 20;
+      const progressPercent = Math.min(90, (elapsed / expectedDuration) * 90);
+      setProgress(progressPercent);
     }, 500);
 
-    const fetchResult = await fetchFromRamaJudicial(validation.cleaned, 30000);
+    try {
+      const fetchResult = await fetchFromRamaJudicial(
+        validation.cleaned, 
+        FETCH_TIMEOUT_MS,
+        2000,
+        {
+          onProgress: (attempt, status, elapsedMs) => {
+            const seconds = elapsedMs ? Math.floor(elapsedMs / 1000) : attempt * 2;
+            if (status === 'processing') {
+              setStatusMessage(`Procesando consulta... (${seconds}s)`);
+            } else {
+              setStatusMessage(`Estado: ${status}`);
+            }
+          }
+        }
+      );
 
-    clearInterval(progressInterval);
-    setProgress(100);
+      clearInterval(elapsedInterval);
+      setProgress(100);
 
-    if (!fetchResult.success) {
-      setError(fetchResult.error || "Error al buscar proceso");
-      setIsTimeoutError(fetchResult.isTimeout || false);
-      toast.error(fetchResult.error || "Error al buscar proceso");
-    } else if (fetchResult.data) {
-      setResult(fetchResult.data);
-      toast.success(`Proceso encontrado con ${fetchResult.data.total_actuaciones} actuaciones`);
-      onResultFound?.(fetchResult.data, validation.cleaned);
+      if (!fetchResult.success) {
+        setError(fetchResult.error || "Error al buscar proceso");
+        setIsTimeoutError(fetchResult.isTimeout || false);
+        
+        // Show specific message for timeout
+        if (fetchResult.isTimeout) {
+          toast.error("El servidor está tardando más de lo esperado. Intenta nuevamente.");
+        } else {
+          toast.error(fetchResult.error || "Error al buscar proceso");
+        }
+      } else if (fetchResult.data) {
+        setResult(fetchResult.data);
+        toast.success(`Proceso encontrado con ${fetchResult.data.total_actuaciones} actuaciones`);
+        onResultFound?.(fetchResult.data, validation.cleaned);
+      }
+    } catch (err) {
+      clearInterval(elapsedInterval);
+      setProgress(100);
+      const errorMessage = err instanceof Error ? err.message : "Error de conexión";
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
 
     setLoading(false);
-  };
+    setStatusMessage("");
+  }, [radicado, onResultFound]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !loading) {
@@ -143,21 +182,35 @@ export function BuscarProceso({ onResultFound, showRegisterButton = false }: Bus
 
           {/* Enhanced Loading State */}
           {loading && (
-            <div className="space-y-4 p-4 rounded-lg bg-muted/50 border border-border">
+            <div className="space-y-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+                  <Loader2 className="h-8 w-8 animate-spin text-primary relative" />
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-foreground">Consultando Rama Judicial...</p>
                   <p className="text-sm text-muted-foreground">
                     Esto puede tardar 15-20 segundos
                   </p>
+                  {statusMessage && (
+                    <p className="text-xs text-primary mt-1">
+                      {statusMessage}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-mono font-bold text-primary">
+                    {elapsedSeconds}s
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Tiempo transcurrido
+                  </p>
                 </div>
               </div>
               <Progress value={progress} className="h-2" />
               <p className="text-xs text-muted-foreground text-center">
-                Extrayendo información del proceso judicial en tiempo real
+                Extrayendo información del proceso judicial en tiempo real (web scraping)
               </p>
             </div>
           )}
