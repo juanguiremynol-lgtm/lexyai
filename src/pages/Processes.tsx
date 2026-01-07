@@ -46,8 +46,9 @@ import {
 import { Link } from "react-router-dom";
 import { formatDateColombia } from "@/lib/constants";
 import { differenceInDays } from "date-fns";
-import { fetchFromRamaJudicial, parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
+import { parseColombianDate, computeActuacionHash, normalizeActuacionText, type RamaJudicialApiResponse } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
+import { API_BASE_URL } from "@/config/api";
 
 interface MonitoredProcess {
   id: string;
@@ -94,6 +95,7 @@ export default function Processes() {
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [updatingProcessId, setUpdatingProcessId] = useState<string | null>(null);
+  const [updatePollingStatus, setUpdatePollingStatus] = useState<{ processId: string; elapsedSeconds: number } | null>(null);
 
   // Fetch monitored processes
   const { data: processes, isLoading: loadingProcesses } = useQuery({
@@ -200,37 +202,113 @@ export default function Processes() {
     },
   });
 
-  // Update single process from API
+  // Update single process from API with polling
   const updateProcessFromApi = async (processId: string, radicado: string) => {
     setUpdatingProcessId(processId);
+    setUpdatePollingStatus({ processId, elapsedSeconds: 0 });
+    const startTime = Date.now();
+    let intervalId: number | undefined;
+
     try {
-      const result = await fetchFromRamaJudicial(radicado);
+      // 1. Start search
+      const res1 = await fetch(`${API_BASE_URL}/buscar?numero_radicacion=${radicado}`);
+      const data1 = await res1.json();
       
-      if (!result.success || !result.data) {
-        throw new Error(result.error || "No se encontró información para este radicado");
+      if (!data1.success) {
+        throw new Error(data1.error || 'Error al iniciar búsqueda');
       }
 
-      const data = result.data;
+      const jobId = data1.jobId;
+
+      // 2. Polling every 2 seconds
+      const result = await new Promise<RamaJudicialApiResponse>((resolve, reject) => {
+        intervalId = window.setInterval(async () => {
+          try {
+            const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+            setUpdatePollingStatus({ processId, elapsedSeconds });
+
+            // Timeout after 120 seconds
+            if (elapsedSeconds > 120) {
+              window.clearInterval(intervalId);
+              reject(new Error("Tiempo de espera agotado"));
+              return;
+            }
+
+            const res2 = await fetch(`${API_BASE_URL}/resultado/${jobId}`);
+            const resultado = await res2.json();
+            
+            if (resultado.status === 'completed') {
+              window.clearInterval(intervalId);
+              
+              // Map response to expected format
+              const mappedResult: RamaJudicialApiResponse = {
+                success: true,
+                proceso: {
+                  "Tipo de Proceso": resultado.proceso?.tipo_proceso || "",
+                  "Clase de Proceso": resultado.proceso?.clase_proceso || "",
+                  "Fecha de Radicación": resultado.proceso?.fecha_radicacion || "",
+                  "Despacho": resultado.proceso?.despacho || "",
+                  "Demandante": resultado.sujetos_procesales?.demandantes?.join(", ") || "",
+                  "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || "",
+                  "Ubicación": resultado.proceso?.ubicacion || "",
+                  "Ponente": resultado.proceso?.ponente || "",
+                },
+                actuaciones: (resultado.actuaciones || []).map((act: Record<string, string>) => ({
+                  "Fecha de Actuación": act.fecha_actuacion || "",
+                  "Actuación": act.actuacion || "",
+                  "Anotación": act.anotacion || "",
+                })),
+                ultima_actuacion: resultado.actuaciones?.[0] ? {
+                  "Fecha de Actuación": resultado.actuaciones[0].fecha_actuacion || "",
+                  "Actuación": resultado.actuaciones[0].actuacion || "",
+                  "Anotación": resultado.actuaciones[0].anotacion || "",
+                } : null,
+                total_actuaciones: resultado.actuaciones?.length || 0,
+                sujetos_procesales: (() => {
+                  const sujetos = resultado.sujetos_procesales;
+                  if (!sujetos) return undefined;
+                  if (sujetos.demandantes || sujetos.demandados) {
+                    return [
+                      ...(sujetos.demandantes || []).map((nombre: string) => ({ tipo: 'DEMANDANTE', nombre })),
+                      ...(sujetos.demandados || []).map((nombre: string) => ({ tipo: 'DEMANDADO', nombre })),
+                    ];
+                  }
+                  return undefined;
+                })(),
+                estadisticas: resultado.estadisticas,
+              };
+              
+              resolve(mappedResult);
+            } else if (resultado.status === 'failed') {
+              window.clearInterval(intervalId);
+              reject(new Error(resultado.error || 'Error en la búsqueda'));
+            }
+          } catch (pollingError) {
+            console.error('Error en polling:', pollingError);
+          }
+        }, 2000);
+      });
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
       // Calculate sujetos procesales count
-      const totalSujetosFromApi = data.sujetos_procesales?.length || 
-        ((data.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
-         (data.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
+      const totalSujetosFromApi = result.sujetos_procesales?.length || 
+        ((result.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
+         (result.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
 
       // Update process with API data
       const updates: Record<string, unknown> = {
-        despacho_name: data.proceso["Despacho"],
-        demandantes: data.proceso["Demandante"],
-        demandados: data.proceso["Demandado"],
-        jurisdiction: data.proceso["Clase de Proceso"],
-        municipality: data.proceso["Ubicación"],
+        despacho_name: result.proceso["Despacho"],
+        demandantes: result.proceso["Demandante"],
+        demandados: result.proceso["Demandado"],
+        jurisdiction: result.proceso["Clase de Proceso"],
+        municipality: result.proceso["Ubicación"],
         cpnu_confirmed: true,
         cpnu_confirmed_at: new Date().toISOString(),
         last_checked_at: new Date().toISOString(),
         last_change_at: new Date().toISOString(),
-        total_actuaciones: data.total_actuaciones || data.actuaciones?.length || 0,
+        total_actuaciones: result.total_actuaciones || result.actuaciones?.length || 0,
         total_sujetos_procesales: totalSujetosFromApi,
       };
 
@@ -249,8 +327,8 @@ export default function Processes() {
 
       // Insert new actuaciones (dedupe by hash)
       let newActuaciones = 0;
-      if (data.actuaciones && data.actuaciones.length > 0) {
-        for (const act of data.actuaciones) {
+      if (result.actuaciones && result.actuaciones.length > 0) {
+        for (const act of result.actuaciones) {
           const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
           const normalizedText = normalizeActuacionText(rawText);
           const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
@@ -284,9 +362,11 @@ export default function Processes() {
         toast.success("Proceso actualizado desde API");
       }
     } catch (error) {
+      if (intervalId) window.clearInterval(intervalId);
       toast.error("Error: " + (error as Error).message);
     } finally {
       setUpdatingProcessId(null);
+      setUpdatePollingStatus(null);
     }
   };
 
@@ -650,16 +730,28 @@ export default function Processes() {
                                   size="sm"
                                   onClick={() => updateProcessFromApi(process.id, process.radicado)}
                                   disabled={updatingProcessId === process.id}
+                                  className="min-w-[60px]"
                                 >
                                   {updatingProcessId === process.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <div className="flex items-center gap-1">
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      {updatePollingStatus?.processId === process.id && (
+                                        <span className="text-xs tabular-nums">
+                                          {updatePollingStatus.elapsedSeconds}s
+                                        </span>
+                                      )}
+                                    </div>
                                   ) : (
                                     <RefreshCw className="h-4 w-4" />
                                   )}
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p className="text-xs">Actualizar desde API</p>
+                                <p className="text-xs">
+                                  {updatingProcessId === process.id 
+                                    ? "Consultando API..." 
+                                    : "Actualizar desde API"}
+                                </p>
                               </TooltipContent>
                             </Tooltip>
                             <Button variant="ghost" size="sm" asChild>
