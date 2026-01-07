@@ -199,6 +199,12 @@ export default function NewProcess() {
         processData.cpnu_confirmed = true;
         processData.cpnu_confirmed_at = new Date().toISOString();
         processData.last_checked_at = new Date().toISOString();
+        
+        // Add statistics from API
+        processData.total_actuaciones = apiData.total_actuaciones || apiData.actuaciones?.length || 0;
+        processData.total_sujetos_procesales = apiData.sujetos_procesales?.length || 
+          ((apiData.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
+           (apiData.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
       }
 
       const { data, error } = await supabase
