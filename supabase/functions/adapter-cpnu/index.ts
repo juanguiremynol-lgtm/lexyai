@@ -20,31 +20,49 @@ interface ProcessEvent {
   raw_data?: Record<string, unknown>;
 }
 
+interface SujetoProcesal {
+  tipo: string;
+  nombre: string;
+}
+
+interface EstadoElectronico {
+  nombre_archivo: string;
+  despacho?: string;
+  tipo_documento?: string;
+  encontrado_el?: string;
+}
+
 interface SearchResult {
   radicado: string;
   despacho: string;
   demandante?: string;
   demandado?: string;
   tipo_proceso?: string;
+  clase_proceso?: string;
   fecha_radicacion?: string;
   detail_url?: string;
   id_proceso?: number | string;
+  sujetos_procesales?: SujetoProcesal[];
+  contenido_radicacion?: string;
 }
 
 interface AttemptLog {
-  phase: 'DISCOVER_API' | 'QUERY_LIST' | 'FETCH_DETAIL' | 'FETCH_ACTUACIONES' | 'FIRECRAWL_ACTIONS';
+  phase: 'DISCOVER_API' | 'QUERY_LIST' | 'FETCH_DETAIL' | 'FETCH_ACTUACIONES' | 'FIRECRAWL_ACTIONS' | 'EXTERNAL_API' | 'RETRY';
   url: string;
   method: string;
   status: number | null;
   latency_ms: number;
-  error_type?: 'HTTP_ERROR' | 'TIMEOUT' | 'NON_JSON' | 'PARSE_ERROR' | 'NETWORK_ERROR' | 'FIRECRAWL_ERROR';
+  error_type?: 'HTTP_ERROR' | 'TIMEOUT' | 'NON_JSON' | 'PARSE_ERROR' | 'NETWORK_ERROR' | 'FIRECRAWL_ERROR' | 'INCOMPLETE_DATA';
   response_snippet_1kb?: string;
   success: boolean;
+  retry_attempt?: number;
+  source?: string;
 }
 
 type Classification = 
   | 'SUCCESS'
   | 'NO_RESULTS_CONFIRMED'
+  | 'NO_RESULTS_PROVISIONAL'  // NEW: Not definitive, will retry
   | 'ENDPOINT_404'
   | 'ENDPOINT_CHANGED'
   | 'BLOCKED_403_429'
@@ -52,7 +70,17 @@ type Classification =
   | 'PARSE_BROKE'
   | 'INTERACTION_REQUIRED'
   | 'INTERACTION_FAILED_SELECTOR_CHANGED'
+  | 'INCOMPLETE_DATA'  // NEW: Silencio - got response but missing critical data
+  | 'FALSE_NEGATIVE_RISK'  // NEW: High risk of false negative
   | 'UNKNOWN';
+
+interface CompletenessCheck {
+  isComplete: boolean;
+  hasSujetos: boolean;
+  hasDespacho: boolean;
+  hasActuaciones: boolean;
+  missingFields: string[];
+}
 
 interface AdapterResponse {
   ok: boolean;
@@ -61,17 +89,40 @@ interface AdapterResponse {
   classification: Classification;
   results?: SearchResult[];
   events?: ProcessEvent[];
+  proceso?: {
+    despacho: string;
+    tipo?: string;
+    clase?: string;
+    contenido_radicacion?: string;
+    sujetos_procesales: SujetoProcesal[];
+    actuaciones: ProcessEvent[];
+    estados_electronicos: EstadoElectronico[];
+  };
   error?: string;
   attempts?: AttemptLog[];
   why_empty?: string;
+  retry_exhausted?: boolean;
+  sources_tried?: string[];
 }
 
+// ============= CONFIGURATION =============
+
+const CONFIG = {
+  MAX_RETRIES: 3,
+  RETRY_DELAY_MS: 2000,
+  BACKOFF_MULTIPLIER: 1.5,
+  POLLING_INTERVAL_MS: 2000,
+  POLLING_TIMEOUT_MS: 60000,
+  MIN_ACTUACIONES_FOR_COMPLETENESS: 1,
+  MIN_SUJETOS_FOR_COMPLETENESS: 1,
+};
+
+// External API (Rama Judicial API on Render) - used as fallback
+const EXTERNAL_API_BASE = 'https://rama-judicial-api.onrender.com';
+
 // ============= CANDIDATE ENDPOINTS =============
-// These are discovered/tested endpoints for CPNU API
-// Priority order: most likely to work first
 
 const CPNU_API_CANDIDATES = {
-  // NumeroRadicacion search endpoints - different host/port/path variants
   searchByRadicado: (radicado: string, soloActivos: boolean = false) => [
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=${soloActivos}&pagina=1`,
@@ -88,14 +139,12 @@ const CPNU_API_CANDIDATES = {
       method: 'GET',
       description: 'v2 NumeroRadicacion with port 448',
     },
-    // POST variants
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion`,
       method: 'POST',
       body: JSON.stringify({ numero: radicado, SoloActivos: soloActivos, pagina: 1 }),
       description: 'POST v2 NumeroRadicacion without port',
     },
-    // Legacy v1 endpoints as fallback
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v1/Procesos/Consulta/NumeroRadicacion?numero=${radicado}`,
       method: 'GET',
@@ -103,7 +152,6 @@ const CPNU_API_CANDIDATES = {
     },
   ],
   
-  // Detail endpoints for a specific process
   detail: (idProceso: string | number) => [
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Detalle/${idProceso}`,
@@ -117,7 +165,6 @@ const CPNU_API_CANDIDATES = {
     },
   ],
   
-  // Actuaciones endpoints
   actuaciones: (idProceso: string | number) => [
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/${idProceso}`,
@@ -144,7 +191,6 @@ function computeFingerprint(
   idProceso?: string | number
 ): string {
   const data = `${source}|${radicado}|${eventDate || ''}|${eventType}|${description}|${despacho}|${idProceso || ''}`;
-  // Simple SHA-like hash
   let hash1 = 0, hash2 = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -158,11 +204,9 @@ function computeFingerprint(
 
 function parseColombianDate(dateStr: string): string | null {
   if (!dateStr) return null;
-  // ISO format
   if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
     try { return new Date(dateStr).toISOString(); } catch { return null; }
   }
-  // DD/MM/YYYY or DD-MM-YYYY
   const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
   if (!match) return null;
   let [, day, month, year] = match;
@@ -184,12 +228,47 @@ function determineEventType(description: string): string {
   if (lower.includes('traslado')) return 'TRASLADO';
   if (lower.includes('memorial')) return 'MEMORIAL';
   if (lower.includes('providencia')) return 'PROVIDENCIA';
+  if (lower.includes('radicación')) return 'RADICACION';
   return 'ACTUACION';
 }
 
 function truncate(str: string, maxLen: number): string {
   if (!str) return '';
   return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============= COMPLETENESS VALIDATION =============
+
+function validateCompleteness(
+  results: SearchResult[],
+  events: ProcessEvent[]
+): CompletenessCheck {
+  const missingFields: string[] = [];
+  
+  const hasSujetos = results.some(r => 
+    (r.sujetos_procesales && r.sujetos_procesales.length >= CONFIG.MIN_SUJETOS_FOR_COMPLETENESS) ||
+    (r.demandante && r.demandante.trim().length > 0) ||
+    (r.demandado && r.demandado.trim().length > 0)
+  );
+  
+  const hasDespacho = results.some(r => r.despacho && r.despacho.trim().length > 5);
+  const hasActuaciones = events.length >= CONFIG.MIN_ACTUACIONES_FOR_COMPLETENESS;
+  
+  if (!hasSujetos) missingFields.push('sujetos_procesales');
+  if (!hasDespacho) missingFields.push('despacho');
+  if (!hasActuaciones) missingFields.push('actuaciones');
+  
+  return {
+    isComplete: hasSujetos && hasDespacho && hasActuaciones,
+    hasSujetos,
+    hasDespacho,
+    hasActuaciones,
+    missingFields,
+  };
 }
 
 // ============= DIAGNOSTICS HELPERS =============
@@ -253,7 +332,8 @@ async function cpnuFetchJson(
   candidates: Array<{ url: string; method: string; body?: string; description: string }>,
   phase: AttemptLog['phase'],
   attempts: AttemptLog[],
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  retryAttempt: number = 0
 ): Promise<{ data: any; success: boolean; lastAttempt: AttemptLog }> {
   
   const defaultHeaders: Record<string, string> = {
@@ -276,6 +356,7 @@ async function cpnuFetchJson(
       status: null,
       latency_ms: 0,
       success: false,
+      retry_attempt: retryAttempt,
     };
     
     try {
@@ -304,19 +385,17 @@ async function cpnuFetchJson(
       
       console.log(`[${phase}] Response: HTTP ${response.status}, Content-Type: ${contentType}, Length: ${responseText.length}`);
       
-      // Handle specific HTTP errors
       if (response.status === 404) {
         attempt.error_type = 'HTTP_ERROR';
         attempts.push(attempt);
         lastAttempt = attempt;
-        continue; // Try next candidate
+        continue;
       }
       
       if (response.status === 403 || response.status === 429) {
         attempt.error_type = 'HTTP_ERROR';
         attempts.push(attempt);
         lastAttempt = attempt;
-        // Don't try more candidates if blocked
         return { data: null, success: false, lastAttempt: attempt };
       }
       
@@ -327,9 +406,7 @@ async function cpnuFetchJson(
         continue;
       }
       
-      // Check if response is JSON
       if (!contentType.includes('application/json')) {
-        // Could be HTML response
         if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
           attempt.error_type = 'NON_JSON';
           attempts.push(attempt);
@@ -338,7 +415,6 @@ async function cpnuFetchJson(
         }
       }
       
-      // Try to parse JSON
       try {
         const data = JSON.parse(responseText);
         attempt.success = true;
@@ -377,6 +453,244 @@ async function cpnuFetchJson(
   };
 }
 
+// ============= EXTERNAL API FALLBACK (Rama Judicial API on Render) =============
+
+async function fetchFromExternalApi(
+  radicado: string,
+  attempts: AttemptLog[]
+): Promise<{
+  success: boolean;
+  results: SearchResult[];
+  events: ProcessEvent[];
+  despacho?: string;
+  sujetos?: SujetoProcesal[];
+  error?: string;
+  classification?: Classification;
+}> {
+  const startMs = Date.now();
+  const attempt: AttemptLog = {
+    phase: 'EXTERNAL_API',
+    url: `${EXTERNAL_API_BASE}/buscar`,
+    method: 'GET',
+    status: null,
+    latency_ms: 0,
+    success: false,
+    source: 'RAMA_JUDICIAL_API',
+  };
+
+  try {
+    console.log('[EXTERNAL_API] Starting job-based polling...');
+    
+    // Step 1: Initiate search
+    const initUrl = `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${radicado}`;
+    const initResponse = await fetch(initUrl);
+    attempt.status = initResponse.status;
+    
+    if (!initResponse.ok) {
+      attempt.error_type = 'HTTP_ERROR';
+      attempt.latency_ms = Date.now() - startMs;
+      attempts.push(attempt);
+      return { success: false, results: [], events: [], error: `HTTP ${initResponse.status}` };
+    }
+    
+    const initData = await initResponse.json();
+    
+    if (!initData.jobId) {
+      // Maybe direct response
+      if (initData.success && initData.proceso) {
+        attempt.success = true;
+        attempt.latency_ms = Date.now() - startMs;
+        attempts.push(attempt);
+        return processExternalApiResponse(initData, radicado);
+      }
+      
+      attempt.error_type = 'PARSE_ERROR';
+      attempt.response_snippet_1kb = JSON.stringify(initData).substring(0, 1024);
+      attempt.latency_ms = Date.now() - startMs;
+      attempts.push(attempt);
+      return { success: false, results: [], events: [], error: 'No jobId in response' };
+    }
+    
+    const jobId = initData.jobId;
+    console.log(`[EXTERNAL_API] Got jobId: ${jobId}, starting polling...`);
+    
+    // Step 2: Poll for results
+    const pollStartTime = Date.now();
+    let pollAttempts = 0;
+    const maxPollAttempts = Math.ceil(CONFIG.POLLING_TIMEOUT_MS / CONFIG.POLLING_INTERVAL_MS);
+    
+    while (Date.now() - pollStartTime < CONFIG.POLLING_TIMEOUT_MS) {
+      pollAttempts++;
+      await sleep(CONFIG.POLLING_INTERVAL_MS);
+      
+      const pollUrl = `${EXTERNAL_API_BASE}/resultado/${jobId}`;
+      const pollResponse = await fetch(pollUrl);
+      
+      if (!pollResponse.ok) {
+        console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: HTTP ${pollResponse.status}`);
+        continue;
+      }
+      
+      const pollData = await pollResponse.json();
+      console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: status=${pollData.status}`);
+      
+      if (pollData.status === 'completed') {
+        attempt.latency_ms = Date.now() - startMs;
+        
+        // Check for false negative / NO_ENCONTRADO
+        if (pollData.success === false || pollData.estado === 'NO_ENCONTRADO') {
+          console.log('[EXTERNAL_API] Got NO_ENCONTRADO - treating as provisional');
+          attempt.error_type = 'INCOMPLETE_DATA';
+          attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
+          attempts.push(attempt);
+          
+          return {
+            success: false,
+            results: [],
+            events: [],
+            error: pollData.mensaje || 'No se encontró información del proceso',
+            classification: 'NO_RESULTS_PROVISIONAL', // NOT definitive!
+          };
+        }
+        
+        if (pollData.success) {
+          attempt.success = true;
+          attempts.push(attempt);
+          return processExternalApiResponse(pollData, radicado);
+        }
+      }
+      
+      if (pollData.status === 'failed') {
+        attempt.error_type = 'HTTP_ERROR';
+        attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
+        attempt.latency_ms = Date.now() - startMs;
+        attempts.push(attempt);
+        return {
+          success: false,
+          results: [],
+          events: [],
+          error: pollData.error || 'Job failed',
+          classification: 'NO_RESULTS_PROVISIONAL',
+        };
+      }
+    }
+    
+    // Timeout
+    attempt.error_type = 'TIMEOUT';
+    attempt.latency_ms = Date.now() - startMs;
+    attempts.push(attempt);
+    return {
+      success: false,
+      results: [],
+      events: [],
+      error: 'Polling timeout',
+      classification: 'NO_RESULTS_PROVISIONAL',
+    };
+    
+  } catch (err) {
+    attempt.latency_ms = Date.now() - startMs;
+    attempt.error_type = 'NETWORK_ERROR';
+    attempt.response_snippet_1kb = err instanceof Error ? err.message : 'Unknown error';
+    attempts.push(attempt);
+    
+    return {
+      success: false,
+      results: [],
+      events: [],
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+function processExternalApiResponse(data: any, radicado: string): {
+  success: boolean;
+  results: SearchResult[];
+  events: ProcessEvent[];
+  despacho?: string;
+  sujetos?: SujetoProcesal[];
+  classification?: Classification;
+} {
+  const results: SearchResult[] = [];
+  const events: ProcessEvent[] = [];
+  let despacho = '';
+  const sujetos: SujetoProcesal[] = [];
+  
+  const proceso = data.proceso || data;
+  
+  if (proceso.despacho) {
+    despacho = proceso.despacho;
+  }
+  
+  // Extract sujetos
+  if (Array.isArray(proceso.sujetos_procesales)) {
+    for (const s of proceso.sujetos_procesales) {
+      sujetos.push({
+        tipo: s.tipo || s.tipoParte || 'Parte',
+        nombre: s.nombre || '',
+      });
+    }
+  }
+  
+  // Build search result
+  results.push({
+    radicado,
+    despacho,
+    tipo_proceso: proceso.tipo,
+    clase_proceso: proceso.clase,
+    contenido_radicacion: proceso.contenido_radicacion,
+    sujetos_procesales: sujetos,
+    demandante: sujetos.find(s => s.tipo.toLowerCase().includes('demandante'))?.nombre,
+    demandado: sujetos.find(s => s.tipo.toLowerCase().includes('demandado'))?.nombre,
+  });
+  
+  // Extract actuaciones
+  if (Array.isArray(proceso.actuaciones)) {
+    for (const act of proceso.actuaciones) {
+      const eventDate = parseColombianDate(act.fecha_actuacion || act.fechaActuacion || '');
+      const description = act.actuacion || act.descripcion || '';
+      
+      if (!description) continue;
+      
+      events.push({
+        source: 'EXTERNAL_API',
+        event_type: determineEventType(description),
+        event_date: eventDate,
+        title: truncate(description, 100),
+        description,
+        detail: act.anotacion,
+        attachments: [],
+        source_url: `${EXTERNAL_API_BASE}`,
+        hash_fingerprint: computeFingerprint('EXTERNAL', radicado, eventDate, determineEventType(description), description, despacho),
+        raw_data: act,
+      });
+    }
+  }
+  
+  // Validate completeness
+  const completeness = validateCompleteness(results, events);
+  
+  if (!completeness.isComplete) {
+    console.log(`[EXTERNAL_API] Incomplete data: missing ${completeness.missingFields.join(', ')}`);
+    return {
+      success: false,
+      results,
+      events,
+      despacho,
+      sujetos,
+      classification: 'INCOMPLETE_DATA',
+    };
+  }
+  
+  return {
+    success: true,
+    results,
+    events,
+    despacho,
+    sujetos,
+    classification: 'SUCCESS',
+  };
+}
+
 // ============= FIRECRAWL ACTIONS FALLBACK =============
 
 async function scrapeWithFirecrawlActions(
@@ -390,7 +704,6 @@ async function scrapeWithFirecrawlActions(
   screenshot?: string;
   error?: string;
   classification?: Classification;
-  jsResult?: any;
 }> {
   const apiKey = Deno.env.get('FIRECRAWL_API_KEY');
   if (!apiKey) {
@@ -410,28 +723,18 @@ async function scrapeWithFirecrawlActions(
   try {
     console.log('Firecrawl Actions: Starting form submission flow');
     
-    // Build actions to:
-    // 1. Wait for page load
-    // 2. Select "Todos los Procesos" if needed
-    // 3. Type radicado in the input
-    // 4. Click Consultar
-    // 5. Wait for results
-    // 6. Execute JS to extract results
-    
     const actions: any[] = [
       { type: 'wait', milliseconds: 2000 },
     ];
     
-    // If we want all processes (not just last 30 days), click the second radio
     if (useTodosProcesos) {
       actions.push({
         type: 'click',
-        selector: 'input[id="input-68"]', // "Todos los Procesos" radio
+        selector: 'input[id="input-68"]',
       });
       actions.push({ type: 'wait', milliseconds: 500 });
     }
     
-    // Type the radicado into the input field
     actions.push({
       type: 'write',
       selector: 'input[maxlength="23"]',
@@ -440,20 +743,14 @@ async function scrapeWithFirecrawlActions(
     
     actions.push({ type: 'wait', milliseconds: 500 });
     
-    // Click the Consultar button
     actions.push({
       type: 'click',
       selector: 'button[aria-label="Consultar Número de radicación"]',
     });
     
-    // Wait for results to load
     actions.push({ type: 'wait', milliseconds: 5000 });
-    
-    // Scroll down to ensure results are visible
     actions.push({ type: 'scroll', direction: 'down' });
     actions.push({ type: 'wait', milliseconds: 2000 });
-
-    console.log('Firecrawl Actions: Sending request with actions:', JSON.stringify(actions));
 
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
@@ -493,9 +790,7 @@ async function scrapeWithFirecrawlActions(
     attempt.response_snippet_1kb = truncate(markdown, 1024);
     
     console.log('Firecrawl Actions: Got response, markdown length:', markdown.length);
-    console.log('Firecrawl Actions: Markdown preview:', markdown.substring(0, 500));
 
-    // Check if we still see the empty form
     const isStillForm = markdown.includes('0 / 23') || 
                         (markdown.includes('Número de Radicación') && !markdown.includes('Despacho'));
     
@@ -512,7 +807,6 @@ async function scrapeWithFirecrawlActions(
       };
     }
     
-    // Check for "no results" message
     if (markdown.includes('No se encontraron') || markdown.includes('sin resultados')) {
       attempt.success = true;
       attempts.push(attempt);
@@ -521,11 +815,10 @@ async function scrapeWithFirecrawlActions(
         markdown,
         html,
         screenshot,
-        classification: 'NO_RESULTS_CONFIRMED',
+        classification: 'NO_RESULTS_PROVISIONAL', // Changed from CONFIRMED
       };
     }
     
-    // Check if radicado appears in results
     if (markdown.includes(radicado) || html.includes(radicado)) {
       attempt.success = true;
       attempts.push(attempt);
@@ -538,7 +831,6 @@ async function scrapeWithFirecrawlActions(
       };
     }
     
-    // Got some response but no clear success indicators
     attempt.success = true;
     attempts.push(attempt);
     return {
@@ -573,13 +865,7 @@ function parseSearchResultsFromContent(
   const results: SearchResult[] = [];
   const contentToCheck = markdown + html;
   
-  console.log('Parsing content for radicado:', radicado);
-  
-  // Look for radicado in content
   if (!contentToCheck.includes(radicado)) {
-    console.log('Radicado not found in content');
-    
-    // Check if it's the empty form
     if (markdown.includes('0 / 23') && markdown.includes('Número de Radicación')) {
       return { results: [], parseMethod: 'SPA_FORM_EMPTY' };
     }
@@ -591,27 +877,14 @@ function parseSearchResultsFromContent(
     return { results: [], parseMethod: 'NO_MATCH' };
   }
   
-  console.log('Found radicado in content!');
-  
-  // Try to extract idProceso from various patterns
   let idProceso: string | number | undefined;
-  
-  // Pattern 1: idProceso=XXXXXX in URLs
   const urlMatch = contentToCheck.match(/idProceso[=\/](\d+)/i);
-  if (urlMatch) {
-    idProceso = urlMatch[1];
-    console.log('Found idProceso from URL:', idProceso);
-  }
+  if (urlMatch) idProceso = urlMatch[1];
   
-  // Pattern 2: data-id or similar attributes
   const dataIdMatch = contentToCheck.match(/data-(?:id|proceso)[="](\d+)/i);
-  if (!idProceso && dataIdMatch) {
-    idProceso = dataIdMatch[1];
-    console.log('Found idProceso from data attribute:', idProceso);
-  }
+  if (!idProceso && dataIdMatch) idProceso = dataIdMatch[1];
   
-  // Try to extract despacho (court name)
-  let despacho = 'Despacho encontrado';
+  let despacho = '';
   const despachoPatterns = [
     /Juzgado[^\n|<]{5,80}/i,
     /Tribunal[^\n|<]{5,80}/i,
@@ -626,7 +899,6 @@ function parseSearchResultsFromContent(
     }
   }
   
-  // Try to extract demandante/demandado
   let demandante: string | undefined;
   let demandado: string | undefined;
   
@@ -650,7 +922,6 @@ function parseSearchResultsFromContent(
   return { results, parseMethod: 'CONTENT_MATCH' };
 }
 
-// Parse actuaciones from JSON API response
 function parseActuacionesFromJson(data: any, radicado: string, sourceUrl: string): ProcessEvent[] {
   const events: ProcessEvent[] = [];
   
@@ -673,7 +944,7 @@ function parseActuacionesFromJson(data: any, radicado: string, sourceUrl: string
       event_date: eventDate,
       title: truncate(description, 100),
       description,
-      detail: act.detalle || undefined,
+      detail: act.detalle || act.anotacion || undefined,
       attachments: (act.documentos || []).map((doc: any) => ({
         label: doc.nombre || doc.descripcion || 'Documento',
         url: doc.url || doc.enlace || '',
@@ -687,13 +958,11 @@ function parseActuacionesFromJson(data: any, radicado: string, sourceUrl: string
   return events;
 }
 
-// Parse actuaciones from markdown (fallback)
 function parseActuacionesFromMarkdown(markdown: string, radicado: string, sourceUrl: string): ProcessEvent[] {
   const events: ProcessEvent[] = [];
   const lines = markdown.split('\n');
   
   for (const line of lines) {
-    // Look for date patterns followed by text
     const dateMatch = line.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
     if (dateMatch && line.length > 20) {
       const eventDate = parseColombianDate(dateMatch[1]);
@@ -717,62 +986,8 @@ function parseActuacionesFromMarkdown(markdown: string, radicado: string, source
   return events;
 }
 
-// ============= CLASSIFY RESULT =============
-
-function classifyResult(
-  attempts: AttemptLog[],
-  results: SearchResult[],
-  events: ProcessEvent[],
-  firecrawlClassification?: Classification
-): Classification {
-  
-  // If Firecrawl gave us a classification, use it
-  if (firecrawlClassification && firecrawlClassification !== 'UNKNOWN') {
-    return firecrawlClassification;
-  }
-  
-  // Check for success
-  if (results.length > 0 || events.length > 0) {
-    return 'SUCCESS';
-  }
-  
-  // Analyze attempts to classify failure
-  const lastAttempt = attempts[attempts.length - 1];
-  
-  if (!lastAttempt) {
-    return 'UNKNOWN';
-  }
-  
-  // All attempts were 404
-  const all404 = attempts.every(a => a.status === 404);
-  if (all404) {
-    return 'ENDPOINT_404';
-  }
-  
-  // Any 403/429 = blocked
-  const blocked = attempts.some(a => a.status === 403 || a.status === 429);
-  if (blocked) {
-    return 'BLOCKED_403_429';
-  }
-  
-  // All attempts returned non-JSON
-  const allNonJson = attempts.every(a => a.error_type === 'NON_JSON');
-  if (allNonJson) {
-    return 'NON_JSON_RESPONSE';
-  }
-  
-  // Had successful fetch but no results extracted
-  const hadSuccess = attempts.some(a => a.success);
-  if (hadSuccess && results.length === 0 && events.length === 0) {
-    return 'PARSE_BROKE';
-  }
-  
-  return 'UNKNOWN';
-}
-
 // ============= AUTH HELPER =============
 
-// Helper to extract and validate user from JWT
 async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseAnonKey: string): Promise<{ user_id: string } | null> {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -788,6 +1003,181 @@ async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseA
   }
   
   return { user_id: user.id };
+}
+
+// ============= MAIN ORCHESTRATOR WITH RETRY + FALLBACK =============
+
+async function orchestrateSearch(
+  radicadoStr: string,
+  supabase: any,
+  runId: string | null,
+  attempts: AttemptLog[],
+  startTime: number
+): Promise<{
+  results: SearchResult[];
+  events: ProcessEvent[];
+  classification: Classification;
+  debugExcerpt: string;
+  sourcesTried: string[];
+  retryExhausted: boolean;
+}> {
+  let results: SearchResult[] = [];
+  let events: ProcessEvent[] = [];
+  let classification: Classification = 'UNKNOWN';
+  let debugExcerpt = '';
+  const sourcesTried: string[] = [];
+  let retryExhausted = false;
+  let foundSuccess = false;
+  
+  // === PHASE 1: Try CPNU Direct API ===
+  console.log('=== PHASE 1: CPNU Direct API ===');
+  sourcesTried.push('CPNU_API');
+  if (runId) await addStep(supabase, runId, 'PHASE_1_CPNU_API', true, 'Starting CPNU direct API attempts');
+  
+  const searchCandidates = CPNU_API_CANDIDATES.searchByRadicado(radicadoStr, false);
+  const apiResult = await cpnuFetchJson(searchCandidates, 'QUERY_LIST', attempts);
+  
+  if (apiResult.success && apiResult.data) {
+    const procesos = apiResult.data.procesos || apiResult.data.data || apiResult.data;
+    
+    if (Array.isArray(procesos) && procesos.length > 0) {
+      for (const p of procesos) {
+        const sujetos: SujetoProcesal[] = [];
+        if (Array.isArray(p.sujetosProcesales)) {
+          for (const s of p.sujetosProcesales) {
+            sujetos.push({ tipo: s.tipoParte || 'Parte', nombre: s.nombre || '' });
+          }
+        }
+        
+        results.push({
+          radicado: p.numero || p.radicado || radicadoStr,
+          despacho: p.despacho || p.nombreDespacho || '',
+          demandante: p.demandante,
+          demandado: p.demandado,
+          tipo_proceso: p.tipoProceso || p.clase,
+          fecha_radicacion: p.fechaRadicacion || p.fecha,
+          id_proceso: p.idProceso || p.id,
+          sujetos_procesales: sujetos,
+          detail_url: p.idProceso ? `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${p.idProceso}` : undefined,
+        });
+      }
+      
+      // Try to fetch actuaciones
+      if (results.length > 0 && results[0].id_proceso) {
+        const actCandidates = CPNU_API_CANDIDATES.actuaciones(results[0].id_proceso);
+        const actResult = await cpnuFetchJson(actCandidates, 'FETCH_ACTUACIONES', attempts);
+        
+        if (actResult.success && actResult.data) {
+          events = parseActuacionesFromJson(actResult.data, radicadoStr, actCandidates[0].url);
+          if (runId) await addStep(supabase, runId, 'ACTUACIONES_API', true, `Found ${events.length} actuaciones`);
+        }
+      }
+      
+      // Validate completeness
+      const completeness = validateCompleteness(results, events);
+      if (completeness.isComplete) {
+        classification = 'SUCCESS';
+        debugExcerpt = JSON.stringify(apiResult.data).substring(0, 10000);
+        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
+      } else {
+        console.log(`CPNU API returned incomplete data: missing ${completeness.missingFields.join(', ')}`);
+        if (runId) await addStep(supabase, runId, 'INCOMPLETE_DATA', false, `Missing: ${completeness.missingFields.join(', ')}`);
+        classification = 'INCOMPLETE_DATA';
+      }
+    }
+    
+    debugExcerpt = JSON.stringify(apiResult.data).substring(0, 10000);
+  }
+  
+  // === PHASE 2: External API Fallback (Rama Judicial API) ===
+  if (!foundSuccess) {
+    console.log('=== PHASE 2: External API Fallback ===');
+    sourcesTried.push('EXTERNAL_API');
+    if (runId) await addStep(supabase, runId, 'PHASE_2_EXTERNAL_API', true, 'Trying external API fallback');
+    
+    for (let retry = 0; retry < CONFIG.MAX_RETRIES; retry++) {
+      if (retry > 0) {
+        const delay = CONFIG.RETRY_DELAY_MS * Math.pow(CONFIG.BACKOFF_MULTIPLIER, retry - 1);
+        console.log(`[RETRY] Attempt ${retry + 1}/${CONFIG.MAX_RETRIES}, waiting ${delay}ms...`);
+        await sleep(delay);
+      }
+      
+      const externalResult = await fetchFromExternalApi(radicadoStr, attempts);
+      
+      if (externalResult.success && externalResult.results.length > 0) {
+        results = externalResult.results;
+        events = externalResult.events;
+        classification = 'SUCCESS';
+        debugExcerpt = `External API success: ${results.length} results, ${events.length} events`;
+        if (runId) await addStep(supabase, runId, 'EXTERNAL_API_SUCCESS', true, debugExcerpt);
+        return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
+      }
+      
+      // If provisional NO_ENCONTRADO, continue retrying
+      if (externalResult.classification === 'NO_RESULTS_PROVISIONAL') {
+        console.log(`[RETRY] Got provisional NO_ENCONTRADO, will retry (attempt ${retry + 1}/${CONFIG.MAX_RETRIES})`);
+        if (runId) await addStep(supabase, runId, 'RETRY_PROVISIONAL', false, `Provisional no results, retry ${retry + 1}`);
+        continue;
+      }
+      
+      // If incomplete data, continue retrying
+      if (externalResult.classification === 'INCOMPLETE_DATA') {
+        console.log(`[RETRY] Got incomplete data, will retry (attempt ${retry + 1}/${CONFIG.MAX_RETRIES})`);
+        continue;
+      }
+      
+      // Other errors - break
+      break;
+    }
+    
+    retryExhausted = true;
+  }
+  
+  // === PHASE 3: Firecrawl Fallback ===
+  if (!foundSuccess) {
+    console.log('=== PHASE 3: Firecrawl Fallback ===');
+    sourcesTried.push('FIRECRAWL');
+    if (runId) await addStep(supabase, runId, 'PHASE_3_FIRECRAWL', true, 'Trying Firecrawl fallback');
+    
+    const fcResult = await scrapeWithFirecrawlActions(radicadoStr, attempts, true);
+    
+    if (fcResult.success && fcResult.markdown) {
+      debugExcerpt = fcResult.markdown.substring(0, 10000);
+      
+      const parseResult = parseSearchResultsFromContent(fcResult.markdown, fcResult.html || '', radicadoStr);
+      
+      if (parseResult.results.length > 0) {
+        results = parseResult.results;
+        events = parseActuacionesFromMarkdown(fcResult.markdown, radicadoStr, 'https://consultaprocesos.ramajudicial.gov.co');
+        
+        const completeness = validateCompleteness(results, events);
+        if (completeness.isComplete) {
+          classification = 'SUCCESS';
+        } else {
+          classification = 'INCOMPLETE_DATA';
+        }
+        
+        if (runId) await addStep(supabase, runId, 'FIRECRAWL_PARSED', true, `Results: ${results.length}, Events: ${events.length}`);
+      } else {
+        classification = fcResult.classification || 'NO_RESULTS_PROVISIONAL';
+      }
+    } else {
+      debugExcerpt = fcResult.error || 'Firecrawl failed';
+      classification = fcResult.classification || 'UNKNOWN';
+    }
+  }
+  
+  // === Final classification ===
+  if (results.length === 0 && events.length === 0) {
+    // Only mark as definitively NOT_FOUND if we exhausted all retries and sources
+    if (retryExhausted && sourcesTried.length >= 2) {
+      classification = 'NO_RESULTS_CONFIRMED';
+    } else {
+      classification = 'FALSE_NEGATIVE_RISK';
+    }
+  }
+  
+  return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted };
 }
 
 // ============= MAIN HANDLER =============
@@ -806,7 +1196,6 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    // Authenticate user from JWT token
     const authUser = await getAuthenticatedUser(req, supabaseUrl, supabaseAnonKey);
     if (!authUser) {
       return new Response(
@@ -815,9 +1204,7 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Use authenticated user's ID instead of trusting request body
     const owner_id = authUser.user_id;
-    
     const { action, radicado, debug } = await req.json();
     
     if (!action) {
@@ -855,7 +1242,7 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify(response), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      // Ensure radicado is a clean string of 23 digits
+      // Normalize radicado
       const radicadoStr = String(radicado).trim().replace(/\D/g, '');
       if (radicadoStr.length !== 23) {
         const response: AdapterResponse = {
@@ -872,113 +1259,42 @@ Deno.serve(async (req) => {
 
       if (runId) await addStep(supabase, runId, 'VALIDATE', true, `Radicado: ${radicadoStr} (23 digits)`, { radicado: radicadoStr });
 
-      // PHASE 1: Try direct API endpoints
-      console.log('PHASE 1: Trying direct API endpoints...');
-      if (runId) await addStep(supabase, runId, 'PHASE_1_API', true, 'Starting direct API attempts');
+      // Run orchestrated search with retries and fallbacks
+      const orchestration = await orchestrateSearch(radicadoStr, supabase, runId, attempts, startTime);
       
-      // First try with SoloActivos=false (all processes)
-      const searchCandidates = CPNU_API_CANDIDATES.searchByRadicado(radicadoStr, false);
-      const apiResult = await cpnuFetchJson(searchCandidates, 'QUERY_LIST', attempts);
-      
-      let results: SearchResult[] = [];
-      let events: ProcessEvent[] = [];
-      let classification: Classification = 'UNKNOWN';
-      let debugExcerpt = '';
-      
-      if (apiResult.success && apiResult.data) {
-        console.log('API success! Parsing results...');
-        if (runId) await addStep(supabase, runId, 'API_SUCCESS', true, 'Got JSON response from API');
-        
-        // Parse the API response
-        const procesos = apiResult.data.procesos || apiResult.data.data || apiResult.data;
-        
-        if (Array.isArray(procesos) && procesos.length > 0) {
-          for (const p of procesos) {
-            results.push({
-              radicado: p.numero || p.radicado || radicadoStr,
-              despacho: p.despacho || p.nombreDespacho || '',
-              demandante: p.demandante,
-              demandado: p.demandado,
-              tipo_proceso: p.tipoProceso || p.clase,
-              fecha_radicacion: p.fechaRadicacion || p.fecha,
-              id_proceso: p.idProceso || p.id,
-              detail_url: p.idProceso ? `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${p.idProceso}` : undefined,
-            });
-          }
-          
-          // Try to fetch actuaciones for the first process
-          if (results.length > 0 && results[0].id_proceso) {
-            const actCandidates = CPNU_API_CANDIDATES.actuaciones(results[0].id_proceso);
-            const actResult = await cpnuFetchJson(actCandidates, 'FETCH_ACTUACIONES', attempts);
-            
-            if (actResult.success && actResult.data) {
-              events = parseActuacionesFromJson(actResult.data, radicadoStr, actCandidates[0].url);
-              if (runId) await addStep(supabase, runId, 'ACTUACIONES', true, `Found ${events.length} actuaciones from API`);
-            }
-          }
-          
-          classification = 'SUCCESS';
-        } else {
-          classification = 'NO_RESULTS_CONFIRMED';
-        }
-        
-        debugExcerpt = JSON.stringify(apiResult.data).substring(0, 10000);
-        
-      } else {
-        // PHASE 2: Fallback to Firecrawl with actions
-        console.log('PHASE 2: API failed, trying Firecrawl actions fallback...');
-        if (runId) await addStep(supabase, runId, 'PHASE_2_FIRECRAWL', true, 'API attempts failed, trying Firecrawl actions', { 
-          api_attempts: attempts.length,
-          last_status: apiResult.lastAttempt.status,
-        });
-        
-        const fcResult = await scrapeWithFirecrawlActions(radicadoStr, attempts, true);
-        
-        if (fcResult.success && fcResult.markdown) {
-          debugExcerpt = fcResult.markdown.substring(0, 10000);
-          
-          const parseResult = parseSearchResultsFromContent(fcResult.markdown, fcResult.html || '', radicadoStr);
-          results = parseResult.results;
-          
-          if (results.length > 0) {
-            if (runId) await addStep(supabase, runId, 'PARSE', true, `Parsed ${results.length} results via ${parseResult.parseMethod}`);
-            
-            // Try to get actuaciones from the page content
-            events = parseActuacionesFromMarkdown(fcResult.markdown, radicadoStr, 'https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion');
-            if (events.length > 0) {
-              if (runId) await addStep(supabase, runId, 'ACTUACIONES', true, `Parsed ${events.length} actuaciones from Firecrawl content`);
-            }
-          } else {
-            if (runId) await addStep(supabase, runId, 'PARSE', false, `No results parsed, method: ${parseResult.parseMethod}`);
-          }
-          
-          classification = fcResult.classification || classifyResult(attempts, results, events);
-        } else {
-          classification = fcResult.classification || classifyResult(attempts, results, events);
-          debugExcerpt = fcResult.error || 'Firecrawl failed';
-          if (runId) await addStep(supabase, runId, 'FIRECRAWL_FAIL', false, fcResult.error);
-        }
-      }
+      const { results, events, classification, debugExcerpt, sourcesTried, retryExhausted } = orchestration;
 
       // Determine final status
-      const status = results.length > 0 || events.length > 0 ? 'SUCCESS' : (classification === 'NO_RESULTS_CONFIRMED' ? 'EMPTY' : 'ERROR');
+      const status = results.length > 0 || events.length > 0 ? 'SUCCESS' : 
+                     (classification === 'NO_RESULTS_CONFIRMED' ? 'EMPTY' : 'ERROR');
       
       // Build why_empty if no results
       let whyEmpty: string | undefined;
       if (results.length === 0 && events.length === 0) {
         if (classification === 'NO_RESULTS_CONFIRMED') {
-          whyEmpty = 'EMPTY_NO_MATCH';
-        } else if (classification === 'ENDPOINT_404') {
-          whyEmpty = 'ALL_ENDPOINTS_404';
-        } else if (classification === 'BLOCKED_403_429') {
-          whyEmpty = 'BLOCKED_BY_SERVER';
-        } else if (classification === 'INTERACTION_FAILED_SELECTOR_CHANGED') {
-          whyEmpty = 'SPA_SELECTORS_CHANGED';
-        } else if (classification === 'PARSE_BROKE') {
-          whyEmpty = 'PARSE_EXTRACTED_ZERO';
+          whyEmpty = 'ALL_SOURCES_EMPTY';
+        } else if (classification === 'FALSE_NEGATIVE_RISK') {
+          whyEmpty = 'POSSIBLE_FALSE_NEGATIVE';
+        } else if (classification === 'INCOMPLETE_DATA') {
+          whyEmpty = 'SILENCIO_DATOS';
         } else {
           whyEmpty = 'UNKNOWN_FAILURE';
         }
+      }
+
+      // Build proceso object for normalized response
+      let proceso: AdapterResponse['proceso'] | undefined;
+      if (results.length > 0 || events.length > 0) {
+        const mainResult = results[0] || {};
+        proceso = {
+          despacho: mainResult.despacho || '',
+          tipo: mainResult.tipo_proceso,
+          clase: mainResult.clase_proceso,
+          contenido_radicacion: mainResult.contenido_radicacion,
+          sujetos_procesales: mainResult.sujetos_procesales || [],
+          actuaciones: events,
+          estados_electronicos: [], // Would be populated if available
+        };
       }
 
       // Finalize run
@@ -991,54 +1307,93 @@ Deno.serve(async (req) => {
           classification,
           attempts,
           attempts.find(a => a.success)?.status || attempts[attempts.length - 1]?.status || undefined,
-          status === 'ERROR' ? classification : undefined,
-          status === 'ERROR' ? whyEmpty : undefined,
+          undefined,
+          undefined,
           { 
-            results_count: results.length, 
+            results_count: results.length,
             events_count: events.length,
-            attempts_count: attempts.length,
-            classification,
-            why_empty: whyEmpty,
+            sources_tried: sourcesTried,
+            retry_exhausted: retryExhausted,
           },
           debugExcerpt
         );
       }
 
       const response: AdapterResponse = {
-        ok: status === 'SUCCESS' || status === 'EMPTY',
-        source: 'CPNU',
+        ok: results.length > 0 || events.length > 0,
+        source: sourcesTried.join(' -> '),
         run_id: runId,
         classification,
         results,
         events,
+        proceso,
         attempts: debug ? attempts : undefined,
         why_empty: whyEmpty,
+        retry_exhausted: retryExhausted,
+        sources_tried: sourcesTried,
       };
 
-      return new Response(JSON.stringify(response), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(response), { 
+        status: results.length > 0 ? 200 : (classification === 'NO_RESULTS_CONFIRMED' ? 404 : 500),
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
-    // Unknown action
-    const response: AdapterResponse = {
-      ok: false,
-      source: 'CPNU',
-      run_id: runId,
-      classification: 'UNKNOWN',
-      error: `Unknown action: ${action}`,
-      attempts,
-    };
-    return new Response(JSON.stringify(response), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (action === 'actuaciones') {
+      // For actuaciones action, use orchestration as well
+      if (!radicado) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'Radicado is required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const radicadoStr = String(radicado).trim().replace(/\D/g, '');
+      const orchestration = await orchestrateSearch(radicadoStr, supabase, runId, attempts, startTime);
+      
+      if (runId) {
+        await finalizeRun(supabase, runId, orchestration.events.length > 0 ? 'SUCCESS' : 'EMPTY', 
+          startTime, orchestration.classification, attempts);
+      }
+
+      return new Response(JSON.stringify({
+        ok: orchestration.events.length > 0,
+        source: orchestration.sourcesTried.join(' -> '),
+        run_id: runId,
+        classification: orchestration.classification,
+        events: orchestration.events,
+        sources_tried: orchestration.sourcesTried,
+      }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    return new Response(
+      JSON.stringify({ ok: false, error: `Unknown action: ${action}` }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
 
   } catch (error) {
-    console.error('CPNU adapter error:', error);
-    const response: AdapterResponse = {
-      ok: false,
-      source: 'CPNU',
-      run_id: runId,
-      classification: 'UNKNOWN',
-      error: error instanceof Error ? error.message : 'Unknown error',
-      attempts,
-    };
-    return new Response(JSON.stringify(response), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    console.error('CPNU Adapter Error:', error);
+    
+    if (runId) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await finalizeRun(supabase, runId, 'ERROR', startTime, 'UNKNOWN', attempts, 
+        undefined, 'EXCEPTION', error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        ok: false, 
+        source: 'CPNU',
+        run_id: runId,
+        classification: 'UNKNOWN',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        attempts,
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });
