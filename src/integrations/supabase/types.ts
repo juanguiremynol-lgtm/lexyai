@@ -2262,6 +2262,8 @@ export type Database = {
           source_run_id: string | null
           sources_enabled: Json | null
           tipo_actuacion: string | null
+          total_actuaciones: number | null
+          total_sujetos_procesales: number | null
           updated_at: string
         }
         Insert: {
@@ -2313,6 +2315,8 @@ export type Database = {
           source_run_id?: string | null
           sources_enabled?: Json | null
           tipo_actuacion?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
           updated_at?: string
         }
         Update: {
@@ -2364,6 +2368,8 @@ export type Database = {
           source_run_id?: string | null
           sources_enabled?: Json | null
           tipo_actuacion?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
           updated_at?: string
         }
         Relationships: [
