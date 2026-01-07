@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search,
   Plus,
@@ -46,6 +54,8 @@ import {
   Clock,
   Bell,
   RefreshCw,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -70,6 +80,27 @@ export default function NewProcess() {
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [despachoOverride, setDespachoOverride] = useState("");
   const [actuacionesOpen, setActuacionesOpen] = useState(false);
+  
+  // Client selection state
+  const [clientDialogOpen, setClientDialogOpen] = useState(false);
+  const [clientTab, setClientTab] = useState<"existing" | "new">("existing");
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientIdNumber, setNewClientIdNumber] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
+
+  // Fetch clients
+  const { data: clients = [] } = useQuery({
+    queryKey: ["clients"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, name, id_number")
+        .order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // Check if radicado already exists
   const checkDuplicateRadicado = async (radicadoNum: string): Promise<boolean> => {
@@ -98,16 +129,49 @@ export default function NewProcess() {
     return false;
   };
 
+  // Mutation to create a new client
+  const createClientMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+      
+      const { data, error } = await supabase
+        .from("clients")
+        .insert({
+          owner_id: user.id,
+          name: newClientName.trim(),
+          id_number: newClientIdNumber.trim() || null,
+          email: newClientEmail.trim() || null,
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      setSelectedClientId(data.id);
+      setClientTab("existing");
+      toast.success("Cliente creado exitosamente");
+    },
+    onError: (error) => {
+      toast.error("Error al crear cliente: " + error.message);
+    },
+  });
+
   // Mutation para agregar proceso con datos de API
   const addProcessMutation = useMutation({
     mutationFn: async ({ 
       radicado, 
       despacho,
-      apiData 
+      apiData,
+      clientId,
     }: { 
       radicado: string; 
       despacho?: string;
       apiData?: ApiResponse | null;
+      clientId?: string | null;
     }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
@@ -122,6 +186,7 @@ export default function NewProcess() {
         despacho_name: despacho || apiData?.proceso["Despacho"] || null,
         sources_enabled: ["CPNU"],
         monitoring_enabled: true,
+        client_id: clientId || null,
       };
 
       // Add API data if available
@@ -175,8 +240,10 @@ export default function NewProcess() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
       toast.success("Proceso registrado exitosamente");
       setConfirmDialogOpen(false);
+      setClientDialogOpen(false);
       navigate(`/processes/${data.id}`);
     },
     onError: (error) => {
@@ -332,14 +399,19 @@ export default function NewProcess() {
     }
   };
 
-  // Registrar proceso con datos de API
+  // Registrar proceso con datos de API - abre diálogo de cliente
   const handleRegister = () => {
     if (!apiResult) return;
-    
+    setClientDialogOpen(true);
+  };
+
+  // Confirmar registro con cliente seleccionado
+  const handleConfirmWithClient = () => {
     addProcessMutation.mutate({
       radicado: radicado,
-      despacho: apiResult.proceso["Despacho"] || despachoOverride,
+      despacho: apiResult?.proceso["Despacho"] || despachoOverride,
       apiData: apiResult,
+      clientId: selectedClientId,
     });
   };
 
@@ -353,7 +425,17 @@ export default function NewProcess() {
       radicado: radicado,
       despacho: despachoOverride || undefined,
       apiData: null,
+      clientId: selectedClientId,
     });
+  };
+
+  // Crear nuevo cliente y continuar
+  const handleCreateClientAndContinue = async () => {
+    if (!newClientName.trim()) {
+      toast.error("El nombre del cliente es requerido");
+      return;
+    }
+    createClientMutation.mutate();
   };
 
   // Limpiar
@@ -366,13 +448,17 @@ export default function NewProcess() {
     setPollingStatus(null);
     setDespachoOverride("");
     setActuacionesOpen(false);
+    setSelectedClientId(null);
+    setNewClientName("");
+    setNewClientIdNumber("");
+    setNewClientEmail("");
   };
 
   return (
     <div className="space-y-6">
       {/* Dialog para registro manual */}
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Registrar Proceso Manualmente</DialogTitle>
             <DialogDescription>
@@ -393,6 +479,65 @@ export default function NewProcess() {
                 onChange={(e) => setDespachoOverride(e.target.value)}
               />
             </div>
+            
+            {/* Client selection for manual registration */}
+            <div className="space-y-2">
+              <Label>Cliente (opcional)</Label>
+              <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="existing" className="text-xs">Existente</TabsTrigger>
+                  <TabsTrigger value="new" className="text-xs">Nuevo</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="existing" className="mt-2">
+                  {clients.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Sin clientes. Use la pestaña "Nuevo" para crear uno.
+                    </p>
+                  ) : (
+                    <Select value={selectedClientId || ""} onValueChange={setSelectedClientId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccione un cliente..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            {client.name} {client.id_number && `(${client.id_number})`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="new" className="space-y-2 mt-2">
+                  <Input
+                    placeholder="Nombre del cliente"
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Cédula/NIT (opcional)"
+                    value={newClientIdNumber}
+                    onChange={(e) => setNewClientIdNumber(e.target.value)}
+                  />
+                  <Button 
+                    onClick={handleCreateClientAndContinue} 
+                    disabled={!newClientName.trim() || createClientMutation.isPending}
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                  >
+                    {createClientMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Crear Cliente
+                  </Button>
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
@@ -405,6 +550,160 @@ export default function NewProcess() {
                 <Plus className="h-4 w-4 mr-2" />
               )}
               Registrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para seleccionar/crear cliente */}
+      <Dialog open={clientDialogOpen} onOpenChange={setClientDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Asignar Cliente al Proceso
+            </DialogTitle>
+            <DialogDescription>
+              Seleccione un cliente existente o cree uno nuevo para vincular con este proceso.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="existing" className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Cliente Existente
+                </TabsTrigger>
+                <TabsTrigger value="new" className="flex items-center gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  Nuevo Cliente
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="existing" className="space-y-4 mt-4">
+                {clients.length === 0 ? (
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Sin clientes</AlertTitle>
+                    <AlertDescription>
+                      No tiene clientes registrados. Cree uno nuevo en la pestaña "Nuevo Cliente".
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>Seleccionar Cliente</Label>
+                    <Select value={selectedClientId || ""} onValueChange={setSelectedClientId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Seleccione un cliente..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              <span>{client.name}</span>
+                              {client.id_number && (
+                                <span className="text-muted-foreground text-sm">
+                                  ({client.id_number})
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                {selectedClientId && (
+                  <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
+                    <p className="text-sm text-muted-foreground">Cliente seleccionado:</p>
+                    <p className="font-medium">
+                      {clients.find(c => c.id === selectedClientId)?.name}
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="new" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-client-name">Nombre del Cliente *</Label>
+                  <Input
+                    id="new-client-name"
+                    placeholder="Ej: Juan Pérez o Empresa S.A.S."
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-client-id">Cédula / NIT (opcional)</Label>
+                  <Input
+                    id="new-client-id"
+                    placeholder="Ej: 1234567890"
+                    value={newClientIdNumber}
+                    onChange={(e) => setNewClientIdNumber(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-client-email">Correo (opcional)</Label>
+                  <Input
+                    id="new-client-email"
+                    type="email"
+                    placeholder="Ej: cliente@email.com"
+                    value={newClientEmail}
+                    onChange={(e) => setNewClientEmail(e.target.value)}
+                  />
+                </div>
+                
+                <Button 
+                  onClick={handleCreateClientAndContinue} 
+                  disabled={!newClientName.trim() || createClientMutation.isPending}
+                  className="w-full"
+                  variant="secondary"
+                >
+                  {createClientMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-2" />
+                  )}
+                  Crear Cliente
+                </Button>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Summary of what will be saved */}
+          <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+            <p className="text-sm font-medium">Resumen del proceso a guardar:</p>
+            <div className="text-sm space-y-1">
+              <p><span className="text-muted-foreground">Radicado:</span> <span className="font-mono">{radicado}</span></p>
+              {apiResult?.proceso["Despacho"] && (
+                <p><span className="text-muted-foreground">Despacho:</span> {apiResult.proceso["Despacho"]}</p>
+              )}
+              {apiResult?.proceso["Tipo de Proceso"] && (
+                <p><span className="text-muted-foreground">Tipo:</span> {apiResult.proceso["Tipo de Proceso"]}</p>
+              )}
+              {apiResult?.total_actuaciones && (
+                <p><span className="text-muted-foreground">Actuaciones:</span> {apiResult.total_actuaciones}</p>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setClientDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={handleConfirmWithClient} 
+              disabled={addProcessMutation.isPending || (clientTab === "existing" && !selectedClientId && clients.length > 0)}
+            >
+              {addProcessMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Registrar Proceso
             </Button>
           </DialogFooter>
         </DialogContent>
