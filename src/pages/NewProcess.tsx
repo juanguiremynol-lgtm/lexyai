@@ -739,6 +739,32 @@ export default function NewProcess() {
                       </div>
                     )}
                   </div>
+                  
+                  {/* Sujetos Procesales en Estadísticas */}
+                  {apiResult.estadisticas.sujetos_procesales && (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {apiResult.estadisticas.sujetos_procesales.demandantes && apiResult.estadisticas.sujetos_procesales.demandantes.length > 0 && (
+                        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                          <p className="text-sm text-muted-foreground mb-2">Demandantes ({apiResult.estadisticas.sujetos_procesales.demandantes.length})</p>
+                          <div className="space-y-1">
+                            {apiResult.estadisticas.sujetos_procesales.demandantes.map((nombre: string, idx: number) => (
+                              <p key={idx} className="font-medium text-sm">{nombre}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {apiResult.estadisticas.sujetos_procesales.demandados && apiResult.estadisticas.sujetos_procesales.demandados.length > 0 && (
+                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                          <p className="text-sm text-muted-foreground mb-2">Demandados ({apiResult.estadisticas.sujetos_procesales.demandados.length})</p>
+                          <div className="space-y-1">
+                            {apiResult.estadisticas.sujetos_procesales.demandados.map((nombre: string, idx: number) => (
+                              <p key={idx} className="font-medium text-sm">{nombre}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
