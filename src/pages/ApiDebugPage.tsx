@@ -3,6 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { API_BASE_URL, API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type DebugTrace } from "@/config/api";
 import { adapterRegistry } from "@/lib/scraping/adapter-registry";
+import { 
+  normalizeRadicado, 
+  validateCompleteness, 
+  validateGoldenTest, 
+  GOLDEN_TEST_DATA,
+  type GoldenTestResult 
+} from "@/lib/radicado-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,6 +50,9 @@ import {
   Wifi,
   WifiOff,
   Zap,
+  FlaskConical,
+  Award,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -132,7 +142,198 @@ const POLLING_STATUS_MAP: Record<string, { label: string; color: string }> = {
   'failed': { label: 'Fallido', color: 'bg-red-500' },
 };
 
-// ============== Component ==============
+// ============== Golden Test Panel Component ==============
+
+function GoldenTestPanel() {
+  const [isRunning, setIsRunning] = useState(false);
+  const [testResult, setTestResult] = useState<GoldenTestResult | null>(null);
+  const [rawResponse, setRawResponse] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
+
+  const runGoldenTest = async () => {
+    setIsRunning(true);
+    setTestResult(null);
+    setRawResponse(null);
+    setError(null);
+    const startTime = Date.now();
+
+    try {
+      const radicado = GOLDEN_TEST_DATA.radicado;
+      
+      // Step 1: Initial request
+      const searchUrl = `${API_BASE_URL}${API_ENDPOINTS.BUSCAR}?numero_radicacion=${radicado}`;
+      const response = await fetch(searchUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+      }
+
+      const initData = await response.json();
+      
+      // Step 2: Poll if jobId
+      let finalData = initData;
+      if (initData.jobId) {
+        let attempts = 0;
+        while (attempts < 60) {
+          attempts++;
+          await new Promise(r => setTimeout(r, 2000));
+          
+          const pollResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.RESULTADO}/${initData.jobId}`);
+          const pollData = await pollResponse.json();
+          
+          if (pollData.status === 'completed' || pollData.status === 'failed') {
+            finalData = pollData;
+            break;
+          }
+        }
+      }
+
+      setRawResponse(finalData);
+      setDuration(Date.now() - startTime);
+      
+      // Run golden test validation
+      const result = validateGoldenTest(finalData);
+      setTestResult(result);
+      
+      if (result.passed) {
+        toast.success("¡Golden Test PASÓ!");
+      } else {
+        toast.error(`Golden Test FALLÓ: ${result.checks.filter(c => !c.passed).length} verificaciones fallidas`);
+      }
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido');
+      setDuration(Date.now() - startTime);
+      toast.error("Error ejecutando Golden Test");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Award className="h-5 w-5 text-amber-500" />
+          Golden Test: Radicado {GOLDEN_TEST_DATA.radicadoFormatted}
+        </CardTitle>
+        <CardDescription>
+          Test obligatorio que valida la extracción completa del proceso. 
+          El sistema debe encontrar: despacho, sujetos, actuaciones y estados electrónicos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="p-4 bg-muted/50 rounded-lg">
+          <h4 className="font-medium mb-2">Datos Esperados:</h4>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-muted-foreground">Despacho:</span>
+              <p className="font-mono text-xs">{GOLDEN_TEST_DATA.expected.despacho}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Tipo/Clase:</span>
+              <p className="font-mono text-xs">{GOLDEN_TEST_DATA.expected.tipo} / {GOLDEN_TEST_DATA.expected.clase}</p>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Demandantes:</span>
+              <ul className="font-mono text-xs">
+                {GOLDEN_TEST_DATA.expected.demandantes.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Demandados:</span>
+              <ul className="font-mono text-xs">
+                {GOLDEN_TEST_DATA.expected.demandados.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <Button onClick={runGoldenTest} disabled={isRunning} className="w-full">
+          {isRunning ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Ejecutando Golden Test...
+            </>
+          ) : (
+            <>
+              <FlaskConical className="h-4 w-4 mr-2" />
+              Ejecutar Golden Test
+            </>
+          )}
+        </Button>
+
+        {error && (
+          <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertCircle className="h-5 w-5" />
+              <span className="font-medium">Error: {error}</span>
+            </div>
+          </div>
+        )}
+
+        {testResult && (
+          <div className="space-y-4">
+            <div className={`p-4 rounded-lg border ${testResult.passed ? 'bg-green-500/10 border-green-500/30' : 'bg-destructive/10 border-destructive/30'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {testResult.passed ? (
+                    <CheckCircle2 className="h-6 w-6 text-green-500" />
+                  ) : (
+                    <XCircle className="h-6 w-6 text-destructive" />
+                  )}
+                  <span className="font-bold text-lg">
+                    {testResult.passed ? 'TEST PASÓ' : 'TEST FALLÓ'}
+                  </span>
+                </div>
+                <Badge variant={testResult.passed ? 'secondary' : 'destructive'}>
+                  Score: {testResult.score}/{testResult.maxScore}
+                </Badge>
+              </div>
+              {duration && <p className="text-sm text-muted-foreground mt-2">Duración: {duration}ms</p>}
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-medium">Verificaciones:</h4>
+              {testResult.checks.map((check, idx) => (
+                <div key={idx} className={`p-3 rounded border ${check.passed ? 'bg-green-500/5 border-green-500/20' : 'bg-destructive/5 border-destructive/20'}`}>
+                  <div className="flex items-center gap-2">
+                    {check.passed ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                    <span className="font-medium">{check.name}</span>
+                    {check.critical && <Badge variant="outline" className="text-xs">Crítico</Badge>}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                    <div><span className="text-muted-foreground">Esperado:</span> {check.expected}</div>
+                    <div><span className="text-muted-foreground">Actual:</span> {check.actual}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {rawResponse && (
+              <Accordion type="single" collapsible>
+                <AccordionItem value="raw">
+                  <AccordionTrigger>Ver Respuesta Raw</AccordionTrigger>
+                  <AccordionContent>
+                    <ScrollArea className="h-64 rounded border p-3 bg-muted/30">
+                      <pre className="text-xs font-mono">{JSON.stringify(rawResponse, null, 2)}</pre>
+                    </ScrollArea>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============== Main Component ==============
 
 export default function ApiDebugPage() {
   const [testRadicado, setTestRadicado] = useState("05001400301520240193000");
@@ -763,10 +964,14 @@ export default function ApiDebugPage() {
 
       {/* Main Content */}
       <Tabs defaultValue="tester" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="tester">
             <Play className="h-4 w-4 mr-1" />
             Tester
+          </TabsTrigger>
+          <TabsTrigger value="golden">
+            <FlaskConical className="h-4 w-4 mr-1" />
+            Golden Test
           </TabsTrigger>
           <TabsTrigger value="flow">
             <ArrowRight className="h-4 w-4 mr-1" />
@@ -985,6 +1190,11 @@ export default function ApiDebugPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Golden Test Tab */}
+        <TabsContent value="golden" className="space-y-4">
+          <GoldenTestPanel />
         </TabsContent>
 
         {/* Flow Tab */}
