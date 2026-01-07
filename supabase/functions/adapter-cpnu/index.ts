@@ -62,7 +62,7 @@ interface AttemptLog {
 type Classification = 
   | 'SUCCESS'
   | 'NO_RESULTS_CONFIRMED'
-  | 'NO_RESULTS_PROVISIONAL'  // NEW: Not definitive, will retry
+  | 'NO_RESULTS_PROVISIONAL'  // Not definitive, will retry
   | 'ENDPOINT_404'
   | 'ENDPOINT_CHANGED'
   | 'BLOCKED_403_429'
@@ -70,8 +70,14 @@ type Classification =
   | 'PARSE_BROKE'
   | 'INTERACTION_REQUIRED'
   | 'INTERACTION_FAILED_SELECTOR_CHANGED'
-  | 'INCOMPLETE_DATA'  // NEW: Silencio - got response but missing critical data
-  | 'FALSE_NEGATIVE_RISK'  // NEW: High risk of false negative
+  | 'INCOMPLETE_DATA'  // Silencio - got response but missing critical data
+  | 'FALSE_NEGATIVE_RISK'  // High risk of false negative
+  // NEW: Technical error classifications (NOT "no encontrado")
+  | 'SCRAPER_TIMEOUT_INPUT'  // Timeout waiting for input field
+  | 'SELECTOR_NOT_FOUND'  // Input field selector not found
+  | 'BLOCKED_OR_CAPTCHA'  // Page blocked or captcha detected
+  | 'PAGE_STRUCTURE_CHANGED'  // Page structure changed unexpectedly
+  | 'NETWORK_FAILURE'  // Network/connection error
   | 'UNKNOWN';
 
 interface CompletenessCheck {
@@ -103,16 +109,24 @@ interface AdapterResponse {
   why_empty?: string;
   retry_exhausted?: boolean;
   sources_tried?: string[];
+  // NEW: Debug info for technical errors
+  debug?: {
+    phase?: string;
+    lastUrl?: string;
+    errorType?: string;
+    message?: string;
+  };
 }
 
 // ============= CONFIGURATION =============
 
 const CONFIG = {
   MAX_RETRIES: 3,
-  RETRY_DELAY_MS: 2000,
+  RETRY_DELAY_MS: 3000,
   BACKOFF_MULTIPLIER: 1.5,
-  POLLING_INTERVAL_MS: 2000,
-  POLLING_TIMEOUT_MS: 60000,
+  POLLING_INTERVAL_MS: 3000,
+  POLLING_TIMEOUT_MS: 90000,  // Increased to 90s for slow external API
+  EXTERNAL_API_TIMEOUT_MS: 45000,  // 45s timeout for external API calls
   MIN_ACTUACIONES_FOR_COMPLETENESS: 1,
   MIN_SUJETOS_FOR_COMPLETENESS: 1,
 };
@@ -455,10 +469,7 @@ async function cpnuFetchJson(
 
 // ============= EXTERNAL API FALLBACK (Rama Judicial API on Render) =============
 
-async function fetchFromExternalApi(
-  radicado: string,
-  attempts: AttemptLog[]
-): Promise<{
+interface ExternalApiResult {
   success: boolean;
   results: SearchResult[];
   events: ProcessEvent[];
@@ -466,7 +477,65 @@ async function fetchFromExternalApi(
   sujetos?: SujetoProcesal[];
   error?: string;
   classification?: Classification;
-}> {
+  debug?: {
+    phase: string;
+    lastUrl?: string;
+    errorType?: string;
+    responseSnippet?: string;
+  };
+}
+
+function classifyExternalApiError(
+  errorMessage: string, 
+  responseData?: any
+): Classification {
+  const msg = (errorMessage || '').toLowerCase();
+  const respStr = responseData ? JSON.stringify(responseData).toLowerCase() : '';
+  
+  // Detect selector/input timeout errors
+  if (msg.includes('waitforselector') || msg.includes('timeout') && msg.includes('input')) {
+    return 'SCRAPER_TIMEOUT_INPUT';
+  }
+  if (msg.includes('timeout') && (msg.includes('23 dígitos') || msg.includes('23 digitos'))) {
+    return 'SCRAPER_TIMEOUT_INPUT';
+  }
+  if (msg.includes('selector') && (msg.includes('not found') || msg.includes('no encontr'))) {
+    return 'SELECTOR_NOT_FOUND';
+  }
+  
+  // Detect block/captcha
+  if (msg.includes('captcha') || respStr.includes('captcha')) {
+    return 'BLOCKED_OR_CAPTCHA';
+  }
+  if (msg.includes('access denied') || msg.includes('blocked') || msg.includes('cloudflare')) {
+    return 'BLOCKED_OR_CAPTCHA';
+  }
+  if (msg.includes('verifying you are human') || respStr.includes('verifying you are human')) {
+    return 'BLOCKED_OR_CAPTCHA';
+  }
+  
+  // Network errors
+  if (msg.includes('network') || msg.includes('econnrefused') || msg.includes('enotfound')) {
+    return 'NETWORK_FAILURE';
+  }
+  
+  // Generic timeout (not input-specific)
+  if (msg.includes('timeout')) {
+    return 'SCRAPER_TIMEOUT_INPUT';  // Still treat as scraper issue
+  }
+  
+  // Page structure changed
+  if (msg.includes('page') && msg.includes('change')) {
+    return 'PAGE_STRUCTURE_CHANGED';
+  }
+  
+  return 'UNKNOWN';
+}
+
+async function fetchFromExternalApi(
+  radicado: string,
+  attempts: AttemptLog[]
+): Promise<ExternalApiResult> {
   const startMs = Date.now();
   const attempt: AttemptLog = {
     phase: 'EXTERNAL_API',
@@ -479,18 +548,51 @@ async function fetchFromExternalApi(
   };
 
   try {
-    console.log('[EXTERNAL_API] Starting job-based polling...');
+    console.log('[EXTERNAL_API] Starting job-based polling with extended timeout...');
     
-    // Step 1: Initiate search
+    // Step 1: Initiate search with timeout
     const initUrl = `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${radicado}`;
-    const initResponse = await fetch(initUrl);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.EXTERNAL_API_TIMEOUT_MS);
+    
+    let initResponse: Response;
+    try {
+      initResponse = await fetch(initUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+        attempt.error_type = 'TIMEOUT';
+        attempt.latency_ms = Date.now() - startMs;
+        attempts.push(attempt);
+        return {
+          success: false,
+          results: [],
+          events: [],
+          error: 'Timeout iniciando búsqueda (45s)',
+          classification: 'SCRAPER_TIMEOUT_INPUT',
+          debug: { phase: 'init', errorType: 'TIMEOUT' },
+        };
+      }
+      throw fetchErr;
+    }
+    
     attempt.status = initResponse.status;
     
     if (!initResponse.ok) {
       attempt.error_type = 'HTTP_ERROR';
       attempt.latency_ms = Date.now() - startMs;
       attempts.push(attempt);
-      return { success: false, results: [], events: [], error: `HTTP ${initResponse.status}` };
+      return {
+        success: false,
+        results: [],
+        events: [],
+        error: `HTTP ${initResponse.status}`,
+        classification: initResponse.status === 403 || initResponse.status === 429 
+          ? 'BLOCKED_403_429' 
+          : 'NETWORK_FAILURE',
+        debug: { phase: 'init', errorType: 'HTTP_ERROR' },
+      };
     }
     
     const initData = await initResponse.json();
@@ -508,23 +610,39 @@ async function fetchFromExternalApi(
       attempt.response_snippet_1kb = JSON.stringify(initData).substring(0, 1024);
       attempt.latency_ms = Date.now() - startMs;
       attempts.push(attempt);
-      return { success: false, results: [], events: [], error: 'No jobId in response' };
+      return {
+        success: false,
+        results: [],
+        events: [],
+        error: 'No jobId in response',
+        classification: 'UNKNOWN',
+        debug: { phase: 'init', errorType: 'NO_JOB_ID', responseSnippet: JSON.stringify(initData).substring(0, 500) },
+      };
     }
     
     const jobId = initData.jobId;
-    console.log(`[EXTERNAL_API] Got jobId: ${jobId}, starting polling...`);
+    console.log(`[EXTERNAL_API] Got jobId: ${jobId}, starting polling (timeout: ${CONFIG.POLLING_TIMEOUT_MS}ms)...`);
     
-    // Step 2: Poll for results
+    // Step 2: Poll for results with extended timeout
     const pollStartTime = Date.now();
     let pollAttempts = 0;
-    const maxPollAttempts = Math.ceil(CONFIG.POLLING_TIMEOUT_MS / CONFIG.POLLING_INTERVAL_MS);
     
     while (Date.now() - pollStartTime < CONFIG.POLLING_TIMEOUT_MS) {
       pollAttempts++;
       await sleep(CONFIG.POLLING_INTERVAL_MS);
       
       const pollUrl = `${EXTERNAL_API_BASE}/resultado/${jobId}`;
-      const pollResponse = await fetch(pollUrl);
+      
+      let pollResponse: Response;
+      try {
+        const pollController = new AbortController();
+        const pollTimeoutId = setTimeout(() => pollController.abort(), 30000);
+        pollResponse = await fetch(pollUrl, { signal: pollController.signal });
+        clearTimeout(pollTimeoutId);
+      } catch (pollErr) {
+        console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: Error - ${pollErr instanceof Error ? pollErr.message : 'Unknown'}`);
+        continue;
+      }
       
       if (!pollResponse.ok) {
         console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: HTTP ${pollResponse.status}`);
@@ -532,25 +650,84 @@ async function fetchFromExternalApi(
       }
       
       const pollData = await pollResponse.json();
-      console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: status=${pollData.status}`);
+      console.log(`[EXTERNAL_API] Poll attempt ${pollAttempts}: status=${pollData.status}, estado=${pollData.estado || 'N/A'}`);
       
       if (pollData.status === 'completed') {
         attempt.latency_ms = Date.now() - startMs;
         
-        // Check for false negative / NO_ENCONTRADO
-        if (pollData.success === false || pollData.estado === 'NO_ENCONTRADO') {
-          console.log('[EXTERNAL_API] Got NO_ENCONTRADO - treating as provisional');
-          attempt.error_type = 'INCOMPLETE_DATA';
-          attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
-          attempts.push(attempt);
+        // CRITICAL: Analyze the error message to determine if this is a technical error
+        if (pollData.success === false) {
+          const errorMsg = pollData.mensaje || pollData.error || '';
           
-          return {
-            success: false,
-            results: [],
-            events: [],
-            error: pollData.mensaje || 'No se encontró información del proceso',
-            classification: 'NO_RESULTS_PROVISIONAL', // NOT definitive!
-          };
+          // Check if the error message indicates a technical failure (NOT a real "not found")
+          const techClassification = classifyExternalApiError(errorMsg, pollData);
+          
+          if (techClassification !== 'UNKNOWN') {
+            console.log(`[EXTERNAL_API] TECHNICAL ERROR detected: ${techClassification}`);
+            attempt.error_type = 'HTTP_ERROR';
+            attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
+            attempts.push(attempt);
+            
+            return {
+              success: false,
+              results: [],
+              events: [],
+              error: errorMsg,
+              classification: techClassification,
+              debug: {
+                phase: 'poll_completed',
+                errorType: techClassification,
+                responseSnippet: JSON.stringify(pollData).substring(0, 500),
+              },
+            };
+          }
+          
+          // If estado is NO_ENCONTRADO, check if the search actually executed
+          if (pollData.estado === 'NO_ENCONTRADO') {
+            // Look for evidence that the search actually ran successfully
+            // If there's a selector/timeout error in the message, it's NOT a real "not found"
+            const hasTimeoutHint = errorMsg.toLowerCase().includes('timeout') || 
+                                   errorMsg.toLowerCase().includes('selector');
+            
+            if (hasTimeoutHint) {
+              console.log('[EXTERNAL_API] NO_ENCONTRADO with timeout/selector hint - treating as SCRAPER_TIMEOUT_INPUT');
+              attempt.error_type = 'TIMEOUT';
+              attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
+              attempts.push(attempt);
+              
+              return {
+                success: false,
+                results: [],
+                events: [],
+                error: errorMsg || 'Error técnico en el scraper (no es "no encontrado" real)',
+                classification: 'SCRAPER_TIMEOUT_INPUT',
+                debug: {
+                  phase: 'poll_completed',
+                  errorType: 'SCRAPER_TIMEOUT_INPUT',
+                  responseSnippet: JSON.stringify(pollData).substring(0, 500),
+                },
+              };
+            }
+            
+            // Otherwise treat as provisional (will retry with fallback)
+            console.log('[EXTERNAL_API] NO_ENCONTRADO - treating as PROVISIONAL (will retry)');
+            attempt.error_type = 'INCOMPLETE_DATA';
+            attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
+            attempts.push(attempt);
+            
+            return {
+              success: false,
+              results: [],
+              events: [],
+              error: pollData.mensaje || 'No se encontró información del proceso',
+              classification: 'NO_RESULTS_PROVISIONAL', // NOT definitive!
+              debug: {
+                phase: 'poll_completed',
+                errorType: 'NO_ENCONTRADO_PROVISIONAL',
+                responseSnippet: JSON.stringify(pollData).substring(0, 500),
+              },
+            };
+          }
         }
         
         if (pollData.success) {
@@ -561,21 +738,31 @@ async function fetchFromExternalApi(
       }
       
       if (pollData.status === 'failed') {
+        // Analyze the failure reason
+        const errorMsg = pollData.error || pollData.mensaje || '';
+        const techClassification = classifyExternalApiError(errorMsg, pollData);
+        
         attempt.error_type = 'HTTP_ERROR';
         attempt.response_snippet_1kb = JSON.stringify(pollData).substring(0, 1024);
         attempt.latency_ms = Date.now() - startMs;
         attempts.push(attempt);
+        
         return {
           success: false,
           results: [],
           events: [],
-          error: pollData.error || 'Job failed',
-          classification: 'NO_RESULTS_PROVISIONAL',
+          error: errorMsg || 'Job failed',
+          classification: techClassification !== 'UNKNOWN' ? techClassification : 'NO_RESULTS_PROVISIONAL',
+          debug: {
+            phase: 'poll_failed',
+            errorType: techClassification,
+            responseSnippet: JSON.stringify(pollData).substring(0, 500),
+          },
         };
       }
     }
     
-    // Timeout
+    // Timeout during polling
     attempt.error_type = 'TIMEOUT';
     attempt.latency_ms = Date.now() - startMs;
     attempts.push(attempt);
@@ -583,21 +770,33 @@ async function fetchFromExternalApi(
       success: false,
       results: [],
       events: [],
-      error: 'Polling timeout',
-      classification: 'NO_RESULTS_PROVISIONAL',
+      error: `Polling timeout después de ${Math.round(CONFIG.POLLING_TIMEOUT_MS / 1000)}s`,
+      classification: 'SCRAPER_TIMEOUT_INPUT',  // Treat polling timeout as scraper issue
+      debug: {
+        phase: 'poll_timeout',
+        errorType: 'POLLING_TIMEOUT',
+      },
     };
     
   } catch (err) {
     attempt.latency_ms = Date.now() - startMs;
     attempt.error_type = 'NETWORK_ERROR';
-    attempt.response_snippet_1kb = err instanceof Error ? err.message : 'Unknown error';
+    const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+    attempt.response_snippet_1kb = errorMsg;
     attempts.push(attempt);
+    
+    const techClassification = classifyExternalApiError(errorMsg);
     
     return {
       success: false,
       results: [],
       events: [],
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: errorMsg,
+      classification: techClassification !== 'UNKNOWN' ? techClassification : 'NETWORK_FAILURE',
+      debug: {
+        phase: 'exception',
+        errorType: techClassification,
+      },
     };
   }
 }
@@ -1095,6 +1294,8 @@ async function orchestrateSearch(
     sourcesTried.push('EXTERNAL_API');
     if (runId) await addStep(supabase, runId, 'PHASE_2_EXTERNAL_API', true, 'Trying external API fallback');
     
+    let lastExternalClassification: Classification = 'UNKNOWN';
+    
     for (let retry = 0; retry < CONFIG.MAX_RETRIES; retry++) {
       if (retry > 0) {
         const delay = CONFIG.RETRY_DELAY_MS * Math.pow(CONFIG.BACKOFF_MULTIPLIER, retry - 1);
@@ -1103,6 +1304,7 @@ async function orchestrateSearch(
       }
       
       const externalResult = await fetchFromExternalApi(radicadoStr, attempts);
+      lastExternalClassification = externalResult.classification || 'UNKNOWN';
       
       if (externalResult.success && externalResult.results.length > 0) {
         results = externalResult.results;
@@ -1111,6 +1313,26 @@ async function orchestrateSearch(
         debugExcerpt = `External API success: ${results.length} results, ${events.length} events`;
         if (runId) await addStep(supabase, runId, 'EXTERNAL_API_SUCCESS', true, debugExcerpt);
         return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
+      }
+      
+      // CRITICAL: If it's a TECHNICAL error (not "no encontrado"), propagate it immediately
+      // These are NOT retryable with the same source
+      const technicalErrors: Classification[] = [
+        'SCRAPER_TIMEOUT_INPUT',
+        'SELECTOR_NOT_FOUND', 
+        'BLOCKED_OR_CAPTCHA',
+        'PAGE_STRUCTURE_CHANGED',
+        'NETWORK_FAILURE',
+      ];
+      
+      if (technicalErrors.includes(externalResult.classification as Classification)) {
+        console.log(`[EXTERNAL_API] TECHNICAL ERROR: ${externalResult.classification} - will try Firecrawl fallback`);
+        if (runId) await addStep(supabase, runId, 'TECHNICAL_ERROR', false, 
+          `${externalResult.classification}: ${externalResult.error}`);
+        classification = externalResult.classification!;
+        debugExcerpt = externalResult.error || `Technical error: ${externalResult.classification}`;
+        // Don't retry with same source on technical errors, move to fallback
+        break;
       }
       
       // If provisional NO_ENCONTRADO, continue retrying
@@ -1126,8 +1348,13 @@ async function orchestrateSearch(
         continue;
       }
       
-      // Other errors - break
+      // Other errors - break and try fallback
       break;
+    }
+    
+    // Keep track of the last external classification for final status
+    if (classification === 'UNKNOWN') {
+      classification = lastExternalClassification;
     }
     
     retryExhausted = true;
@@ -1169,8 +1396,20 @@ async function orchestrateSearch(
   
   // === Final classification ===
   if (results.length === 0 && events.length === 0) {
-    // Only mark as definitively NOT_FOUND if we exhausted all retries and sources
-    if (retryExhausted && sourcesTried.length >= 2) {
+    // CRITICAL: Preserve technical error classifications - do NOT override to "NO_ENCONTRADO"
+    const technicalErrors: Classification[] = [
+      'SCRAPER_TIMEOUT_INPUT',
+      'SELECTOR_NOT_FOUND', 
+      'BLOCKED_OR_CAPTCHA',
+      'PAGE_STRUCTURE_CHANGED',
+      'NETWORK_FAILURE',
+    ];
+    
+    if (technicalErrors.includes(classification)) {
+      // Keep the technical error classification - this is NOT "no encontrado"
+      console.log(`[FINAL] Preserving technical error classification: ${classification}`);
+    } else if (retryExhausted && sourcesTried.length >= 2) {
+      // Only mark as definitively NOT_FOUND if all sources tried AND no technical errors
       classification = 'NO_RESULTS_CONFIRMED';
     } else {
       classification = 'FALSE_NEGATIVE_RISK';
@@ -1264,14 +1503,24 @@ Deno.serve(async (req) => {
       
       const { results, events, classification, debugExcerpt, sourcesTried, retryExhausted } = orchestration;
 
-      // Determine final status
+      // CRITICAL: Determine status based on classification
+      // Technical errors should result in 'FAILED', not 'EMPTY' (which implies "no encontrado")
+      const technicalErrors: Classification[] = [
+        'SCRAPER_TIMEOUT_INPUT', 'SELECTOR_NOT_FOUND', 'BLOCKED_OR_CAPTCHA',
+        'PAGE_STRUCTURE_CHANGED', 'NETWORK_FAILURE',
+      ];
+      
+      const isTechnicalError = technicalErrors.includes(classification);
       const status = results.length > 0 || events.length > 0 ? 'SUCCESS' : 
+                     isTechnicalError ? 'FAILED' :
                      (classification === 'NO_RESULTS_CONFIRMED' ? 'EMPTY' : 'ERROR');
       
-      // Build why_empty if no results
+      // Build why_empty if no results - DIFFERENTIATE technical errors
       let whyEmpty: string | undefined;
       if (results.length === 0 && events.length === 0) {
-        if (classification === 'NO_RESULTS_CONFIRMED') {
+        if (isTechnicalError) {
+          whyEmpty = `TECHNICAL_ERROR_${classification}`;
+        } else if (classification === 'NO_RESULTS_CONFIRMED') {
           whyEmpty = 'ALL_SOURCES_EMPTY';
         } else if (classification === 'FALSE_NEGATIVE_RISK') {
           whyEmpty = 'POSSIBLE_FALSE_NEGATIVE';
