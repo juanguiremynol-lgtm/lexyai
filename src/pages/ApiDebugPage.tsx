@@ -619,21 +619,29 @@ export default function ApiDebugPage() {
         const jobId = initData.jobId as string;
         let attempts = 0;
         let lastStatus = 'pending';
+        const maxPollingTime = API_TIMEOUTS.MAX_TOTAL_TIME_MS;
         
-        while (attempts < API_TIMEOUTS.MAX_POLLING_ATTEMPTS) {
+        const getPollingInterval = (elapsedMs: number) => {
+          return elapsedMs < API_TIMEOUTS.POLLING_FAST_PHASE_MS 
+            ? API_TIMEOUTS.POLLING_INTERVAL_FAST_MS 
+            : API_TIMEOUTS.POLLING_INTERVAL_SLOW_MS;
+        };
+        
+        while ((Date.now() - pollingStart) < maxPollingTime) {
           attempts++;
+          const elapsedMs = Date.now() - pollingStart;
           
           updatePolling({
             jobId,
             attempt: attempts,
-            maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
+            maxAttempts: Math.ceil(maxPollingTime / API_TIMEOUTS.POLLING_INTERVAL_FAST_MS),
             status: lastStatus,
             startTime: pollingStart,
             lastPollTime: Date.now(),
           });
 
-          // Wait between polls
-          await new Promise(r => setTimeout(r, API_TIMEOUTS.POLLING_INTERVAL_MS));
+          // Wait between polls (adaptive: 2s for first 20s, then 4s)
+          await new Promise(r => setTimeout(r, getPollingInterval(elapsedMs)));
           
           const pollUrl = `${API_BASE_URL}${API_ENDPOINTS.RESULTADO}/${jobId}`;
           
@@ -669,12 +677,12 @@ export default function ApiDebugPage() {
               status: pollResponse.status,
               body: { status: pollData.status, estado: pollData.estado, hasProcess: !!pollData.proceso },
             };
-            setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, pollRespTrace] } : prev);
+            setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, pollTrace, pollRespTrace] } : prev);
             
             updatePolling({
               jobId,
               attempt: attempts,
-              maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
+              maxAttempts: Math.ceil(maxPollingTime / API_TIMEOUTS.POLLING_INTERVAL_FAST_MS),
               status: lastStatus,
               startTime: pollingStart,
               lastPollTime: Date.now(),
@@ -711,7 +719,7 @@ export default function ApiDebugPage() {
         }
         
         // Check for timeout
-        if (attempts >= API_TIMEOUTS.MAX_POLLING_ATTEMPTS && finalData.status !== 'completed') {
+        if ((Date.now() - pollingStart) >= maxPollingTime && finalData.status !== 'completed') {
           updateStep('polling', {
             status: 'error',
             message: `Timeout después de ${attempts} intentos (${Date.now() - pollingStart}ms)`,
