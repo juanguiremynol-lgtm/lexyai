@@ -256,10 +256,34 @@ export default function NewProcess() {
                   )
                 ),
               },
-              sujetos_procesales: resultado.sujetos_procesales ? [
-                ...(resultado.sujetos_procesales.demandantes || []).map((nombre: string) => ({ tipo: 'DEMANDANTE', nombre })),
-                ...(resultado.sujetos_procesales.demandados || []).map((nombre: string) => ({ tipo: 'DEMANDADO', nombre })),
-              ] : undefined,
+              sujetos_procesales: (() => {
+                const sujetos = resultado.sujetos_procesales;
+                if (!sujetos) return undefined;
+                
+                // Si es un array de objetos con nombre/tipo
+                if (Array.isArray(sujetos)) {
+                  return sujetos.map((s: { nombre?: string; tipo?: string; name?: string; type?: string }) => ({
+                    tipo: (s.tipo || s.type || 'OTRO').toUpperCase(),
+                    nombre: s.nombre || s.name || ''
+                  }));
+                }
+                
+                // Si es objeto con demandantes/demandados como arrays
+                if (sujetos.demandantes || sujetos.demandados) {
+                  return [
+                    ...(sujetos.demandantes || []).map((nombre: string | { nombre: string }) => ({ 
+                      tipo: 'DEMANDANTE', 
+                      nombre: typeof nombre === 'string' ? nombre : nombre.nombre 
+                    })),
+                    ...(sujetos.demandados || []).map((nombre: string | { nombre: string }) => ({ 
+                      tipo: 'DEMANDADO', 
+                      nombre: typeof nombre === 'string' ? nombre : nombre.nombre 
+                    })),
+                  ];
+                }
+                
+                return undefined;
+              })(),
               actuaciones: (resultado.actuaciones || []).map((act: Record<string, string>) => ({
                 "Fecha de Actuación": act.fecha_actuacion || act["Fecha de Actuación"] || "",
                 "Actuación": act.actuacion || act["Actuación"] || "",
