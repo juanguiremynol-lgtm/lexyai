@@ -70,13 +70,14 @@ interface ExternalApiResponse {
 
 export class ExternalApiAdapter implements ScrapingAdapter {
   readonly id = 'external-rama-judicial-api';
-  readonly name = 'API Externa Rama Judicial (Render)';
-  readonly description = 'API externa alojada en Render para consulta de procesos judiciales (usa polling con jobId)';
+  readonly name = 'API Nueva Rama Judicial (Render con búsqueda avanzada)';
+  readonly description = 'API mejorada con búsqueda avanzada/profunda en Render para consulta de procesos judiciales';
   readonly active = true;
 
   private readonly baseUrl = API_BASE_URL;
   private readonly pollingInterval = 2000; // 2 seconds between polls
-  private readonly maxPollingAttempts = 60; // 2 minutes max
+  private readonly maxPollingAttempts = 45; // 45 * 2s = 90s max polling
+  private readonly initialRequestTimeout = 45000; // 45s for initial request
 
   /**
    * Perform job-based polling to get results
@@ -143,17 +144,37 @@ export class ExternalApiAdapter implements ScrapingAdapter {
 
       console.log('🔍 ExternalApiAdapter: Consultando radicado:', cleanRadicado);
 
-      // Step 1: Start the search job
-      const startResponse = await fetch(
-        `${this.baseUrl}/buscar?numero_radicacion=${cleanRadicado}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
+      // Step 1: Start the search job (with timeout)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.initialRequestTimeout);
+
+      let startResponse: Response;
+      try {
+        startResponse = await fetch(
+          `${this.baseUrl}/buscar?numero_radicacion=${cleanRadicado}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            signal: controller.signal,
+          }
+        );
+        clearTimeout(timeout);
+      } catch (fetchError) {
+        clearTimeout(timeout);
+        const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+        if (errorMsg.includes('abort') || errorMsg.includes('AbortError')) {
+          return {
+            status: 'UNAVAILABLE',
+            matches: [],
+            errorMessage: 'Tiempo de espera agotado (la API de Rama Judicial está tardando demasiado)',
+            errorCode: 'TIMEOUT',
+          };
         }
-      );
+        throw fetchError;
+      }
 
       if (!startResponse.ok) {
         if (startResponse.status === 404) {
