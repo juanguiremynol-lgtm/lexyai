@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { API_BASE_URL } from "@/config/api";
+import { API_BASE_URL, API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type DebugTrace } from "@/config/api";
 import { adapterRegistry } from "@/lib/scraping/adapter-registry";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Play,
   RefreshCw,
@@ -35,6 +36,13 @@ import {
   Loader2,
   ArrowRight,
   ExternalLink,
+  Network,
+  Timer,
+  ChevronDown,
+  ChevronRight,
+  Wifi,
+  WifiOff,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,11 +50,22 @@ import { toast } from "sonner";
 
 interface TestStep {
   name: string;
-  status: 'pending' | 'running' | 'success' | 'error';
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped';
   message?: string;
   duration?: number;
   data?: unknown;
   errorCode?: string;
+  httpStatus?: number;
+  traces?: DebugTrace[];
+}
+
+interface PollingProgress {
+  jobId: string;
+  attempt: number;
+  maxAttempts: number;
+  status: string;
+  startTime: number;
+  lastPollTime?: number;
 }
 
 interface TestRun {
@@ -59,15 +78,19 @@ interface TestRun {
   steps: TestStep[];
   result?: unknown;
   error?: string;
+  traces: DebugTrace[];
+  pollingProgress?: PollingProgress;
+  rawApiResponse?: unknown;
 }
 
 interface ServiceStatus {
   name: string;
   url: string;
-  status: 'checking' | 'online' | 'offline' | 'degraded';
+  status: 'checking' | 'online' | 'offline' | 'degraded' | 'cold-start';
   latency?: number;
   lastChecked?: Date;
   error?: string;
+  httpStatus?: number;
 }
 
 interface CrawlerRunRow {
@@ -81,6 +104,9 @@ interface CrawlerRunRow {
   error_message: string | null;
   http_status: number | null;
   duration_ms: number | null;
+  debug_excerpt?: string | null;
+  request_meta?: unknown;
+  response_meta?: unknown;
 }
 
 // ============== Constants ==============
@@ -91,14 +117,20 @@ const SERVICES: Omit<ServiceStatus, 'status' | 'latency' | 'lastChecked'>[] = [
 ];
 
 const FLOW_STAGES = [
-  { id: 'validate', name: 'Validar Formato', description: 'Verificar que el radicado tenga 23 dígitos' },
-  { id: 'lookup', name: 'Lookup', description: 'Buscar el proceso en la fuente externa' },
-  { id: 'scrape', name: 'Scrape', description: 'Extraer actuaciones y metadata' },
-  { id: 'normalize', name: 'Normalizar', description: 'Procesar y estandarizar datos' },
-  { id: 'store', name: 'Almacenar', description: 'Guardar en base de datos' },
-  { id: 'milestones', name: 'Hitos', description: 'Detectar y crear hitos automáticos' },
-  { id: 'alerts', name: 'Alertas', description: 'Generar alertas y notificaciones' },
+  { id: 'validate', name: 'Validar Formato', description: 'Verificar que el radicado tenga 23 dígitos', icon: CheckCircle2 },
+  { id: 'init_request', name: 'Solicitud Inicial', description: 'Enviar petición al endpoint /buscar', icon: Network },
+  { id: 'polling', name: 'Polling', description: 'Esperar resultado con job ID', icon: Timer },
+  { id: 'parse_response', name: 'Parsear Respuesta', description: 'Interpretar datos del proceso y actuaciones', icon: FileJson },
+  { id: 'normalize', name: 'Normalizar', description: 'Estandarizar fechas, textos y tipos', icon: Zap },
+  { id: 'store', name: 'Almacenar', description: 'Guardar en base de datos (simulado)', icon: Database },
 ];
+
+const POLLING_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  'pending': { label: 'Pendiente', color: 'bg-yellow-500' },
+  'processing': { label: 'Procesando', color: 'bg-blue-500' },
+  'completed': { label: 'Completado', color: 'bg-green-500' },
+  'failed': { label: 'Fallido', color: 'bg-red-500' },
+};
 
 // ============== Component ==============
 
@@ -109,6 +141,9 @@ export default function ApiDebugPage() {
   const [currentRun, setCurrentRun] = useState<TestRun | null>(null);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState("tester");
+  const [showRawResponse, setShowRawResponse] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Get registered adapters
   const adapters = adapterRegistry.listAll();
@@ -135,23 +170,56 @@ export default function ApiDebugPage() {
     return acc;
   }, {} as Record<string, number>) || {};
 
-  // Check service status
+  // Add trace to current run
+  const addTrace = useCallback((trace: Omit<DebugTrace, 'id' | 'timestamp'>) => {
+    const fullTrace: DebugTrace = {
+      ...trace,
+      id: `trace-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+    };
+    setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, fullTrace] } : prev);
+    return fullTrace;
+  }, []);
+
+  // Check service status with detailed response
   const checkServices = useCallback(async () => {
     const updatedServices: ServiceStatus[] = [];
 
     for (const service of SERVICES) {
       const startTime = Date.now();
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        // Try actual GET request for better diagnostics
         const response = await fetch(service.url, {
-          method: 'HEAD',
-          mode: 'no-cors',
-        });
-        updatedServices.push({
-          ...service,
-          status: 'online',
-          latency: Date.now() - startTime,
-          lastChecked: new Date(),
-        });
+          method: 'GET',
+          signal: controller.signal,
+        }).catch(() => null);
+        
+        clearTimeout(timeoutId);
+        const latency = Date.now() - startTime;
+        
+        if (response) {
+          // Check for cold start (Render free tier)
+          const isColdStart = latency > 5000;
+          updatedServices.push({
+            ...service,
+            status: isColdStart ? 'cold-start' : 'online',
+            latency,
+            lastChecked: new Date(),
+            httpStatus: response.status,
+          });
+        } else {
+          // Fallback to no-cors mode
+          await fetch(service.url, { method: 'HEAD', mode: 'no-cors' });
+          updatedServices.push({
+            ...service,
+            status: 'online',
+            latency: Date.now() - startTime,
+            lastChecked: new Date(),
+          });
+        }
       } catch (err) {
         updatedServices.push({
           ...service,
@@ -173,11 +241,12 @@ export default function ApiDebugPage() {
     return () => clearInterval(interval);
   }, [checkServices]);
 
-  // Run debug test
+  // Run enhanced debug test with full HTTP tracing
   const runDebugTest = async () => {
     if (!testRadicado.trim() || isRunning) return;
 
     setIsRunning(true);
+    abortControllerRef.current = new AbortController();
 
     const runId = `test-${Date.now()}`;
     const run: TestRun = {
@@ -187,6 +256,7 @@ export default function ApiDebugPage() {
       startedAt: new Date(),
       status: 'running',
       steps: FLOW_STAGES.map(s => ({ name: s.id, status: 'pending' as const })),
+      traces: [],
     };
 
     setCurrentRun(run);
@@ -202,20 +272,34 @@ export default function ApiDebugPage() {
       });
     };
 
+    const updatePolling = (progress: PollingProgress) => {
+      setCurrentRun(prev => prev ? { ...prev, pollingProgress: progress } : prev);
+    };
+
     try {
-      // Step 1: Validate
+      const cleanRadicado = testRadicado.replace(/\D/g, '');
+      
+      // ======== Step 1: Validate Format ========
       const validateStart = Date.now();
       updateStep('validate', { status: 'running' });
       
-      const cleanRadicado = testRadicado.replace(/\D/g, '');
       if (cleanRadicado.length !== 23) {
+        const trace: DebugTrace = {
+          id: `trace-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          stage: 'validate',
+          type: 'error',
+          error: `Formato inválido: ${cleanRadicado.length}/23 dígitos`,
+        };
+        setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, trace] } : prev);
+        
         updateStep('validate', {
           status: 'error',
           message: `Formato inválido: ${cleanRadicado.length}/23 dígitos`,
-          errorCode: 'INVALID_FORMAT',
+          errorCode: ERROR_CODES.INVALID_FORMAT,
           duration: Date.now() - validateStart,
         });
-        throw new Error('INVALID_FORMAT');
+        throw new Error(ERROR_CODES.INVALID_FORMAT);
       }
       
       updateStep('validate', {
@@ -224,109 +308,317 @@ export default function ApiDebugPage() {
         duration: Date.now() - validateStart,
       });
 
-      // Step 2: Lookup
-      const lookupStart = Date.now();
-      updateStep('lookup', { status: 'running' });
+      // ======== Step 2: Initial Request ========
+      const initStart = Date.now();
+      updateStep('init_request', { status: 'running' });
       
-      const adapter = adapterRegistry.getById(selectedAdapter) || adapterRegistry.getDefault();
-      const lookupResult = await adapter.lookup(cleanRadicado);
-
-      updateStep('lookup', {
-        status: lookupResult.status === 'FOUND' ? 'success' : 'error',
-        message: lookupResult.status === 'FOUND' 
-          ? `Encontrado: ${lookupResult.matches.length} coincidencia(s)`
-          : lookupResult.errorMessage || 'No encontrado',
-        errorCode: lookupResult.errorCode,
-        duration: Date.now() - lookupStart,
-        data: lookupResult,
-      });
-
-      if (lookupResult.status !== 'FOUND') {
-        throw new Error(lookupResult.errorCode || 'LOOKUP_FAILED');
+      const searchUrl = `${API_BASE_URL}${API_ENDPOINTS.BUSCAR}?numero_radicacion=${cleanRadicado}`;
+      
+      // Log request trace
+      const requestTrace: DebugTrace = {
+        id: `trace-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        stage: 'init_request',
+        type: 'request',
+        url: searchUrl,
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      };
+      setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, requestTrace] } : prev);
+      
+      let initResponse: Response;
+      try {
+        initResponse = await fetch(searchUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          signal: abortControllerRef.current?.signal,
+        });
+      } catch (fetchError) {
+        const errorTrace: DebugTrace = {
+          id: `trace-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          stage: 'init_request',
+          type: 'error',
+          url: searchUrl,
+          error: fetchError instanceof Error ? fetchError.message : 'Network error',
+        };
+        setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, errorTrace] } : prev);
+        
+        updateStep('init_request', {
+          status: 'error',
+          message: `Error de red: ${fetchError instanceof Error ? fetchError.message : 'Unknown'}`,
+          errorCode: ERROR_CODES.NETWORK_ERROR,
+          duration: Date.now() - initStart,
+        });
+        throw new Error(ERROR_CODES.NETWORK_ERROR);
       }
 
-      // Step 3: Scrape
-      const scrapeStart = Date.now();
-      updateStep('scrape', { status: 'running' });
+      const initDuration = Date.now() - initStart;
+      let initData: Record<string, unknown>;
       
-      const match = lookupResult.matches[0];
-      const scrapeResult = await adapter.scrapeCase(match);
-
-      updateStep('scrape', {
-        status: scrapeResult.status === 'SUCCESS' ? 'success' : 'error',
-        message: scrapeResult.status === 'SUCCESS'
-          ? `Actuaciones: ${scrapeResult.actuaciones.length}`
-          : scrapeResult.errorMessage || 'Error en scraping',
-        errorCode: scrapeResult.errorCode,
-        duration: Date.now() - scrapeStart,
-        data: scrapeResult,
-      });
-
-      if (scrapeResult.status !== 'SUCCESS') {
-        throw new Error(scrapeResult.errorCode || 'SCRAPE_FAILED');
+      try {
+        initData = await initResponse.json();
+      } catch {
+        updateStep('init_request', {
+          status: 'error',
+          message: `Error parseando respuesta (HTTP ${initResponse.status})`,
+          errorCode: ERROR_CODES.PARSE_ERROR,
+          httpStatus: initResponse.status,
+          duration: initDuration,
+        });
+        throw new Error(ERROR_CODES.PARSE_ERROR);
       }
 
-      // Step 4: Normalize
+      // Log response trace
+      const responseTrace: DebugTrace = {
+        id: `trace-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        stage: 'init_request',
+        type: 'response',
+        url: searchUrl,
+        status: initResponse.status,
+        duration: initDuration,
+        body: initData,
+      };
+      setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, responseTrace] } : prev);
+
+      // Check HTTP status
+      if (!initResponse.ok) {
+        const errorCode = initResponse.status === 429 ? ERROR_CODES.RATE_LIMITED : 
+                         initResponse.status === 404 ? ERROR_CODES.NOT_FOUND :
+                         `HTTP_${initResponse.status}`;
+        updateStep('init_request', {
+          status: 'error',
+          message: `HTTP ${initResponse.status}: ${initData.error || initResponse.statusText}`,
+          errorCode,
+          httpStatus: initResponse.status,
+          duration: initDuration,
+          data: initData,
+        });
+        throw new Error(errorCode);
+      }
+
+      updateStep('init_request', {
+        status: 'success',
+        message: initData.jobId 
+          ? `Job iniciado: ${initData.jobId}` 
+          : `Respuesta directa (${Object.keys(initData).length} campos)`,
+        httpStatus: initResponse.status,
+        duration: initDuration,
+        data: { jobId: initData.jobId, hasProcess: !!initData.proceso, keys: Object.keys(initData) },
+      });
+
+      // ======== Step 3: Polling (if jobId) ========
+      let finalData = initData;
+      
+      if (initData.jobId) {
+        const pollingStart = Date.now();
+        updateStep('polling', { status: 'running' });
+        
+        const jobId = initData.jobId as string;
+        let attempts = 0;
+        let lastStatus = 'pending';
+        
+        while (attempts < API_TIMEOUTS.MAX_POLLING_ATTEMPTS) {
+          attempts++;
+          
+          updatePolling({
+            jobId,
+            attempt: attempts,
+            maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
+            status: lastStatus,
+            startTime: pollingStart,
+            lastPollTime: Date.now(),
+          });
+
+          // Wait between polls
+          await new Promise(r => setTimeout(r, API_TIMEOUTS.POLLING_INTERVAL_MS));
+          
+          const pollUrl = `${API_BASE_URL}${API_ENDPOINTS.RESULTADO}/${jobId}`;
+          
+          // Log poll request
+          const pollTrace: DebugTrace = {
+            id: `trace-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            stage: 'polling',
+            type: 'poll',
+            url: pollUrl,
+            method: 'GET',
+            body: { attempt: attempts, elapsed: Date.now() - pollingStart },
+          };
+          setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, pollTrace] } : prev);
+          
+          try {
+            const pollResponse = await fetch(pollUrl, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' },
+              signal: abortControllerRef.current?.signal,
+            });
+            
+            const pollData = await pollResponse.json() as Record<string, unknown>;
+            lastStatus = (pollData.status as string) || 'unknown';
+            
+            // Log poll response
+            const pollRespTrace: DebugTrace = {
+              id: `trace-${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              stage: 'polling',
+              type: 'response',
+              url: pollUrl,
+              status: pollResponse.status,
+              body: { status: pollData.status, estado: pollData.estado, hasProcess: !!pollData.proceso },
+            };
+            setCurrentRun(prev => prev ? { ...prev, traces: [...prev.traces, pollRespTrace] } : prev);
+            
+            updatePolling({
+              jobId,
+              attempt: attempts,
+              maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
+              status: lastStatus,
+              startTime: pollingStart,
+              lastPollTime: Date.now(),
+            });
+            
+            if (pollData.status === 'completed') {
+              finalData = pollData;
+              updateStep('polling', {
+                status: 'success',
+                message: `Completado en ${attempts} intentos (${Date.now() - pollingStart}ms)`,
+                duration: Date.now() - pollingStart,
+                data: { attempts, finalStatus: pollData.status, estado: pollData.estado },
+              });
+              break;
+            }
+            
+            if (pollData.status === 'failed') {
+              updateStep('polling', {
+                status: 'error',
+                message: `Job falló: ${pollData.error || 'Unknown error'}`,
+                errorCode: ERROR_CODES.API_ERROR,
+                duration: Date.now() - pollingStart,
+                data: pollData,
+              });
+              throw new Error(ERROR_CODES.API_ERROR);
+            }
+          } catch (pollError) {
+            if (pollError instanceof Error && pollError.message === ERROR_CODES.API_ERROR) {
+              throw pollError;
+            }
+            // Network error during polling - continue
+            console.warn(`Polling attempt ${attempts} failed:`, pollError);
+          }
+        }
+        
+        // Check for timeout
+        if (attempts >= API_TIMEOUTS.MAX_POLLING_ATTEMPTS && finalData.status !== 'completed') {
+          updateStep('polling', {
+            status: 'error',
+            message: `Timeout después de ${attempts} intentos (${Date.now() - pollingStart}ms)`,
+            errorCode: ERROR_CODES.TIMEOUT,
+            duration: Date.now() - pollingStart,
+          });
+          throw new Error(ERROR_CODES.TIMEOUT);
+        }
+      } else {
+        // No polling needed
+        updateStep('polling', {
+          status: 'skipped',
+          message: 'Respuesta directa sin polling',
+          duration: 0,
+        });
+      }
+
+      // Store raw API response
+      setCurrentRun(prev => prev ? { ...prev, rawApiResponse: finalData } : prev);
+
+      // ======== Step 4: Parse Response ========
+      const parseStart = Date.now();
+      updateStep('parse_response', { status: 'running' });
+      
+      // Check for NOT_FOUND
+      if (finalData.estado === 'NO_ENCONTRADO') {
+        updateStep('parse_response', {
+          status: 'error',
+          message: 'Proceso no encontrado en el sistema',
+          errorCode: ERROR_CODES.NOT_FOUND,
+          duration: Date.now() - parseStart,
+          data: finalData,
+        });
+        throw new Error(ERROR_CODES.NOT_FOUND);
+      }
+      
+      // Check for process data
+      if (!finalData.proceso) {
+        updateStep('parse_response', {
+          status: 'error',
+          message: 'Respuesta sin datos de proceso',
+          errorCode: ERROR_CODES.NO_PROCESS_DATA,
+          duration: Date.now() - parseStart,
+          data: { keys: Object.keys(finalData), sample: JSON.stringify(finalData).slice(0, 200) },
+        });
+        throw new Error(ERROR_CODES.NO_PROCESS_DATA);
+      }
+
+      const proceso = finalData.proceso as Record<string, string>;
+      const actuaciones = (finalData.actuaciones || []) as Array<Record<string, string>>;
+      const sujetos = (finalData.sujetos_procesales || []) as Array<{ tipo: string; nombre: string }>;
+      
+      updateStep('parse_response', {
+        status: 'success',
+        message: `Proceso: ${proceso['Despacho'] || 'N/A'} | Actuaciones: ${actuaciones.length} | Sujetos: ${sujetos.length}`,
+        duration: Date.now() - parseStart,
+        data: { 
+          despacho: proceso['Despacho'],
+          tipoProceso: proceso['Tipo de Proceso'],
+          actuacionesCount: actuaciones.length,
+          sujetosCount: sujetos.length,
+          totalActuaciones: finalData.total_actuaciones,
+        },
+      });
+
+      // ======== Step 5: Normalize ========
       const normalizeStart = Date.now();
       updateStep('normalize', { status: 'running' });
       
-      const normalized = adapter.normalizeActuaciones(scrapeResult.actuaciones, match.sourceUrl);
+      // Simple normalization for debug
+      const normalizedSample = actuaciones.slice(0, 5).map((act, idx) => ({
+        index: idx,
+        fecha: act['Fecha de Actuación'] || act['fecha_actuacion'] || 'N/A',
+        actuacion: (act['Actuación'] || act['actuacion'] || '').slice(0, 100),
+        anotacion: (act['Anotación'] || act['anotacion'] || '').slice(0, 50),
+      }));
       
       updateStep('normalize', {
         status: 'success',
-        message: `Normalizados: ${normalized.length} actuaciones`,
+        message: `Normalizados ${actuaciones.length} registros`,
         duration: Date.now() - normalizeStart,
-        data: { count: normalized.length, sample: normalized.slice(0, 3) },
+        data: { count: actuaciones.length, sample: normalizedSample },
       });
 
-      // Step 5: Store (simulated - don't actually store in debug)
+      // ======== Step 6: Store (simulated) ========
       const storeStart = Date.now();
       updateStep('store', { status: 'running' });
-      
-      // Simulate DB check
       await new Promise(r => setTimeout(r, 100));
       
       updateStep('store', {
         status: 'success',
-        message: `Listo para almacenar ${normalized.length} registros (simulado)`,
+        message: `Listo para almacenar ${actuaciones.length} actuaciones (simulado)`,
         duration: Date.now() - storeStart,
       });
 
-      // Step 6: Milestones (simulated)
-      const milestonesStart = Date.now();
-      updateStep('milestones', { status: 'running' });
-      
-      const detectedTypes = normalized
-        .filter(n => n.actTypeGuess)
-        .map(n => n.actTypeGuess);
-      
-      updateStep('milestones', {
-        status: 'success',
-        message: `Tipos detectados: ${[...new Set(detectedTypes)].join(', ') || 'Ninguno'}`,
-        duration: Date.now() - milestonesStart,
-        data: { types: [...new Set(detectedTypes)] },
-      });
-
-      // Step 7: Alerts (simulated)
-      const alertsStart = Date.now();
-      updateStep('alerts', { status: 'running' });
-      await new Promise(r => setTimeout(r, 50));
-      
-      updateStep('alerts', {
-        status: 'success',
-        message: `Alertas configuradas (simulado)`,
-        duration: Date.now() - alertsStart,
-      });
-
-      // Complete
+      // Complete run
       setCurrentRun(prev => prev ? {
         ...prev,
         status: 'success',
         finishedAt: new Date(),
         result: {
-          caseMetadata: scrapeResult.caseMetadata,
-          actuacionesCount: normalized.length,
-          typesDetected: [...new Set(detectedTypes)],
+          despacho: proceso['Despacho'],
+          tipoProceso: proceso['Tipo de Proceso'],
+          demandante: proceso['Demandante'],
+          demandado: proceso['Demandado'],
+          actuacionesCount: actuaciones.length,
+          sujetosCount: sujetos.length,
+          totalActuaciones: finalData.total_actuaciones,
         },
       } : prev);
 
@@ -345,7 +637,15 @@ export default function ApiDebugPage() {
       toast.error(`Test fallido: ${errorMsg}`);
     } finally {
       setIsRunning(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  // Cancel running test
+  const cancelTest = () => {
+    abortControllerRef.current?.abort();
+    setIsRunning(false);
+    toast.info("Test cancelado");
   };
 
   // Copy JSON to clipboard
