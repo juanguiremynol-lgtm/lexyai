@@ -198,13 +198,6 @@ export default function NewProcess() {
   const handleSearch = async () => {
     const API_URL = 'https://rama-judicial-api.onrender.com';
     
-    // Validar número de radicación
-    const soloDigitos = radicado.replace(/\D/g, '');
-    if (soloDigitos.length !== 23) {
-      toast.error('El número debe tener 23 dígitos');
-      return;
-    }
-
     setIsSearching(true);
     setApiResult(null);
     setSearchError(null);
@@ -217,7 +210,7 @@ export default function NewProcess() {
 
     try {
       // 1. Iniciar búsqueda
-      const res1 = await fetch(`${API_URL}/buscar?numero_radicacion=${soloDigitos}`);
+      const res1 = await fetch(`${API_URL}/buscar?numero_radicacion=${radicado}`);
       const data1 = await res1.json();
       
       if (!data1.success) {
@@ -229,7 +222,6 @@ export default function NewProcess() {
       }
 
       const jobId = data1.jobId;
-      console.log('Job ID:', jobId);
 
       // 2. Polling cada 2 segundos
       const intervalo = setInterval(async () => {
@@ -240,16 +232,10 @@ export default function NewProcess() {
           const res2 = await fetch(`${API_URL}/resultado/${jobId}`);
           const resultado = await res2.json();
           
-          console.log('Estado:', resultado.status);
-          
           if (resultado.status === 'completed') {
             clearInterval(intervalo);
             
-            // AQUÍ TIENES TODOS LOS DATOS:
-            console.log('✅ Proceso:', resultado.proceso);
-            console.log('✅ Sujetos:', resultado.sujetos_procesales);
-            console.log('✅ Actuaciones:', resultado.actuaciones);
-            console.log('✅ Estadísticas:', resultado.estadisticas);
+            console.log('DATOS COMPLETOS:', resultado);
             
             // Mapear respuesta al formato esperado por la UI
             const mappedResult: ApiResponse = {
@@ -300,11 +286,11 @@ export default function NewProcess() {
       }, 2000);
 
     } catch (error) {
-      setSearchError('Error de conexión: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+      setSearchError('Error: ' + (error instanceof Error ? error.message : 'Error desconocido'));
       setShowManualOption(true);
       setIsSearching(false);
       setPollingStatus(null);
-      toast.error('Error de conexión');
+      toast.error('Error: ' + (error instanceof Error ? error.message : 'Error desconocido'));
     }
   };
 
