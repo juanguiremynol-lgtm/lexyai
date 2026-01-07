@@ -43,7 +43,11 @@ export interface Estadisticas {
   ultima_actuacion?: string;
   dias_desde_radicacion?: number;
   dias_desde_ultima_actuacion?: number;
-  [key: string]: string | number | undefined;
+  sujetos_procesales?: {
+    demandantes?: string[];
+    demandados?: string[];
+  };
+  [key: string]: string | number | { demandantes?: string[]; demandados?: string[] } | undefined;
 }
 
 export interface RamaJudicialApiResponse {
