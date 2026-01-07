@@ -348,6 +348,13 @@ export const useConsultaRamaJudicial = () => {
     const radicado = normalized.radicado23;
     abortControllerRef.current = new AbortController();
 
+    // Create a timeout for the initial request (45s for cold-start APIs)
+    const initialTimeout = setTimeout(() => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    }, API_TIMEOUTS.INITIAL_REQUEST_MS);
+
     try {
       // Step 1: Initial request to get jobId
       const searchUrl = `${API_BASE_URL}${API_ENDPOINTS.BUSCAR}?numero_radicacion=${radicado}`;
@@ -357,14 +364,36 @@ export const useConsultaRamaJudicial = () => {
         polling: { ...prev.polling, status: 'sending_request' },
       }));
 
-      const response = await fetch(searchUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        signal: abortControllerRef.current.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(searchUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          signal: abortControllerRef.current.signal,
+        });
+        clearTimeout(initialTimeout);
+      } catch (fetchError) {
+        clearTimeout(initialTimeout);
+        const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+        
+        if (errorMsg.includes('abort') || errorMsg.includes('AbortError')) {
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: buildError(
+              ERROR_CODES.TIMEOUT, 
+              'El servidor está tardando más de lo esperado. La API puede estar iniciando (cold start). Intenta nuevamente en unos segundos.'
+            ),
+            responseStatus: 'UNAVAILABLE',
+            polling: { ...prev.polling, status: 'timeout' },
+          }));
+          return;
+        }
+        throw fetchError;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
