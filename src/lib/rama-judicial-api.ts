@@ -37,6 +37,15 @@ export interface SujetoProcesal {
   nombre: string;
 }
 
+export interface Estadisticas {
+  total_actuaciones?: number;
+  primera_actuacion?: string;
+  ultima_actuacion?: string;
+  dias_desde_radicacion?: number;
+  dias_desde_ultima_actuacion?: number;
+  [key: string]: string | number | undefined;
+}
+
 export interface RamaJudicialApiResponse {
   success?: boolean;
   numero_radicacion?: string;
@@ -44,10 +53,13 @@ export interface RamaJudicialApiResponse {
   sujetos_procesales?: SujetoProcesal[];
   actuaciones: Actuacion[];
   total_actuaciones: number;
-  ultima_actuacion: Actuacion;
+  ultima_actuacion: Actuacion | null;
+  estadisticas?: Estadisticas;
   contador_web?: number;
   error?: string;
   message?: string;
+  // Raw data from API for debugging
+  rawData?: Record<string, unknown>;
 }
 
 export interface ParsedActuacion {
