@@ -237,24 +237,36 @@ export default function NewProcess() {
             
             console.log('DATOS COMPLETOS:', resultado);
             
-            // Mapear respuesta al formato esperado por la UI
+            // Mapear respuesta al formato esperado por la UI - preservando TODOS los datos
             const mappedResult: ApiResponse = {
               success: true,
               proceso: {
-                "Tipo de Proceso": resultado.proceso?.tipo_proceso || "",
-                "Clase de Proceso": resultado.proceso?.clase_proceso || "",
-                "Fecha de Radicación": resultado.proceso?.fecha_radicacion || "",
-                "Despacho": resultado.proceso?.despacho || "",
-                "Demandante": resultado.sujetos_procesales?.demandantes?.join(", ") || "",
-                "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || "",
-                "Ubicación": resultado.proceso?.ubicacion || "",
+                "Tipo de Proceso": resultado.proceso?.tipo_proceso || resultado.proceso?.["Tipo de Proceso"] || "",
+                "Clase de Proceso": resultado.proceso?.clase_proceso || resultado.proceso?.["Clase de Proceso"] || "",
+                "Fecha de Radicación": resultado.proceso?.fecha_radicacion || resultado.proceso?.["Fecha de Radicación"] || "",
+                "Despacho": resultado.proceso?.despacho || resultado.proceso?.["Despacho"] || "",
+                "Demandante": resultado.sujetos_procesales?.demandantes?.join(", ") || resultado.proceso?.["Demandante"] || "",
+                "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || resultado.proceso?.["Demandado"] || "",
+                "Ubicación": resultado.proceso?.ubicacion || resultado.proceso?.["Ubicación"] || "",
+                "Ponente": resultado.proceso?.ponente || resultado.proceso?.["Ponente"] || "",
+                // Incluir todos los campos adicionales del proceso
+                ...Object.fromEntries(
+                  Object.entries(resultado.proceso || {}).filter(([key]) => 
+                    !['tipo_proceso', 'clase_proceso', 'fecha_radicacion', 'despacho', 'ubicacion', 'ponente'].includes(key)
+                  )
+                ),
               },
+              sujetos_procesales: resultado.sujetos_procesales ? [
+                ...(resultado.sujetos_procesales.demandantes || []).map((nombre: string) => ({ tipo: 'DEMANDANTE', nombre })),
+                ...(resultado.sujetos_procesales.demandados || []).map((nombre: string) => ({ tipo: 'DEMANDADO', nombre })),
+              ] : undefined,
               actuaciones: (resultado.actuaciones || []).map((act: Record<string, string>) => ({
                 "Fecha de Actuación": act.fecha_actuacion || act["Fecha de Actuación"] || "",
                 "Actuación": act.actuacion || act["Actuación"] || "",
                 "Anotación": act.anotacion || act["Anotación"] || "",
                 "Fecha inicia Término": act.fecha_inicia_termino || act["Fecha inicia Término"] || "",
                 "Fecha finaliza Término": act.fecha_finaliza_termino || act["Fecha finaliza Término"] || "",
+                "Fecha de Registro": act.fecha_registro || act["Fecha de Registro"] || "",
               })),
               ultima_actuacion: resultado.actuaciones?.[0] ? {
                 "Fecha de Actuación": resultado.actuaciones[0].fecha_actuacion || resultado.actuaciones[0]["Fecha de Actuación"] || "",
@@ -263,7 +275,9 @@ export default function NewProcess() {
                 "Fecha inicia Término": resultado.actuaciones[0].fecha_inicia_termino || resultado.actuaciones[0]["Fecha inicia Término"] || "",
                 "Fecha finaliza Término": resultado.actuaciones[0].fecha_finaliza_termino || resultado.actuaciones[0]["Fecha finaliza Término"] || "",
               } : null,
-              total_actuaciones: resultado.actuaciones?.length || 0,
+              total_actuaciones: resultado.actuaciones?.length || resultado.estadisticas?.total_actuaciones || 0,
+              estadisticas: resultado.estadisticas || undefined,
+              rawData: resultado,
             };
             
             setApiResult(mappedResult);
@@ -585,28 +599,18 @@ export default function NewProcess() {
                   </div>
                 )}
 
-                {apiResult.proceso["Demandante"] && (
+                {apiResult.proceso["Ponente"] && (
                   <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <User className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div>
-                      <p className="text-sm text-muted-foreground">Demandante</p>
-                      <p className="font-medium">{apiResult.proceso["Demandante"]}</p>
-                    </div>
-                  </div>
-                )}
-
-                {apiResult.proceso["Demandado"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Demandado</p>
-                      <p className="font-medium">{apiResult.proceso["Demandado"]}</p>
+                      <p className="text-sm text-muted-foreground">Ponente</p>
+                      <p className="font-medium">{apiResult.proceso["Ponente"]}</p>
                     </div>
                   </div>
                 )}
 
                 {apiResult.proceso["Ubicación"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 md:col-span-2 lg:col-span-3">
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
                     <div>
                       <p className="text-sm text-muted-foreground">Ubicación</p>
@@ -615,6 +619,104 @@ export default function NewProcess() {
                   </div>
                 )}
               </div>
+
+              {/* Sujetos Procesales - Demandantes y Demandados */}
+              {apiResult.sujetos_procesales && apiResult.sujetos_procesales.length > 0 && (
+                <div className="mt-4 pt-4 border-t">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    Sujetos Procesales
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Demandantes */}
+                    {apiResult.sujetos_procesales.filter(s => s.tipo === 'DEMANDANTE').length > 0 && (
+                      <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                        <p className="text-sm text-muted-foreground mb-2">Demandantes</p>
+                        <div className="space-y-1">
+                          {apiResult.sujetos_procesales
+                            .filter(s => s.tipo === 'DEMANDANTE')
+                            .map((sujeto, idx) => (
+                              <p key={idx} className="font-medium text-sm">{sujeto.nombre}</p>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Demandados */}
+                    {apiResult.sujetos_procesales.filter(s => s.tipo === 'DEMANDADO').length > 0 && (
+                      <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                        <p className="text-sm text-muted-foreground mb-2">Demandados</p>
+                        <div className="space-y-1">
+                          {apiResult.sujetos_procesales
+                            .filter(s => s.tipo === 'DEMANDADO')
+                            .map((sujeto, idx) => (
+                              <p key={idx} className="font-medium text-sm">{sujeto.nombre}</p>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Fallback: Mostrar demandante/demandado del proceso si no hay sujetos */}
+              {(!apiResult.sujetos_procesales || apiResult.sujetos_procesales.length === 0) && (
+                <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {apiResult.proceso["Demandante"] && (
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <User className="h-5 w-5 text-green-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Demandante</p>
+                        <p className="font-medium">{apiResult.proceso["Demandante"]}</p>
+                      </div>
+                    </div>
+                  )}
+                  {apiResult.proceso["Demandado"] && (
+                    <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <User className="h-5 w-5 text-red-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Demandado</p>
+                        <p className="font-medium">{apiResult.proceso["Demandado"]}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Estadísticas */}
+              {apiResult.estadisticas && (
+                <div className="mt-4 pt-4 border-t">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Estadísticas
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {apiResult.estadisticas.total_actuaciones !== undefined && (
+                      <div className="p-3 rounded-lg bg-primary/10 text-center">
+                        <p className="text-2xl font-bold text-primary">{apiResult.estadisticas.total_actuaciones}</p>
+                        <p className="text-xs text-muted-foreground">Total Actuaciones</p>
+                      </div>
+                    )}
+                    {apiResult.estadisticas.dias_desde_radicacion !== undefined && (
+                      <div className="p-3 rounded-lg bg-muted/50 text-center">
+                        <p className="text-2xl font-bold">{apiResult.estadisticas.dias_desde_radicacion}</p>
+                        <p className="text-xs text-muted-foreground">Días desde radicación</p>
+                      </div>
+                    )}
+                    {apiResult.estadisticas.dias_desde_ultima_actuacion !== undefined && (
+                      <div className="p-3 rounded-lg bg-muted/50 text-center">
+                        <p className="text-2xl font-bold">{apiResult.estadisticas.dias_desde_ultima_actuacion}</p>
+                        <p className="text-xs text-muted-foreground">Días desde última act.</p>
+                      </div>
+                    )}
+                    {apiResult.estadisticas.primera_actuacion && (
+                      <div className="p-3 rounded-lg bg-muted/50 text-center">
+                        <p className="text-sm font-bold">{apiResult.estadisticas.primera_actuacion}</p>
+                        <p className="text-xs text-muted-foreground">Primera actuación</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Botón de registrar */}
               <div className="pt-4 mt-4 border-t">
@@ -735,6 +837,32 @@ export default function NewProcess() {
                         </TableBody>
                       </Table>
                     </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Card>
+            </Collapsible>
+          )}
+
+          {/* Datos RAW de la API - Para debugging */}
+          {apiResult.rawData && (
+            <Collapsible>
+              <Card className="border-dashed">
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <FileSearch className="h-4 w-4" />
+                        Ver Respuesta Raw de API
+                      </CardTitle>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent>
+                    <pre className="text-xs bg-muted p-4 rounded-lg overflow-x-auto max-h-96">
+                      {JSON.stringify(apiResult.rawData, null, 2)}
+                    </pre>
                   </CardContent>
                 </CollapsibleContent>
               </Card>
