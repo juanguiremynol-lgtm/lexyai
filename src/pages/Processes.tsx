@@ -41,10 +41,12 @@ import {
   FileSpreadsheet,
   Trash2,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { formatDateColombia } from "@/lib/constants";
 import { differenceInDays } from "date-fns";
+import { fetchFromRamaJudicial, parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
 
 interface MonitoredProcess {
@@ -91,6 +93,7 @@ export default function Processes() {
   const [search, setSearch] = useState("");
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [updatingProcessId, setUpdatingProcessId] = useState<string | null>(null);
 
   // Fetch monitored processes
   const { data: processes, isLoading: loadingProcesses } = useQuery({
@@ -197,7 +200,96 @@ export default function Processes() {
     },
   });
 
-  // Filter processes
+  // Update single process from API
+  const updateProcessFromApi = async (processId: string, radicado: string) => {
+    setUpdatingProcessId(processId);
+    try {
+      const result = await fetchFromRamaJudicial(radicado);
+      
+      if (!result.success || !result.data) {
+        throw new Error(result.error || "No se encontró información para este radicado");
+      }
+
+      const data = result.data;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      // Calculate sujetos procesales count
+      const totalSujetosFromApi = data.sujetos_procesales?.length || 
+        ((data.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
+         (data.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
+
+      // Update process with API data
+      const updates: Record<string, unknown> = {
+        despacho_name: data.proceso["Despacho"],
+        demandantes: data.proceso["Demandante"],
+        demandados: data.proceso["Demandado"],
+        jurisdiction: data.proceso["Clase de Proceso"],
+        municipality: data.proceso["Ubicación"],
+        cpnu_confirmed: true,
+        cpnu_confirmed_at: new Date().toISOString(),
+        last_checked_at: new Date().toISOString(),
+        last_change_at: new Date().toISOString(),
+        total_actuaciones: data.total_actuaciones || data.actuaciones?.length || 0,
+        total_sujetos_procesales: totalSujetosFromApi,
+      };
+
+      await supabase
+        .from("monitored_processes")
+        .update(updates)
+        .eq("id", processId);
+
+      // Get existing hashes for deduplication
+      const { data: existingActs } = await supabase
+        .from("actuaciones")
+        .select("hash_fingerprint")
+        .eq("monitored_process_id", processId);
+      
+      const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
+
+      // Insert new actuaciones (dedupe by hash)
+      let newActuaciones = 0;
+      if (data.actuaciones && data.actuaciones.length > 0) {
+        for (const act of data.actuaciones) {
+          const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
+          const normalizedText = normalizeActuacionText(rawText);
+          const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
+          const hashFingerprint = computeActuacionHash(actDate, normalizedText, radicado);
+          
+          if (!existingHashes.has(hashFingerprint)) {
+            await supabase.from("actuaciones").insert({
+              owner_id: user.id,
+              monitored_process_id: processId,
+              raw_text: rawText,
+              normalized_text: normalizedText,
+              act_date: actDate,
+              act_date_raw: act["Fecha de Actuación"] || "",
+              source: "RAMA_JUDICIAL",
+              adapter_name: "external_api",
+              hash_fingerprint: hashFingerprint,
+              confidence: 0.7,
+            });
+            newActuaciones++;
+            existingHashes.add(hashFingerprint);
+          }
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
+      queryClient.invalidateQueries({ queryKey: ["latest-actuaciones"] });
+      
+      if (newActuaciones > 0) {
+        toast.success(`Actualizado: ${newActuaciones} nuevas actuaciones`);
+      } else {
+        toast.success("Proceso actualizado desde API");
+      }
+    } catch (error) {
+      toast.error("Error: " + (error as Error).message);
+    } finally {
+      setUpdatingProcessId(null);
+    }
+  };
+
   const filteredProcesses = processes?.filter((p) => {
     const searchLower = search.toLowerCase();
     return (
@@ -550,12 +642,33 @@ export default function Processes() {
                           </Tooltip>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/process-status/${process.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              Ver
-                            </Link>
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => updateProcessFromApi(process.id, process.radicado)}
+                                  disabled={updatingProcessId === process.id}
+                                >
+                                  {updatingProcessId === process.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">Actualizar desde API</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Button variant="ghost" size="sm" asChild>
+                              <Link to={`/process-status/${process.id}`}>
+                                <Eye className="h-4 w-4 mr-1" />
+                                Ver
+                              </Link>
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
