@@ -62,10 +62,12 @@ export interface ConsultaError {
 export interface PollingState {
   isPolling: boolean;
   attempt: number;
-  maxAttempts: number;
   jobId: string | null;
   startedAt: number | null;
-  status: string;
+  elapsedMs: number;
+  status: 'idle' | 'healthcheck' | 'healthcheck_retry' | 'sending_request' | 'polling' | 'slow_warning' | 'completed' | 'failed' | 'timeout' | 'timeout_soft' | 'cancelled';
+  message?: string;
+  canContinue?: boolean; // User can choose to keep waiting
 }
 
 /**
@@ -78,6 +80,17 @@ interface ConsultaState {
   polling: PollingState;
   responseStatus: ResponseStatus | null;
 }
+
+const initialPollingState: PollingState = {
+  isPolling: false,
+  attempt: 0,
+  jobId: null,
+  startedAt: null,
+  elapsedMs: 0,
+  status: 'idle',
+  message: undefined,
+  canContinue: false,
+};
 
 /**
  * Retriable error codes
@@ -115,7 +128,6 @@ function buildError(
  * Detect silencio (technical success but semantic failure)
  */
 function detectSilencio(data: RamaJudicialApiResponse): ConsultaError | null {
-  // If success but missing critical data
   if (data.success === true || data.status === 'completed') {
     const validation = validateCompleteness(data);
     
@@ -131,7 +143,6 @@ function detectSilencio(data: RamaJudicialApiResponse): ConsultaError | null {
       );
     }
 
-    // Check for empty arrays that should have data
     if (data.sujetos_procesales && data.sujetos_procesales.length === 0) {
       return buildError(
         ERROR_CODES.INCOMPLETE_DATA,
@@ -160,7 +171,6 @@ function processResponse(data: RamaJudicialApiResponse): {
   error: ConsultaError | null;
   status: ResponseStatus;
 } {
-  // Check for explicit failure states
   if (data.status === 'failed') {
     return {
       datos: null,
@@ -173,7 +183,6 @@ function processResponse(data: RamaJudicialApiResponse): {
     };
   }
 
-  // Check for NO_ENCONTRADO - but verify it's not a false negative
   if (data.estado === 'NO_ENCONTRADO') {
     const isFalseNegative = isFalseNegativeRisk(data);
     
@@ -193,7 +202,6 @@ function processResponse(data: RamaJudicialApiResponse): {
       };
     }
 
-    // First attempt NOT_FOUND should be marked as provisional
     return {
       datos: null,
       error: buildError(
@@ -205,9 +213,7 @@ function processResponse(data: RamaJudicialApiResponse): {
     };
   }
 
-  // Check for success:false explicitly
   if (data.success === false && data.status === 'completed') {
-    // This is the problematic case: completed but no success
     if (data.estado === 'NO_ENCONTRADO') {
       return {
         datos: null,
@@ -231,7 +237,6 @@ function processResponse(data: RamaJudicialApiResponse): {
     };
   }
 
-  // Check for missing proceso data
   if (!data.proceso) {
     return {
       datos: null,
@@ -244,17 +249,15 @@ function processResponse(data: RamaJudicialApiResponse): {
     };
   }
 
-  // Check for silencio (incomplete data)
   const silencioError = detectSilencio(data);
   if (silencioError) {
     return {
-      datos: data, // Keep partial data for debugging
+      datos: data,
       error: silencioError,
       status: 'PARTIAL_SUCCESS',
     };
   }
 
-  // Full success
   return {
     datos: data,
     error: null,
@@ -264,32 +267,19 @@ function processResponse(data: RamaJudicialApiResponse): {
 
 /**
  * Hook para consultar la Rama Judicial
- * 
- * Maneja:
- * - Normalización de radicado
- * - Polling con job IDs
- * - Detección de falsos negativos
- * - Detección de silencios (datos incompletos)
- * - Reintentos y fallbacks
  */
 export const useConsultaRamaJudicial = () => {
   const [state, setState] = useState<ConsultaState>({
     loading: false,
     datos: null,
     error: null,
-    polling: {
-      isPolling: false,
-      attempt: 0,
-      maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
-      jobId: null,
-      startedAt: null,
-      status: 'idle',
-    },
+    polling: initialPollingState,
     responseStatus: null,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const continueWaitingRef = useRef<boolean>(false);
 
   /**
    * Cleanup polling interval
@@ -303,6 +293,89 @@ export const useConsultaRamaJudicial = () => {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    continueWaitingRef.current = false;
+  }, []);
+
+  /**
+   * Health check with retries
+   */
+  const checkHealth = async (): Promise<{ ok: boolean; error?: string }> => {
+    const retryDelays = API_TIMEOUTS.HEALTH_RETRY_DELAYS;
+    
+    for (let i = 0; i <= API_TIMEOUTS.MAX_HEALTH_RETRIES; i++) {
+      try {
+        setState(prev => ({
+          ...prev,
+          polling: {
+            ...prev.polling,
+            status: i === 0 ? 'healthcheck' : 'healthcheck_retry',
+            message: i === 0 
+              ? 'Verificando disponibilidad del servicio...' 
+              : `Servicio iniciando (intento ${i + 1}/${API_TIMEOUTS.MAX_HEALTH_RETRIES + 1})...`,
+          },
+        }));
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.HEALTH_CHECK_MS);
+        
+        const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.HEALTH}`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          return { ok: true };
+        }
+        
+        // Try root endpoint as fallback
+        if (response.status === 404) {
+          const rootResponse = await fetch(`${API_BASE_URL}/`, {
+            method: 'GET',
+            signal: controller.signal,
+          });
+          if (rootResponse.ok) {
+            return { ok: true };
+          }
+        }
+        
+        throw new Error(`Health check failed: ${response.status}`);
+      } catch (err) {
+        console.warn(`Health check attempt ${i + 1} failed:`, err);
+        
+        if (i < API_TIMEOUTS.MAX_HEALTH_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, retryDelays[i] || 5000));
+        }
+      }
+    }
+    
+    return { ok: false, error: 'Servicio no disponible después de múltiples intentos' };
+  };
+
+  /**
+   * Get current polling interval based on elapsed time
+   */
+  const getPollingInterval = (elapsedMs: number): number => {
+    return elapsedMs < API_TIMEOUTS.POLLING_FAST_PHASE_MS 
+      ? API_TIMEOUTS.POLLING_INTERVAL_FAST_MS 
+      : API_TIMEOUTS.POLLING_INTERVAL_SLOW_MS;
+  };
+
+  /**
+   * Continue waiting after soft timeout
+   */
+  const continueWaiting = useCallback(() => {
+    continueWaitingRef.current = true;
+    setState(prev => ({
+      ...prev,
+      polling: {
+        ...prev.polling,
+        status: 'polling',
+        message: 'Continuando espera...',
+        canContinue: false,
+      },
+    }));
   }, []);
 
   /**
@@ -311,6 +384,7 @@ export const useConsultaRamaJudicial = () => {
   const consultar = useCallback(async (numeroRadicacion: string, options?: {
     retryCount?: number;
     fallbackSource?: string;
+    skipHealthCheck?: boolean;
   }) => {
     cleanupPolling();
     
@@ -321,12 +395,9 @@ export const useConsultaRamaJudicial = () => {
       datos: null,
       responseStatus: null,
       polling: {
-        isPolling: false,
-        attempt: 0,
-        maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
-        jobId: null,
-        startedAt: null,
-        status: 'initializing',
+        ...initialPollingState,
+        status: 'healthcheck',
+        message: 'Iniciando consulta...',
       },
     }));
 
@@ -341,6 +412,7 @@ export const useConsultaRamaJudicial = () => {
           normalized.error?.message || 'Formato de radicado inválido'
         ),
         responseStatus: 'ERROR',
+        polling: { ...initialPollingState, status: 'failed' },
       }));
       return;
     }
@@ -348,21 +420,35 @@ export const useConsultaRamaJudicial = () => {
     const radicado = normalized.radicado23;
     abortControllerRef.current = new AbortController();
 
-    // Create a timeout for the initial request (45s for cold-start APIs)
-    const initialTimeout = setTimeout(() => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    }, API_TIMEOUTS.INITIAL_REQUEST_MS);
-
     try {
+      // Step 0: Health check (unless skipped)
+      if (!options?.skipHealthCheck) {
+        const health = await checkHealth();
+        if (!health.ok) {
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: buildError(
+              ERROR_CODES.NETWORK_ERROR,
+              health.error || 'Servicio no disponible. Intenta nuevamente en unos momentos.'
+            ),
+            responseStatus: 'UNAVAILABLE',
+            polling: { ...initialPollingState, status: 'failed', message: health.error },
+          }));
+          return;
+        }
+      }
+
       // Step 1: Initial request to get jobId
       const searchUrl = `${API_BASE_URL}${API_ENDPOINTS.BUSCAR}?numero_radicacion=${radicado}`;
       
       setState(prev => ({
         ...prev,
-        polling: { ...prev.polling, status: 'sending_request' },
+        polling: { ...prev.polling, status: 'sending_request', message: 'Enviando consulta...' },
       }));
+
+      const initialController = new AbortController();
+      const initialTimeout = setTimeout(() => initialController.abort(), API_TIMEOUTS.INITIAL_REQUEST_MS);
 
       let response: Response;
       try {
@@ -372,7 +458,7 @@ export const useConsultaRamaJudicial = () => {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           },
-          signal: abortControllerRef.current.signal,
+          signal: initialController.signal,
         });
         clearTimeout(initialTimeout);
       } catch (fetchError) {
@@ -385,10 +471,10 @@ export const useConsultaRamaJudicial = () => {
             loading: false,
             error: buildError(
               ERROR_CODES.TIMEOUT, 
-              'El servidor está tardando más de lo esperado. La API puede estar iniciando (cold start). Intenta nuevamente en unos segundos.'
+              'La solicitud inicial tardó demasiado. El servidor puede estar procesando. Intenta nuevamente.'
             ),
             responseStatus: 'UNAVAILABLE',
-            polling: { ...prev.polling, status: 'timeout' },
+            polling: { ...initialPollingState, status: 'timeout', message: 'Timeout en solicitud inicial' },
           }));
           return;
         }
@@ -407,6 +493,7 @@ export const useConsultaRamaJudicial = () => {
           loading: false,
           error: buildError(errorCode, `HTTP ${response.status}: ${errorText.slice(0, 200)}`),
           responseStatus: 'ERROR',
+          polling: { ...initialPollingState, status: 'failed' },
         }));
         return;
       }
@@ -420,6 +507,7 @@ export const useConsultaRamaJudicial = () => {
           loading: false,
           error: buildError(ERROR_CODES.PARSE_ERROR, 'Error parseando respuesta del servidor'),
           responseStatus: 'ERROR',
+          polling: { ...initialPollingState, status: 'failed' },
         }));
         return;
       }
@@ -434,53 +522,102 @@ export const useConsultaRamaJudicial = () => {
           polling: {
             isPolling: true,
             attempt: 0,
-            maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
             jobId,
             startedAt: startTime,
+            elapsedMs: 0,
             status: 'polling',
+            message: 'Consultando portal de Rama Judicial...',
+            canContinue: false,
           },
         }));
 
-        // Start polling
+        // Start adaptive polling
         let attempts = 0;
+        let lastPollTime = Date.now();
         
-        pollingIntervalRef.current = setInterval(async () => {
+        const poll = async () => {
+          const now = Date.now();
+          const elapsedMs = now - startTime;
           attempts++;
-          
-          setState(prev => ({
-            ...prev,
-            polling: { ...prev.polling, attempt: attempts, status: 'polling' },
-          }));
+
+          // Check for hard timeout (2 minutes)
+          if (elapsedMs >= API_TIMEOUTS.MAX_TOTAL_TIME_MS && !continueWaitingRef.current) {
+            cleanupPolling();
+            setState(prev => ({
+              ...prev,
+              loading: false,
+              error: buildError(ERROR_CODES.TIMEOUT, 'Tiempo máximo de espera alcanzado (2 minutos)'),
+              responseStatus: 'UNAVAILABLE',
+              polling: { 
+                ...prev.polling, 
+                isPolling: false, 
+                status: 'timeout',
+                elapsedMs,
+                message: 'Tiempo agotado. Puedes intentar nuevamente.',
+              },
+            }));
+            return;
+          }
+
+          // Check for soft timeout (90s) - show warning but allow continuing
+          if (elapsedMs >= API_TIMEOUTS.SOFT_TIMEOUT_MS && !continueWaitingRef.current) {
+            setState(prev => ({
+              ...prev,
+              polling: {
+                ...prev.polling,
+                status: 'timeout_soft',
+                elapsedMs,
+                message: 'La consulta está tardando más de lo normal. El portal puede estar lento.',
+                canContinue: true,
+              },
+            }));
+            // Continue polling but with warning shown
+          } else {
+            setState(prev => ({
+              ...prev,
+              polling: {
+                ...prev.polling,
+                attempt: attempts,
+                elapsedMs,
+                status: elapsedMs >= API_TIMEOUTS.SOFT_TIMEOUT_MS ? 'slow_warning' : 'polling',
+                message: elapsedMs >= 30000 
+                  ? `Consulta en progreso (${Math.round(elapsedMs / 1000)}s)... El portal puede estar lento.`
+                  : `Consultando... (${Math.round(elapsedMs / 1000)}s)`,
+              },
+            }));
+          }
 
           try {
+            const pollController = new AbortController();
+            const pollTimeout = setTimeout(() => pollController.abort(), 15000); // 15s per poll
+            
             const pollUrl = `${API_BASE_URL}${API_ENDPOINTS.RESULTADO}/${jobId}`;
             const pollResponse = await fetch(pollUrl, {
               method: 'GET',
               headers: { 'Accept': 'application/json' },
-              signal: abortControllerRef.current?.signal,
+              signal: pollController.signal,
             });
+            
+            clearTimeout(pollTimeout);
 
             if (!pollResponse.ok) {
               console.warn(`Polling attempt ${attempts} failed: HTTP ${pollResponse.status}`);
-              if (attempts >= API_TIMEOUTS.MAX_POLLING_ATTEMPTS) {
-                cleanupPolling();
-                setState(prev => ({
-                  ...prev,
-                  loading: false,
-                  error: buildError(ERROR_CODES.POLLING_ERROR, 'Error en polling después de múltiples intentos'),
-                  responseStatus: 'ERROR',
-                }));
-              }
+              scheduleNextPoll(elapsedMs);
               return;
             }
 
             const result: RamaJudicialApiResponse = await pollResponse.json();
             
+            // Check if still running/queued - continue polling
+            if (result.status === 'running' || result.status === 'queued') {
+              scheduleNextPoll(elapsedMs);
+              return;
+            }
+            
             // Check if completed
             if (result.status === 'completed') {
               cleanupPolling();
               
-              // Process the response
               const processed = processResponse(result);
               
               setState(prev => ({
@@ -489,7 +626,12 @@ export const useConsultaRamaJudicial = () => {
                 datos: processed.datos,
                 error: processed.error,
                 responseStatus: processed.status,
-                polling: { ...prev.polling, isPolling: false, status: 'completed' },
+                polling: { 
+                  ...prev.polling, 
+                  isPolling: false, 
+                  status: 'completed',
+                  elapsedMs,
+                },
               }));
               return;
             }
@@ -502,40 +644,32 @@ export const useConsultaRamaJudicial = () => {
                 loading: false,
                 error: buildError(ERROR_CODES.API_ERROR, result.error || 'La consulta falló'),
                 responseStatus: 'ERROR',
-                polling: { ...prev.polling, isPolling: false, status: 'failed' },
+                polling: { 
+                  ...prev.polling, 
+                  isPolling: false, 
+                  status: 'failed',
+                  elapsedMs,
+                },
               }));
               return;
             }
 
-            // Timeout check
-            if (attempts >= API_TIMEOUTS.MAX_POLLING_ATTEMPTS) {
-              cleanupPolling();
-              setState(prev => ({
-                ...prev,
-                loading: false,
-                error: buildError(ERROR_CODES.TIMEOUT, 'Tiempo de espera agotado'),
-                responseStatus: 'UNAVAILABLE',
-                polling: { ...prev.polling, isPolling: false, status: 'timeout' },
-              }));
-            }
+            // Unknown status - continue polling
+            scheduleNextPoll(elapsedMs);
 
           } catch (err) {
             console.warn(`Polling error on attempt ${attempts}:`, err);
-            
-            if (attempts >= API_TIMEOUTS.MAX_POLLING_ATTEMPTS) {
-              cleanupPolling();
-              setState(prev => ({
-                ...prev,
-                loading: false,
-                error: buildError(
-                  ERROR_CODES.NETWORK_ERROR,
-                  err instanceof Error ? err.message : 'Error de conexión durante polling'
-                ),
-                responseStatus: 'ERROR',
-              }));
-            }
+            scheduleNextPoll(Date.now() - startTime);
           }
-        }, API_TIMEOUTS.POLLING_INTERVAL_MS);
+        };
+
+        const scheduleNextPoll = (elapsedMs: number) => {
+          const interval = getPollingInterval(elapsedMs);
+          pollingIntervalRef.current = setTimeout(poll, interval);
+        };
+
+        // Start first poll
+        scheduleNextPoll(0);
 
       } else if (data.proceso) {
         // Direct response without polling
@@ -547,10 +681,10 @@ export const useConsultaRamaJudicial = () => {
           datos: processed.datos,
           error: processed.error,
           responseStatus: processed.status,
+          polling: { ...initialPollingState, status: 'completed' },
         }));
 
       } else if (data.estado === 'NO_ENCONTRADO' || data.success === false) {
-        // Immediate NOT_FOUND response
         const processed = processResponse(data);
         
         setState(prev => ({
@@ -559,10 +693,10 @@ export const useConsultaRamaJudicial = () => {
           datos: processed.datos,
           error: processed.error,
           responseStatus: processed.status,
+          polling: { ...initialPollingState, status: 'completed' },
         }));
 
       } else {
-        // Unknown response format
         setState(prev => ({
           ...prev,
           loading: false,
@@ -571,6 +705,7 @@ export const useConsultaRamaJudicial = () => {
             `Respuesta inesperada: ${JSON.stringify(data).slice(0, 200)}`
           ),
           responseStatus: 'ERROR',
+          polling: { ...initialPollingState, status: 'failed' },
         }));
       }
 
@@ -583,6 +718,7 @@ export const useConsultaRamaJudicial = () => {
           loading: false,
           error: null,
           responseStatus: null,
+          polling: { ...initialPollingState, status: 'cancelled' },
         }));
         return;
       }
@@ -595,6 +731,7 @@ export const useConsultaRamaJudicial = () => {
           err instanceof Error ? err.message : 'Error de conexión'
         ),
         responseStatus: 'ERROR',
+        polling: { ...initialPollingState, status: 'failed' },
       }));
     }
   }, [cleanupPolling]);
@@ -607,14 +744,7 @@ export const useConsultaRamaJudicial = () => {
     setState(prev => ({
       ...prev,
       loading: false,
-      polling: {
-        isPolling: false,
-        attempt: 0,
-        maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
-        jobId: null,
-        startedAt: null,
-        status: 'cancelled',
-      },
+      polling: { ...initialPollingState, status: 'cancelled' },
     }));
   }, [cleanupPolling]);
 
@@ -627,14 +757,7 @@ export const useConsultaRamaJudicial = () => {
       loading: false,
       datos: null,
       error: null,
-      polling: {
-        isPolling: false,
-        attempt: 0,
-        maxAttempts: API_TIMEOUTS.MAX_POLLING_ATTEMPTS,
-        jobId: null,
-        startedAt: null,
-        status: 'idle',
-      },
+      polling: initialPollingState,
       responseStatus: null,
     });
   }, [cleanupPolling]);
@@ -643,6 +766,7 @@ export const useConsultaRamaJudicial = () => {
     consultar,
     cancelar,
     limpiar,
+    continueWaiting,
     loading: state.loading,
     datos: state.datos,
     error: state.error,
@@ -657,5 +781,7 @@ export const useConsultaRamaJudicial = () => {
     hasFalseNegativeRisk: state.error?.falseNegativeRisk ?? false,
     hasIncompleteData: state.error?.code === ERROR_CODES.INCOMPLETE_DATA || 
                        state.error?.code === ERROR_CODES.SILENCIO_DATOS,
+    isSoftTimeout: state.polling.status === 'timeout_soft',
+    canContinueWaiting: state.polling.canContinue ?? false,
   };
 };

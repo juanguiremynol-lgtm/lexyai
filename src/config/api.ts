@@ -12,13 +12,15 @@ export const API_ENDPOINTS = {
 } as const;
 
 export const API_TIMEOUTS = {
-  INITIAL_REQUEST_MS: 45000,   // 45s for initial request (scraping takes time)
-  POLLING_INTERVAL_MS: 2000,   // 2s between polls
-  MAX_POLLING_ATTEMPTS: 45,    // 45 attempts * 2s = 90s max polling
-  MAX_TOTAL_TIME_MS: 120000,   // 2 minutes absolute max
-  HEALTH_CHECK_MS: 10000,
-  RETRY_DELAY_MS: 3000,
-  MAX_RETRIES: 3,
+  INITIAL_REQUEST_MS: 60000,   // 60s for initial request (cold start + scraping)
+  POLLING_INTERVAL_FAST_MS: 2000,  // 2s between polls for first 20s
+  POLLING_INTERVAL_SLOW_MS: 4000,  // 4s between polls after 20s
+  POLLING_FAST_PHASE_MS: 20000,    // First 20s use fast polling
+  MAX_TOTAL_TIME_MS: 120000,       // 2 minutes absolute max
+  SOFT_TIMEOUT_MS: 90000,          // 90s soft timeout (show "slower than normal")
+  HEALTH_CHECK_MS: 10000,          // 10s for health check
+  HEALTH_RETRY_DELAYS: [2000, 5000, 10000], // Backoff for health retries
+  MAX_HEALTH_RETRIES: 3,
 } as const;
 
 /**
