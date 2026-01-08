@@ -191,9 +191,32 @@ export default function NewProcess() {
 
       // Add ALL API data if available
       if (apiData?.proceso) {
+        // Extraer demandantes y demandados de sujetos_procesales si están disponibles
+        let demandantesText = apiData.proceso["Demandante"] || "";
+        let demandadosText = apiData.proceso["Demandado"] || "";
+        
+        // Si hay sujetos_procesales como array, extraer de ahí
+        if (apiData.sujetos_procesales && Array.isArray(apiData.sujetos_procesales)) {
+          const demandantesFromSujetos = apiData.sujetos_procesales
+            .filter(s => s.tipo?.toUpperCase() === 'DEMANDANTE')
+            .map(s => s.nombre)
+            .filter(Boolean);
+          const demandadosFromSujetos = apiData.sujetos_procesales
+            .filter(s => s.tipo?.toUpperCase() === 'DEMANDADO')
+            .map(s => s.nombre)
+            .filter(Boolean);
+          
+          if (demandantesFromSujetos.length > 0) {
+            demandantesText = demandantesFromSujetos.join(", ");
+          }
+          if (demandadosFromSujetos.length > 0) {
+            demandadosText = demandadosFromSujetos.join(", ");
+          }
+        }
+        
         // Ficha del proceso - todos los campos
-        processData.demandantes = apiData.proceso["Demandante"] || null;
-        processData.demandados = apiData.proceso["Demandado"] || null;
+        processData.demandantes = demandantesText || null;
+        processData.demandados = demandadosText || null;
         processData.process_type = apiData.proceso["Tipo de Proceso"] || "CIVIL";
         processData.jurisdiction = apiData.proceso["Clase de Proceso"] || null;
         processData.municipality = apiData.proceso["Ubicación"] || null;
@@ -239,8 +262,8 @@ export default function NewProcess() {
           despacho: apiData.proceso["Despacho"] || null,
           ubicacion: apiData.proceso["Ubicación"] || null,
           ponente: apiData.proceso["Ponente"] || null,
-          demandante: apiData.proceso["Demandante"] || null,
-          demandado: apiData.proceso["Demandado"] || null,
+          demandantes: demandantesText || null,
+          demandados: demandadosText || null,
           sujetos_procesales: apiData.sujetos_procesales || null,
         };
       }
