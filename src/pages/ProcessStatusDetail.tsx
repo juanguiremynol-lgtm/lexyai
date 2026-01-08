@@ -471,7 +471,7 @@ export default function ProcessStatusDetail() {
       })()}
 
       {/* Status Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -504,7 +504,16 @@ export default function ProcessStatusDetail() {
               <FileText className="h-4 w-4" />
               Actuaciones
             </div>
-            <p className="text-lg font-medium mt-1">{actuaciones?.length || 0}</p>
+            <p className="text-lg font-medium mt-1">{process.total_actuaciones ?? actuaciones?.length ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users className="h-4 w-4" />
+              Sujetos Procesales
+            </div>
+            <p className="text-lg font-medium mt-1">{process.total_sujetos_procesales ?? 0}</p>
           </CardContent>
         </Card>
         <Card>
