@@ -69,6 +69,8 @@ interface MonitoredProcess {
   created_at: string;
   updated_at: string;
   client_id: string | null;
+  total_actuaciones: number | null;
+  total_sujetos_procesales: number | null;
   clients: {
     id: string;
     name: string;
@@ -543,9 +545,9 @@ export default function Processes() {
                     <TableHead>Radicado</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Despacho / Distrito</TableHead>
-                    <TableHead>Partes</TableHead>
+                    <TableHead>Sujetos Procesales</TableHead>
+                    <TableHead>Estadísticas</TableHead>
                     <TableHead>Última Actuación</TableHead>
-                    <TableHead>Fuentes de Datos</TableHead>
                     <TableHead>Revisión</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
@@ -641,8 +643,34 @@ export default function Processes() {
                               </Tooltip>
                             )}
                             {!demandantes && !demandados && (
-                              <span className="text-xs text-muted-foreground italic">Sin partes</span>
+                              <span className="text-xs text-muted-foreground italic">Sin sujetos</span>
                             )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="outline" className="text-xs w-fit">
+                                  <FileSpreadsheet className="h-3 w-3 mr-1" />
+                                  {process.total_actuaciones ?? 0} acts
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">Total de actuaciones</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="secondary" className="text-xs w-fit">
+                                  <Users className="h-3 w-3 mr-1" />
+                                  {process.total_sujetos_procesales ?? 0} sujetos
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">Total de sujetos procesales</p>
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -691,41 +719,6 @@ export default function Processes() {
                             
                             return <span className="text-muted-foreground text-xs">—</span>;
                           })()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            {estado && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge variant="outline" className="text-xs w-fit">
-                                    <FileSpreadsheet className="h-3 w-3 mr-1" />
-                                    Estados
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-xs">
-                                    Importado: {formatDateColombia(estado.created_at)}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            {process.sources_enabled?.includes("CPNU") && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge variant="secondary" className="text-xs w-fit">
-                                    CPNU
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="text-xs">
-                                    {process.last_checked_at 
-                                      ? `Consultado: ${formatDateColombia(process.last_checked_at)}`
-                                      : "Nunca consultado"}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
                         </TableCell>
                         <TableCell>
                           <Tooltip>
