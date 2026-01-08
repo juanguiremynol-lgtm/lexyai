@@ -655,6 +655,13 @@ export default function ProcessStatusDetail() {
             department={process.department}
             municipality={process.municipality}
             cpnuConfirmed={process.cpnu_confirmed || false}
+            processType={process.process_type}
+            jurisdiction={process.jurisdiction}
+            totalActuaciones={process.total_actuaciones}
+            totalSujetosProcessales={process.total_sujetos_procesales}
+            lastActionDate={process.last_action_date}
+            scrapedFields={process.scraped_fields as Record<string, unknown> | null}
+            sourcePayload={process.source_payload as Record<string, unknown> | null}
             onUpdate={() => queryClient.invalidateQueries({ queryKey: ["monitored-process", id] })}
           />
         </TabsContent>
