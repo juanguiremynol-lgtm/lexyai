@@ -189,22 +189,60 @@ export default function NewProcess() {
         client_id: clientId || null,
       };
 
-      // Add API data if available
+      // Add ALL API data if available
       if (apiData?.proceso) {
+        // Ficha del proceso - todos los campos
         processData.demandantes = apiData.proceso["Demandante"] || null;
         processData.demandados = apiData.proceso["Demandado"] || null;
         processData.process_type = apiData.proceso["Tipo de Proceso"] || "CIVIL";
         processData.jurisdiction = apiData.proceso["Clase de Proceso"] || null;
         processData.municipality = apiData.proceso["Ubicación"] || null;
+        processData.juez_ponente = apiData.proceso["Ponente"] || null;
         processData.cpnu_confirmed = true;
         processData.cpnu_confirmed_at = new Date().toISOString();
         processData.last_checked_at = new Date().toISOString();
         
-        // Add statistics from API
-        processData.total_actuaciones = apiData.total_actuaciones || apiData.actuaciones?.length || 0;
-        processData.total_sujetos_procesales = apiData.sujetos_procesales?.length || 
+        // Estadísticas del API
+        const totalActuaciones = apiData.total_actuaciones || apiData.actuaciones?.length || 0;
+        const totalSujetos = apiData.sujetos_procesales?.length || 
           ((apiData.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
            (apiData.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
+        
+        processData.total_actuaciones = totalActuaciones;
+        processData.total_sujetos_procesales = totalSujetos;
+        
+        // Última actuación - fecha
+        if (apiData.actuaciones && apiData.actuaciones.length > 0) {
+          const lastAct = apiData.actuaciones[0];
+          const lastActDate = parseColombianDate(lastAct["Fecha de Actuación"] || "");
+          if (lastActDate) {
+            processData.last_action_date = lastActDate;
+            processData.last_action_date_raw = lastAct["Fecha de Actuación"] || null;
+          }
+        }
+        
+        // Guardar toda la respuesta del API como source_payload para referencia futura
+        processData.source = "RAMA_JUDICIAL_API";
+        processData.source_payload = {
+          proceso: apiData.proceso,
+          sujetos_procesales: apiData.sujetos_procesales,
+          estadisticas: apiData.estadisticas,
+          total_actuaciones: totalActuaciones,
+          fetched_at: new Date().toISOString(),
+        };
+        
+        // Scraped fields para mostrar en UI
+        processData.scraped_fields = {
+          tipo_proceso: apiData.proceso["Tipo de Proceso"] || null,
+          clase_proceso: apiData.proceso["Clase de Proceso"] || null,
+          fecha_radicacion: apiData.proceso["Fecha de Radicación"] || null,
+          despacho: apiData.proceso["Despacho"] || null,
+          ubicacion: apiData.proceso["Ubicación"] || null,
+          ponente: apiData.proceso["Ponente"] || null,
+          demandante: apiData.proceso["Demandante"] || null,
+          demandado: apiData.proceso["Demandado"] || null,
+          sujetos_procesales: apiData.sujetos_procesales || null,
+        };
       }
 
       const { data, error } = await supabase
@@ -215,12 +253,14 @@ export default function NewProcess() {
 
       if (error) throw error;
 
-      // Insert actuaciones if available
+      // Insert ALL actuaciones with complete data
       if (apiData?.actuaciones && apiData.actuaciones.length > 0) {
         const { normalizeActuacionText, computeActuacionHash } = await import("@/lib/rama-judicial-api");
         
         const actuacionesData = apiData.actuaciones.map(act => {
-          const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
+          const actuacion = act["Actuación"] || "";
+          const anotacion = act["Anotación"] || "";
+          const rawText = `${actuacion}${anotacion ? " - " + anotacion : ""}`;
           const normalizedText = normalizeActuacionText(rawText);
           const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
           const hashFingerprint = computeActuacionHash(actDate, normalizedText, radicado);
@@ -231,15 +271,27 @@ export default function NewProcess() {
             raw_text: rawText,
             normalized_text: normalizedText,
             act_date: actDate,
-            act_date_raw: act["Fecha de Actuación"] || "",
+            act_date_raw: act["Fecha de Actuación"] || null,
             source: "RAMA_JUDICIAL",
             adapter_name: "external_api",
             hash_fingerprint: hashFingerprint,
-            confidence: 0.7,
+            confidence: 0.9,
+            // Guardar data completa de la actuación
+            raw_data: {
+              actuacion,
+              anotacion,
+              fecha_actuacion: act["Fecha de Actuación"] || null,
+              fecha_inicia_termino: act["Fecha inicia Término"] || null,
+              fecha_finaliza_termino: act["Fecha finaliza Término"] || null,
+              fecha_registro: act["Fecha de Registro"] || null,
+            },
           };
         });
 
-        await supabase.from("actuaciones").insert(actuacionesData);
+        const { error: actError } = await supabase.from("actuaciones").insert(actuacionesData);
+        if (actError) {
+          console.error("Error insertando actuaciones:", actError);
+        }
       }
 
       return data;
@@ -247,7 +299,9 @@ export default function NewProcess() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      toast.success("Proceso registrado exitosamente");
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
+      queryClient.invalidateQueries({ queryKey: ["latest-actuaciones"] });
+      toast.success("Proceso registrado con toda la información del API");
       setConfirmDialogOpen(false);
       setClientDialogOpen(false);
       navigate(`/processes/${data.id}`);
