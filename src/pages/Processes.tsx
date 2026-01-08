@@ -544,11 +544,11 @@ export default function Processes() {
                     </TableHead>
                     <TableHead>Radicado</TableHead>
                     <TableHead>Cliente</TableHead>
-                    <TableHead>Despacho / Distrito</TableHead>
-                    <TableHead>Sujetos Procesales</TableHead>
+                    <TableHead>Despacho</TableHead>
+                    <TableHead>Demandantes</TableHead>
+                    <TableHead>Demandados</TableHead>
                     <TableHead>Estadísticas</TableHead>
                     <TableHead>Última Actuación</TableHead>
-                    <TableHead>Revisión</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -617,33 +617,34 @@ export default function Processes() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-1 max-w-[200px]">
-                            {demandantes && (
+                          <div className="max-w-[180px]">
+                            {demandantes ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <p className="text-xs truncate">
-                                    <span className="text-muted-foreground">Dtes:</span> {demandantes}
-                                  </p>
+                                  <p className="text-xs line-clamp-2">{demandantes}</p>
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-sm">
-                                  <p className="text-xs">{demandantes}</p>
+                                  <p className="text-xs whitespace-pre-wrap">{demandantes}</p>
                                 </TooltipContent>
                               </Tooltip>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">—</span>
                             )}
-                            {demandados && (
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-[180px]">
+                            {demandados ? (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <p className="text-xs truncate">
-                                    <span className="text-muted-foreground">Ddos:</span> {demandados}
-                                  </p>
+                                  <p className="text-xs line-clamp-2">{demandados}</p>
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-sm">
-                                  <p className="text-xs">{demandados}</p>
+                                  <p className="text-xs whitespace-pre-wrap">{demandados}</p>
                                 </TooltipContent>
                               </Tooltip>
-                            )}
-                            {!demandantes && !demandados && (
-                              <span className="text-xs text-muted-foreground italic">Sin sujetos</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">—</span>
                             )}
                           </div>
                         </TableCell>
@@ -719,28 +720,6 @@ export default function Processes() {
                             
                             return <span className="text-muted-foreground text-xs">—</span>;
                           })()}
-                        </TableCell>
-                        <TableCell>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge 
-                                variant={reviewStatus.variant}
-                                className="text-xs cursor-help"
-                              >
-                                {reviewStatus.status === "ok" ? (
-                                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                                ) : reviewStatus.status === "overdue" || reviewStatus.status === "never" ? (
-                                  <AlertCircle className="h-3 w-3 mr-1" />
-                                ) : (
-                                  <Clock className="h-3 w-3 mr-1" />
-                                )}
-                                {reviewStatus.status === "ok" ? "OK" : "Pendiente"}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">{reviewStatus.label}</p>
-                            </TooltipContent>
-                          </Tooltip>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
