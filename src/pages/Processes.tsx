@@ -755,9 +755,9 @@ export default function Processes() {
                               </TooltipContent>
                             </Tooltip>
                             <Button variant="ghost" size="sm" asChild>
-                              <Link to={`/process-status/${process.id}`}>
+                              <Link to={`/processes/${process.id}`}>
                                 <Eye className="h-4 w-4 mr-1" />
-                                Ver
+                                Ver Detalle
                               </Link>
                             </Button>
                           </div>
