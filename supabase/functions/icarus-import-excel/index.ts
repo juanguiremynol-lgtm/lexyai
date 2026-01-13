@@ -20,6 +20,7 @@ interface ImportRow {
 interface ImportRequest {
   file_name: string;
   file_hash: string;
+  client_id?: string | null;
   rows: ImportRow[];
 }
 
@@ -29,6 +30,7 @@ interface RowResult {
   radicado_norm: string;
   status: "IMPORTED" | "UPDATED" | "SKIPPED" | "INVALID";
   reason: string | null;
+  process_id?: string;
 }
 
 function jsonResponse(data: object, status: number = 200): Response {
@@ -98,7 +100,7 @@ Deno.serve(async (req) => {
       return errorResponse("INVALID_JSON", "Could not parse request body", 400);
     }
 
-    const { file_name, file_hash, rows } = payload;
+    const { file_name, file_hash, client_id, rows } = payload;
 
     if (!rows || !Array.isArray(rows)) {
       return errorResponse("VALIDATION_ERROR", "rows must be an array", 400);
@@ -108,7 +110,22 @@ Deno.serve(async (req) => {
       return errorResponse("VALIDATION_ERROR", "No rows provided", 400);
     }
 
-    console.log(`[icarus-import-excel] Starting import for user ${user.id}: ${rows.length} rows from ${file_name}`);
+    // If client_id provided, verify it belongs to user
+    if (client_id) {
+      const { data: clientData, error: clientError } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("id", client_id)
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      
+      if (clientError || !clientData) {
+        console.warn(`[icarus-import-excel] Client ${client_id} not found or not owned by user`);
+        // Don't fail, just proceed without client
+      }
+    }
+
+    console.log(`[icarus-import-excel] Starting import for user ${user.id}: ${rows.length} rows from ${file_name}${client_id ? ` (client: ${client_id})` : ''}`);
 
     // Create import run record
     const { data: importRun, error: runError } = await supabase
@@ -130,6 +147,7 @@ Deno.serve(async (req) => {
 
     const runId = importRun.id;
     const results: RowResult[] = [];
+    const importedProcessIds: string[] = [];
     let rowsValid = 0;
     let rowsImported = 0;
     let rowsUpdated = 0;
@@ -157,7 +175,7 @@ Deno.serve(async (req) => {
       // Check if process already exists for this user
       const { data: existing } = await supabase
         .from("monitored_processes")
-        .select("id, last_action_date")
+        .select("id, last_action_date, client_id")
         .eq("owner_id", user.id)
         .eq("radicado", row.radicado_norm)
         .maybeSingle();
@@ -179,25 +197,34 @@ Deno.serve(async (req) => {
         },
         monitoring_enabled: true,
         owner_id: user.id,
+        // Set client_id for new processes
+        client_id: client_id || null,
       };
 
       if (existing) {
-        // Update existing process
+        // Update existing process - only update client_id if not already set
+        const updateData: Record<string, unknown> = {
+          despacho_name: processData.despacho_name || undefined,
+          department: processData.department || undefined,
+          demandantes: processData.demandantes || undefined,
+          demandados: processData.demandados || undefined,
+          juez_ponente: processData.juez_ponente || undefined,
+          last_action_date: processData.last_action_date || undefined,
+          last_action_date_raw: processData.last_action_date_raw || undefined,
+          source: processData.source,
+          source_run_id: processData.source_run_id,
+          source_payload: processData.source_payload,
+          updated_at: new Date().toISOString(),
+        };
+
+        // Only update client_id if process doesn't have one and we're providing one
+        if (!existing.client_id && client_id) {
+          updateData.client_id = client_id;
+        }
+
         const { error: updateError } = await supabase
           .from("monitored_processes")
-          .update({
-            despacho_name: processData.despacho_name || undefined,
-            department: processData.department || undefined,
-            demandantes: processData.demandantes || undefined,
-            demandados: processData.demandados || undefined,
-            juez_ponente: processData.juez_ponente || undefined,
-            last_action_date: processData.last_action_date || undefined,
-            last_action_date_raw: processData.last_action_date_raw || undefined,
-            source: processData.source,
-            source_run_id: processData.source_run_id,
-            source_payload: processData.source_payload,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq("id", existing.id);
 
         if (updateError) {
@@ -217,14 +244,17 @@ Deno.serve(async (req) => {
             radicado_norm: row.radicado_norm,
             status: "UPDATED",
             reason: null,
+            process_id: existing.id,
           });
           rowsUpdated++;
         }
       } else {
         // Insert new process
-        const { error: insertError } = await supabase
+        const { data: insertedData, error: insertError } = await supabase
           .from("monitored_processes")
-          .insert(processData);
+          .insert(processData)
+          .select("id")
+          .single();
 
         if (insertError) {
           console.error(`[icarus-import-excel] Failed to insert row ${i}:`, insertError);
@@ -243,7 +273,11 @@ Deno.serve(async (req) => {
             radicado_norm: row.radicado_norm,
             status: "IMPORTED",
             reason: null,
+            process_id: insertedData?.id,
           });
+          if (insertedData?.id) {
+            importedProcessIds.push(insertedData.id);
+          }
           rowsImported++;
         }
       }
@@ -279,7 +313,7 @@ Deno.serve(async (req) => {
       })
       .eq("id", runId);
 
-    console.log(`[icarus-import-excel] Import complete: ${rowsImported} imported, ${rowsUpdated} updated, ${rowsSkipped} skipped`);
+    console.log(`[icarus-import-excel] Import complete: ${rowsImported} imported, ${rowsUpdated} updated, ${rowsSkipped} skipped${client_id ? ` (linked to client ${client_id})` : ''}`);
 
     return jsonResponse({
       ok: true,
@@ -291,6 +325,7 @@ Deno.serve(async (req) => {
       rows_updated: rowsUpdated,
       rows_skipped: rowsSkipped,
       errors: results.filter(r => r.status === "INVALID" || r.status === "SKIPPED"),
+      imported_process_ids: importedProcessIds,
     });
 
   } catch (error) {
