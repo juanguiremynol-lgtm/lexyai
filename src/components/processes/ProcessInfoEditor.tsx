@@ -20,7 +20,8 @@ import {
   Scale,
   MapPin,
   Calendar,
-  Gavel
+  Gavel,
+  Unlock
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
@@ -64,6 +65,9 @@ export function ProcessInfoEditor({
   onUpdate,
 }: ProcessInfoEditorProps) {
   const queryClient = useQueryClient();
+  
+  // Manual override to allow editing even when CPNU verified
+  const [manualOverride, setManualOverride] = useState(false);
   
   // Parse existing parties (stored as comma-separated or newline-separated)
   const parseParties = (str: string | null): string[] => {
@@ -134,19 +138,50 @@ export function ProcessInfoEditor({
     setDemandadosList(demandadosList.filter((_, i) => i !== index));
   };
 
-  const isLocked = cpnuConfirmed;
+  // Fields are only locked if CPNU verified AND user hasn't enabled manual override
+  const isLocked = cpnuConfirmed && !manualOverride;
 
   // Extraer fecha de radicación de scrapedFields
   const fechaRadicacion = scrapedFields?.fecha_radicacion as string | null;
 
   return (
     <div className="space-y-6">
-      {isLocked && (
+      {cpnuConfirmed && !manualOverride && (
         <Alert>
           <Lock className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Campos bloqueados:</strong> La información del proceso ha sido verificada por CPNU.
-            Los campos principales no pueden editarse manualmente.
+          <AlertDescription className="flex items-center justify-between">
+            <span>
+              <strong>Campos bloqueados:</strong> La información fue verificada por CPNU/API externa.
+            </span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setManualOverride(true)}
+              className="ml-4"
+            >
+              <Unlock className="h-4 w-4 mr-1" />
+              Desbloquear
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {cpnuConfirmed && manualOverride && (
+        <Alert className="border-amber-500/50 bg-amber-500/10">
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-amber-700 dark:text-amber-400">
+              <strong>Modo manual:</strong> Puede editar campos verificados. Los cambios sobrescribirán datos de CPNU.
+            </span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setManualOverride(false)}
+              className="ml-4"
+            >
+              <Lock className="h-4 w-4 mr-1" />
+              Bloquear
+            </Button>
           </AlertDescription>
         </Alert>
       )}
