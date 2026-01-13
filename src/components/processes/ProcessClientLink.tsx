@@ -17,11 +17,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Link as LinkIcon, Plus, Users } from "lucide-react";
+import { AlertTriangle, Link as LinkIcon, Plus, Users, UserPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
 import type { Client } from "@/types/client";
 
 interface ProcessClientLinkProps {
@@ -41,6 +42,10 @@ export function ProcessClientLink({
 }: ProcessClientLinkProps) {
   const [open, setOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>(currentClientId || "");
+  const [clientTab, setClientTab] = useState<"existing" | "new">("existing");
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientIdNumber, setNewClientIdNumber] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
   const queryClient = useQueryClient();
 
   const { data: clients } = useQuery({
@@ -52,6 +57,41 @@ export function ProcessClientLink({
         .order("name");
       if (error) throw error;
       return data as Pick<Client, "id" | "name" | "id_number">[];
+    },
+  });
+
+  // Create new client mutation
+  const createClientMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+      
+      const { data, error } = await supabase
+        .from("clients")
+        .insert({
+          owner_id: user.id,
+          name: newClientName.trim(),
+          id_number: newClientIdNumber.trim() || null,
+          email: newClientEmail.trim() || null,
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients-for-link"] });
+      setSelectedClientId(data.id);
+      setClientTab("existing");
+      setNewClientName("");
+      setNewClientIdNumber("");
+      setNewClientEmail("");
+      toast.success("Cliente creado exitosamente");
+    },
+    onError: (error) => {
+      toast.error("Error al crear cliente: " + error.message);
     },
   });
 
@@ -83,6 +123,36 @@ export function ProcessClientLink({
     linkMutation.mutate(selectedClientId);
   };
 
+  const handleCreateAndLink = async () => {
+    if (!newClientName.trim()) {
+      toast.error("Ingrese el nombre del cliente");
+      return;
+    }
+    
+    try {
+      const result = await createClientMutation.mutateAsync();
+      // After creating, link to the new client
+      linkMutation.mutate(result.id);
+    } catch {
+      // Error already handled in mutation
+    }
+  };
+
+  const resetForm = () => {
+    setSelectedClientId(currentClientId || "");
+    setClientTab("existing");
+    setNewClientName("");
+    setNewClientIdNumber("");
+    setNewClientEmail("");
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (!isOpen) {
+      resetForm();
+    }
+  };
+
   if (currentClientId && currentClientName) {
     return (
       <div className="flex items-center gap-2">
@@ -93,7 +163,7 @@ export function ProcessClientLink({
         <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
           Cambiar
         </Button>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Cambiar Cliente</DialogTitle>
@@ -101,30 +171,95 @@ export function ProcessClientLink({
                 Radicado: {processRadicado}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar cliente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients?.map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.name} {client.id_number && `(${client.id_number})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            
+            <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="existing">
+                  <Users className="h-4 w-4 mr-2" />
+                  Existente
+                </TabsTrigger>
+                <TabsTrigger value="new">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Nuevo
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="existing" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label>Cliente</Label>
+                  <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar cliente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients?.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} {client.id_number && `(${client.id_number})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="new" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="new-name">Nombre *</Label>
+                  <Input
+                    id="new-name"
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    placeholder="Nombre completo o razón social"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-id">Cédula / NIT</Label>
+                  <Input
+                    id="new-id"
+                    value={newClientIdNumber}
+                    onChange={(e) => setNewClientIdNumber(e.target.value)}
+                    placeholder="Número de identificación"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-email">Correo</Label>
+                  <Input
+                    id="new-email"
+                    type="email"
+                    value={newClientEmail}
+                    onChange={(e) => setNewClientEmail(e.target.value)}
+                    placeholder="cliente@ejemplo.com"
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
+
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleLink} disabled={linkMutation.isPending}>
-                {linkMutation.isPending ? "Guardando..." : "Guardar"}
-              </Button>
+              {clientTab === "existing" ? (
+                <Button onClick={handleLink} disabled={linkMutation.isPending}>
+                  {linkMutation.isPending ? "Guardando..." : "Guardar"}
+                </Button>
+              ) : (
+                <Button 
+                  onClick={handleCreateAndLink} 
+                  disabled={createClientMutation.isPending || linkMutation.isPending || !newClientName.trim()}
+                >
+                  {(createClientMutation.isPending || linkMutation.isPending) ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creando...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Crear y Vincular
+                    </>
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -143,7 +278,7 @@ export function ProcessClientLink({
         <AlertTriangle className="h-4 w-4 mr-1" />
         Sin Cliente
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -155,47 +290,114 @@ export function ProcessClientLink({
               Vincúlelo para organizar mejor sus procesos.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Seleccionar Cliente</Label>
-              <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients?.length === 0 ? (
-                    <div className="p-2 text-sm text-muted-foreground text-center">
-                      No hay clientes. Cree uno primero.
-                    </div>
-                  ) : (
-                    clients?.map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.name} {client.id_number && `(${client.id_number})`}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            {clients?.length === 0 && (
-              <Button variant="outline" className="w-full" asChild>
-                <Link to="/clients">
+          
+          <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="existing">
+                <Users className="h-4 w-4 mr-2" />
+                Cliente Existente
+              </TabsTrigger>
+              <TabsTrigger value="new">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Nuevo Cliente
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="existing" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label>Seleccionar Cliente</Label>
+                <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients?.length === 0 ? (
+                      <div className="p-2 text-sm text-muted-foreground text-center">
+                        No hay clientes. Cree uno primero.
+                      </div>
+                    ) : (
+                      clients?.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} {client.id_number && `(${client.id_number})`}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              {clients?.length === 0 && (
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => setClientTab("new")}
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Crear Nuevo Cliente
-                </Link>
-              </Button>
-            )}
-          </div>
+                </Button>
+              )}
+            </TabsContent>
+
+            <TabsContent value="new" className="space-y-4 mt-4">
+              <div className="space-y-2">
+                <Label htmlFor="link-new-name">Nombre del Cliente *</Label>
+                <Input
+                  id="link-new-name"
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  placeholder="Nombre completo o razón social"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="link-new-id">Cédula / NIT</Label>
+                <Input
+                  id="link-new-id"
+                  value={newClientIdNumber}
+                  onChange={(e) => setNewClientIdNumber(e.target.value)}
+                  placeholder="Número de identificación"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="link-new-email">Correo Electrónico</Label>
+                <Input
+                  id="link-new-email"
+                  type="email"
+                  value={newClientEmail}
+                  onChange={(e) => setNewClientEmail(e.target.value)}
+                  placeholder="cliente@ejemplo.com"
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => handleOpenChange(false)}>
               Cancelar
             </Button>
-            <Button
-              onClick={handleLink}
-              disabled={!selectedClientId || linkMutation.isPending}
-            >
-              {linkMutation.isPending ? "Vinculando..." : "Vincular"}
-            </Button>
+            {clientTab === "existing" ? (
+              <Button
+                onClick={handleLink}
+                disabled={!selectedClientId || linkMutation.isPending}
+              >
+                {linkMutation.isPending ? "Vinculando..." : "Vincular"}
+              </Button>
+            ) : (
+              <Button
+                onClick={handleCreateAndLink}
+                disabled={!newClientName.trim() || createClientMutation.isPending || linkMutation.isPending}
+              >
+                {(createClientMutation.isPending || linkMutation.isPending) ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creando...
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Crear y Vincular
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
