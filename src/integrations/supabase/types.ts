@@ -804,6 +804,30 @@ export type Database = {
           },
         ]
       }
+      colombian_holidays: {
+        Row: {
+          created_at: string
+          holiday_date: string
+          id: string
+          is_judicial_vacation: boolean
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          holiday_date: string
+          id?: string
+          is_judicial_vacation?: boolean
+          name: string
+        }
+        Update: {
+          created_at?: string
+          holiday_date?: string
+          id?: string
+          is_judicial_vacation?: boolean
+          name?: string
+        }
+        Relationships: []
+      }
       contract_payments: {
         Row: {
           amount: number
@@ -902,6 +926,247 @@ export type Database = {
           },
           {
             foreignKeyName: "contracts_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cpaca_processes: {
+        Row: {
+          acto_administrativo_fecha: string | null
+          acto_administrativo_notificacion_fecha: string | null
+          agotamiento_via_gubernativa: boolean
+          client_id: string | null
+          conciliacion_requisito: boolean
+          created_at: string
+          demandados: string | null
+          demandantes: string | null
+          descripcion: string | null
+          despacho_ciudad: string | null
+          despacho_email: string | null
+          despacho_nombre: string | null
+          estado_caducidad:
+            | Database["public"]["Enums"]["cpaca_estado_caducidad"]
+            | null
+          estado_conciliacion:
+            | Database["public"]["Enums"]["cpaca_estado_conciliacion"]
+            | null
+          fecha_audiencia_inicial: string | null
+          fecha_audiencia_juzgamiento: string | null
+          fecha_audiencia_pruebas: string | null
+          fecha_auto_admisorio: string | null
+          fecha_auto_inadmision: string | null
+          fecha_auto_rechazo: string | null
+          fecha_constancia_acceso: string | null
+          fecha_contestacion_demanda: string | null
+          fecha_ejecutoria: string | null
+          fecha_envio_notificacion_electronica: string | null
+          fecha_evento_caducidad_base: string | null
+          fecha_hecho_danoso: string | null
+          fecha_inicio_ejecucion: string | null
+          fecha_inicio_termino: string | null
+          fecha_interposicion_recurso: string | null
+          fecha_limite_conciliacion: string | null
+          fecha_notificacion_auto: string | null
+          fecha_notificacion_excepciones: string | null
+          fecha_notificacion_sentencia: string | null
+          fecha_presentacion_reforma: string | null
+          fecha_radicacion_conciliacion: string | null
+          fecha_radicacion_demanda: string | null
+          fecha_resolucion_recurso: string | null
+          fecha_respuesta_excepciones: string | null
+          fecha_sentencia: string | null
+          fecha_vencimiento_apelacion_auto: string | null
+          fecha_vencimiento_apelacion_sentencia: string | null
+          fecha_vencimiento_caducidad: string | null
+          fecha_vencimiento_reforma: string | null
+          fecha_vencimiento_traslado_demanda: string | null
+          fecha_vencimiento_traslado_excepciones: string | null
+          hora_audiencia_inicial: string | null
+          hora_audiencia_juzgamiento: string | null
+          hora_audiencia_pruebas: string | null
+          id: string
+          juez_ponente: string | null
+          link_audiencia_inicial: string | null
+          link_audiencia_pruebas: string | null
+          lugar_audiencia_inicial: string | null
+          lugar_audiencia_pruebas: string | null
+          medio_de_control: Database["public"]["Enums"]["cpaca_medio_control"]
+          medio_de_control_custom: string | null
+          monitored_process_id: string | null
+          notas: string | null
+          owner_id: string
+          phase: Database["public"]["Enums"]["cpaca_phase"]
+          prorroga_traslado_demanda: boolean
+          radicado: string | null
+          sentencia_favorable: boolean | null
+          tipo_recurso: string | null
+          titulo: string | null
+          updated_at: string
+        }
+        Insert: {
+          acto_administrativo_fecha?: string | null
+          acto_administrativo_notificacion_fecha?: string | null
+          agotamiento_via_gubernativa?: boolean
+          client_id?: string | null
+          conciliacion_requisito?: boolean
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          descripcion?: string | null
+          despacho_ciudad?: string | null
+          despacho_email?: string | null
+          despacho_nombre?: string | null
+          estado_caducidad?:
+            | Database["public"]["Enums"]["cpaca_estado_caducidad"]
+            | null
+          estado_conciliacion?:
+            | Database["public"]["Enums"]["cpaca_estado_conciliacion"]
+            | null
+          fecha_audiencia_inicial?: string | null
+          fecha_audiencia_juzgamiento?: string | null
+          fecha_audiencia_pruebas?: string | null
+          fecha_auto_admisorio?: string | null
+          fecha_auto_inadmision?: string | null
+          fecha_auto_rechazo?: string | null
+          fecha_constancia_acceso?: string | null
+          fecha_contestacion_demanda?: string | null
+          fecha_ejecutoria?: string | null
+          fecha_envio_notificacion_electronica?: string | null
+          fecha_evento_caducidad_base?: string | null
+          fecha_hecho_danoso?: string | null
+          fecha_inicio_ejecucion?: string | null
+          fecha_inicio_termino?: string | null
+          fecha_interposicion_recurso?: string | null
+          fecha_limite_conciliacion?: string | null
+          fecha_notificacion_auto?: string | null
+          fecha_notificacion_excepciones?: string | null
+          fecha_notificacion_sentencia?: string | null
+          fecha_presentacion_reforma?: string | null
+          fecha_radicacion_conciliacion?: string | null
+          fecha_radicacion_demanda?: string | null
+          fecha_resolucion_recurso?: string | null
+          fecha_respuesta_excepciones?: string | null
+          fecha_sentencia?: string | null
+          fecha_vencimiento_apelacion_auto?: string | null
+          fecha_vencimiento_apelacion_sentencia?: string | null
+          fecha_vencimiento_caducidad?: string | null
+          fecha_vencimiento_reforma?: string | null
+          fecha_vencimiento_traslado_demanda?: string | null
+          fecha_vencimiento_traslado_excepciones?: string | null
+          hora_audiencia_inicial?: string | null
+          hora_audiencia_juzgamiento?: string | null
+          hora_audiencia_pruebas?: string | null
+          id?: string
+          juez_ponente?: string | null
+          link_audiencia_inicial?: string | null
+          link_audiencia_pruebas?: string | null
+          lugar_audiencia_inicial?: string | null
+          lugar_audiencia_pruebas?: string | null
+          medio_de_control?: Database["public"]["Enums"]["cpaca_medio_control"]
+          medio_de_control_custom?: string | null
+          monitored_process_id?: string | null
+          notas?: string | null
+          owner_id: string
+          phase?: Database["public"]["Enums"]["cpaca_phase"]
+          prorroga_traslado_demanda?: boolean
+          radicado?: string | null
+          sentencia_favorable?: boolean | null
+          tipo_recurso?: string | null
+          titulo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          acto_administrativo_fecha?: string | null
+          acto_administrativo_notificacion_fecha?: string | null
+          agotamiento_via_gubernativa?: boolean
+          client_id?: string | null
+          conciliacion_requisito?: boolean
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          descripcion?: string | null
+          despacho_ciudad?: string | null
+          despacho_email?: string | null
+          despacho_nombre?: string | null
+          estado_caducidad?:
+            | Database["public"]["Enums"]["cpaca_estado_caducidad"]
+            | null
+          estado_conciliacion?:
+            | Database["public"]["Enums"]["cpaca_estado_conciliacion"]
+            | null
+          fecha_audiencia_inicial?: string | null
+          fecha_audiencia_juzgamiento?: string | null
+          fecha_audiencia_pruebas?: string | null
+          fecha_auto_admisorio?: string | null
+          fecha_auto_inadmision?: string | null
+          fecha_auto_rechazo?: string | null
+          fecha_constancia_acceso?: string | null
+          fecha_contestacion_demanda?: string | null
+          fecha_ejecutoria?: string | null
+          fecha_envio_notificacion_electronica?: string | null
+          fecha_evento_caducidad_base?: string | null
+          fecha_hecho_danoso?: string | null
+          fecha_inicio_ejecucion?: string | null
+          fecha_inicio_termino?: string | null
+          fecha_interposicion_recurso?: string | null
+          fecha_limite_conciliacion?: string | null
+          fecha_notificacion_auto?: string | null
+          fecha_notificacion_excepciones?: string | null
+          fecha_notificacion_sentencia?: string | null
+          fecha_presentacion_reforma?: string | null
+          fecha_radicacion_conciliacion?: string | null
+          fecha_radicacion_demanda?: string | null
+          fecha_resolucion_recurso?: string | null
+          fecha_respuesta_excepciones?: string | null
+          fecha_sentencia?: string | null
+          fecha_vencimiento_apelacion_auto?: string | null
+          fecha_vencimiento_apelacion_sentencia?: string | null
+          fecha_vencimiento_caducidad?: string | null
+          fecha_vencimiento_reforma?: string | null
+          fecha_vencimiento_traslado_demanda?: string | null
+          fecha_vencimiento_traslado_excepciones?: string | null
+          hora_audiencia_inicial?: string | null
+          hora_audiencia_juzgamiento?: string | null
+          hora_audiencia_pruebas?: string | null
+          id?: string
+          juez_ponente?: string | null
+          link_audiencia_inicial?: string | null
+          link_audiencia_pruebas?: string | null
+          lugar_audiencia_inicial?: string | null
+          lugar_audiencia_pruebas?: string | null
+          medio_de_control?: Database["public"]["Enums"]["cpaca_medio_control"]
+          medio_de_control_custom?: string | null
+          monitored_process_id?: string | null
+          notas?: string | null
+          owner_id?: string
+          phase?: Database["public"]["Enums"]["cpaca_phase"]
+          prorroga_traslado_demanda?: boolean
+          radicado?: string | null
+          sentencia_favorable?: boolean | null
+          tipo_recurso?: string | null
+          titulo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cpaca_processes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cpaca_processes_monitored_process_id_fkey"
+            columns: ["monitored_process_id"]
+            isOneToOne: false
+            referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cpaca_processes_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -3217,6 +3482,36 @@ export type Database = {
         | "SATISFIED"
         | "NOT_APPLICABLE"
         | "INTERRUPTED"
+      cpaca_estado_caducidad: "EN_TERMINO" | "RIESGO" | "VENCIDO" | "NO_APLICA"
+      cpaca_estado_conciliacion:
+        | "PENDIENTE"
+        | "PROGRAMADA"
+        | "CELEBRADA_SIN_ACUERDO"
+        | "CON_ACUERDO"
+        | "CONSTANCIA_EXPEDIDA"
+      cpaca_medio_control:
+        | "NULIDAD_RESTABLECIMIENTO"
+        | "NULIDAD_SIMPLE"
+        | "REPARACION_DIRECTA"
+        | "CONTROVERSIAS_CONTRACTUALES"
+        | "NULIDAD_ELECTORAL"
+        | "REPETICION"
+        | "OTRO"
+      cpaca_phase:
+        | "PRECONTENCIOSO"
+        | "DEMANDA_POR_RADICAR"
+        | "DEMANDA_RADICADA"
+        | "AUTO_ADMISORIO"
+        | "NOTIFICACION_TRASLADOS"
+        | "TRASLADO_DEMANDA"
+        | "REFORMA_DEMANDA"
+        | "TRASLADO_EXCEPCIONES"
+        | "AUDIENCIA_INICIAL"
+        | "AUDIENCIA_PRUEBAS"
+        | "ALEGATOS_SENTENCIA"
+        | "RECURSOS"
+        | "EJECUCION_CUMPLIMIENTO"
+        | "ARCHIVADO"
       data_source: "CPNU" | "PUBLICACIONES" | "HISTORICO"
       document_kind:
         | "DEMANDA"
@@ -3488,6 +3783,39 @@ export const Constants = {
         "SATISFIED",
         "NOT_APPLICABLE",
         "INTERRUPTED",
+      ],
+      cpaca_estado_caducidad: ["EN_TERMINO", "RIESGO", "VENCIDO", "NO_APLICA"],
+      cpaca_estado_conciliacion: [
+        "PENDIENTE",
+        "PROGRAMADA",
+        "CELEBRADA_SIN_ACUERDO",
+        "CON_ACUERDO",
+        "CONSTANCIA_EXPEDIDA",
+      ],
+      cpaca_medio_control: [
+        "NULIDAD_RESTABLECIMIENTO",
+        "NULIDAD_SIMPLE",
+        "REPARACION_DIRECTA",
+        "CONTROVERSIAS_CONTRACTUALES",
+        "NULIDAD_ELECTORAL",
+        "REPETICION",
+        "OTRO",
+      ],
+      cpaca_phase: [
+        "PRECONTENCIOSO",
+        "DEMANDA_POR_RADICAR",
+        "DEMANDA_RADICADA",
+        "AUTO_ADMISORIO",
+        "NOTIFICACION_TRASLADOS",
+        "TRASLADO_DEMANDA",
+        "REFORMA_DEMANDA",
+        "TRASLADO_EXCEPCIONES",
+        "AUDIENCIA_INICIAL",
+        "AUDIENCIA_PRUEBAS",
+        "ALEGATOS_SENTENCIA",
+        "RECURSOS",
+        "EJECUCION_CUMPLIMIENTO",
+        "ARCHIVADO",
       ],
       data_source: ["CPNU", "PUBLICACIONES", "HISTORICO"],
       document_kind: [

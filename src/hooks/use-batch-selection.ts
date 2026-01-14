@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 
-export type SelectableItemType = "filing" | "process" | "peticion" | "tutela";
+export type SelectableItemType = "filing" | "process" | "peticion" | "tutela" | "cpaca";
 
 interface SelectableItem {
   id: string;
