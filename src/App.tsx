@@ -34,6 +34,7 @@ import AdminProcessDetail from "./pages/AdminProcessDetail";
 import EmailInboxPage from "./pages/EmailInboxPage";
 import PricingPage from "./pages/PricingPage";
 import NewProcess from "./pages/NewProcess";
+import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 
 const queryClient = new QueryClient();
@@ -97,6 +98,7 @@ const App = () => (
             <Route path="/peticiones/:id" element={<ErrorBoundary><PeticionDetail /></ErrorBoundary>} />
             <Route path="/admin-processes/:id" element={<ErrorBoundary><AdminProcessDetail /></ErrorBoundary>} />
             <Route path="/email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
+            <Route path="/cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
             <Route path="/pricing" element={<ErrorBoundary><PricingPage /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
