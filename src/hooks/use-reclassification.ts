@@ -82,6 +82,15 @@ export function useReclassification() {
       if (!user.user) throw new Error("No user");
 
       if (!hasAutoAdmisorio) {
+        // Fetch full process data to preserve all information
+        const { data: fullProcess, error: fetchError } = await supabase
+          .from("monitored_processes")
+          .select("*")
+          .eq("id", process.id)
+          .single();
+
+        if (fetchError) throw fetchError;
+
         // Create a linked filing - first need to get or create a matter
         const { data: existingMatters } = await supabase
           .from("matters")
@@ -106,19 +115,34 @@ export function useReclassification() {
           matterId = newMatter.id;
         }
 
+        // Map all relevant process fields to filing fields
         const { data: newFiling, error: filingError } = await supabase
           .from("filings")
           .insert({
             owner_id: user.user.id,
             matter_id: matterId,
-            radicado: process.radicado,
-            court_name: process.despachoName,
-            demandantes: process.demandantes,
-            demandados: process.demandados,
+            radicado: fullProcess.radicado,
+            court_name: fullProcess.despacho_name,
+            court_department: fullProcess.department,
+            court_city: fullProcess.municipality,
+            court_email: fullProcess.correo_autoridad,
+            demandantes: fullProcess.demandantes,
+            demandados: fullProcess.demandados,
+            description: fullProcess.notes,
+            expediente_url: fullProcess.expediente_digital_url,
+            client_id: fullProcess.client_id,
             filing_type: "Demanda",
             has_auto_admisorio: false,
             linked_process_id: process.id,
             status: "ICARUS_SYNC_PENDING" as FilingStatus,
+            is_flagged: fullProcess.is_flagged,
+            radicado_status: fullProcess.radicado_status,
+            scrape_status: fullProcess.scrape_status,
+            case_family: fullProcess.case_family,
+            case_subtype: fullProcess.case_subtype,
+            source_links: fullProcess.source_links,
+            scraped_fields: fullProcess.scraped_fields,
+            email_linking_enabled: fullProcess.email_linking_enabled,
           })
           .select("id")
           .single();
