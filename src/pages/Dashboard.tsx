@@ -1,12 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
+import { CpacaPipeline } from "@/components/cpaca";
 import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
 
 export default function Dashboard() {
@@ -18,6 +19,7 @@ export default function Dashboard() {
     monitoredProcesses: 0,
     pendingPeticiones: 0,
     pendingTutelas: 0,
+    pendingCpaca: 0,
   });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -60,6 +62,11 @@ export default function Dashboard() {
       .eq("filing_type", "TUTELA")
       .neq("status", "CLOSED");
 
+    const { count: pendingCpaca } = await supabase
+      .from("cpaca_processes")
+      .select("*", { count: "exact", head: true })
+      .neq("phase", "ARCHIVADO");
+
     setStats({
       actaPending,
       radicadoPending,
@@ -68,6 +75,7 @@ export default function Dashboard() {
       monitoredProcesses: monitoredProcesses || 0,
       pendingPeticiones: pendingPeticiones || 0,
       pendingTutelas: pendingTutelas || 0,
+      pendingCpaca: pendingCpaca || 0,
     });
   }, []);
 
@@ -96,7 +104,7 @@ export default function Dashboard() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
@@ -160,12 +168,22 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.pendingTutelas}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">CPACA</CardTitle>
+            <Scale className="h-4 w-4 text-indigo-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingCpaca}</div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabbed Pipelines */}
       <Tabs defaultValue="cgp" className="space-y-4">
         <TabsList>
           <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
+          <TabsTrigger value="cpaca">CPACA</TabsTrigger>
           <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
           <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
           <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
@@ -176,6 +194,13 @@ export default function Dashboard() {
             Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
           </p>
           <UnifiedPipeline />
+        </TabsContent>
+
+        <TabsContent value="cpaca" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Procesos ordinarios contencioso administrativos (CPACA). Cálculo automático de términos según Art. 199.
+          </p>
+          <CpacaPipeline />
         </TabsContent>
 
         <TabsContent value="administrativos" className="space-y-4">
