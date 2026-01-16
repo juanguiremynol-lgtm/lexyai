@@ -344,29 +344,39 @@ export function UnifiedPipeline() {
 
         if (fetchError) throw fetchError;
 
-        // Create a linked filing - first need to get or create a matter
-        const { data: existingMatters } = await supabase
-          .from("matters")
-          .select("id")
-          .eq("owner_id", user.user.id)
-          .limit(1);
-
-        let matterId = existingMatters?.[0]?.id;
-
-        if (!matterId) {
-          const { data: newMatter, error: matterError } = await supabase
-            .from("matters")
-            .insert({
-              owner_id: user.user.id,
-              client_name: process.clientName || "Cliente sin nombre",
-              matter_name: `Asunto ${process.radicado || "nuevo"}`,
-            })
-            .select("id")
+        // Create a NEW matter for this specific case (don't reuse existing matters)
+        // Get client name from linked client if available
+        let clientNameForMatter = process.clientName || "Cliente sin nombre";
+        if (fullProcess.client_id) {
+          const { data: clientData } = await supabase
+            .from("clients")
+            .select("name")
+            .eq("id", fullProcess.client_id)
             .single();
-          
-          if (matterError) throw matterError;
-          matterId = newMatter.id;
+          if (clientData?.name) {
+            clientNameForMatter = clientData.name;
+          }
         }
+
+        // Use demandantes as fallback if no client linked
+        if (clientNameForMatter === "Cliente sin nombre" && fullProcess.demandantes) {
+          clientNameForMatter = fullProcess.demandantes.split(";")[0].trim();
+        }
+
+        const { data: newMatter, error: matterError } = await supabase
+          .from("matters")
+          .insert({
+            owner_id: user.user.id,
+            client_name: clientNameForMatter,
+            matter_name: fullProcess.radicado 
+              ? `Proceso ${fullProcess.radicado}` 
+              : `Asunto ${fullProcess.demandantes || "nuevo"}`,
+          })
+          .select("id")
+          .single();
+        
+        if (matterError) throw matterError;
+        const matterId = newMatter.id;
 
         // Use target status from drag or fallback
         const filingStatus = targetStatus || ("SENT_TO_REPARTO" as FilingStatus);
