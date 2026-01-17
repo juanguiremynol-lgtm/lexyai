@@ -4,156 +4,212 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ATENIA Design System */
+/* ATENIA Design System - Dual Theme */
 
 @layer base {
-  :root {
-    /* Force dark mode by default */
-    color-scheme: dark;
+  /* ============================================
+     LIGHT THEME - Clean, Professional, High Contrast
+     ============================================ */
+  :root,
+  .light {
+    color-scheme: light;
     
-    /* Primary: Deep navy blue matching ATENIA logo */
-    --primary: 222 47% 23%;
+    /* Primary: Rich Navy Blue */
+    --primary: 222 60% 30%;
     --primary-foreground: 0 0% 100%;
     
-    /* Secondary: Deep charcoal */
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 45 30% 90%;
+    /* Secondary: Warm Gray */
+    --secondary: 220 14% 90%;
+    --secondary-foreground: 222 47% 20%;
     
-    /* Background: Deep noir black */
-    --background: 220 20% 6%;
-    --foreground: 45 20% 92%;
+    /* Background: Clean White with warmth */
+    --background: 40 20% 98%;
+    --foreground: 222 47% 15%;
     
-    /* Card: Slightly elevated noir */
-    --card: 220 18% 10%;
-    --card-foreground: 45 20% 92%;
+    /* Card: Pure White elevated */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 15%;
     
-    /* Popover */
-    --popover: 220 18% 12%;
-    --popover-foreground: 45 20% 92%;
+    /* Popover: Crisp White */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 15%;
     
-    /* Muted: Sophisticated gray */
-    --muted: 220 15% 15%;
-    --muted-foreground: 220 10% 55%;
+    /* Muted: Subtle Gray */
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 40%;
     
-    /* Accent: ATENIA blue accent */
-    --accent: 222 60% 35%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent: Vibrant Blue */
+    --accent: 222 70% 94%;
+    --accent-foreground: 222 60% 30%;
     
-    /* Brand blue variations for design depth */
-    --brand-dark: 222 60% 15%;
-    --brand: 222 47% 23%;
-    --brand-light: 222 50% 35%;
-    --brand-muted: 222 30% 50%;
+    /* Brand blue variations */
+    --brand-dark: 222 60% 20%;
+    --brand: 222 60% 30%;
+    --brand-light: 222 55% 45%;
+    --brand-muted: 222 40% 60%;
     
-    /* Destructive: Deep crimson */
-    --destructive: 0 65% 45%;
+    /* Gold accent for highlights */
+    --gold: 43 85% 50%;
+    --gold-foreground: 0 0% 10%;
+    
+    /* Destructive: Vivid Red */
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     
-    /* Border: Subtle blue-tinted */
-    --border: 220 15% 18%;
-    --input: 220 15% 20%;
-    --ring: 222 47% 23%;
+    /* Border: Subtle definition */
+    --border: 220 14% 88%;
+    --input: 220 14% 92%;
+    --ring: 222 60% 30%;
     
     /* Radius */
     --radius: 0.5rem;
     
-    /* Sidebar: Ultra dark with blue accents */
-    --sidebar-background: 220 25% 5%;
-    --sidebar-foreground: 220 15% 85%;
-    --sidebar-primary: 222 47% 23%;
+    /* Sidebar: Light with navy accents */
+    --sidebar-background: 220 20% 97%;
+    --sidebar-foreground: 222 47% 25%;
+    --sidebar-primary: 222 60% 30%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 20% 12%;
-    --sidebar-accent-foreground: 220 20% 92%;
-    --sidebar-border: 222 30% 20%;
-    --sidebar-ring: 222 47% 23%;
+    --sidebar-accent: 222 70% 94%;
+    --sidebar-accent-foreground: 222 60% 30%;
+    --sidebar-border: 220 14% 88%;
+    --sidebar-ring: 222 60% 30%;
     
-    /* Status colors - muted for dark theme */
-    --status-drafted: 220 10% 40%;
-    --status-sent: 210 70% 50%;
-    --status-pending: 43 80% 50%;
-    --status-received: 160 50% 45%;
-    --status-confirmed: 140 60% 40%;
-    --status-active: 280 50% 55%;
-    --status-closed: 220 10% 35%;
+    /* Status colors - Vibrant for light theme */
+    --status-drafted: 220 14% 50%;
+    --status-sent: 210 80% 45%;
+    --status-pending: 43 95% 45%;
+    --status-received: 160 70% 38%;
+    --status-confirmed: 140 70% 35%;
+    --status-active: 280 65% 50%;
+    --status-closed: 220 14% 45%;
     
-    /* SLA colors */
-    --sla-safe: 140 60% 40%;
-    --sla-warning: 43 90% 50%;
-    --sla-critical: 0 70% 50%;
+    /* SLA colors - High visibility */
+    --sla-safe: 140 75% 35%;
+    --sla-warning: 43 100% 45%;
+    --sla-critical: 0 80% 50%;
     
-    /* Chart colors - gold-based palette */
-    --chart-1: 43 85% 55%;
-    --chart-2: 200 70% 50%;
-    --chart-3: 160 50% 45%;
-    --chart-4: 280 50% 55%;
-    --chart-5: 20 70% 55%;
+    /* Chart colors */
+    --chart-1: 222 60% 40%;
+    --chart-2: 200 80% 45%;
+    --chart-3: 160 70% 38%;
+    --chart-4: 280 65% 50%;
+    --chart-5: 43 95% 45%;
     
     /* Gradients */
-    --gradient-gold: linear-gradient(135deg, hsl(43 85% 55%) 0%, hsl(40 70% 45%) 100%);
-    --gradient-dark: linear-gradient(180deg, hsl(220 20% 8%) 0%, hsl(220 20% 4%) 100%);
-    --gradient-card: linear-gradient(145deg, hsl(220 18% 12%) 0%, hsl(220 18% 8%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(222 60% 30%) 0%, hsl(222 55% 45%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(40 20% 98%) 0%, hsl(220 14% 96%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(220 14% 98%) 100%);
     
-    /* Shadows */
-    --shadow-gold: 0 4px 20px -4px hsl(43 85% 55% / 0.25);
-    --shadow-card: 0 4px 24px -8px hsl(0 0% 0% / 0.5);
-    --shadow-elevated: 0 8px 32px -8px hsl(0 0% 0% / 0.6);
+    /* Shadows - Soft for light theme */
+    --shadow-sm: 0 1px 2px 0 hsl(222 47% 15% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(222 47% 15% / 0.08), 0 2px 4px -2px hsl(222 47% 15% / 0.06);
+    --shadow-lg: 0 10px 15px -3px hsl(222 47% 15% / 0.08), 0 4px 6px -4px hsl(222 47% 15% / 0.06);
+    --shadow-xl: 0 20px 25px -5px hsl(222 47% 15% / 0.08), 0 8px 10px -6px hsl(222 47% 15% / 0.06);
   }
 
-  /* Light mode - redirect to dark */
-  .light {
-    /* Keep the same dark theme for consistency */
-    --primary: 43 85% 55%;
-    --primary-foreground: 0 0% 5%;
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 45 30% 90%;
-    --background: 220 20% 6%;
-    --foreground: 45 20% 92%;
-    --card: 220 18% 10%;
-    --card-foreground: 45 20% 92%;
-    --popover: 220 18% 12%;
-    --popover-foreground: 45 20% 92%;
-    --muted: 220 15% 15%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 43 90% 50%;
-    --accent-foreground: 0 0% 5%;
-    --destructive: 0 65% 45%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 15% 18%;
-    --input: 220 15% 20%;
-    --ring: 43 85% 55%;
-  }
-
+  /* ============================================
+     DARK THEME - Noir Elegance, Maximum Contrast
+     ============================================ */
   .dark {
-    --primary: 43 85% 55%;
+    color-scheme: dark;
+    
+    /* Primary: Luminous Gold - High visibility accent */
+    --primary: 43 90% 55%;
     --primary-foreground: 0 0% 5%;
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 45 30% 90%;
-    --background: 220 20% 6%;
-    --foreground: 45 20% 92%;
-    --card: 220 18% 10%;
-    --card-foreground: 45 20% 92%;
-    --popover: 220 18% 12%;
-    --popover-foreground: 45 20% 92%;
-    --muted: 220 15% 15%;
-    --muted-foreground: 220 10% 55%;
-    --accent: 43 90% 50%;
-    --accent-foreground: 0 0% 5%;
-    --destructive: 0 65% 45%;
+    
+    /* Secondary: Rich Charcoal */
+    --secondary: 220 20% 16%;
+    --secondary-foreground: 45 20% 92%;
+    
+    /* Background: Deep Noir - True black feel */
+    --background: 220 25% 5%;
+    --foreground: 45 15% 95%;
+    
+    /* Card: Elevated Noir with contrast */
+    --card: 220 22% 9%;
+    --card-foreground: 45 15% 95%;
+    
+    /* Popover: Slightly lighter for hierarchy */
+    --popover: 220 22% 11%;
+    --popover-foreground: 45 15% 95%;
+    
+    /* Muted: Sophisticated Gray */
+    --muted: 220 18% 14%;
+    --muted-foreground: 220 12% 60%;
+    
+    /* Accent: Warm Gold highlight */
+    --accent: 43 60% 20%;
+    --accent-foreground: 43 90% 65%;
+    
+    /* Brand variations for depth */
+    --brand-dark: 43 70% 25%;
+    --brand: 43 90% 55%;
+    --brand-light: 43 85% 65%;
+    --brand-muted: 43 50% 45%;
+    
+    /* Gold accent */
+    --gold: 43 90% 55%;
+    --gold-foreground: 0 0% 5%;
+    
+    /* Destructive: Crimson with punch */
+    --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 15% 18%;
-    --input: 220 15% 20%;
-    --ring: 43 85% 55%;
-    --sidebar-background: 220 25% 5%;
-    --sidebar-foreground: 45 15% 85%;
-    --sidebar-primary: 43 85% 55%;
+    
+    /* Border: Subtle gold-tinted */
+    --border: 220 18% 16%;
+    --input: 220 18% 18%;
+    --ring: 43 90% 55%;
+    
+    /* Radius */
+    --radius: 0.5rem;
+    
+    /* Sidebar: Ultra dark with gold accents */
+    --sidebar-background: 220 28% 4%;
+    --sidebar-foreground: 45 12% 85%;
+    --sidebar-primary: 43 90% 55%;
     --sidebar-primary-foreground: 0 0% 5%;
-    --sidebar-accent: 220 20% 12%;
-    --sidebar-accent-foreground: 45 20% 92%;
-    --sidebar-border: 43 40% 20%;
-    --sidebar-ring: 43 85% 55%;
+    --sidebar-accent: 220 22% 10%;
+    --sidebar-accent-foreground: 45 15% 92%;
+    --sidebar-border: 43 40% 18%;
+    --sidebar-ring: 43 90% 55%;
+    
+    /* Status colors - Luminous for dark theme */
+    --status-drafted: 220 15% 50%;
+    --status-sent: 210 85% 55%;
+    --status-pending: 43 90% 55%;
+    --status-received: 160 65% 50%;
+    --status-confirmed: 140 70% 45%;
+    --status-active: 280 60% 60%;
+    --status-closed: 220 15% 45%;
+    
+    /* SLA colors - High visibility */
+    --sla-safe: 140 75% 45%;
+    --sla-warning: 43 95% 55%;
+    --sla-critical: 0 75% 55%;
+    
+    /* Chart colors - Vivid gold-based palette */
+    --chart-1: 43 90% 55%;
+    --chart-2: 200 80% 55%;
+    --chart-3: 160 65% 50%;
+    --chart-4: 280 60% 60%;
+    --chart-5: 20 80% 55%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(43 90% 55%) 0%, hsl(40 75% 45%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(220 25% 7%) 0%, hsl(220 25% 4%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(220 22% 11%) 0%, hsl(220 22% 7%) 100%);
+    
+    /* Shadows - Deep for dark theme */
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.4), 0 2px 4px -2px hsl(0 0% 0% / 0.3);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.5), 0 4px 6px -4px hsl(0 0% 0% / 0.4);
+    --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.6), 0 8px 10px -6px hsl(0 0% 0% / 0.5);
+    --shadow-gold: 0 4px 20px -4px hsl(43 90% 55% / 0.25);
+    --shadow-gold-glow: 0 0 24px 6px hsl(43 90% 55% / 0.35), 0 4px 16px -4px hsl(43 90% 55% / 0.25);
   }
 }
 
+/* Base styles */
 @layer base {
   * {
     @apply border-border;
@@ -165,8 +221,22 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  /* Light theme background */
+  .light body,
+  :root body {
     background-image: 
-      radial-gradient(ellipse at top, hsl(220 20% 10%) 0%, transparent 50%),
+      radial-gradient(ellipse at top, hsl(222 60% 95% / 0.5) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, hsl(43 50% 90% / 0.3) 0%, transparent 40%);
+    background-attachment: fixed;
+  }
+
+  /* Dark theme background */
+  .dark body {
+    background-image: 
+      radial-gradient(ellipse at top, hsl(220 25% 10%) 0%, transparent 50%),
       radial-gradient(ellipse at bottom right, hsl(43 50% 10% / 0.15) 0%, transparent 40%);
     background-attachment: fixed;
   }
@@ -192,18 +262,44 @@
     @apply bg-primary/30 text-foreground;
   }
 
-  /* Scrollbar styling */
-  ::-webkit-scrollbar {
+  /* Scrollbar styling - Light theme */
+  .light ::-webkit-scrollbar,
+  :root ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
 
-  ::-webkit-scrollbar-track {
+  .light ::-webkit-scrollbar-track,
+  :root ::-webkit-scrollbar-track {
+    @apply bg-muted/50 rounded-full;
+  }
+
+  .light ::-webkit-scrollbar-thumb,
+  :root ::-webkit-scrollbar-thumb {
+    @apply bg-primary/30 rounded-full;
+  }
+
+  .light ::-webkit-scrollbar-thumb:hover,
+  :root ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary/50;
+  }
+
+  /* Scrollbar styling - Dark theme */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dark ::-webkit-scrollbar-track {
     @apply bg-muted/30 rounded-full;
   }
 
-  ::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/30 rounded-full hover:bg-primary/50 transition-colors;
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary/50;
   }
 }
 
@@ -216,20 +312,33 @@
     font-family: 'Inter', system-ui, sans-serif;
   }
 
-  /* Brand text gradient */
+  /* Brand text gradient - adapts to theme */
   .text-brand-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, hsl(222 47% 23%) 0%, hsl(222 60% 35%) 50%, hsl(222 47% 23%) 100%);
   }
 
-  /* Legacy alias for text-gold-gradient */
+  .light .text-brand-gradient,
+  :root .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(222 60% 30%) 0%, hsl(222 55% 45%) 50%, hsl(222 60% 30%) 100%);
+  }
+
+  .dark .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(43 90% 55%) 0%, hsl(43 85% 65%) 50%, hsl(43 90% 55%) 100%);
+  }
+
+  /* Legacy alias */
   .text-gold-gradient {
     @apply text-brand-gradient;
   }
 
-  /* Brand border glow */
-  .border-brand-glow {
-    box-shadow: 0 0 0 1px hsl(222 47% 23% / 0.3), 0 0 20px -5px hsl(222 60% 35% / 0.2);
+  /* Brand border glow - adapts to theme */
+  .light .border-brand-glow,
+  :root .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(222 60% 30% / 0.2), 0 0 20px -5px hsl(222 55% 45% / 0.15);
+  }
+
+  .dark .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(43 90% 55% / 0.3), 0 0 20px -5px hsl(43 85% 55% / 0.2);
   }
 
   /* Legacy alias */
@@ -237,18 +346,24 @@
     @apply border-brand-glow;
   }
 
-  /* Card hover effect */
+  /* Card hover effect - adapts to theme */
   .card-hover {
     @apply transition-all duration-300 ease-out;
   }
 
-  .card-hover:hover {
+  .light .card-hover:hover,
+  :root .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.6), 0 0 0 1px hsl(43 85% 55% / 0.1);
+    box-shadow: 0 8px 32px -8px hsl(222 60% 30% / 0.15), 0 0 0 1px hsl(222 60% 30% / 0.1);
   }
 
-  /* Gold shine animation */
-  @keyframes gold-shine {
+  .dark .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.6), 0 0 0 1px hsl(43 90% 55% / 0.1);
+  }
+
+  /* Shine animation */
+  @keyframes brand-shine {
     0% {
       background-position: -200% center;
     }
@@ -258,28 +373,34 @@
   }
 
   .brand-shine {
+    background-size: 200% 100%;
+    animation: brand-shine 3s ease-in-out infinite;
+  }
+
+  .light .brand-shine,
+  :root .brand-shine {
     background: linear-gradient(
       90deg,
       transparent 0%,
-      hsl(222 60% 35% / 0.1) 50%,
+      hsl(222 60% 45% / 0.1) 50%,
       transparent 100%
     );
     background-size: 200% 100%;
-    animation: brand-shine 3s ease-in-out infinite;
+  }
+
+  .dark .brand-shine {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(43 90% 55% / 0.1) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
   }
 
   /* Legacy alias */
   .gold-shine {
     @apply brand-shine;
-  }
-
-  @keyframes brand-shine {
-    0% {
-      background-position: -200% center;
-    }
-    100% {
-      background-position: 200% center;
-    }
   }
 
   /* Subtle pulse for important elements */
@@ -292,13 +413,51 @@
     @apply pulse-brand;
   }
 
-  @keyframes pulse-brand {
+  @keyframes pulse-brand-light {
     0%, 100% {
-      box-shadow: 0 0 0 0 hsl(222 47% 23% / 0.4);
+      box-shadow: 0 0 0 0 hsl(222 60% 30% / 0.4);
     }
     50% {
-      box-shadow: 0 0 0 8px hsl(222 47% 23% / 0);
+      box-shadow: 0 0 0 8px hsl(222 60% 30% / 0);
     }
+  }
+
+  @keyframes pulse-brand-dark {
+    0%, 100% {
+      box-shadow: 0 0 0 0 hsl(43 90% 55% / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px hsl(43 90% 55% / 0);
+    }
+  }
+
+  .light .pulse-brand,
+  :root .pulse-brand {
+    animation: pulse-brand-light 2s ease-in-out infinite;
+  }
+
+  .dark .pulse-brand {
+    animation: pulse-brand-dark 2s ease-in-out infinite;
+  }
+
+  /* Golden glow effect for buttons on hover - Dark theme */
+  .dark .glow-on-hover {
+    @apply transition-shadow duration-300;
+  }
+
+  .dark .glow-on-hover:hover {
+    box-shadow: 0 0 24px 6px hsl(43 90% 55% / 0.35), 0 4px 16px -4px hsl(43 90% 55% / 0.25);
+  }
+
+  /* Blue glow effect for buttons on hover - Light theme */
+  .light .glow-on-hover,
+  :root .glow-on-hover {
+    @apply transition-shadow duration-300;
+  }
+
+  .light .glow-on-hover:hover,
+  :root .glow-on-hover:hover {
+    box-shadow: 0 0 20px 4px hsl(222 60% 45% / 0.25), 0 4px 12px -4px hsl(222 60% 30% / 0.2);
   }
 }
 
@@ -309,12 +468,21 @@
     @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background;
   }
 
-  /* Glass effect cards */
+  /* Glass effect cards - adapts to theme */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    @apply backdrop-blur-xl border border-border/50;
   }
 
-  /* Gold accent line */
+  .light .glass-card,
+  :root .glass-card {
+    @apply bg-card/90;
+  }
+
+  .dark .glass-card {
+    @apply bg-card/80;
+  }
+
+  /* Accent line */
   .accent-line {
     @apply relative;
   }
@@ -322,5 +490,20 @@
   .accent-line::before {
     content: '';
     @apply absolute left-0 top-0 w-1 h-full bg-primary rounded-l;
+  }
+
+  /* Status badge improvements */
+  .status-badge {
+    @apply font-medium px-2.5 py-0.5 rounded-full text-xs;
+  }
+
+  /* High contrast text helper */
+  .text-high-contrast {
+    @apply text-foreground font-medium;
+  }
+
+  /* Subtle divider */
+  .divider-subtle {
+    @apply border-t border-border/50;
   }
 }

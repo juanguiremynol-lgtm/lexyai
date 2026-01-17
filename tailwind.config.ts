@@ -61,18 +61,20 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        // Gold color scale
+        // Gold color scale - used in both themes
         gold: {
           50: "hsl(45 100% 95%)",
           100: "hsl(45 95% 88%)",
           200: "hsl(44 90% 75%)",
           300: "hsl(43 88% 65%)",
-          400: "hsl(43 85% 55%)",
-          500: "hsl(42 80% 48%)",
-          600: "hsl(40 75% 40%)",
-          700: "hsl(38 70% 32%)",
-          800: "hsl(36 65% 24%)",
-          900: "hsl(34 60% 16%)",
+          400: "hsl(43 90% 55%)",
+          500: "hsl(42 85% 50%)",
+          600: "hsl(40 80% 42%)",
+          700: "hsl(38 75% 35%)",
+          800: "hsl(36 70% 28%)",
+          900: "hsl(34 65% 20%)",
+          DEFAULT: "hsl(var(--gold))",
+          foreground: "hsl(var(--gold-foreground))",
         },
         status: {
           drafted: "hsl(var(--status-drafted))",

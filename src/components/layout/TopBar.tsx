@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { ColombianClock } from "./ColombianClock";
+import { ThemeToggle } from "./ThemeToggle";
 import logo from "@/assets/atenia-logo.png";
 
 export function TopBar() {
@@ -73,6 +74,8 @@ export function TopBar() {
 
       <div className="flex items-center gap-3">
         <ColombianClock />
+
+        <ThemeToggle />
 
         <Button
           variant="ghost"
