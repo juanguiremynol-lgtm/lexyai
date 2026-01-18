@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Clock,
   Building2,
-  Users
+  Users,
+  Flag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInDays } from "date-fns";
@@ -31,6 +32,7 @@ import {
 
 export interface CpacaItem {
   id: string;
+  type: "cpaca";
   radicado: string | null;
   titulo: string | null;
   medioDeControl: MedioDeControl;
@@ -47,22 +49,27 @@ export interface CpacaItem {
   fechaVencimientoTraslado: string | null;
   fechaAudienciaInicial: string | null;
   createdAt: string;
+  isFlagged: boolean;
 }
 
 interface CpacaCardProps {
   item: CpacaItem;
   isDragging?: boolean;
+  isFocused?: boolean;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: (item: { id: string; type: "cpaca" }, shiftKey: boolean) => void;
+  onToggleFlag?: (item: CpacaItem) => void;
 }
 
 export function CpacaCard({
   item,
   isDragging = false,
+  isFocused = false,
   isSelectionMode = false,
   isSelected = false,
   onToggleSelection,
+  onToggleFlag,
 }: CpacaCardProps) {
   const navigate = useNavigate();
   
@@ -131,9 +138,11 @@ export function CpacaCard({
         "cursor-grab active:cursor-grabbing transition-all duration-200",
         "hover:shadow-md hover:border-primary/50",
         isDragging && "opacity-50 rotate-2 scale-105 shadow-xl",
+        isFocused && "ring-2 ring-primary ring-offset-2",
         isSelected && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950/20",
         item.estadoCaducidad === "VENCIDO" && "border-red-400 bg-red-50/50 dark:bg-red-950/10",
-        item.estadoCaducidad === "RIESGO" && "border-amber-400 bg-amber-50/50 dark:bg-amber-950/10"
+        item.estadoCaducidad === "RIESGO" && "border-amber-400 bg-amber-50/50 dark:bg-amber-950/10",
+        item.isFlagged && "ring-2 ring-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -159,6 +168,12 @@ export function CpacaCard({
                   <TooltipContent>{medioInfo.label}</TooltipContent>
                 </Tooltip>
                 <ClientRequiredBadge hasClient={!!item.clientId} />
+                {item.isFlagged && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-amber-500/20 text-amber-500 border-amber-500/30">
+                    <Flag className="h-2.5 w-2.5 mr-0.5 fill-current" />
+                    Marcado
+                  </Badge>
+                )}
               </div>
               {item.radicado && (
                 <p className="text-xs font-mono text-muted-foreground mt-1 truncate">
@@ -263,19 +278,39 @@ export function CpacaCard({
           <span>Creado: {format(new Date(item.createdAt), "dd/MM/yyyy", { locale: es })}</span>
         </div>
 
-        {/* Action button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full h-7 text-xs mt-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/cpaca/${item.id}`);
-          }}
-        >
-          <ExternalLink className="h-3 w-3 mr-1" />
-          Ver detalle
-        </Button>
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 h-7 text-xs"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/cpaca/${item.id}`);
+            }}
+          >
+            <ExternalLink className="h-3 w-3 mr-1" />
+            Ver detalle
+          </Button>
+          {onToggleFlag && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 text-xs",
+                item.isFlagged 
+                  ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/50" 
+                  : "hover:bg-muted hover:text-amber-500"
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFlag(item);
+              }}
+            >
+              <Flag className={cn("h-3 w-3", item.isFlagged && "fill-current")} />
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

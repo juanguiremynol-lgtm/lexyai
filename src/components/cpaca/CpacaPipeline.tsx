@@ -67,6 +67,7 @@ interface RawCpacaProcess {
 function rawToCpacaItem(raw: RawCpacaProcess): CpacaItem {
   return {
     id: raw.id,
+    type: "cpaca" as const,
     radicado: raw.radicado,
     titulo: raw.titulo,
     medioDeControl: raw.medio_de_control as MedioDeControl,
@@ -83,6 +84,7 @@ function rawToCpacaItem(raw: RawCpacaProcess): CpacaItem {
     fechaVencimientoTraslado: raw.fecha_vencimiento_traslado_demanda,
     fechaAudienciaInicial: raw.fecha_audiencia_inicial,
     createdAt: raw.created_at,
+    isFlagged: false, // CPACA table doesn't have is_flagged yet
   };
 }
 

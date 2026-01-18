@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Gavel, CheckSquare } from "lucide-react";
+import { Gavel, CheckSquare, Keyboard, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -35,6 +35,7 @@ import { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
 import { DesacatoPipeline } from "./DesacatoPipeline";
 import { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
+import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
 // Map filing status to tutela phase
 function statusToPhase(status: string): TutelaPhase {
@@ -97,12 +98,14 @@ interface RawTutela {
   demandados: string | null;
   last_reviewed_at: string | null;
   client_id: string | null;
+  is_flagged: boolean | null;
   clients: { id: string; name: string } | null;
 }
 
 function rawToTutelaItem(raw: RawTutela): TutelaItem {
   return {
     id: raw.id,
+    type: "tutela" as const,
     filingType: raw.filing_type,
     radicado: raw.radicado,
     courtName: raw.court_name,
@@ -115,6 +118,7 @@ function rawToTutelaItem(raw: RawTutela): TutelaItem {
     demandados: raw.demandados,
     lastArchivedPromptAt: raw.last_reviewed_at,
     isFavorable: raw.has_auto_admisorio,
+    isFlagged: raw.is_flagged ?? false,
   };
 }
 
@@ -147,7 +151,7 @@ export function TutelasPipeline() {
   );
 
   // Fetch tutelas (filings with type TUTELA)
-  const { data: tutelas, isLoading } = useQuery({
+  const { data: tutelas, isLoading, refetch } = useQuery({
     queryKey: ["tutelas"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
@@ -158,7 +162,7 @@ export function TutelasPipeline() {
         .select(`
           id, filing_type, radicado, court_name, created_at, status,
           has_auto_admisorio, demandantes, demandados, last_reviewed_at,
-          client_id,
+          client_id, is_flagged,
           clients(id, name)
         `)
         .eq("owner_id", user.user.id)
@@ -167,6 +171,20 @@ export function TutelasPipeline() {
 
       if (error) throw error;
       return (data as unknown as RawTutela[]).map(rawToTutelaItem);
+    },
+  });
+
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
+      const { error } = await supabase
+        .from("filings")
+        .update({ is_flagged: !isFlagged })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
     },
   });
 
@@ -278,6 +296,11 @@ export function TutelasPipeline() {
     setDesacatoDialog({ open: true, tutela: item });
   }, []);
 
+  // Handle toggle flag
+  const handleToggleFlag = useCallback((item: TutelaItem) => {
+    toggleFlagMutation.mutate({ id: item.id, isFlagged: item.isFlagged });
+  }, [toggleFlagMutation]);
+
   // Group items by stage
   const itemsByStage = useMemo(() => {
     const result: Record<string, TutelaItem[]> = {};
@@ -340,6 +363,25 @@ export function TutelasPipeline() {
     }
   }, [isSelectionMode, clearSelection]);
 
+  // Keyboard navigation - memoize stages for hook
+  const stagesForKeyboard = useMemo(() => 
+    TUTELA_STAGES.map(s => ({ id: s.id, type: "tutela" as const })), 
+    []
+  );
+  
+  const { 
+    isNavigating, 
+    startNavigation, 
+    getFocusedItemId 
+  } = usePipelineKeyboard({
+    stages: stagesForKeyboard,
+    itemsByStage,
+    onReclassify: () => {}, // No reclassification for tutelas
+    enabled: !isSelectionMode,
+  });
+
+  const focusedItemId = getFocusedItemId();
+
   if (isLoading) {
     return (
       <div className="flex gap-4">
@@ -364,16 +406,33 @@ export function TutelasPipeline() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isSelectionMode}
-              onChange={toggleSelectionMode}
-              className="rounded border-muted-foreground/50"
-            />
-            <CheckSquare className="h-4 w-4" />
-            Selección
-          </label>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleSelectionMode}
+            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            {isSelectionMode ? "Cancelar" : "Seleccionar"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNavigation}
+            className={isNavigating ? "ring-2 ring-primary" : ""}
+            disabled={isSelectionMode}
+          >
+            <Keyboard className="h-4 w-4 mr-2" />
+            {isNavigating ? "Navegando" : "Tab"}
+          </Button>
+          <Button onClick={() => setNewDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Nueva Tutela
+          </Button>
         </div>
       </div>
 
@@ -392,11 +451,13 @@ export function TutelasPipeline() {
                 key={stage.id}
                 stage={stage}
                 items={itemsByStage[stage.id] || []}
+                focusedItemId={focusedItemId}
                 isSelectionMode={isSelectionMode}
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onArchivePrompt={handleArchivePrompt}
                 onInitiateDesacato={handleInitiateDesacato}
+                onToggleFlag={handleToggleFlag}
               />
             ))}
           </div>
