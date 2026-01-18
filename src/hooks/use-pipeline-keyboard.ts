@@ -2,14 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
-interface PipelineItem {
+export interface PipelineItem {
   id: string;
-  type: "filing" | "process" | "tutela" | "peticion" | "admin";
+  type: "filing" | "process" | "tutela" | "peticion" | "admin" | "cpaca";
   radicado?: string | null;
 }
 
+type StageType = "filing" | "process" | "tutela" | "peticion" | "admin" | "cpaca";
+
 interface UsePipelineKeyboardProps {
-  stages: { id: string; type: "filing" | "process" }[];
+  stages: { id: string; type: StageType }[];
   itemsByStage: Record<string, PipelineItem[]>;
   onReclassify: (item: PipelineItem) => void;
   onDelete?: (item: PipelineItem) => void;
@@ -159,9 +161,10 @@ export function usePipelineKeyboard({
               navigate(`/filings/${item.id}`);
             } else if (item.type === "process" || item.type === "admin") {
               navigate(`/process-status/${item.id}`);
+            } else if (item.type === "cpaca") {
+              navigate(`/cpaca/${item.id}`);
             } else if (item.type === "peticion") {
-              // Peticiones don't have a detail page yet
-              toast.info("Detalle de petición no disponible aún");
+              navigate(`/peticiones/${item.id}`);
             }
             stopNavigation();
           }

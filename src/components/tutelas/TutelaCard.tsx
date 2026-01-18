@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { Calendar, FileText, Gavel, Archive, ExternalLink, AlertTriangle } from "lucide-react";
+import { Calendar, FileText, Gavel, Archive, ExternalLink, AlertTriangle, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -15,6 +15,7 @@ import { EntityClientLink } from "@/components/shared/EntityClientLink";
 
 export interface TutelaItem {
   id: string;
+  type: "tutela";
   filingType: string;
   radicado: string | null;
   courtName: string | null;
@@ -27,6 +28,7 @@ export interface TutelaItem {
   demandados: string | null;
   lastArchivedPromptAt: string | null;
   isFavorable: boolean | null;
+  isFlagged: boolean;
 }
 
 interface TutelaCardProps {
@@ -38,6 +40,7 @@ interface TutelaCardProps {
   onToggleSelection?: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt?: (item: TutelaItem) => void;
   onInitiateDesacato?: (item: TutelaItem) => void;
+  onToggleFlag?: (item: TutelaItem) => void;
 }
 
 export function TutelaCard({
@@ -49,6 +52,7 @@ export function TutelaCard({
   onToggleSelection,
   onArchivePrompt,
   onInitiateDesacato,
+  onToggleFlag,
 }: TutelaCardProps) {
   const navigate = useNavigate();
   
@@ -93,7 +97,8 @@ export function TutelaCard({
         isFocused && "ring-2 ring-primary ring-offset-2",
         isSelected && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950/20",
         isFinalPhase && item.isFavorable && "border-green-300 bg-green-50/50 dark:bg-green-950/10",
-        isFinalPhase && !item.isFavorable && "border-red-300 bg-red-50/50 dark:bg-red-950/10"
+        isFinalPhase && !item.isFavorable && "border-red-300 bg-red-50/50 dark:bg-red-950/10",
+        item.isFlagged && "ring-2 ring-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -112,6 +117,12 @@ export function TutelaCard({
                 <Gavel className="h-4 w-4 text-purple-500" />
                 <p className="text-sm font-medium">Tutela</p>
                 <ClientRequiredBadge hasClient={!!item.clientId} />
+                {item.isFlagged && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-amber-500/20 text-amber-500 border-amber-500/30">
+                    <Flag className="h-2.5 w-2.5 mr-0.5 fill-current" />
+                    Marcado
+                  </Badge>
+                )}
               </div>
               {item.radicado && (
                 <p className="text-xs font-mono text-muted-foreground mt-1">
@@ -185,6 +196,25 @@ export function TutelaCard({
             Ver detalle
           </Button>
           
+          {onToggleFlag && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 text-xs",
+                item.isFlagged 
+                  ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/50" 
+                  : "hover:bg-muted hover:text-amber-500"
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFlag(item);
+              }}
+            >
+              <Flag className={cn("h-3 w-3", item.isFlagged && "fill-current")} />
+            </Button>
+          )}
+
           {showArchiveButton && (
             <Button
               variant="outline"

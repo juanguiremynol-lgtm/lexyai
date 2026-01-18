@@ -16,24 +16,35 @@ export interface TutelaStageConfig {
 interface TutelaColumnProps {
   stage: TutelaStageConfig;
   items: TutelaItem[];
+  focusedItemId?: string | null;
   isSelectionMode: boolean;
   isItemSelected: (item: { id: string; type: "tutela" }) => boolean;
   onToggleSelection: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt: (item: TutelaItem) => void;
   onInitiateDesacato: (item: TutelaItem) => void;
+  onToggleFlag?: (item: TutelaItem) => void;
 }
 
 export function TutelaColumn({
   stage,
   items,
+  focusedItemId,
   isSelectionMode,
   isItemSelected,
   onToggleSelection,
   onArchivePrompt,
   onInitiateDesacato,
+  onToggleFlag,
 }: TutelaColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
+  });
+
+  // Sort items: flagged first
+  const sortedItems = [...items].sort((a, b) => {
+    if (a.isFlagged && !b.isFlagged) return -1;
+    if (!a.isFlagged && b.isFlagged) return 1;
+    return 0;
   });
 
   return (
@@ -61,15 +72,17 @@ export function TutelaColumn({
       {/* Column Content */}
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
-          {items.map((item) => (
+          {sortedItems.map((item) => (
             <TutelaCard
               key={item.id}
               item={item}
+              isFocused={focusedItemId === `tutela:${item.id}`}
               isSelectionMode={isSelectionMode}
               isSelected={isItemSelected({ id: item.id, type: "tutela" })}
               onToggleSelection={onToggleSelection}
               onArchivePrompt={onArchivePrompt}
               onInitiateDesacato={onInitiateDesacato}
+              onToggleFlag={onToggleFlag}
             />
           ))}
           {items.length === 0 && (
