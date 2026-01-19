@@ -1781,8 +1781,9 @@ export type Database = {
       hearings: {
         Row: {
           auto_detected: boolean | null
+          cpaca_process_id: string | null
           created_at: string
-          filing_id: string
+          filing_id: string | null
           id: string
           is_virtual: boolean | null
           location: string | null
@@ -1796,8 +1797,9 @@ export type Database = {
         }
         Insert: {
           auto_detected?: boolean | null
+          cpaca_process_id?: string | null
           created_at?: string
-          filing_id: string
+          filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
           location?: string | null
@@ -1811,8 +1813,9 @@ export type Database = {
         }
         Update: {
           auto_detected?: boolean | null
+          cpaca_process_id?: string | null
           created_at?: string
-          filing_id?: string
+          filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
           location?: string | null
@@ -1825,6 +1828,13 @@ export type Database = {
           virtual_link?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "hearings_cpaca_process_id_fkey"
+            columns: ["cpaca_process_id"]
+            isOneToOne: false
+            referencedRelation: "cpaca_processes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hearings_filing_id_fkey"
             columns: ["filing_id"]

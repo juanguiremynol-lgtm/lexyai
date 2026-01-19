@@ -19,12 +19,16 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import {
   Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   MapPin,
   Video,
@@ -34,16 +38,28 @@ import {
   Bot,
   Bell,
   Mail,
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
   Search,
+  Scale,
+  Gavel,
+  FileText,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { format, startOfMonth, endOfMonth, isSameDay, addMonths, subMonths, isAfter, isBefore, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
+
+// Unified process type for hearing linking
+interface ProcessOption {
+  id: string;
+  type: "filing" | "cpaca";
+  radicado: string | null;
+  label: string;
+  clientName: string | null;
+  category: string;
+  icon: "scale" | "gavel" | "file" | "building";
+}
 
 interface Hearing {
   id: string;
@@ -55,19 +71,33 @@ interface Hearing {
   notes: string | null;
   auto_detected: boolean | null;
   reminder_sent: boolean | null;
-  filing_id: string;
+  filing_id: string | null;
+  cpaca_process_id: string | null;
   filing?: {
     id: string;
     radicado: string | null;
+    filing_type: string;
     matter?: {
       client_name: string;
       matter_name: string;
     };
+    client?: {
+      name: string;
+    };
+    linked_process?: {
+      id: string;
+      radicado: string;
+      demandantes: string | null;
+    };
   };
-  process?: {
+  cpaca_process?: {
     id: string;
-    radicado: string;
-    demandantes: string | null;
+    radicado: string | null;
+    titulo: string | null;
+    medio_de_control: string;
+    client?: {
+      name: string;
+    };
   };
 }
 
@@ -77,7 +107,7 @@ export default function Hearings() {
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterFiling, setFilterFiling] = useState<string>("all");
+  const [filterProcess, setFilterProcess] = useState<string>("all");
   const [formData, setFormData] = useState({
     title: "",
     scheduled_at: "",
@@ -86,7 +116,7 @@ export default function Hearings() {
     notes: "",
     is_virtual: false,
     virtual_link: "",
-    filing_id: "",
+    process_key: "", // Format: "type:id" e.g., "filing:uuid" or "cpaca:uuid"
   });
 
   // Fetch all hearings with filing/process details
@@ -100,8 +130,17 @@ export default function Hearings() {
           filing:filings(
             id,
             radicado,
+            filing_type,
             matter:matters(client_name, matter_name),
+            client:clients(name),
             linked_process:monitored_processes(id, radicado, demandantes)
+          ),
+          cpaca_process:cpaca_processes(
+            id,
+            radicado,
+            titulo,
+            medio_de_control,
+            client:clients(name)
           )
         `)
         .order("scheduled_at", { ascending: true });
@@ -110,22 +149,108 @@ export default function Hearings() {
     },
   });
 
-  // Fetch filings for the dropdown
-  const { data: filings } = useQuery({
-    queryKey: ["filings-for-hearings"],
+  // Fetch all process options for dropdown (filings + CPACA)
+  const { data: processOptions } = useQuery({
+    queryKey: ["hearing-process-options"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const options: ProcessOption[] = [];
+
+      // Fetch filings (CGP, Tutelas, Peticiones, etc.)
+      const { data: filings, error: filingsError } = await supabase
         .from("filings")
         .select(`
           id,
           radicado,
-          matter:matters(client_name, matter_name)
+          filing_type,
+          matter:matters(client_name, matter_name),
+          client:clients(name)
         `)
         .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      
+      if (filingsError) throw filingsError;
+
+      filings?.forEach((f) => {
+        const clientName = f.client?.name || f.matter?.client_name || null;
+        let category = "Proceso";
+        let icon: ProcessOption["icon"] = "scale";
+        
+        if (f.filing_type === "TUTELA" || f.filing_type === "Tutela") {
+          category = "Tutela";
+          icon = "gavel";
+        } else if (f.filing_type === "PETICION" || f.filing_type === "Peticion" || f.filing_type === "DERECHO_PETICION") {
+          category = "Derecho de Petición";
+          icon = "file";
+        } else if (f.filing_type === "HABEAS_CORPUS" || f.filing_type === "Habeas Corpus") {
+          category = "Habeas Corpus";
+          icon = "gavel";
+        } else if (f.filing_type === "Demanda" || f.filing_type === "DEMANDA") {
+          category = "Proceso CGP";
+          icon = "scale";
+        }
+
+        options.push({
+          id: f.id,
+          type: "filing",
+          radicado: f.radicado,
+          label: f.radicado || f.matter?.matter_name || "Sin radicado",
+          clientName,
+          category,
+          icon,
+        });
+      });
+
+      // Fetch CPACA processes
+      const { data: cpacaProcesses, error: cpacaError } = await supabase
+        .from("cpaca_processes")
+        .select(`
+          id,
+          radicado,
+          titulo,
+          medio_de_control,
+          client:clients(name)
+        `)
+        .order("created_at", { ascending: false });
+      
+      if (cpacaError) throw cpacaError;
+
+      cpacaProcesses?.forEach((p) => {
+        options.push({
+          id: p.id,
+          type: "cpaca",
+          radicado: p.radicado,
+          label: p.radicado || p.titulo || "Sin radicado",
+          clientName: p.client?.name || null,
+          category: "Proceso CPACA",
+          icon: "building",
+        });
+      });
+
+      return options;
     },
   });
+
+  // Group options by category for the dropdown
+  const groupedOptions = useMemo(() => {
+    if (!processOptions) return {};
+    
+    return processOptions.reduce((acc, opt) => {
+      if (!acc[opt.category]) {
+        acc[opt.category] = [];
+      }
+      acc[opt.category].push(opt);
+      return acc;
+    }, {} as Record<string, ProcessOption[]>);
+  }, [processOptions]);
+
+  // Helper to parse process_key
+  const parseProcessKey = (key: string): { type: "filing" | "cpaca"; id: string } | null => {
+    if (!key) return null;
+    const [type, id] = key.split(":");
+    if (type === "filing" || type === "cpaca") {
+      return { type, id };
+    }
+    return null;
+  };
 
   // Create hearing mutation
   const createHearing = useMutation({
@@ -133,14 +258,14 @@ export default function Hearings() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      if (!formData.filing_id) {
-        throw new Error("Debe seleccionar una radicación");
+      const parsed = parseProcessKey(formData.process_key);
+      if (!parsed) {
+        throw new Error("Debe seleccionar un proceso");
       }
 
       const scheduledAt = new Date(`${formData.scheduled_at}T${formData.scheduled_time}`);
 
-      const { error } = await supabase.from("hearings").insert({
-        filing_id: formData.filing_id,
+      const insertData = {
         owner_id: user.id,
         title: formData.title,
         scheduled_at: scheduledAt.toISOString(),
@@ -149,7 +274,11 @@ export default function Hearings() {
         is_virtual: formData.is_virtual,
         virtual_link: formData.virtual_link || null,
         auto_detected: false,
-      });
+        filing_id: parsed.type === "filing" ? parsed.id : null,
+        cpaca_process_id: parsed.type === "cpaca" ? parsed.id : null,
+      };
+
+      const { error } = await supabase.from("hearings").insert(insertData);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -190,7 +319,7 @@ export default function Hearings() {
       notes: "",
       is_virtual: false,
       virtual_link: "",
-      filing_id: "",
+      process_key: "",
     });
   };
 
@@ -199,16 +328,35 @@ export default function Hearings() {
     if (!hearings) return [];
     
     return hearings.filter(h => {
+      // Search across filings and CPACA processes
+      const filingMatch = 
+        h.filing?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.filing?.matter?.client_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.filing?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const cpacaMatch = 
+        h.cpaca_process?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.cpaca_process?.titulo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.cpaca_process?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+
       const matchesSearch = searchQuery === "" || 
         h.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.filing?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.filing?.matter?.client_name?.toLowerCase().includes(searchQuery.toLowerCase());
+        filingMatch ||
+        cpacaMatch;
       
-      const matchesFiling = filterFiling === "all" || h.filing_id === filterFiling;
+      // Filter by process
+      if (filterProcess === "all") return matchesSearch;
       
-      return matchesSearch && matchesFiling;
+      const parsed = parseProcessKey(filterProcess);
+      if (!parsed) return matchesSearch;
+      
+      if (parsed.type === "filing") {
+        return matchesSearch && h.filing_id === parsed.id;
+      } else {
+        return matchesSearch && h.cpaca_process_id === parsed.id;
+      }
     });
-  }, [hearings, searchQuery, filterFiling]);
+  }, [hearings, searchQuery, filterProcess]);
 
   // Get hearings for a specific date
   const getHearingsForDate = (date: Date) => {
@@ -292,19 +440,36 @@ export default function Hearings() {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label htmlFor="filing_id">Radicación / Proceso</Label>
+                <Label htmlFor="process">Proceso / Radicación</Label>
                 <Select
-                  value={formData.filing_id}
-                  onValueChange={(value) => setFormData({ ...formData, filing_id: value })}
+                  value={formData.process_key}
+                  onValueChange={(value) => setFormData({ ...formData, process_key: value })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar radicación..." />
+                    <SelectValue placeholder="Seleccionar proceso..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    {filings?.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.radicado || "Sin radicado"} - {f.matter?.client_name || "Sin cliente"}
-                      </SelectItem>
+                  <SelectContent className="max-h-[300px]">
+                    {Object.entries(groupedOptions).map(([category, options]) => (
+                      <SelectGroup key={category}>
+                        <SelectLabel className="flex items-center gap-2">
+                          {category === "Proceso CGP" && <Scale className="h-3 w-3" />}
+                          {category === "Tutela" && <Gavel className="h-3 w-3" />}
+                          {category === "Derecho de Petición" && <FileText className="h-3 w-3" />}
+                          {category === "Proceso CPACA" && <Building2 className="h-3 w-3" />}
+                          {category === "Habeas Corpus" && <Gavel className="h-3 w-3" />}
+                          {category}
+                        </SelectLabel>
+                        {options.map((opt) => (
+                          <SelectItem key={`${opt.type}:${opt.id}`} value={`${opt.type}:${opt.id}`}>
+                            <div className="flex flex-col">
+                              <span className="font-mono text-sm">{opt.label}</span>
+                              {opt.clientName && (
+                                <span className="text-xs text-muted-foreground">{opt.clientName}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     ))}
                   </SelectContent>
                 </Select>
@@ -407,16 +572,21 @@ export default function Hearings() {
             className="pl-10"
           />
         </div>
-        <Select value={filterFiling} onValueChange={setFilterFiling}>
-          <SelectTrigger className="w-full md:w-[250px]">
-            <SelectValue placeholder="Todas las radicaciones" />
+        <Select value={filterProcess} onValueChange={setFilterProcess}>
+          <SelectTrigger className="w-full md:w-[300px]">
+            <SelectValue placeholder="Todos los procesos" />
           </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas las radicaciones</SelectItem>
-            {filings?.map((f) => (
-              <SelectItem key={f.id} value={f.id}>
-                {f.radicado || "Sin radicado"}
-              </SelectItem>
+          <SelectContent className="max-h-[300px]">
+            <SelectItem value="all">Todos los procesos</SelectItem>
+            {Object.entries(groupedOptions).map(([category, options]) => (
+              <SelectGroup key={category}>
+                <SelectLabel>{category}</SelectLabel>
+                {options.map((opt) => (
+                  <SelectItem key={`${opt.type}:${opt.id}`} value={`${opt.type}:${opt.id}`}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
@@ -639,13 +809,31 @@ function HearingCard({ hearing, onDelete, isDeleting, isPast, showDate }: Hearin
             )}
           </div>
 
-          {/* Filing info */}
+          {/* Process info - Filing or CPACA */}
           {hearing.filing && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              <span className="font-mono">{hearing.filing.radicado || "Sin radicado"}</span>
-              {hearing.filing.matter && (
-                <span> • {hearing.filing.matter.client_name}</span>
+            <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+              {hearing.filing.filing_type === "TUTELA" || hearing.filing.filing_type === "Tutela" ? (
+                <Gavel className="h-3 w-3" />
+              ) : hearing.filing.filing_type === "PETICION" || hearing.filing.filing_type === "DERECHO_PETICION" ? (
+                <FileText className="h-3 w-3" />
+              ) : (
+                <Scale className="h-3 w-3" />
               )}
+              <span className="font-mono">{hearing.filing.radicado || "Sin radicado"}</span>
+              {(hearing.filing.client?.name || hearing.filing.matter?.client_name) && (
+                <span> • {hearing.filing.client?.name || hearing.filing.matter?.client_name}</span>
+              )}
+            </p>
+          )}
+          
+          {hearing.cpaca_process && (
+            <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
+              <Building2 className="h-3 w-3" />
+              <span className="font-mono">{hearing.cpaca_process.radicado || hearing.cpaca_process.titulo || "Sin radicado"}</span>
+              {hearing.cpaca_process.client?.name && (
+                <span> • {hearing.cpaca_process.client.name}</span>
+              )}
+              <Badge variant="outline" className="ml-1 text-[10px] py-0">CPACA</Badge>
             </p>
           )}
 
