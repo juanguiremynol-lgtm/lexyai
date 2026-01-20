@@ -5,6 +5,8 @@ export { MonitoredProcessesSection } from "./MonitoredProcessesSection";
 export { ProcessPipeline } from "./ProcessPipeline";
 export { ProcessPipelineColumn } from "./ProcessPipelineColumn";
 export { ProcessPipelineCard } from "./ProcessPipelineCard";
+export { ProcessBulkActionsBar } from "./ProcessBulkActionsBar";
+export { ProcessBulkDeleteDialog } from "./ProcessBulkDeleteDialog";
 export { NewProcessDialog } from "./NewProcessDialog";
 export { ProcessInfoEditor } from "./ProcessInfoEditor";
 export { BuscarProceso } from "./BuscarProceso";
