@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, CheckSquare } from "lucide-react";
+import { FileText, CheckSquare, Plus, RefreshCw, Keyboard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addBusinessDays } from "@/lib/colombian-holidays";
@@ -33,6 +33,7 @@ import { EscalateToTutelaDialog } from "./EscalateToTutelaDialog";
 import { PeticionesBulkActionsBar } from "./PeticionesBulkActionsBar";
 import { PeticionesBulkDeleteDialog } from "./PeticionesBulkDeleteDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
+import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
 // Build stages configuration
 const PETICION_STAGES: PeticionStageConfig[] = PETICION_PHASES_ORDER.map((phase) => ({
@@ -57,6 +58,7 @@ interface RawPeticion {
   escalated_to_tutela: boolean | null;
   tutela_filing_id: string | null;
   client_id: string | null;
+  is_flagged: boolean | null;
   clients: { id: string; name: string } | null;
 }
 
@@ -76,6 +78,7 @@ function rawToPeticionItem(raw: RawPeticion): PeticionItem {
     tutelaFilingId: raw.tutela_filing_id,
     clientId: raw.client_id,
     clientName: raw.clients?.name || null,
+    isFlagged: raw.is_flagged ?? false,
   };
 }
 
@@ -97,7 +100,7 @@ export function PeticionesPipeline() {
   );
 
   // Fetch peticiones
-  const { data: peticiones, isLoading } = useQuery({
+  const { data: peticiones, isLoading, refetch } = useQuery({
     queryKey: ["peticiones"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
@@ -108,7 +111,7 @@ export function PeticionesPipeline() {
         .select(`
           id, entity_name, entity_type, subject, radicado, filed_at, deadline_at,
           prorogation_requested, prorogation_deadline_at, phase, escalated_to_tutela,
-          tutela_filing_id, client_id,
+          tutela_filing_id, client_id, is_flagged,
           clients(id, name)
         `)
         .eq("owner_id", user.user.id)
@@ -116,6 +119,20 @@ export function PeticionesPipeline() {
 
       if (error) throw error;
       return (data as unknown as RawPeticion[]).map(rawToPeticionItem);
+    },
+  });
+
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
+      const { error } = await supabase
+        .from("peticiones")
+        .update({ is_flagged: !isFlagged })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["peticiones"] });
     },
   });
 
@@ -263,6 +280,43 @@ export function PeticionesPipeline() {
     }
   }, [isSelectionMode, clearSelection]);
 
+  // Handle toggle flag
+  const handleToggleFlag = useCallback((item: PeticionItem) => {
+    toggleFlagMutation.mutate({ id: item.id, isFlagged: item.isFlagged ?? false });
+  }, [toggleFlagMutation]);
+
+  // Keyboard navigation - memoize stages for hook
+  const stagesForKeyboard = useMemo(() => 
+    PETICION_STAGES.map(s => ({ id: s.id, type: "peticion" as const })), 
+    []
+  );
+  
+  // Create items with proper type for keyboard nav
+  const itemsByStageForKeyboard = useMemo(() => {
+    const result: Record<string, { id: string; type: "peticion"; radicado?: string }[]> = {};
+    PETICION_STAGES.forEach(stage => {
+      result[stage.id] = (itemsByStage[stage.id] || []).map(item => ({
+        id: item.id,
+        type: "peticion" as const,
+        radicado: item.radicado || undefined,
+      }));
+    });
+    return result;
+  }, [itemsByStage]);
+  
+  const { 
+    isNavigating, 
+    startNavigation, 
+    getFocusedItemId 
+  } = usePipelineKeyboard({
+    stages: stagesForKeyboard,
+    itemsByStage: itemsByStageForKeyboard,
+    onReclassify: () => {},
+    enabled: !isSelectionMode,
+  });
+
+  const focusedItemId = getFocusedItemId();
+
   if (isLoading) {
     return (
       <div className="flex gap-4">
@@ -287,16 +341,33 @@ export function PeticionesPipeline() {
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isSelectionMode}
-              onChange={toggleSelectionMode}
-              className="rounded border-muted-foreground/50"
-            />
-            <CheckSquare className="h-4 w-4" />
-            Selección
-          </label>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleSelectionMode}
+            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            {isSelectionMode ? "Cancelar" : "Seleccionar"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNavigation}
+            className={isNavigating ? "ring-2 ring-primary" : ""}
+            disabled={isSelectionMode}
+          >
+            <Keyboard className="h-4 w-4 mr-2" />
+            {isNavigating ? "Navegando" : "Tab"}
+          </Button>
+          <Button onClick={() => setNewDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Nueva Petición
+          </Button>
         </div>
       </div>
 
@@ -315,10 +386,12 @@ export function PeticionesPipeline() {
                 key={stage.id}
                 stage={stage}
                 items={itemsByStage[stage.id] || []}
+                focusedItemId={focusedItemId}
                 isSelectionMode={isSelectionMode}
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
                 onEscalateToTutela={(peticion) => setEscalateDialog({ open: true, peticion })}
+                onToggleFlag={handleToggleFlag}
               />
             ))}
           </div>

@@ -20,17 +20,21 @@ export interface CpacaStageConfig {
 interface CpacaColumnProps {
   stage: CpacaStageConfig;
   items: CpacaItem[];
+  focusedItemId?: string | null;
   isSelectionMode: boolean;
   isItemSelected: (item: { id: string; type: "cpaca" }) => boolean;
   onToggleSelection: (item: { id: string; type: "cpaca" }, shiftKey: boolean) => void;
+  onToggleFlag?: (item: CpacaItem) => void;
 }
 
 export function CpacaColumn({
   stage,
   items,
+  focusedItemId,
   isSelectionMode,
   isItemSelected,
   onToggleSelection,
+  onToggleFlag,
 }: CpacaColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -99,13 +103,16 @@ export function CpacaColumn({
       {/* Column Content */}
       <ScrollArea className="flex-1 p-2">
         <div className="space-y-2">
-          {items.map((item) => (
+          {/* Sort flagged items first */}
+          {[...items].sort((a, b) => (b.isFlagged ? 1 : 0) - (a.isFlagged ? 1 : 0)).map((item) => (
             <CpacaCard
               key={item.id}
               item={item}
+              isFocused={focusedItemId === `cpaca:${item.id}`}
               isSelectionMode={isSelectionMode}
               isSelected={isItemSelected({ id: item.id, type: "cpaca" })}
               onToggleSelection={onToggleSelection}
+              onToggleFlag={onToggleFlag}
             />
           ))}
           {items.length === 0 && (

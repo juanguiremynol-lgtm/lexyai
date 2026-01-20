@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { AlertTriangle, Building2, Calendar, Clock, ExternalLink, Gavel } from "lucide-react";
+import { AlertTriangle, Building2, Calendar, Clock, ExternalLink, Flag, Gavel } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isPast, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -14,6 +14,7 @@ import { EntityClientLink } from "@/components/shared/EntityClientLink";
 
 export interface PeticionItem {
   id: string;
+  type?: "peticion";
   entityName: string;
   entityType: "PUBLIC" | "PRIVATE";
   subject: string;
@@ -27,6 +28,7 @@ export interface PeticionItem {
   tutelaFilingId: string | null;
   clientId: string | null;
   clientName: string | null;
+  isFlagged?: boolean;
 }
 
 interface PeticionCardProps {
@@ -37,6 +39,7 @@ interface PeticionCardProps {
   isSelected?: boolean;
   onToggleSelection?: (item: { id: string; type: "peticion" }, shiftKey: boolean) => void;
   onEscalateToTutela?: (item: PeticionItem) => void;
+  onToggleFlag?: (item: PeticionItem) => void;
 }
 
 export function PeticionCard({
@@ -47,6 +50,7 @@ export function PeticionCard({
   isSelected = false,
   onToggleSelection,
   onEscalateToTutela,
+  onToggleFlag,
 }: PeticionCardProps) {
   const navigate = useNavigate();
   
@@ -133,7 +137,8 @@ export function PeticionCard({
         isFocused && "ring-2 ring-primary ring-offset-2",
         isSelected && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950/20",
         isOverdue && "border-red-300 bg-red-50/50 dark:bg-red-950/10",
-        item.escalatedToTutela && "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10"
+        item.escalatedToTutela && "border-purple-300 bg-purple-50/50 dark:bg-purple-950/10",
+        item.isFlagged && "ring-2 ring-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -148,9 +153,14 @@ export function PeticionCard({
               />
             )}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 <p className="text-sm font-medium truncate">{item.subject}</p>
                 <ClientRequiredBadge hasClient={!!item.clientId} />
+                {item.isFlagged && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-amber-500/20 text-amber-500 border-amber-500/30">
+                    <Flag className="h-2.5 w-2.5 mr-0.5 fill-current" />
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                 <Building2 className="h-3 w-3" />
@@ -250,9 +260,31 @@ export function PeticionCard({
               onEscalateToTutela(item);
             }}
           >
-            <Gavel className="h-3 w-3 mr-1" />
+          <Gavel className="h-3 w-3 mr-1" />
             Escalar a Tutela
           </Button>
+        )}
+
+        {/* Flag toggle button */}
+        {onToggleFlag && (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-6 text-xs",
+                item.isFlagged 
+                  ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/50" 
+                  : "hover:bg-muted hover:text-amber-500"
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFlag(item);
+              }}
+            >
+              <Flag className={cn("h-3 w-3", item.isFlagged && "fill-current")} />
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>

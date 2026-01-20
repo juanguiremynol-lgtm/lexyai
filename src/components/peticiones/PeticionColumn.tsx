@@ -21,6 +21,7 @@ interface PeticionColumnProps {
   isItemSelected?: (item: { id: string; type: "peticion" }) => boolean;
   onToggleSelection?: (item: { id: string; type: "peticion" }, shiftKey: boolean) => void;
   onEscalateToTutela?: (item: PeticionItem) => void;
+  onToggleFlag?: (item: PeticionItem) => void;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -43,6 +44,7 @@ export function PeticionColumn({
   isItemSelected,
   onToggleSelection,
   onEscalateToTutela,
+  onToggleFlag,
 }: PeticionColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage.id,
@@ -82,7 +84,7 @@ export function PeticionColumn({
             Sin peticiones
           </div>
         ) : (
-          items.map((item) => (
+          [...items].sort((a, b) => ((b.isFlagged ? 1 : 0) - (a.isFlagged ? 1 : 0))).map((item) => (
             <PeticionCard
               key={item.id}
               item={item}
@@ -91,6 +93,7 @@ export function PeticionColumn({
               isSelected={isItemSelected?.({ id: item.id, type: "peticion" }) ?? false}
               onToggleSelection={onToggleSelection}
               onEscalateToTutela={onEscalateToTutela}
+              onToggleFlag={onToggleFlag}
             />
           ))
         )}

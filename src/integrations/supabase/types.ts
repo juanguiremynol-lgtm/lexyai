@@ -988,6 +988,7 @@ export type Database = {
           hora_audiencia_juzgamiento: string | null
           hora_audiencia_pruebas: string | null
           id: string
+          is_flagged: boolean | null
           juez_ponente: string | null
           link_audiencia_inicial: string | null
           link_audiencia_pruebas: string | null
@@ -1060,6 +1061,7 @@ export type Database = {
           hora_audiencia_juzgamiento?: string | null
           hora_audiencia_pruebas?: string | null
           id?: string
+          is_flagged?: boolean | null
           juez_ponente?: string | null
           link_audiencia_inicial?: string | null
           link_audiencia_pruebas?: string | null
@@ -1132,6 +1134,7 @@ export type Database = {
           hora_audiencia_juzgamiento?: string | null
           hora_audiencia_pruebas?: string | null
           id?: string
+          is_flagged?: boolean | null
           juez_ponente?: string | null
           link_audiencia_inicial?: string | null
           link_audiencia_pruebas?: string | null
