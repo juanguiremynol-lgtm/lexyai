@@ -15,11 +15,17 @@ interface MonitoredProcess {
   phase: ProcessPhase | null;
   client_id: string | null;
   clients: { id: string; name: string } | null;
+  is_flagged?: boolean;
 }
 
 interface ProcessPipelineColumnProps {
   phase: ProcessPhase;
   processes: MonitoredProcess[];
+  focusedItemId?: string | null;
+  isSelectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
+  onToggleFlag?: (id: string) => void;
 }
 
 const PHASE_COLORS: Record<string, string> = {
@@ -46,7 +52,15 @@ const BADGE_COLORS: Record<string, string> = {
   emerald: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
 };
 
-export function ProcessPipelineColumn({ phase, processes }: ProcessPipelineColumnProps) {
+export function ProcessPipelineColumn({
+  phase,
+  processes,
+  focusedItemId,
+  isSelectionMode = false,
+  selectedIds = new Set(),
+  onToggleSelect,
+  onToggleFlag,
+}: ProcessPipelineColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: phase,
   });
@@ -54,6 +68,13 @@ export function ProcessPipelineColumn({ phase, processes }: ProcessPipelineColum
   const phaseConfig = PROCESS_PHASES[phase];
   const colorClass = PHASE_COLORS[phaseConfig.color] || PHASE_COLORS.blue;
   const badgeClass = BADGE_COLORS[phaseConfig.color] || BADGE_COLORS.blue;
+
+  // Sort flagged items to top
+  const sortedProcesses = [...processes].sort((a, b) => {
+    if (a.is_flagged && !b.is_flagged) return -1;
+    if (!a.is_flagged && b.is_flagged) return 1;
+    return 0;
+  });
 
   return (
     <div className="flex-shrink-0 w-64">
@@ -74,8 +95,16 @@ export function ProcessPipelineColumn({ phase, processes }: ProcessPipelineColum
           </span>
         </div>
         <div className="space-y-2">
-          {processes.map((process) => (
-            <ProcessPipelineCard key={process.id} process={process} />
+          {sortedProcesses.map((process) => (
+            <ProcessPipelineCard
+              key={process.id}
+              process={process}
+              isFocused={focusedItemId === process.id}
+              isSelected={selectedIds.has(process.id)}
+              isSelectionMode={isSelectionMode}
+              onToggleSelect={onToggleSelect ? () => onToggleSelect(process.id) : undefined}
+              onToggleFlag={onToggleFlag ? () => onToggleFlag(process.id) : undefined}
+            />
           ))}
           {processes.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-8">
