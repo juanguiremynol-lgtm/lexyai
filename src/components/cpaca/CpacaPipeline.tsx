@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Scale, CheckSquare, Plus, RefreshCw } from "lucide-react";
+import { Scale, CheckSquare, Plus, RefreshCw, Keyboard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -34,6 +34,7 @@ import { NewCpacaDialog } from "./NewCpacaDialog";
 import { CpacaBulkActionsBar } from "./CpacaBulkActionsBar";
 import { CpacaBulkDeleteDialog } from "./CpacaBulkDeleteDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
+import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
 // Build stages configuration from constants
 const CPACA_STAGES: CpacaStageConfig[] = CPACA_PHASES_ORDER.map((phase) => ({
@@ -61,6 +62,7 @@ interface RawCpacaProcess {
   fecha_vencimiento_traslado_demanda: string | null;
   fecha_audiencia_inicial: string | null;
   created_at: string;
+  is_flagged: boolean | null;
   clients: { id: string; name: string } | null;
 }
 
@@ -84,7 +86,7 @@ function rawToCpacaItem(raw: RawCpacaProcess): CpacaItem {
     fechaVencimientoTraslado: raw.fecha_vencimiento_traslado_demanda,
     fechaAudienciaInicial: raw.fecha_audiencia_inicial,
     createdAt: raw.created_at,
-    isFlagged: false, // CPACA table doesn't have is_flagged yet
+    isFlagged: raw.is_flagged ?? false,
   };
 }
 
@@ -115,7 +117,7 @@ export function CpacaPipeline() {
           phase, despacho_nombre, despacho_ciudad, demandantes, demandados,
           client_id, estado_caducidad, estado_conciliacion, conciliacion_requisito,
           fecha_vencimiento_caducidad, fecha_vencimiento_traslado_demanda,
-          fecha_audiencia_inicial, created_at,
+          fecha_audiencia_inicial, created_at, is_flagged,
           clients(id, name)
         `)
         .eq("owner_id", user.user.id)
@@ -123,6 +125,20 @@ export function CpacaPipeline() {
 
       if (error) throw error;
       return (data as unknown as RawCpacaProcess[]).map(rawToCpacaItem);
+    },
+  });
+
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
+      const { error } = await supabase
+        .from("cpaca_processes")
+        .update({ is_flagged: !isFlagged })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
     },
   });
 
@@ -269,6 +285,30 @@ export function CpacaPipeline() {
     }
   }, [isSelectionMode, clearSelection]);
 
+  // Handle toggle flag
+  const handleToggleFlag = useCallback((item: CpacaItem) => {
+    toggleFlagMutation.mutate({ id: item.id, isFlagged: item.isFlagged });
+  }, [toggleFlagMutation]);
+
+  // Keyboard navigation - memoize stages for hook
+  const stagesForKeyboard = useMemo(() => 
+    CPACA_STAGES.map(s => ({ id: s.id, type: "cpaca" as const })), 
+    []
+  );
+  
+  const { 
+    isNavigating, 
+    startNavigation, 
+    getFocusedItemId 
+  } = usePipelineKeyboard({
+    stages: stagesForKeyboard,
+    itemsByStage,
+    onReclassify: () => {},
+    enabled: !isSelectionMode,
+  });
+
+  const focusedItemId = getFocusedItemId();
+
   if (isLoading) {
     return (
       <div className="flex gap-4">
@@ -300,16 +340,25 @@ export function CpacaPipeline() {
             <RefreshCw className="h-4 w-4 mr-1" />
             Actualizar
           </Button>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isSelectionMode}
-              onChange={toggleSelectionMode}
-              className="rounded border-muted-foreground/50"
-            />
-            <CheckSquare className="h-4 w-4" />
-            Selección
-          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleSelectionMode}
+            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            {isSelectionMode ? "Cancelar" : "Seleccionar"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNavigation}
+            className={isNavigating ? "ring-2 ring-primary" : ""}
+            disabled={isSelectionMode}
+          >
+            <Keyboard className="h-4 w-4 mr-2" />
+            {isNavigating ? "Navegando" : "Tab"}
+          </Button>
           <Button onClick={() => setNewDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
             Nuevo CPACA
@@ -332,9 +381,11 @@ export function CpacaPipeline() {
                 key={stage.id}
                 stage={stage}
                 items={itemsByStage[stage.id] || []}
+                focusedItemId={focusedItemId}
                 isSelectionMode={isSelectionMode}
                 isItemSelected={isItemSelected}
                 onToggleSelection={toggleItemSelection}
+                onToggleFlag={handleToggleFlag}
               />
             ))}
           </div>
