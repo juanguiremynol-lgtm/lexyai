@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, ArrowLeft } from "lucide-react";
 import { 
   MEDIOS_DE_CONTROL, 
   CPACA_PHASES,
@@ -35,9 +35,12 @@ import {
 interface NewCpacaDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBack?: () => void;
+  onSuccess?: () => void;
+  defaultClientId?: string;
 }
 
-export function NewCpacaDialog({ open, onOpenChange }: NewCpacaDialogProps) {
+export function NewCpacaDialog({ open, onOpenChange, onBack, onSuccess, defaultClientId }: NewCpacaDialogProps) {
   const queryClient = useQueryClient();
   
   // Form state
@@ -55,9 +58,9 @@ export function NewCpacaDialog({ open, onOpenChange }: NewCpacaDialogProps) {
   const [fechaEventoCaducidad, setFechaEventoCaducidad] = useState("");
   const [notas, setNotas] = useState("");
   
-  // Client selection
-  const [clientTab, setClientTab] = useState<"existing" | "new">("existing");
-  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  // Client selection - use defaultClientId if provided
+  const [clientTab, setClientTab] = useState<"existing" | "new">(defaultClientId ? "existing" : "existing");
+  const [selectedClientId, setSelectedClientId] = useState<string>(defaultClientId || "");
   const [newClientName, setNewClientName] = useState("");
   const [newClientIdNumber, setNewClientIdNumber] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
@@ -146,6 +149,7 @@ export function NewCpacaDialog({ open, onOpenChange }: NewCpacaDialogProps) {
       toast.success("Proceso CPACA creado");
       resetForm();
       onOpenChange(false);
+      onSuccess?.();
     },
     onError: (error) => {
       toast.error("Error al crear: " + error.message);
@@ -167,7 +171,7 @@ export function NewCpacaDialog({ open, onOpenChange }: NewCpacaDialogProps) {
     setFechaEventoCaducidad("");
     setNotas("");
     setClientTab("existing");
-    setSelectedClientId("");
+    setSelectedClientId(defaultClientId || "");
     setNewClientName("");
     setNewClientIdNumber("");
     setNewClientEmail("");
@@ -184,10 +188,19 @@ export function NewCpacaDialog({ open, onOpenChange }: NewCpacaDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh]">
         <DialogHeader>
-          <DialogTitle>Nuevo Proceso CPACA</DialogTitle>
-          <DialogDescription>
-            Crear un nuevo proceso contencioso administrativo
-          </DialogDescription>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            )}
+            <div>
+              <DialogTitle>Nuevo Proceso CPACA</DialogTitle>
+              <DialogDescription>
+                Crear un nuevo proceso contencioso administrativo
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] pr-4">

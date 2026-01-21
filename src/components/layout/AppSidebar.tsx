@@ -11,7 +11,6 @@ import {
   Link2,
   Mail,
   FilePlus,
-  Landmark,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -39,7 +38,6 @@ const navItems = [
   { title: "Nuevo Proceso", url: "/new-process", icon: FilePlus },
   { title: "Clientes", url: "/clients", icon: Briefcase },
   { title: "Procesos", url: "/processes", icon: Scale },
-  { title: "CPACA", url: "/cpaca", icon: Landmark },
   { title: "Audiencias", url: "/hearings", icon: CalendarDays },
   { title: "Correos", url: "/email-inbox", icon: Mail },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
