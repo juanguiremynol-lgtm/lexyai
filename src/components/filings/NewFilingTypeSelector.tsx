@@ -8,9 +8,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Scale, FileText, Building2, ShieldAlert, Lock } from "lucide-react";
+import { Scale, FileText, Building2, ShieldAlert, Lock, Landmark } from "lucide-react";
 
-export type FilingCategory = "CGP" | "TUTELA" | "HABEAS_CORPUS" | "PETICION" | "ADMINISTRATIVO";
+export type FilingCategory = "CGP" | "TUTELA" | "HABEAS_CORPUS" | "PETICION" | "ADMINISTRATIVO" | "CPACA";
 
 interface NewFilingTypeSelectorProps {
   open: boolean;
@@ -27,6 +27,15 @@ const FILING_CATEGORIES = [
     examples: "Declarativo, ejecutivo, verbal sumario, etc.",
     color: "text-blue-500",
     bgColor: "bg-blue-500/10 hover:bg-blue-500/20",
+  },
+  {
+    type: "CPACA" as FilingCategory,
+    title: "Proceso CPACA",
+    description: "Proceso contencioso administrativo ante la jurisdicción",
+    icon: Landmark,
+    examples: "Nulidad, reparación directa, controversias contractuales",
+    color: "text-indigo-500",
+    bgColor: "bg-indigo-500/10 hover:bg-indigo-500/20",
   },
   {
     type: "TUTELA" as FilingCategory,

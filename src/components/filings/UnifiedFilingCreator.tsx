@@ -5,6 +5,7 @@ import { NewTutelaDialog } from "@/components/tutelas/NewTutelaDialog";
 import { NewHabeasCorpusDialog } from "@/components/tutelas/NewHabeasCorpusDialog";
 import { NewPeticionDialog } from "@/components/peticiones/NewPeticionDialog";
 import { NewAdminProcessDialog } from "@/components/pipeline/NewAdminProcessDialog";
+import { NewCpacaDialog } from "@/components/cpaca/NewCpacaDialog";
 
 interface UnifiedFilingCreatorProps {
   open: boolean;
@@ -62,6 +63,19 @@ export function UnifiedFilingCreator({
   if (currentStep === "CGP") {
     return (
       <NewCGPFilingDialog
+        open={open}
+        onOpenChange={handleClose}
+        onBack={initialType ? undefined : handleBack}
+        onSuccess={handleSuccess}
+        defaultClientId={clientId}
+      />
+    );
+  }
+
+  // CPACA Process Dialog
+  if (currentStep === "CPACA") {
+    return (
+      <NewCpacaDialog
         open={open}
         onOpenChange={handleClose}
         onBack={initialType ? undefined : handleBack}
