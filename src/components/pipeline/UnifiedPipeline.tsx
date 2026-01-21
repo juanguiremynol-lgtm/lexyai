@@ -195,7 +195,7 @@ export function UnifiedPipeline() {
     },
   });
 
-  // Fetch processes
+  // Fetch processes - ONLY JUDICIAL (CGP) processes, not ADMINISTRATIVE
   const { data: processes, isLoading: processesLoading } = useQuery({
     queryKey: ["unified-pipeline-processes"],
     queryFn: async () => {
@@ -210,7 +210,8 @@ export function UnifiedPipeline() {
           clients(id, name)
         `)
         .eq("owner_id", user.user.id)
-        .eq("monitoring_enabled", true);
+        .eq("monitoring_enabled", true)
+        .neq("process_type", "ADMINISTRATIVE"); // Exclude admin processes - they have their own pipeline
 
       if (error) throw error;
       return (data as unknown as RawProcess[]).map(processToUnifiedItem);
@@ -262,7 +263,7 @@ export function UnifiedPipeline() {
       let newProcessId: string | null = null;
 
       if (hasAutoAdmisorio) {
-        // Create a linked process
+        // Create a linked JUDICIAL process (not ADMINISTRATIVE)
         const { data: newProcess, error: processError } = await supabase
           .from("monitored_processes")
           .insert({
@@ -275,6 +276,7 @@ export function UnifiedPipeline() {
             has_auto_admisorio: true,
             linked_filing_id: filing.id,
             phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
+            process_type: "JUDICIAL", // Explicit type to avoid confusion with ADMINISTRATIVE
           })
           .select("id")
           .single();

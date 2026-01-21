@@ -23,7 +23,7 @@ export function useReclassification() {
       if (!user.user) throw new Error("No user");
 
       if (hasAutoAdmisorio) {
-        // Create a linked process
+        // Create a linked JUDICIAL process (not ADMINISTRATIVE)
         const { data: newProcess, error: processError } = await supabase
           .from("monitored_processes")
           .insert({
@@ -36,6 +36,7 @@ export function useReclassification() {
             has_auto_admisorio: true,
             linked_filing_id: filing.id,
             phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
+            process_type: "JUDICIAL", // Explicit type for CGP processes
           })
           .select("id")
           .single();
