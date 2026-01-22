@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { UnifiedPipeline, AdminPipeline } from "@/components/pipeline";
+import { WorkItemPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
@@ -194,9 +194,9 @@ export default function Dashboard() {
         
         <TabsContent value="cgp" className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar.
+            Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar. La fase (Radicación/Proceso) se determina automáticamente según la etapa.
           </p>
-          <UnifiedPipeline />
+          <WorkItemPipeline />
         </TabsContent>
 
         <TabsContent value="cpaca" className="space-y-4">

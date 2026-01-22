@@ -139,6 +139,41 @@ export default function Processes() {
     },
   });
 
+  // Fetch work_items for mapping legacy IDs to work_item IDs
+  const { data: workItemMappings } = useQuery({
+    queryKey: ["work-item-mappings"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("work_items")
+        .select("id, legacy_process_id, legacy_filing_id, legacy_cgp_item_id")
+        .eq("workflow_type", "CGP");
+
+      if (error) throw error;
+      
+      // Create maps for quick lookup
+      const byProcessId = new Map<string, string>();
+      const byFilingId = new Map<string, string>();
+      const byCgpItemId = new Map<string, string>();
+      
+      for (const item of data) {
+        if (item.legacy_process_id) byProcessId.set(item.legacy_process_id, item.id);
+        if (item.legacy_filing_id) byFilingId.set(item.legacy_filing_id, item.id);
+        if (item.legacy_cgp_item_id) byCgpItemId.set(item.legacy_cgp_item_id, item.id);
+      }
+      
+      return { byProcessId, byFilingId, byCgpItemId };
+    },
+  });
+
+  // Helper functions to get work_item ID from legacy IDs
+  const getWorkItemId = (legacyProcessId: string): string => {
+    return workItemMappings?.byProcessId.get(legacyProcessId) || legacyProcessId;
+  };
+
+  const getWorkItemIdForFiling = (legacyFilingId: string): string => {
+    return workItemMappings?.byFilingId.get(legacyFilingId) || legacyFilingId;
+  };
+
   // Fetch latest estados for each process
   const { data: latestEstados } = useQuery({
     queryKey: ["latest-estados"],
@@ -682,7 +717,7 @@ export default function Processes() {
                             </TableCell>
                             <TableCell className="text-right">
                               <Button variant="ghost" size="sm" asChild>
-                                <Link to={`/filings/${filing.id}`}>
+                                <Link to={`/items/${getWorkItemIdForFiling(filing.id)}`}>
                                   <Eye className="h-4 w-4 mr-1" />
                                   Ver Detalle
                                 </Link>
@@ -935,7 +970,7 @@ export default function Processes() {
                                   </TooltipContent>
                                 </Tooltip>
                                 <Button variant="ghost" size="sm" asChild>
-                                  <Link to={`/processes/${process.id}`}>
+                                  <Link to={`/items/${getWorkItemId(process.id)}`}>
                                     <Eye className="h-4 w-4 mr-1" />
                                     Ver Detalle
                                   </Link>
