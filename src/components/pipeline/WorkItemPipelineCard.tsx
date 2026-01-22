@@ -11,13 +11,14 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
-import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
+import type { WorkflowType } from "@/lib/workflow-constants";
+import type { CGPPhase } from "@/lib/cgp-constants";
 
 export interface WorkItemPipelineItem {
   id: string;
   workflow_type: WorkflowType;
   stage: string;
-  cgp_phase: CGPPhase | null;
+  cgp_phase: CGPPhase | 'FILING' | 'PROCESS' | null;
   radicado: string | null;
   title: string | null;
   client_id: string | null;
@@ -68,8 +69,9 @@ export function WorkItemPipelineCard({
     : undefined;
 
   const detailPath = `/items/${item.id}`;
-  const isFilingPhase = item.cgp_phase === "FILING";
-  const isProcessPhase = item.cgp_phase === "PROCESS";
+  // Handle both old naming (FILING/PROCESS) and new naming (RADICACION/PROCESO)
+  const isFilingPhase = item.cgp_phase === "RADICACION" || item.cgp_phase === "FILING";
+  const isProcessPhase = item.cgp_phase === "PROCESO" || item.cgp_phase === "PROCESS";
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (isSelectionMode && onToggleSelection) {

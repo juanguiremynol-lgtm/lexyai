@@ -296,6 +296,89 @@ export type Database = {
           },
         ]
       }
+      cgp_deadline_rules: {
+        Row: {
+          cgp_variant: string
+          created_at: string | null
+          deadline_days: number
+          deadline_type: string
+          description: string | null
+          id: string
+          is_active: boolean | null
+          is_default: boolean | null
+          owner_id: string | null
+          trigger_event: string
+        }
+        Insert: {
+          cgp_variant: string
+          created_at?: string | null
+          deadline_days: number
+          deadline_type: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          owner_id?: string | null
+          trigger_event: string
+        }
+        Update: {
+          cgp_variant?: string
+          created_at?: string | null
+          deadline_days?: number
+          deadline_type?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          owner_id?: string | null
+          trigger_event?: string
+        }
+        Relationships: []
+      }
+      cgp_deadlines: {
+        Row: {
+          created_at: string | null
+          deadline_date: string
+          description: string | null
+          id: string
+          owner_id: string
+          status: string
+          trigger_date: string
+          trigger_event: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          deadline_date: string
+          description?: string | null
+          id?: string
+          owner_id: string
+          status?: string
+          trigger_date: string
+          trigger_event: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string | null
+          deadline_date?: string
+          description?: string | null
+          id?: string
+          owner_id?: string
+          status?: string
+          trigger_date?: string
+          trigger_event?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cgp_inactivity_tracker: {
         Row: {
           created_at: string
@@ -3675,10 +3758,14 @@ export type Database = {
           authority_email: string | null
           authority_name: string | null
           auto_admisorio_date: string | null
+          cgp_class: string | null
+          cgp_cuantia: string | null
+          cgp_instancia: string | null
           cgp_phase: Database["public"]["Enums"]["cgp_phase"] | null
           cgp_phase_source:
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
+          cgp_variant: string | null
           client_id: string | null
           created_at: string
           demandados: string | null
@@ -3700,8 +3787,11 @@ export type Database = {
           legacy_peticion_id: string | null
           legacy_process_id: string | null
           matter_id: string | null
+          migration_note: string | null
           monitoring_enabled: boolean | null
           notes: string | null
+          notification_effective_date: string | null
+          notification_substatus: string | null
           owner_id: string
           radicado: string | null
           radicado_verified: boolean | null
@@ -3724,10 +3814,14 @@ export type Database = {
           authority_email?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
           cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
           cgp_phase_source?:
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
+          cgp_variant?: string | null
           client_id?: string | null
           created_at?: string
           demandados?: string | null
@@ -3749,8 +3843,11 @@ export type Database = {
           legacy_peticion_id?: string | null
           legacy_process_id?: string | null
           matter_id?: string | null
+          migration_note?: string | null
           monitoring_enabled?: boolean | null
           notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
           owner_id: string
           radicado?: string | null
           radicado_verified?: boolean | null
@@ -3773,10 +3870,14 @@ export type Database = {
           authority_email?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
+          cgp_class?: string | null
+          cgp_cuantia?: string | null
+          cgp_instancia?: string | null
           cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
           cgp_phase_source?:
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
+          cgp_variant?: string | null
           client_id?: string | null
           created_at?: string
           demandados?: string | null
@@ -3798,8 +3899,11 @@ export type Database = {
           legacy_peticion_id?: string | null
           legacy_process_id?: string | null
           matter_id?: string | null
+          migration_note?: string | null
           monitoring_enabled?: boolean | null
           notes?: string | null
+          notification_effective_date?: string | null
+          notification_substatus?: string | null
           owner_id?: string
           radicado?: string | null
           radicado_verified?: boolean | null
