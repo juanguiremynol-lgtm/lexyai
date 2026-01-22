@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -42,13 +43,18 @@ import {
   Trash2,
   Loader2,
   RefreshCw,
+  FileText,
+  Scale,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { formatDateColombia } from "@/lib/constants";
+import { formatDateColombia, FILING_STATUSES } from "@/lib/constants";
 import { differenceInDays } from "date-fns";
 import { parseColombianDate, computeActuacionHash, normalizeActuacionText, type RamaJudicialApiResponse } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/config/api";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { SlaBadge } from "@/components/ui/sla-badge";
+import type { FilingStatus } from "@/lib/constants";
 
 interface MonitoredProcess {
   id: string;
@@ -94,10 +100,30 @@ interface ProcessEstado {
 export default function Processes() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"processes" | "filings">("processes");
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [updatingProcessId, setUpdatingProcessId] = useState<string | null>(null);
   const [updatePollingStatus, setUpdatePollingStatus] = useState<{ processId: string; elapsedSeconds: number } | null>(null);
+
+  // Fetch filings
+  const { data: filings, isLoading: loadingFilings } = useQuery({
+    queryKey: ["filings-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("filings")
+        .select(`
+          id, radicado, status, filing_type, court_name, demandantes, demandados,
+          sla_acta_due_at, sla_court_reply_due_at, created_at, updated_at, client_id,
+          clients(id, name),
+          matter:matters(client_name, matter_name)
+        `)
+        .order("updated_at", { ascending: false });
+
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // Fetch monitored processes
   const { data: processes, isLoading: loadingProcesses } = useQuery({
@@ -411,6 +437,31 @@ export default function Processes() {
     );
   });
 
+  const filteredFilings = filings?.filter((f) => {
+    const searchLower = search.toLowerCase();
+    const matter = f.matter as { client_name: string; matter_name: string } | null;
+    const client = f.clients as { id: string; name: string } | null;
+    return (
+      (f.radicado?.includes(search) ?? false) ||
+      (f.court_name?.toLowerCase().includes(searchLower) ?? false) ||
+      (f.demandantes?.toLowerCase().includes(searchLower) ?? false) ||
+      (f.demandados?.toLowerCase().includes(searchLower) ?? false) ||
+      (client?.name?.toLowerCase().includes(searchLower) ?? false) ||
+      (matter?.client_name?.toLowerCase().includes(searchLower) ?? false)
+    );
+  });
+
+  const getRelevantSla = (filing: NonNullable<typeof filings>[number]) => {
+    const status = filing.status as FilingStatus;
+    if (["ACTA_PENDING"].includes(status)) {
+      return { date: filing.sla_acta_due_at, label: "Acta" };
+    }
+    if (["COURT_EMAIL_SENT", "RADICADO_PENDING"].includes(status)) {
+      return { date: filing.sla_court_reply_due_at, label: "Juzgado" };
+    }
+    return null;
+  };
+
   const toggleSelectProcess = (processId: string) => {
     setSelectedProcesses((prev) => {
       const newSet = new Set(prev);
@@ -456,17 +507,27 @@ export default function Processes() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-serif font-bold">Procesos</h1>
+          <h1 className="text-3xl font-serif font-bold">Casos CGP</h1>
           <p className="text-muted-foreground">
-            Vista consolidada de todos los procesos con información de Estados e ICARUS
+            Vista consolidada de radicaciones y procesos judiciales
           </p>
         </div>
-        <Button variant="outline" asChild>
-          <Link to="/settings?tab=estados">
-            <FileSpreadsheet className="h-4 w-4 mr-2" />
-            Importar Estados
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
+            {filteredFilings?.length || 0} Radicaciones
+          </Badge>
+          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+            <Scale className="h-3.5 w-3.5 mr-1.5" />
+            {filteredProcesses?.length || 0} Procesos
+          </Badge>
+          <Button variant="outline" asChild>
+            <Link to="/settings?tab=estados">
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              Importar Estados
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Bulk Delete Dialog */}

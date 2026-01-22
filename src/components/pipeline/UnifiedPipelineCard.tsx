@@ -76,7 +76,7 @@ export function UnifiedPipelineCard({
 
   const detailPath = item.type === "filing" 
     ? `/filings/${item.id}` 
-    : `/process-status/${item.id}`;
+    : `/processes/${item.id}`;
 
   const relevantSla = item.filingStatus === "ACTA_PENDING"
     ? item.slaActaDueAt

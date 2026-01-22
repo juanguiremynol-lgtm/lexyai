@@ -23,39 +23,62 @@ export function useReclassification() {
       if (!user.user) throw new Error("No user");
 
       if (hasAutoAdmisorio) {
-        // Create a linked JUDICIAL process (not ADMINISTRATIVE)
-        const { data: newProcess, error: processError } = await supabase
+        // CRITICAL: Check if there's already a linked process to prevent duplicates
+        const { data: existingProcess } = await supabase
           .from("monitored_processes")
-          .insert({
-            owner_id: user.user.id,
-            radicado: filing.radicado || `RAD-${Date.now()}`,
-            despacho_name: filing.despachoName,
-            demandantes: filing.demandantes,
-            demandados: filing.demandados,
-            monitoring_enabled: true,
-            has_auto_admisorio: true,
-            linked_filing_id: filing.id,
-            phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
-            process_type: "JUDICIAL", // Explicit type for CGP processes
-          })
           .select("id")
-          .single();
+          .eq("linked_filing_id", filing.id)
+          .maybeSingle();
 
-        if (processError) throw processError;
+        let processId: string;
+
+        if (existingProcess) {
+          // Use existing linked process
+          processId = existingProcess.id;
+          // Re-enable monitoring
+          await supabase
+            .from("monitored_processes")
+            .update({ 
+              monitoring_enabled: true,
+              has_auto_admisorio: true 
+            })
+            .eq("id", processId);
+        } else {
+          // Create a new linked JUDICIAL process
+          const { data: newProcess, error: processError } = await supabase
+            .from("monitored_processes")
+            .insert({
+              owner_id: user.user.id,
+              radicado: filing.radicado || `RAD-${Date.now()}`,
+              despacho_name: filing.despachoName,
+              demandantes: filing.demandantes,
+              demandados: filing.demandados,
+              monitoring_enabled: true,
+              has_auto_admisorio: true,
+              linked_filing_id: filing.id,
+              phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
+              process_type: "JUDICIAL",
+            })
+            .select("id")
+            .single();
+
+          if (processError) throw processError;
+          processId = newProcess.id;
+        }
 
         // Update filing to link and mark as having auto admisorio
         const { error: filingError } = await supabase
           .from("filings")
           .update({
             has_auto_admisorio: true,
-            linked_process_id: newProcess.id,
+            linked_process_id: processId,
             status: "MONITORING_ACTIVE" as FilingStatus,
           })
           .eq("id", filing.id);
 
         if (filingError) throw filingError;
 
-        return { newProcessId: newProcess.id };
+        return { newProcessId: processId };
       } else {
         // Just mark as not having auto admisorio yet
         const { error } = await supabase
