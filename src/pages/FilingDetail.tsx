@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,8 @@ const FILING_METHOD_LABELS: Record<string, { label: string; icon: typeof Mail }>
 
 export default function FilingDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const processId = searchParams.get("processId");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
@@ -108,6 +110,44 @@ export default function FilingDetail() {
       return data;
     },
     enabled: !!id,
+  });
+
+  // Fetch linked process context (if coming from a process or filing has linked_process_id)
+  const { data: linkedProcess } = useQuery({
+    queryKey: ["filing-linked-process", id, processId, filing?.linked_process_id],
+    queryFn: async () => {
+      const targetProcessId = processId || filing?.linked_process_id;
+      if (!targetProcessId) return null;
+      
+      const { data, error } = await supabase
+        .from("monitored_processes")
+        .select("id, radicado, despacho_name, demandantes, demandados, phase, monitoring_enabled, client_id, clients(id, name)")
+        .eq("id", targetProcessId)
+        .maybeSingle();
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!(processId || filing?.linked_process_id),
+  });
+
+  // Fetch sibling filings (other filings linked to same process)
+  const { data: siblingFilings } = useQuery({
+    queryKey: ["sibling-filings", id, processId, filing?.linked_process_id],
+    queryFn: async () => {
+      const targetProcessId = processId || filing?.linked_process_id;
+      if (!targetProcessId) return [];
+      
+      const { data, error } = await supabase
+        .from("filings")
+        .select("id, filing_type, radicado, status, created_at")
+        .eq("linked_process_id", targetProcessId)
+        .order("created_at", { ascending: true });
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!(processId || filing?.linked_process_id),
   });
 
   const { data: profile } = useQuery({
@@ -334,9 +374,62 @@ export default function FilingDetail() {
   const client = filing.client as { name: string } | null;
   const filingMethod = FILING_METHOD_LABELS[filing.filing_method || "EMAIL"];
   const MethodIcon = filingMethod?.icon || Mail;
+  
+  // Determine display client name (prefer process client if available)
+  const displayClientName = linkedProcess?.clients?.name || client?.name || matter?.client_name || "Sin cliente";
+  
+  // Has multiple filings in this process context?
+  const hasMultipleFilings = (siblingFilings?.length || 0) > 1;
 
   return (
     <div className="space-y-6">
+      {/* Process Context Banner (if viewing from process context) */}
+      {linkedProcess && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Gavel className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">Proceso:</span>
+                  <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
+                    {linkedProcess.radicado}
+                  </code>
+                </div>
+                {linkedProcess.despacho_name && (
+                  <span className="text-sm text-muted-foreground">
+                    {linkedProcess.despacho_name}
+                  </span>
+                )}
+              </div>
+              {/* Filing Selector */}
+              {hasMultipleFilings && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Radicación:</span>
+                  <Select
+                    value={id}
+                    onValueChange={(newFilingId) => {
+                      navigate(`/filings/${newFilingId}?processId=${linkedProcess.id}`);
+                    }}
+                  >
+                    <SelectTrigger className="w-48 h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {siblingFilings?.map((sf) => (
+                        <SelectItem key={sf.id} value={sf.id}>
+                          {sf.filing_type} {sf.radicado ? `(${sf.radicado.slice(-6)})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link to="/processes">
@@ -346,7 +439,7 @@ export default function FilingDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-serif font-bold">
-              {client?.name || matter?.client_name} – {filing.filing_type}
+              {displayClientName} – {filing.filing_type}
             </h1>
             <StatusBadge status={filing.status as FilingStatus} />
           </div>
@@ -359,6 +452,14 @@ export default function FilingDetail() {
               <>
                 <span>•</span>
                 <span>{filing.target_authority}</span>
+              </>
+            )}
+            {filing.radicado && (
+              <>
+                <span>•</span>
+                <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                  {filing.radicado}
+                </code>
               </>
             )}
           </div>
@@ -505,7 +606,7 @@ export default function FilingDetail() {
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
           <Tabs defaultValue="court" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="court">
                 <Building2 className="h-4 w-4 mr-2" />
                 Juzgado
@@ -525,6 +626,10 @@ export default function FilingDetail() {
               <TabsTrigger value="documents">
                 <FileText className="h-4 w-4 mr-2" />
                 Documentos
+              </TabsTrigger>
+              <TabsTrigger value="terms">
+                <Gavel className="h-4 w-4 mr-2" />
+                Términos CGP
               </TabsTrigger>
             </TabsList>
 
@@ -785,18 +890,27 @@ export default function FilingDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* CGP Terms Tab */}
+            <TabsContent value="terms" className="space-y-4">
+              {profile?.id ? (
+                <TermsPanel
+                  filingId={filing.id}
+                  ownerId={profile.id}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground">
+                    Cargando perfil...
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
           </Tabs>
         </div>
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* CGP Terms Panel - for judicial filings */}
-          {filing.filing_type === 'Demanda' && profile?.id && (
-            <TermsPanel
-              filingId={filing.id}
-              ownerId={profile.id}
-            />
-          )}
           <Card>
             <CardHeader>
               <CardTitle>Información</CardTitle>
