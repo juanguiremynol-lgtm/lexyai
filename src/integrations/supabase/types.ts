@@ -373,6 +373,204 @@ export type Database = {
           },
         ]
       }
+      cgp_items: {
+        Row: {
+          acta_received_at: string | null
+          auto_admisorio_date: string | null
+          case_family: string | null
+          case_subtype: string | null
+          client_id: string | null
+          court_city: string | null
+          court_department: string | null
+          court_email: string | null
+          court_name: string | null
+          cpnu_confirmed: boolean | null
+          cpnu_confirmed_at: string | null
+          created_at: string
+          demandados: string | null
+          demandantes: string | null
+          description: string | null
+          email_linking_enabled: boolean | null
+          expediente_url: string | null
+          filing_method: string | null
+          filing_status: string | null
+          filing_type: string | null
+          has_auto_admisorio: boolean
+          id: string
+          is_flagged: boolean | null
+          juez_ponente: string | null
+          last_action_date: string | null
+          last_action_date_raw: string | null
+          last_change_at: string | null
+          last_checked_at: string | null
+          last_crawled_at: string | null
+          last_reviewed_at: string | null
+          legacy_filing_id: string | null
+          legacy_process_id: string | null
+          matter_id: string | null
+          monitoring_enabled: boolean | null
+          monitoring_schedule: string | null
+          notes: string | null
+          owner_id: string
+          phase: Database["public"]["Enums"]["cgp_phase"]
+          phase_source: Database["public"]["Enums"]["cgp_phase_source"]
+          practice_area: string | null
+          process_phase: string | null
+          radicado: string | null
+          radicado_status: string | null
+          reparto_email_to: string | null
+          reparto_reference: string | null
+          scrape_status: string | null
+          scraped_fields: Json | null
+          sent_at: string | null
+          sla_acta_due_at: string | null
+          sla_court_reply_due_at: string | null
+          sla_receipt_due_at: string | null
+          source_links: Json | null
+          sources_enabled: Json | null
+          status: Database["public"]["Enums"]["cgp_status"]
+          target_authority: string | null
+          total_actuaciones: number | null
+          total_sujetos_procesales: number | null
+          updated_at: string
+        }
+        Insert: {
+          acta_received_at?: string | null
+          auto_admisorio_date?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
+          client_id?: string | null
+          court_city?: string | null
+          court_department?: string | null
+          court_email?: string | null
+          court_name?: string | null
+          cpnu_confirmed?: boolean | null
+          cpnu_confirmed_at?: string | null
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          description?: string | null
+          email_linking_enabled?: boolean | null
+          expediente_url?: string | null
+          filing_method?: string | null
+          filing_status?: string | null
+          filing_type?: string | null
+          has_auto_admisorio?: boolean
+          id?: string
+          is_flagged?: boolean | null
+          juez_ponente?: string | null
+          last_action_date?: string | null
+          last_action_date_raw?: string | null
+          last_change_at?: string | null
+          last_checked_at?: string | null
+          last_crawled_at?: string | null
+          last_reviewed_at?: string | null
+          legacy_filing_id?: string | null
+          legacy_process_id?: string | null
+          matter_id?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_schedule?: string | null
+          notes?: string | null
+          owner_id: string
+          phase?: Database["public"]["Enums"]["cgp_phase"]
+          phase_source?: Database["public"]["Enums"]["cgp_phase_source"]
+          practice_area?: string | null
+          process_phase?: string | null
+          radicado?: string | null
+          radicado_status?: string | null
+          reparto_email_to?: string | null
+          reparto_reference?: string | null
+          scrape_status?: string | null
+          scraped_fields?: Json | null
+          sent_at?: string | null
+          sla_acta_due_at?: string | null
+          sla_court_reply_due_at?: string | null
+          sla_receipt_due_at?: string | null
+          source_links?: Json | null
+          sources_enabled?: Json | null
+          status?: Database["public"]["Enums"]["cgp_status"]
+          target_authority?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          updated_at?: string
+        }
+        Update: {
+          acta_received_at?: string | null
+          auto_admisorio_date?: string | null
+          case_family?: string | null
+          case_subtype?: string | null
+          client_id?: string | null
+          court_city?: string | null
+          court_department?: string | null
+          court_email?: string | null
+          court_name?: string | null
+          cpnu_confirmed?: boolean | null
+          cpnu_confirmed_at?: string | null
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          description?: string | null
+          email_linking_enabled?: boolean | null
+          expediente_url?: string | null
+          filing_method?: string | null
+          filing_status?: string | null
+          filing_type?: string | null
+          has_auto_admisorio?: boolean
+          id?: string
+          is_flagged?: boolean | null
+          juez_ponente?: string | null
+          last_action_date?: string | null
+          last_action_date_raw?: string | null
+          last_change_at?: string | null
+          last_checked_at?: string | null
+          last_crawled_at?: string | null
+          last_reviewed_at?: string | null
+          legacy_filing_id?: string | null
+          legacy_process_id?: string | null
+          matter_id?: string | null
+          monitoring_enabled?: boolean | null
+          monitoring_schedule?: string | null
+          notes?: string | null
+          owner_id?: string
+          phase?: Database["public"]["Enums"]["cgp_phase"]
+          phase_source?: Database["public"]["Enums"]["cgp_phase_source"]
+          practice_area?: string | null
+          process_phase?: string | null
+          radicado?: string | null
+          radicado_status?: string | null
+          reparto_email_to?: string | null
+          reparto_reference?: string | null
+          scrape_status?: string | null
+          scraped_fields?: Json | null
+          sent_at?: string | null
+          sla_acta_due_at?: string | null
+          sla_court_reply_due_at?: string | null
+          sla_receipt_due_at?: string | null
+          source_links?: Json | null
+          sources_enabled?: Json | null
+          status?: Database["public"]["Enums"]["cgp_status"]
+          target_authority?: string | null
+          total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cgp_items_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_items_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cgp_milestones: {
         Row: {
           attachments: Json | null
@@ -3474,6 +3672,8 @@ export type Database = {
         | "SENTENCIA_EJECUTORIA"
         | "AVALUO_BIENES"
         | "CUSTOM"
+      cgp_phase: "FILING" | "PROCESS"
+      cgp_phase_source: "AUTO" | "MANUAL"
       cgp_process_type:
         | "VERBAL"
         | "VERBAL_SUMARIO"
@@ -3487,6 +3687,7 @@ export type Database = {
         | "SAME_DAY_IN_AUDIENCE"
         | "NEXT_DAY_AFTER_LAST_NOTIFICATION"
         | "IMMEDIATE"
+      cgp_status: "ACTIVE" | "INACTIVE" | "CLOSED" | "REJECTED"
       cgp_term_status:
         | "PENDING"
         | "RUNNING"
@@ -3773,6 +3974,8 @@ export const Constants = {
         "AVALUO_BIENES",
         "CUSTOM",
       ],
+      cgp_phase: ["FILING", "PROCESS"],
+      cgp_phase_source: ["AUTO", "MANUAL"],
       cgp_process_type: [
         "VERBAL",
         "VERBAL_SUMARIO",
@@ -3788,6 +3991,7 @@ export const Constants = {
         "NEXT_DAY_AFTER_LAST_NOTIFICATION",
         "IMMEDIATE",
       ],
+      cgp_status: ["ACTIVE", "INACTIVE", "CLOSED", "REJECTED"],
       cgp_term_status: [
         "PENDING",
         "RUNNING",
