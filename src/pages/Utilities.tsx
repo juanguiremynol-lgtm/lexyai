@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator, SnakeGame } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
@@ -16,7 +16,8 @@ import {
   FileSignature,
   ScrollText,
   Wrench,
-  CalendarDays
+  CalendarDays,
+  Gamepad2
 } from "lucide-react";
 
 const EXTERNAL_TOOLS = [
@@ -116,6 +117,10 @@ export default function Utilities() {
             <Calculator className="h-4 w-4" />
             Constructor de Radicado
           </TabsTrigger>
+          <TabsTrigger value="snake" className="flex items-center gap-2">
+            <Gamepad2 className="h-4 w-4" />
+            Recreo
+          </TabsTrigger>
         </TabsList>
         
         <TabsContent value="terminos" className="mt-6">
@@ -155,6 +160,10 @@ export default function Utilities() {
 
         <TabsContent value="radicado" className="mt-6">
           <RadicadoConstructor />
+        </TabsContent>
+
+        <TabsContent value="snake" className="mt-6">
+          <SnakeGame />
         </TabsContent>
       </Tabs>
     </div>

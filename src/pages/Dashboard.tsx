@@ -24,16 +24,40 @@ export default function Dashboard() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const fetchStats = useCallback(async () => {
-    const { data: filingsData } = await supabase
-      .from("filings")
-      .select("status")
-      .neq("status", "CLOSED");
+    // Query unified work_items table for stats
+    const { data: workItemsData } = await supabase
+      .from("work_items")
+      .select("workflow_type, stage, cgp_phase, status")
+      .eq("status", "ACTIVE");
 
-    const actaPending =
-      filingsData?.filter((f) => f.status === "ACTA_PENDING").length || 0;
-    const radicadoPending =
-      filingsData?.filter((f) => f.status === "RADICADO_PENDING").length || 0;
+    // CGP Filing stage stats
+    const cgpFilings = workItemsData?.filter(
+      (w) => w.workflow_type === "CGP" && w.cgp_phase === "FILING"
+    ) || [];
+    const actaPending = cgpFilings.filter((f) => f.stage === "ACTA_PENDING").length;
+    const radicadoPending = cgpFilings.filter((f) => f.stage === "RADICADO_PENDING").length;
 
+    // CGP Process count (monitoring)
+    const monitoredProcesses = workItemsData?.filter(
+      (w) => w.workflow_type === "CGP" && w.cgp_phase === "PROCESS"
+    ).length || 0;
+
+    // Peticiones pending
+    const pendingPeticiones = workItemsData?.filter(
+      (w) => w.workflow_type === "PETICION" && w.stage !== "RESPUESTA"
+    ).length || 0;
+
+    // Tutelas pending
+    const pendingTutelas = workItemsData?.filter(
+      (w) => w.workflow_type === "TUTELA" && w.stage !== "ARCHIVADO"
+    ).length || 0;
+
+    // CPACA pending
+    const pendingCpaca = workItemsData?.filter(
+      (w) => w.workflow_type === "CPACA" && w.stage !== "ARCHIVADO"
+    ).length || 0;
+
+    // Tasks and alerts still from their own tables
     const { count: overdueTasks } = await supabase
       .from("tasks")
       .select("*", { count: "exact", head: true })
@@ -46,36 +70,15 @@ export default function Dashboard() {
       .eq("severity", "CRITICAL")
       .eq("is_read", false);
 
-    const { count: monitoredProcesses } = await supabase
-      .from("monitored_processes")
-      .select("*", { count: "exact", head: true })
-      .eq("monitoring_enabled", true);
-
-    const { count: pendingPeticiones } = await supabase
-      .from("peticiones")
-      .select("*", { count: "exact", head: true })
-      .neq("phase", "RESPUESTA");
-
-    const { count: pendingTutelas } = await supabase
-      .from("filings")
-      .select("*", { count: "exact", head: true })
-      .eq("filing_type", "TUTELA")
-      .neq("status", "CLOSED");
-
-    const { count: pendingCpaca } = await supabase
-      .from("cpaca_processes")
-      .select("*", { count: "exact", head: true })
-      .neq("phase", "ARCHIVADO");
-
     setStats({
       actaPending,
       radicadoPending,
       overdueTasks: overdueTasks || 0,
       criticalAlerts: criticalAlerts || 0,
-      monitoredProcesses: monitoredProcesses || 0,
-      pendingPeticiones: pendingPeticiones || 0,
-      pendingTutelas: pendingTutelas || 0,
-      pendingCpaca: pendingCpaca || 0,
+      monitoredProcesses,
+      pendingPeticiones,
+      pendingTutelas,
+      pendingCpaca,
     });
   }, []);
 
