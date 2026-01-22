@@ -3608,6 +3608,238 @@ export type Database = {
           },
         ]
       }
+      work_item_acts: {
+        Row: {
+          act_date: string | null
+          act_date_raw: string | null
+          act_type: string | null
+          created_at: string
+          description: string
+          hash_fingerprint: string
+          id: string
+          owner_id: string
+          raw_data: Json | null
+          source: string | null
+          source_reference: string | null
+          work_item_id: string
+        }
+        Insert: {
+          act_date?: string | null
+          act_date_raw?: string | null
+          act_type?: string | null
+          created_at?: string
+          description: string
+          hash_fingerprint: string
+          id?: string
+          owner_id: string
+          raw_data?: Json | null
+          source?: string | null
+          source_reference?: string | null
+          work_item_id: string
+        }
+        Update: {
+          act_date?: string | null
+          act_date_raw?: string | null
+          act_type?: string | null
+          created_at?: string
+          description?: string
+          hash_fingerprint?: string
+          id?: string
+          owner_id?: string
+          raw_data?: Json | null
+          source?: string | null
+          source_reference?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_acts_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_acts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_items: {
+        Row: {
+          authority_city: string | null
+          authority_department: string | null
+          authority_email: string | null
+          authority_name: string | null
+          auto_admisorio_date: string | null
+          cgp_phase: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          client_id: string | null
+          created_at: string
+          demandados: string | null
+          demandantes: string | null
+          description: string | null
+          email_linking_enabled: boolean | null
+          expediente_url: string | null
+          filing_date: string | null
+          id: string
+          is_flagged: boolean | null
+          last_action_date: string | null
+          last_action_description: string | null
+          last_checked_at: string | null
+          last_crawled_at: string | null
+          legacy_admin_process_id: string | null
+          legacy_cgp_item_id: string | null
+          legacy_cpaca_id: string | null
+          legacy_filing_id: string | null
+          legacy_peticion_id: string | null
+          legacy_process_id: string | null
+          matter_id: string | null
+          monitoring_enabled: boolean | null
+          notes: string | null
+          owner_id: string
+          radicado: string | null
+          radicado_verified: boolean | null
+          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields: Json | null
+          sharepoint_url: string | null
+          source: Database["public"]["Enums"]["item_source"]
+          source_payload: Json | null
+          source_reference: string | null
+          stage: string
+          status: Database["public"]["Enums"]["item_status"]
+          title: string | null
+          total_actuaciones: number | null
+          updated_at: string
+          workflow_type: Database["public"]["Enums"]["workflow_type"]
+        }
+        Insert: {
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          client_id?: string | null
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          description?: string | null
+          email_linking_enabled?: boolean | null
+          expediente_url?: string | null
+          filing_date?: string | null
+          id?: string
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_checked_at?: string | null
+          last_crawled_at?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_filing_id?: string | null
+          legacy_peticion_id?: string | null
+          legacy_process_id?: string | null
+          matter_id?: string | null
+          monitoring_enabled?: boolean | null
+          notes?: string | null
+          owner_id: string
+          radicado?: string | null
+          radicado_verified?: boolean | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"]
+          source_payload?: Json | null
+          source_reference?: string | null
+          stage: string
+          status?: Database["public"]["Enums"]["item_status"]
+          title?: string | null
+          total_actuaciones?: number | null
+          updated_at?: string
+          workflow_type: Database["public"]["Enums"]["workflow_type"]
+        }
+        Update: {
+          authority_city?: string | null
+          authority_department?: string | null
+          authority_email?: string | null
+          authority_name?: string | null
+          auto_admisorio_date?: string | null
+          cgp_phase?: Database["public"]["Enums"]["cgp_phase"] | null
+          cgp_phase_source?:
+            | Database["public"]["Enums"]["cgp_phase_source"]
+            | null
+          client_id?: string | null
+          created_at?: string
+          demandados?: string | null
+          demandantes?: string | null
+          description?: string | null
+          email_linking_enabled?: boolean | null
+          expediente_url?: string | null
+          filing_date?: string | null
+          id?: string
+          is_flagged?: boolean | null
+          last_action_date?: string | null
+          last_action_description?: string | null
+          last_checked_at?: string | null
+          last_crawled_at?: string | null
+          legacy_admin_process_id?: string | null
+          legacy_cgp_item_id?: string | null
+          legacy_cpaca_id?: string | null
+          legacy_filing_id?: string | null
+          legacy_peticion_id?: string | null
+          legacy_process_id?: string | null
+          matter_id?: string | null
+          monitoring_enabled?: boolean | null
+          notes?: string | null
+          owner_id?: string
+          radicado?: string | null
+          radicado_verified?: boolean | null
+          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
+          scraped_fields?: Json | null
+          sharepoint_url?: string | null
+          source?: Database["public"]["Enums"]["item_source"]
+          source_payload?: Json | null
+          source_reference?: string | null
+          stage?: string
+          status?: Database["public"]["Enums"]["item_status"]
+          title?: string | null
+          total_actuaciones?: number | null
+          updated_at?: string
+          workflow_type?: Database["public"]["Enums"]["workflow_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_items_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_matter_id_fkey"
+            columns: ["matter_id"]
+            isOneToOne: false
+            referencedRelation: "matters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -3747,6 +3979,13 @@ export type Database = {
         | "ICARUS_SYNC_PENDING"
         | "MONITORING_ACTIVE"
         | "CLOSED"
+      item_source:
+        | "ICARUS_IMPORT"
+        | "SCRAPE_API"
+        | "MANUAL"
+        | "EMAIL_IMPORT"
+        | "MIGRATION"
+      item_status: "ACTIVE" | "INACTIVE" | "CLOSED" | "ARCHIVED"
       milestone_source: "USER" | "RAMA_SCRAPE" | "SYSTEM" | "ICARUS_IMPORT"
       notificacion_subtype:
         | "NOTIFICACION_AUTO_ADMISORIO"
@@ -3805,6 +4044,7 @@ export type Database = {
         | "REVIEW_PROCESS"
         | "REVIEW_FILING"
         | "IMPORT_ESTADOS"
+      workflow_type: "CGP" | "PETICION" | "TUTELA" | "GOV_PROCEDURE" | "CPACA"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4057,6 +4297,14 @@ export const Constants = {
         "MONITORING_ACTIVE",
         "CLOSED",
       ],
+      item_source: [
+        "ICARUS_IMPORT",
+        "SCRAPE_API",
+        "MANUAL",
+        "EMAIL_IMPORT",
+        "MIGRATION",
+      ],
+      item_status: ["ACTIVE", "INACTIVE", "CLOSED", "ARCHIVED"],
       milestone_source: ["USER", "RAMA_SCRAPE", "SYSTEM", "ICARUS_IMPORT"],
       notificacion_subtype: [
         "NOTIFICACION_AUTO_ADMISORIO",
@@ -4122,6 +4370,7 @@ export const Constants = {
         "REVIEW_FILING",
         "IMPORT_ESTADOS",
       ],
+      workflow_type: ["CGP", "PETICION", "TUTELA", "GOV_PROCEDURE", "CPACA"],
     },
   },
 } as const
