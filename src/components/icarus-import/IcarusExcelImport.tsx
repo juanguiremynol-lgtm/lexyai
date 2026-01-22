@@ -247,7 +247,6 @@ export function IcarusExcelImport() {
                 email_linking_enabled: true,
                 radicado_verified: false,
               })
-              .insert(workItemData)
               .select("id")
               .single();
 
