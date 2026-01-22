@@ -580,256 +580,377 @@ export default function Processes() {
           </div>
         </CardHeader>
         <CardContent>
-          {loadingProcesses ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Cargando procesos...
-            </div>
-          ) : filteredProcesses?.length === 0 ? (
-            <div className="text-center py-12">
-              <Building2 className="mx-auto h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No hay procesos</h3>
-              <p className="text-muted-foreground">
-                Agregue procesos desde el Dashboard o importe desde Excel
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={filteredProcesses && filteredProcesses.length > 0 && selectedProcesses.size === filteredProcesses.length}
-                        onCheckedChange={toggleSelectAll}
-                      />
-                    </TableHead>
-                    <TableHead>Radicado</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Despacho</TableHead>
-                    <TableHead>Demandantes</TableHead>
-                    <TableHead>Demandados</TableHead>
-                    <TableHead>Estadísticas</TableHead>
-                    <TableHead>Última Actuación</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProcesses?.map((process) => {
-                    const estado = latestEstados?.get(process.id);
-                    const reviewStatus = getReviewStatus(process.last_reviewed_at);
-                    
-                    // Merge data from process and estado, preferring estado if available
-                    const despacho = estado?.despacho || process.despacho_name;
-                    const distrito = estado?.distrito || process.department;
-                    const demandantes = estado?.demandantes || process.demandantes;
-                    const demandados = estado?.demandados || process.demandados;
-                    const lastActionDate = estado?.fecha_ultima_actuacion || process.last_action_date;
-                    const lastActionRaw = estado?.fecha_ultima_actuacion_raw || process.last_action_date_raw;
-                    
-                    return (
-                      <TableRow key={process.id}>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedProcesses.has(process.id)}
-                            onCheckedChange={() => toggleSelectProcess(process.id)}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                              {process.radicado}
-                            </code>
-                            <div className="flex items-center gap-1">
-                              {process.monitoring_enabled ? (
-                                <Badge variant="default" className="text-xs">
-                                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                                  Activo
-                                </Badge>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "processes" | "filings")}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="processes" className="flex items-center gap-1.5">
+                <Scale className="h-4 w-4" />
+                Procesos ({filteredProcesses?.length || 0})
+              </TabsTrigger>
+              <TabsTrigger value="filings" className="flex items-center gap-1.5">
+                <FileText className="h-4 w-4" />
+                Radicaciones ({filteredFilings?.length || 0})
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Filings Tab */}
+            <TabsContent value="filings">
+              {loadingFilings ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Cargando radicaciones...
+                </div>
+              ) : filteredFilings?.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                  <h3 className="mt-4 text-lg font-medium">No hay radicaciones</h3>
+                  <p className="text-muted-foreground">
+                    Agregue radicaciones desde el Dashboard
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Radicado</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Despacho</TableHead>
+                        <TableHead>Partes</TableHead>
+                        <TableHead>SLA</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredFilings?.map((filing) => {
+                        const matter = filing.matter as { client_name: string; matter_name: string } | null;
+                        const client = filing.clients as { id: string; name: string } | null;
+                        const sla = getRelevantSla(filing);
+                        const statusInfo = FILING_STATUSES[filing.status as FilingStatus];
+                        
+                        return (
+                          <TableRow key={filing.id}>
+                            <TableCell>
+                              <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                {filing.radicado || "Sin radicado"}
+                              </code>
+                            </TableCell>
+                            <TableCell>
+                              {client ? (
+                                <Link 
+                                  to={`/clients/${client.id}`}
+                                  className="font-medium text-primary hover:underline"
+                                >
+                                  {client.name}
+                                </Link>
                               ) : (
-                                <Badge variant="secondary" className="text-xs">
-                                  Inactivo
-                                </Badge>
+                                <span className="text-sm">{matter?.client_name || <span className="text-muted-foreground italic">Sin cliente</span>}</span>
                               )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {process.clients ? (
-                            <Link 
-                              to={`/clients/${process.clients.id}`}
-                              className="font-medium text-primary hover:underline"
-                            >
-                              {process.clients.name}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground italic">Sin cliente</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium line-clamp-2">
-                              {despacho || <span className="text-muted-foreground italic">No especificado</span>}
-                            </p>
-                            {distrito && (
-                              <p className="text-xs text-muted-foreground">
-                                {distrito}
+                            </TableCell>
+                            <TableCell>
+                              <StatusBadge status={filing.status as FilingStatus} />
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm">{filing.filing_type}</span>
+                            </TableCell>
+                            <TableCell>
+                              <p className="text-sm line-clamp-2 max-w-[180px]">
+                                {filing.court_name || <span className="text-muted-foreground italic">No especificado</span>}
                               </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-[180px]">
-                            {demandantes ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <p className="text-xs line-clamp-2">{demandantes}</p>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-sm">
-                                  <p className="text-xs whitespace-pre-wrap">{demandantes}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-xs text-muted-foreground italic">—</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-[180px]">
-                            {demandados ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <p className="text-xs line-clamp-2">{demandados}</p>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-sm">
-                                  <p className="text-xs whitespace-pre-wrap">{demandados}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="text-xs text-muted-foreground italic">—</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge variant="outline" className="text-xs w-fit">
-                                  <FileSpreadsheet className="h-3 w-3 mr-1" />
-                                  {process.total_actuaciones ?? 0} acts
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">Total de actuaciones</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge variant="secondary" className="text-xs w-fit">
-                                  <Users className="h-3 w-3 mr-1" />
-                                  {process.total_sujetos_procesales ?? 0} sujetos
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">Total de sujetos procesales</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const ultimaActuacion = latestActuaciones?.get(process.id);
-                            const fechaAct = ultimaActuacion?.act_date || lastActionDate;
-                            const textoAct = ultimaActuacion?.normalized_text;
-                            
-                            if (textoAct) {
-                              return (
+                            </TableCell>
+                            <TableCell>
+                              <div className="max-w-[180px]">
+                                {filing.demandantes || filing.demandados ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <p className="text-xs line-clamp-2">
+                                        {filing.demandantes?.split(",")[0] || filing.demandados?.split(",")[0]}
+                                      </p>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-sm">
+                                      {filing.demandantes && <p className="text-xs"><strong>Demandantes:</strong> {filing.demandantes}</p>}
+                                      {filing.demandados && <p className="text-xs"><strong>Demandados:</strong> {filing.demandados}</p>}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">—</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {sla?.date && <SlaBadge dueDate={sla.date} size="sm" />}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" asChild>
+                                <Link to={`/filings/${filing.id}`}>
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  Ver Detalle
+                                </Link>
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Processes Tab */}
+            <TabsContent value="processes">
+              {loadingProcesses ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Cargando procesos...
+                </div>
+              ) : filteredProcesses?.length === 0 ? (
+                <div className="text-center py-12">
+                  <Building2 className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                  <h3 className="mt-4 text-lg font-medium">No hay procesos</h3>
+                  <p className="text-muted-foreground">
+                    Agregue procesos desde el Dashboard o importe desde Excel
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={filteredProcesses && filteredProcesses.length > 0 && selectedProcesses.size === filteredProcesses.length}
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        </TableHead>
+                        <TableHead>Radicado</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Despacho</TableHead>
+                        <TableHead>Demandantes</TableHead>
+                        <TableHead>Demandados</TableHead>
+                        <TableHead>Estadísticas</TableHead>
+                        <TableHead>Última Actuación</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredProcesses?.map((process) => {
+                        const estado = latestEstados?.get(process.id);
+                        const reviewStatus = getReviewStatus(process.last_reviewed_at);
+                        
+                        // Merge data from process and estado, preferring estado if available
+                        const despacho = estado?.despacho || process.despacho_name;
+                        const distrito = estado?.distrito || process.department;
+                        const demandantes = estado?.demandantes || process.demandantes;
+                        const demandados = estado?.demandados || process.demandados;
+                        const lastActionDate = estado?.fecha_ultima_actuacion || process.last_action_date;
+                        const lastActionRaw = estado?.fecha_ultima_actuacion_raw || process.last_action_date_raw;
+                        
+                        return (
+                          <TableRow key={process.id}>
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedProcesses.has(process.id)}
+                                onCheckedChange={() => toggleSelectProcess(process.id)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                  {process.radicado}
+                                </code>
+                                <div className="flex items-center gap-1">
+                                  {process.monitoring_enabled ? (
+                                    <Badge variant="default" className="text-xs">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Activo
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="secondary" className="text-xs">
+                                      Inactivo
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {process.clients ? (
+                                <Link 
+                                  to={`/clients/${process.clients.id}`}
+                                  className="font-medium text-primary hover:underline"
+                                >
+                                  {process.clients.name}
+                                </Link>
+                              ) : (
+                                <span className="text-muted-foreground italic">Sin cliente</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium line-clamp-2">
+                                  {despacho || <span className="text-muted-foreground italic">No especificado</span>}
+                                </p>
+                                {distrito && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {distrito}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="max-w-[180px]">
+                                {demandantes ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <p className="text-xs line-clamp-2">{demandantes}</p>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-sm">
+                                      <p className="text-xs whitespace-pre-wrap">{demandantes}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">—</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="max-w-[180px]">
+                                {demandados ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <p className="text-xs line-clamp-2">{demandados}</p>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-sm">
+                                      <p className="text-xs whitespace-pre-wrap">{demandados}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">—</span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <div className="space-y-1 max-w-[200px]">
-                                      <p className="text-xs line-clamp-2">{textoAct}</p>
-                                      {fechaAct && (
-                                        <Badge variant="outline" className="text-xs">
-                                          <Calendar className="h-3 w-3 mr-1" />
-                                          {formatDateColombia(fechaAct)}
-                                        </Badge>
-                                      )}
-                                    </div>
+                                    <Badge variant="outline" className="text-xs w-fit">
+                                      <FileSpreadsheet className="h-3 w-3 mr-1" />
+                                      {process.total_actuaciones ?? 0} acts
+                                    </Badge>
                                   </TooltipTrigger>
-                                  <TooltipContent className="max-w-sm">
-                                    <p className="text-xs whitespace-pre-wrap">{textoAct}</p>
+                                  <TooltipContent>
+                                    <p className="text-xs">Total de actuaciones</p>
                                   </TooltipContent>
                                 </Tooltip>
-                              );
-                            }
-                            
-                            if (fechaAct) {
-                              return (
-                                <Badge variant="outline" className="text-xs">
-                                  <Calendar className="h-3 w-3 mr-1" />
-                                  {formatDateColombia(fechaAct)}
-                                </Badge>
-                              );
-                            }
-                            
-                            if (lastActionRaw) {
-                              return (
-                                <Badge variant="secondary" className="text-xs">
-                                  {lastActionRaw}
-                                </Badge>
-                              );
-                            }
-                            
-                            return <span className="text-muted-foreground text-xs">—</span>;
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => updateProcessFromApi(process.id, process.radicado)}
-                                  disabled={updatingProcessId === process.id}
-                                  className="min-w-[60px]"
-                                >
-                                  {updatingProcessId === process.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                      {updatePollingStatus?.processId === process.id && (
-                                        <span className="text-xs tabular-nums">
-                                          {updatePollingStatus.elapsedSeconds}s
-                                        </span>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="secondary" className="text-xs w-fit">
+                                      <Users className="h-3 w-3 mr-1" />
+                                      {process.total_sujetos_procesales ?? 0} sujetos
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className="text-xs">Total de sujetos procesales</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const ultimaActuacion = latestActuaciones?.get(process.id);
+                                const fechaAct = ultimaActuacion?.act_date || lastActionDate;
+                                const textoAct = ultimaActuacion?.normalized_text;
+                                
+                                if (textoAct) {
+                                  return (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="space-y-1 max-w-[200px]">
+                                          <p className="text-xs line-clamp-2">{textoAct}</p>
+                                          {fechaAct && (
+                                            <Badge variant="outline" className="text-xs">
+                                              <Calendar className="h-3 w-3 mr-1" />
+                                              {formatDateColombia(fechaAct)}
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-sm">
+                                        <p className="text-xs whitespace-pre-wrap">{textoAct}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  );
+                                }
+                                
+                                if (fechaAct) {
+                                  return (
+                                    <Badge variant="outline" className="text-xs">
+                                      <Calendar className="h-3 w-3 mr-1" />
+                                      {formatDateColombia(fechaAct)}
+                                    </Badge>
+                                  );
+                                }
+                                
+                                if (lastActionRaw) {
+                                  return (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {lastActionRaw}
+                                    </Badge>
+                                  );
+                                }
+                                
+                                return <span className="text-muted-foreground text-xs">—</span>;
+                              })()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm"
+                                      onClick={() => updateProcessFromApi(process.id, process.radicado)}
+                                      disabled={updatingProcessId === process.id}
+                                      className="min-w-[60px]"
+                                    >
+                                      {updatingProcessId === process.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                          {updatePollingStatus?.processId === process.id && (
+                                            <span className="text-xs tabular-nums">
+                                              {updatePollingStatus.elapsedSeconds}s
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <RefreshCw className="h-4 w-4" />
                                       )}
-                                    </div>
-                                  ) : (
-                                    <RefreshCw className="h-4 w-4" />
-                                  )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className="text-xs">
+                                      {updatingProcessId === process.id 
+                                        ? "Consultando API..." 
+                                        : "Actualizar desde API"}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                                <Button variant="ghost" size="sm" asChild>
+                                  <Link to={`/processes/${process.id}`}>
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    Ver Detalle
+                                  </Link>
                                 </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">
-                                  {updatingProcessId === process.id 
-                                    ? "Consultando API..." 
-                                    : "Actualizar desde API"}
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <Button variant="ghost" size="sm" asChild>
-                              <Link to={`/processes/${process.id}`}>
-                                <Eye className="h-4 w-4 mr-1" />
-                                Ver Detalle
-                              </Link>
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 

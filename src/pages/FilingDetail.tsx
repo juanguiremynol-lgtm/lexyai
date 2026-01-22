@@ -339,7 +339,7 @@ export default function FilingDetail() {
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
-          <Link to="/filings">
+          <Link to="/processes">
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </Button>
