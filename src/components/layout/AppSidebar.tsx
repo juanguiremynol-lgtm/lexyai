@@ -9,7 +9,6 @@ import {
   Wrench,
   CalendarDays,
   Link2,
-  Mail,
   FilePlus,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
@@ -39,7 +38,6 @@ const navItems = [
   { title: "Clientes", url: "/clients", icon: Briefcase },
   { title: "Procesos", url: "/processes", icon: Scale },
   { title: "Audiencias", url: "/hearings", icon: CalendarDays },
-  { title: "Correos", url: "/email-inbox", icon: Mail },
   { title: "Tareas", url: "/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/alerts", icon: Bell },
   { title: "Utilidades", url: "/utilities", icon: Wrench },
