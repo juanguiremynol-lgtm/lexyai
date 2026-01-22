@@ -263,38 +263,91 @@ export function UnifiedPipeline() {
       let newProcessId: string | null = null;
 
       if (hasAutoAdmisorio) {
-        // Create a linked JUDICIAL process (not ADMINISTRATIVE)
-        const { data: newProcess, error: processError } = await supabase
-          .from("monitored_processes")
-          .insert({
-            owner_id: user.user.id,
-            radicado: filing.radicado || `RAD-${Date.now()}`,
-            despacho_name: filing.despachoName,
-            demandantes: filing.demandantes,
-            demandados: filing.demandados,
-            monitoring_enabled: true,
-            has_auto_admisorio: true,
-            linked_filing_id: filing.id,
-            phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
-            process_type: "JUDICIAL", // Explicit type to avoid confusion with ADMINISTRATIVE
-          })
-          .select("id")
-          .single();
+        // CRITICAL: Check if a linked process already exists to prevent duplicates
+        if (filing.linkedProcessId) {
+          // Process already exists - just update the filing
+          const { error: updateError } = await supabase
+            .from("filings")
+            .update({
+              has_auto_admisorio: true,
+              status: "MONITORING_ACTIVE" as FilingStatus,
+            })
+            .eq("id", filing.id);
+          if (updateError) throw updateError;
+          
+          // Also enable monitoring on the existing process
+          await supabase
+            .from("monitored_processes")
+            .update({ 
+              monitoring_enabled: true,
+              has_auto_admisorio: true 
+            })
+            .eq("id", filing.linkedProcessId);
+          
+          newProcessId = filing.linkedProcessId;
+        } else {
+          // Also check if there's already a process linked to this filing
+          const { data: existingProcess } = await supabase
+            .from("monitored_processes")
+            .select("id")
+            .eq("linked_filing_id", filing.id)
+            .maybeSingle();
+          
+          if (existingProcess) {
+            // Use existing process
+            newProcessId = existingProcess.id;
+            const { error: filingError } = await supabase
+              .from("filings")
+              .update({
+                has_auto_admisorio: true,
+                linked_process_id: existingProcess.id,
+                status: "MONITORING_ACTIVE" as FilingStatus,
+              })
+              .eq("id", filing.id);
+            if (filingError) throw filingError;
+            
+            await supabase
+              .from("monitored_processes")
+              .update({ 
+                monitoring_enabled: true,
+                has_auto_admisorio: true 
+              })
+              .eq("id", existingProcess.id);
+          } else {
+            // Create a new JUDICIAL process
+            const { data: newProcess, error: processError } = await supabase
+              .from("monitored_processes")
+              .insert({
+                owner_id: user.user.id,
+                radicado: filing.radicado || `RAD-${Date.now()}`,
+                despacho_name: filing.despachoName,
+                demandantes: filing.demandantes,
+                demandados: filing.demandados,
+                monitoring_enabled: true,
+                has_auto_admisorio: true,
+                linked_filing_id: filing.id,
+                phase: "PENDIENTE_REGISTRO_MEDIDA_CAUTELAR" as ProcessPhase,
+                process_type: "JUDICIAL",
+              })
+              .select("id")
+              .single();
 
-        if (processError) throw processError;
-        newProcessId = newProcess.id;
+            if (processError) throw processError;
+            newProcessId = newProcess.id;
 
-        // Update filing to link and mark as having auto admisorio
-        const { error: filingError } = await supabase
-          .from("filings")
-          .update({
-            has_auto_admisorio: true,
-            linked_process_id: newProcess.id,
-            status: "MONITORING_ACTIVE" as FilingStatus,
-          })
-          .eq("id", filing.id);
+            // Update filing to link
+            const { error: filingError } = await supabase
+              .from("filings")
+              .update({
+                has_auto_admisorio: true,
+                linked_process_id: newProcess.id,
+                status: "MONITORING_ACTIVE" as FilingStatus,
+              })
+              .eq("id", filing.id);
 
-        if (filingError) throw filingError;
+            if (filingError) throw filingError;
+          }
+        }
       } else {
         // Just mark as not having auto admisorio yet
         const { error } = await supabase
