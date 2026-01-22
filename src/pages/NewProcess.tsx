@@ -63,6 +63,9 @@ import {
   parseColombianDate,
   type RamaJudicialApiResponse,
 } from "@/lib/rama-judicial-api";
+import { WorkflowClassificationDialog } from "@/components/workflow/WorkflowClassificationDialog";
+import type { WorkflowClassification } from "@/types/work-item";
+import { WORKFLOW_TYPES, workflowUsesRadicado } from "@/lib/workflow-constants";
 
 type ApiResponse = RamaJudicialApiResponse;
 
@@ -89,6 +92,15 @@ export default function NewProcess() {
   const [newClientIdNumber, setNewClientIdNumber] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
 
+  // Workflow classification state
+  const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
+  const [pendingClassification, setPendingClassification] = useState<{
+    radicado: string;
+    apiData: ApiResponse | null;
+    clientId: string | null;
+    despacho?: string;
+  } | null>(null);
+
   // Fetch clients
   const { data: clients = [] } = useQuery({
     queryKey: ["clients"],
@@ -102,8 +114,20 @@ export default function NewProcess() {
     },
   });
 
-  // Check if radicado already exists
+  // Check if radicado already exists in work_items
   const checkDuplicateRadicado = async (radicadoNum: string): Promise<boolean> => {
+    const { data: existingItem } = await supabase
+      .from("work_items")
+      .select("id, radicado")
+      .eq("radicado", radicadoNum)
+      .maybeSingle();
+    
+    if (existingItem) {
+      toast.error("Este radicado ya está registrado");
+      return true;
+    }
+
+    // Also check legacy tables for backwards compatibility
     const { data: existingProcess } = await supabase
       .from("monitored_processes")
       .select("id, radicado")
@@ -160,14 +184,16 @@ export default function NewProcess() {
     },
   });
 
-  // Mutation para agregar proceso con datos de API
-  const addProcessMutation = useMutation({
+  // Mutation to create work item with classification
+  const createWorkItemMutation = useMutation({
     mutationFn: async ({ 
+      classification,
       radicado, 
       despacho,
       apiData,
       clientId,
     }: { 
+      classification: WorkflowClassification;
       radicado: string; 
       despacho?: string;
       apiData?: ApiResponse | null;
@@ -180,22 +206,29 @@ export default function NewProcess() {
       const isDuplicate = await checkDuplicateRadicado(radicado);
       if (isDuplicate) throw new Error("DUPLICATE_RADICADO");
 
-      const processData: Record<string, unknown> = {
+      // Build work item data
+      const workItemData: Record<string, unknown> = {
         owner_id: user.id,
+        workflow_type: classification.workflow_type,
+        stage: classification.stage,
+        status: 'ACTIVE',
+        cgp_phase: classification.cgp_phase || null,
+        cgp_phase_source: classification.cgp_phase ? 'MANUAL' : null,
+        source: apiData ? 'SCRAPE_API' : 'MANUAL',
         radicado,
-        despacho_name: despacho || apiData?.proceso["Despacho"] || null,
-        sources_enabled: ["CPNU"],
-        monitoring_enabled: true,
+        authority_name: despacho || apiData?.proceso["Despacho"] || null,
         client_id: clientId || null,
+        is_flagged: false,
+        monitoring_enabled: true,
+        email_linking_enabled: true,
+        radicado_verified: !!apiData,
       };
 
-      // Add ALL API data if available
+      // Add API data if available
       if (apiData?.proceso) {
-        // Extraer demandantes y demandados de sujetos_procesales si están disponibles
         let demandantesText = apiData.proceso["Demandante"] || "";
         let demandadosText = apiData.proceso["Demandado"] || "";
         
-        // Si hay sujetos_procesales como array, extraer de ahí
         if (apiData.sujetos_procesales && Array.isArray(apiData.sujetos_procesales)) {
           const demandantesFromSujetos = apiData.sujetos_procesales
             .filter(s => s.tipo?.toUpperCase() === 'DEMANDANTE')
@@ -214,39 +247,23 @@ export default function NewProcess() {
           }
         }
         
-        // Ficha del proceso - todos los campos
-        processData.demandantes = demandantesText || null;
-        processData.demandados = demandadosText || null;
-        processData.process_type = apiData.proceso["Tipo de Proceso"] || "CIVIL";
-        processData.jurisdiction = apiData.proceso["Clase de Proceso"] || null;
-        processData.municipality = apiData.proceso["Ubicación"] || null;
-        processData.juez_ponente = apiData.proceso["Ponente"] || null;
-        processData.cpnu_confirmed = true;
-        processData.cpnu_confirmed_at = new Date().toISOString();
-        processData.last_checked_at = new Date().toISOString();
+        workItemData.demandantes = demandantesText || null;
+        workItemData.demandados = demandadosText || null;
+        workItemData.authority_city = apiData.proceso["Ubicación"] || null;
+        workItemData.last_checked_at = new Date().toISOString();
         
-        // Estadísticas del API
         const totalActuaciones = apiData.total_actuaciones || apiData.actuaciones?.length || 0;
-        const totalSujetos = apiData.sujetos_procesales?.length || 
-          ((apiData.estadisticas?.sujetos_procesales?.demandantes?.length || 0) + 
-           (apiData.estadisticas?.sujetos_procesales?.demandados?.length || 0)) || 0;
+        workItemData.total_actuaciones = totalActuaciones;
         
-        processData.total_actuaciones = totalActuaciones;
-        processData.total_sujetos_procesales = totalSujetos;
-        
-        // Última actuación - fecha
         if (apiData.actuaciones && apiData.actuaciones.length > 0) {
           const lastAct = apiData.actuaciones[0];
           const lastActDate = parseColombianDate(lastAct["Fecha de Actuación"] || "");
           if (lastActDate) {
-            processData.last_action_date = lastActDate;
-            processData.last_action_date_raw = lastAct["Fecha de Actuación"] || null;
+            workItemData.last_action_date = lastActDate;
           }
         }
         
-        // Guardar toda la respuesta del API como source_payload para referencia futura
-        processData.source = "RAMA_JUDICIAL_API";
-        processData.source_payload = {
+        workItemData.source_payload = {
           proceso: apiData.proceso,
           sujetos_procesales: apiData.sujetos_procesales,
           estadisticas: apiData.estadisticas,
@@ -254,8 +271,7 @@ export default function NewProcess() {
           fetched_at: new Date().toISOString(),
         };
         
-        // Scraped fields para mostrar en UI
-        processData.scraped_fields = {
+        workItemData.scraped_fields = {
           tipo_proceso: apiData.proceso["Tipo de Proceso"] || null,
           clase_proceso: apiData.proceso["Clase de Proceso"] || null,
           fecha_radicacion: apiData.proceso["Fecha de Radicación"] || null,
@@ -269,37 +285,32 @@ export default function NewProcess() {
       }
 
       const { data, error } = await supabase
-        .from("monitored_processes")
-        .insert(processData as typeof processData & { owner_id: string; radicado: string })
+        .from("work_items")
+        .insert(workItemData as any)
         .select()
         .single();
 
       if (error) throw error;
 
-      // Insert ALL actuaciones with complete data
+      // Insert actuaciones as work_item_acts
       if (apiData?.actuaciones && apiData.actuaciones.length > 0) {
         const { normalizeActuacionText, computeActuacionHash } = await import("@/lib/rama-judicial-api");
         
-        const actuacionesData = apiData.actuaciones.map(act => {
+        const actsData = apiData.actuaciones.map(act => {
           const actuacion = act["Actuación"] || "";
           const anotacion = act["Anotación"] || "";
-          const rawText = `${actuacion}${anotacion ? " - " + anotacion : ""}`;
-          const normalizedText = normalizeActuacionText(rawText);
+          const description = `${actuacion}${anotacion ? " - " + anotacion : ""}`;
           const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
-          const hashFingerprint = computeActuacionHash(actDate, normalizedText, radicado);
+          const hashFingerprint = computeActuacionHash(actDate, normalizeActuacionText(description), radicado);
           
           return {
             owner_id: user.id,
-            monitored_process_id: data.id,
-            raw_text: rawText,
-            normalized_text: normalizedText,
+            work_item_id: data.id,
+            description,
             act_date: actDate,
             act_date_raw: act["Fecha de Actuación"] || null,
             source: "RAMA_JUDICIAL",
-            adapter_name: "external_api",
             hash_fingerprint: hashFingerprint,
-            confidence: 0.9,
-            // Guardar data completa de la actuación
             raw_data: {
               actuacion,
               anotacion,
@@ -311,7 +322,7 @@ export default function NewProcess() {
           };
         });
 
-        const { error: actError } = await supabase.from("actuaciones").insert(actuacionesData);
+        const { error: actError } = await supabase.from("work_item_acts").insert(actsData);
         if (actError) {
           console.error("Error insertando actuaciones:", actError);
         }
@@ -320,14 +331,14 @@ export default function NewProcess() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["clients"] });
-      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
-      queryClient.invalidateQueries({ queryKey: ["latest-actuaciones"] });
-      toast.success("Proceso registrado con toda la información del API");
+      toast.success("Asunto registrado exitosamente");
       setConfirmDialogOpen(false);
       setClientDialogOpen(false);
-      navigate(`/processes/${data.id}`);
+      setClassificationDialogOpen(false);
+      setPendingClassification(null);
+      navigate(`/items/${data.id}`);
     },
     onError: (error) => {
       if (error.message === "DUPLICATE_RADICADO") {
@@ -344,7 +355,7 @@ export default function NewProcess() {
     return value.replace(/\D/g, "").slice(0, 23);
   };
 
-  // Buscar en API externa con polling
+  // Search in external API with polling
   const handleSearch = async () => {
     const API_URL = 'https://rama-judicial-api.onrender.com';
     
@@ -359,7 +370,6 @@ export default function NewProcess() {
     const startTime = Date.now();
 
     try {
-      // 1. Iniciar búsqueda
       const res1 = await fetch(`${API_URL}/buscar?numero_radicacion=${radicado}`);
       const data1 = await res1.json();
       
@@ -373,7 +383,6 @@ export default function NewProcess() {
 
       const jobId = data1.jobId;
 
-      // 2. Polling cada 2 segundos
       const intervalo = setInterval(async () => {
         try {
           const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -385,9 +394,6 @@ export default function NewProcess() {
           if (resultado.status === 'completed') {
             clearInterval(intervalo);
             
-            console.log('DATOS COMPLETOS:', resultado);
-            
-            // Mapear respuesta al formato esperado por la UI - preservando TODOS los datos
             const mappedResult: ApiResponse = {
               success: true,
               proceso: {
@@ -399,7 +405,6 @@ export default function NewProcess() {
                 "Demandado": resultado.sujetos_procesales?.demandados?.join(", ") || resultado.proceso?.["Demandado"] || "",
                 "Ubicación": resultado.proceso?.ubicacion || resultado.proceso?.["Ubicación"] || "",
                 "Ponente": resultado.proceso?.ponente || resultado.proceso?.["Ponente"] || "",
-                // Incluir todos los campos adicionales del proceso
                 ...Object.fromEntries(
                   Object.entries(resultado.proceso || {}).filter(([key]) => 
                     !['tipo_proceso', 'clase_proceso', 'fecha_radicacion', 'despacho', 'ubicacion', 'ponente'].includes(key)
@@ -410,7 +415,6 @@ export default function NewProcess() {
                 const sujetos = resultado.sujetos_procesales;
                 if (!sujetos) return undefined;
                 
-                // Si es un array de objetos con nombre/tipo
                 if (Array.isArray(sujetos)) {
                   return sujetos.map((s: { nombre?: string; tipo?: string; name?: string; type?: string }) => ({
                     tipo: (s.tipo || s.type || 'OTRO').toUpperCase(),
@@ -418,7 +422,6 @@ export default function NewProcess() {
                   }));
                 }
                 
-                // Si es objeto con demandantes/demandados como arrays
                 if (sujetos.demandantes || sujetos.demandados) {
                   return [
                     ...(sujetos.demandantes || []).map((nombre: string | { nombre: string }) => ({ 
@@ -482,37 +485,54 @@ export default function NewProcess() {
     }
   };
 
-  // Registrar proceso con datos de API - abre diálogo de cliente
+  // Register process - opens client dialog then classification
   const handleRegister = () => {
     if (!apiResult) return;
     setClientDialogOpen(true);
   };
 
-  // Confirmar registro con cliente seleccionado
-  const handleConfirmWithClient = () => {
-    addProcessMutation.mutate({
-      radicado: radicado,
-      despacho: apiResult?.proceso["Despacho"] || despachoOverride,
+  // After client selection, open classification dialog
+  const handleProceedToClassification = () => {
+    setClientDialogOpen(false);
+    setPendingClassification({
+      radicado,
       apiData: apiResult,
       clientId: selectedClientId,
+      despacho: apiResult?.proceso["Despacho"] || despachoOverride,
+    });
+    setClassificationDialogOpen(true);
+  };
+
+  // Handle classification result
+  const handleClassificationComplete = (classification: WorkflowClassification) => {
+    if (!pendingClassification) return;
+    
+    createWorkItemMutation.mutate({
+      classification,
+      radicado: pendingClassification.radicado,
+      despacho: pendingClassification.despacho,
+      apiData: pendingClassification.apiData,
+      clientId: pendingClassification.clientId,
     });
   };
 
-  // Registrar manualmente
+  // Manual registration flow
   const handleManualRegister = () => {
     setConfirmDialogOpen(true);
   };
 
   const handleConfirmManualRegister = () => {
-    addProcessMutation.mutate({
-      radicado: radicado,
-      despacho: despachoOverride || undefined,
+    setConfirmDialogOpen(false);
+    setPendingClassification({
+      radicado,
       apiData: null,
       clientId: selectedClientId,
+      despacho: despachoOverride || undefined,
     });
+    setClassificationDialogOpen(true);
   };
 
-  // Crear nuevo cliente y continuar
+  // Create new client and continue
   const handleCreateClientAndContinue = async () => {
     if (!newClientName.trim()) {
       toast.error("El nombre del cliente es requerido");
@@ -521,7 +541,7 @@ export default function NewProcess() {
     createClientMutation.mutate();
   };
 
-  // Limpiar
+  // Clear form
   const handleClear = () => {
     setRadicado("");
     setApiResult(null);
@@ -535,15 +555,16 @@ export default function NewProcess() {
     setNewClientName("");
     setNewClientIdNumber("");
     setNewClientEmail("");
+    setPendingClassification(null);
   };
 
   return (
     <div className="space-y-6">
-      {/* Dialog para registro manual */}
+      {/* Manual registration dialog */}
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Registrar Proceso Manualmente</DialogTitle>
+            <DialogTitle>Registrar Asunto Manualmente</DialogTitle>
             <DialogDescription>
               No se encontró información automática. Complete los datos manualmente.
             </DialogDescription>
@@ -563,7 +584,6 @@ export default function NewProcess() {
               />
             </div>
             
-            {/* Client selection for manual registration */}
             <div className="space-y-2">
               <Label>Cliente (opcional)</Label>
               <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
@@ -626,28 +646,26 @@ export default function NewProcess() {
             <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleConfirmManualRegister} disabled={addProcessMutation.isPending}>
-              {addProcessMutation.isPending ? (
+            <Button onClick={handleConfirmManualRegister} disabled={createWorkItemMutation.isPending}>
+              {createWorkItemMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Registrar
+              ) : null}
+              Continuar a Clasificación
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog para seleccionar/crear cliente */}
+      {/* Client selection dialog */}
       <Dialog open={clientDialogOpen} onOpenChange={setClientDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Asignar Cliente al Proceso
+              Asignar Cliente al Asunto
             </DialogTitle>
             <DialogDescription>
-              Seleccione un cliente existente o cree uno nuevo para vincular con este proceso.
+              Seleccione un cliente existente o cree uno nuevo para vincular con este asunto.
             </DialogDescription>
           </DialogHeader>
           
@@ -698,15 +716,6 @@ export default function NewProcess() {
                     </Select>
                   </div>
                 )}
-                
-                {selectedClientId && (
-                  <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
-                    <p className="text-sm text-muted-foreground">Cliente seleccionado:</p>
-                    <p className="font-medium">
-                      {clients.find(c => c.id === selectedClientId)?.name}
-                    </p>
-                  </div>
-                )}
               </TabsContent>
               
               <TabsContent value="new" className="space-y-4 mt-4">
@@ -714,7 +723,7 @@ export default function NewProcess() {
                   <Label htmlFor="new-client-name">Nombre del Cliente *</Label>
                   <Input
                     id="new-client-name"
-                    placeholder="Ej: Juan Pérez o Empresa S.A.S."
+                    placeholder="Nombre completo o razón social"
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
                   />
@@ -723,591 +732,302 @@ export default function NewProcess() {
                   <Label htmlFor="new-client-id">Cédula / NIT (opcional)</Label>
                   <Input
                     id="new-client-id"
-                    placeholder="Ej: 1234567890"
+                    placeholder="Número de identificación"
                     value={newClientIdNumber}
                     onChange={(e) => setNewClientIdNumber(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-client-email">Correo (opcional)</Label>
+                  <Label htmlFor="new-client-email">Correo electrónico (opcional)</Label>
                   <Input
                     id="new-client-email"
                     type="email"
-                    placeholder="Ej: cliente@email.com"
+                    placeholder="correo@ejemplo.com"
                     value={newClientEmail}
                     onChange={(e) => setNewClientEmail(e.target.value)}
                   />
                 </div>
-                
                 <Button 
                   onClick={handleCreateClientAndContinue} 
                   disabled={!newClientName.trim() || createClientMutation.isPending}
                   className="w-full"
-                  variant="secondary"
                 >
                   {createClientMutation.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
-                    <Plus className="h-4 w-4 mr-2" />
+                    <UserPlus className="h-4 w-4 mr-2" />
                   )}
                   Crear Cliente
                 </Button>
               </TabsContent>
             </Tabs>
           </div>
-
-          {/* Summary of what will be saved */}
-          <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
-            <p className="text-sm font-medium">Resumen del proceso a guardar:</p>
-            <div className="text-sm space-y-1">
-              <p><span className="text-muted-foreground">Radicado:</span> <span className="font-mono">{radicado}</span></p>
-              {apiResult?.proceso["Despacho"] && (
-                <p><span className="text-muted-foreground">Despacho:</span> {apiResult.proceso["Despacho"]}</p>
-              )}
-              {apiResult?.proceso["Tipo de Proceso"] && (
-                <p><span className="text-muted-foreground">Tipo:</span> {apiResult.proceso["Tipo de Proceso"]}</p>
-              )}
-              {apiResult?.total_actuaciones && (
-                <p><span className="text-muted-foreground">Actuaciones:</span> {apiResult.total_actuaciones}</p>
-              )}
-            </div>
-          </div>
           
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setClientDialogOpen(false)}>
-              Cancelar
+          <DialogFooter className="flex justify-between">
+            <Button variant="ghost" onClick={() => {
+              setSelectedClientId(null);
+              handleProceedToClassification();
+            }}>
+              Omitir cliente
             </Button>
-            <Button 
-              onClick={handleConfirmWithClient} 
-              disabled={addProcessMutation.isPending || (clientTab === "existing" && !selectedClientId && clients.length > 0)}
-            >
-              {addProcessMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Registrar Proceso
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setClientDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                onClick={handleProceedToClassification}
+                disabled={clientTab === "new" && !selectedClientId}
+              >
+                Continuar
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Workflow Classification Dialog */}
+      <WorkflowClassificationDialog
+        open={classificationDialogOpen}
+        onOpenChange={(open) => {
+          setClassificationDialogOpen(open);
+          if (!open) setPendingClassification(null);
+        }}
+        onClassify={handleClassificationComplete}
+        title="Clasificar Nuevo Asunto"
+        description="Selecciona el tipo de proceso y la etapa inicial para registrar correctamente este asunto."
+      />
+
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-primary/10">
-          <Scale className="h-6 w-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-serif font-bold">Nuevo Proceso</h1>
-          <p className="text-muted-foreground">
-            Consulte y registre un nuevo proceso judicial para monitoreo
-          </p>
-        </div>
+      <div>
+        <h1 className="font-display text-3xl font-bold text-foreground">
+          Nuevo Asunto
+        </h1>
+        <p className="text-muted-foreground">
+          Busca un proceso en la Rama Judicial por radicado de 23 dígitos, o registra manualmente
+        </p>
       </div>
 
-      {/* Búsqueda de radicado */}
+      {/* Search Card */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileSearch className="h-5 w-5 text-primary" />
-            Consultar Proceso Judicial
+            <FileSearch className="h-5 w-5" />
+            Buscar por Radicado
           </CardTitle>
           <CardDescription>
-            Ingrese el número de radicado (23 dígitos) para consultar información en la Rama Judicial
+            Ingresa el número de radicación de 23 dígitos para consultar la información del proceso
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
-            <div className="flex-1 space-y-1">
+            <div className="flex-1">
+              <Label htmlFor="radicado" className="sr-only">Radicado</Label>
               <Input
-                placeholder="Ej: 05001310500120230012300"
+                id="radicado"
+                placeholder="Ej: 05001310500320230012300"
                 value={radicado}
                 onChange={(e) => setRadicado(formatRadicado(e.target.value))}
-                onKeyDown={(e) => e.key === "Enter" && !isSearching && handleSearch()}
-                disabled={isSearching}
                 className="font-mono text-lg"
                 maxLength={23}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground mt-1">
                 {radicado.length}/23 dígitos
-                {radicado.length === 23 && (
-                  <span className="text-green-600 ml-2">✓ Formato válido</span>
-                )}
               </p>
             </div>
             <Button 
-              onClick={handleSearch}
-              disabled={isSearching || radicado.length !== 23}
-              size="lg"
+              onClick={handleSearch} 
+              disabled={radicado.length !== 23 || isSearching}
+              className="min-w-[120px]"
             >
               {isSearching ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Consultando...
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Buscando...
                 </>
               ) : (
                 <>
-                  <Search className="mr-2 h-4 w-4" />
+                  <Search className="h-4 w-4 mr-2" />
                   Buscar
                 </>
               )}
             </Button>
-            {(apiResult || searchError || radicado) && (
-              <Button variant="ghost" onClick={handleClear} size="lg">
-                <XCircle className="h-4 w-4" />
+            {(apiResult || searchError) && (
+              <Button variant="outline" onClick={handleClear}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Limpiar
               </Button>
             )}
           </div>
 
-          {isSearching && (
-            <div className="space-y-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
-                  <Loader2 className="h-8 w-8 animate-spin text-primary relative" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold">Consultando Rama Judicial...</p>
-                  <p className="text-sm text-muted-foreground">
-                    Esto puede tardar 15-20 segundos
-                  </p>
-                  {pollingStatus && (
-                    <p className="text-xs text-primary mt-1">
-                      {pollingStatus.status === 'processing' 
-                        ? `Procesando consulta...`
-                        : `Estado: ${pollingStatus.status}`
-                      }
-                    </p>
-                  )}
-                </div>
-                {pollingStatus && (
-                  <div className="text-right">
-                    <p className="text-2xl font-mono font-bold text-primary">
-                      {pollingStatus.elapsedSeconds}s
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Tiempo transcurrido
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                <div 
-                  className="h-full bg-primary rounded-full transition-all duration-500"
-                  style={{ 
-                    width: pollingStatus 
-                      ? `${Math.min(90, (pollingStatus.elapsedSeconds / 20) * 90)}%` 
-                      : '10%' 
-                  }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground text-center">
-                Extrayendo información del proceso judicial en tiempo real (web scraping)
-              </p>
-            </div>
+          {/* Polling Status */}
+          {pollingStatus && (
+            <Alert>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <AlertTitle>Consultando Rama Judicial...</AlertTitle>
+              <AlertDescription>
+                Tiempo transcurrido: {pollingStatus.elapsedSeconds}s
+              </AlertDescription>
+            </Alert>
           )}
         </CardContent>
       </Card>
 
-      {/* Error con opción de registro manual */}
+      {/* Error State */}
       {searchError && (
-        <Alert variant={isTimeoutError ? "default" : showManualOption ? "default" : "destructive"}>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>
-            {isTimeoutError 
-              ? "Tiempo de espera agotado" 
-              : showManualOption 
-                ? "Proceso no encontrado" 
-                : "Error en la búsqueda"
-            }
-          </AlertTitle>
-          <AlertDescription className="space-y-3">
+        <Alert variant="destructive">
+          <XCircle className="h-4 w-4" />
+          <AlertTitle>Error en la búsqueda</AlertTitle>
+          <AlertDescription className="space-y-2">
             <p>{searchError}</p>
-            <div className="flex gap-2 flex-wrap">
+            {showManualOption && (
               <Button 
                 variant="outline" 
-                size="sm"
-                onClick={handleSearch}
+                size="sm" 
+                onClick={handleManualRegister}
+                className="mt-2"
               >
-                <Search className="h-4 w-4 mr-2" />
-                {isTimeoutError ? "Reintentar" : "Reintentar"}
+                <Plus className="h-4 w-4 mr-2" />
+                Registrar manualmente
               </Button>
-              {radicado.length === 23 && (
-                <Button 
-                  variant="secondary" 
-                  size="sm"
-                  onClick={handleManualRegister}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Registrar Manualmente
-                </Button>
-              )}
-            </div>
+            )}
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Resultados de la API */}
+      {/* API Result */}
       {apiResult && (
-        <div className="space-y-4">
-          {/* Información del Proceso */}
-          <Card className="border-primary/30">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  Información del Proceso
-                </CardTitle>
-                <Badge variant="outline" className="text-sm">
-                  {apiResult.total_actuaciones} actuaciones
-                </Badge>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                Proceso Encontrado
+              </CardTitle>
+              <Button onClick={handleRegister} disabled={createWorkItemMutation.isPending}>
+                {createWorkItemMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                Registrar en ATENIA
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Process Info */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <Scale className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Tipo de Proceso</p>
+                    <p className="font-medium">{apiResult.proceso["Tipo de Proceso"] || "No disponible"}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Building2 className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Despacho</p>
+                    <p className="font-medium">{apiResult.proceso["Despacho"] || "No disponible"}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Calendar className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Fecha de Radicación</p>
+                    <p className="font-medium">{apiResult.proceso["Fecha de Radicación"] || "No disponible"}</p>
+                  </div>
+                </div>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {apiResult.proceso["Tipo de Proceso"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <Scale className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Tipo de Proceso</p>
-                      <p className="font-medium">{apiResult.proceso["Tipo de Proceso"]}</p>
-                    </div>
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <User className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Demandante(s)</p>
+                    <p className="font-medium">{apiResult.proceso["Demandante"] || "No disponible"}</p>
                   </div>
-                )}
-                
-                {apiResult.proceso["Clase de Proceso"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Clase de Proceso</p>
-                      <p className="font-medium">{apiResult.proceso["Clase de Proceso"]}</p>
-                    </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Users className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Demandado(s)</p>
+                    <p className="font-medium">{apiResult.proceso["Demandado"] || "No disponible"}</p>
                   </div>
-                )}
-
-                {apiResult.proceso["Fecha de Radicación"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Fecha de Radicación</p>
-                      <p className="font-medium">{apiResult.proceso["Fecha de Radicación"]}</p>
-                    </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <FileText className="h-4 w-4 mt-1 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Actuaciones</p>
+                    <Badge variant="secondary">{apiResult.total_actuaciones || 0}</Badge>
                   </div>
-                )}
-
-                {apiResult.proceso["Despacho"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Despacho</p>
-                      <p className="font-medium">{apiResult.proceso["Despacho"]}</p>
-                    </div>
-                  </div>
-                )}
-
-                {apiResult.proceso["Ponente"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <User className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Ponente</p>
-                      <p className="font-medium">{apiResult.proceso["Ponente"]}</p>
-                    </div>
-                  </div>
-                )}
-
-                {apiResult.proceso["Ubicación"] && (
-                  <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Ubicación</p>
-                      <p className="font-medium">{apiResult.proceso["Ubicación"]}</p>
-                    </div>
-                  </div>
-                )}
+                </div>
               </div>
+            </div>
 
-              {/* Sujetos Procesales - Demandantes y Demandados */}
-              {apiResult.sujetos_procesales && apiResult.sujetos_procesales.length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Sujetos Procesales
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Demandantes */}
-                    {apiResult.sujetos_procesales.filter(s => s.tipo === 'DEMANDANTE').length > 0 && (
-                      <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                        <p className="text-sm text-muted-foreground mb-2">Demandantes</p>
-                        <div className="space-y-1">
-                          {apiResult.sujetos_procesales
-                            .filter(s => s.tipo === 'DEMANDANTE')
-                            .map((sujeto, idx) => (
-                              <p key={idx} className="font-medium text-sm">{sujeto.nombre}</p>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                    {/* Demandados */}
-                    {apiResult.sujetos_procesales.filter(s => s.tipo === 'DEMANDADO').length > 0 && (
-                      <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                        <p className="text-sm text-muted-foreground mb-2">Demandados</p>
-                        <div className="space-y-1">
-                          {apiResult.sujetos_procesales
-                            .filter(s => s.tipo === 'DEMANDADO')
-                            .map((sujeto, idx) => (
-                              <p key={idx} className="font-medium text-sm">{sujeto.nombre}</p>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Fallback: Mostrar demandante/demandado del proceso si no hay sujetos */}
-              {(!apiResult.sujetos_procesales || apiResult.sujetos_procesales.length === 0) && (
-                <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {apiResult.proceso["Demandante"] && (
-                    <div className="flex items-start gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                      <User className="h-5 w-5 text-green-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm text-muted-foreground">Demandante</p>
-                        <p className="font-medium">{apiResult.proceso["Demandante"]}</p>
-                      </div>
-                    </div>
-                  )}
-                  {apiResult.proceso["Demandado"] && (
-                    <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                      <User className="h-5 w-5 text-red-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm text-muted-foreground">Demandado</p>
-                        <p className="font-medium">{apiResult.proceso["Demandado"]}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Estadísticas */}
-              {apiResult.estadisticas && (
-                <div className="mt-4 pt-4 border-t">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Estadísticas
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {apiResult.estadisticas.total_actuaciones !== undefined && (
-                      <div className="p-3 rounded-lg bg-primary/10 text-center">
-                        <p className="text-2xl font-bold text-primary">{apiResult.estadisticas.total_actuaciones}</p>
-                        <p className="text-xs text-muted-foreground">Total Actuaciones</p>
-                      </div>
-                    )}
-                    {/* Total Sujetos Procesales */}
-                    {apiResult.sujetos_procesales && (
-                      <div className="p-3 rounded-lg bg-secondary/50 text-center">
-                        <p className="text-2xl font-bold text-secondary-foreground">{apiResult.sujetos_procesales.length}</p>
-                        <p className="text-xs text-muted-foreground">Sujetos Procesales</p>
-                      </div>
-                    )}
-                    {apiResult.estadisticas.dias_desde_radicacion !== undefined && (
-                      <div className="p-3 rounded-lg bg-muted/50 text-center">
-                        <p className="text-2xl font-bold">{apiResult.estadisticas.dias_desde_radicacion}</p>
-                        <p className="text-xs text-muted-foreground">Días desde radicación</p>
-                      </div>
-                    )}
-                    {apiResult.estadisticas.dias_desde_ultima_actuacion !== undefined && (
-                      <div className="p-3 rounded-lg bg-muted/50 text-center">
-                        <p className="text-2xl font-bold">{apiResult.estadisticas.dias_desde_ultima_actuacion}</p>
-                        <p className="text-xs text-muted-foreground">Días desde última act.</p>
-                      </div>
-                    )}
-                    {apiResult.estadisticas.primera_actuacion && (
-                      <div className="p-3 rounded-lg bg-muted/50 text-center">
-                        <p className="text-sm font-bold">{apiResult.estadisticas.primera_actuacion}</p>
-                        <p className="text-xs text-muted-foreground">Primera actuación</p>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Sujetos Procesales en Estadísticas */}
-                  {apiResult.estadisticas.sujetos_procesales && (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {apiResult.estadisticas.sujetos_procesales.demandantes && apiResult.estadisticas.sujetos_procesales.demandantes.length > 0 && (
-                        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                          <p className="text-sm text-muted-foreground mb-2">Demandantes ({apiResult.estadisticas.sujetos_procesales.demandantes.length})</p>
-                          <div className="space-y-1">
-                            {apiResult.estadisticas.sujetos_procesales.demandantes.map((nombre: string, idx: number) => (
-                              <p key={idx} className="font-medium text-sm">{nombre}</p>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {apiResult.estadisticas.sujetos_procesales.demandados && apiResult.estadisticas.sujetos_procesales.demandados.length > 0 && (
-                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                          <p className="text-sm text-muted-foreground mb-2">Demandados ({apiResult.estadisticas.sujetos_procesales.demandados.length})</p>
-                          <div className="space-y-1">
-                            {apiResult.estadisticas.sujetos_procesales.demandados.map((nombre: string, idx: number) => (
-                              <p key={idx} className="font-medium text-sm">{nombre}</p>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Botón de registrar */}
-              <div className="pt-4 mt-4 border-t">
-                <Button 
-                  onClick={handleRegister} 
-                  className="w-full"
-                  disabled={addProcessMutation.isPending}
-                  size="lg"
-                >
-                  {addProcessMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4 mr-2" />
-                  )}
-                  Registrar Proceso para Monitoreo
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Última Actuación Destacada */}
-          {apiResult.ultima_actuacion && (
-            <Card className="border-primary/50 bg-primary/5">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-primary">
-                  <Bell className="h-5 w-5" />
-                  Última Actuación
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge>{apiResult.ultima_actuacion["Fecha de Actuación"]}</Badge>
-                    <span className="font-semibold">{apiResult.ultima_actuacion["Actuación"]}</span>
-                  </div>
-                  {apiResult.ultima_actuacion["Anotación"] && (
-                    <p className="text-muted-foreground bg-background/50 p-3 rounded-md">
-                      {apiResult.ultima_actuacion["Anotación"]}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    {apiResult.ultima_actuacion["Fecha inicia Término"] && (
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        <span>Inicia: {apiResult.ultima_actuacion["Fecha inicia Término"]}</span>
-                      </div>
-                    )}
-                    {apiResult.ultima_actuacion["Fecha finaliza Término"] && (
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        <span>Finaliza: {apiResult.ultima_actuacion["Fecha finaliza Término"]}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Historial de Actuaciones - Colapsable */}
-          {apiResult.actuaciones && apiResult.actuaciones.length > 0 && (
-            <Collapsible open={actuacionesOpen} onOpenChange={setActuacionesOpen}>
-              <Card>
+            {/* Actuaciones */}
+            {apiResult.actuaciones && apiResult.actuaciones.length > 0 && (
+              <Collapsible open={actuacionesOpen} onOpenChange={setActuacionesOpen}>
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2">
-                        <FileText className="h-5 w-5 text-primary" />
-                        Historial de Actuaciones
-                        <Badge variant="secondary">{apiResult.total_actuaciones}</Badge>
-                      </CardTitle>
-                      {actuacionesOpen ? (
-                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                      )}
-                    </div>
-                  </CardHeader>
+                  <Button variant="outline" className="w-full justify-between">
+                    <span className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Ver Actuaciones ({apiResult.actuaciones.length})
+                    </span>
+                    {actuacionesOpen ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
                 </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[120px]">Fecha</TableHead>
-                            <TableHead>Actuación</TableHead>
-                            <TableHead className="hidden lg:table-cell">Anotación</TableHead>
-                            <TableHead className="w-[100px] hidden md:table-cell">Inicia</TableHead>
-                            <TableHead className="w-[100px] hidden md:table-cell">Finaliza</TableHead>
+                <CollapsibleContent className="mt-4">
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[120px]">Fecha</TableHead>
+                          <TableHead>Actuación</TableHead>
+                          <TableHead>Anotación</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {apiResult.actuaciones.slice(0, 10).map((act, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-mono text-sm">
+                              {act["Fecha de Actuación"]}
+                            </TableCell>
+                            <TableCell>{act["Actuación"]}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {act["Anotación"] || "-"}
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {apiResult.actuaciones.map((actuacion, index) => (
-                            <TableRow key={index}>
-                              <TableCell className="font-mono text-sm">
-                                {actuacion["Fecha de Actuación"] || "-"}
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {actuacion["Actuación"] || "-"}
-                                {actuacion["Anotación"] && (
-                                  <p className="text-sm text-muted-foreground mt-1 lg:hidden">
-                                    {actuacion["Anotación"]}
-                                  </p>
-                                )}
-                              </TableCell>
-                              <TableCell className="hidden lg:table-cell text-muted-foreground text-sm max-w-md">
-                                {actuacion["Anotación"] || "-"}
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell text-sm">
-                                {actuacion["Fecha inicia Término"] || "-"}
-                              </TableCell>
-                              <TableCell className="hidden md:table-cell text-sm">
-                                {actuacion["Fecha finaliza Término"] || "-"}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {apiResult.actuaciones.length > 10 && (
+                      <p className="text-center text-sm text-muted-foreground py-2 border-t">
+                        ... y {apiResult.actuaciones.length - 10} más
+                      </p>
+                    )}
+                  </div>
                 </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          )}
+              </Collapsible>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Datos RAW de la API - Para debugging */}
-          {apiResult.rawData && (
-            <Collapsible>
-              <Card className="border-dashed">
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <FileSearch className="h-4 w-4" />
-                        Ver Respuesta Raw de API
-                      </CardTitle>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent>
-                    <pre className="text-xs bg-muted p-4 rounded-lg overflow-x-auto max-h-96">
-                      {JSON.stringify(apiResult.rawData, null, 2)}
-                    </pre>
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
-          )}
-        </div>
+      {/* Quick tip */}
+      {!apiResult && !searchError && !isSearching && (
+        <Alert>
+          <Bell className="h-4 w-4" />
+          <AlertTitle>Consejo</AlertTitle>
+          <AlertDescription>
+            El radicado de 23 dígitos contiene información sobre: Código DIVIPOLA (5), Entidad (2), 
+            Especialidad (2), Despacho (3), Tipo de proceso (2), Radicación (5) y Año (4).
+            Después de buscar, podrás clasificar el asunto en el tipo de proceso correcto.
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );

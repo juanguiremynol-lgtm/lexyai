@@ -35,11 +35,15 @@ import {
   Users,
   UserPlus,
   Link as LinkIcon,
+  Scale,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { parseIcarusExcel, type ParseResult, type IcarusExcelRow } from "@/lib/icarus-excel-parser";
 import { IcarusExcelPreview } from "./IcarusExcelPreview";
+import { WorkflowClassificationDialog } from "@/components/workflow/WorkflowClassificationDialog";
+import type { WorkflowClassification } from "@/types/work-item";
+import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
 
 interface ImportResult {
   run_id: string;
@@ -72,6 +76,10 @@ export function IcarusExcelImport() {
 
   // Post-import linking state
   const [postImportDialogOpen, setPostImportDialogOpen] = useState(false);
+
+  // Workflow classification state
+  const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
+  const [selectedClassification, setSelectedClassification] = useState<WorkflowClassification | null>(null);
 
   // Fetch clients
   const { data: clients = [] } = useQuery({
@@ -137,6 +145,7 @@ export function IcarusExcelImport() {
     setImportResult(null);
     setParseError(null);
     setSelectedRows(new Set());
+    setSelectedClassification(null);
 
     // Validate file type
     const validExtensions = [".xls", ".xlsx"];
@@ -168,36 +177,115 @@ export function IcarusExcelImport() {
     }
   };
 
+  // Import mutation that creates work_items instead of monitored_processes
   const importMutation = useMutation({
-    mutationFn: async (rows: IcarusExcelRow[]) => {
-      const { data, error } = await supabase.functions.invoke("icarus-import-excel", {
-        body: {
-          file_name: file?.name || "unknown.xlsx",
-          file_hash: parseResult?.file_hash || "",
-          client_id: selectedClientId,
-          rows: rows.map(row => ({
-            radicado_raw: row.radicado_raw,
-            radicado_norm: row.radicado_norm,
-            despacho: row.despacho,
-            distrito: row.distrito,
-            juez_ponente: row.juez_ponente,
-            demandantes: row.demandantes,
-            demandados: row.demandados,
-            last_action_date_raw: row.last_action_date_raw,
-            last_action_date_iso: row.last_action_date_iso,
-          })),
-        },
-      });
+    mutationFn: async ({ rows, classification }: { rows: IcarusExcelRow[]; classification: WorkflowClassification }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
 
-      if (error) throw new Error(error.message);
-      if (data && !data.ok) throw new Error(data.message || "Error en importación");
-      return data as ImportResult;
+      const results = {
+        imported: 0,
+        updated: 0,
+        skipped: 0,
+        errors: [] as { row_index: number; message: string }[],
+        imported_ids: [] as string[],
+      };
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        
+        try {
+          // Check if work_item with this radicado already exists
+          const { data: existing } = await supabase
+            .from("work_items")
+            .select("id")
+            .eq("owner_id", user.id)
+            .eq("radicado", row.radicado_norm)
+            .maybeSingle();
+
+          if (existing) {
+            // Update existing
+            const { error: updateError } = await supabase
+              .from("work_items")
+              .update({
+                authority_name: row.despacho || null,
+                authority_department: row.distrito || null,
+                demandantes: row.demandantes || null,
+                demandados: row.demandados || null,
+                last_action_date: row.last_action_date_iso || null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", existing.id);
+
+            if (updateError) {
+              results.errors.push({ row_index: i, message: updateError.message });
+              results.skipped++;
+            } else {
+              results.updated++;
+            }
+          } else {
+            // Insert new
+            const { data: inserted, error: insertError } = await supabase
+              .from("work_items")
+              .insert({
+                owner_id: user.id,
+                workflow_type: classification.workflow_type,
+                stage: classification.stage,
+                cgp_phase: classification.cgp_phase || null,
+                cgp_phase_source: classification.cgp_phase ? 'MANUAL' : null,
+                status: 'ACTIVE',
+                source: 'ICARUS_IMPORT',
+                radicado: row.radicado_norm,
+                authority_name: row.despacho || null,
+                authority_department: row.distrito || null,
+                demandantes: row.demandantes || null,
+                demandados: row.demandados || null,
+                last_action_date: row.last_action_date_iso || null,
+                client_id: selectedClientId || null,
+                is_flagged: false,
+                monitoring_enabled: true,
+                email_linking_enabled: true,
+                radicado_verified: false,
+              })
+              .insert(workItemData)
+              .select("id")
+              .single();
+
+            if (insertError) {
+              results.errors.push({ row_index: i, message: insertError.message });
+              results.skipped++;
+            } else {
+              results.imported++;
+              if (inserted?.id) {
+                results.imported_ids.push(inserted.id);
+              }
+            }
+          }
+        } catch (error) {
+          results.errors.push({ 
+            row_index: i, 
+            message: error instanceof Error ? error.message : "Error desconocido" 
+          });
+          results.skipped++;
+        }
+      }
+
+      return {
+        run_id: crypto.randomUUID(),
+        status: results.skipped === rows.length ? "ERROR" : results.skipped > 0 ? "PARTIAL" : "SUCCESS",
+        rows_total: rows.length,
+        rows_valid: rows.length,
+        rows_imported: results.imported,
+        rows_updated: results.updated,
+        rows_skipped: results.skipped,
+        errors: results.errors,
+        imported_process_ids: results.imported_ids,
+      } as ImportResult;
     },
     onSuccess: (data) => {
       setImportResult(data);
-      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-import-runs"] });
-      queryClient.invalidateQueries({ queryKey: ["unlinked-processes"] });
       
       // If no client was selected and processes were imported, prompt for linking
       if (!selectedClientId && data.rows_imported > 0) {
@@ -213,6 +301,16 @@ export function IcarusExcelImport() {
     },
   });
 
+  // Handle classification and then import
+  const handleClassificationComplete = (classification: WorkflowClassification) => {
+    setSelectedClassification(classification);
+    setClassificationDialogOpen(false);
+    // Now proceed with import
+    if (!parseResult) return;
+    const rowsToImport = parseResult.rows.filter((_, index) => selectedRows.has(index));
+    importMutation.mutate({ rows: rowsToImport, classification });
+  };
+
   const handleImport = () => {
     if (!parseResult) return;
 
@@ -222,7 +320,8 @@ export function IcarusExcelImport() {
       return;
     }
 
-    importMutation.mutate(rowsToImport);
+    // Open classification dialog first
+    setClassificationDialogOpen(true);
   };
 
   const resetImport = () => {
@@ -235,6 +334,7 @@ export function IcarusExcelImport() {
     setNewClientName("");
     setNewClientIdNumber("");
     setNewClientEmail("");
+    setSelectedClassification(null);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -263,6 +363,15 @@ export function IcarusExcelImport() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Workflow Classification Dialog */}
+        <WorkflowClassificationDialog
+          open={classificationDialogOpen}
+          onOpenChange={setClassificationDialogOpen}
+          onClassify={handleClassificationComplete}
+          title="Clasificar Procesos Importados"
+          description={`Selecciona el tipo de proceso para los ${selectedRows.size} asuntos que vas a importar. Todos se crearán con la misma clasificación.`}
+        />
+
         {/* Import Complete State */}
         {importResult && (
           <div className="space-y-4">
@@ -298,13 +407,26 @@ export function IcarusExcelImport() {
                     <span>Vinculados a: <strong>{selectedClient.name}</strong></span>
                   </div>
                 )}
+                {selectedClassification && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Scale className="h-4 w-4" />
+                    <span>
+                      Clasificados como: <strong>{WORKFLOW_TYPES[selectedClassification.workflow_type].label}</strong>
+                      {selectedClassification.cgp_phase && (
+                        <Badge variant="secondary" className="ml-2">
+                          {selectedClassification.cgp_phase === 'FILING' ? 'Radicación' : 'Proceso'}
+                        </Badge>
+                      )}
+                    </span>
+                  </div>
+                )}
               </AlertDescription>
             </Alert>
 
             <div className="flex gap-2 flex-wrap">
-              <Link to="/process-status">
+              <Link to="/">
                 <Button>
-                  Ver Procesos Importados
+                  Ver en Dashboard
                   <ExternalLink className="h-4 w-4 ml-2" />
                 </Button>
               </Link>
@@ -346,10 +468,6 @@ export function IcarusExcelImport() {
               }}
               className="hidden"
               id="excel-file-input"
-              ref={(input) => {
-                // Store ref for programmatic click
-                if (input) (window as any).__excelFileInput = input;
-              }}
             />
             <Button 
               variant="secondary" 
@@ -484,7 +602,7 @@ export function IcarusExcelImport() {
                     </>
                   ) : (
                     <>
-                      Importar a ATENIA
+                      Clasificar e Importar
                       <ArrowRight className="h-4 w-4 ml-2" />
                     </>
                   )}
@@ -494,9 +612,9 @@ export function IcarusExcelImport() {
 
             {importMutation.isPending && (
               <div className="space-y-2">
-                <Progress value={50} className="animate-pulse" />
-                <p className="text-sm text-muted-foreground text-center">
-                  Procesando {selectedRows.size} procesos...
+                <Progress value={50} className="h-2" />
+                <p className="text-sm text-center text-muted-foreground">
+                  Procesando importación...
                 </p>
               </div>
             )}
@@ -509,108 +627,81 @@ export function IcarusExcelImport() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                Vincular a Cliente
+                Seleccionar Cliente
               </DialogTitle>
               <DialogDescription>
-                Los procesos importados se asociarán a este cliente
+                Vincule los procesos importados a un cliente existente o cree uno nuevo
               </DialogDescription>
             </DialogHeader>
-
+            
             <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="existing">
-                  <Users className="h-4 w-4 mr-2" />
-                  Cliente Existente
-                </TabsTrigger>
-                <TabsTrigger value="new">
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Nuevo Cliente
-                </TabsTrigger>
+                <TabsTrigger value="existing">Cliente Existente</TabsTrigger>
+                <TabsTrigger value="new">Nuevo Cliente</TabsTrigger>
               </TabsList>
-
+              
               <TabsContent value="existing" className="space-y-4 mt-4">
                 {clients.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                    <p>No hay clientes registrados</p>
-                    <Button 
-                      variant="link" 
-                      onClick={() => setClientTab("new")}
-                    >
-                      Crear nuevo cliente
-                    </Button>
-                  </div>
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay clientes registrados. Cree uno nuevo.
+                  </p>
                 ) : (
-                  <div className="space-y-2">
-                    <Label>Seleccionar Cliente</Label>
-                    <Select 
-                      value={selectedClientId || ""} 
-                      onValueChange={setSelectedClientId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar cliente" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {clients.map((client) => (
-                          <SelectItem key={client.id} value={client.id}>
-                            {client.name} {client.id_number && `(${client.id_number})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Select value={selectedClientId || ""} onValueChange={setSelectedClientId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccione un cliente..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name} {client.id_number && `(${client.id_number})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </TabsContent>
-
+              
               <TabsContent value="new" className="space-y-4 mt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="new-client-name">Nombre del Cliente *</Label>
+                  <Label>Nombre del Cliente *</Label>
                   <Input
-                    id="new-client-name"
+                    placeholder="Nombre completo o razón social"
                     value={newClientName}
                     onChange={(e) => setNewClientName(e.target.value)}
-                    placeholder="Nombre completo o razón social"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-client-id">Cédula / NIT</Label>
+                  <Label>Cédula / NIT (opcional)</Label>
                   <Input
-                    id="new-client-id"
+                    placeholder="Número de identificación"
                     value={newClientIdNumber}
                     onChange={(e) => setNewClientIdNumber(e.target.value)}
-                    placeholder="Número de identificación"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-client-email">Correo Electrónico</Label>
+                  <Label>Correo electrónico (opcional)</Label>
                   <Input
-                    id="new-client-email"
                     type="email"
+                    placeholder="correo@ejemplo.com"
                     value={newClientEmail}
                     onChange={(e) => setNewClientEmail(e.target.value)}
-                    placeholder="cliente@ejemplo.com"
                   />
                 </div>
                 <Button 
-                  onClick={handleCreateClientAndSelect}
+                  onClick={handleCreateClientAndSelect} 
                   disabled={!newClientName.trim() || createClientMutation.isPending}
                   className="w-full"
                 >
                   {createClientMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Creando...
-                    </>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
-                    <>
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Crear y Seleccionar
-                    </>
+                    <UserPlus className="h-4 w-4 mr-2" />
                   )}
+                  Crear Cliente
                 </Button>
               </TabsContent>
             </Tabs>
-
+            
             <DialogFooter>
               <Button variant="outline" onClick={() => setClientDialogOpen(false)}>
                 Cancelar
@@ -625,38 +716,23 @@ export function IcarusExcelImport() {
           </DialogContent>
         </Dialog>
 
-        {/* Post-Import Client Linking Dialog */}
+        {/* Post-import linking prompt */}
         <Dialog open={postImportDialogOpen} onOpenChange={setPostImportDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <LinkIcon className="h-5 w-5 text-amber-500" />
-                Procesos Importados Sin Cliente
-              </DialogTitle>
+              <DialogTitle>Procesos importados sin cliente</DialogTitle>
               <DialogDescription>
-                Se importaron {importResult?.rows_imported || 0} procesos nuevos sin vincular a ningún cliente.
+                Los procesos fueron importados exitosamente pero no están vinculados a ningún cliente. 
                 ¿Desea vincularlos ahora?
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="py-4">
-              <Alert variant="default" className="border-amber-300 bg-amber-50">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <AlertDescription className="text-amber-700">
-                  Puede vincular estos procesos desde la sección "Procesos sin vincular" 
-                  en cualquier momento.
-                </AlertDescription>
-              </Alert>
-            </div>
-
             <DialogFooter>
               <Button variant="outline" onClick={() => setPostImportDialogOpen(false)}>
-                Vincular Después
+                Más tarde
               </Button>
-              <Link to="/process-status">
-                <Button onClick={() => setPostImportDialogOpen(false)}>
-                  <Users className="h-4 w-4 mr-2" />
-                  Ir a Vincular
+              <Link to="/clients">
+                <Button>
+                  Ir a Clientes
                 </Button>
               </Link>
             </DialogFooter>
