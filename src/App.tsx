@@ -26,6 +26,8 @@ import Links from "./pages/Links";
 import Filings from "./pages/Filings";
 import CGPDetail from "./pages/CGPDetail";
 import CGPRedirect from "./pages/CGPRedirect";
+import ItemDetail from "./pages/ItemDetail";
+import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
 import DocumentSearch from "./pages/DocumentSearch";
@@ -79,13 +81,16 @@ const App = () => (
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             
+            {/* Unified Work Items Route */}
+            <Route path="/items/:id" element={<ErrorBoundary><ItemDetail /></ErrorBoundary>} />
+            
             {/* CGP Unified Routes */}
             <Route path="/cgp/:id" element={<ErrorBoundary><CGPDetail /></ErrorBoundary>} />
             
             {/* Legacy route redirects - backward compatibility */}
             <Route path="/filings/:id" element={<ErrorBoundary><CGPRedirect type="filing" /></ErrorBoundary>} />
-            <Route path="/processes/:id" element={<ErrorBoundary><CGPRedirect type="process" /></ErrorBoundary>} />
-            <Route path="/process-status/:id" element={<ErrorBoundary><CGPRedirect type="process" /></ErrorBoundary>} />
+            <Route path="/processes/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
+            <Route path="/process-status/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             
             {/* List views */}
             <Route path="/filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
