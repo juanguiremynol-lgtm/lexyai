@@ -14,7 +14,7 @@ import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
 import Processes from "./pages/Processes";
 import ProcessStatus from "./pages/ProcessStatus";
-import ProcessStatusDetail from "./pages/ProcessStatusDetail";
+import ProcessDetailRedirect from "./pages/ProcessDetailRedirect";
 import ProcessStatusTest from "./pages/ProcessStatusTest";
 import IcarusTest from "./pages/IcarusTest";
 import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
@@ -81,7 +81,7 @@ const App = () => (
             <Route path="/filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
             <Route path="/filings/:id" element={<ErrorBoundary><FilingDetail /></ErrorBoundary>} />
             <Route path="/processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
-            <Route path="/processes/:id" element={<ErrorBoundary><ProcessStatusDetail /></ErrorBoundary>} />
+            <Route path="/processes/:id" element={<ErrorBoundary><ProcessDetailRedirect /></ErrorBoundary>} />
             <Route path="/hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
             <Route path="/process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="/process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
@@ -89,7 +89,7 @@ const App = () => (
             <Route path="/process-status/test-icarus" element={<ErrorBoundary><IcarusTest /></ErrorBoundary>} />
             <Route path="/process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
             <Route path="/api-debug" element={<ErrorBoundary><ApiDebugPage /></ErrorBoundary>} />
-            <Route path="/process-status/:id" element={<ErrorBoundary><ProcessStatusDetail /></ErrorBoundary>} />
+            <Route path="/process-status/:id" element={<ErrorBoundary><ProcessDetailRedirect /></ErrorBoundary>} />
             <Route path="/tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
             <Route path="/alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
             <Route path="/utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
