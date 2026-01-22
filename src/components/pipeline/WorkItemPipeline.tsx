@@ -3,9 +3,9 @@
  * 
  * KEY ARCHITECTURE:
  * - Single source of truth: work_items table with workflow_type = 'CGP'
- * - Phase (FILING/PROCESS) is DERIVED from stage automatically
+ * - Phase (RADICACIÓN/PROCESO) is DERIVED from stage automatically (stages 1-3 = RADICACION, 4-13 = PROCESO)
  * - Kanban drag-and-drop updates stage AND phase atomically
- * - Query invalidation ensures dashboard/lists stay in sync
+ * - 13 columns based on Ley 1564 de 2012 (CGP)
  */
 
 import { useState, useCallback, useMemo } from "react";
@@ -25,7 +25,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Keyboard, CheckSquare, FileText, Scale } from "lucide-react";
+import { RefreshCw, Keyboard, CheckSquare, FileText, Scale, Filter } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { WorkItemPipelineColumn, WorkItemStageConfig } from "./WorkItemPipelineColumn";
@@ -33,22 +33,21 @@ import { WorkItemPipelineCard, WorkItemPipelineItem } from "./WorkItemPipelineCa
 import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
 import {
-  getMergedKanbanStages,
-  getFirstStageOfMergedColumn,
+  CGP_STAGES,
   derivePhaseFromStage,
-  findMergedColumnForStage,
+  getOrderedCGPStages,
   type CGPPhase,
-  type MergedStageConfig,
-} from "@/lib/cgp-stage-phase-mapping";
+  type CGPStageConfig,
+} from "@/lib/cgp-constants";
 
-// Convert our merged stage config to the column component's expected format
-function toColumnStageConfig(merged: MergedStageConfig): WorkItemStageConfig {
+// Convert stage config to column component's expected format
+function toColumnStageConfig(stage: CGPStageConfig): WorkItemStageConfig {
   return {
-    id: merged.id,
-    label: merged.label,
-    shortLabel: merged.shortLabel,
-    color: merged.color,
-    phase: merged.phase,
+    id: stage.key,
+    label: stage.label,
+    shortLabel: stage.shortLabel,
+    color: stage.color,
+    phase: stage.phase === 'RADICACION' ? 'FILING' : 'PROCESS', // Map to pipeline's phase naming
   };
 }
 
@@ -60,6 +59,7 @@ export function WorkItemPipeline() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+  const [phaseFilter, setPhaseFilter] = useState<'ALL' | 'RADICACION' | 'PROCESO'>('ALL');
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -70,8 +70,14 @@ export function WorkItemPipeline() {
     useSensor(KeyboardSensor)
   );
 
-  // Get merged kanban stages from our canonical mapping
-  const mergedStages = useMemo(() => getMergedKanbanStages(), []);
+  // Get all 13 CGP stages
+  const stages = useMemo(() => getOrderedCGPStages(), []);
+
+  // Filter stages by phase if filter is active
+  const visibleStages = useMemo(() => {
+    if (phaseFilter === 'ALL') return stages;
+    return stages.filter(s => s.phase === phaseFilter);
+  }, [stages, phaseFilter]);
 
   // Fetch work_items for CGP workflow
   const { data: workItems, isLoading, refetch } = useQuery({
@@ -132,8 +138,8 @@ export function WorkItemPipeline() {
         .from("work_items")
         .update({ 
           stage: newStage, 
-          cgp_phase: newPhase,
-          cgp_phase_source: "MANUAL", // Track that this came from user action
+          cgp_phase: newPhase as 'FILING' | 'PROCESS', // Map for DB compatibility
+          cgp_phase_source: "MANUAL",
           updated_at: new Date().toISOString(),
         })
         .eq("id", itemId);
@@ -142,7 +148,7 @@ export function WorkItemPipeline() {
       
       return { itemId, newStage, newPhase };
     },
-    onSuccess: ({ newPhase }) => {
+    onSuccess: ({ newPhase, newStage }) => {
       // Invalidate ALL relevant queries to keep everything in sync
       queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
@@ -150,8 +156,8 @@ export function WorkItemPipeline() {
       queryClient.invalidateQueries({ queryKey: ["cgp-items"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-mappings"] });
       
-      // Show appropriate message based on phase change
-      toast.success("Etapa actualizada");
+      const stageConfig = CGP_STAGES[newStage];
+      toast.success(`Movido a: ${stageConfig?.label || newStage}`);
     },
     onError: (error) => {
       console.error("Error updating stage:", error);
@@ -177,13 +183,9 @@ export function WorkItemPipeline() {
   // Bulk delete mutation
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      // Delete work_item_acts first
       await supabase.from("work_item_acts").delete().in("work_item_id", ids);
-      
-      // Delete work_items
       const { error } = await supabase.from("work_items").delete().in("id", ids);
       if (error) throw error;
-      
       return ids;
     },
     onSuccess: (ids) => {
@@ -213,21 +215,10 @@ export function WorkItemPipeline() {
     const item = workItems?.find(i => i.id === itemId);
     if (!item) return;
 
-    const targetMergedColumnId = over.id as string;
+    const targetStage = over.id as string;
     
-    // Get the first stage of the target merged column
-    const targetStage = getFirstStageOfMergedColumn(targetMergedColumnId);
-    if (!targetStage) {
-      console.warn("Could not find target stage for column:", targetMergedColumnId);
-      return;
-    }
-
-    // Check if already in a stage within this merged column
-    const currentMergedColumn = findMergedColumnForStage(item.stage);
-    if (currentMergedColumn?.id === targetMergedColumnId) {
-      // Already in a stage within this column, no change needed
-      return;
-    }
+    // Skip if already in the same stage
+    if (item.stage === targetStage) return;
 
     // Trigger the atomic update
     updateStageMutation.mutate({
@@ -269,36 +260,33 @@ export function WorkItemPipeline() {
     setIsSelectionMode(false);
   };
 
-  // Organize items by merged column
-  const itemsByMergedColumn = useMemo(() => {
+  // Organize items by stage
+  const itemsByStage = useMemo(() => {
     const result: Record<string, WorkItemPipelineItem[]> = {};
     
-    // Initialize all columns with empty arrays
-    mergedStages.forEach((stage) => {
-      result[stage.id] = [];
+    // Initialize all stages with empty arrays
+    stages.forEach((stage) => {
+      result[stage.key] = [];
     });
 
-    // Assign each item to its merged column
+    // Assign each item to its stage
     (workItems || []).forEach((item) => {
-      const mergedColumn = findMergedColumnForStage(item.stage);
-      if (mergedColumn && result[mergedColumn.id]) {
-        result[mergedColumn.id].push(item);
+      if (result[item.stage]) {
+        result[item.stage].push(item);
       } else {
-        // Fallback: place in first column of the item's phase
-        const fallbackColumn = mergedStages.find(s => s.phase === item.cgp_phase);
-        if (fallbackColumn) {
-          result[fallbackColumn.id].push(item);
+        // Fallback: place in first stage of the item's phase
+        const fallbackStage = stages.find(s => s.phase === (item.cgp_phase || 'RADICACION'));
+        if (fallbackStage) {
+          result[fallbackStage.key].push(item);
         }
       }
     });
 
-    // Sort items within each column (flagged first, then by last action date)
-    Object.keys(result).forEach(columnId => {
-      result[columnId].sort((a, b) => {
-        // Flagged items first
+    // Sort items within each stage (flagged first, then by last action date)
+    Object.keys(result).forEach(stageKey => {
+      result[stageKey].sort((a, b) => {
         if (a.is_flagged && !b.is_flagged) return -1;
         if (!a.is_flagged && b.is_flagged) return 1;
-        // Then by last action date (most recent first)
         const dateA = a.last_action_date ? new Date(a.last_action_date).getTime() : 0;
         const dateB = b.last_action_date ? new Date(b.last_action_date).getTime() : 0;
         return dateB - dateA;
@@ -306,15 +294,15 @@ export function WorkItemPipeline() {
     });
 
     return result;
-  }, [workItems, mergedStages]);
+  }, [workItems, stages]);
 
   // Calculate counts by phase
-  const filingCount = useMemo(() => 
-    (workItems || []).filter(i => i.cgp_phase === "FILING").length, 
+  const radicacionCount = useMemo(() => 
+    (workItems || []).filter(i => derivePhaseFromStage(i.stage) === 'RADICACION').length, 
     [workItems]
   );
-  const processCount = useMemo(() => 
-    (workItems || []).filter(i => i.cgp_phase === "PROCESS").length, 
+  const procesoCount = useMemo(() => 
+    (workItems || []).filter(i => derivePhaseFromStage(i.stage) === 'PROCESO').length, 
     [workItems]
   );
 
@@ -328,9 +316,9 @@ export function WorkItemPipeline() {
             <Skeleton className="h-9 w-24" />
           </div>
         </div>
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {[...Array(6)].map((_, i) => (
-            <Skeleton key={i} className="h-[500px] min-w-[280px]" />
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {[...Array(8)].map((_, i) => (
+            <Skeleton key={i} className="h-[500px] min-w-[260px]" />
           ))}
         </div>
       </div>
@@ -353,18 +341,31 @@ export function WorkItemPipeline() {
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-xl font-semibold">Pipeline CGP</h2>
-              <p className="text-sm text-muted-foreground">{totalItems} casos activos</p>
+              <p className="text-sm text-muted-foreground">{totalItems} casos activos • 13 etapas</p>
             </div>
             {/* Phase summary badges */}
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30">
+              <Badge 
+                variant={phaseFilter === 'RADICACION' ? 'default' : 'outline'} 
+                className="cursor-pointer bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+                onClick={() => setPhaseFilter(phaseFilter === 'RADICACION' ? 'ALL' : 'RADICACION')}
+              >
                 <FileText className="h-3 w-3 mr-1" />
-                {filingCount} Radicaciones
+                {radicacionCount} Radicaciones
               </Badge>
-              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+              <Badge 
+                variant={phaseFilter === 'PROCESO' ? 'default' : 'outline'} 
+                className="cursor-pointer bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                onClick={() => setPhaseFilter(phaseFilter === 'PROCESO' ? 'ALL' : 'PROCESO')}
+              >
                 <Scale className="h-3 w-3 mr-1" />
-                {processCount} Procesos
+                {procesoCount} Procesos
               </Badge>
+              {phaseFilter !== 'ALL' && (
+                <Button variant="ghost" size="sm" onClick={() => setPhaseFilter('ALL')} className="h-6 px-2">
+                  <Filter className="h-3 w-3 mr-1" /> Mostrar todo
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -396,26 +397,28 @@ export function WorkItemPipeline() {
         </div>
 
         {/* Phase divider info */}
-        <div className="text-xs text-muted-foreground flex items-center gap-2 px-2">
+        <div className="text-xs text-muted-foreground flex items-center gap-2 px-2 flex-wrap">
           <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-blue-500" />
-            Etapas 1-3: RADICACIÓN (sin auto admisorio)
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            Etapas 1-3: RADICACIÓN
           </span>
           <span className="text-muted-foreground/50">→</span>
           <span className="flex items-center gap-1">
             <div className="w-2 h-2 rounded-full bg-emerald-500" />
-            Etapas 4+: PROCESO (con auto admisorio)
+            Etapas 4-13: PROCESO
           </span>
+          <span className="text-muted-foreground/30 mx-2">|</span>
+          <span className="italic">Arrastra tarjetas para cambiar etapa. La fase se actualiza automáticamente.</span>
         </div>
 
         {/* Pipeline columns */}
         <ScrollArea className="pb-4">
           <div className="flex gap-3 min-h-[500px]">
-            {mergedStages.map((stage) => (
+            {visibleStages.map((stage) => (
               <WorkItemPipelineColumn
-                key={stage.id}
+                key={stage.key}
                 stage={toColumnStageConfig(stage)}
-                items={itemsByMergedColumn[stage.id] || []}
+                items={itemsByStage[stage.key] || []}
                 focusedItemId={focusedItemId}
                 selectedItemIds={selectedIds}
                 isSelectionMode={isSelectionMode}

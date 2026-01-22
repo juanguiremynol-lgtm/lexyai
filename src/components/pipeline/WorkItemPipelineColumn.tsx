@@ -34,6 +34,10 @@ const colorMap: Record<string, string> = {
   slate: "bg-slate-500/10 border-slate-500/30 text-slate-600 dark:text-slate-400",
   teal: "bg-teal-500/10 border-teal-500/30 text-teal-600 dark:text-teal-400",
   orange: "bg-orange-500/10 border-orange-500/30 text-orange-600 dark:text-orange-400",
+  cyan: "bg-cyan-500/10 border-cyan-500/30 text-cyan-600 dark:text-cyan-400",
+  purple: "bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400",
+  fuchsia: "bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-600 dark:text-fuchsia-400",
+  stone: "bg-stone-500/10 border-stone-500/30 text-stone-600 dark:text-stone-400",
 };
 
 export function WorkItemPipelineColumn({
