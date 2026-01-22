@@ -14,7 +14,6 @@ import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
 import Processes from "./pages/Processes";
 import ProcessStatus from "./pages/ProcessStatus";
-import ProcessDetailRedirect from "./pages/ProcessDetailRedirect";
 import ProcessStatusTest from "./pages/ProcessStatusTest";
 import IcarusTest from "./pages/IcarusTest";
 import CrawlerDiagnostics from "./pages/CrawlerDiagnostics";
@@ -25,7 +24,8 @@ import Settings from "./pages/Settings";
 import Utilities from "./pages/Utilities";
 import Links from "./pages/Links";
 import Filings from "./pages/Filings";
-import FilingDetail from "./pages/FilingDetail";
+import CGPDetail from "./pages/CGPDetail";
+import CGPRedirect from "./pages/CGPRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
 import DocumentSearch from "./pages/DocumentSearch";
@@ -78,10 +78,18 @@ const App = () => (
             <Route path="/new-process" element={<ErrorBoundary><NewProcess /></ErrorBoundary>} />
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
+            
+            {/* CGP Unified Routes */}
+            <Route path="/cgp/:id" element={<ErrorBoundary><CGPDetail /></ErrorBoundary>} />
+            
+            {/* Legacy route redirects - backward compatibility */}
+            <Route path="/filings/:id" element={<ErrorBoundary><CGPRedirect type="filing" /></ErrorBoundary>} />
+            <Route path="/processes/:id" element={<ErrorBoundary><CGPRedirect type="process" /></ErrorBoundary>} />
+            <Route path="/process-status/:id" element={<ErrorBoundary><CGPRedirect type="process" /></ErrorBoundary>} />
+            
+            {/* List views */}
             <Route path="/filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
-            <Route path="/filings/:id" element={<ErrorBoundary><FilingDetail /></ErrorBoundary>} />
             <Route path="/processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
-            <Route path="/processes/:id" element={<ErrorBoundary><ProcessDetailRedirect /></ErrorBoundary>} />
             <Route path="/hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
             <Route path="/process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="/process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
@@ -89,7 +97,6 @@ const App = () => (
             <Route path="/process-status/test-icarus" element={<ErrorBoundary><IcarusTest /></ErrorBoundary>} />
             <Route path="/process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
             <Route path="/api-debug" element={<ErrorBoundary><ApiDebugPage /></ErrorBoundary>} />
-            <Route path="/process-status/:id" element={<ErrorBoundary><ProcessDetailRedirect /></ErrorBoundary>} />
             <Route path="/tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />
             <Route path="/alerts" element={<ErrorBoundary><Alerts /></ErrorBoundary>} />
             <Route path="/utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
