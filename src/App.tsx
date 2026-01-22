@@ -26,7 +26,7 @@ import Links from "./pages/Links";
 import Filings from "./pages/Filings";
 import CGPDetail from "./pages/CGPDetail";
 import CGPRedirect from "./pages/CGPRedirect";
-import ItemDetail from "./pages/ItemDetail";
+import WorkItemDetail from "./pages/WorkItemDetail";
 import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
@@ -82,7 +82,7 @@ const App = () => (
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             
             {/* Unified Work Items Route */}
-            <Route path="/items/:id" element={<ErrorBoundary><ItemDetail /></ErrorBoundary>} />
+            <Route path="/items/:id" element={<ErrorBoundary><WorkItemDetail /></ErrorBoundary>} />
             
             {/* CGP Unified Routes */}
             <Route path="/cgp/:id" element={<ErrorBoundary><CGPDetail /></ErrorBoundary>} />
