@@ -87,12 +87,12 @@ export default function CGPDetail() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
 
-  // Fetch CGP item - supports both cgp_items and work_items tables
+  // Fetch CGP item - supports cgp_items, work_items, filings, and monitored_processes tables
   const { data: cgpItem, isLoading } = useQuery({
     queryKey: ["cgp-item", id],
     queryFn: async () => {
-      // First try cgp_items table
-      const { data: cgpData, error: cgpError } = await supabase
+      // 1. First try cgp_items table
+      const { data: cgpData } = await supabase
         .from("cgp_items")
         .select(`
           *,
@@ -106,8 +106,8 @@ export default function CGPDetail() {
         return cgpData;
       }
       
-      // If not in cgp_items, try work_items table (unified model)
-      const { data: workItemData, error: workItemError } = await supabase
+      // 2. If not in cgp_items, try work_items table (unified model)
+      const { data: workItemData } = await supabase
         .from("work_items")
         .select(`
           *,
@@ -116,10 +116,6 @@ export default function CGPDetail() {
         `)
         .eq("id", id!)
         .maybeSingle();
-      
-      if (workItemError && !workItemData) {
-        throw workItemError;
-      }
       
       if (workItemData) {
         // Map work_item to cgp_item-compatible structure
@@ -157,7 +153,6 @@ export default function CGPDetail() {
           scrape_status: workItemData.scrape_status,
           created_at: workItemData.created_at,
           updated_at: workItemData.updated_at,
-          // Fields needed by the UI (defaults for work_items)
           sent_at: workItemData.filing_date,
           acta_received_at: null,
           reparto_reference: null,
@@ -167,10 +162,8 @@ export default function CGPDetail() {
           sla_receipt_due_at: null,
           sla_acta_due_at: null,
           sla_court_reply_due_at: null,
-          // Legacy IDs for compatibility
           legacy_filing_id: workItemData.legacy_filing_id,
           legacy_process_id: workItemData.legacy_process_id,
-          // Joined data
           client: workItemData.client,
           matter: workItemData.matter ? {
             ...workItemData.matter,
@@ -179,9 +172,131 @@ export default function CGPDetail() {
             sharepoint_url: workItemData.sharepoint_url,
             sharepoint_alerts_dismissed: false,
           } : null,
-          // Work item specific - store the original ID for updates
           _isWorkItem: true,
           _workItemId: workItemData.id,
+        };
+      }
+      
+      // 3. Try filings table (legacy support for /cgp/:filingId navigation)
+      const { data: filingData } = await supabase
+        .from("filings")
+        .select(`
+          *,
+          client:clients(id, name),
+          matter:matters(id, client_name, matter_name, practice_area, sharepoint_url, sharepoint_alerts_dismissed)
+        `)
+        .eq("id", id!)
+        .maybeSingle();
+      
+      if (filingData) {
+        // Map filing to cgp_item-compatible structure
+        return {
+          id: filingData.id,
+          owner_id: filingData.owner_id,
+          client_id: filingData.client_id,
+          matter_id: filingData.matter_id,
+          radicado: filingData.radicado,
+          court_name: filingData.court_name,
+          court_email: filingData.court_email,
+          court_city: filingData.court_city,
+          court_department: filingData.court_department,
+          demandantes: filingData.demandantes,
+          demandados: filingData.demandados,
+          description: filingData.description,
+          notes: null,
+          phase: 'FILING' as const,
+          phase_source: 'SYSTEM',
+          status: filingData.status,
+          filing_status: filingData.status,
+          filing_type: filingData.filing_type,
+          filing_method: filingData.filing_method,
+          practice_area: (filingData.matter as any)?.practice_area || "Civil",
+          has_auto_admisorio: false,
+          auto_admisorio_date: null,
+          monitoring_enabled: false,
+          email_linking_enabled: filingData.email_linking_enabled,
+          expediente_url: filingData.expediente_url,
+          total_actuaciones: 0,
+          last_crawled_at: null,
+          scrape_status: null,
+          created_at: filingData.created_at,
+          updated_at: filingData.updated_at,
+          sent_at: filingData.sent_at,
+          acta_received_at: filingData.acta_received_at,
+          reparto_reference: filingData.reparto_reference,
+          reparto_email_to: filingData.reparto_email_to,
+          target_authority: filingData.target_authority,
+          process_phase: null,
+          sla_receipt_due_at: filingData.sla_receipt_due_at,
+          sla_acta_due_at: filingData.sla_acta_due_at,
+          sla_court_reply_due_at: filingData.sla_court_reply_due_at,
+          legacy_filing_id: filingData.id,
+          legacy_process_id: null,
+          client: filingData.client,
+          matter: filingData.matter,
+          _isFiling: true,
+          _filingId: filingData.id,
+        };
+      }
+      
+      // 4. Try monitored_processes table (legacy support for /cgp/:processId navigation)
+      const { data: processData } = await supabase
+        .from("monitored_processes")
+        .select(`
+          *,
+          client:clients(id, name)
+        `)
+        .eq("id", id!)
+        .maybeSingle();
+      
+      if (processData) {
+        // Map monitored_process to cgp_item-compatible structure
+        return {
+          id: processData.id,
+          owner_id: processData.owner_id,
+          client_id: processData.client_id,
+          matter_id: null,
+          radicado: processData.radicado,
+          court_name: processData.despacho_name,
+          court_email: null,
+          court_city: processData.municipality,
+          court_department: processData.department,
+          demandantes: processData.demandantes,
+          demandados: processData.demandados,
+          description: null,
+          notes: null,
+          phase: 'PROCESS' as const,
+          phase_source: 'SYSTEM',
+          status: processData.monitoring_enabled ? 'active' : 'inactive',
+          filing_status: 'RADICADO_CONFIRMED',
+          filing_type: "Demanda",
+          filing_method: "PLATFORM",
+          practice_area: processData.jurisdiction || "Civil",
+          has_auto_admisorio: true,
+          auto_admisorio_date: null,
+          monitoring_enabled: processData.monitoring_enabled,
+          email_linking_enabled: false,
+          expediente_url: null,
+          total_actuaciones: processData.total_actuaciones,
+          last_crawled_at: processData.last_checked_at,
+          scrape_status: processData.cpnu_confirmed ? "SUCCESS" : null,
+          created_at: processData.created_at,
+          updated_at: processData.updated_at,
+          sent_at: null,
+          acta_received_at: null,
+          reparto_reference: null,
+          reparto_email_to: null,
+          target_authority: processData.despacho_name,
+          process_phase: null,
+          sla_receipt_due_at: null,
+          sla_acta_due_at: null,
+          sla_court_reply_due_at: null,
+          legacy_filing_id: null,
+          legacy_process_id: processData.id,
+          client: processData.client,
+          matter: null,
+          _isMonitoredProcess: true,
+          _monitoredProcessId: processData.id,
         };
       }
       
@@ -240,11 +355,12 @@ export default function CGPDetail() {
     },
   });
 
-  // Update CGP item mutation - supports both cgp_items and work_items
+  // Update CGP item mutation - supports cgp_items, work_items, filings, and monitored_processes
   const updateCGPItem = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
-      // Check if this is a work_item (unified model)
       const isWorkItem = (cgpItem as any)?._isWorkItem;
+      const isFiling = (cgpItem as any)?._isFiling;
+      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
       
       if (isWorkItem) {
         // Map cgp_items field names to work_items field names
@@ -260,7 +376,6 @@ export default function CGPDetail() {
         
         for (const [key, value] of Object.entries(updates)) {
           const mappedKey = fieldMap[key] || key;
-          // Convert phase values
           if (key === 'phase') {
             workItemUpdates[mappedKey] = value === 'PROCESS' ? 'PROCESS' : 'FILING';
           } else {
@@ -272,6 +387,40 @@ export default function CGPDetail() {
         const { error } = await supabase
           .from("work_items")
           .update(workItemUpdates)
+          .eq("id", id!);
+        if (error) throw error;
+      } else if (isFiling) {
+        // Update filings table
+        const filingUpdates = { ...updates };
+        delete filingUpdates.phase;
+        delete filingUpdates.phase_source;
+        delete filingUpdates.has_auto_admisorio;
+        delete filingUpdates.monitoring_enabled;
+        
+        const { error } = await supabase
+          .from("filings")
+          .update(filingUpdates)
+          .eq("id", id!);
+        if (error) throw error;
+      } else if (isMonitoredProcess) {
+        // Map to monitored_processes field names
+        const processUpdates: Record<string, unknown> = {};
+        const fieldMap: Record<string, string> = {
+          court_name: 'despacho_name',
+          court_city: 'municipality',
+          court_department: 'department',
+        };
+        
+        for (const [key, value] of Object.entries(updates)) {
+          const mappedKey = fieldMap[key] || key;
+          if (!['phase', 'phase_source', 'has_auto_admisorio'].includes(key)) {
+            processUpdates[mappedKey] = value;
+          }
+        }
+        
+        const { error } = await supabase
+          .from("monitored_processes")
+          .update(processUpdates)
           .eq("id", id!);
         if (error) throw error;
       } else {
@@ -287,6 +436,8 @@ export default function CGPDetail() {
       queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
       queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
       toast.success("Caso CGP actualizado");
     },
     onError: (error) => {
@@ -294,7 +445,7 @@ export default function CGPDetail() {
     },
   });
 
-  // API Update mutation - fetches from external API
+  // API Update mutation - fetches from external API (supports all table types)
   const apiUpdateMutation = useMutation({
     mutationFn: async () => {
       if (!cgpItem?.radicado) throw new Error("Sin radicado");
@@ -309,39 +460,78 @@ export default function CGPDetail() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Check if this is a work_item
       const isWorkItem = (cgpItem as any)?._isWorkItem;
+      const isFiling = (cgpItem as any)?._isFiling;
+      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
       
-      // Update the item with API data
-      const updates: Record<string, unknown> = isWorkItem ? {
-        authority_name: data.proceso["Despacho"] || cgpItem.court_name,
-        demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-        demandados: data.proceso["Demandado"] || cgpItem.demandados,
-        last_crawled_at: new Date().toISOString(),
-        scrape_status: "SUCCESS",
-        total_actuaciones: data.total_actuaciones || 0,
-        updated_at: new Date().toISOString(),
-      } : {
-        court_name: data.proceso["Despacho"] || cgpItem.court_name,
-        demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-        demandados: data.proceso["Demandado"] || cgpItem.demandados,
-        last_crawled_at: new Date().toISOString(),
-        scrape_status: "SUCCESS",
-        total_actuaciones: data.total_actuaciones || 0,
-      };
+      // Determine table and field mappings
+      let tableName = "cgp_items";
+      let updates: Record<string, unknown> = {};
+      
+      if (isWorkItem) {
+        tableName = "work_items";
+        updates = {
+          authority_name: data.proceso["Despacho"] || cgpItem.court_name,
+          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+          demandados: data.proceso["Demandado"] || cgpItem.demandados,
+          last_crawled_at: new Date().toISOString(),
+          scrape_status: "SUCCESS",
+          total_actuaciones: data.total_actuaciones || 0,
+          updated_at: new Date().toISOString(),
+        };
+      } else if (isFiling) {
+        tableName = "filings";
+        updates = {
+          court_name: data.proceso["Despacho"] || cgpItem.court_name,
+          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+          demandados: data.proceso["Demandado"] || cgpItem.demandados,
+        };
+      } else if (isMonitoredProcess) {
+        tableName = "monitored_processes";
+        updates = {
+          despacho_name: data.proceso["Despacho"] || cgpItem.court_name,
+          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+          demandados: data.proceso["Demandado"] || cgpItem.demandados,
+          last_checked_at: new Date().toISOString(),
+          cpnu_confirmed: true,
+          cpnu_confirmed_at: new Date().toISOString(),
+          total_actuaciones: data.total_actuaciones || 0,
+        };
+      } else {
+        updates = {
+          court_name: data.proceso["Despacho"] || cgpItem.court_name,
+          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+          demandados: data.proceso["Demandado"] || cgpItem.demandados,
+          last_crawled_at: new Date().toISOString(),
+          scrape_status: "SUCCESS",
+          total_actuaciones: data.total_actuaciones || 0,
+        };
+      }
 
-      await supabase
-        .from(isWorkItem ? "work_items" : "cgp_items")
-        .update(updates)
-        .eq("id", id!);
+      // Perform update based on table type
+      if (isWorkItem) {
+        await supabase.from("work_items").update(updates).eq("id", id!);
+      } else if (isFiling) {
+        await supabase.from("filings").update(updates).eq("id", id!);
+      } else if (isMonitoredProcess) {
+        await supabase.from("monitored_processes").update(updates).eq("id", id!);
+      } else {
+        await supabase.from("cgp_items").update(updates).eq("id", id!);
+      }
 
-      // Insert actuaciones (use legacy ids for compatibility)
-      const targetId = cgpItem.legacy_filing_id || cgpItem.legacy_process_id;
-      if (targetId && data.actuaciones && data.actuaciones.length > 0) {
+      // Insert actuaciones - determine which legacy ID to use
+      const filingIdForActs = isFiling ? id : cgpItem.legacy_filing_id;
+      const processIdForActs = isMonitoredProcess ? id : cgpItem.legacy_process_id;
+      
+      if ((filingIdForActs || processIdForActs) && data.actuaciones && data.actuaciones.length > 0) {
+        const orFilters = [];
+        if (filingIdForActs) orFilters.push(`filing_id.eq.${filingIdForActs}`);
+        if (processIdForActs) orFilters.push(`monitored_process_id.eq.${processIdForActs}`);
+        
         const { data: existingActs } = await supabase
           .from("actuaciones")
           .select("hash_fingerprint")
-          .or(`filing_id.eq.${cgpItem.legacy_filing_id},monitored_process_id.eq.${cgpItem.legacy_process_id}`);
+          .or(orFilters.join(","));
         
         const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
         let newActuaciones = 0;
@@ -355,8 +545,8 @@ export default function CGPDetail() {
           if (!existingHashes.has(hashFingerprint)) {
             await supabase.from("actuaciones").insert({
               owner_id: user.id,
-              filing_id: cgpItem.legacy_filing_id,
-              monitored_process_id: cgpItem.legacy_process_id,
+              filing_id: filingIdForActs || null,
+              monitored_process_id: processIdForActs || null,
               raw_text: rawText,
               normalized_text: normalizedText,
               act_date: actDate,
@@ -378,6 +568,8 @@ export default function CGPDetail() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
       queryClient.invalidateQueries({ queryKey: ["actuaciones-timeline"] });
+      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
       
       if (data.new_actuaciones > 0) {
         toast.success(`Caso actualizado. ${data.new_actuaciones} nuevas actuaciones`);
@@ -390,21 +582,36 @@ export default function CGPDetail() {
     },
   });
 
-  // Delete mutation - supports both cgp_items and work_items
+  // Delete mutation - supports cgp_items, work_items, filings, and monitored_processes
   const deleteCGPItem = useMutation({
     mutationFn: async () => {
       const isWorkItem = (cgpItem as any)?._isWorkItem;
-      const tableName = isWorkItem ? "work_items" : "cgp_items";
+      const isFiling = (cgpItem as any)?._isFiling;
+      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
       
-      const { error } = await supabase
-        .from(tableName)
-        .delete()
-        .eq("id", id!);
+      let error: Error | null = null;
+      
+      if (isWorkItem) {
+        const result = await supabase.from("work_items").delete().eq("id", id!);
+        error = result.error;
+      } else if (isFiling) {
+        const result = await supabase.from("filings").delete().eq("id", id!);
+        error = result.error;
+      } else if (isMonitoredProcess) {
+        const result = await supabase.from("monitored_processes").delete().eq("id", id!);
+        error = result.error;
+      } else {
+        const result = await supabase.from("cgp_items").delete().eq("id", id!);
+        error = result.error;
+      }
+      
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
+      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
       toast.success("Caso CGP eliminado");
       navigate("/processes");
     },
