@@ -127,26 +127,51 @@ export function DocumentHistory({ clientId, clientName }: DocumentHistoryProps) 
   const handleExportPdf = async (doc: ClientDocument) => {
     setIsExporting(true);
     try {
-      const html2pdf = (await import("html2pdf.js")).default;
+      // Use browser print functionality for secure PDF generation
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        toast.error("Por favor permita las ventanas emergentes para exportar PDF");
+        setIsExporting(false);
+        return;
+      }
       
-      const content = document.createElement("div");
-      content.style.padding = "40px";
-      content.style.fontFamily = "Arial, sans-serif";
-      content.style.fontSize = "12pt";
-      content.style.lineHeight = "1.6";
-      content.style.whiteSpace = "pre-wrap";
-      content.textContent = doc.document_content;
+      const fileName = `${DOCUMENT_TYPE_LABELS[doc.document_type]}_${clientName.replace(/\s+/g, "_")}_${format(new Date(doc.created_at), "dd-MM-yyyy")}`;
       
-      const fileName = `${DOCUMENT_TYPE_LABELS[doc.document_type]}_${clientName.replace(/\s+/g, "_")}_${format(new Date(doc.created_at), "dd-MM-yyyy")}.pdf`;
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${fileName}</title>
+          <style>
+            @page { 
+              size: A4; 
+              margin: 20mm; 
+            }
+            body { 
+              font-family: Arial, sans-serif; 
+              font-size: 12pt; 
+              line-height: 1.6; 
+              white-space: pre-wrap;
+              padding: 0;
+              margin: 0;
+            }
+            @media print {
+              body { -webkit-print-color-adjust: exact; }
+            }
+          </style>
+        </head>
+        <body>${doc.document_content.replace(/\n/g, '<br>')}</body>
+        </html>
+      `);
+      printWindow.document.close();
       
-      await html2pdf().from(content).set({
-        margin: 20,
-        filename: fileName,
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      }).save();
+      // Wait for content to load, then print
+      printWindow.onload = () => {
+        printWindow.print();
+        printWindow.onafterprint = () => printWindow.close();
+      };
       
-      toast.success("Documento PDF descargado");
+      toast.success("Ventana de impresión abierta - seleccione 'Guardar como PDF'");
     } catch (error) {
       console.error("Error exporting PDF:", error);
       toast.error("Error al exportar PDF");
