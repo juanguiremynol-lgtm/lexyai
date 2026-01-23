@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-webhook-token",
 };
 
 // =============================================
@@ -86,6 +86,15 @@ interface ClientRecord {
   email_linking_enabled: boolean;
 }
 
+interface WebhookToken {
+  id: string;
+  owner_id: string;
+  token: string;
+  provider: string;
+  is_active: boolean;
+  expires_at: string | null;
+}
+
 // =============================================
 // UTILITIES
 // =============================================
@@ -117,6 +126,54 @@ const RADICADO_PATTERN = /\b(\d{2}[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{3,4}[-\s]?\d{4}
 function extractRadicados(text: string): string[] {
   const matches = text.match(RADICADO_PATTERN) || [];
   return [...new Set(matches.map(r => r.replace(/[-\s]/g, "")))];
+}
+
+// =============================================
+// TOKEN VALIDATION
+// =============================================
+
+// deno-lint-ignore no-explicit-any
+async function validateWebhookToken(
+  supabase: any,
+  token: string
+): Promise<{ valid: boolean; ownerId: string | null; error?: string }> {
+  if (!token) {
+    return { valid: false, ownerId: null, error: "Missing webhook token" };
+  }
+
+  const { data: tokenRecord, error } = await supabase
+    .from("webhook_tokens")
+    .select("*")
+    .eq("token", token)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Token lookup error:", error);
+    return { valid: false, ownerId: null, error: "Token validation failed" };
+  }
+
+  if (!tokenRecord) {
+    return { valid: false, ownerId: null, error: "Invalid or inactive token" };
+  }
+
+  const webhookToken = tokenRecord as WebhookToken;
+
+  // Check expiration
+  if (webhookToken.expires_at) {
+    const expiresAt = new Date(webhookToken.expires_at);
+    if (expiresAt < new Date()) {
+      return { valid: false, ownerId: null, error: "Token has expired" };
+    }
+  }
+
+  // Update last_used_at
+  await supabase
+    .from("webhook_tokens")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", webhookToken.id);
+
+  return { valid: true, ownerId: webhookToken.owner_id };
 }
 
 // =============================================
@@ -324,15 +381,47 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // Get owner from authorization header (API key lookup) or use default
-    // For webhook, we need a way to identify the owner. 
-    // Option: Use a query param or header with user identifier
-    const url = new URL(req.url);
-    const ownerIdParam = url.searchParams.get("owner_id");
+    // SECURE: Get owner from webhook token (header or query param for backwards compatibility)
+    const webhookToken = req.headers.get("X-Webhook-Token") || 
+                         new URL(req.url).searchParams.get("token");
     
-    if (!ownerIdParam) {
-      console.error("Missing owner_id parameter");
-      return new Response(JSON.stringify({ error: "Missing owner_id" }), {
+    // Legacy support: Also check owner_id param for existing integrations
+    const legacyOwnerId = new URL(req.url).searchParams.get("owner_id");
+    
+    let ownerId: string | null = null;
+    
+    if (webhookToken) {
+      // New secure flow: Validate token and get owner_id
+      const tokenValidation = await validateWebhookToken(supabase, webhookToken);
+      
+      if (!tokenValidation.valid) {
+        console.error("Token validation failed:", tokenValidation.error);
+        return new Response(JSON.stringify({ error: tokenValidation.error }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      ownerId = tokenValidation.ownerId;
+      console.log(`Authenticated via webhook token for owner: ${ownerId}`);
+    } else if (legacyOwnerId) {
+      // Legacy flow: Accept owner_id directly (for existing integrations)
+      // Log a deprecation warning
+      console.warn("DEPRECATION WARNING: Using owner_id param is deprecated. Please migrate to webhook tokens.");
+      ownerId = legacyOwnerId;
+    } else {
+      console.error("Missing authentication: No webhook token or owner_id provided");
+      return new Response(JSON.stringify({ 
+        error: "Missing authentication",
+        hint: "Provide X-Webhook-Token header or token query parameter"
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!ownerId) {
+      return new Response(JSON.stringify({ error: "Could not determine owner" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -342,7 +431,7 @@ serve(async (req: Request): Promise<Response> => {
     const { data: existing } = await supabase
       .from("inbound_messages")
       .select("id")
-      .eq("owner_id", ownerIdParam)
+      .eq("owner_id", ownerId)
       .eq("raw_payload_hash", payloadHash)
       .maybeSingle();
 
@@ -361,7 +450,7 @@ serve(async (req: Request): Promise<Response> => {
     const { data: message, error: insertError } = await supabase
       .from("inbound_messages")
       .insert({
-        owner_id: ownerIdParam,
+        owner_id: ownerId,
         source_provider: normalized.source_provider,
         source_message_id: normalized.source_message_id,
         from_name: normalized.from_name,
@@ -393,7 +482,7 @@ serve(async (req: Request): Promise<Response> => {
     if (normalized.attachments.length > 0) {
       const attachmentRecords = normalized.attachments.map(att => ({
         message_id: message.id,
-        owner_id: ownerIdParam,
+        owner_id: ownerId,
         filename: att.filename,
         mime_type: att.mime_type,
         size_bytes: att.size_bytes,
@@ -412,12 +501,12 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // Run linking pipeline
-    const candidates = await findLinkCandidates(supabase, ownerIdParam, normalized);
+    const candidates = await findLinkCandidates(supabase, ownerId, normalized);
     
     if (candidates.length > 0) {
       const linkRecords = candidates.map(c => ({
         message_id: message.id,
-        owner_id: ownerIdParam,
+        owner_id: ownerId,
         entity_type: c.entity_type,
         entity_id: c.entity_id,
         link_status: c.auto_link ? "AUTO_LINKED" : "LINK_SUGGESTED",
