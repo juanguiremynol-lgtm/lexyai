@@ -87,11 +87,12 @@ export default function CGPDetail() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
 
-  // Fetch CGP item
+  // Fetch CGP item - supports both cgp_items and work_items tables
   const { data: cgpItem, isLoading } = useQuery({
     queryKey: ["cgp-item", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // First try cgp_items table
+      const { data: cgpData, error: cgpError } = await supabase
         .from("cgp_items")
         .select(`
           *,
@@ -99,9 +100,93 @@ export default function CGPDetail() {
           matter:matters(id, client_name, matter_name, practice_area, sharepoint_url, sharepoint_alerts_dismissed)
         `)
         .eq("id", id!)
-        .single();
-      if (error) throw error;
-      return data;
+        .maybeSingle();
+      
+      if (cgpData) {
+        return cgpData;
+      }
+      
+      // If not in cgp_items, try work_items table (unified model)
+      const { data: workItemData, error: workItemError } = await supabase
+        .from("work_items")
+        .select(`
+          *,
+          client:clients(id, name),
+          matter:matters(id, matter_name)
+        `)
+        .eq("id", id!)
+        .maybeSingle();
+      
+      if (workItemError && !workItemData) {
+        throw workItemError;
+      }
+      
+      if (workItemData) {
+        // Map work_item to cgp_item-compatible structure
+        const cgpPhaseValue = String(workItemData.cgp_phase || '');
+        const isProcessPhase = cgpPhaseValue === 'PROCESO' || cgpPhaseValue === 'PROCESS';
+        
+        return {
+          id: workItemData.id,
+          owner_id: workItemData.owner_id,
+          client_id: workItemData.client_id,
+          matter_id: workItemData.matter_id,
+          radicado: workItemData.radicado,
+          court_name: workItemData.authority_name,
+          court_email: workItemData.authority_email,
+          court_city: workItemData.authority_city,
+          court_department: workItemData.authority_department,
+          demandantes: workItemData.demandantes,
+          demandados: workItemData.demandados,
+          description: workItemData.description,
+          notes: workItemData.notes,
+          phase: isProcessPhase ? 'PROCESS' : 'FILING',
+          phase_source: workItemData.cgp_phase_source,
+          status: workItemData.status,
+          filing_status: workItemData.stage,
+          filing_type: "Demanda",
+          filing_method: "PLATFORM",
+          practice_area: "Civil",
+          has_auto_admisorio: isProcessPhase,
+          auto_admisorio_date: workItemData.auto_admisorio_date,
+          monitoring_enabled: workItemData.monitoring_enabled,
+          email_linking_enabled: workItemData.email_linking_enabled,
+          expediente_url: workItemData.expediente_url,
+          total_actuaciones: workItemData.total_actuaciones,
+          last_crawled_at: workItemData.last_crawled_at,
+          scrape_status: workItemData.scrape_status,
+          created_at: workItemData.created_at,
+          updated_at: workItemData.updated_at,
+          // Fields needed by the UI (defaults for work_items)
+          sent_at: workItemData.filing_date,
+          acta_received_at: null,
+          reparto_reference: null,
+          reparto_email_to: null,
+          target_authority: workItemData.authority_name,
+          process_phase: workItemData.stage,
+          sla_receipt_due_at: null,
+          sla_acta_due_at: null,
+          sla_court_reply_due_at: null,
+          // Legacy IDs for compatibility
+          legacy_filing_id: workItemData.legacy_filing_id,
+          legacy_process_id: workItemData.legacy_process_id,
+          // Joined data
+          client: workItemData.client,
+          matter: workItemData.matter ? {
+            ...workItemData.matter,
+            client_name: (workItemData.client as any)?.name || "",
+            practice_area: "Civil",
+            sharepoint_url: workItemData.sharepoint_url,
+            sharepoint_alerts_dismissed: false,
+          } : null,
+          // Work item specific - store the original ID for updates
+          _isWorkItem: true,
+          _workItemId: workItemData.id,
+        };
+      }
+      
+      // Neither found
+      return null;
     },
     enabled: !!id,
   });
@@ -155,17 +240,53 @@ export default function CGPDetail() {
     },
   });
 
-  // Update CGP item mutation
+  // Update CGP item mutation - supports both cgp_items and work_items
   const updateCGPItem = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
-      const { error } = await supabase
-        .from("cgp_items")
-        .update(updates)
-        .eq("id", id!);
-      if (error) throw error;
+      // Check if this is a work_item (unified model)
+      const isWorkItem = (cgpItem as any)?._isWorkItem;
+      
+      if (isWorkItem) {
+        // Map cgp_items field names to work_items field names
+        const workItemUpdates: Record<string, unknown> = {};
+        const fieldMap: Record<string, string> = {
+          court_name: 'authority_name',
+          court_email: 'authority_email',
+          court_city: 'authority_city',
+          court_department: 'authority_department',
+          phase: 'cgp_phase',
+          phase_source: 'cgp_phase_source',
+        };
+        
+        for (const [key, value] of Object.entries(updates)) {
+          const mappedKey = fieldMap[key] || key;
+          // Convert phase values
+          if (key === 'phase') {
+            workItemUpdates[mappedKey] = value === 'PROCESS' ? 'PROCESS' : 'FILING';
+          } else {
+            workItemUpdates[mappedKey] = value;
+          }
+        }
+        workItemUpdates.updated_at = new Date().toISOString();
+        
+        const { error } = await supabase
+          .from("work_items")
+          .update(workItemUpdates)
+          .eq("id", id!);
+        if (error) throw error;
+      } else {
+        // Original cgp_items update
+        const { error } = await supabase
+          .from("cgp_items")
+          .update(updates)
+          .eq("id", id!);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       toast.success("Caso CGP actualizado");
     },
     onError: (error) => {
@@ -188,8 +309,19 @@ export default function CGPDetail() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Update CGP item with API data
-      const updates: Record<string, unknown> = {
+      // Check if this is a work_item
+      const isWorkItem = (cgpItem as any)?._isWorkItem;
+      
+      // Update the item with API data
+      const updates: Record<string, unknown> = isWorkItem ? {
+        authority_name: data.proceso["Despacho"] || cgpItem.court_name,
+        demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+        demandados: data.proceso["Demandado"] || cgpItem.demandados,
+        last_crawled_at: new Date().toISOString(),
+        scrape_status: "SUCCESS",
+        total_actuaciones: data.total_actuaciones || 0,
+        updated_at: new Date().toISOString(),
+      } : {
         court_name: data.proceso["Despacho"] || cgpItem.court_name,
         demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
         demandados: data.proceso["Demandado"] || cgpItem.demandados,
@@ -199,7 +331,7 @@ export default function CGPDetail() {
       };
 
       await supabase
-        .from("cgp_items")
+        .from(isWorkItem ? "work_items" : "cgp_items")
         .update(updates)
         .eq("id", id!);
 
@@ -258,16 +390,21 @@ export default function CGPDetail() {
     },
   });
 
-  // Delete mutation
+  // Delete mutation - supports both cgp_items and work_items
   const deleteCGPItem = useMutation({
     mutationFn: async () => {
+      const isWorkItem = (cgpItem as any)?._isWorkItem;
+      const tableName = isWorkItem ? "work_items" : "cgp_items";
+      
       const { error } = await supabase
-        .from("cgp_items")
+        .from(tableName)
         .delete()
         .eq("id", id!);
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       toast.success("Caso CGP eliminado");
       navigate("/processes");
     },
