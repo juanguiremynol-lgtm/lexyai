@@ -3691,6 +3691,39 @@ export type Database = {
           },
         ]
       }
+      webhook_tokens: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          last_used_at: string | null
+          owner_id: string
+          provider: string
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_used_at?: string | null
+          owner_id: string
+          provider?: string
+          token: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_used_at?: string | null
+          owner_id?: string
+          provider?: string
+          token?: string
+        }
+        Relationships: []
+      }
       work_item_acts: {
         Row: {
           act_date: string | null
