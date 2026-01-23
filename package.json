@@ -51,7 +51,6 @@
     "docx": "^9.5.1",
     "embla-carousel-react": "^8.6.0",
     "file-saver": "^2.0.5",
-    "html2pdf.js": "^0.12.1",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
