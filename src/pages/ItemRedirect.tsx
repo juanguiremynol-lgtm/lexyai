@@ -1,10 +1,11 @@
 /**
- * ItemRedirect - Handles redirects from legacy routes to the unified /items/:id route
+ * ItemRedirect - Handles redirects from legacy routes to the canonical CGP detail view
  * 
- * Resolves:
- * - /processes/:id -> /items/:id
- * - /filings/:id -> /items/:id  
- * - /process-status/:id -> /items/:id
+ * ALL legacy routes now redirect to /cgp/:id (the complete, robust detail view):
+ * - /processes/:id -> /cgp/:id
+ * - /filings/:id -> /cgp/:id  
+ * - /process-status/:id -> /cgp/:id
+ * - /items/:id -> /cgp/:id
  */
 
 import { useParams, Navigate } from "react-router-dom";
@@ -15,59 +16,71 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function ItemRedirect() {
   const { id } = useParams<{ id: string }>();
 
-  // Check if this ID exists in work_items first
-  const { data: workItem, isLoading: loadingWorkItem } = useQuery({
-    queryKey: ["work-item-redirect", id],
+  // Check if this ID exists in work_items first (to resolve legacy IDs)
+  const { data: resolvedId, isLoading } = useQuery({
+    queryKey: ["resolve-to-cgp", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // First check if ID exists directly in work_items
+      const { data: directMatch } = await supabase
         .from("work_items")
+        .select("id, legacy_cgp_item_id")
+        .eq("id", id!)
+        .maybeSingle();
+      
+      if (directMatch) {
+        // If work_item has a legacy_cgp_item_id, redirect to that CGP detail
+        return directMatch.legacy_cgp_item_id || directMatch.id;
+      }
+
+      // Check if it's stored as a legacy process ID
+      const { data: byLegacyProcess } = await supabase
+        .from("work_items")
+        .select("id, legacy_cgp_item_id")
+        .eq("legacy_process_id", id!)
+        .maybeSingle();
+      
+      if (byLegacyProcess) {
+        return byLegacyProcess.legacy_cgp_item_id || byLegacyProcess.id;
+      }
+
+      // Check if it's stored as a legacy filing ID
+      const { data: byLegacyFiling } = await supabase
+        .from("work_items")
+        .select("id, legacy_cgp_item_id")
+        .eq("legacy_filing_id", id!)
+        .maybeSingle();
+      
+      if (byLegacyFiling) {
+        return byLegacyFiling.legacy_cgp_item_id || byLegacyFiling.id;
+      }
+
+      // Check if it's stored as a legacy CGP item ID
+      const { data: byLegacyCgp } = await supabase
+        .from("work_items")
+        .select("id, legacy_cgp_item_id")
+        .eq("legacy_cgp_item_id", id!)
+        .maybeSingle();
+      
+      if (byLegacyCgp) {
+        return id; // The ID itself is a valid cgp_item ID
+      }
+
+      // Check if ID exists directly in cgp_items table
+      const { data: cgpItem } = await supabase
+        .from("cgp_items")
         .select("id")
         .eq("id", id!)
         .maybeSingle();
       
-      if (error) throw error;
-      return data;
+      if (cgpItem) {
+        return cgpItem.id;
+      }
+
+      // Not found anywhere, return original ID and let CGPDetail handle 404
+      return id;
     },
     enabled: !!id,
   });
-
-  // If not found in work_items, check if it's a legacy ID and find the work_item
-  const { data: resolvedId, isLoading: loadingResolve } = useQuery({
-    queryKey: ["resolve-legacy-id", id],
-    queryFn: async () => {
-      // Check if it's stored as a legacy ID in work_items
-      const { data: byLegacyProcess } = await supabase
-        .from("work_items")
-        .select("id")
-        .eq("legacy_process_id", id!)
-        .maybeSingle();
-      
-      if (byLegacyProcess) return byLegacyProcess.id;
-
-      const { data: byLegacyFiling } = await supabase
-        .from("work_items")
-        .select("id")
-        .eq("legacy_filing_id", id!)
-        .maybeSingle();
-      
-      if (byLegacyFiling) return byLegacyFiling.id;
-
-      const { data: byLegacyCgp } = await supabase
-        .from("work_items")
-        .select("id")
-        .eq("legacy_cgp_item_id", id!)
-        .maybeSingle();
-      
-      if (byLegacyCgp) return byLegacyCgp.id;
-
-      // Not found in work_items, just return original ID
-      // ItemDetail will handle checking legacy tables
-      return id;
-    },
-    enabled: !!id && !workItem && !loadingWorkItem,
-  });
-
-  const isLoading = loadingWorkItem || loadingResolve;
 
   if (isLoading) {
     return (
@@ -84,16 +97,6 @@ export default function ItemRedirect() {
     );
   }
 
-  // If found directly in work_items
-  if (workItem) {
-    return <Navigate to={`/items/${workItem.id}`} replace />;
-  }
-
-  // If resolved to a different ID
-  if (resolvedId && resolvedId !== id) {
-    return <Navigate to={`/items/${resolvedId}`} replace />;
-  }
-
-  // Default: redirect to /items/:id and let ItemDetail handle it
-  return <Navigate to={`/items/${id}`} replace />;
+  // Always redirect to canonical CGP detail view
+  return <Navigate to={`/cgp/${resolvedId || id}`} replace />;
 }

@@ -81,8 +81,8 @@ const App = () => (
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             
-            {/* Unified Work Items Route */}
-            <Route path="/items/:id" element={<ErrorBoundary><WorkItemDetail /></ErrorBoundary>} />
+            {/* Legacy /items route redirects to canonical CGP detail */}
+            <Route path="/items/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             
             {/* CGP Unified Routes */}
             <Route path="/cgp/:id" element={<ErrorBoundary><CGPDetail /></ErrorBoundary>} />

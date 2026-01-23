@@ -717,7 +717,7 @@ export default function Processes() {
                             </TableCell>
                             <TableCell className="text-right">
                               <Button variant="ghost" size="sm" asChild>
-                                <Link to={`/items/${getWorkItemIdForFiling(filing.id)}`}>
+                                <Link to={`/cgp/${filing.id}`}>
                                   <Eye className="h-4 w-4 mr-1" />
                                   Ver Detalle
                                 </Link>
@@ -970,7 +970,7 @@ export default function Processes() {
                                   </TooltipContent>
                                 </Tooltip>
                                 <Button variant="ghost" size="sm" asChild>
-                                  <Link to={`/items/${getWorkItemId(process.id)}`}>
+                                  <Link to={`/cgp/${process.id}`}>
                                     <Eye className="h-4 w-4 mr-1" />
                                     Ver Detalle
                                   </Link>
