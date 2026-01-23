@@ -16,6 +16,7 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         display: ['Cormorant Garamond', 'Georgia', 'serif'],
+        retro: ['Share Tech Mono', 'Courier New', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",

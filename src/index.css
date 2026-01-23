@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ATENIA Design System - Dual Theme */
+/* ATENIA Design System - Triple Theme */
 
 @layer base {
   /* ============================================
@@ -207,6 +207,107 @@
     --shadow-gold: 0 4px 20px -4px hsl(43 90% 55% / 0.25);
     --shadow-gold-glow: 0 0 24px 6px hsl(43 90% 55% / 0.35), 0 4px 16px -4px hsl(43 90% 55% / 0.25);
   }
+
+  /* ============================================
+     MATRIX THEME - Retro Digital Clock, CRT Neon
+     ============================================ */
+  .matrix {
+    color-scheme: dark;
+    
+    /* Primary: Neon Green - Digital clock style */
+    --primary: 120 100% 45%;
+    --primary-foreground: 0 0% 5%;
+    
+    /* Secondary: Dark Graphite */
+    --secondary: 160 15% 18%;
+    --secondary-foreground: 120 30% 90%;
+    
+    /* Background: Medium-dark graphite (NOT pure black) */
+    --background: 160 12% 12%;
+    --foreground: 120 20% 92%;
+    
+    /* Card: Slightly lighter with subtle inner glow */
+    --card: 160 14% 15%;
+    --card-foreground: 120 20% 92%;
+    
+    /* Popover: Panel surface */
+    --popover: 160 14% 17%;
+    --popover-foreground: 120 20% 92%;
+    
+    /* Muted: Graphite gray-green */
+    --muted: 160 12% 20%;
+    --muted-foreground: 160 15% 55%;
+    
+    /* Accent: Muted emerald/teal */
+    --accent: 160 40% 20%;
+    --accent-foreground: 120 80% 60%;
+    
+    /* Brand variations - neon spectrum */
+    --brand-dark: 120 70% 25%;
+    --brand: 120 100% 45%;
+    --brand-light: 120 90% 60%;
+    --brand-muted: 160 50% 40%;
+    
+    /* Gold becomes pale lime for highlights */
+    --gold: 80 80% 50%;
+    --gold-foreground: 0 0% 5%;
+    
+    /* Destructive: Warm amber-red for visibility */
+    --destructive: 15 80% 50%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Border: Faint luminous green outline */
+    --border: 120 30% 22%;
+    --input: 160 15% 18%;
+    --ring: 120 100% 45%;
+    
+    /* Radius */
+    --radius: 0.5rem;
+    
+    /* Sidebar: Retro device panel */
+    --sidebar-background: 160 14% 10%;
+    --sidebar-foreground: 120 25% 85%;
+    --sidebar-primary: 120 100% 45%;
+    --sidebar-primary-foreground: 0 0% 5%;
+    --sidebar-accent: 160 30% 18%;
+    --sidebar-accent-foreground: 120 80% 70%;
+    --sidebar-border: 120 40% 20%;
+    --sidebar-ring: 120 100% 45%;
+    
+    /* Status colors - Matrix-tinted */
+    --status-drafted: 160 20% 45%;
+    --status-sent: 180 70% 45%;
+    --status-pending: 80 80% 50%;
+    --status-received: 120 70% 45%;
+    --status-confirmed: 140 80% 40%;
+    --status-active: 160 60% 55%;
+    --status-closed: 160 15% 40%;
+    
+    /* SLA colors - Neon visibility */
+    --sla-safe: 120 80% 45%;
+    --sla-warning: 45 90% 50%;
+    --sla-critical: 0 80% 55%;
+    
+    /* Chart colors - Emerald/teal spectrum */
+    --chart-1: 120 100% 45%;
+    --chart-2: 160 70% 45%;
+    --chart-3: 180 65% 45%;
+    --chart-4: 80 75% 50%;
+    --chart-5: 140 70% 40%;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(120 100% 45%) 0%, hsl(160 70% 35%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(160 12% 14%) 0%, hsl(160 12% 10%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(160 14% 17%) 0%, hsl(160 14% 13%) 100%);
+    
+    /* Shadows - CRT glow effect */
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
+    --shadow-md: 0 4px 6px -1px hsl(0 0% 0% / 0.5), 0 2px 4px -2px hsl(0 0% 0% / 0.4);
+    --shadow-lg: 0 10px 15px -3px hsl(0 0% 0% / 0.6), 0 4px 6px -4px hsl(0 0% 0% / 0.5);
+    --shadow-xl: 0 20px 25px -5px hsl(0 0% 0% / 0.7), 0 8px 10px -6px hsl(0 0% 0% / 0.6);
+    --shadow-neon: 0 0 20px -4px hsl(120 100% 45% / 0.3);
+    --shadow-neon-glow: 0 0 24px 4px hsl(120 100% 45% / 0.25), 0 0 8px 2px hsl(120 100% 45% / 0.15);
+  }
 }
 
 /* Base styles */
@@ -239,6 +340,39 @@
       radial-gradient(ellipse at top, hsl(220 25% 10%) 0%, transparent 50%),
       radial-gradient(ellipse at bottom right, hsl(43 50% 10% / 0.15) 0%, transparent 40%);
     background-attachment: fixed;
+  }
+
+  /* Matrix theme background - CRT-inspired with subtle grid */
+  .matrix body {
+    background-image: 
+      /* Subtle grid pattern */
+      linear-gradient(hsl(120 30% 20% / 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(120 30% 20% / 0.03) 1px, transparent 1px),
+      /* CRT vignette effect */
+      radial-gradient(ellipse at center, transparent 0%, hsl(160 12% 8% / 0.4) 100%),
+      /* Subtle glow at top */
+      radial-gradient(ellipse at top, hsl(120 50% 20% / 0.1) 0%, transparent 50%);
+    background-size: 20px 20px, 20px 20px, 100% 100%, 100% 100%;
+    background-attachment: fixed;
+  }
+
+  /* Matrix theme scanline overlay (very subtle) */
+  .matrix body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      hsl(0 0% 0% / 0.03) 2px,
+      hsl(0 0% 0% / 0.03) 4px
+    );
   }
   
   h1, h2, h3, h4, h5, h6 {
@@ -301,6 +435,28 @@
   .dark ::-webkit-scrollbar-thumb:hover {
     @apply bg-primary/50;
   }
+
+  /* Scrollbar styling - Matrix theme */
+  .matrix ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .matrix ::-webkit-scrollbar-track {
+    background: hsl(160 12% 15%);
+    border-radius: 9999px;
+  }
+
+  .matrix ::-webkit-scrollbar-thumb {
+    background: hsl(120 60% 30%);
+    border-radius: 9999px;
+    box-shadow: 0 0 4px hsl(120 100% 45% / 0.3);
+  }
+
+  .matrix ::-webkit-scrollbar-thumb:hover {
+    background: hsl(120 80% 40%);
+    box-shadow: 0 0 8px hsl(120 100% 45% / 0.5);
+  }
 }
 
 @layer utilities {
@@ -310,6 +466,22 @@
   
   .font-sans {
     font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Retro mono font for Matrix theme */
+  .font-retro {
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+  }
+
+  /* Matrix theme applies retro font to headings */
+  .matrix h1,
+  .matrix h2,
+  .matrix h3,
+  .matrix h4,
+  .matrix h5,
+  .matrix h6 {
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    letter-spacing: 0.05em;
   }
 
   /* Brand text gradient - adapts to theme */
@@ -326,6 +498,11 @@
     background-image: linear-gradient(135deg, hsl(43 90% 55%) 0%, hsl(43 85% 65%) 50%, hsl(43 90% 55%) 100%);
   }
 
+  .matrix .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(120 100% 45%) 0%, hsl(120 90% 60%) 50%, hsl(120 100% 45%) 100%);
+    text-shadow: 0 0 8px hsl(120 100% 45% / 0.5);
+  }
+
   /* Legacy alias */
   .text-gold-gradient {
     @apply text-brand-gradient;
@@ -339,6 +516,10 @@
 
   .dark .border-brand-glow {
     box-shadow: 0 0 0 1px hsl(43 90% 55% / 0.3), 0 0 20px -5px hsl(43 85% 55% / 0.2);
+  }
+
+  .matrix .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(120 100% 45% / 0.4), 0 0 16px -4px hsl(120 100% 45% / 0.3);
   }
 
   /* Legacy alias */
@@ -360,6 +541,13 @@
   .dark .card-hover:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.6), 0 0 0 1px hsl(43 90% 55% / 0.1);
+  }
+
+  .matrix .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px -8px hsl(0 0% 0% / 0.7), 
+                0 0 0 1px hsl(120 100% 45% / 0.3),
+                0 0 16px -4px hsl(120 100% 45% / 0.2);
   }
 
   /* Shine animation */
@@ -398,6 +586,16 @@
     background-size: 200% 100%;
   }
 
+  .matrix .brand-shine {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(120 100% 45% / 0.15) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+  }
+
   /* Legacy alias */
   .gold-shine {
     @apply brand-shine;
@@ -431,6 +629,15 @@
     }
   }
 
+  @keyframes pulse-brand-matrix {
+    0%, 100% {
+      box-shadow: 0 0 0 0 hsl(120 100% 45% / 0.5);
+    }
+    50% {
+      box-shadow: 0 0 0 8px hsl(120 100% 45% / 0);
+    }
+  }
+
   .light .pulse-brand,
   :root .pulse-brand {
     animation: pulse-brand-light 2s ease-in-out infinite;
@@ -438,6 +645,10 @@
 
   .dark .pulse-brand {
     animation: pulse-brand-dark 2s ease-in-out infinite;
+  }
+
+  .matrix .pulse-brand {
+    animation: pulse-brand-matrix 2s ease-in-out infinite;
   }
 
   /* Golden glow effect for buttons on hover - Dark theme */
@@ -458,6 +669,31 @@
   .light .glow-on-hover:hover,
   :root .glow-on-hover:hover {
     box-shadow: 0 0 20px 4px hsl(222 60% 45% / 0.25), 0 4px 12px -4px hsl(222 60% 30% / 0.2);
+  }
+
+  /* Neon glow effect for buttons on hover - Matrix theme */
+  .matrix .glow-on-hover {
+    @apply transition-shadow duration-300;
+  }
+
+  .matrix .glow-on-hover:hover {
+    box-shadow: 0 0 20px 4px hsl(120 100% 45% / 0.35), 0 4px 12px -4px hsl(120 100% 45% / 0.25);
+  }
+
+  /* Matrix-specific neon glow utility */
+  .matrix-neon-glow {
+    box-shadow: 0 0 16px 2px hsl(120 100% 45% / 0.3), 
+                inset 0 0 4px hsl(120 100% 45% / 0.1);
+  }
+
+  /* Digital clock style numbers for Matrix theme */
+  .matrix-digit {
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    color: hsl(120 100% 45%);
+    text-shadow: 0 0 10px hsl(120 100% 45% / 0.7),
+                 0 0 20px hsl(120 100% 45% / 0.5),
+                 0 0 30px hsl(120 100% 45% / 0.3);
+    letter-spacing: 0.1em;
   }
 }
 
@@ -480,6 +716,12 @@
 
   .dark .glass-card {
     @apply bg-card/80;
+  }
+
+  .matrix .glass-card {
+    @apply bg-card/85;
+    box-shadow: inset 0 1px 0 0 hsl(120 100% 45% / 0.1),
+                0 0 0 1px hsl(120 50% 30% / 0.3);
   }
 
   /* Accent line */
@@ -505,5 +747,30 @@
   /* Subtle divider */
   .divider-subtle {
     @apply border-t border-border/50;
+  }
+
+  /* Matrix theme retro panel styling */
+  .matrix-panel {
+    background: linear-gradient(145deg, hsl(160 14% 17%) 0%, hsl(160 14% 13%) 100%);
+    border: 1px solid hsl(120 40% 25%);
+    border-radius: 0.5rem;
+    box-shadow: inset 0 1px 0 0 hsl(120 100% 45% / 0.08),
+                0 4px 16px -4px hsl(0 0% 0% / 0.5);
+  }
+
+  /* Matrix indicator dot */
+  .matrix-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: hsl(120 100% 45%);
+    box-shadow: 0 0 8px 2px hsl(120 100% 45% / 0.6);
+  }
+
+  /* Matrix active state for menu items */
+  .matrix .menu-item-active {
+    background: hsl(120 40% 18%);
+    border-left: 3px solid hsl(120 100% 45%);
+    box-shadow: inset 0 0 12px hsl(120 100% 45% / 0.1);
   }
 }

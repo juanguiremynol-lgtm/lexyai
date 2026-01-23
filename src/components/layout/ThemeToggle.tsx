@@ -1,4 +1,4 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Monitor, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -6,17 +6,30 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
+  // Determine which icon to show based on current theme
+  const getIcon = () => {
+    if (theme === "matrix") {
+      return <Terminal className="h-5 w-5 text-[hsl(120_100%_50%)]" />;
+    }
+    return (
+      <>
+        <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+        <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+      </>
+    );
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
-          <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          {getIcon()}
           <span className="sr-only">Cambiar tema</span>
         </Button>
       </DropdownMenuTrigger>
@@ -35,11 +48,20 @@ export function ThemeToggle() {
           <Moon className="mr-2 h-4 w-4" />
           Oscuro
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem 
+          onClick={() => setTheme("matrix")}
+          className={theme === "matrix" ? "bg-accent" : ""}
+        >
+          <Terminal className="mr-2 h-4 w-4" />
+          <span className="font-mono">Retro Matrix</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem 
           onClick={() => setTheme("system")}
           className={theme === "system" ? "bg-accent" : ""}
         >
-          <span className="mr-2">💻</span>
+          <Monitor className="mr-2 h-4 w-4" />
           Sistema
         </DropdownMenuItem>
       </DropdownMenuContent>
