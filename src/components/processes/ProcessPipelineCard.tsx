@@ -89,7 +89,8 @@ export function ProcessPipelineCard({
             onClick={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              navigate(`/process-status/${process.id}`);
+              // Navigate to canonical CGP detail view
+              navigate(`/cgp/${process.id}`);
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >

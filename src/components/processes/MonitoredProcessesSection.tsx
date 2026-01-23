@@ -121,7 +121,7 @@ export function MonitoredProcessesSection() {
                   <div
                     key={process.id}
                     className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/process-status/${process.id}`)}
+                    onClick={() => navigate(`/cgp/${process.id}`)}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -161,7 +161,7 @@ export function MonitoredProcessesSection() {
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/process-status/${process.id}`);
+                        navigate(`/cgp/${process.id}`);
                       }}
                     >
                       <ExternalLink className="h-4 w-4" />
