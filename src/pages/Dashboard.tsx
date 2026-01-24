@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale, Briefcase } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkItemPipeline, AdminPipeline } from "@/components/pipeline";
+import { WorkItemPipeline, AdminPipeline, LaboralPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
@@ -186,6 +186,7 @@ export default function Dashboard() {
       <Tabs defaultValue="cgp" className="space-y-4">
         <TabsList>
           <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
+          <TabsTrigger value="laboral">Laborales</TabsTrigger>
           <TabsTrigger value="cpaca">CPACA</TabsTrigger>
           <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
           <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
@@ -194,9 +195,16 @@ export default function Dashboard() {
         
         <TabsContent value="cgp" className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Radicaciones y procesos bajo Código General del Proceso. Arrastra entre etapas para reclasificar. La fase (Radicación/Proceso) se determina automáticamente según la etapa.
+            Radicaciones y procesos bajo Código General del Proceso (civil, comercial, familia). Arrastra entre etapas para reclasificar.
           </p>
           <WorkItemPipeline />
+        </TabsContent>
+
+        <TabsContent value="laboral" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Procesos laborales bajo Código Procesal del Trabajo (CPTSS). Audiencia única de conciliación, juzgamiento y fallo.
+          </p>
+          <LaboralPipeline />
         </TabsContent>
 
         <TabsContent value="cpaca" className="space-y-4">

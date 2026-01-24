@@ -48,6 +48,7 @@ import {
   Check,
   ChevronsUpDown,
   Eye,
+  Briefcase,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
@@ -105,6 +106,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   TUTELA: <Gavel className="h-3 w-3" />,
   GOV_PROCEDURE: <Building2 className="h-3 w-3" />,
   CPACA: <Landmark className="h-3 w-3" />,
+  LABORAL: <Briefcase className="h-3 w-3" />,
 };
 
 const WORKFLOW_COLORS: Record<WorkflowType, string> = {
@@ -113,6 +115,7 @@ const WORKFLOW_COLORS: Record<WorkflowType, string> = {
   TUTELA: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
   GOV_PROCEDURE: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
   CPACA: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+  LABORAL: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
 };
 
 export default function Hearings() {

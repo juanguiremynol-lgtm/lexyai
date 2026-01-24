@@ -4333,7 +4333,13 @@ export type Database = {
         | "REVIEW_PROCESS"
         | "REVIEW_FILING"
         | "IMPORT_ESTADOS"
-      workflow_type: "CGP" | "PETICION" | "TUTELA" | "GOV_PROCEDURE" | "CPACA"
+      workflow_type:
+        | "CGP"
+        | "PETICION"
+        | "TUTELA"
+        | "GOV_PROCEDURE"
+        | "CPACA"
+        | "LABORAL"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4659,7 +4665,14 @@ export const Constants = {
         "REVIEW_FILING",
         "IMPORT_ESTADOS",
       ],
-      workflow_type: ["CGP", "PETICION", "TUTELA", "GOV_PROCEDURE", "CPACA"],
+      workflow_type: [
+        "CGP",
+        "PETICION",
+        "TUTELA",
+        "GOV_PROCEDURE",
+        "CPACA",
+        "LABORAL",
+      ],
     },
   },
 } as const

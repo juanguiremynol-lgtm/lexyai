@@ -113,7 +113,7 @@ export function useCreateWorkItem() {
 
       const { data: workItem, error } = await supabase
         .from("work_items")
-        .insert(workItemData)
+        .insert(workItemData as any) // Cast until types regenerate with new workflow types
         .select()
         .single();
 

@@ -45,6 +45,7 @@ import {
   MapPin,
   Users,
   Calendar,
+  Briefcase,
 } from "lucide-react";
 import {
   type WorkflowType,
@@ -78,6 +79,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   TUTELA: <Gavel className="h-5 w-5" />,
   GOV_PROCEDURE: <Building2 className="h-5 w-5" />,
   CPACA: <Landmark className="h-5 w-5" />,
+  LABORAL: <Briefcase className="h-5 w-5" />,
 };
 
 type WizardStep = 'workflow' | 'radicado' | 'details' | 'client';

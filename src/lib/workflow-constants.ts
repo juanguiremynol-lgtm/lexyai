@@ -1,10 +1,10 @@
 /**
  * Unified Workflow Constants
- * Defines the 5 workflow types and their stages for the unified work item model
+ * Defines the 6 workflow types and their stages for the unified work item model
  */
 
 // Workflow type enum matching database
-export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA';
+export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL';
 
 // Item source enum matching database
 export type ItemSource = 'ICARUS_IMPORT' | 'SCRAPE_API' | 'MANUAL' | 'EMAIL_IMPORT' | 'MIGRATION';
@@ -27,10 +27,18 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
   CGP: {
     label: 'Demandas CGP',
     shortLabel: 'CGP',
-    description: 'Demandas y procesos bajo Código General del Proceso (civil, laboral, comercial)',
+    description: 'Demandas y procesos bajo Código General del Proceso (civil, comercial, familia)',
     color: 'emerald',
     icon: 'Scale',
     hasPhases: true,
+  },
+  LABORAL: {
+    label: 'Procesos Laborales',
+    shortLabel: 'Laboral',
+    description: 'Procesos judiciales laborales bajo Código Procesal del Trabajo (CPTSS)',
+    color: 'rose',
+    icon: 'Briefcase',
+    hasPhases: false,
   },
   PETICION: {
     label: 'Peticiones',
@@ -38,7 +46,7 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
     description: 'Derechos de petición ante entidades públicas y privadas',
     color: 'blue',
     icon: 'Send',
-  hasPhases: false,
+    hasPhases: false,
   },
   TUTELA: {
     label: 'Tutelas',
@@ -69,6 +77,7 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
 // Ordered list of workflow types for UI rendering
 export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
   'CGP',
+  'LABORAL',
   'PETICION',
   'TUTELA',
   'GOV_PROCEDURE',
@@ -170,6 +179,24 @@ export const CPACA_STAGES = {
 export type CpacaStage = keyof typeof CPACA_STAGES;
 
 // ============================================
+// LABORAL Stages (Labor Judicial)
+// ============================================
+export const LABORAL_STAGES = {
+  BORRADOR: { label: 'Borrador', order: 0 },
+  RADICACION: { label: 'Radicación', order: 1 },
+  REPARTO: { label: 'Reparto', order: 2 },
+  ADMISION_PENDIENTE: { label: 'Admisión Pendiente', order: 3 },
+  AUDIENCIA_INICIAL: { label: 'Audiencia Inicial', order: 4 },
+  AUDIENCIA_JUZGAMIENTO: { label: 'Aud. Juzgamiento', order: 5 },
+  SENTENCIA_1A_INSTANCIA: { label: 'Sentencia 1ª', order: 6 },
+  APELACION: { label: 'Apelación', order: 7 },
+  EJECUCION: { label: 'Ejecución', order: 8 },
+  ARCHIVADO: { label: 'Archivado', order: 9 },
+} as const;
+
+export type LaboralStage = keyof typeof LABORAL_STAGES;
+
+// ============================================
 // Helper functions
 // ============================================
 
@@ -188,6 +215,8 @@ export function getStagesForWorkflow(workflowType: WorkflowType, cgpPhase?: CGPP
       return GOV_PROCEDURE_STAGES;
     case 'CPACA':
       return CPACA_STAGES;
+    case 'LABORAL':
+      return LABORAL_STAGES;
     default:
       return {};
   }
@@ -223,5 +252,5 @@ export function getStageLabel(workflowType: WorkflowType, stage: string, cgpPhas
  * Check if a workflow type uses 23-digit radicado
  */
 export function workflowUsesRadicado(workflowType: WorkflowType): boolean {
-  return workflowType === 'CGP' || workflowType === 'CPACA' || workflowType === 'TUTELA';
+  return workflowType === 'CGP' || workflowType === 'CPACA' || workflowType === 'TUTELA' || workflowType === 'LABORAL';
 }

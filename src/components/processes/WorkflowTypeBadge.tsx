@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { Scale, Landmark, Gavel, Building2, Send } from "lucide-react";
+import { Scale, Landmark, Gavel, Building2, Send, Briefcase } from "lucide-react";
 import type { WorkflowType } from "@/lib/workflow-constants";
 import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ComponentType<{ className?: str
   TUTELA: Gavel,
   GOV_PROCEDURE: Building2,
   PETICION: Send,
+  LABORAL: Briefcase,
 };
 
 const WORKFLOW_COLORS: Record<WorkflowType, string> = {
@@ -24,6 +25,7 @@ const WORKFLOW_COLORS: Record<WorkflowType, string> = {
   TUTELA: "bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400",
   GOV_PROCEDURE: "bg-orange-500/15 text-orange-700 border-orange-500/30 dark:text-orange-400",
   PETICION: "bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-400",
+  LABORAL: "bg-rose-500/15 text-rose-700 border-rose-500/30 dark:text-rose-400",
 };
 
 export function WorkflowTypeBadge({ 
