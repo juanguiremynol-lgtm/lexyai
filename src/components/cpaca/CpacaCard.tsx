@@ -286,7 +286,7 @@ export function CpacaCard({
             className="flex-1 h-7 text-xs"
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/cpaca/${item.id}`);
+              navigate(`/work-items/${item.id}`);
             }}
           >
             <ExternalLink className="h-3 w-3 mr-1" />

@@ -26,7 +26,7 @@ import Links from "./pages/Links";
 import Filings from "./pages/Filings";
 import CGPDetail from "./pages/CGPDetail";
 import CGPRedirect from "./pages/CGPRedirect";
-import WorkItemDetailPage from "./pages/WorkItemDetail";
+import WorkItemDetailPage from "./pages/WorkItemDetail/index";
 import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
