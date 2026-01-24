@@ -472,7 +472,7 @@ export default function DocumentSearch() {
                         asChild
                         title="Ver radicación"
                       >
-                        <Link to={`/filings/${result.filing_id}`}>
+                        <Link to={`/work-items/${result.filing_id}`}>
                           <ExternalLink className="h-4 w-4" />
                         </Link>
                       </Button>

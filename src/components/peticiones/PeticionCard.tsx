@@ -243,7 +243,7 @@ export function PeticionCard({
                 className="h-5 px-1 text-xs"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/filings/${item.tutelaFilingId}`);
+                  navigate(`/work-items/${item.tutelaFilingId}`);
                 }}
               >
                 <ExternalLink className="h-3 w-3" />

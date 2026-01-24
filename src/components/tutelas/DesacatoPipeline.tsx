@@ -181,7 +181,7 @@ function DesacatoCard({ item, isDragging = false }: DesacatoCardProps) {
           className="h-7 text-xs w-full"
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/filings/${item.tutelaId}`);
+            navigate(`/work-items/${item.tutelaId}`);
           }}
         >
           <ExternalLink className="h-3 w-3 mr-1" />
