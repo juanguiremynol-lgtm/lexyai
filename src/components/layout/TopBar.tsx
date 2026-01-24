@@ -48,7 +48,7 @@ export function TopBar() {
         <img 
           src={logo} 
           alt="ATENIA" 
-          className="h-10 w-auto object-contain hidden md:block flex-shrink-0"
+          className="h-12 w-auto object-contain hidden md:block flex-shrink-0"
         />
         
         <div className="hidden md:block min-w-0 flex-1 max-w-md">
