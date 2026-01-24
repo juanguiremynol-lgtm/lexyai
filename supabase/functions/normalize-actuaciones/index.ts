@@ -28,6 +28,24 @@ interface Actuacion {
   created_at: string;
 }
 
+interface DetectedMilestone {
+  milestone_type: string;
+  confidence: number;
+  pattern_id: string;
+  matched_text: string;
+  keywords_matched: string[];
+}
+
+interface MilestonePattern {
+  id: string;
+  milestone_type: string;
+  pattern_regex: string;
+  pattern_keywords: string[];
+  base_confidence: number;
+  priority: number;
+  notes: string | null;
+}
+
 interface ProcessEvent {
   id?: string;
   filing_id: string;
@@ -43,6 +61,7 @@ interface ProcessEvent {
   source: string;
   hash_fingerprint: string;
   attachments: Array<{ label: string; url: string }> | null;
+  detected_milestones: DetectedMilestone[] | null;
 }
 
 interface NormalizationResult {
@@ -385,6 +404,15 @@ Deno.serve(async (req) => {
       await logStep('CREATE_FILING', true, `Created placeholder filing: ${newFiling.id}`);
     }
     
+    // Fetch milestone patterns for detection
+    const { data: patterns } = await supabase
+      .from('milestone_mapping_patterns')
+      .select('*')
+      .eq('active', true)
+      .order('priority', { ascending: false });
+    
+    const milestonePatterns = (patterns || []) as MilestonePattern[];
+    
     // Transform actuaciones to process_events
     const processEvents: ProcessEvent[] = [];
     const errors: string[] = [];
@@ -411,6 +439,31 @@ Deno.serve(async (req) => {
           url: att.url || '',
         })).filter(att => att.url);
         
+        // Detect milestones from patterns
+        const detectedMilestones: DetectedMilestone[] = [];
+        for (const pattern of milestonePatterns) {
+          try {
+            const regex = new RegExp(pattern.pattern_regex, 'gi');
+            const match = regex.exec(act.raw_text);
+            if (match) {
+              const normalizedText = act.raw_text.toLowerCase();
+              const keywordsMatched = (pattern.pattern_keywords || []).filter(kw => 
+                normalizedText.includes(kw.toLowerCase())
+              );
+              
+              detectedMilestones.push({
+                milestone_type: pattern.milestone_type,
+                confidence: Number(pattern.base_confidence) || 0.8,
+                pattern_id: pattern.id,
+                matched_text: match[0],
+                keywords_matched: keywordsMatched,
+              });
+            }
+          } catch (e) {
+            // Invalid regex, skip
+          }
+        }
+        
         processEvents.push({
           filing_id: targetFilingId,
           owner_id: act.owner_id,
@@ -425,6 +478,7 @@ Deno.serve(async (req) => {
           source,
           hash_fingerprint: fingerprint,
           attachments: attachments.length > 0 ? attachments : null,
+          detected_milestones: detectedMilestones.length > 0 ? detectedMilestones : null,
         });
       } catch (err) {
         errors.push(`Failed to process actuacion ${act.id}: ${err}`);
