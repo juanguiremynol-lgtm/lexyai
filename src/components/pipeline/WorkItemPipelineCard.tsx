@@ -68,8 +68,8 @@ export function WorkItemPipelineCard({
       }
     : undefined;
 
-  // Navigate to the complete CGP detail view (canonical route)
-  const detailPath = `/cgp/${item.id}`;
+  // Navigate to the canonical work item detail view
+  const detailPath = `/work-items/${item.id}`;
   // Handle both old naming (FILING/PROCESS) and new naming (RADICACION/PROCESO)
   const isFilingPhase = item.cgp_phase === "RADICACION" || item.cgp_phase === "FILING";
   const isProcessPhase = item.cgp_phase === "PROCESO" || item.cgp_phase === "PROCESS";

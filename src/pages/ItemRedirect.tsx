@@ -1,11 +1,11 @@
 /**
- * ItemRedirect - Handles redirects from legacy routes to the canonical CGP detail view
+ * ItemRedirect - Handles redirects from legacy routes to the canonical work-items detail view
  * 
- * ALL legacy routes now redirect to /cgp/:id (the complete, robust detail view):
- * - /processes/:id -> /cgp/:id
- * - /filings/:id -> /cgp/:id  
- * - /process-status/:id -> /cgp/:id
- * - /items/:id -> /cgp/:id
+ * ALL legacy routes now redirect to /work-items/:id (the complete, robust detail view):
+ * - /processes/:id -> /work-items/:id
+ * - /filings/:id -> /work-items/:id  
+ * - /process-status/:id -> /work-items/:id
+ * - /items/:id -> /work-items/:id
  */
 
 import { useParams, Navigate } from "react-router-dom";
@@ -97,6 +97,6 @@ export default function ItemRedirect() {
     );
   }
 
-  // Always redirect to canonical CGP detail view
-  return <Navigate to={`/cgp/${resolvedId || id}`} replace />;
+  // Always redirect to canonical work-items detail view
+  return <Navigate to={`/work-items/${resolvedId || id}`} replace />;
 }

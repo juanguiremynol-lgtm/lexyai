@@ -1,8 +1,7 @@
 /**
- * ItemDetail - Unified detail page that routes to the correct workflow detail module
+ * ItemDetail - Unified detail page that routes to the canonical work-items detail
  * 
- * This page is the canonical entry point for viewing any work item.
- * It fetches the item, determines its workflow_type, and renders the appropriate detail module.
+ * This page redirects all items to /work-items/:id which is the single canonical detail view.
  */
 
 import { useParams, Navigate, Link } from "react-router-dom";
@@ -10,47 +9,32 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, AlertCircle } from "lucide-react";
-
-// Import workflow-specific detail modules (to be created/refactored later)
-// For now, we redirect to existing pages based on workflow type
+import { AlertCircle } from "lucide-react";
 
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
 
-  // First try to fetch from work_items
-  const { data: workItem, isLoading: loadingWorkItem, error: workItemError } = useQuery({
-    queryKey: ["work-item", id],
+  // Check if item exists in work_items or legacy tables
+  const { data: itemExists, isLoading } = useQuery({
+    queryKey: ["item-exists", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Check work_items
+      const { data: workItem } = await supabase
         .from("work_items")
-        .select(`
-          *,
-          clients(id, name)
-        `)
+        .select("id")
         .eq("id", id!)
         .maybeSingle();
       
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
+      if (workItem) return { id: workItem.id };
 
-  // If not found in work_items, check legacy tables
-  const { data: legacyItem, isLoading: loadingLegacy } = useQuery({
-    queryKey: ["legacy-item", id],
-    queryFn: async () => {
-      // Check cgp_items first
+      // Check cgp_items
       const { data: cgpItem } = await supabase
         .from("cgp_items")
-        .select("id, phase")
+        .select("id")
         .eq("id", id!)
         .maybeSingle();
       
-      if (cgpItem) {
-        return { type: 'CGP', id: cgpItem.id };
-      }
+      if (cgpItem) return { id: cgpItem.id };
 
       // Check peticiones
       const { data: peticion } = await supabase
@@ -59,9 +43,7 @@ export default function ItemDetail() {
         .eq("id", id!)
         .maybeSingle();
       
-      if (peticion) {
-        return { type: 'PETICION', id: peticion.id };
-      }
+      if (peticion) return { id: peticion.id };
 
       // Check cpaca_processes
       const { data: cpaca } = await supabase
@@ -70,50 +52,30 @@ export default function ItemDetail() {
         .eq("id", id!)
         .maybeSingle();
       
-      if (cpaca) {
-        return { type: 'CPACA', id: cpaca.id };
-      }
+      if (cpaca) return { id: cpaca.id };
 
-      // Check monitored_processes for administrative processes
-      const { data: adminProcess } = await supabase
-        .from("monitored_processes")
-        .select("id, process_type")
-        .eq("id", id!)
-        .eq("process_type", "ADMINISTRATIVE")
-        .maybeSingle();
-      
-      if (adminProcess) {
-        return { type: 'GOV_PROCEDURE', id: adminProcess.id };
-      }
-
-      // Check monitored_processes (legacy CGP)
-      const { data: monitoredProcess } = await supabase
+      // Check monitored_processes
+      const { data: process } = await supabase
         .from("monitored_processes")
         .select("id")
         .eq("id", id!)
         .maybeSingle();
       
-      if (monitoredProcess) {
-        return { type: 'LEGACY_PROCESS', id: monitoredProcess.id };
-      }
+      if (process) return { id: process.id };
 
-      // Check filings (legacy CGP)
+      // Check filings
       const { data: filing } = await supabase
         .from("filings")
         .select("id")
         .eq("id", id!)
         .maybeSingle();
       
-      if (filing) {
-        return { type: 'LEGACY_FILING', id: filing.id };
-      }
+      if (filing) return { id: filing.id };
 
       return null;
     },
-    enabled: !!id && !workItem && !loadingWorkItem,
+    enabled: !!id,
   });
-
-  const isLoading = loadingWorkItem || (loadingLegacy && !workItem);
 
   if (isLoading) {
     return (
@@ -126,86 +88,13 @@ export default function ItemDetail() {
           </div>
         </div>
         <Skeleton className="h-[200px] w-full" />
-        <Skeleton className="h-[400px] w-full" />
       </div>
     );
   }
 
-  // If found in work_items, route based on workflow_type
-  if (workItem) {
-    switch (workItem.workflow_type) {
-      case 'CGP':
-        // For now, redirect to legacy CGP detail
-        if (workItem.legacy_cgp_item_id) {
-          return <Navigate to={`/cgp/${workItem.legacy_cgp_item_id}`} replace />;
-        }
-        // If no legacy ID, still go to CGP route
-        return <Navigate to={`/cgp/${workItem.id}`} replace />;
-      
-      case 'PETICION':
-        if (workItem.legacy_peticion_id) {
-          return <Navigate to={`/peticiones/${workItem.legacy_peticion_id}`} replace />;
-        }
-        return <Navigate to={`/peticiones/${workItem.id}`} replace />;
-      
-      case 'TUTELA':
-        // Tutelas currently use filings table
-        if (workItem.legacy_filing_id) {
-          return <Navigate to={`/cgp/${workItem.legacy_filing_id}`} replace />;
-        }
-        return <Navigate to={`/cgp/${workItem.id}`} replace />;
-      
-      case 'GOV_PROCEDURE':
-        if (workItem.legacy_admin_process_id) {
-          return <Navigate to={`/admin-processes/${workItem.legacy_admin_process_id}`} replace />;
-        }
-        return <Navigate to={`/admin-processes/${workItem.id}`} replace />;
-      
-      case 'CPACA':
-        if (workItem.legacy_cpaca_id) {
-          return <Navigate to={`/cpaca/${workItem.legacy_cpaca_id}`} replace />;
-        }
-        return <Navigate to={`/cpaca/${workItem.id}`} replace />;
-      
-      default:
-        // Unknown type, show generic view
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" asChild>
-                <Link to="/">
-                  <ArrowLeft className="h-5 w-5" />
-                </Link>
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold">Detalle del Asunto</h1>
-                <p className="text-muted-foreground">
-                  Tipo: {workItem.workflow_type}
-                </p>
-              </div>
-            </div>
-          </div>
-        );
-    }
-  }
-
-  // If found in legacy tables, redirect accordingly
-  if (legacyItem) {
-    switch (legacyItem.type) {
-      case 'CGP':
-        return <Navigate to={`/cgp/${legacyItem.id}`} replace />;
-      case 'PETICION':
-        return <Navigate to={`/peticiones/${legacyItem.id}`} replace />;
-      case 'CPACA':
-        return <Navigate to={`/cpaca/${legacyItem.id}`} replace />;
-      case 'GOV_PROCEDURE':
-        return <Navigate to={`/admin-processes/${legacyItem.id}`} replace />;
-      case 'LEGACY_PROCESS':
-        // Try to find linked CGP item
-        return <Navigate to={`/cgp/${legacyItem.id}`} replace />;
-      case 'LEGACY_FILING':
-        return <Navigate to={`/cgp/${legacyItem.id}`} replace />;
-    }
+  // If found, redirect to canonical work-items detail
+  if (itemExists) {
+    return <Navigate to={`/work-items/${itemExists.id}`} replace />;
   }
 
   // Not found

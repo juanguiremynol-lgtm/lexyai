@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import type { Client } from "@/types/client";
 
-type EntityType = "peticion" | "tutela" | "filing" | "process" | "cpaca";
+type EntityType = "peticion" | "tutela" | "filing" | "process" | "cpaca" | "cgp_item" | "work_item";
 
 interface EntityClientLinkProps {
   entityId: string;
@@ -61,7 +61,7 @@ export function EntityClientLink({
     },
   });
 
-  const getTableName = (type: EntityType): "peticiones" | "filings" | "monitored_processes" | "cpaca_processes" => {
+  const getTableName = (type: EntityType): "peticiones" | "filings" | "monitored_processes" | "cpaca_processes" | "cgp_items" | "work_items" => {
     switch (type) {
       case "peticion":
         return "peticiones";
@@ -72,6 +72,10 @@ export function EntityClientLink({
         return "monitored_processes";
       case "cpaca":
         return "cpaca_processes";
+      case "cgp_item":
+        return "cgp_items";
+      case "work_item":
+        return "work_items";
     }
   };
 
@@ -87,6 +91,10 @@ export function EntityClientLink({
         return "monitored-processes";
       case "cpaca":
         return "cpaca-processes";
+      case "cgp_item":
+        return "cgp-items";
+      case "work_item":
+        return "work-items";
     }
   };
 

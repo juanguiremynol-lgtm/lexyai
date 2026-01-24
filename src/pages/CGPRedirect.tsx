@@ -43,7 +43,7 @@ export default function CGPRedirect({ type }: { type: "filing" | "process" }) {
 
         if (cgpItem) {
           // Found! Redirect to the canonical CGP detail page
-          navigate(`/cgp/${cgpItem.id}`, { replace: true });
+          navigate(`/work-items/${cgpItem.id}`, { replace: true });
         } else {
           // No cgp_item found - this might be a non-CGP item or legacy data
           // Try direct lookup in the canonical table
@@ -61,7 +61,7 @@ export default function CGPRedirect({ type }: { type: "filing" | "process" }) {
 
           if (directItem) {
             // The ID itself is a cgp_item ID
-            navigate(`/cgp/${directItem.id}`, { replace: true });
+            navigate(`/work-items/${directItem.id}`, { replace: true });
           } else {
             // Not found in cgp_items - show not found
             setNotFound(true);
