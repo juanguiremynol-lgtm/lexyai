@@ -26,7 +26,7 @@ import Links from "./pages/Links";
 import Filings from "./pages/Filings";
 import CGPDetail from "./pages/CGPDetail";
 import CGPRedirect from "./pages/CGPRedirect";
-import WorkItemDetail from "./pages/WorkItemDetail";
+import WorkItemDetailPage from "./pages/WorkItemDetail";
 import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
@@ -81,11 +81,14 @@ const App = () => (
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="/clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             
-            {/* Legacy /items route redirects to canonical CGP detail */}
+            {/* Legacy /items route redirects to canonical work-items detail */}
             <Route path="/items/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             
-            {/* CGP Unified Routes */}
-            <Route path="/cgp/:id" element={<ErrorBoundary><CGPDetail /></ErrorBoundary>} />
+            {/* Canonical Work Item Detail Route */}
+            <Route path="/work-items/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
+            
+            {/* CGP Unified Routes - redirect to canonical */}
+            <Route path="/cgp/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             
             {/* Legacy route redirects - backward compatibility */}
             <Route path="/filings/:id" element={<ErrorBoundary><CGPRedirect type="filing" /></ErrorBoundary>} />
@@ -107,8 +110,9 @@ const App = () => (
             <Route path="/utilities" element={<ErrorBoundary><Utilities /></ErrorBoundary>} />
             <Route path="/links" element={<ErrorBoundary><Links /></ErrorBoundary>} />
             <Route path="/documents" element={<ErrorBoundary><DocumentSearch /></ErrorBoundary>} />
-            <Route path="/peticiones/:id" element={<ErrorBoundary><PeticionDetail /></ErrorBoundary>} />
-            <Route path="/admin-processes/:id" element={<ErrorBoundary><AdminProcessDetail /></ErrorBoundary>} />
+            {/* Legacy routes - redirect to canonical work-items detail */}
+            <Route path="/peticiones/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
+            <Route path="/admin-processes/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="/email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
             <Route path="/cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
             <Route path="/pricing" element={<ErrorBoundary><PricingPage /></ErrorBoundary>} />

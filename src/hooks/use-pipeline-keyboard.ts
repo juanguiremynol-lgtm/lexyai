@@ -157,16 +157,8 @@ export function usePipelineKeyboard({
           e.preventDefault();
           const item = getFocusedItem();
           if (item) {
-            // All CGP items (filings, processes, tutelas) go to canonical CGP detail
-            if (item.type === "filing" || item.type === "tutela" || item.type === "process") {
-              navigate(`/cgp/${item.id}`);
-            } else if (item.type === "admin") {
-              navigate(`/admin-processes/${item.id}`);
-            } else if (item.type === "cpaca") {
-              navigate(`/cpaca/${item.id}`);
-            } else if (item.type === "peticion") {
-              navigate(`/peticiones/${item.id}`);
-            }
+            // All items go to canonical work-items detail view
+            navigate(`/work-items/${item.id}`);
             stopNavigation();
           }
           break;

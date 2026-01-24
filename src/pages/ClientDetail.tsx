@@ -677,7 +677,7 @@ export default function ClientDetail() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/peticiones/${peticion.id}`}>
+                            <Link to={`/work-items/${peticion.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -785,7 +785,7 @@ export default function ClientDetail() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/admin-processes/${process.id}`}>
+                            <Link to={`/work-items/${process.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>

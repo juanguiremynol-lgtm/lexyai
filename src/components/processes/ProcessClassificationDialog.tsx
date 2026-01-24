@@ -142,7 +142,7 @@ export function ProcessClassificationDialog({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => navigate(`/cgp/${process.id}`)}
+                      onClick={() => navigate(`/work-items/${process.id}`)}
                     >
                       <ExternalLink className="h-4 w-4" />
                     </Button>
