@@ -15,18 +15,16 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Scale, CheckSquare, Plus, RefreshCw, Keyboard } from "lucide-react";
+import { Scale, CheckSquare, Plus, RefreshCw, Keyboard, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import {
   CPACA_PHASES,
   CPACA_PHASES_ORDER,
-  ESTADOS_CONCILIACION,
-  PHASES_REQUIRING_CONCILIACION,
   type CpacaPhase,
   type MedioDeControl,
   type EstadoCaducidad,
-  type EstadoConciliacion,
 } from "@/lib/cpaca-constants";
 import { CpacaColumn, CpacaStageConfig } from "./CpacaColumn";
 import { CpacaCard, CpacaItem } from "./CpacaCard";
@@ -35,6 +33,7 @@ import { CpacaBulkActionsBar } from "./CpacaBulkActionsBar";
 import { CpacaBulkDeleteDialog } from "./CpacaBulkDeleteDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Build stages configuration from constants
 const CPACA_STAGES: CpacaStageConfig[] = CPACA_PHASES_ORDER.map((phase) => ({
@@ -43,48 +42,54 @@ const CPACA_STAGES: CpacaStageConfig[] = CPACA_PHASES_ORDER.map((phase) => ({
   ...CPACA_PHASES[phase],
 }));
 
-interface RawCpacaProcess {
+// Default phase for items without a valid phase
+const DEFAULT_CPACA_PHASE: CpacaPhase = "PRECONTENCIOSO";
+
+// Raw work_item structure from database
+interface RawWorkItem {
   id: string;
+  workflow_type: string;
+  stage: string | null;
   radicado: string | null;
-  titulo: string | null;
-  medio_de_control: string;
-  medio_de_control_custom: string | null;
-  phase: string;
-  despacho_nombre: string | null;
-  despacho_ciudad: string | null;
+  title: string | null;
+  authority_name: string | null;
+  authority_city: string | null;
   demandantes: string | null;
   demandados: string | null;
   client_id: string | null;
-  estado_caducidad: string | null;
-  estado_conciliacion: string | null;
-  conciliacion_requisito: boolean;
-  fecha_vencimiento_caducidad: string | null;
-  fecha_vencimiento_traslado_demanda: string | null;
-  fecha_audiencia_inicial: string | null;
-  created_at: string;
   is_flagged: boolean | null;
+  created_at: string;
+  updated_at: string;
   clients: { id: string; name: string } | null;
 }
 
-function rawToCpacaItem(raw: RawCpacaProcess): CpacaItem {
+function workItemToCpacaItem(raw: RawWorkItem): CpacaItem {
+  // Map stage to CpacaPhase, with fallback to default
+  let phase: CpacaPhase = DEFAULT_CPACA_PHASE;
+  
+  if (raw.stage && CPACA_PHASES_ORDER.includes(raw.stage as CpacaPhase)) {
+    phase = raw.stage as CpacaPhase;
+  }
+  
   return {
     id: raw.id,
     type: "cpaca" as const,
     radicado: raw.radicado,
-    titulo: raw.titulo,
-    medioDeControl: raw.medio_de_control as MedioDeControl,
-    medioDeControlCustom: raw.medio_de_control_custom,
-    phase: raw.phase as CpacaPhase,
-    despachoNombre: raw.despacho_nombre,
-    despachoCiudad: raw.despacho_ciudad,
+    titulo: raw.title,
+    // Default medio de control since work_items may not have this
+    medioDeControl: "OTRO" as MedioDeControl,
+    medioDeControlCustom: null,
+    phase,
+    despachoNombre: raw.authority_name,
+    despachoCiudad: raw.authority_city,
     demandantes: raw.demandantes,
     demandados: raw.demandados,
     clientId: raw.client_id,
     clientName: raw.clients?.name || null,
-    estadoCaducidad: (raw.estado_caducidad || "NO_APLICA") as EstadoCaducidad,
-    fechaVencimientoCaducidad: raw.fecha_vencimiento_caducidad,
-    fechaVencimientoTraslado: raw.fecha_vencimiento_traslado_demanda,
-    fechaAudienciaInicial: raw.fecha_audiencia_inicial,
+    estadoCaducidad: "NO_APLICA" as EstadoCaducidad,
+    fechaVencimientoCaducidad: null,
+    fechaVencimientoTraslado: null,
+    fechaAudienciaInicial: null,
     createdAt: raw.created_at,
     isFlagged: raw.is_flagged ?? false,
   };
@@ -92,6 +97,8 @@ function rawToCpacaItem(raw: RawCpacaProcess): CpacaItem {
 
 export function CpacaPipeline() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
   const [activeItem, setActiveItem] = useState<CpacaItem | null>(null);
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
@@ -103,58 +110,79 @@ export function CpacaPipeline() {
     useSensor(KeyboardSensor)
   );
 
-  // Fetch CPACA processes
-  const { data: processes, isLoading, refetch } = useQuery({
-    queryKey: ["cpaca-processes"],
-    queryFn: async () => {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) throw new Error("No user");
+  // Fetch CPACA work_items from canonical table
+  const { data: processes, isLoading, refetch, error } = useQuery({
+    queryKey: ["cpaca-work-items", organizationId],
+    queryFn: async (): Promise<CpacaItem[]> => {
+      if (!organizationId) {
+        console.log("[CPACA Pipeline] No organization ID available");
+        return [];
+      }
 
-      const { data, error } = await supabase
-        .from("cpaca_processes")
-        .select(`
-          id, radicado, titulo, medio_de_control, medio_de_control_custom,
-          phase, despacho_nombre, despacho_ciudad, demandantes, demandados,
-          client_id, estado_caducidad, estado_conciliacion, conciliacion_requisito,
-          fecha_vencimiento_caducidad, fecha_vencimiento_traslado_demanda,
-          fecha_audiencia_inicial, created_at, is_flagged,
-          clients(id, name)
-        `)
-        .eq("owner_id", user.user.id)
-        .order("created_at", { ascending: false });
+      console.log("[CPACA Pipeline] Fetching work_items with:", {
+        workflow_type: "CPACA",
+        organization_id: organizationId,
+      });
 
-      if (error) throw error;
-      return (data as unknown as RawCpacaProcess[]).map(rawToCpacaItem);
+      // Break the type inference chain to avoid TS2589
+      const baseQuery = supabase.from("work_items") as any;
+      const result = await baseQuery
+        .select("id, workflow_type, stage, radicado, title, authority_name, authority_city, demandantes, demandados, client_id, is_flagged, created_at, updated_at, clients(id, name)")
+        .eq("organization_id", organizationId)
+        .eq("workflow_type", "CPACA")
+        .order("updated_at", { ascending: false });
+
+      if (result.error) {
+        console.error("[CPACA Pipeline] Query error:", result.error);
+        throw result.error;
+      }
+
+      const data = result.data as RawWorkItem[];
+      console.log("[CPACA Pipeline] Found items:", data?.length || 0);
+      
+      const items = data.map(workItemToCpacaItem);
+      
+      // Debug: log phase distribution
+      const phaseDistribution: Record<string, number> = {};
+      items.forEach(item => {
+        phaseDistribution[item.phase] = (phaseDistribution[item.phase] || 0) + 1;
+      });
+      console.log("[CPACA Pipeline] Phase distribution:", phaseDistribution);
+      
+      return items;
     },
+    enabled: !!organizationId,
   });
 
-  // Toggle flag mutation
+  // Toggle flag mutation - update work_items
   const toggleFlagMutation = useMutation({
     mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
       const { error } = await supabase
-        .from("cpaca_processes")
+        .from("work_items")
         .update({ is_flagged: !isFlagged })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items", organizationId] });
     },
   });
 
-  // Update phase mutation
+  // Update phase mutation - update work_items.stage
   const updatePhaseMutation = useMutation({
     mutationFn: async ({ processId, newPhase }: { processId: string; newPhase: CpacaPhase }) => {
       const { error } = await supabase
-        .from("cpaca_processes")
-        .update({ phase: newPhase })
+        .from("work_items")
+        .update({ stage: newPhase, updated_at: new Date().toISOString() })
         .eq("id", processId);
 
       if (error) throw error;
       return { processId, newPhase };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items", organizationId] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success("Estado actualizado");
     },
     onError: () => toast.error("Error al actualizar estado"),
@@ -170,7 +198,9 @@ export function CpacaPipeline() {
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items", organizationId] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
@@ -205,8 +235,6 @@ export function CpacaPipeline() {
       if (!item) return;
 
       if (item.phase !== targetPhase) {
-        // Validate conciliación requirement for certain phases
-        // (In a full implementation, we'd fetch the full process data and check estado_conciliacion)
         updatePhaseMutation.mutate({ processId: itemId, newPhase: targetPhase as CpacaPhase });
       }
     },
@@ -217,7 +245,7 @@ export function CpacaPipeline() {
     setActiveItem(null);
   };
 
-  // Group items by stage
+  // Group items by stage - ensure all items are included
   const itemsByStage = useMemo(() => {
     const result: Record<string, CpacaItem[]> = {};
     CPACA_STAGES.forEach((stage) => {
@@ -229,9 +257,19 @@ export function CpacaPipeline() {
       if (result[stageId]) {
         result[stageId].push(item);
       } else {
-        // Fallback to first stage
+        // Fallback to first stage (PRECONTENCIOSO) if phase not recognized
+        console.warn(`[CPACA Pipeline] Unknown phase "${item.phase}" for item ${item.id}, using default`);
         result[CPACA_STAGES[0].id].push(item);
       }
+    });
+
+    // Sort flagged items to top
+    Object.keys(result).forEach(key => {
+      result[key].sort((a, b) => {
+        if (a.isFlagged && !b.isFlagged) return -1;
+        if (!a.isFlagged && b.isFlagged) return 1;
+        return 0;
+      });
     });
 
     return result;
@@ -319,6 +357,19 @@ export function CpacaPipeline() {
 
   return (
     <>
+      {/* Debug info (dev only) */}
+      {process.env.NODE_ENV === "development" && (
+        <Alert className="mb-4 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20">
+          <AlertCircle className="h-4 w-4 text-blue-500" />
+          <AlertDescription className="text-blue-700 dark:text-blue-300 text-sm">
+            <strong>Debug:</strong> CPACA items found: {totalProcesses} | 
+            workflow_type filter: CPACA | 
+            org_id: {organizationId || "none"}
+            {error && <span className="text-red-500"> | Error: {(error as Error).message}</span>}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
@@ -361,6 +412,16 @@ export function CpacaPipeline() {
           </Button>
         </div>
       </div>
+
+      {/* Empty state */}
+      {totalProcesses === 0 && !isLoading && (
+        <Alert className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            No hay procesos CPACA en esta organización. Importa procesos desde ICARUS o crea uno nuevo.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Pipeline */}
       <DndContext

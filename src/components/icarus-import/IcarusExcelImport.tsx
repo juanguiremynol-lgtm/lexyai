@@ -26,6 +26,7 @@ import { parseIcarusExcel, type ParseResult } from "@/lib/icarus-excel-parser";
 import { IcarusExcelPreview } from "./IcarusExcelPreview";
 import { IcarusImportReview, type ReviewedRow } from "./IcarusImportReview";
 import { getDefaultStage, type WorkflowType } from "@/lib/workflow-constants";
+import { useOrganization } from "@/contexts/OrganizationContext";
 
 // Result for a single row
 interface RowImportResult {
@@ -52,6 +53,8 @@ type ImportStep = 'upload' | 'preview' | 'review' | 'complete';
 
 export function IcarusExcelImport() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
   const [step, setStep] = useState<ImportStep>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
@@ -113,6 +116,7 @@ export function IcarusExcelImport() {
     mutationFn: async (reviewedRows: ReviewedRow[]): Promise<ImportResult> => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
+      if (!organizationId) throw new Error("No hay organización seleccionada");
 
       // Create import run record first
       const { data: importRun, error: runError } = await supabase
@@ -164,11 +168,12 @@ export function IcarusExcelImport() {
         }
         
         try {
-          // Check if work_item with this radicado already exists for this user
-          const { data: existing, error: checkError } = await supabase
-            .from("work_items")
+          // Check if work_item with this radicado already exists for this organization
+          // Cast to any to avoid TS2589
+          const checkQuery = supabase.from("work_items") as any;
+          const { data: existing, error: checkError } = await checkQuery
             .select("id")
-            .eq("owner_id", user.id)
+            .eq("organization_id", organizationId)
             .eq("radicado", row.radicado_norm)
             .maybeSingle();
 
@@ -227,9 +232,10 @@ export function IcarusExcelImport() {
               byType[workflowType].updated++;
             }
           } else {
-            // Insert new work_item
+            // Insert new work_item with organization_id
             const insertData = {
               owner_id: user.id,
+              organization_id: organizationId,
               workflow_type: workflowType,
               stage: defaultStage,
               cgp_phase: workflowType === 'CGP' ? 'PROCESS' as const : null,
@@ -345,8 +351,10 @@ export function IcarusExcelImport() {
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
       queryClient.invalidateQueries({ queryKey: ["cgp-items"] });
-      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
+      queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["tutela-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-import-runs"] });
       queryClient.invalidateQueries({ queryKey: ["processes"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
