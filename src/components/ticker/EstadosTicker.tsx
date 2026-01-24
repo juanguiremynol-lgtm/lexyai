@@ -111,10 +111,7 @@ export function EstadosTicker() {
 
   return (
     <div 
-      className={cn(
-        "w-full max-w-full bg-card border-b border-border overflow-hidden",
-        "relative z-40"
-      )}
+      className="w-full bg-card border-b border-border overflow-hidden relative z-40"
       role="marquee"
       aria-label="Actualizaciones judiciales recientes"
     >
@@ -126,9 +123,9 @@ export function EstadosTicker() {
         </div>
       </div>
 
-      {/* Scrolling container - whitespace-nowrap + transform animation, never expands page */}
+      {/* Scrolling container - animation happens inside overflow-hidden parent */}
       <div 
-        className="inline-flex items-center py-1.5 pl-16 sm:pl-20 ticker-scroll whitespace-nowrap"
+        className="flex items-center py-1.5 pl-16 sm:pl-20 ticker-scroll whitespace-nowrap"
         style={{
           animation: `ticker-scroll ${animationDuration}s linear infinite`,
         }}

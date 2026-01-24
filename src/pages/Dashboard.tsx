@@ -91,10 +91,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6 w-full max-w-full overflow-x-hidden">
+    <div className="space-y-6">
+      {/* Header - always visible, never scrolls horizontally */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="font-display text-3xl font-bold text-foreground truncate">
+        <div className="min-w-0 flex-1">
+          <h1 className="font-display text-3xl font-bold text-foreground">
             Dashboard
           </h1>
           <p className="text-muted-foreground">
@@ -182,10 +183,10 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Tabbed Pipelines */}
-      <Tabs defaultValue="cgp" className="space-y-4 w-full max-w-full">
-        <div className="w-full max-w-full overflow-x-auto">
-          <TabsList className="inline-flex min-w-max">
+      {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
+      <Tabs defaultValue="cgp" className="space-y-4">
+        <div className="overflow-x-auto -mx-1 px-1">
+          <TabsList className="inline-flex whitespace-nowrap">
             <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
             <TabsTrigger value="laboral">Laborales</TabsTrigger>
             <TabsTrigger value="cpaca">CPACA</TabsTrigger>
