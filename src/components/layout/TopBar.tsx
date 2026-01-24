@@ -41,22 +41,22 @@ export function TopBar() {
   }, []);
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:px-6">
-      <div className="flex items-center gap-4">
-        <SidebarTrigger className="-ml-1" />
+    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:px-6 w-full max-w-full overflow-hidden">
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        <SidebarTrigger className="-ml-1 flex-shrink-0" />
         
         <img 
           src={logo} 
           alt="ATENIA" 
-          className="h-10 w-auto object-contain hidden md:block"
+          className="h-10 w-auto object-contain hidden md:block flex-shrink-0"
         />
         
-        <div className="hidden md:block">
+        <div className="hidden md:block min-w-0 flex-1 max-w-md">
           <GlobalSearch />
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
         <ColombianClock />
 
         <ThemeToggle />
@@ -64,7 +64,7 @@ export function TopBar() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
+          className="relative flex-shrink-0"
           onClick={() => navigate('/alerts')}
         >
           <Bell className="h-5 w-5" />

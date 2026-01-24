@@ -77,7 +77,7 @@ export function ProcessPipelineColumn({
   });
 
   return (
-    <div className="flex-shrink-0 w-64">
+    <div className="flex-shrink-0 w-64 min-w-[256px] max-w-[256px]">
       <div
         ref={setNodeRef}
         className={cn(

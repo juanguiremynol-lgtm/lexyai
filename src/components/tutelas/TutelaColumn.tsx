@@ -53,7 +53,7 @@ export function TutelaColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex-shrink-0 w-72 bg-muted/30 rounded-lg border",
+        "flex-shrink-0 w-72 min-w-[288px] max-w-[288px] bg-muted/30 rounded-lg border",
         "flex flex-col min-h-[400px] transition-colors duration-200",
         isOver && "bg-primary/5 border-primary/50"
       )}

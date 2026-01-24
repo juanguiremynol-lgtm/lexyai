@@ -26,7 +26,7 @@ import {
   UniqueIdentifier,
   MeasuringStrategy,
 } from "@dnd-kit/core";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
@@ -363,13 +363,15 @@ export function UnifiedKanbanBoard<TItem extends KanbanItem, TStage extends Kanb
   // Loading state
   if (isLoading) {
     return (
-      <div className="flex gap-3 overflow-x-auto pb-4">
-        {stages.slice(0, 6).map((stage) => (
-          <Skeleton
-            key={stage.id}
-            className="h-[400px] min-w-[280px] flex-shrink-0 rounded-lg"
-          />
-        ))}
+      <div className="w-full max-w-full overflow-x-auto overflow-y-hidden">
+        <div className="inline-flex gap-3 pb-4 min-w-max">
+          {stages.slice(0, 6).map((stage) => (
+            <Skeleton
+              key={stage.id}
+              className="h-[400px] min-w-[280px] flex-shrink-0 rounded-lg"
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -383,8 +385,9 @@ export function UnifiedKanbanBoard<TItem extends KanbanItem, TStage extends Kanb
       onDragCancel={handleDragCancel}
       measuring={measuringStrategy ? { droppable: { strategy: measuringStrategy } } : undefined}
     >
-      <ScrollArea className="w-full">
-        <div className="flex gap-3 pb-4">
+      {/* Contained horizontal scroll - never expands page width */}
+      <div className="w-full max-w-full overflow-x-auto overflow-y-hidden">
+        <div className="inline-flex gap-3 pb-4 min-w-max">
           {stages.map((stage) => (
             <KanbanColumn
               key={stage.id}
@@ -399,8 +402,7 @@ export function UnifiedKanbanBoard<TItem extends KanbanItem, TStage extends Kanb
             />
           ))}
         </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+      </div>
 
       {/* Drag overlay - follows cursor during drag */}
       <DragOverlay dropAnimation={{
