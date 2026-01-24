@@ -3936,8 +3936,75 @@ export type Database = {
           },
         ]
       }
+      work_item_reminders: {
+        Row: {
+          cadence_business_days: number
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          dismissed_at: string | null
+          id: string
+          last_triggered_at: string | null
+          next_run_at: string
+          organization_id: string
+          owner_id: string
+          reminder_type: Database["public"]["Enums"]["reminder_type"]
+          snoozed_until: string | null
+          status: Database["public"]["Enums"]["reminder_status"]
+          trigger_count: number
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          cadence_business_days?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          dismissed_at?: string | null
+          id?: string
+          last_triggered_at?: string | null
+          next_run_at: string
+          organization_id: string
+          owner_id: string
+          reminder_type: Database["public"]["Enums"]["reminder_type"]
+          snoozed_until?: string | null
+          status?: Database["public"]["Enums"]["reminder_status"]
+          trigger_count?: number
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          cadence_business_days?: number
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          dismissed_at?: string | null
+          id?: string
+          last_triggered_at?: string | null
+          next_run_at?: string
+          organization_id?: string
+          owner_id?: string
+          reminder_type?: Database["public"]["Enums"]["reminder_type"]
+          snoozed_until?: string | null
+          status?: Database["public"]["Enums"]["reminder_status"]
+          trigger_count?: number
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_items: {
         Row: {
+          acta_reparto_notes: string | null
+          acta_reparto_received_at: string | null
           authority_city: string | null
           authority_department: string | null
           authority_email: string | null
@@ -3997,6 +4064,8 @@ export type Database = {
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Insert: {
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -4056,6 +4125,8 @@ export type Database = {
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Update: {
+          acta_reparto_notes?: string | null
+          acta_reparto_received_at?: string | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -4325,6 +4396,12 @@ export type Database = {
         | "NOT_FOUND"
         | "LOOKUP_UNAVAILABLE"
         | "AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION"
+      reminder_status: "ACTIVE" | "COMPLETED" | "SNOOZED" | "DISMISSED"
+      reminder_type:
+        | "ACTA_REPARTO_PENDING"
+        | "RADICADO_PENDING"
+        | "EXPEDIENTE_PENDING"
+        | "AUTO_ADMISORIO_PENDING"
       scrape_status:
         | "NOT_ATTEMPTED"
         | "IN_PROGRESS"
@@ -4654,6 +4731,13 @@ export const Constants = {
         "NOT_FOUND",
         "LOOKUP_UNAVAILABLE",
         "AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION",
+      ],
+      reminder_status: ["ACTIVE", "COMPLETED", "SNOOZED", "DISMISSED"],
+      reminder_type: [
+        "ACTA_REPARTO_PENDING",
+        "RADICADO_PENDING",
+        "EXPEDIENTE_PENDING",
+        "AUTO_ADMISORIO_PENDING",
       ],
       scrape_status: [
         "NOT_ATTEMPTED",

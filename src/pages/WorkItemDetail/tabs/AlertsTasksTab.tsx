@@ -1,11 +1,12 @@
 /**
- * Alerts & Tasks Tab - Shows alerts and tasks for the work item
+ * Alerts & Tasks Tab - Shows alerts, tasks, and milestone reminders for the work item
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
@@ -15,12 +16,17 @@ import {
   AlertTriangle,
   Info,
   AlertCircle,
+  Clock,
+  Target,
 } from "lucide-react";
 import { format, formatDistanceToNow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { Link } from "react-router-dom";
 
 import type { WorkItem } from "@/types/work-item";
+import { useDueReminders, useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
+import { REMINDER_CONFIG } from "@/lib/reminders/reminder-types";
 
 interface AlertsTasksTabProps {
   workItem: WorkItem & { _source?: string };
@@ -46,6 +52,13 @@ interface Alert {
 }
 
 export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
+  // Fetch due reminders for this work item
+  const { data: dueReminders = [], isLoading: remindersLoading } = useDueReminders({ 
+    workItemId: workItem.id 
+  });
+  const snoozeMutation = useSnoozeReminder();
+  const dismissMutation = useDismissReminder();
+
   // Fetch tasks
   const { data: tasks, isLoading: tasksLoading } = useQuery({
     queryKey: ["work-item-tasks", workItem.id],
