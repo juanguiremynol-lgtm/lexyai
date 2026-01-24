@@ -36,14 +36,16 @@ import {
   UserPlus,
   Link as LinkIcon,
   Scale,
+  Landmark,
+  Gavel,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { parseIcarusExcel, type ParseResult, type IcarusExcelRow } from "@/lib/icarus-excel-parser";
 import { IcarusExcelPreview } from "./IcarusExcelPreview";
-import { WorkflowClassificationDialog } from "@/components/workflow/WorkflowClassificationDialog";
-import type { WorkflowClassification } from "@/types/work-item";
-import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
+import { IcarusRowClassification, type ClassifiedRow } from "./IcarusRowClassification";
+import { WORKFLOW_TYPES, getDefaultStage, type WorkflowType } from "@/lib/workflow-constants";
+import type { SuggestedWorkflowType } from "@/lib/icarus-workflow-detection";
 
 interface ImportResult {
   run_id: string;
@@ -55,10 +57,14 @@ interface ImportResult {
   rows_skipped: number;
   errors: { row_index: number; message: string }[];
   imported_process_ids?: string[];
+  by_type: Record<string, { imported: number; updated: number }>;
 }
+
+type ImportStep = 'upload' | 'preview' | 'classify' | 'complete';
 
 export function IcarusExcelImport() {
   const queryClient = useQueryClient();
+  const [step, setStep] = useState<ImportStep>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
@@ -76,10 +82,6 @@ export function IcarusExcelImport() {
 
   // Post-import linking state
   const [postImportDialogOpen, setPostImportDialogOpen] = useState(false);
-
-  // Workflow classification state
-  const [classificationDialogOpen, setClassificationDialogOpen] = useState(false);
-  const [selectedClassification, setSelectedClassification] = useState<WorkflowClassification | null>(null);
 
   // Fetch clients
   const { data: clients = [] } = useQuery({
@@ -145,7 +147,7 @@ export function IcarusExcelImport() {
     setImportResult(null);
     setParseError(null);
     setSelectedRows(new Set());
-    setSelectedClassification(null);
+    setStep('upload');
 
     // Validate file type
     const validExtensions = [".xls", ".xlsx"];
@@ -172,16 +174,45 @@ export function IcarusExcelImport() {
           .filter(i => i >= 0)
       );
       setSelectedRows(validIndices);
+      setStep('preview');
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Error al parsear el archivo");
     }
   };
 
-  // Import mutation that creates work_items instead of monitored_processes
+  // Import mutation that creates work_items with per-row classification
   const importMutation = useMutation({
-    mutationFn: async ({ rows, classification }: { rows: IcarusExcelRow[]; classification: WorkflowClassification }) => {
+    mutationFn: async (classifiedRows: ClassifiedRow[]) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
+
+      // Get organization_id from profile
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single();
+
+      const organizationId = profile?.organization_id || null;
+
+      // Create import run record
+      const { data: importRun, error: runError } = await supabase
+        .from("icarus_import_runs")
+        .insert({
+          organization_id: organizationId,
+          owner_id: user.id,
+          file_name: file?.name || 'unknown',
+          file_hash: parseResult?.file_hash || null,
+          status: 'PROCESSING',
+          rows_total: classifiedRows.length,
+          rows_valid: classifiedRows.length,
+        })
+        .select()
+        .single();
+
+      if (runError) {
+        console.error("Failed to create import run:", runError);
+      }
 
       const results = {
         imported: 0,
@@ -189,10 +220,22 @@ export function IcarusExcelImport() {
         skipped: 0,
         errors: [] as { row_index: number; message: string }[],
         imported_ids: [] as string[],
+        by_type: {} as Record<string, { imported: number; updated: number }>,
       };
 
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
+      for (const row of classifiedRows) {
+        const workflowType = row.selectedType as WorkflowType;
+        
+        if (!workflowType) {
+          results.errors.push({ row_index: row.rowIndex, message: "Tipo de proceso no seleccionado" });
+          results.skipped++;
+          continue;
+        }
+
+        // Initialize type stats
+        if (!results.by_type[workflowType]) {
+          results.by_type[workflowType] = { imported: 0, updated: 0 };
+        }
         
         try {
           // Check if work_item with this radicado already exists
@@ -203,11 +246,15 @@ export function IcarusExcelImport() {
             .eq("radicado", row.radicado_norm)
             .maybeSingle();
 
+          // Get default stage for this workflow type
+          const defaultStage = getDefaultStage(workflowType, workflowType === 'CGP' ? 'PROCESS' : undefined);
+
           if (existing) {
             // Update existing
             const { error: updateError } = await supabase
               .from("work_items")
               .update({
+                workflow_type: workflowType,
                 authority_name: row.despacho || null,
                 authority_department: row.distrito || null,
                 demandantes: row.demandantes || null,
@@ -218,10 +265,27 @@ export function IcarusExcelImport() {
               .eq("id", existing.id);
 
             if (updateError) {
-              results.errors.push({ row_index: i, message: updateError.message });
+              results.errors.push({ row_index: row.rowIndex, message: updateError.message });
               results.skipped++;
             } else {
               results.updated++;
+              results.by_type[workflowType].updated++;
+            }
+
+            // Log row import
+            if (importRun) {
+              await supabase.from("icarus_import_rows").insert({
+                run_id: importRun.id,
+                owner_id: user.id,
+                row_index: row.rowIndex,
+                radicado_norm: row.radicado_norm,
+                radicado_raw: row.radicado_raw,
+                suggested_workflow_type: row.suggestedType,
+                selected_workflow_type: workflowType,
+                was_overridden: row.wasOverridden,
+                status: updateError ? 'ERROR' : 'UPDATED',
+                reason: updateError?.message || null,
+              });
             }
           } else {
             // Insert new
@@ -229,10 +293,11 @@ export function IcarusExcelImport() {
               .from("work_items")
               .insert({
                 owner_id: user.id,
-                workflow_type: classification.workflow_type,
-                stage: classification.stage,
-                cgp_phase: classification.cgp_phase || null,
-                cgp_phase_source: classification.cgp_phase ? 'MANUAL' : null,
+                organization_id: organizationId,
+                workflow_type: workflowType,
+                stage: defaultStage,
+                cgp_phase: workflowType === 'CGP' ? 'PROCESS' : null,
+                cgp_phase_source: workflowType === 'CGP' ? 'MANUAL' : null,
                 status: 'ACTIVE',
                 source: 'ICARUS_IMPORT',
                 radicado: row.radicado_norm,
@@ -251,38 +316,71 @@ export function IcarusExcelImport() {
               .single();
 
             if (insertError) {
-              results.errors.push({ row_index: i, message: insertError.message });
+              results.errors.push({ row_index: row.rowIndex, message: insertError.message });
               results.skipped++;
             } else {
               results.imported++;
+              results.by_type[workflowType].imported++;
               if (inserted?.id) {
                 results.imported_ids.push(inserted.id);
               }
             }
+
+            // Log row import
+            if (importRun) {
+              await supabase.from("icarus_import_rows").insert({
+                run_id: importRun.id,
+                owner_id: user.id,
+                row_index: row.rowIndex,
+                radicado_norm: row.radicado_norm,
+                radicado_raw: row.radicado_raw,
+                suggested_workflow_type: row.suggestedType,
+                selected_workflow_type: workflowType,
+                was_overridden: row.wasOverridden,
+                status: insertError ? 'ERROR' : 'CREATED',
+                reason: insertError?.message || null,
+              });
+            }
           }
         } catch (error) {
           results.errors.push({ 
-            row_index: i, 
+            row_index: row.rowIndex, 
             message: error instanceof Error ? error.message : "Error desconocido" 
           });
           results.skipped++;
         }
       }
 
+      // Update import run status
+      if (importRun) {
+        await supabase
+          .from("icarus_import_runs")
+          .update({
+            status: results.skipped === classifiedRows.length ? 'ERROR' : results.skipped > 0 ? 'PARTIAL' : 'SUCCESS',
+            rows_imported: results.imported,
+            rows_updated: results.updated,
+            rows_skipped: results.skipped,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", importRun.id);
+      }
+
       return {
-        run_id: crypto.randomUUID(),
-        status: results.skipped === rows.length ? "ERROR" : results.skipped > 0 ? "PARTIAL" : "SUCCESS",
-        rows_total: rows.length,
-        rows_valid: rows.length,
+        run_id: importRun?.id || crypto.randomUUID(),
+        status: results.skipped === classifiedRows.length ? "ERROR" : results.skipped > 0 ? "PARTIAL" : "SUCCESS",
+        rows_total: classifiedRows.length,
+        rows_valid: classifiedRows.length,
         rows_imported: results.imported,
         rows_updated: results.updated,
         rows_skipped: results.skipped,
         errors: results.errors,
         imported_process_ids: results.imported_ids,
+        by_type: results.by_type,
       } as ImportResult;
     },
     onSuccess: (data) => {
       setImportResult(data);
+      setStep('complete');
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-import-runs"] });
       
@@ -300,27 +398,17 @@ export function IcarusExcelImport() {
     },
   });
 
-  // Handle classification and then import
-  const handleClassificationComplete = (classification: WorkflowClassification) => {
-    setSelectedClassification(classification);
-    setClassificationDialogOpen(false);
-    // Now proceed with import
-    if (!parseResult) return;
-    const rowsToImport = parseResult.rows.filter((_, index) => selectedRows.has(index));
-    importMutation.mutate({ rows: rowsToImport, classification });
+  // Handle rows classified and proceed to import
+  const handleRowsClassified = (classifiedRows: ClassifiedRow[]) => {
+    importMutation.mutate(classifiedRows);
   };
 
-  const handleImport = () => {
-    if (!parseResult) return;
-
-    const rowsToImport = parseResult.rows.filter((_, index) => selectedRows.has(index));
-    if (rowsToImport.length === 0) {
+  const handleProceedToClassify = () => {
+    if (selectedRows.size === 0) {
       toast.error("Selecciona al menos un proceso para importar");
       return;
     }
-
-    // Open classification dialog first
-    setClassificationDialogOpen(true);
+    setStep('classify');
   };
 
   const resetImport = () => {
@@ -333,7 +421,7 @@ export function IcarusExcelImport() {
     setNewClientName("");
     setNewClientIdNumber("");
     setNewClientEmail("");
-    setSelectedClassification(null);
+    setStep('upload');
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -350,6 +438,15 @@ export function IcarusExcelImport() {
     createClientMutation.mutate();
   };
 
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'CGP': return <Scale className="h-4 w-4" />;
+      case 'CPACA': return <Landmark className="h-4 w-4" />;
+      case 'TUTELA': return <Gavel className="h-4 w-4" />;
+      default: return null;
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -358,21 +455,13 @@ export function IcarusExcelImport() {
           Importar procesos desde Excel (ICARUS)
         </CardTitle>
         <CardDescription>
-          Sube el archivo Excel exportado desde ICARUS para importar tus procesos
+          Sube el archivo Excel exportado desde ICARUS para importar tus procesos.
+          Podrás clasificar cada proceso como CGP, CPACA o Tutela.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Workflow Classification Dialog */}
-        <WorkflowClassificationDialog
-          open={classificationDialogOpen}
-          onOpenChange={setClassificationDialogOpen}
-          onClassify={handleClassificationComplete}
-          title="Clasificar Procesos Importados"
-          description={`Selecciona el tipo de proceso para los ${selectedRows.size} asuntos que vas a importar. Todos se crearán con la misma clasificación.`}
-        />
-
-        {/* Import Complete State */}
-        {importResult && (
+        {/* Step: Complete */}
+        {step === 'complete' && importResult && (
           <div className="space-y-4">
             <Alert>
               <CheckCircle2 className="h-4 w-4" />
@@ -397,26 +486,29 @@ export function IcarusExcelImport() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Omitidos:</span>{" "}
-                    <strong className="text-yellow-600">{importResult.rows_skipped}</strong>
+                    <strong className="text-amber-600">{importResult.rows_skipped}</strong>
                   </div>
                 </div>
+                
+                {/* By-type breakdown */}
+                {Object.keys(importResult.by_type).length > 0 && (
+                  <div className="mt-4 pt-3 border-t">
+                    <p className="text-sm font-medium mb-2">Por tipo de proceso:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(importResult.by_type).map(([type, counts]) => (
+                        <Badge key={type} variant="outline" className="flex items-center gap-1">
+                          {getTypeIcon(type)}
+                          {type}: {counts.imported} nuevos, {counts.updated} actualizados
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {selectedClient && (
                   <div className="mt-3 flex items-center gap-2">
                     <Users className="h-4 w-4" />
                     <span>Vinculados a: <strong>{selectedClient.name}</strong></span>
-                  </div>
-                )}
-                {selectedClassification && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <Scale className="h-4 w-4" />
-                    <span>
-                      Clasificados como: <strong>{WORKFLOW_TYPES[selectedClassification.workflow_type].label}</strong>
-                      {selectedClassification.cgp_phase && (
-                        <Badge variant="secondary" className="ml-2">
-                          {selectedClassification.cgp_phase === 'FILING' ? 'Radicación' : 'Proceso'}
-                        </Badge>
-                      )}
-                    </span>
                   </div>
                 )}
               </AlertDescription>
@@ -436,8 +528,8 @@ export function IcarusExcelImport() {
           </div>
         )}
 
-        {/* Upload Zone */}
-        {!importResult && !parseResult && (
+        {/* Step: Upload */}
+        {step === 'upload' && !parseResult && (
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
               isDragging
@@ -494,7 +586,7 @@ export function IcarusExcelImport() {
         )}
 
         {/* File Info */}
-        {file && !importResult && (
+        {file && step !== 'complete' && (
           <div className="flex items-center gap-4 p-3 bg-muted rounded-lg">
             <FileSpreadsheet className="h-8 w-8 text-green-600" />
             <div className="flex-1">
@@ -517,60 +609,59 @@ export function IcarusExcelImport() {
           </div>
         )}
 
-        {/* Client Selection Section - Show before import */}
-        {parseResult && !importResult && (
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <LinkIcon className="h-4 w-4" />
-                Vincular a Cliente (Opcional)
-              </CardTitle>
-              <CardDescription>
-                Asocie todos los procesos importados a un cliente para mejor organización
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3">
-                {selectedClient ? (
-                  <div className="flex items-center gap-2 flex-1">
-                    <Badge variant="secondary" className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      {selectedClient.name}
-                      {selectedClient.id_number && ` (${selectedClient.id_number})`}
-                    </Badge>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => setClientDialogOpen(true)}
-                    >
-                      Cambiar
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => setSelectedClientId(null)}
-                    >
-                      Quitar
-                    </Button>
-                  </div>
-                ) : (
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setClientDialogOpen(true)}
-                    className="flex-1"
-                  >
-                    <Users className="h-4 w-4 mr-2" />
-                    Seleccionar Cliente
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Preview Table */}
-        {parseResult && !importResult && (
+        {/* Step: Preview */}
+        {step === 'preview' && parseResult && (
           <>
+            {/* Client Selection Section */}
+            <Card className="border-primary/20 bg-primary/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <LinkIcon className="h-4 w-4" />
+                  Vincular a Cliente (Opcional)
+                </CardTitle>
+                <CardDescription>
+                  Asocie todos los procesos importados a un cliente para mejor organización
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  {selectedClient ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <Badge variant="secondary" className="flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        {selectedClient.name}
+                        {selectedClient.id_number && ` (${selectedClient.id_number})`}
+                      </Badge>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setClientDialogOpen(true)}
+                      >
+                        Cambiar
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setSelectedClientId(null)}
+                      >
+                        Quitar
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setClientDialogOpen(true)}
+                      className="flex-1"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Seleccionar Cliente
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Preview Table */}
             <IcarusExcelPreview
               rows={parseResult.rows}
               selectedRows={selectedRows}
@@ -591,28 +682,32 @@ export function IcarusExcelImport() {
                   Cancelar
                 </Button>
                 <Button
-                  onClick={handleImport}
-                  disabled={selectedRows.size === 0 || importMutation.isPending}
+                  onClick={handleProceedToClassify}
+                  disabled={selectedRows.size === 0}
                 >
-                  {importMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Importando...
-                    </>
-                  ) : (
-                    <>
-                      Clasificar e Importar
-                      <ArrowRight className="h-4 w-4 ml-2" />
-                    </>
-                  )}
+                  Continuar a Clasificación
+                  <ArrowRight className="h-4 w-4 ml-2" />
                 </Button>
               </div>
             </div>
+          </>
+        )}
+
+        {/* Step: Classify */}
+        {step === 'classify' && parseResult && (
+          <>
+            <IcarusRowClassification
+              rows={parseResult.rows}
+              selectedRowIndices={selectedRows}
+              onRowsClassified={handleRowsClassified}
+              onCancel={() => setStep('preview')}
+            />
 
             {importMutation.isPending && (
               <div className="space-y-2">
                 <Progress value={50} className="h-2" />
                 <p className="text-sm text-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 inline mr-2 animate-spin" />
                   Procesando importación...
                 </p>
               </div>

@@ -2185,8 +2185,11 @@ export type Database = {
           reason: string | null
           row_index: number
           run_id: string
+          selected_workflow_type: string | null
           source_payload: Json | null
           status: string
+          suggested_workflow_type: string | null
+          was_overridden: boolean | null
         }
         Insert: {
           created_at?: string
@@ -2197,8 +2200,11 @@ export type Database = {
           reason?: string | null
           row_index: number
           run_id: string
+          selected_workflow_type?: string | null
           source_payload?: Json | null
           status?: string
+          suggested_workflow_type?: string | null
+          was_overridden?: boolean | null
         }
         Update: {
           created_at?: string
@@ -2209,8 +2215,11 @@ export type Database = {
           reason?: string | null
           row_index?: number
           run_id?: string
+          selected_workflow_type?: string | null
           source_payload?: Json | null
           status?: string
+          suggested_workflow_type?: string | null
+          was_overridden?: boolean | null
         }
         Relationships: [
           {
