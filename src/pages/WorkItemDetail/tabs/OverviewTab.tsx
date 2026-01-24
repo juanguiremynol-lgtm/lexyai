@@ -1,6 +1,6 @@
 /**
- * Overview Tab - Rich work item summary with Authority, Parties, and Electronic File cards
- * Restored from CGPDetail's rich layout
+ * Overview Tab - Rich work item summary with Authority, Parties, Milestones, and Electronic File
+ * Professional "lawyer cockpit" view for managing cases
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { 
   Building2, 
   MapPin, 
@@ -19,7 +18,6 @@ import {
   Calendar, 
   FileText, 
   Activity,
-  Eye,
   Link2,
   RefreshCw,
   CheckCircle,
@@ -27,11 +25,13 @@ import {
   Copy,
   ExternalLink,
   Mail,
-  Target,
-  Circle,
   CheckCircle2,
   Bot,
   Clock,
+  Gavel,
+  Target,
+  Circle,
+  Eye,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -39,7 +39,8 @@ import { toast } from "sonner";
 
 import type { WorkItem } from "@/types/work-item";
 import { WORKFLOW_TYPES, getStageLabel, getStagesForWorkflow, getStageOrderForWorkflow } from "@/lib/workflow-constants";
-import { EntityClientLink, SharepointHub } from "@/components/shared";
+import { EntityClientLink } from "@/components/shared";
+import { MilestonesChecklist, ElectronicFileCard } from "@/components/work-items";
 import { cn } from "@/lib/utils";
 
 interface OverviewTabProps {
@@ -89,37 +90,10 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
     toast.success("Copiado al portapapeles");
   };
 
-  // Goals for CGP/CPACA workflows
-  const showGoals = workItem.workflow_type === "CGP" || workItem.workflow_type === "CPACA";
-  const goals = showGoals ? [
-    {
-      id: "radicado",
-      label: "Número de Radicado",
-      description: "23 dígitos del proceso",
-      completed: !!workItem.radicado,
-      value: workItem.radicado,
-      icon: FileText,
-    },
-    {
-      id: "court",
-      label: "Juzgado / Autoridad",
-      description: "Autoridad de conocimiento",
-      completed: !!workItem.authority_name,
-      value: workItem.authority_name,
-      icon: Building2,
-    },
-    {
-      id: "expediente",
-      label: "Expediente Electrónico",
-      description: "URL de acceso al expediente",
-      completed: !!workItem.expediente_url,
-      value: workItem.expediente_url,
-      icon: Link2,
-    },
-  ] : [];
-
-  const completedGoalsCount = goals.filter((g) => g.completed).length;
-  const allGoalsComplete = goals.length > 0 && completedGoalsCount === goals.length;
+  // Show milestones for judicial workflows
+  const showMilestones = ["CGP", "CPACA", "TUTELA"].includes(workItem.workflow_type);
+  // Show electronic file card for judicial workflows  
+  const showElectronicFile = ["CGP", "CPACA", "TUTELA"].includes(workItem.workflow_type);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -143,84 +117,15 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
           </CardContent>
         </Card>
 
-        {/* Goals Card (for CGP/CPACA) */}
-        {showGoals && (
-          <Card className={cn(
-            "transition-colors",
-            allGoalsComplete && "border-green-500/50 bg-green-50/50 dark:bg-green-950/20"
-          )}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Target className="h-5 w-5" />
-                  Objetivos de la Radicación
-                </CardTitle>
-                <Badge variant={allGoalsComplete ? "default" : "secondary"}>
-                  {completedGoalsCount} / {goals.length}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {goals.map((goal) => (
-                <div
-                  key={goal.id}
-                  className={cn(
-                    "flex items-start gap-3 p-3 rounded-lg border transition-colors",
-                    goal.completed
-                      ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800"
-                      : "bg-muted/50 border-dashed"
-                  )}
-                >
-                  {goal.completed ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <Circle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <goal.icon className="h-4 w-4 text-muted-foreground" />
-                      <span className={cn(
-                        "font-medium",
-                        goal.completed && "text-green-700 dark:text-green-300"
-                      )}>
-                        {goal.label}
-                      </span>
-                    </div>
-                    {goal.completed ? (
-                      <p className="text-sm text-muted-foreground mt-1 truncate">
-                        {goal.id === "expediente" ? (
-                          <a
-                            href={goal.value || "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                          >
-                            Ver expediente electrónico
-                          </a>
-                        ) : (
-                          goal.value
-                        )}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {goal.description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {allGoalsComplete && (
-                <div className="text-center py-2">
-                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-                    ✓ Todos los objetivos completados
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* Milestones Checklist (for CGP/CPACA/TUTELA) */}
+        {showMilestones && (
+          <MilestonesChecklist workItem={workItem} />
         )}
 
+        {/* Electronic File Card (for CGP/CPACA/TUTELA) */}
+        {showElectronicFile && (
+          <ElectronicFileCard workItem={workItem} />
+        )}
         {/* Authority Card */}
         <Card>
           <CardHeader>
