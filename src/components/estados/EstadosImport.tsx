@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseEstadosExcel, type EstadosParseResult } from "@/lib/estados-excel-parser";
 import { matchEstadosToWorkItems, type MatchedEstadosRow } from "@/lib/estados-matching";
 import { processEstadosBatch, type EstadosImportResult } from "@/lib/ingestion/estados-ingestion-service";
+import { useStageSuggestions } from "@/hooks/use-stage-suggestions";
+import { StageSuggestionReviewModal } from "@/components/estados/StageSuggestionReviewModal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,6 +25,7 @@ import {
   Milestone,
   ArrowRight,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,6 +47,17 @@ export function EstadosImport() {
   const [importResult, setImportResult] = useState<EstadosImportResult | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewTab, setPreviewTab] = useState<"linked" | "unlinked">("linked");
+
+  // Stage suggestion engine hook
+  const {
+    suggestionRun,
+    isAnalyzing,
+    showReviewModal,
+    newEstadosCount,
+    duplicateCount,
+    runSuggestions,
+    closeReviewModal,
+  } = useStageSuggestions();
 
   const processFile = useCallback(async (file: File) => {
     try {
@@ -158,6 +172,20 @@ export function EstadosImport() {
         );
       } else if (result.skipped_duplicate > 0) {
         toast.info(`Todos los estados ya estaban importados (${result.skipped_duplicate} duplicados)`);
+      }
+
+      // ALWAYS run stage suggestion engine after import (even with duplicates)
+      const workItemIds = linkedRows
+        .filter(r => r.matched_work_item_id)
+        .map(r => r.matched_work_item_id as string);
+      
+      if (workItemIds.length > 0) {
+        await runSuggestions(
+          workItemIds,
+          'ICARUS_EXCEL',
+          result.imported,
+          result.skipped_duplicate
+        );
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al importar");
@@ -470,6 +498,16 @@ export function EstadosImport() {
           </div>
         )}
       </CardContent>
+
+      {/* Stage Suggestion Review Modal */}
+      <StageSuggestionReviewModal
+        open={showReviewModal}
+        onOpenChange={closeReviewModal}
+        suggestionRun={suggestionRun}
+        ownerId={""} 
+        newEstadosCount={newEstadosCount}
+        duplicateCount={duplicateCount}
+      />
     </Card>
   );
 }
