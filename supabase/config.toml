@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.normalize-actuaciones]
 verify_jwt = false
+
+[functions.delete-work-items]
+verify_jwt = false

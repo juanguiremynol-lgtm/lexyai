@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 
 import type { WorkItem } from "@/types/work-item";
 import { WORKFLOW_TYPES, getStageLabel } from "@/lib/workflow-constants";
