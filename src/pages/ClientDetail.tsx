@@ -63,7 +63,6 @@ import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ContractsTab, ClientDocumentsTab } from "@/components/clients";
 import { CreateWorkItemWizard } from "@/components/workflow";
-import { EntityEmailTab } from "@/components/email";
 import type { Client } from "@/types/client";
 
 
@@ -478,10 +477,6 @@ export default function ClientDetail() {
                 <FileText className="h-4 w-4" />
                 Documentos
               </TabsTrigger>
-              <TabsTrigger value="emails" className="flex items-center gap-2">
-                <Mail className="h-4 w-4" />
-                Correos
-              </TabsTrigger>
             </TabsList>
 
             {/* Procesos Judiciales Tab (merged CGP demandas + monitored judicial processes) */}
@@ -814,14 +809,6 @@ export default function ClientDetail() {
               />
             </TabsContent>
 
-            <TabsContent value="emails">
-              <EntityEmailTab
-                entityType="CLIENT"
-                entityId={client.id}
-                entityTable="clients"
-                emailLinkingEnabled={client.email_linking_enabled ?? false}
-              />
-            </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
