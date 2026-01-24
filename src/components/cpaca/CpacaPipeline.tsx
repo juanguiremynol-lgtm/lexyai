@@ -111,25 +111,19 @@ export function CpacaPipeline() {
   );
 
   // Fetch CPACA work_items from canonical table
+  // Note: RLS handles user scoping via owner_id, but we still need organizationId for cache key
   const { data: processes, isLoading, refetch, error } = useQuery({
     queryKey: ["cpaca-work-items", organizationId],
     queryFn: async (): Promise<CpacaItem[]> => {
-      if (!organizationId) {
-        console.log("[CPACA Pipeline] No organization ID available");
-        return [];
-      }
-
-      console.log("[CPACA Pipeline] Fetching work_items with:", {
-        workflow_type: "CPACA",
-        organization_id: organizationId,
-      });
+      console.log("[CPACA Pipeline] Fetching CPACA work_items");
 
       // Break the type inference chain to avoid TS2589
+      // RLS ensures we only get items where owner_id matches current user
       const baseQuery = supabase.from("work_items") as any;
       const result = await baseQuery
         .select("id, workflow_type, stage, radicado, title, authority_name, authority_city, demandantes, demandados, client_id, is_flagged, created_at, updated_at, clients(id, name)")
-        .eq("organization_id", organizationId)
         .eq("workflow_type", "CPACA")
+        .eq("status", "ACTIVE")
         .order("updated_at", { ascending: false });
 
       if (result.error) {
@@ -151,7 +145,7 @@ export function CpacaPipeline() {
       
       return items;
     },
-    enabled: !!organizationId,
+    enabled: true,
   });
 
   // Toggle flag mutation - update work_items

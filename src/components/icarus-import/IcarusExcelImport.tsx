@@ -168,12 +168,13 @@ export function IcarusExcelImport() {
         }
         
         try {
-          // Check if work_item with this radicado already exists for this organization
+          // Check if work_item with this radicado already exists for this user
+          // RLS ensures we only see our own items, but we explicitly filter by owner_id for clarity
           // Cast to any to avoid TS2589
           const checkQuery = supabase.from("work_items") as any;
           const { data: existing, error: checkError } = await checkQuery
             .select("id")
-            .eq("organization_id", organizationId)
+            .eq("owner_id", user.id)
             .eq("radicado", row.radicado_norm)
             .maybeSingle();
 
@@ -232,10 +233,9 @@ export function IcarusExcelImport() {
               byType[workflowType].updated++;
             }
           } else {
-            // Insert new work_item with organization_id
+            // Insert new work_item with owner_id (organization scoping via RLS)
             const insertData = {
               owner_id: user.id,
-              organization_id: organizationId,
               workflow_type: workflowType,
               stage: defaultStage,
               cgp_phase: workflowType === 'CGP' ? 'PROCESS' as const : null,
