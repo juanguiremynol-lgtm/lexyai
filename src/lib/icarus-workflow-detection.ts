@@ -125,6 +125,13 @@ export function detectWorkflowType(despacho: string): WorkflowDetectionResult {
   }
 
   // Check for CGP (ordinary jurisdiction)
+  for (const keyword of CGP_KEYWORDS) {
+    if (normalized.includes(keyword)) {
+      matchedKeywords.push(keyword);
+    }
+  }
+  
+  if (matchedKeywords.length > 0) {
     // Exclude if it also contains "administrativo" (could be "juzgado administrativo del circuito")
     if (normalized.includes('administrativo')) {
       return {
@@ -146,56 +153,4 @@ export function detectWorkflowType(despacho: string): WorkflowDetectionResult {
     confidence: 'LOW',
     matchedKeywords: [],
   };
-}
-
-/**
- * Get workflow type label for display
- */
-export function getWorkflowTypeLabel(type: SuggestedWorkflowType): string {
-  switch (type) {
-    case 'CGP':
-      return 'CGP';
-    case 'CPACA':
-      return 'CPACA';
-    case 'TUTELA':
-      return 'Tutela';
-    case 'LABORAL':
-      return 'Laboral';
-    case 'UNKNOWN':
-      return 'Sin clasificar';
-  }
-}
-
-/**
- * Get workflow type color for badges
- */
-export function getWorkflowTypeColor(type: SuggestedWorkflowType): string {
-  switch (type) {
-    case 'CGP':
-      return 'emerald';
-    case 'CPACA':
-      return 'indigo';
-    case 'TUTELA':
-      return 'purple';
-    case 'LABORAL':
-      return 'rose';
-    case 'UNKNOWN':
-      return 'muted';
-  }
-}
-
-/**
- * Get workflow type color for badges
- */
-export function getWorkflowTypeColor(type: SuggestedWorkflowType): string {
-  switch (type) {
-    case 'CGP':
-      return 'emerald';
-    case 'CPACA':
-      return 'indigo';
-    case 'TUTELA':
-      return 'purple';
-    case 'UNKNOWN':
-      return 'muted';
-  }
 }
