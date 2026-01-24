@@ -56,6 +56,7 @@ import { DeadlinesTab } from "./tabs/DeadlinesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { EstadosTab } from "./tabs/EstadosTab";
 import { NotesTab } from "./tabs/NotesTab";
+import { HearingsTab } from "./tabs/HearingsTab";
 
 const WORKFLOW_ICONS = {
   CGP: Scale,
@@ -83,7 +84,7 @@ const WORKFLOW_BG_COLORS = {
 
 import { StickyNote } from "lucide-react";
 
-type TabValue = "overview" | "notes" | "estados" | "timeline" | "acts" | "deadlines" | "alerts";
+type TabValue = "overview" | "notes" | "estados" | "timeline" | "acts" | "deadlines" | "hearings" | "alerts";
 
 // Workflows that support Estados tab (judicial tracking)
 const ESTADOS_WORKFLOWS = ["CGP", "CPACA", "TUTELA"];
@@ -110,6 +111,7 @@ const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: str
   baseTabs.push(
     { value: "acts", label: "Actuaciones", icon: <Scale className="h-4 w-4" /> },
     { value: "deadlines", label: "Términos", icon: <Calendar className="h-4 w-4" /> },
+    { value: "hearings", label: "Audiencias", icon: <Calendar className="h-4 w-4" /> },
     { value: "alerts", label: "Alertas/Tareas", icon: <Bell className="h-4 w-4" /> },
   );
   
@@ -656,6 +658,10 @@ export default function WorkItemDetail() {
           
           <TabsContent value="deadlines" className="mt-0">
             <DeadlinesTab workItem={workItem} />
+          </TabsContent>
+          
+          <TabsContent value="hearings" className="mt-0">
+            <HearingsTab workItem={workItem} />
           </TabsContent>
           
           <TabsContent value="alerts" className="mt-0">
