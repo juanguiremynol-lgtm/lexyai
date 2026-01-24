@@ -2,13 +2,16 @@
  * Radicado Normalization and Validation Utilities
  * 
  * Handles various radicado input formats and normalizes to 23-digit standard
+ * 
+ * CRITICAL: Radicado must ALWAYS be treated as a STRING to preserve leading zeros.
+ * Never use parseInt() or Number() on radicado values.
  */
 
 export interface NormalizeResult {
   ok: boolean;
   radicado23?: string;
   error?: {
-    code: 'INVALID_FORMAT' | 'EMPTY_INPUT' | 'TOO_SHORT' | 'TOO_LONG';
+    code: 'INVALID_FORMAT' | 'EMPTY_INPUT' | 'TOO_SHORT' | 'TOO_LONG' | 'INVALID_ENDING';
     message: string;
     inputLength?: number;
   };
@@ -21,7 +24,100 @@ export interface CompletenessValidation {
 }
 
 /**
- * Normalize radicado input to 23-digit format
+ * CGP-specific validation result
+ */
+export interface CgpValidationResult {
+  valid: boolean;
+  normalized: string;
+  error?: string;
+  errorCode?: 'EMPTY' | 'INVALID_LENGTH' | 'INVALID_ENDING' | 'INVALID_CHARS';
+}
+
+/**
+ * Normalize radicado input - strips all non-digit characters
+ * 
+ * CRITICAL: This function preserves leading zeros by returning a string.
+ * 
+ * Accepts formats like:
+ * - 05001400302320250063800 (pure 23 digits)
+ * - 05-00-14-00-30-23-20-25-00-638-00 (with dashes)
+ * - 05 00 14 00 30 23 2025 00638 00 (with spaces)
+ * - 050014003023_2025_00638_00 (Icarus format)
+ */
+export function normalizeRadicadoInput(input: string): string {
+  if (!input) return '';
+  // Remove ALL non-digit characters, preserving the string format
+  return input.replace(/\D/g, '');
+}
+
+/**
+ * Validate radicado for CGP workflow
+ * 
+ * Rules:
+ * - Exactly 23 digits
+ * - Must end with 00 or 01
+ * - Must be treated as string (never numeric)
+ */
+export function isValidCgpRadicado(radicado: string): boolean {
+  if (!radicado || typeof radicado !== 'string') return false;
+  // Must be exactly 23 digits
+  if (!/^\d{23}$/.test(radicado)) return false;
+  // Must end with 00 or 01
+  const ending = radicado.slice(-2);
+  return ending === '00' || ending === '01';
+}
+
+/**
+ * Comprehensive CGP radicado validation with detailed error messages
+ */
+export function validateCgpRadicado(input: string): CgpValidationResult {
+  if (!input || input.trim().length === 0) {
+    return {
+      valid: false,
+      normalized: '',
+      error: 'El radicado no puede estar vacío',
+      errorCode: 'EMPTY',
+    };
+  }
+
+  const normalized = normalizeRadicadoInput(input);
+
+  if (normalized.length === 0) {
+    return {
+      valid: false,
+      normalized: '',
+      error: 'El radicado no contiene dígitos válidos',
+      errorCode: 'INVALID_CHARS',
+    };
+  }
+
+  if (normalized.length !== 23) {
+    return {
+      valid: false,
+      normalized,
+      error: `El radicado debe tener exactamente 23 dígitos numéricos (tiene ${normalized.length})`,
+      errorCode: 'INVALID_LENGTH',
+    };
+  }
+
+  const ending = normalized.slice(-2);
+  if (ending !== '00' && ending !== '01') {
+    return {
+      valid: false,
+      normalized,
+      error: `El radicado debe terminar en 00 o 01 (termina en ${ending})`,
+      errorCode: 'INVALID_ENDING',
+    };
+  }
+
+  return {
+    valid: true,
+    normalized,
+  };
+}
+
+/**
+ * Normalize radicado input to 23-digit format with full validation
  * 
  * Accepts formats like:
  * - 05001400302320250063800 (pure 23 digits)
@@ -40,8 +136,8 @@ export function normalizeRadicado(input: string): NormalizeResult {
     };
   }
 
-  // Remove all non-numeric characters
-  const cleaned = input.replace(/\D/g, '');
+  // Remove all non-numeric characters (preserves as string)
+  const cleaned = normalizeRadicadoInput(input);
 
   if (cleaned.length === 0) {
     return {
@@ -87,7 +183,7 @@ export function normalizeRadicado(input: string): NormalizeResult {
  * Example: 05001400302320250063800 -> 05-001-4003-023-2025-00638-00
  */
 export function formatRadicadoDisplay(radicado23: string): string {
-  if (radicado23.length !== 23) return radicado23;
+  if (!radicado23 || radicado23.length !== 23) return radicado23 || '';
   
   return [
     radicado23.slice(0, 2),   // Departamento

@@ -84,18 +84,64 @@ function errorResponse(code: string, message: string, status: number = 400): Res
   }, status);
 }
 
-function validateRadicado(radicado: string): { valid: boolean; normalized: string; error?: string } {
-  if (!radicado) {
-    return { valid: false, normalized: '', error: 'Radicado es requerido' };
+/**
+ * Validate and normalize radicado input
+ * 
+ * CRITICAL: Radicado must ALWAYS be treated as STRING to preserve leading zeros.
+ * 
+ * Rules:
+ * - Must be exactly 23 digits after stripping non-numeric characters
+ * - For CGP workflows, must end with 00 or 01
+ */
+function validateRadicado(radicado: string, workflowType?: string): { 
+  valid: boolean; 
+  normalized: string; 
+  error?: string;
+  errorCode?: string;
+} {
+  if (!radicado || typeof radicado !== 'string') {
+    return { 
+      valid: false, 
+      normalized: '', 
+      error: 'Radicado es requerido',
+      errorCode: 'EMPTY_RADICADO',
+    };
   }
+  
+  // Remove ALL non-digit characters, keeping as string to preserve leading zeros
   const normalized = radicado.replace(/\D/g, '');
+  
+  if (normalized.length === 0) {
+    return { 
+      valid: false, 
+      normalized: '', 
+      error: 'El radicado no contiene dígitos válidos',
+      errorCode: 'INVALID_CHARS',
+    };
+  }
+  
   if (normalized.length !== 23) {
     return { 
       valid: false, 
       normalized, 
-      error: `Radicado debe tener 23 dígitos, tiene ${normalized.length}` 
+      error: `El radicado debe tener exactamente 23 dígitos (tiene ${normalized.length})`,
+      errorCode: 'INVALID_LENGTH',
     };
   }
+  
+  // CGP-specific validation: must end with 00 or 01
+  if (workflowType === 'CGP') {
+    const ending = normalized.slice(-2);
+    if (ending !== '00' && ending !== '01') {
+      return {
+        valid: false,
+        normalized,
+        error: `El radicado CGP debe terminar en 00 o 01 (termina en ${ending})`,
+        errorCode: 'INVALID_ENDING',
+      };
+    }
+  }
+  
   return { valid: true, normalized };
 }
 
@@ -245,16 +291,23 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
     }
 
-    const validation = validateRadicado(payload.radicado);
+    // Validate radicado with workflow-specific rules
+    const validation = validateRadicado(payload.radicado, payload.workflow_type);
     if (!validation.valid) {
-      return errorResponse('INVALID_RADICADO', validation.error || 'Invalid radicado', 400);
+      console.log(`[sync-by-radicado] Validation failed: ${validation.error} (code: ${validation.errorCode})`);
+      return errorResponse(
+        validation.errorCode || 'INVALID_RADICADO', 
+        validation.error || 'Invalid radicado', 
+        400
+      );
     }
 
+    // CRITICAL: Use normalized string (preserves leading zeros)
     const radicado = validation.normalized;
     const mode = payload.mode || 'SYNC_AND_APPLY';
     const createIfMissing = payload.create_if_missing !== false;
     
-    console.log(`[sync-by-radicado] Mode: ${mode}, Radicado: ${radicado}, User: ${user.id}`);
+    console.log(`[sync-by-radicado] Mode: ${mode}, Radicado: ${radicado} (len=${radicado.length}), Workflow: ${payload.workflow_type || 'any'}, User: ${user.id}`);
 
     // ============= CONCURRENT FETCH: CPNU + External API =============
     
