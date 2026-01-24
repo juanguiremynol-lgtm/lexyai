@@ -14,10 +14,22 @@ import {
   Info,
   RefreshCw,
   Gavel,
+  Target,
+  Clock,
+  Hash,
+  FileText,
+  Link2,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
+import { format, formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 import type { AlertSeverity } from "@/types/database";
+import { useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
+import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
 
 type AlertInstanceAction = {
   label: string;
@@ -41,9 +53,29 @@ interface AlertInstance {
   resolved_at?: string | null;
 }
 
+interface ReminderWithWorkItem extends WorkItemReminder {
+  work_item?: {
+    id: string;
+    radicado: string | null;
+    title: string | null;
+    workflow_type: string;
+    authority_name: string | null;
+  } | null;
+}
+
+// Icon mapping for reminder types
+const REMINDER_ICONS: Record<ReminderType, typeof FileText> = {
+  ACTA_REPARTO_PENDING: FileText,
+  RADICADO_PENDING: Hash,
+  EXPEDIENTE_PENDING: Link2,
+  AUTO_ADMISORIO_PENDING: Gavel,
+};
+
 export default function Alerts() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const snoozeMutation = useSnoozeReminder();
+  const dismissMutation = useDismissReminder();
 
   // Legacy alerts from 'alerts' table
   const { data: alerts, isLoading: isLoadingAlerts } = useQuery({
@@ -80,6 +112,24 @@ export default function Alerts() {
         ...d,
         actions: Array.isArray(d.actions) ? d.actions as AlertInstanceAction[] : [],
       })) as AlertInstance[];
+    },
+  });
+
+  // Fetch all active milestone reminders across work items
+  const { data: allReminders = [], isLoading: isLoadingReminders } = useQuery({
+    queryKey: ["all-active-reminders"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("work_item_reminders")
+        .select(`
+          *,
+          work_item:work_items(id, radicado, title, workflow_type, authority_name)
+        `)
+        .eq("status", "ACTIVE")
+        .order("next_run_at", { ascending: true })
+        .limit(50);
+      if (error) throw error;
+      return (data || []) as ReminderWithWorkItem[];
     },
   });
 
@@ -169,7 +219,7 @@ export default function Alerts() {
         return <AlertCircle className="h-5 w-5 text-destructive" />;
       case "WARN":
       case "WARNING":
-        return <AlertTriangle className="h-5 w-5 text-sla-warning" />;
+        return <AlertTriangle className="h-5 w-5 text-amber-600" />;
       default:
         return <Info className="h-5 w-5 text-primary" />;
     }
@@ -183,7 +233,7 @@ export default function Alerts() {
       case "WARN":
       case "WARNING":
         return (
-          <Badge className="bg-sla-warning text-sla-warning-foreground">
+          <Badge className="bg-amber-500 text-white">
             Advertencia
           </Badge>
         );
@@ -209,11 +259,38 @@ export default function Alerts() {
     }
   };
 
+  const getWorkflowBadge = (workflowType: string) => {
+    const colors: Record<string, string> = {
+      CGP: "bg-emerald-100 text-emerald-700 border-emerald-300",
+      CPACA: "bg-indigo-100 text-indigo-700 border-indigo-300",
+      TUTELA: "bg-purple-100 text-purple-700 border-purple-300",
+      LABORAL: "bg-blue-100 text-blue-700 border-blue-300",
+    };
+    return (
+      <Badge variant="outline" className={colors[workflowType] || ""}>
+        {workflowType}
+      </Badge>
+    );
+  };
+
   const handleInstanceAction = (action: AlertInstanceAction) => {
     if (action.action === "navigate" && action.params?.path) {
       navigate(action.params.path);
     }
   };
+
+  const handleSnooze = (reminderId: string) => {
+    snoozeMutation.mutate({ reminderId, snoozeDays: 3 });
+  };
+
+  const handleDismiss = (reminderId: string) => {
+    dismissMutation.mutate(reminderId);
+  };
+
+  // Categorize reminders
+  const now = new Date();
+  const dueReminders = allReminders.filter(r => new Date(r.next_run_at) <= now);
+  const upcomingReminders = allReminders.filter(r => new Date(r.next_run_at) > now);
 
   const unreadCount = alerts?.filter((a) => !a.is_read).length || 0;
   const criticalCount = alerts?.filter((a) => a.severity === "CRITICAL" && !a.is_read).length || 0;
@@ -221,8 +298,117 @@ export default function Alerts() {
   const processUpdateCount = alertInstances?.filter(a => 
     a.entity_type === "CGP_FILING" || a.entity_type === "CGP_CASE"
   ).length || 0;
+  const milestoneReminderCount = dueReminders.length;
 
-  const isLoading = isLoadingAlerts || isLoadingInstances;
+  const isLoading = isLoadingAlerts || isLoadingInstances || isLoadingReminders;
+
+  // Render a reminder card
+  const renderReminderCard = (reminder: ReminderWithWorkItem) => {
+    const config = REMINDER_CONFIG[reminder.reminder_type];
+    const Icon = REMINDER_ICONS[reminder.reminder_type];
+    const isDue = new Date(reminder.next_run_at) <= now;
+    const workItem = reminder.work_item;
+    
+    return (
+      <div
+        key={reminder.id}
+        className={cn(
+          "flex items-start gap-4 p-4 rounded-lg border transition-colors",
+          isDue ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/10" : "bg-background"
+        )}
+      >
+        <div className={cn(
+          "p-2 rounded-full shrink-0",
+          isDue ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"
+        )}>
+          <Icon className={cn(
+            "h-4 w-4",
+            isDue ? "text-amber-600" : "text-muted-foreground"
+          )} />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            {workItem && getWorkflowBadge(workItem.workflow_type)}
+            <Badge variant="outline" className="text-xs">
+              <Target className="h-3 w-3 mr-1" />
+              Hito
+            </Badge>
+            {isDue && (
+              <Badge className="bg-amber-500 text-white text-xs">
+                Pendiente
+              </Badge>
+            )}
+          </div>
+          
+          <p className="text-sm font-medium">{config.label}</p>
+          <p className="text-sm text-muted-foreground">{config.message}</p>
+          
+          {workItem && (
+            <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
+              {workItem.radicado && (
+                <p>Radicado: <code className="bg-muted px-1 rounded">{workItem.radicado}</code></p>
+              )}
+              {workItem.authority_name && (
+                <p>Despacho: {workItem.authority_name}</p>
+              )}
+            </div>
+          )}
+          
+          <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            {isDue ? (
+              <span className="text-amber-600">
+                Vence {formatDistanceToNow(new Date(reminder.next_run_at), { addSuffix: true, locale: es })}
+              </span>
+            ) : (
+              <span>
+                Próximo: {format(new Date(reminder.next_run_at), "d MMM yyyy", { locale: es })}
+              </span>
+            )}
+            {reminder.trigger_count > 0 && (
+              <span className="text-muted-foreground">
+                • Recordatorio #{reminder.trigger_count + 1}
+              </span>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1 shrink-0">
+          {workItem && (
+            <Button
+              variant="ghost"
+              size="sm"
+              asChild
+              title="Ver asunto"
+            >
+              <Link to={`/work-items/${workItem.id}?tab=overview`}>
+                <ExternalLink className="h-4 w-4" />
+              </Link>
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleSnooze(reminder.id)}
+            disabled={snoozeMutation.isPending}
+            title="Posponer 3 días hábiles"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleDismiss(reminder.id)}
+            disabled={dismissMutation.isPending}
+            title="Descartar"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -230,7 +416,7 @@ export default function Alerts() {
         <div>
           <h1 className="text-3xl font-serif font-bold">Alertas</h1>
           <p className="text-muted-foreground">
-            {unreadCount + pendingInstanceCount} sin leer • {criticalCount} críticas • {processUpdateCount} actualizaciones de procesos
+            {unreadCount + pendingInstanceCount + milestoneReminderCount} pendientes • {criticalCount} críticas • {milestoneReminderCount} hitos
           </p>
         </div>
         <div className="flex gap-2">
@@ -240,6 +426,7 @@ export default function Alerts() {
             onClick={() => {
               queryClient.invalidateQueries({ queryKey: ["alerts"] });
               queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+              queryClient.invalidateQueries({ queryKey: ["all-active-reminders"] });
               toast.success("Alertas actualizadas");
             }}
           >
@@ -259,7 +446,7 @@ export default function Alerts() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -268,6 +455,16 @@ export default function Alerts() {
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold">{unreadCount + pendingInstanceCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Hitos Pendientes
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-amber-600">{milestoneReminderCount}</p>
           </CardContent>
         </Card>
         <Card>
@@ -283,7 +480,7 @@ export default function Alerts() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Actualizaciones Procesos
+              Actualizaciones
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -297,23 +494,81 @@ export default function Alerts() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{(alerts?.length || 0) + (alertInstances?.length || 0)}</p>
+            <p className="text-3xl font-bold">{(alerts?.length || 0) + (alertInstances?.length || 0) + allReminders.length}</p>
           </CardContent>
         </Card>
       </div>
 
-      <Tabs defaultValue="process_updates" className="w-full">
-        <TabsList>
+      <Tabs defaultValue="milestones" className="w-full">
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="milestones">
+            <Target className="h-4 w-4 mr-1" />
+            Hitos ({allReminders.length})
+          </TabsTrigger>
           <TabsTrigger value="process_updates">
-            Actualizaciones de Procesos ({processUpdateCount})
+            Actualizaciones ({processUpdateCount})
           </TabsTrigger>
           <TabsTrigger value="all_instances">
-            Alertas del Sistema ({alertInstances?.length || 0})
+            Sistema ({alertInstances?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="legacy">
-            Alertas Legacy ({alerts?.length || 0})
+            Legacy ({alerts?.length || 0})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="milestones">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                Recordatorios de Hitos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Cargando...
+                </div>
+              ) : allReminders.length === 0 ? (
+                <div className="text-center py-12">
+                  <Target className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                  <h3 className="mt-4 text-lg font-medium">No hay recordatorios de hitos</h3>
+                  <p className="text-muted-foreground">
+                    Los recordatorios se crean automáticamente al registrar nuevos procesos judiciales
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Due reminders first */}
+                  {dueReminders.length > 0 && (
+                    <>
+                      <h4 className="text-sm font-medium text-amber-600 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        Requieren acción ({dueReminders.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {dueReminders.map(renderReminderCard)}
+                      </div>
+                    </>
+                  )}
+                  
+                  {/* Upcoming reminders */}
+                  {upcomingReminders.length > 0 && (
+                    <>
+                      <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2 mt-6">
+                        <Clock className="h-4 w-4" />
+                        Próximos ({upcomingReminders.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {upcomingReminders.map(renderReminderCard)}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="process_updates">
           <Card>

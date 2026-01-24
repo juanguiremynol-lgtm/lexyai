@@ -1,5 +1,5 @@
 /**
- * Alerts & Tasks Tab - Shows alerts, tasks, and milestone reminders for the work item
+ * Alerts & Tasks Tab - Shows milestone reminders, alerts, and tasks for the work item
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -18,15 +18,25 @@ import {
   AlertCircle,
   Clock,
   Target,
+  Hash,
+  FileText,
+  Link2,
+  Gavel,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { format, formatDistanceToNow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { Link } from "react-router-dom";
 
 import type { WorkItem } from "@/types/work-item";
-import { useDueReminders, useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
-import { REMINDER_CONFIG } from "@/lib/reminders/reminder-types";
+import { 
+  useDueReminders, 
+  useActiveReminders,
+  useSnoozeReminder, 
+  useDismissReminder 
+} from "@/hooks/use-work-item-reminders";
+import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
 
 interface AlertsTasksTabProps {
   workItem: WorkItem & { _source?: string };
@@ -51,9 +61,17 @@ interface Alert {
   created_at: string;
 }
 
+// Icon mapping for reminder types
+const REMINDER_ICONS: Record<ReminderType, typeof FileText> = {
+  ACTA_REPARTO_PENDING: FileText,
+  RADICADO_PENDING: Hash,
+  EXPEDIENTE_PENDING: Link2,
+  AUTO_ADMISORIO_PENDING: Gavel,
+};
+
 export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
-  // Fetch due reminders for this work item
-  const { data: dueReminders = [], isLoading: remindersLoading } = useDueReminders({ 
+  // Fetch all active reminders (not just due ones) to show upcoming too
+  const { data: activeReminders = [], isLoading: remindersLoading } = useActiveReminders({ 
     workItemId: workItem.id 
   });
   const snoozeMutation = useSnoozeReminder();
@@ -74,7 +92,6 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         .order("due_at", { ascending: true, nullsFirst: false });
       
       if (error) throw error;
-      // Map database fields to component interface
       return (data || []).map((t: any) => ({
         id: t.id,
         title: t.title,
@@ -103,7 +120,6 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         .order("created_at", { ascending: false });
       
       if (error) throw error;
-      // Map database fields to component interface
       return (data || []).map((a: any) => ({
         id: a.id,
         title: a.message?.substring(0, 50) || "Alerta",
@@ -116,11 +132,16 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
     enabled: !!workItem.legacy_filing_id,
   });
 
-  const isLoading = tasksLoading || alertsLoading;
+  const isLoading = tasksLoading || alertsLoading || remindersLoading;
 
   const pendingTasks = tasks?.filter((t) => t.status === "open") || [];
   const completedTasks = tasks?.filter((t) => t.status === "completed") || [];
   const unreadAlerts = alerts?.filter((a) => !a.is_read) || [];
+  
+  // Separate due vs upcoming reminders
+  const now = new Date();
+  const dueReminders = activeReminders.filter(r => new Date(r.next_run_at) <= now);
+  const upcomingReminders = activeReminders.filter(r => new Date(r.next_run_at) > now);
 
   const getSeverityConfig = (severity: string) => {
     switch (severity) {
@@ -129,8 +150,119 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
       case "warning":
         return { icon: AlertTriangle, color: "text-amber-600", bg: "bg-amber-500/10" };
       default:
-        return { icon: Info, color: "text-blue-600", bg: "bg-blue-500/10" };
+        return { icon: Info, color: "text-primary", bg: "bg-primary/10" };
     }
+  };
+
+  const handleSnooze = (reminderId: string) => {
+    snoozeMutation.mutate({ reminderId, snoozeDays: 3 });
+  };
+
+  const handleDismiss = (reminderId: string) => {
+    dismissMutation.mutate(reminderId);
+  };
+
+  // Render a single reminder card
+  const renderReminderCard = (reminder: WorkItemReminder, isDue: boolean) => {
+    const config = REMINDER_CONFIG[reminder.reminder_type];
+    const Icon = REMINDER_ICONS[reminder.reminder_type];
+    const triggerCount = reminder.trigger_count;
+    
+    return (
+      <Card 
+        key={reminder.id} 
+        className={cn(
+          "transition-colors border-l-4",
+          isDue ? "border-l-amber-500 bg-amber-50/50 dark:bg-amber-950/10" : "border-l-muted"
+        )}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "p-2 rounded-full",
+              isDue ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"
+            )}>
+              <Icon className={cn(
+                "h-4 w-4",
+                isDue ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+              )} />
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-medium text-sm">{config.label}</span>
+                {isDue && (
+                  <Badge variant="outline" className="text-xs bg-amber-100 text-amber-700 border-amber-300">
+                    Pendiente
+                  </Badge>
+                )}
+                {triggerCount > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    Recordatorio #{triggerCount + 1}
+                  </Badge>
+                )}
+              </div>
+              
+              <p className="text-sm text-muted-foreground">{config.message}</p>
+              
+              <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                <Clock className="h-3 w-3" />
+                {isDue ? (
+                  <span className="text-amber-600">
+                    Vence {formatDistanceToNow(new Date(reminder.next_run_at), { addSuffix: true, locale: es })}
+                  </span>
+                ) : (
+                  <span>
+                    Próximo: {format(new Date(reminder.next_run_at), "d MMM yyyy", { locale: es })}
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleSnooze(reminder.id)}
+                disabled={snoozeMutation.isPending}
+                title="Recordarme en 3 días hábiles"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleDismiss(reminder.id)}
+                disabled={dismissMutation.isPending}
+                title="Descartar recordatorio"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          
+          {/* CTA Button */}
+          {isDue && (
+            <div className="mt-3 pl-11">
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  // Scroll to Overview tab where milestones are
+                  const tabsList = document.querySelector('[role="tablist"]');
+                  const overviewTab = tabsList?.querySelector('[value="overview"]') as HTMLButtonElement;
+                  overviewTab?.click();
+                }}
+              >
+                <Target className="h-3 w-3 mr-1" />
+                {config.ctaLabel}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   if (isLoading) {
@@ -152,14 +284,55 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
 
   const hasTasks = (tasks?.length || 0) > 0;
   const hasAlerts = (alerts?.length || 0) > 0;
-  const isEmpty = !hasTasks && !hasAlerts;
+  const hasReminders = activeReminders.length > 0;
+  const isEmpty = !hasTasks && !hasAlerts && !hasReminders;
 
   return (
     <div className="space-y-6">
+      {/* Milestone Reminders Section - Show first as they are actionable */}
+      {hasReminders && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                Recordatorios de Hitos
+                {dueReminders.length > 0 && (
+                  <Badge className="ml-2 bg-amber-500">
+                    {dueReminders.length} pendientes
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          
+          {/* Due reminders first */}
+          {dueReminders.length > 0 && (
+            <div className="space-y-2">
+              {dueReminders.map(reminder => renderReminderCard(reminder, true))}
+            </div>
+          )}
+          
+          {/* Upcoming reminders */}
+          {upcomingReminders.length > 0 && (
+            <>
+              {dueReminders.length > 0 && (
+                <p className="text-sm text-muted-foreground pt-2">
+                  Próximos ({upcomingReminders.length})
+                </p>
+              )}
+              <div className="space-y-2">
+                {upcomingReminders.map(reminder => renderReminderCard(reminder, false))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Alerts Section */}
       <div className="space-y-4">
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <Bell className="h-5 w-5" />
               Alertas
@@ -174,9 +347,9 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
 
         {!hasAlerts ? (
           <Card>
-            <CardContent className="py-8">
+            <CardContent className="py-6">
               <div className="text-center">
-                <Bell className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                <Bell className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-muted-foreground text-sm">Sin alertas pendientes</p>
               </div>
             </CardContent>
@@ -218,7 +391,7 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
       {/* Tasks Section */}
       <div className="space-y-4">
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <CheckSquare className="h-5 w-5" />
               Tareas
@@ -233,9 +406,9 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
 
         {!hasTasks ? (
           <Card>
-            <CardContent className="py-8">
+            <CardContent className="py-6">
               <div className="text-center">
-                <CheckSquare className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                <CheckSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-muted-foreground text-sm">Sin tareas registradas</p>
               </div>
             </CardContent>
@@ -312,9 +485,9 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
           <CardContent className="py-12">
             <div className="text-center">
               <Bell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-semibold mb-2">Sin alertas ni tareas</h3>
+              <h3 className="font-semibold mb-2">Sin alertas, tareas ni recordatorios</h3>
               <p className="text-muted-foreground text-sm">
-                Las alertas y tareas se crearán automáticamente según la actividad del caso.
+                Las alertas y recordatorios se crearán automáticamente según la actividad del caso.
               </p>
             </div>
           </CardContent>
