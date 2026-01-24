@@ -43,6 +43,7 @@ import {
   Landmark,
   Gavel,
   HelpCircle,
+  Briefcase,
 } from "lucide-react";
 import type { IcarusExcelRow } from "@/lib/icarus-excel-parser";
 import {
@@ -66,12 +67,13 @@ interface IcarusRowClassificationProps {
   onCancel: () => void;
 }
 
-const ALLOWED_TYPES: SuggestedWorkflowType[] = ['CGP', 'CPACA', 'TUTELA'];
+const ALLOWED_TYPES: SuggestedWorkflowType[] = ['CGP', 'CPACA', 'TUTELA', 'LABORAL'];
 
 const TYPE_ICONS: Record<SuggestedWorkflowType, React.ReactNode> = {
   CGP: <Scale className="h-4 w-4" />,
   CPACA: <Landmark className="h-4 w-4" />,
   TUTELA: <Gavel className="h-4 w-4" />,
+  LABORAL: <Briefcase className="h-4 w-4" />,
   UNKNOWN: <HelpCircle className="h-4 w-4" />,
 };
 
@@ -79,6 +81,7 @@ const TYPE_LABELS: Record<SuggestedWorkflowType, string> = {
   CGP: 'CGP',
   CPACA: 'CPACA',
   TUTELA: 'Tutela',
+  LABORAL: 'Laboral',
   UNKNOWN: 'Sin clasificar',
 };
 
@@ -86,6 +89,7 @@ const TYPE_COLORS: Record<SuggestedWorkflowType, string> = {
   CGP: 'bg-emerald-100 text-emerald-700 border-emerald-300',
   CPACA: 'bg-indigo-100 text-indigo-700 border-indigo-300',
   TUTELA: 'bg-purple-100 text-purple-700 border-purple-300',
+  LABORAL: 'bg-rose-100 text-rose-700 border-rose-300',
   UNKNOWN: 'bg-muted text-muted-foreground border-border',
 };
 
