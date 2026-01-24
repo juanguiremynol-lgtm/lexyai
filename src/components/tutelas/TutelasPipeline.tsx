@@ -228,31 +228,23 @@ export function TutelasPipeline() {
     onError: () => toast.error("Error al actualizar estado"),
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation using edge function
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      for (const id of ids) {
-        // Delete related data
-        await supabase.from("documents").delete().eq("filing_id", id);
-        await supabase.from("hearings").delete().eq("filing_id", id);
-        await supabase.from("emails").delete().eq("filing_id", id);
-        await supabase.from("process_events").delete().eq("filing_id", id);
-        await supabase.from("tasks").delete().eq("filing_id", id);
-        await supabase.from("alerts").delete().eq("filing_id", id);
-      }
-      
-      // Delete filings
-      const { error } = await supabase.from("filings").delete().in("id", ids);
+      const { data, error } = await supabase.functions.invoke("delete-work-items", {
+        body: { work_item_ids: ids, mode: "HARD_DELETE" },
+      });
       if (error) throw error;
-      
-      return ids;
+      return data;
     },
-    onSuccess: (ids) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["tutelas"] });
       queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
       setDeleteDialog(false);
-      toast.success(`${ids.length} tutela${ids.length !== 1 ? "s" : ""} eliminada${ids.length !== 1 ? "s" : ""}`);
+      toast.success(`${result?.deleted_count || 0} tutela${result?.deleted_count !== 1 ? "s" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
     onError: () => {
       toast.error("Error al eliminar tutelas");

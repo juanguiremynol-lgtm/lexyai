@@ -165,23 +165,22 @@ export function PeticionesPipeline() {
     onError: () => toast.error("Error al actualizar estado"),
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation using edge function
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      // Delete related alerts first
-      await supabase.from("peticion_alerts").delete().in("peticion_id", ids);
-      
-      // Delete peticiones
-      const { error } = await supabase.from("peticiones").delete().in("id", ids);
+      const { data, error } = await supabase.functions.invoke("delete-work-items", {
+        body: { work_item_ids: ids, mode: "HARD_DELETE" },
+      });
       if (error) throw error;
-      
-      return ids;
+      return data;
     },
-    onSuccess: (ids) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["peticiones"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
       setDeleteDialog(false);
-      toast.success(`${ids.length} peticion${ids.length !== 1 ? "es" : ""} eliminada${ids.length !== 1 ? "s" : ""}`);
+      toast.success(`${result?.deleted_count || 0} peticion${result?.deleted_count !== 1 ? "es" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
     onError: () => {
       toast.error("Error al eliminar peticiones");

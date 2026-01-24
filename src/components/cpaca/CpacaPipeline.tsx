@@ -160,26 +160,22 @@ export function CpacaPipeline() {
     onError: () => toast.error("Error al actualizar estado"),
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation using edge function
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      // Delete alert rules and instances
-      for (const id of ids) {
-        await supabase.from("alert_rules").delete().eq("entity_id", id).eq("entity_type", "CPACA");
-        await supabase.from("alert_instances").delete().eq("entity_id", id).eq("entity_type", "CPACA");
-      }
-
-      // Delete processes
-      const { error } = await supabase.from("cpaca_processes").delete().in("id", ids);
+      const { data, error } = await supabase.functions.invoke("delete-work-items", {
+        body: { work_item_ids: ids, mode: "HARD_DELETE" },
+      });
       if (error) throw error;
-
-      return ids;
+      return data;
     },
-    onSuccess: (ids) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
       setDeleteDialog(false);
-      toast.success(`${ids.length} proceso${ids.length !== 1 ? "s" : ""} eliminado${ids.length !== 1 ? "s" : ""}`);
+      toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} eliminado${result?.deleted_count !== 1 ? "s" : ""}`);
     },
     onError: () => {
       toast.error("Error al eliminar procesos");

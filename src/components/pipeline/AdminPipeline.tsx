@@ -136,26 +136,24 @@ export function AdminPipeline() {
     onError: () => toast.error("Error al actualizar fase"),
   });
 
-  // Bulk delete mutation
+  // Bulk delete mutation using edge function
   const bulkDeleteMutation = useMutation({
     mutationFn: async (items: { id: string; type: string }[]) => {
-      const processIds = items.map(i => i.id);
-
-      if (processIds.length > 0) {
-        await supabase.from("process_events").delete().in("monitored_process_id", processIds);
-        await supabase.from("evidence_snapshots").delete().in("monitored_process_id", processIds);
-        await supabase.from("process_estados").delete().in("monitored_process_id", processIds);
-        const { error } = await supabase.from("monitored_processes").delete().in("id", processIds);
-        if (error) throw error;
-      }
-
-      return { processIds };
+      const ids = items.map(i => i.id);
+      const { data, error } = await supabase.functions.invoke("delete-work-items", {
+        body: { work_item_ids: ids, mode: "HARD_DELETE" },
+      });
+      if (error) throw error;
+      return data;
     },
-    onSuccess: (data) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-pipeline-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
       setDeleteDialog(false);
-      toast.success(`${data.processIds.length} proceso${data.processIds.length !== 1 ? "s" : ""} eliminado${data.processIds.length !== 1 ? "s" : ""}`);
+      toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} eliminado${result?.deleted_count !== 1 ? "s" : ""}`);
     },
     onError: () => toast.error("Error al eliminar elementos"),
   });
