@@ -7,6 +7,7 @@
  * Legacy routes redirect here with optional tab preselection.
  */
 
+import { useState } from "react";
 import { useParams, useSearchParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,17 +32,6 @@ import {
   Flag,
   ExternalLink,
 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
@@ -92,9 +82,17 @@ export default function WorkItemDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   
   // Get initial tab from URL or default to overview
   const initialTab = (searchParams.get("tab") as TabValue) || "overview";
+
+  // Use the secure delete hook
+  const { deleteSingle, isDeleting } = useDeleteWorkItems({
+    onSuccess: () => {
+      navigate("/dashboard");
+    },
+  });
 
   // Fetch work item with polymorphic resolution
   const { data: workItem, isLoading, error } = useQuery({
@@ -367,43 +365,11 @@ export default function WorkItemDetail() {
     enabled: !!id,
   });
 
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      if (!workItem) return;
-      
-      const source = (workItem as any)._source;
-      let error;
-      
-      switch (source) {
-        case "work_items":
-          ({ error } = await supabase.from("work_items").delete().eq("id", id!));
-          break;
-        case "cgp_items":
-          ({ error } = await supabase.from("cgp_items").delete().eq("id", id!));
-          break;
-        case "peticiones":
-          ({ error } = await supabase.from("peticiones").delete().eq("id", id!));
-          break;
-        case "monitored_processes":
-          ({ error } = await supabase.from("monitored_processes").delete().eq("id", id!));
-          break;
-        case "cpaca_processes":
-          ({ error } = await supabase.from("cpaca_processes").delete().eq("id", id!));
-          break;
-      }
-      
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Asunto eliminado");
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      navigate("/dashboard");
-    },
-    onError: (error) => {
-      toast.error("Error al eliminar: " + error.message);
-    },
-  });
+  // Delete handler using secure edge function
+  const handleDelete = async () => {
+    if (!id) return;
+    await deleteSingle(id);
+  };
 
   // Toggle flag mutation
   const toggleFlagMutation = useMutation({
@@ -541,30 +507,26 @@ export default function WorkItemDetail() {
             <Flag className={cn("h-4 w-4", workItem.is_flagged && "fill-current")} />
           </Button>
 
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>¿Eliminar asunto?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Esta acción eliminará permanentemente este asunto y todos sus datos asociados.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => deleteMutation.mutate()}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Eliminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="text-destructive hover:text-destructive"
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+
+          <DeleteWorkItemDialog
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+            onConfirm={handleDelete}
+            isDeleting={isDeleting}
+            itemInfo={{
+              title: workItem.title,
+              radicado: workItem.radicado,
+              workflowType: workflowConfig?.label,
+            }}
+          />
         </div>
       </div>
 

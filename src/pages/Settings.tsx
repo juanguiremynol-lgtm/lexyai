@@ -10,12 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
 import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
+import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -145,6 +146,10 @@ export default function Settings() {
           <TabsTrigger value="estados">Estados</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
+          <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">
+            <AlertTriangle className="h-4 w-4 mr-1" />
+            Peligro
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -498,6 +503,10 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="danger">
+          <MasterDeleteSection />
         </TabsContent>
       </Tabs>
     </div>

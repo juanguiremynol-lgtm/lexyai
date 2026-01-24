@@ -20,6 +20,8 @@ import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/Unifie
 import { WorkItemPipelineCard, WorkItemPipelineItem } from "./WorkItemPipelineCard";
 import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
+import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 import {
   CGP_STAGES,
   derivePhaseFromStage,
@@ -54,11 +56,22 @@ const INVALIDATE_QUERIES = [
 export function WorkItemPipeline() {
   const queryClient = useQueryClient();
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [singleDeleteItem, setSingleDeleteItem] = useState<WorkItemPipelineItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<'ALL' | 'RADICACION' | 'PROCESO'>('ALL');
+
+  // Use secure delete hook
+  const { deleteSingle, isDeleting: isSingleDeleting } = useDeleteWorkItems({
+    onSuccess: () => {
+      setSingleDeleteItem(null);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+  });
 
   // Get all 12 CGP stages as Kanban stages
   const allStages = useMemo(() => 
@@ -271,6 +284,7 @@ export function WorkItemPipeline() {
       isSelectionMode={options.isSelectionMode}
       onToggleSelection={toggleItemSelection}
       onToggleFlag={(item) => toggleFlagMutation.mutate(item)}
+      onDelete={(item) => setSingleDeleteItem(item)}
     />
   ), [toggleItemSelection, toggleFlagMutation]);
 
@@ -405,6 +419,19 @@ export function WorkItemPipeline() {
         selectedCount={selectedIds.size}
         onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
         isDeleting={bulkDeleteMutation.isPending}
+      />
+
+      {/* Single delete dialog */}
+      <DeleteWorkItemDialog
+        open={!!singleDeleteItem}
+        onOpenChange={(open) => !open && setSingleDeleteItem(null)}
+        onConfirm={() => singleDeleteItem && deleteSingle(singleDeleteItem.id)}
+        isDeleting={isSingleDeleting}
+        itemInfo={{
+          title: singleDeleteItem?.title,
+          radicado: singleDeleteItem?.radicado,
+          workflowType: "CGP",
+        }}
       />
     </div>
   );
