@@ -1,0 +1,320 @@
+/**
+ * Aqua Horizon / Caribbean Glass Theme
+ * Global styles for beach wallpaper + glassmorphism
+ */
+
+/* ============================= */
+/* AQUA THEME CSS VARIABLES      */
+/* ============================= */
+.aqua {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif;
+
+  /* Background image (public path) */
+  --bg-image: url("/wallpapers/aqua-horizon-wallpaper.png");
+  --bg-position: right center;
+  --bg-size: cover;
+
+  /* Overlays for legibility */
+  --overlay-top: rgba(9, 18, 32, 0.45);
+  --overlay-mid: rgba(9, 18, 32, 0.20);
+  --overlay-bottom: rgba(9, 18, 32, 0.55);
+
+  --overlay-left: rgba(9, 18, 32, 0.55);
+  --overlay-right: rgba(9, 18, 32, 0.10);
+
+  --vignette-strong: rgba(0, 0, 0, 0.32);
+  --vignette-soft: rgba(0, 0, 0, 0.04);
+
+  /* Glass */
+  --glass-bg: rgba(255, 255, 255, 0.12);
+  --glass-bg-strong: rgba(255, 255, 255, 0.18);
+  --glass-border: rgba(255, 255, 255, 0.22);
+
+  --glass-blur: 16px;
+  --glass-blur-strong: 20px;
+
+  /* Text */
+  --aqua-text-primary: rgba(15, 23, 42, 0.94);
+  --aqua-text-secondary: rgba(15, 23, 42, 0.72);
+  --aqua-text-muted: rgba(15, 23, 42, 0.52);
+  --aqua-text-on-dark: rgba(255, 255, 255, 0.92);
+
+  /* Accent palette */
+  --accent-primary: #1AA6B7;
+  --accent-primary-2: #167DA0;
+  --accent-soft: rgba(26, 166, 183, 0.16);
+
+  /* Radius / Shadow */
+  --radius-md: 14px;
+  --radius-lg: 18px;
+
+  --shadow-sm: 0 10px 22px rgba(0,0,0,0.12);
+  --shadow-md: 0 18px 44px rgba(0,0,0,0.18);
+  --shadow-lg: 0 28px 70px rgba(0,0,0,0.22);
+
+  --focus-ring: 0 0 0 3px rgba(26, 166, 183, 0.45);
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 180ms;
+  --dur-med: 260ms;
+}
+
+/* ============================= */
+/* GLOBAL BACKGROUND WALLPAPER   */
+/* ============================= */
+html.aqua,
+html.aqua body {
+  height: 100%;
+}
+
+html.aqua body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-image: var(--bg-image) !important;
+  background-size: var(--bg-size) !important;
+  background-position: var(--bg-position) !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+  background-color: transparent !important;
+}
+
+/* Ensure root container is transparent and above overlays */
+html.aqua #root {
+  min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+  background: transparent !important;
+}
+
+/* Overlay layer A: Directional gradient */
+html.aqua #root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, var(--overlay-top), var(--overlay-mid), var(--overlay-bottom)),
+    linear-gradient(to right, var(--overlay-left), var(--overlay-right));
+  z-index: 0;
+}
+
+/* Overlay layer B: Vignette */
+html.aqua #root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, var(--vignette-soft) 40%, var(--vignette-strong) 100%);
+  z-index: 0;
+}
+
+/* Everything inside the app must render above the overlays */
+html.aqua .app-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================= */
+/* FORCE TRANSPARENT WRAPPERS    */
+/* ============================= */
+
+/* Remove all solid backgrounds that block the wallpaper */
+html.aqua .bg-background,
+html.aqua [class*="bg-background"],
+html.aqua main,
+html.aqua .flex-1.overflow-y-auto {
+  background: transparent !important;
+}
+
+/* ============================= */
+/* GLASS SURFACE UTILS           */
+/* ============================= */
+html.aqua .glass,
+html.aqua .aqua-glass {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+html.aqua .glass-strong,
+html.aqua .aqua-glass-strong {
+  background: var(--glass-bg-strong) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+}
+
+/* ============================= */
+/* SIDEBAR - Glass panel         */
+/* ============================= */
+html.aqua [data-sidebar="sidebar"],
+html.aqua aside[class*="sidebar"],
+html.aqua .bg-sidebar {
+  background: var(--glass-bg) !important;
+  border-right: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+}
+
+/* ============================= */
+/* CARDS - Glass floating        */
+/* ============================= */
+html.aqua [data-slot="card"],
+html.aqua .bg-card,
+html.aqua [class*="rounded-lg"][class*="border"][class*="shadow"] {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-sm);
+}
+
+html.aqua [data-slot="card"]:hover,
+html.aqua .bg-card:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* ============================= */
+/* KANBAN COLUMNS - Strong glass */
+/* ============================= */
+html.aqua .min-w-\\[280px\\],
+html.aqua [class*="min-w-[280px]"],
+html.aqua [class*="min-w-[300px]"] {
+  background: var(--glass-bg-strong) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+}
+
+/* ============================= */
+/* POPOVERS, DROPDOWNS, MODALS   */
+/* ============================= */
+html.aqua [data-radix-popper-content-wrapper] > *,
+html.aqua [role="dialog"],
+html.aqua [role="menu"],
+html.aqua .bg-popover {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+  box-shadow: var(--shadow-lg);
+}
+
+/* ============================= */
+/* TEXT COLORS                   */
+/* ============================= */
+html.aqua .text-foreground,
+html.aqua [class*="text-foreground"] {
+  color: var(--aqua-text-primary) !important;
+}
+
+html.aqua .text-muted-foreground,
+html.aqua [class*="text-muted-foreground"] {
+  color: var(--aqua-text-secondary) !important;
+}
+
+/* ============================= */
+/* PRIMARY BUTTONS               */
+/* ============================= */
+html.aqua .bg-primary {
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-2)) !important;
+  color: var(--aqua-text-on-dark) !important;
+  border: 1px solid rgba(255,255,255,0.22) !important;
+}
+
+html.aqua .bg-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================= */
+/* FOCUS RING                    */
+/* ============================= */
+html.aqua *:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring) !important;
+}
+
+/* ============================= */
+/* TICKER - Glass bar            */
+/* ============================= */
+html.aqua .bg-card,
+html.aqua header.bg-card,
+html.aqua [class*="bg-card"] {
+  background: var(--glass-bg) !important;
+  border-color: var(--glass-border) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* Ticker gradients need to be transparent */
+html.aqua .from-card,
+html.aqua [class*="from-card"] {
+  --tw-gradient-from: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.aqua .via-card,
+html.aqua [class*="via-card"] {
+  --tw-gradient-via: rgba(255, 255, 255, 0.12) !important;
+}
+
+html.aqua .to-transparent {
+  --tw-gradient-to: transparent !important;
+}
+html.aqua [role="tablist"] {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-radius: var(--radius-md);
+}
+
+/* ============================= */
+/* FALLBACK - No backdrop-filter */
+/* ============================= */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.aqua .glass,
+  html.aqua .glass-strong,
+  html.aqua [data-slot="card"],
+  html.aqua .bg-card,
+  html.aqua [data-sidebar="sidebar"] {
+    background: rgba(255, 255, 255, 0.88) !important;
+    border: 1px solid rgba(0,0,0,0.08) !important;
+  }
+}
+
+/* ============================= */
+/* MOBILE ADJUSTMENTS            */
+/* ============================= */
+@media (max-width: 768px) {
+  .aqua {
+    --overlay-top: rgba(9, 18, 32, 0.55);
+    --overlay-mid: rgba(9, 18, 32, 0.30);
+    --overlay-bottom: rgba(9, 18, 32, 0.60);
+    --glass-blur: 12px;
+    --glass-blur-strong: 14px;
+  }
+  
+  html.aqua body {
+    background-attachment: scroll !important;
+  }
+}
+
+/* ============================= */
+/* REDUCED MOTION                */
+/* ============================= */
+@media (prefers-reduced-motion: reduce) {
+  html.aqua *,
+  html.aqua *::before,
+  html.aqua *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
