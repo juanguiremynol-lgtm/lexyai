@@ -29,6 +29,10 @@ export interface TutelaItem {
   lastArchivedPromptAt: string | null;
   isFavorable: boolean | null;
   isFlagged: boolean;
+  // Compliance tracking
+  complianceReported: boolean;
+  complianceReportedAt: string | null;
+  hasDesacatoIncident: boolean;
 }
 
 interface TutelaCardProps {
@@ -40,6 +44,7 @@ interface TutelaCardProps {
   onToggleSelection?: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt?: (item: TutelaItem) => void;
   onInitiateDesacato?: (item: TutelaItem) => void;
+  onReportIncumplimiento?: (item: TutelaItem) => void;
   onToggleFlag?: (item: TutelaItem) => void;
 }
 
@@ -52,6 +57,7 @@ export function TutelaCard({
   onToggleSelection,
   onArchivePrompt,
   onInitiateDesacato,
+  onReportIncumplimiento,
   onToggleFlag,
 }: TutelaCardProps) {
   const navigate = useNavigate();
@@ -82,7 +88,10 @@ export function TutelaCard({
 
   const isFinalPhase = TUTELA_FINAL_PHASES.includes(item.phase);
   const showArchiveButton = isFinalPhase && onArchivePrompt;
-  const showDesacatoButton = isFinalPhase && item.isFavorable && onInitiateDesacato;
+  // Show desacato button if: final phase, favorable ruling, and NOT already has desacato
+  const showDesacatoButton = isFinalPhase && item.isFavorable && !item.hasDesacatoIncident && onInitiateDesacato;
+  // Show incumplimiento button if: final phase, favorable ruling, NOT already reported, and no desacato yet
+  const showIncumplimientoButton = isFinalPhase && item.isFavorable && !item.complianceReported && !item.hasDesacatoIncident && onReportIncumplimiento;
 
   return (
     <Card
@@ -132,12 +141,31 @@ export function TutelaCard({
             </div>
           </div>
           {isFinalPhase && (
-            <Badge 
-              variant={item.isFavorable ? "default" : "destructive"}
-              className="text-xs"
-            >
-              {item.isFavorable ? "Favorable" : "Desfavorable"}
-            </Badge>
+            <div className="flex flex-col items-end gap-1">
+              <Badge 
+                variant={item.isFavorable ? "default" : "destructive"}
+                className="text-xs"
+              >
+                {item.isFavorable ? "Favorable" : "Desfavorable"}
+              </Badge>
+              {item.hasDesacatoIncident && (
+                <Badge 
+                  variant="outline"
+                  className="text-[9px] px-1 py-0 h-4 border-orange-500 text-orange-600 bg-orange-50 dark:bg-orange-950/30"
+                >
+                  <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />
+                  Desacato
+                </Badge>
+              )}
+              {item.complianceReported && !item.hasDesacatoIncident && (
+                <Badge 
+                  variant="outline"
+                  className="text-[9px] px-1 py-0 h-4 border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30"
+                >
+                  Incumplido
+                </Badge>
+              )}
+            </div>
           )}
         </div>
 
@@ -227,6 +255,21 @@ export function TutelaCard({
             >
               <Archive className="h-3 w-3 mr-1" />
               Archivar
+            </Button>
+          )}
+
+          {showIncumplimientoButton && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReportIncumplimiento(item);
+              }}
+            >
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Incumplimiento
             </Button>
           )}
 

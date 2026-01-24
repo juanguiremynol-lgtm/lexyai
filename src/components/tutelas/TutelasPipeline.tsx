@@ -34,6 +34,7 @@ import { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";
 import { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
 import { DesacatoPipeline } from "./DesacatoPipeline";
 import { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
+import { ReportIncumplimientoDialog } from "./ReportIncumplimientoDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
@@ -99,7 +100,10 @@ interface RawTutela {
   last_reviewed_at: string | null;
   client_id: string | null;
   is_flagged: boolean | null;
+  compliance_reported: boolean | null;
+  compliance_reported_at: string | null;
   clients: { id: string; name: string } | null;
+  desacato_incidents?: { id: string }[] | null;
 }
 
 function rawToTutelaItem(raw: RawTutela): TutelaItem {
@@ -119,6 +123,9 @@ function rawToTutelaItem(raw: RawTutela): TutelaItem {
     lastArchivedPromptAt: raw.last_reviewed_at,
     isFavorable: raw.has_auto_admisorio,
     isFlagged: raw.is_flagged ?? false,
+    complianceReported: raw.compliance_reported ?? false,
+    complianceReportedAt: raw.compliance_reported_at,
+    hasDesacatoIncident: (raw.desacato_incidents?.length ?? 0) > 0,
   };
 }
 
@@ -142,6 +149,10 @@ export function TutelasPipeline() {
     open: boolean;
     tutela: TutelaItem | null;
   }>({ open: false, tutela: null });
+  const [incumplimientoDialog, setIncumplimientoDialog] = useState<{
+    open: boolean;
+    tutela: TutelaItem | null;
+  }>({ open: false, tutela: null });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -162,8 +173,9 @@ export function TutelasPipeline() {
         .select(`
           id, filing_type, radicado, court_name, created_at, status,
           has_auto_admisorio, demandantes, demandados, last_reviewed_at,
-          client_id, is_flagged,
-          clients(id, name)
+          client_id, is_flagged, compliance_reported, compliance_reported_at,
+          clients(id, name),
+          desacato_incidents(id)
         `)
         .eq("owner_id", user.user.id)
         .eq("filing_type", "TUTELA")
@@ -294,6 +306,11 @@ export function TutelasPipeline() {
   // Handle initiate desacato for items with favorable ruling
   const handleInitiateDesacato = useCallback((item: TutelaItem) => {
     setDesacatoDialog({ open: true, tutela: item });
+  }, []);
+
+  // Handle report incumplimiento for items with favorable ruling
+  const handleReportIncumplimiento = useCallback((item: TutelaItem) => {
+    setIncumplimientoDialog({ open: true, tutela: item });
   }, []);
 
   // Handle toggle flag
@@ -457,6 +474,7 @@ export function TutelasPipeline() {
                 onToggleSelection={toggleItemSelection}
                 onArchivePrompt={handleArchivePrompt}
                 onInitiateDesacato={handleInitiateDesacato}
+                onReportIncumplimiento={handleReportIncumplimiento}
                 onToggleFlag={handleToggleFlag}
               />
             ))}
@@ -511,6 +529,12 @@ export function TutelasPipeline() {
         open={desacatoDialog.open}
         onOpenChange={(open) => setDesacatoDialog(prev => ({ ...prev, open }))}
         tutela={desacatoDialog.tutela}
+      />
+
+      <ReportIncumplimientoDialog
+        open={incumplimientoDialog.open}
+        onOpenChange={(open) => setIncumplimientoDialog(prev => ({ ...prev, open }))}
+        tutela={incumplimientoDialog.tutela}
       />
 
       {/* Desacato Pipeline - only shows when there are incidents */}

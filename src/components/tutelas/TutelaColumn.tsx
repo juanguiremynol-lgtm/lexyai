@@ -22,6 +22,7 @@ interface TutelaColumnProps {
   onToggleSelection: (item: { id: string; type: "tutela" }, shiftKey: boolean) => void;
   onArchivePrompt: (item: TutelaItem) => void;
   onInitiateDesacato: (item: TutelaItem) => void;
+  onReportIncumplimiento?: (item: TutelaItem) => void;
   onToggleFlag?: (item: TutelaItem) => void;
 }
 
@@ -34,6 +35,7 @@ export function TutelaColumn({
   onToggleSelection,
   onArchivePrompt,
   onInitiateDesacato,
+  onReportIncumplimiento,
   onToggleFlag,
 }: TutelaColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
@@ -82,6 +84,7 @@ export function TutelaColumn({
               onToggleSelection={onToggleSelection}
               onArchivePrompt={onArchivePrompt}
               onInitiateDesacato={onInitiateDesacato}
+              onReportIncumplimiento={onReportIncumplimiento}
               onToggleFlag={onToggleFlag}
             />
           ))}
