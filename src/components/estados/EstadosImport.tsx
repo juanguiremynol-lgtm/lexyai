@@ -141,6 +141,38 @@ export function EstadosImport() {
         })
         .eq("id", runId);
 
+      // Get user's organization and record ingestion run for staleness tracking
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.organization_id) {
+        // Record successful ingestion for staleness tracking
+        await supabase.from("ingestion_runs").insert({
+          organization_id: profile.organization_id,
+          owner_id: user.id,
+          ingestion_type: "ESTADOS",
+          source: "ICARUS",
+          status: "SUCCESS",
+          rows_processed: importStats.total,
+          rows_imported: result.imported,
+          rows_duplicate: result.skipped_duplicate,
+          rows_failed: result.failed,
+        });
+
+        // Resolve any active staleness alert
+        await supabase
+          .from("estados_staleness_alerts")
+          .update({ 
+            status: "RESOLVED", 
+            resolved_at: new Date().toISOString() 
+          })
+          .eq("organization_id", profile.organization_id)
+          .eq("status", "ACTIVE");
+      }
+
       // Update profile last_estados_import_at
       await supabase
         .from("profiles")
@@ -161,6 +193,8 @@ export function EstadosImport() {
       queryClient.invalidateQueries({ queryKey: ["cgp-milestones"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["processes"] });
+      queryClient.invalidateQueries({ queryKey: ["staleness-alert"] });
+      queryClient.invalidateQueries({ queryKey: ["last-ingestion"] });
 
       setStep("done");
       

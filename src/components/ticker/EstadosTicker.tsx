@@ -89,9 +89,10 @@ export function EstadosTicker() {
 
   // Calculate animation duration based on number of items
   // More items = longer duration for comfortable reading
+  // Reduced speed by 25% (multiplier increased from 4 to 5)
   const animationDuration = useMemo(() => {
-    if (!items) return 30;
-    return Math.max(items.length * 4, 30); // Min 30s
+    if (!items) return 37.5; // 30 * 1.25 = 37.5s (25% slower)
+    return Math.max(items.length * 5, 37.5); // Min 37.5s, 25% slower
   }, [items]);
 
   // Don't render if disabled or loading settings

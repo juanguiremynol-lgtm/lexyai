@@ -1877,6 +1877,53 @@ export type Database = {
           },
         ]
       }
+      estados_staleness_alerts: {
+        Row: {
+          alert_created_at: string
+          created_at: string
+          emails_sent_count: number | null
+          id: string
+          last_email_sent_at: string | null
+          last_ingestion_at: string | null
+          organization_id: string
+          resolved_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          alert_created_at?: string
+          created_at?: string
+          emails_sent_count?: number | null
+          id?: string
+          last_email_sent_at?: string | null
+          last_ingestion_at?: string | null
+          organization_id: string
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          alert_created_at?: string
+          created_at?: string
+          emails_sent_count?: number | null
+          id?: string
+          last_email_sent_at?: string | null
+          last_ingestion_at?: string | null
+          organization_id?: string
+          resolved_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estados_staleness_alerts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       evidence_snapshots: {
         Row: {
           created_at: string
@@ -2507,6 +2554,59 @@ export type Database = {
           },
         ]
       }
+      ingestion_runs: {
+        Row: {
+          created_at: string
+          id: string
+          ingestion_type: string
+          metadata: Json | null
+          organization_id: string
+          owner_id: string
+          rows_duplicate: number | null
+          rows_failed: number | null
+          rows_imported: number | null
+          rows_processed: number | null
+          source: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ingestion_type?: string
+          metadata?: Json | null
+          organization_id: string
+          owner_id: string
+          rows_duplicate?: number | null
+          rows_failed?: number | null
+          rows_imported?: number | null
+          rows_processed?: number | null
+          source?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ingestion_type?: string
+          metadata?: Json | null
+          organization_id?: string
+          owner_id?: string
+          rows_duplicate?: number | null
+          rows_failed?: number | null
+          rows_imported?: number | null
+          rows_processed?: number | null
+          source?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingestion_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           created_at: string
@@ -3045,6 +3145,9 @@ export type Database = {
           brand_primary_color: string | null
           brand_tagline: string | null
           created_at: string
+          estados_staleness_alerts_enabled: boolean | null
+          estados_staleness_email_enabled: boolean | null
+          estados_staleness_threshold_days: number | null
           id: string
           name: string
           show_estados_ticker: boolean
@@ -3056,6 +3159,9 @@ export type Database = {
           brand_primary_color?: string | null
           brand_tagline?: string | null
           created_at?: string
+          estados_staleness_alerts_enabled?: boolean | null
+          estados_staleness_email_enabled?: boolean | null
+          estados_staleness_threshold_days?: number | null
           id?: string
           name: string
           show_estados_ticker?: boolean
@@ -3067,6 +3173,9 @@ export type Database = {
           brand_primary_color?: string | null
           brand_tagline?: string | null
           created_at?: string
+          estados_staleness_alerts_enabled?: boolean | null
+          estados_staleness_email_enabled?: boolean | null
+          estados_staleness_threshold_days?: number | null
           id?: string
           name?: string
           show_estados_ticker?: boolean

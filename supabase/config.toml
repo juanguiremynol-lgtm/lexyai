@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.purge-organization-data]
 verify_jwt = false
+
+[functions.check-estados-staleness]
+verify_jwt = false

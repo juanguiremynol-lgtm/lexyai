@@ -20,6 +20,7 @@ import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
 import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSection";
 import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection";
 import { TickerSettings } from "@/components/settings/TickerSettings";
+import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -213,6 +214,7 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="recordatorios" className="space-y-6">
+          <StalenessAlertSettings />
           <HearingReminderSettings profile={profile as Record<string, unknown> | null} />
           
           <Card>
