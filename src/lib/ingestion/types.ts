@@ -20,6 +20,7 @@ export type SuggestedWorkflowType =
   | 'CGP' 
   | 'CPACA' 
   | 'TUTELA' 
+  | 'LABORAL'
   | 'PETICION' 
   | 'UNKNOWN';
 

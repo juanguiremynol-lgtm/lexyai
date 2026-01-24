@@ -60,11 +60,24 @@ export function icarusRowToSnapshot(
 
 /**
  * Detect workflow type from despacho name
+ * Uses the centralized workflow detection logic
  */
 function detectWorkflowTypeFromDespacho(despacho: string): SuggestedWorkflowType {
   if (!despacho) return 'UNKNOWN';
   
   const lower = despacho.toLowerCase();
+  
+  // LABORAL detection (check first - labor courts)
+  if (
+    lower.includes('laboral') ||
+    lower.includes('juzgado laboral') ||
+    lower.includes('sala laboral') ||
+    lower.includes('tribunal laboral') ||
+    lower.includes('seguridad social') ||
+    lower.includes('trabajo')
+  ) {
+    return 'LABORAL';
+  }
   
   // Tutela detection
   if (
@@ -88,8 +101,8 @@ function detectWorkflowTypeFromDespacho(despacho: string): SuggestedWorkflowType
   if (
     lower.includes('civil') ||
     lower.includes('familia') ||
-    lower.includes('laboral') ||
     lower.includes('comercial') ||
+    lower.includes('promiscuo') ||
     lower.includes('municipal') ||
     lower.includes('circuito')
   ) {
