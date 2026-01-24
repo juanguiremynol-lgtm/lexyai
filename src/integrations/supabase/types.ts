@@ -1822,8 +1822,13 @@ export type Database = {
           file_hash: string | null
           file_name: string
           id: string
+          milestones_detected: number | null
           owner_id: string
+          phase_updates: number | null
+          rows_failed: number | null
+          rows_imported: number | null
           rows_matched: number | null
+          rows_skipped_duplicate: number | null
           rows_total: number | null
           rows_unmatched: number | null
           status: string
@@ -1834,8 +1839,13 @@ export type Database = {
           file_hash?: string | null
           file_name: string
           id?: string
+          milestones_detected?: number | null
           owner_id: string
+          phase_updates?: number | null
+          rows_failed?: number | null
+          rows_imported?: number | null
           rows_matched?: number | null
+          rows_skipped_duplicate?: number | null
           rows_total?: number | null
           rows_unmatched?: number | null
           status?: string
@@ -1846,8 +1856,13 @@ export type Database = {
           file_hash?: string | null
           file_name?: string
           id?: string
+          milestones_detected?: number | null
           owner_id?: string
+          phase_updates?: number | null
+          rows_failed?: number | null
+          rows_imported?: number | null
           rows_matched?: number | null
+          rows_skipped_duplicate?: number | null
           rows_total?: number | null
           rows_unmatched?: number | null
           status?: string
