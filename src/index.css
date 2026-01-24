@@ -773,4 +773,18 @@
     border-left: 3px solid hsl(120 100% 45%);
     box-shadow: inset 0 0 12px hsl(120 100% 45% / 0.1);
   }
+
+  /* Ticker scroll animation */
+  @keyframes ticker-scroll {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .ticker-scroll {
+    will-change: transform;
+  }
 }
