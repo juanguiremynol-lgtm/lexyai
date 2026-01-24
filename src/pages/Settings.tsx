@@ -17,6 +17,7 @@ import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-impo
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
 import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
 import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
+import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSection";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -505,7 +506,8 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="danger">
+        <TabsContent value="danger" className="space-y-6">
+          <PurgeLegacyDataSection />
           <MasterDeleteSection />
         </TabsContent>
       </Tabs>
