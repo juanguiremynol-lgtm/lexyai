@@ -343,11 +343,13 @@ export function IcarusExcelImport() {
       
       // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
       queryClient.invalidateQueries({ queryKey: ["cgp-items"] });
       queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
       queryClient.invalidateQueries({ queryKey: ["tutelas"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-import-runs"] });
       queryClient.invalidateQueries({ queryKey: ["processes"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       
       if (data.rows_created > 0 || data.rows_updated > 0) {
         toast.success(
