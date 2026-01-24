@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "matrix" | "system";
+type Theme = "light" | "dark" | "matrix" | "aqua" | "system";
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
@@ -13,9 +13,9 @@ export function useTheme() {
   useEffect(() => {
     const root = window.document.documentElement;
     
-    root.classList.remove("light", "dark", "matrix");
+    root.classList.remove("light", "dark", "matrix", "aqua");
     
-    let effectiveTheme: "light" | "dark" | "matrix";
+    let effectiveTheme: "light" | "dark" | "matrix" | "aqua";
     
     if (theme === "system") {
       effectiveTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -29,7 +29,7 @@ export function useTheme() {
     localStorage.setItem("atenia-theme", theme);
     
     // Update color-scheme for proper browser styling
-    // Matrix theme uses dark color scheme for browser UI
+    // Matrix and Aqua themes use dark color scheme for browser UI
     root.style.colorScheme = effectiveTheme === "light" ? "light" : "dark";
   }, [theme]);
 
@@ -41,7 +41,7 @@ export function useTheme() {
     
     const handleChange = () => {
       const root = window.document.documentElement;
-      root.classList.remove("light", "dark", "matrix");
+      root.classList.remove("light", "dark", "matrix", "aqua");
       root.classList.add(mediaQuery.matches ? "dark" : "light");
       root.style.colorScheme = mediaQuery.matches ? "dark" : "light";
     };

@@ -3,18 +3,37 @@ import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
+import { useTheme } from "@/hooks/use-theme";
+import { cn } from "@/lib/utils";
 
 export function AppLayout() {
+  const { theme } = useTheme();
+  const isAquaTheme = theme === "aqua";
+
   return (
     <SidebarProvider>
-      {/* Root container: allow natural width, no global overflow lock */}
-      <div className="flex min-h-screen w-full">
+      {/* Root container with aqua theme wallpaper support */}
+      <div className={cn(
+        "flex min-h-screen w-full",
+        isAquaTheme && "aqua-shell"
+      )}>
+        {/* Overlay layers for aqua theme */}
+        {isAquaTheme && (
+          <>
+            <div className="aqua-overlay-gradient" aria-hidden="true" />
+            <div className="aqua-overlay-vignette" aria-hidden="true" />
+          </>
+        )}
+        
         <AppSidebar />
-        <SidebarInset className="flex flex-1 flex-col min-w-0">
+        <SidebarInset className={cn(
+          "flex flex-1 flex-col min-w-0",
+          isAquaTheme && "relative z-[1]"
+        )}>
           <EstadosTicker />
           <TopBar />
-          {/* Main content area - allows child components to define their own scroll behavior */}
-          <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
+          {/* Main content area */}
+          <main className="flex-1 overflow-y-auto bg-background/80 p-4 lg:p-6">
             <Outlet />
           </main>
         </SidebarInset>
