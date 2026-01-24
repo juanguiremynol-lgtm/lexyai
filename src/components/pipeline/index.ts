@@ -11,6 +11,7 @@ export { WorkItemPipelineCard } from "./WorkItemPipelineCard";
 export { WorkItemPipelineColumn } from "./WorkItemPipelineColumn";
 export { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
 export { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
+export { LaboralPipeline } from "./LaboralPipeline";
 export type { UnifiedItem } from "./UnifiedPipelineCard";
 export type { StageConfig, StageType } from "./UnifiedPipelineColumn";
 export type { WorkItemPipelineItem } from "./WorkItemPipelineCard";

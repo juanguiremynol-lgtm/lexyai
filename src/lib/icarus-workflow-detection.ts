@@ -7,7 +7,7 @@
 
 import type { WorkflowType } from "@/lib/workflow-constants";
 
-export type SuggestedWorkflowType = Extract<WorkflowType, 'CGP' | 'CPACA' | 'TUTELA'> | 'UNKNOWN';
+export type SuggestedWorkflowType = Extract<WorkflowType, 'CGP' | 'CPACA' | 'TUTELA' | 'LABORAL'> | 'UNKNOWN';
 
 export interface WorkflowDetectionResult {
   suggestedType: SuggestedWorkflowType;
@@ -40,10 +40,19 @@ const TUTELA_KEYWORDS = [
   'sala constitucional',
 ];
 
-// CGP detection keywords (ordinary jurisdiction)
+// LABORAL detection keywords (labor jurisdiction)
+const LABORAL_KEYWORDS = [
+  'laboral',
+  'juzgado laboral',
+  'sala laboral',
+  'tribunal laboral',
+  'trabajo',
+  'seguridad social',
+];
+
+// CGP detection keywords (ordinary jurisdiction - excluding laboral)
 const CGP_KEYWORDS = [
   'civil',
-  'laboral',
   'familia',
   'comercial',
   'promiscuo',
@@ -100,14 +109,22 @@ export function detectWorkflowType(despacho: string): WorkflowDetectionResult {
     };
   }
 
-  // Check for CGP (ordinary jurisdiction)
-  for (const keyword of CGP_KEYWORDS) {
+  // Check for LABORAL (labor jurisdiction) before CGP
+  for (const keyword of LABORAL_KEYWORDS) {
     if (normalized.includes(keyword)) {
       matchedKeywords.push(keyword);
     }
   }
   
   if (matchedKeywords.length > 0) {
+    return {
+      suggestedType: 'LABORAL',
+      confidence: matchedKeywords.length >= 2 ? 'HIGH' : 'MEDIUM',
+      matchedKeywords,
+    };
+  }
+
+  // Check for CGP (ordinary jurisdiction)
     // Exclude if it also contains "administrativo" (could be "juzgado administrativo del circuito")
     if (normalized.includes('administrativo')) {
       return {
@@ -142,8 +159,28 @@ export function getWorkflowTypeLabel(type: SuggestedWorkflowType): string {
       return 'CPACA';
     case 'TUTELA':
       return 'Tutela';
+    case 'LABORAL':
+      return 'Laboral';
     case 'UNKNOWN':
       return 'Sin clasificar';
+  }
+}
+
+/**
+ * Get workflow type color for badges
+ */
+export function getWorkflowTypeColor(type: SuggestedWorkflowType): string {
+  switch (type) {
+    case 'CGP':
+      return 'emerald';
+    case 'CPACA':
+      return 'indigo';
+    case 'TUTELA':
+      return 'purple';
+    case 'LABORAL':
+      return 'rose';
+    case 'UNKNOWN':
+      return 'muted';
   }
 }
 

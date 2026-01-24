@@ -62,7 +62,7 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
 
       // Filter by workflow types if specified
       if (filters?.workflowTypes && filters.workflowTypes.length > 0) {
-        query = query.in("workflow_type", filters.workflowTypes);
+        query = query.in("workflow_type", filters.workflowTypes as any);
       }
 
       // Filter by client if specified

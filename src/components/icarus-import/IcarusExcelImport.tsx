@@ -199,7 +199,7 @@ export function IcarusExcelImport() {
             const { error: updateError } = await supabase
               .from("work_items")
               .update({
-                workflow_type: workflowType,
+                workflow_type: workflowType as any, // Cast until types regenerate
                 authority_name: row.despacho || null,
                 authority_department: row.distrito || null,
                 demandantes: row.demandantes || null,
@@ -236,7 +236,7 @@ export function IcarusExcelImport() {
             // Insert new work_item with owner_id (organization scoping via RLS)
             const insertData = {
               owner_id: user.id,
-              workflow_type: workflowType,
+              workflow_type: workflowType as any, // Cast until types regenerate
               stage: defaultStage,
               cgp_phase: workflowType === 'CGP' ? 'PROCESS' as const : null,
               cgp_phase_source: workflowType === 'CGP' ? 'MANUAL' as const : null,
