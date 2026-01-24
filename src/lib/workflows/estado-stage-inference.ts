@@ -2,7 +2,7 @@
  * Estado → Stage Inference Engine
  * 
  * Deterministic mapping from ICARUS Estados content to work_item stages.
- * Supports CGP, CPACA, and TUTELA workflows.
+ * Supports CGP, CPACA, TUTELA, and LABORAL workflows.
  * 
  * RULES:
  * - Never automatically regress a work_item to an earlier stage
@@ -15,6 +15,7 @@ import {
   CGP_PROCESS_STAGES,
   CPACA_STAGES,
   TUTELA_STAGES,
+  LABORAL_STAGES,
   type WorkflowType,
   type CGPPhase,
 } from '@/lib/workflow-constants';
@@ -30,10 +31,12 @@ export type EstadoCategory =
   | 'HEARING'
   | 'RULING'
   | 'APPEAL'
+  | 'CASACION'
   | 'ENFORCEMENT'
   | 'EMBARGO'
   | 'NOTIFICATION'
   | 'ARCHIVE'
+  | 'CONCILIATION'
   | 'OTHER';
 
 export interface StageInferenceResult {
@@ -68,6 +71,7 @@ interface PatternRule {
   cgpPhase?: CGPPhase;
   cpacaStage?: string;
   tutelaStage?: string;
+  laboralStage?: string;
   confidence: StageConfidence;
   milestoneType?: string;
   triggersMilestone?: boolean;
@@ -86,8 +90,21 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'FILING',
     cpacaStage: 'DEMANDA_RADICADA',
     tutelaStage: 'TUTELA_RADICADA',
+    laboralStage: 'RADICACION',
     confidence: 'HIGH',
     milestoneType: 'RADICACION',
+    triggersMilestone: true,
+  },
+  {
+    patterns: ['acta de reparto', 'reparto de proceso', 'asignación de juzgado'],
+    category: 'RADICACION',
+    cgpStage: 'ACTA_RECEIVED',
+    cgpPhase: 'FILING',
+    cpacaStage: 'DEMANDA_RADICADA',
+    tutelaStage: 'TUTELA_RADICADA',
+    laboralStage: 'REPARTO',
+    confidence: 'HIGH',
+    milestoneType: 'REPARTO',
     triggersMilestone: true,
   },
 
@@ -108,6 +125,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'AUTO_ADMISORIO',
     tutelaStage: 'TUTELA_ADMITIDA',
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'AUTO_ADMISORIO',
     triggersMilestone: true,
@@ -119,6 +137,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'AUTO_ADMISORIO',
     tutelaStage: 'TUTELA_ADMITIDA',
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'MEDIUM',
     milestoneType: 'AUTO_ADMISORIO',
     triggersMilestone: true,
@@ -138,6 +157,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'FILING',
     cpacaStage: 'DEMANDA_RADICADA',
     tutelaStage: 'TUTELA_RADICADA',
+    laboralStage: 'ADMISION_PENDIENTE',
     confidence: 'HIGH',
     milestoneType: 'INADMISION',
     triggersMilestone: true,
@@ -149,6 +169,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'FILING',
     cpacaStage: 'DEMANDA_RADICADA',
     tutelaStage: 'TUTELA_RADICADA',
+    laboralStage: 'ADMISION_PENDIENTE',
     confidence: 'HIGH',
     milestoneType: 'RECHAZO',
     triggersMilestone: true,
@@ -169,8 +190,53 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'FILING',
     cpacaStage: 'DEMANDA_RADICADA',
     tutelaStage: 'TUTELA_RADICADA',
+    laboralStage: 'ADMISION_PENDIENTE',
     confidence: 'HIGH',
     milestoneType: 'REQUERIMIENTO',
+    triggersMilestone: true,
+  },
+
+  // ============= LABORAL-SPECIFIC: AUDIENCIA INICIAL (Art. 77 CPTSS) =============
+  {
+    patterns: [
+      'audiencia de conciliación',
+      'audiencia de conciliacion',
+      'audiencia conciliacion obligatoria',
+      'saneamiento del proceso',
+      'fijación del litigio',
+      'fijacion del litigio',
+      'audiencia inicial laboral',
+    ],
+    category: 'CONCILIATION',
+    cgpStage: 'AUDIENCIA_INICIAL',
+    cgpPhase: 'PROCESS',
+    cpacaStage: 'AUDIENCIA_INICIAL',
+    tutelaStage: null,
+    laboralStage: 'AUDIENCIA_INICIAL',
+    confidence: 'HIGH',
+    milestoneType: 'AUDIENCIA_CONCILIACION',
+    triggersMilestone: true,
+  },
+
+  // ============= LABORAL-SPECIFIC: AUDIENCIA DE TRÁMITE Y JUZGAMIENTO =============
+  {
+    patterns: [
+      'audiencia de trámite y juzgamiento',
+      'audiencia de tramite y juzgamiento',
+      'audiencia de juzgamiento',
+      'trámite y juzgamiento',
+      'tramite y juzgamiento',
+      'practica de pruebas laborales',
+      'fallo oral',
+    ],
+    category: 'HEARING',
+    cgpStage: 'AUDIENCIA_INSTRUCCION',
+    cgpPhase: 'PROCESS',
+    cpacaStage: 'AUDIENCIA_PRUEBAS',
+    tutelaStage: null,
+    laboralStage: 'AUDIENCIA_JUZGAMIENTO',
+    confidence: 'HIGH',
+    milestoneType: 'AUDIENCIA_JUZGAMIENTO',
     triggersMilestone: true,
   },
 
@@ -186,6 +252,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'NOTIFICACION_TRASLADOS',
     tutelaStage: 'TUTELA_ADMITIDA',
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'NOTIFICACION_PERSONAL',
     triggersMilestone: true,
@@ -197,6 +264,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'NOTIFICACION_TRASLADOS',
     tutelaStage: 'TUTELA_ADMITIDA',
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'NOTIFICACION_AVISO',
     triggersMilestone: true,
@@ -207,6 +275,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'TRASLADO_DEMANDA',
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'MEDIUM',
     milestoneType: 'NOTIFICACION',
     triggersMilestone: false,
@@ -224,6 +293,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'TRASLADO_EXCEPCIONES',
     tutelaStage: null,
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'TRASLADO_EXCEPCIONES',
     triggersMilestone: true,
@@ -235,6 +305,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'TRASLADO_DEMANDA',
     tutelaStage: 'TUTELA_ADMITIDA',
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'TRASLADO_DEMANDA',
     triggersMilestone: true,
@@ -245,6 +316,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'TRASLADO_DEMANDA',
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'LOW',
     triggersMilestone: false,
   },
@@ -261,6 +333,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'AUDIENCIA_INICIAL',
     tutelaStage: null,
+    laboralStage: 'AUDIENCIA_INICIAL',
     confidence: 'HIGH',
     milestoneType: 'AUDIENCIA_INICIAL',
     triggersMilestone: true,
@@ -277,6 +350,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'AUDIENCIA_PRUEBAS',
     tutelaStage: null,
+    laboralStage: 'AUDIENCIA_JUZGAMIENTO',
     confidence: 'HIGH',
     milestoneType: 'AUDIENCIA_INSTRUCCION',
     triggersMilestone: true,
@@ -293,6 +367,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'MEDIUM',
     milestoneType: 'AUDIENCIA_PROGRAMADA',
     triggersMilestone: true,
@@ -303,6 +378,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'MEDIUM',
     milestoneType: 'AUDIENCIA_CELEBRADA',
     triggersMilestone: true,
@@ -316,6 +392,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'ALEGATOS_SENTENCIA',
     tutelaStage: null,
+    laboralStage: 'AUDIENCIA_JUZGAMIENTO',
     confidence: 'HIGH',
     milestoneType: 'ALEGATOS',
     triggersMilestone: true,
@@ -334,28 +411,31 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'ALEGATOS_SENTENCIA',
     tutelaStage: 'FALLO_PRIMERA_INSTANCIA',
+    laboralStage: 'SENTENCIA_1A_INSTANCIA',
     confidence: 'HIGH',
     milestoneType: 'SENTENCIA',
     triggersMilestone: true,
   },
   {
-    patterns: ['fallo de primera instancia', 'sentencia primera instancia'],
+    patterns: ['fallo de primera instancia', 'sentencia primera instancia', 'sentencia de primera instancia'],
     category: 'RULING',
     cgpStage: 'ALEGATOS_SENTENCIA',
     cgpPhase: 'PROCESS',
     cpacaStage: 'ALEGATOS_SENTENCIA',
     tutelaStage: 'FALLO_PRIMERA_INSTANCIA',
+    laboralStage: 'SENTENCIA_1A_INSTANCIA',
     confidence: 'HIGH',
     milestoneType: 'FALLO_PRIMERA_INSTANCIA',
     triggersMilestone: true,
   },
   {
-    patterns: ['fallo de segunda instancia', 'sentencia segunda instancia'],
+    patterns: ['fallo de segunda instancia', 'sentencia segunda instancia', 'sentencia de segunda instancia'],
     category: 'RULING',
     cgpStage: 'APELACION',
     cgpPhase: 'PROCESS',
     cpacaStage: 'RECURSOS',
     tutelaStage: 'FALLO_SEGUNDA_INSTANCIA',
+    laboralStage: 'APELACION',
     confidence: 'HIGH',
     milestoneType: 'FALLO_SEGUNDA_INSTANCIA',
     triggersMilestone: true,
@@ -375,6 +455,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'RECURSOS',
     tutelaStage: 'FALLO_SEGUNDA_INSTANCIA',
+    laboralStage: 'APELACION',
     confidence: 'HIGH',
     milestoneType: 'APELACION_ADMITIDA',
     triggersMilestone: true,
@@ -386,6 +467,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpPhase: 'PROCESS',
     cpacaStage: 'RECURSOS',
     tutelaStage: null,
+    laboralStage: 'APELACION',
     confidence: 'MEDIUM',
     milestoneType: 'APELACION',
     triggersMilestone: false,
@@ -396,8 +478,32 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: 'FALLO_SEGUNDA_INSTANCIA',
+    laboralStage: 'APELACION',
     confidence: 'HIGH',
     milestoneType: 'IMPUGNACION',
+    triggersMilestone: true,
+  },
+
+  // ============= CASACION (LABORAL SPECIFIC) =============
+  {
+    patterns: [
+      'recurso de casación',
+      'recurso de casacion',
+      'casación',
+      'casacion',
+      'admite casación',
+      'admite casacion',
+      'corte suprema de justicia',
+      'sala de casación laboral',
+      'sala de casacion laboral',
+    ],
+    category: 'CASACION',
+    cgpStage: null,
+    cpacaStage: 'RECURSOS',
+    tutelaStage: null,
+    laboralStage: 'APELACION',
+    confidence: 'HIGH',
+    milestoneType: 'CASACION',
     triggersMilestone: true,
   },
 
@@ -414,6 +520,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'HIGH',
     milestoneType: 'EMBARGO',
     triggersMilestone: true,
@@ -424,6 +531,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'HIGH',
     milestoneType: 'MEDIDAS_CAUTELARES_NEGADAS',
     triggersMilestone: true,
@@ -436,6 +544,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: null,
     tutelaStage: 'FALLO_PRIMERA_INSTANCIA',
+    laboralStage: null,
     confidence: 'HIGH',
     milestoneType: 'DESACATO',
     triggersMilestone: true,
@@ -448,6 +557,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'ARCHIVADO',
     tutelaStage: 'ARCHIVADO',
+    laboralStage: 'ARCHIVADO',
     confidence: 'HIGH',
     milestoneType: 'ARCHIVO',
     triggersMilestone: true,
@@ -460,18 +570,31 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'EJECUCION_CUMPLIMIENTO',
     tutelaStage: null,
+    laboralStage: 'EJECUCION',
     confidence: 'HIGH',
     milestoneType: 'MANDAMIENTO_PAGO',
     triggersMilestone: true,
   },
   {
-    patterns: ['cumplimiento del fallo', 'cumplimiento de la sentencia', 'ejecución de sentencia'],
+    patterns: ['cumplimiento del fallo', 'cumplimiento de la sentencia', 'ejecución de sentencia', 'ejecucion de sentencia'],
     category: 'ENFORCEMENT',
     cgpStage: null,
     cpacaStage: 'EJECUCION_CUMPLIMIENTO',
     tutelaStage: 'FALLO_PRIMERA_INSTANCIA',
+    laboralStage: 'EJECUCION',
     confidence: 'HIGH',
     milestoneType: 'CUMPLIMIENTO',
+    triggersMilestone: true,
+  },
+  {
+    patterns: ['liquidación de costas', 'liquidacion de costas', 'liquidación de crédito', 'liquidacion laboral'],
+    category: 'ENFORCEMENT',
+    cgpStage: null,
+    cpacaStage: 'EJECUCION_CUMPLIMIENTO',
+    tutelaStage: null,
+    laboralStage: 'EJECUCION',
+    confidence: 'HIGH',
+    milestoneType: 'LIQUIDACION',
     triggersMilestone: true,
   },
 
@@ -482,6 +605,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'PRECONTENCIOSO',
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'HIGH',
     triggersMilestone: false,
   },
@@ -491,6 +615,7 @@ const PATTERN_RULES: PatternRule[] = [
     cgpStage: null,
     cpacaStage: 'REFORMA_DEMANDA',
     tutelaStage: null,
+    laboralStage: null,
     confidence: 'HIGH',
     milestoneType: 'REFORMA_DEMANDA',
     triggersMilestone: true,
@@ -531,6 +656,9 @@ function getStageOrder(
       break;
     case 'TUTELA':
       stages = TUTELA_STAGES;
+      break;
+    case 'LABORAL':
+      stages = LABORAL_STAGES;
       break;
     default:
       return -1;
@@ -579,6 +707,9 @@ export function inferWorkItemStageFromEstado(
           break;
         case 'TUTELA':
           suggestedStage = rule.tutelaStage || null;
+          break;
+        case 'LABORAL':
+          suggestedStage = rule.laboralStage || null;
           break;
         default:
           // For non-judicial workflows, no stage inference
@@ -709,6 +840,9 @@ export function getStageLabelForInference(
     case 'TUTELA':
       stages = TUTELA_STAGES;
       break;
+    case 'LABORAL':
+      stages = LABORAL_STAGES;
+      break;
     default:
       return stage;
   }
@@ -733,9 +867,11 @@ export const ESTADO_CATEGORIES: EstadoCategory[] = [
   'HEARING',
   'RULING',
   'APPEAL',
+  'CASACION',
   'ENFORCEMENT',
   'EMBARGO',
   'NOTIFICATION',
   'ARCHIVE',
+  'CONCILIATION',
   'OTHER',
 ];
