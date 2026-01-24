@@ -5,6 +5,12 @@
  * 
  * This is the SINGLE SOURCE OF TRUTH for viewing any work item.
  * Legacy routes redirect here with optional tab preselection.
+ * 
+ * Features:
+ * - Rich detail view with milestones checklist
+ * - Electronic file (OneDrive) link management
+ * - Estados/Actuaciones tab (CGP, CPACA, TUTELA only)
+ * - Workflow-specific content adaptation
  */
 
 import { useState } from "react";
@@ -31,10 +37,13 @@ import {
   Trash2,
   Flag,
   ExternalLink,
+  Users,
+  Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 
 import type { WorkItem } from "@/types/work-item";
@@ -48,6 +57,7 @@ import { DocumentsTab } from "./tabs/DocumentsTab";
 import { EmailsTab } from "./tabs/EmailsTab";
 import { DeadlinesTab } from "./tabs/DeadlinesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
+import { EstadosTab } from "./tabs/EstadosTab";
 
 const WORKFLOW_ICONS = {
   CGP: Scale,
@@ -58,24 +68,48 @@ const WORKFLOW_ICONS = {
 };
 
 const WORKFLOW_COLORS = {
-  CGP: "text-emerald-500",
-  PETICION: "text-blue-500",
-  TUTELA: "text-purple-500",
-  GOV_PROCEDURE: "text-orange-500",
-  CPACA: "text-indigo-500",
+  CGP: "text-emerald-600",
+  PETICION: "text-blue-600",
+  TUTELA: "text-purple-600",
+  GOV_PROCEDURE: "text-orange-600",
+  CPACA: "text-indigo-600",
 };
 
-type TabValue = "overview" | "timeline" | "acts" | "documents" | "emails" | "deadlines" | "alerts";
+const WORKFLOW_BG_COLORS = {
+  CGP: "bg-emerald-500/10",
+  PETICION: "bg-blue-500/10",
+  TUTELA: "bg-purple-500/10",
+  GOV_PROCEDURE: "bg-orange-500/10",
+  CPACA: "bg-indigo-500/10",
+};
 
-const TAB_CONFIG: { value: TabValue; label: string; icon: React.ReactNode }[] = [
-  { value: "overview", label: "Resumen", icon: <FileText className="h-4 w-4" /> },
-  { value: "timeline", label: "Línea de Tiempo", icon: <Clock className="h-4 w-4" /> },
-  { value: "acts", label: "Actuaciones", icon: <Scale className="h-4 w-4" /> },
-  { value: "documents", label: "Documentos", icon: <FileText className="h-4 w-4" /> },
-  { value: "emails", label: "Correos", icon: <Mail className="h-4 w-4" /> },
-  { value: "deadlines", label: "Términos", icon: <Calendar className="h-4 w-4" /> },
-  { value: "alerts", label: "Alertas/Tareas", icon: <Bell className="h-4 w-4" /> },
-];
+type TabValue = "overview" | "estados" | "timeline" | "acts" | "documents" | "emails" | "deadlines" | "alerts";
+
+// Workflows that support Estados tab (judicial tracking)
+const ESTADOS_WORKFLOWS = ["CGP", "CPACA", "TUTELA"];
+
+// Build tabs dynamically based on workflow
+const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: string; icon: React.ReactNode }[] => {
+  const baseTabs: { value: TabValue; label: string; icon: React.ReactNode }[] = [
+    { value: "overview", label: "Resumen", icon: <FileText className="h-4 w-4" /> },
+  ];
+  
+  // Estados tab only for CGP, CPACA, TUTELA
+  if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+    baseTabs.push({ value: "estados", label: "Estados", icon: <Activity className="h-4 w-4" /> });
+  }
+  
+  baseTabs.push(
+    { value: "timeline", label: "Línea de Tiempo", icon: <Clock className="h-4 w-4" /> },
+    { value: "acts", label: "Actuaciones", icon: <Scale className="h-4 w-4" /> },
+    { value: "documents", label: "Documentos", icon: <FileText className="h-4 w-4" /> },
+    { value: "emails", label: "Correos", icon: <Mail className="h-4 w-4" /> },
+    { value: "deadlines", label: "Términos", icon: <Calendar className="h-4 w-4" /> },
+    { value: "alerts", label: "Alertas/Tareas", icon: <Bell className="h-4 w-4" /> },
+  );
+  
+  return baseTabs;
+};
 
 export default function WorkItemDetail() {
   const { id } = useParams<{ id: string }>();
@@ -445,27 +479,46 @@ export default function WorkItemDetail() {
   const workflowConfig = WORKFLOW_TYPES[workItem.workflow_type];
   const WorkflowIcon = WORKFLOW_ICONS[workItem.workflow_type] || Scale;
   const workflowColor = WORKFLOW_COLORS[workItem.workflow_type] || "text-primary";
+  const workflowBgColor = WORKFLOW_BG_COLORS[workItem.workflow_type] || "bg-primary/10";
   const stageLabel = getStageLabel(workItem.workflow_type, workItem.stage, workItem.cgp_phase || undefined);
   const displayTitle = workItem.title || workItem.radicado || workflowConfig?.label || "Asunto";
+  const tabConfig = getTabsForWorkflow(workItem.workflow_type);
+  const hasClient = !!workItem.client_id;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="shrink-0">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         
         <div className="flex-1 min-w-0">
+          {/* Title row */}
           <div className="flex items-center gap-3 flex-wrap">
-            <WorkflowIcon className={cn("h-6 w-6 flex-shrink-0", workflowColor)} />
+            <div className={cn("p-2 rounded-lg", workflowBgColor)}>
+              <WorkflowIcon className={cn("h-6 w-6", workflowColor)} />
+            </div>
             <h1 className="text-2xl font-serif font-bold truncate">{displayTitle}</h1>
-            <Badge variant="secondary" className="flex-shrink-0">
+            <Badge variant="secondary" className={cn("flex-shrink-0", workflowBgColor, workflowColor)}>
               {workflowConfig?.shortLabel || workItem.workflow_type}
             </Badge>
             <Badge variant="outline" className="flex-shrink-0">
               {stageLabel}
             </Badge>
+            {workItem.cgp_phase && (
+              <Badge 
+                variant="outline" 
+                className={cn(
+                  "flex-shrink-0",
+                  workItem.cgp_phase === "PROCESS" 
+                    ? "bg-emerald-500/10 text-emerald-700 border-emerald-300" 
+                    : "bg-amber-500/10 text-amber-700 border-amber-300"
+                )}
+              >
+                {workItem.cgp_phase === "PROCESS" ? "En Proceso" : "En Radicación"}
+              </Badge>
+            )}
             {workItem.is_flagged && (
               <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30 flex-shrink-0">
                 <Flag className="h-3 w-3 mr-1 fill-current" />
@@ -473,15 +526,38 @@ export default function WorkItemDetail() {
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-4 mt-1 text-muted-foreground">
-            {workItem.clients && (
-              <span className="text-sm">{workItem.clients.name}</span>
-            )}
+          
+          {/* Subtitle row with client and authority */}
+          <div className="flex items-center gap-4 mt-2 flex-wrap">
+            {/* Client info with required badge */}
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              {hasClient ? (
+                <span className="text-sm font-medium">{workItem.clients?.name}</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground italic">Sin cliente</span>
+                  <ClientRequiredBadge hasClient={false} size="sm" />
+                </div>
+              )}
+            </div>
+            
             {workItem.authority_name && (
-              <span className="text-sm truncate">{workItem.authority_name}</span>
+              <>
+                <span className="text-muted-foreground">•</span>
+                <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                  {workItem.authority_name}
+                </span>
+              </>
             )}
-            {workItem.radicado && workItem.title && (
-              <span className="font-mono text-sm">{workItem.radicado}</span>
+            
+            {workItem.radicado && (
+              <>
+                <span className="text-muted-foreground">•</span>
+                <code className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
+                  {workItem.radicado}
+                </code>
+              </>
             )}
           </div>
         </div>
@@ -532,12 +608,12 @@ export default function WorkItemDetail() {
 
       {/* Tabs */}
       <Tabs value={initialTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="w-full justify-start overflow-x-auto flex-nowrap">
-          {TAB_CONFIG.map((tab) => (
+        <TabsList className="w-full justify-start overflow-x-auto flex-nowrap bg-muted/50 p-1">
+          {tabConfig.map((tab) => (
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="flex items-center gap-2 whitespace-nowrap"
+              className="flex items-center gap-2 whitespace-nowrap data-[state=active]:bg-background"
             >
               {tab.icon}
               <span className="hidden sm:inline">{tab.label}</span>
@@ -549,6 +625,13 @@ export default function WorkItemDetail() {
           <TabsContent value="overview" className="mt-0">
             <OverviewTab workItem={workItem} />
           </TabsContent>
+          
+          {/* Estados tab - only for CGP, CPACA, TUTELA */}
+          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
+            <TabsContent value="estados" className="mt-0">
+              <EstadosTab workItem={workItem} />
+            </TabsContent>
+          )}
           
           <TabsContent value="timeline" className="mt-0">
             <TimelineTab workItem={workItem} />
