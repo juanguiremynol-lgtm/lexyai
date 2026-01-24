@@ -6,24 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Upload,
   FileSpreadsheet,
@@ -32,35 +14,41 @@ import {
   Loader2,
   ArrowRight,
   ExternalLink,
-  Users,
-  UserPlus,
-  Link as LinkIcon,
   Scale,
   Landmark,
   Gavel,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { parseIcarusExcel, type ParseResult, type IcarusExcelRow } from "@/lib/icarus-excel-parser";
+import { parseIcarusExcel, type ParseResult } from "@/lib/icarus-excel-parser";
 import { IcarusExcelPreview } from "./IcarusExcelPreview";
-import { IcarusRowClassification, type ClassifiedRow } from "./IcarusRowClassification";
-import { WORKFLOW_TYPES, getDefaultStage, type WorkflowType } from "@/lib/workflow-constants";
-import type { SuggestedWorkflowType } from "@/lib/icarus-workflow-detection";
+import { IcarusImportReview, type ReviewedRow } from "./IcarusImportReview";
+import { getDefaultStage, type WorkflowType } from "@/lib/workflow-constants";
+
+// Result for a single row
+interface RowImportResult {
+  rowIndex: number;
+  radicado: string;
+  status: 'CREATED' | 'UPDATED' | 'SKIPPED' | 'ERROR';
+  reason: string | null;
+  workItemId: string | null;
+}
 
 interface ImportResult {
   run_id: string;
-  status: string;
+  status: 'SUCCESS' | 'PARTIAL' | 'ERROR';
   rows_total: number;
-  rows_valid: number;
-  rows_imported: number;
+  rows_created: number;
   rows_updated: number;
   rows_skipped: number;
-  errors: { row_index: number; message: string }[];
-  imported_process_ids?: string[];
-  by_type: Record<string, { imported: number; updated: number }>;
+  rows_failed: number;
+  by_type: Record<string, { created: number; updated: number }>;
+  row_results: RowImportResult[];
 }
 
-type ImportStep = 'upload' | 'preview' | 'classify' | 'complete';
+type ImportStep = 'upload' | 'preview' | 'review' | 'complete';
 
 export function IcarusExcelImport() {
   const queryClient = useQueryClient();
@@ -71,66 +59,6 @@ export function IcarusExcelImport() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Client selection state
-  const [clientDialogOpen, setClientDialogOpen] = useState(false);
-  const [clientTab, setClientTab] = useState<"existing" | "new">("existing");
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [newClientName, setNewClientName] = useState("");
-  const [newClientIdNumber, setNewClientIdNumber] = useState("");
-  const [newClientEmail, setNewClientEmail] = useState("");
-
-  // Post-import linking state
-  const [postImportDialogOpen, setPostImportDialogOpen] = useState(false);
-
-  // Fetch clients
-  const { data: clients = [] } = useQuery({
-    queryKey: ["clients"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("clients")
-        .select("id, name, id_number")
-        .order("name");
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const selectedClient = clients.find(c => c.id === selectedClientId);
-
-  // Create new client mutation
-  const createClientMutation = useMutation({
-    mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-      
-      const { data, error } = await supabase
-        .from("clients")
-        .insert({
-          owner_id: user.id,
-          name: newClientName.trim(),
-          id_number: newClientIdNumber.trim() || null,
-          email: newClientEmail.trim() || null,
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
-      setSelectedClientId(data.id);
-      setClientTab("existing");
-      setNewClientName("");
-      setNewClientIdNumber("");
-      setNewClientEmail("");
-      toast.success("Cliente creado exitosamente");
-    },
-    onError: (error) => {
-      toast.error("Error al crear cliente: " + error.message);
-    },
-  });
 
   const handleFileDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -180,77 +108,88 @@ export function IcarusExcelImport() {
     }
   };
 
-  // Import mutation that creates work_items with per-row classification
+  // Import mutation that creates work_items with per-row classification AND client
   const importMutation = useMutation({
-    mutationFn: async (classifiedRows: ClassifiedRow[]) => {
+    mutationFn: async (reviewedRows: ReviewedRow[]): Promise<ImportResult> => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Get organization_id from profile
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("organization_id")
-        .eq("id", user.id)
-        .single();
-
-      const organizationId = profile?.organization_id || null;
-
-      // Create import run record
+      // Create import run record first
       const { data: importRun, error: runError } = await supabase
         .from("icarus_import_runs")
         .insert({
-          organization_id: organizationId,
           owner_id: user.id,
           file_name: file?.name || 'unknown',
           file_hash: parseResult?.file_hash || null,
           status: 'PROCESSING',
-          rows_total: classifiedRows.length,
-          rows_valid: classifiedRows.length,
+          rows_total: reviewedRows.length,
+          rows_valid: reviewedRows.length,
         })
         .select()
         .single();
 
       if (runError) {
         console.error("Failed to create import run:", runError);
+        throw new Error("Error al crear registro de importación: " + runError.message);
       }
 
-      const results = {
-        imported: 0,
-        updated: 0,
-        skipped: 0,
-        errors: [] as { row_index: number; message: string }[],
-        imported_ids: [] as string[],
-        by_type: {} as Record<string, { imported: number; updated: number }>,
-      };
+      const runId = importRun.id;
+      const rowResults: RowImportResult[] = [];
+      const byType: Record<string, { created: number; updated: number }> = {};
 
-      for (const row of classifiedRows) {
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      // Process each row
+      for (const row of reviewedRows) {
         const workflowType = row.selectedType as WorkflowType;
         
         if (!workflowType) {
-          results.errors.push({ row_index: row.rowIndex, message: "Tipo de proceso no seleccionado" });
-          results.skipped++;
+          rowResults.push({
+            rowIndex: row.rowIndex,
+            radicado: row.radicado_norm,
+            status: 'SKIPPED',
+            reason: 'Tipo de proceso no seleccionado',
+            workItemId: null,
+          });
+          skipped++;
           continue;
         }
 
         // Initialize type stats
-        if (!results.by_type[workflowType]) {
-          results.by_type[workflowType] = { imported: 0, updated: 0 };
+        if (!byType[workflowType]) {
+          byType[workflowType] = { created: 0, updated: 0 };
         }
         
         try {
-          // Check if work_item with this radicado already exists
-          const { data: existing } = await supabase
+          // Check if work_item with this radicado already exists for this user
+          const { data: existing, error: checkError } = await supabase
             .from("work_items")
             .select("id")
             .eq("owner_id", user.id)
             .eq("radicado", row.radicado_norm)
             .maybeSingle();
 
+          if (checkError) {
+            console.error(`Check error for radicado ${row.radicado_norm}:`, checkError);
+            rowResults.push({
+              rowIndex: row.rowIndex,
+              radicado: row.radicado_norm,
+              status: 'ERROR',
+              reason: 'Error al verificar duplicados: ' + checkError.message,
+              workItemId: null,
+            });
+            failed++;
+            continue;
+          }
+
           // Get default stage for this workflow type
           const defaultStage = getDefaultStage(workflowType, workflowType === 'CGP' ? 'PROCESS' : undefined);
 
           if (existing) {
-            // Update existing
+            // Update existing work_item
             const { error: updateError } = await supabase
               .from("work_items")
               .update({
@@ -260,155 +199,180 @@ export function IcarusExcelImport() {
                 demandantes: row.demandantes || null,
                 demandados: row.demandados || null,
                 last_action_date: row.last_action_date_iso || null,
+                // Update client only if one is provided and not already set
+                ...(row.selectedClientId ? { client_id: row.selectedClientId } : {}),
                 updated_at: new Date().toISOString(),
               })
               .eq("id", existing.id);
 
             if (updateError) {
-              results.errors.push({ row_index: row.rowIndex, message: updateError.message });
-              results.skipped++;
-            } else {
-              results.updated++;
-              results.by_type[workflowType].updated++;
-            }
-
-            // Log row import
-            if (importRun) {
-              await supabase.from("icarus_import_rows").insert({
-                run_id: importRun.id,
-                owner_id: user.id,
-                row_index: row.rowIndex,
-                radicado_norm: row.radicado_norm,
-                radicado_raw: row.radicado_raw,
-                suggested_workflow_type: row.suggestedType,
-                selected_workflow_type: workflowType,
-                was_overridden: row.wasOverridden,
-                status: updateError ? 'ERROR' : 'UPDATED',
-                reason: updateError?.message || null,
+              console.error(`Update error for ${row.radicado_norm}:`, updateError);
+              rowResults.push({
+                rowIndex: row.rowIndex,
+                radicado: row.radicado_norm,
+                status: 'ERROR',
+                reason: updateError.message,
+                workItemId: existing.id,
               });
+              failed++;
+            } else {
+              rowResults.push({
+                rowIndex: row.rowIndex,
+                radicado: row.radicado_norm,
+                status: 'UPDATED',
+                reason: null,
+                workItemId: existing.id,
+              });
+              updated++;
+              byType[workflowType].updated++;
             }
           } else {
-            // Insert new
+            // Insert new work_item
+            const insertData = {
+              owner_id: user.id,
+              workflow_type: workflowType,
+              stage: defaultStage,
+              cgp_phase: workflowType === 'CGP' ? 'PROCESS' as const : null,
+              cgp_phase_source: workflowType === 'CGP' ? 'MANUAL' as const : null,
+              status: 'ACTIVE' as const,
+              source: 'ICARUS_IMPORT' as const,
+              source_reference: runId,
+              radicado: row.radicado_norm,
+              authority_name: row.despacho || null,
+              authority_department: row.distrito || null,
+              demandantes: row.demandantes || null,
+              demandados: row.demandados || null,
+              last_action_date: row.last_action_date_iso || null,
+              client_id: row.selectedClientId || null,
+              is_flagged: false,
+              monitoring_enabled: true,
+              email_linking_enabled: true,
+              radicado_verified: false,
+            };
+
             const { data: inserted, error: insertError } = await supabase
               .from("work_items")
-              .insert({
-                owner_id: user.id,
-                organization_id: organizationId,
-                workflow_type: workflowType,
-                stage: defaultStage,
-                cgp_phase: workflowType === 'CGP' ? 'PROCESS' : null,
-                cgp_phase_source: workflowType === 'CGP' ? 'MANUAL' : null,
-                status: 'ACTIVE',
-                source: 'ICARUS_IMPORT',
-                radicado: row.radicado_norm,
-                authority_name: row.despacho || null,
-                authority_department: row.distrito || null,
-                demandantes: row.demandantes || null,
-                demandados: row.demandados || null,
-                last_action_date: row.last_action_date_iso || null,
-                client_id: selectedClientId || null,
-                is_flagged: false,
-                monitoring_enabled: true,
-                email_linking_enabled: true,
-                radicado_verified: false,
-              })
+              .insert(insertData)
               .select("id")
               .single();
 
             if (insertError) {
-              results.errors.push({ row_index: row.rowIndex, message: insertError.message });
-              results.skipped++;
-            } else {
-              results.imported++;
-              results.by_type[workflowType].imported++;
-              if (inserted?.id) {
-                results.imported_ids.push(inserted.id);
-              }
-            }
-
-            // Log row import
-            if (importRun) {
-              await supabase.from("icarus_import_rows").insert({
-                run_id: importRun.id,
-                owner_id: user.id,
-                row_index: row.rowIndex,
-                radicado_norm: row.radicado_norm,
-                radicado_raw: row.radicado_raw,
-                suggested_workflow_type: row.suggestedType,
-                selected_workflow_type: workflowType,
-                was_overridden: row.wasOverridden,
-                status: insertError ? 'ERROR' : 'CREATED',
-                reason: insertError?.message || null,
+              console.error(`Insert error for ${row.radicado_norm}:`, insertError);
+              rowResults.push({
+                rowIndex: row.rowIndex,
+                radicado: row.radicado_norm,
+                status: 'ERROR',
+                reason: insertError.message,
+                workItemId: null,
               });
+              failed++;
+            } else {
+              rowResults.push({
+                rowIndex: row.rowIndex,
+                radicado: row.radicado_norm,
+                status: 'CREATED',
+                reason: null,
+                workItemId: inserted?.id || null,
+              });
+              created++;
+              byType[workflowType].created++;
             }
           }
+
+          // Log row import result (fire and forget)
+          supabase.from("icarus_import_rows").insert({
+            run_id: runId,
+            owner_id: user.id,
+            row_index: row.rowIndex,
+            radicado_raw: row.radicado_raw,
+            radicado_norm: row.radicado_norm,
+            suggested_workflow_type: row.suggestedType,
+            selected_workflow_type: workflowType,
+            was_overridden: row.wasTypeOverridden,
+            status: rowResults[rowResults.length - 1].status,
+            reason: rowResults[rowResults.length - 1].reason,
+          }).then(({ error }) => { if (error) console.error("Failed to log row:", error); });
+
         } catch (error) {
-          results.errors.push({ 
-            row_index: row.rowIndex, 
-            message: error instanceof Error ? error.message : "Error desconocido" 
+          console.error(`Unexpected error for ${row.radicado_norm}:`, error);
+          rowResults.push({
+            rowIndex: row.rowIndex,
+            radicado: row.radicado_norm,
+            status: 'ERROR',
+            reason: error instanceof Error ? error.message : "Error desconocido",
+            workItemId: null,
           });
-          results.skipped++;
+          failed++;
         }
       }
 
-      // Update import run status
-      if (importRun) {
-        await supabase
-          .from("icarus_import_runs")
-          .update({
-            status: results.skipped === classifiedRows.length ? 'ERROR' : results.skipped > 0 ? 'PARTIAL' : 'SUCCESS',
-            rows_imported: results.imported,
-            rows_updated: results.updated,
-            rows_skipped: results.skipped,
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", importRun.id);
+      // Determine final status
+      let finalStatus: 'SUCCESS' | 'PARTIAL' | 'ERROR' = 'SUCCESS';
+      if (failed === reviewedRows.length) {
+        finalStatus = 'ERROR';
+      } else if (failed > 0 || skipped > 0) {
+        finalStatus = 'PARTIAL';
       }
 
+      // Update import run with final stats
+      await supabase
+        .from("icarus_import_runs")
+        .update({
+          status: finalStatus,
+          rows_imported: created,
+          rows_updated: updated,
+          rows_skipped: skipped + failed,
+        })
+        .eq("id", runId);
+
       return {
-        run_id: importRun?.id || crypto.randomUUID(),
-        status: results.skipped === classifiedRows.length ? "ERROR" : results.skipped > 0 ? "PARTIAL" : "SUCCESS",
-        rows_total: classifiedRows.length,
-        rows_valid: classifiedRows.length,
-        rows_imported: results.imported,
-        rows_updated: results.updated,
-        rows_skipped: results.skipped,
-        errors: results.errors,
-        imported_process_ids: results.imported_ids,
-        by_type: results.by_type,
-      } as ImportResult;
+        run_id: runId,
+        status: finalStatus,
+        rows_total: reviewedRows.length,
+        rows_created: created,
+        rows_updated: updated,
+        rows_skipped: skipped,
+        rows_failed: failed,
+        by_type: byType,
+        row_results: rowResults,
+      };
     },
     onSuccess: (data) => {
       setImportResult(data);
       setStep('complete');
+      
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["cgp-items"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
       queryClient.invalidateQueries({ queryKey: ["icarus-import-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["processes"] });
       
-      // If no client was selected and processes were imported, prompt for linking
-      if (!selectedClientId && data.rows_imported > 0) {
-        setPostImportDialogOpen(true);
+      if (data.rows_created > 0 || data.rows_updated > 0) {
+        toast.success(
+          `Importación completada: ${data.rows_created} nuevos, ${data.rows_updated} actualizados`
+        );
+      } else if (data.rows_failed > 0) {
+        toast.error(`Importación fallida: ${data.rows_failed} errores`);
       }
-      
-      toast.success(
-        `Importación completada: ${data.rows_imported} nuevos, ${data.rows_updated} actualizados`
-      );
     },
     onError: (error) => {
       toast.error("Error en importación: " + error.message);
     },
   });
 
-  // Handle rows classified and proceed to import
-  const handleRowsClassified = (classifiedRows: ClassifiedRow[]) => {
-    importMutation.mutate(classifiedRows);
+  // Handle rows reviewed and proceed to import
+  const handleRowsReviewed = (reviewedRows: ReviewedRow[]) => {
+    importMutation.mutate(reviewedRows);
   };
 
-  const handleProceedToClassify = () => {
+  const handleProceedToReview = () => {
     if (selectedRows.size === 0) {
       toast.error("Selecciona al menos un proceso para importar");
       return;
     }
-    setStep('classify');
+    setStep('review');
   };
 
   const resetImport = () => {
@@ -417,10 +381,6 @@ export function IcarusExcelImport() {
     setSelectedRows(new Set());
     setImportResult(null);
     setParseError(null);
-    setSelectedClientId(null);
-    setNewClientName("");
-    setNewClientIdNumber("");
-    setNewClientEmail("");
     setStep('upload');
   };
 
@@ -428,14 +388,6 @@ export function IcarusExcelImport() {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  };
-
-  const handleCreateClientAndSelect = () => {
-    if (!newClientName.trim()) {
-      toast.error("Ingrese el nombre del cliente");
-      return;
-    }
-    createClientMutation.mutate();
   };
 
   const getTypeIcon = (type: string) => {
@@ -456,16 +408,29 @@ export function IcarusExcelImport() {
         </CardTitle>
         <CardDescription>
           Sube el archivo Excel exportado desde ICARUS para importar tus procesos.
-          Podrás clasificar cada proceso como CGP, CPACA o Tutela.
+          Podrás clasificar cada proceso como CGP, CPACA o Tutela, y vincularlo a un cliente.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Step: Complete */}
         {step === 'complete' && importResult && (
           <div className="space-y-4">
-            <Alert>
-              <CheckCircle2 className="h-4 w-4" />
-              <AlertTitle>Importación completada</AlertTitle>
+            <Alert variant={importResult.status === 'ERROR' ? 'destructive' : 'default'}>
+              {importResult.status === 'ERROR' ? (
+                <AlertCircle className="h-4 w-4" />
+              ) : importResult.status === 'PARTIAL' ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              <AlertTitle>
+                {importResult.status === 'SUCCESS' 
+                  ? 'Importación completada exitosamente'
+                  : importResult.status === 'PARTIAL'
+                    ? 'Importación completada con advertencias'
+                    : 'Error en la importación'
+                }
+              </AlertTitle>
               <AlertDescription>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2">
                   <div>
@@ -473,12 +438,8 @@ export function IcarusExcelImport() {
                     <strong>{importResult.rows_total}</strong>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Válidos:</span>{" "}
-                    <strong>{importResult.rows_valid}</strong>
-                  </div>
-                  <div>
                     <span className="text-muted-foreground">Nuevos:</span>{" "}
-                    <strong className="text-green-600">{importResult.rows_imported}</strong>
+                    <strong className="text-green-600">{importResult.rows_created}</strong>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Actualizados:</span>{" "}
@@ -487,6 +448,10 @@ export function IcarusExcelImport() {
                   <div>
                     <span className="text-muted-foreground">Omitidos:</span>{" "}
                     <strong className="text-amber-600">{importResult.rows_skipped}</strong>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Errores:</span>{" "}
+                    <strong className="text-destructive">{importResult.rows_failed}</strong>
                   </div>
                 </div>
                 
@@ -498,17 +463,35 @@ export function IcarusExcelImport() {
                       {Object.entries(importResult.by_type).map(([type, counts]) => (
                         <Badge key={type} variant="outline" className="flex items-center gap-1">
                           {getTypeIcon(type)}
-                          {type}: {counts.imported} nuevos, {counts.updated} actualizados
+                          {type}: {counts.created} nuevos, {counts.updated} actualizados
                         </Badge>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {selectedClient && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>Vinculados a: <strong>{selectedClient.name}</strong></span>
+                {/* Show errors if any */}
+                {importResult.rows_failed > 0 && (
+                  <div className="mt-4 pt-3 border-t">
+                    <p className="text-sm font-medium text-destructive mb-2">Errores:</p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {importResult.row_results
+                        .filter(r => r.status === 'ERROR')
+                        .slice(0, 10)
+                        .map((r, i) => (
+                          <div key={i} className="text-xs flex items-start gap-2">
+                            <X className="h-3 w-3 text-destructive flex-shrink-0 mt-0.5" />
+                            <span className="font-mono">{r.radicado}</span>
+                            <span className="text-muted-foreground">{r.reason}</span>
+                          </div>
+                        ))
+                      }
+                      {importResult.row_results.filter(r => r.status === 'ERROR').length > 10 && (
+                        <p className="text-xs text-muted-foreground">
+                          ... y {importResult.row_results.filter(r => r.status === 'ERROR').length - 10} errores más
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </AlertDescription>
@@ -612,55 +595,6 @@ export function IcarusExcelImport() {
         {/* Step: Preview */}
         {step === 'preview' && parseResult && (
           <>
-            {/* Client Selection Section */}
-            <Card className="border-primary/20 bg-primary/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <LinkIcon className="h-4 w-4" />
-                  Vincular a Cliente (Opcional)
-                </CardTitle>
-                <CardDescription>
-                  Asocie todos los procesos importados a un cliente para mejor organización
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3">
-                  {selectedClient ? (
-                    <div className="flex items-center gap-2 flex-1">
-                      <Badge variant="secondary" className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
-                        {selectedClient.name}
-                        {selectedClient.id_number && ` (${selectedClient.id_number})`}
-                      </Badge>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setClientDialogOpen(true)}
-                      >
-                        Cambiar
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => setSelectedClientId(null)}
-                      >
-                        Quitar
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      onClick={() => setClientDialogOpen(true)}
-                      className="flex-1"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Seleccionar Cliente
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Preview Table */}
             <IcarusExcelPreview
               rows={parseResult.rows}
@@ -671,18 +605,13 @@ export function IcarusExcelImport() {
             <div className="flex items-center justify-between gap-4">
               <div className="text-sm text-muted-foreground">
                 {selectedRows.size} de {parseResult.rows.length} procesos seleccionados
-                {selectedClient && (
-                  <span className="ml-2">
-                    → <strong>{selectedClient.name}</strong>
-                  </span>
-                )}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={resetImport}>
                   Cancelar
                 </Button>
                 <Button
-                  onClick={handleProceedToClassify}
+                  onClick={handleProceedToReview}
                   disabled={selectedRows.size === 0}
                 >
                   Continuar a Clasificación
@@ -693,14 +622,15 @@ export function IcarusExcelImport() {
           </>
         )}
 
-        {/* Step: Classify */}
-        {step === 'classify' && parseResult && (
+        {/* Step: Review (Classification + Client Linking) */}
+        {step === 'review' && parseResult && (
           <>
-            <IcarusRowClassification
+            <IcarusImportReview
               rows={parseResult.rows}
               selectedRowIndices={selectedRows}
-              onRowsClassified={handleRowsClassified}
+              onRowsReviewed={handleRowsReviewed}
               onCancel={() => setStep('preview')}
+              isImporting={importMutation.isPending}
             />
 
             {importMutation.isPending && (
@@ -714,124 +644,6 @@ export function IcarusExcelImport() {
             )}
           </>
         )}
-
-        {/* Client Selection Dialog */}
-        <Dialog open={clientDialogOpen} onOpenChange={setClientDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Seleccionar Cliente
-              </DialogTitle>
-              <DialogDescription>
-                Vincule los procesos importados a un cliente existente o cree uno nuevo
-              </DialogDescription>
-            </DialogHeader>
-            
-            <Tabs value={clientTab} onValueChange={(v) => setClientTab(v as "existing" | "new")}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="existing">Cliente Existente</TabsTrigger>
-                <TabsTrigger value="new">Nuevo Cliente</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="existing" className="space-y-4 mt-4">
-                {clients.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No hay clientes registrados. Cree uno nuevo.
-                  </p>
-                ) : (
-                  <Select value={selectedClientId || ""} onValueChange={setSelectedClientId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccione un cliente..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((client) => (
-                        <SelectItem key={client.id} value={client.id}>
-                          {client.name} {client.id_number && `(${client.id_number})`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </TabsContent>
-              
-              <TabsContent value="new" className="space-y-4 mt-4">
-                <div className="space-y-2">
-                  <Label>Nombre del Cliente *</Label>
-                  <Input
-                    placeholder="Nombre completo o razón social"
-                    value={newClientName}
-                    onChange={(e) => setNewClientName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Cédula / NIT (opcional)</Label>
-                  <Input
-                    placeholder="Número de identificación"
-                    value={newClientIdNumber}
-                    onChange={(e) => setNewClientIdNumber(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Correo electrónico (opcional)</Label>
-                  <Input
-                    type="email"
-                    placeholder="correo@ejemplo.com"
-                    value={newClientEmail}
-                    onChange={(e) => setNewClientEmail(e.target.value)}
-                  />
-                </div>
-                <Button 
-                  onClick={handleCreateClientAndSelect} 
-                  disabled={!newClientName.trim() || createClientMutation.isPending}
-                  className="w-full"
-                >
-                  {createClientMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <UserPlus className="h-4 w-4 mr-2" />
-                  )}
-                  Crear Cliente
-                </Button>
-              </TabsContent>
-            </Tabs>
-            
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setClientDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button 
-                onClick={() => setClientDialogOpen(false)}
-                disabled={clientTab === "existing" && !selectedClientId}
-              >
-                Confirmar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Post-import linking prompt */}
-        <Dialog open={postImportDialogOpen} onOpenChange={setPostImportDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Procesos importados sin cliente</DialogTitle>
-              <DialogDescription>
-                Los procesos fueron importados exitosamente pero no están vinculados a ningún cliente. 
-                ¿Desea vincularlos ahora?
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setPostImportDialogOpen(false)}>
-                Más tarde
-              </Button>
-              <Link to="/clients">
-                <Button>
-                  Ir a Clientes
-                </Button>
-              </Link>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </CardContent>
     </Card>
   );
