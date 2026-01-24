@@ -150,15 +150,95 @@ html.aqua .aqua-glass-strong {
 }
 
 /* ============================= */
-/* SIDEBAR - Glass panel         */
+/* SIDEBAR - High contrast glass */
 /* ============================= */
+
+/* Sidebar contrast tokens */
+.aqua {
+  --sidebar-bg: rgba(10, 18, 30, 0.42);
+  --sidebar-bg-strong: rgba(10, 18, 30, 0.58);
+  --sidebar-border: rgba(255, 255, 255, 0.18);
+
+  --sidebar-text: rgba(255, 255, 255, 0.92);
+  --sidebar-text-muted: rgba(255, 255, 255, 0.72);
+
+  --sidebar-item-hover: rgba(255, 255, 255, 0.10);
+  --sidebar-item-active: rgba(26, 166, 183, 0.28);
+  --sidebar-item-active-border: rgba(26, 166, 183, 0.55);
+}
+
+/* Sidebar glass class - darker/more opaque than regular glass */
+html.aqua .sidebar-glass,
 html.aqua [data-sidebar="sidebar"],
 html.aqua aside[class*="sidebar"],
 html.aqua .bg-sidebar {
-  background: var(--glass-bg) !important;
-  border-right: 1px solid var(--glass-border) !important;
+  background: linear-gradient(
+    180deg,
+    var(--sidebar-bg-strong),
+    var(--sidebar-bg)
+  ) !important;
+  border-right: 1px solid var(--sidebar-border) !important;
   backdrop-filter: blur(var(--glass-blur-strong));
   -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+  box-shadow: var(--shadow-md);
+}
+
+/* Force sidebar text/icons to be light */
+html.aqua .sidebar-glass *,
+html.aqua [data-sidebar="sidebar"] *,
+html.aqua aside[class*="sidebar"] * {
+  color: var(--sidebar-text) !important;
+}
+
+/* Muted text in sidebar */
+html.aqua .sidebar-glass .text-muted-foreground,
+html.aqua .sidebar-glass [class*="text-muted"],
+html.aqua .sidebar-glass .nav-muted,
+html.aqua [data-sidebar="sidebar"] .text-muted-foreground,
+html.aqua [data-sidebar="sidebar"] [class*="sidebar-foreground/70"],
+html.aqua [data-sidebar="sidebar"] [class*="sidebar-foreground/60"] {
+  color: var(--sidebar-text-muted) !important;
+  opacity: 1 !important;
+}
+
+/* Nav item hover */
+html.aqua .sidebar-glass a:hover,
+html.aqua .sidebar-glass button:hover,
+html.aqua [data-sidebar="sidebar"] a:hover,
+html.aqua [data-sidebar="sidebar"] button:hover {
+  background: var(--sidebar-item-hover) !important;
+}
+
+/* Active nav item - stronger highlight */
+html.aqua .sidebar-glass [data-active="true"],
+html.aqua .sidebar-glass a[aria-current="page"],
+html.aqua [data-sidebar="sidebar"] [data-active="true"],
+html.aqua [data-sidebar="sidebar"] a[aria-current="page"],
+html.aqua [data-sidebar="sidebar"] .bg-primary\/15 {
+  background: var(--sidebar-item-active) !important;
+  border-left: 3px solid var(--sidebar-item-active-border) !important;
+}
+
+/* Active item text even brighter */
+html.aqua .sidebar-glass [data-active="true"] *,
+html.aqua .sidebar-glass a[aria-current="page"] *,
+html.aqua [data-sidebar="sidebar"] [data-active="true"] *,
+html.aqua [data-sidebar="sidebar"] a[aria-current="page"] *,
+html.aqua [data-sidebar="sidebar"] .bg-primary\/15 * {
+  color: rgba(255, 255, 255, 0.98) !important;
+}
+
+/* Sidebar group labels */
+html.aqua [data-sidebar="sidebar"] [class*="tracking-widest"],
+html.aqua .sidebar-glass [class*="tracking-widest"] {
+  color: var(--sidebar-text-muted) !important;
+  opacity: 0.8 !important;
+}
+
+/* Sidebar footer logout button */
+html.aqua [data-sidebar="sidebar"] .hover\\:text-destructive:hover {
+  color: #F87171 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
 }
 
 /* ============================= */
