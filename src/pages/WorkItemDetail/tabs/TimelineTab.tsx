@@ -1,6 +1,7 @@
 /**
  * Timeline Tab - Shows process_events for the work item
  * Displays normalized events with source attribution (CPNU/PUBLICACIONES/ICARUS/MANUAL)
+ * Shows detected milestone chips with pattern match explanations
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -27,15 +28,26 @@ import {
   Database,
   Globe,
   User,
+  Milestone,
+  Sparkles,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { getMilestoneDisplayName } from "@/lib/scraping/milestone-mapper";
 
 import type { WorkItem } from "@/types/work-item";
 
 interface TimelineTabProps {
   workItem: WorkItem & { _source?: string };
+}
+
+interface DetectedMilestone {
+  milestone_type: string;
+  confidence: number;
+  pattern_id: string;
+  matched_text: string;
+  keywords_matched?: string[];
 }
 
 interface ProcessEvent {
@@ -49,6 +61,7 @@ interface ProcessEvent {
   source_url: string | null;
   hash_fingerprint: string | null;
   attachments: Array<{ url: string; name?: string; label?: string }> | null;
+  detected_milestones: DetectedMilestone[] | null;
   created_at: string;
 }
 
@@ -83,12 +96,12 @@ const EVENT_TYPE_CONFIG: Record<string, { icon: typeof Clock; color: string; lab
 
 // Source configuration with icons and colors
 const SOURCE_CONFIG: Record<string, { icon: typeof Globe; color: string; bgColor: string; label: string }> = {
-  CPNU: { icon: Database, color: "text-blue-700", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "CPNU" },
-  PUBLICACIONES: { icon: Globe, color: "text-green-700", bgColor: "bg-green-100 dark:bg-green-900/30", label: "Publicaciones" },
-  ICARUS: { icon: Database, color: "text-purple-700", bgColor: "bg-purple-100 dark:bg-purple-900/30", label: "ICARUS" },
-  HISTORICO: { icon: Globe, color: "text-amber-700", bgColor: "bg-amber-100 dark:bg-amber-900/30", label: "Histórico" },
-  MANUAL: { icon: User, color: "text-gray-700", bgColor: "bg-gray-100 dark:bg-gray-900/30", label: "Manual" },
-  RAMA_JUDICIAL: { icon: Database, color: "text-blue-700", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "Rama Judicial" },
+  CPNU: { icon: Database, color: "text-blue-700 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "CPNU" },
+  PUBLICACIONES: { icon: Globe, color: "text-green-700 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-900/30", label: "Publicaciones" },
+  ICARUS: { icon: Database, color: "text-purple-700 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-900/30", label: "ICARUS" },
+  HISTORICO: { icon: Globe, color: "text-amber-700 dark:text-amber-400", bgColor: "bg-amber-100 dark:bg-amber-900/30", label: "Histórico" },
+  MANUAL: { icon: User, color: "text-gray-700 dark:text-gray-400", bgColor: "bg-gray-100 dark:bg-gray-900/30", label: "Manual" },
+  RAMA_JUDICIAL: { icon: Database, color: "text-blue-700 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/30", label: "Rama Judicial" },
   UNKNOWN: { icon: Globe, color: "text-gray-500", bgColor: "bg-gray-100 dark:bg-gray-900/30", label: "Desconocido" },
 };
 
@@ -298,9 +311,9 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
                             {snapshot && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Badge variant="outline" className="text-xs gap-1 border-cyan-200 dark:border-cyan-800">
-                                    <Camera className="h-3 w-3 text-cyan-600" />
-                                    <span className="text-cyan-600">Evidencia</span>
+                                  <Badge variant="outline" className="text-xs gap-1 border-muted-foreground/30">
+                                    <Camera className="h-3 w-3 text-muted-foreground" />
+                                    <span className="text-muted-foreground">Evidencia</span>
                                   </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -312,6 +325,57 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
                               </Tooltip>
                             )}
                           </div>
+
+                          {/* Detected Milestones */}
+                          {event.detected_milestones && event.detected_milestones.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {event.detected_milestones.map((milestone, idx) => (
+                                <Tooltip key={idx}>
+                                  <TooltipTrigger asChild>
+                                    <Badge 
+                                      variant="default"
+                                      className="text-xs gap-1 cursor-help bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20"
+                                    >
+                                      <Sparkles className="h-3 w-3" />
+                                      {getMilestoneDisplayName(milestone.milestone_type)}
+                                      <span className="text-[10px] opacity-70">
+                                        {(milestone.confidence * 100).toFixed(0)}%
+                                      </span>
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-xs">
+                                    <div className="space-y-1">
+                                      <p className="font-medium flex items-center gap-1">
+                                        <Milestone className="h-3 w-3" />
+                                        Hito Detectado
+                                      </p>
+                                      <p className="text-xs">
+                                        <span className="text-muted-foreground">Patrón: </span>
+                                        <code className="bg-muted px-1 rounded text-[10px]">
+                                          {milestone.pattern_id.substring(0, 8)}...
+                                        </code>
+                                      </p>
+                                      <p className="text-xs">
+                                        <span className="text-muted-foreground">Coincidencia: </span>
+                                        <mark className="bg-accent px-1 rounded text-[10px]">
+                                          {milestone.matched_text}
+                                        </mark>
+                                      </p>
+                                      {milestone.keywords_matched && milestone.keywords_matched.length > 0 && (
+                                        <p className="text-xs">
+                                          <span className="text-muted-foreground">Keywords: </span>
+                                          {milestone.keywords_matched.join(", ")}
+                                        </p>
+                                      )}
+                                      <p className="text-xs text-muted-foreground">
+                                        Confianza: {(milestone.confidence * 100).toFixed(0)}%
+                                      </p>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ))}
+                            </div>
+                          )}
 
                           {/* Title */}
                           {event.title && (

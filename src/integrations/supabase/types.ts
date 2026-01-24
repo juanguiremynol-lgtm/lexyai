@@ -674,6 +674,7 @@ export type Database = {
             | null
           occurred: boolean
           owner_id: string
+          pattern_match_explanation: Json | null
           process_id: string | null
           source: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id: string | null
@@ -700,6 +701,7 @@ export type Database = {
             | null
           occurred?: boolean
           owner_id: string
+          pattern_match_explanation?: Json | null
           process_id?: string | null
           source?: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id?: string | null
@@ -726,6 +728,7 @@ export type Database = {
             | null
           occurred?: boolean
           owner_id?: string
+          pattern_match_explanation?: Json | null
           process_id?: string | null
           source?: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id?: string | null
@@ -3227,6 +3230,7 @@ export type Database = {
           created_at: string
           description: string
           detail: string | null
+          detected_milestones: Json | null
           event_date: string | null
           event_type: string
           filing_id: string
@@ -3244,6 +3248,7 @@ export type Database = {
           created_at?: string
           description: string
           detail?: string | null
+          detected_milestones?: Json | null
           event_date?: string | null
           event_type: string
           filing_id: string
@@ -3261,6 +3266,7 @@ export type Database = {
           created_at?: string
           description?: string
           detail?: string | null
+          detected_milestones?: Json | null
           event_date?: string | null
           event_type?: string
           filing_id?: string
