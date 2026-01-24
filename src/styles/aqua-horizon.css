@@ -57,6 +57,33 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 180ms;
   --dur-med: 260ms;
+
+  /* =============================
+     GLOBAL TEXT CONTRAST (NEW)
+     ============================= */
+  --content-text: rgba(255, 255, 255, 0.96);
+  --content-text-muted: rgba(255, 255, 255, 0.78);
+
+  /* Stronger readability effects */
+  --text-shadow-strong: 0 2px 10px rgba(0,0,0,0.50), 0 1px 3px rgba(0,0,0,0.40);
+  --text-shadow-soft: 0 1px 6px rgba(0,0,0,0.35);
+
+  /* Header strip behind text (glass highlight) */
+  --header-strip-bg: rgba(10, 18, 30, 0.42);
+  --header-strip-border: rgba(255, 255, 255, 0.16);
+
+  /* Kanban column/card legibility */
+  --kanban-col-bg: rgba(10, 18, 30, 0.30);
+  --kanban-col-bg-strong: rgba(10, 18, 30, 0.40);
+  --kanban-card-bg: rgba(255, 255, 255, 0.14);
+  --kanban-card-bg-hover: rgba(255, 255, 255, 0.20);
+  --kanban-card-border: rgba(255, 255, 255, 0.18);
+
+  /* Optional "stroke-like" effect via filter */
+  --text-outline-filter: drop-shadow(0 1px 0 rgba(0,0,0,0.55))
+                         drop-shadow(0 -1px 0 rgba(0,0,0,0.35))
+                         drop-shadow(1px 0 0 rgba(0,0,0,0.35))
+                         drop-shadow(-1px 0 0 rgba(0,0,0,0.35));
 }
 
 /* ============================= */
@@ -356,6 +383,154 @@ html.aqua [role="tablist"] {
 }
 
 /* ============================= */
+/* GLOBAL READABILITY UTILITIES  */
+/* ============================= */
+
+html.aqua .readable-text {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+html.aqua .readable-text-strong {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+  filter: var(--text-outline-filter);
+}
+
+html.aqua .readable-muted {
+  color: var(--content-text-muted) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+/* ============================= */
+/* KANBAN HEADER STRIP FIX       */
+/* ============================= */
+
+html.aqua .kanban-header-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--header-strip-bg);
+  border: 1px solid var(--header-strip-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 26px rgba(0,0,0,0.22);
+}
+
+html.aqua .kanban-header-strip h3,
+html.aqua .kanban-header-strip .title,
+html.aqua .kanban-header-strip span {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+  filter: var(--text-outline-filter);
+}
+
+/* ============================= */
+/* KANBAN COLUMN + CARD FIX      */
+/* ============================= */
+
+html.aqua .kanban-column-glass {
+  background: linear-gradient(180deg, var(--kanban-col-bg-strong), var(--kanban-col-bg)) !important;
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-md);
+}
+
+html.aqua .kanban-card-glass {
+  background: var(--kanban-card-bg) !important;
+  border: 1px solid var(--kanban-card-border) !important;
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
+  box-shadow: 0 14px 36px rgba(0,0,0,0.28);
+}
+
+html.aqua .kanban-card-glass:hover {
+  background: var(--kanban-card-bg-hover) !important;
+  box-shadow: 0 18px 46px rgba(0,0,0,0.33);
+}
+
+/* Force all text inside Kanban columns to be high contrast */
+html.aqua .kanban-column-glass * {
+  color: var(--content-text);
+}
+
+html.aqua .kanban-column-glass .text-muted-foreground,
+html.aqua .kanban-column-glass [class*="text-muted"] {
+  color: var(--content-text-muted) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+/* Pipeline card titles - readable */
+html.aqua .kanban-card-glass .font-medium,
+html.aqua .kanban-card-glass .font-semibold,
+html.aqua .kanban-card-glass .font-bold {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+}
+
+/* ============================= */
+/* DASHBOARD METRIC CARDS FIX    */
+/* ============================= */
+
+html.aqua .dashboard-metric-card,
+html.aqua .dashboard-metric-card * {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+html.aqua .dashboard-metric-card .text-sm,
+html.aqua .dashboard-metric-card [class*="CardTitle"] {
+  filter: var(--text-outline-filter);
+  text-shadow: var(--text-shadow-strong);
+}
+
+html.aqua .dashboard-metric-card .text-2xl {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+  filter: var(--text-outline-filter);
+}
+
+/* ============================= */
+/* MAIN CONTENT AREA TEXT        */
+/* ============================= */
+
+html.aqua .main-content-glass,
+html.aqua .main-content-glass * {
+  color: var(--content-text);
+}
+
+html.aqua .main-content-glass h1,
+html.aqua .main-content-glass h2,
+html.aqua .main-content-glass h3 {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+  filter: var(--text-outline-filter);
+}
+
+html.aqua .main-content-glass p,
+html.aqua .main-content-glass .text-muted-foreground {
+  color: var(--content-text-muted) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+/* Tab list text */
+html.aqua [role="tablist"] button {
+  color: var(--content-text-muted) !important;
+  text-shadow: var(--text-shadow-soft);
+}
+
+html.aqua [role="tablist"] button[data-state="active"] {
+  color: var(--content-text) !important;
+  text-shadow: var(--text-shadow-strong);
+  background: var(--header-strip-bg) !important;
+}
+
+/* ============================= */
 /* FALLBACK - No backdrop-filter */
 /* ============================= */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -363,7 +538,9 @@ html.aqua [role="tablist"] {
   html.aqua .glass-strong,
   html.aqua [data-slot="card"],
   html.aqua .bg-card,
-  html.aqua [data-sidebar="sidebar"] {
+  html.aqua [data-sidebar="sidebar"],
+  html.aqua .kanban-column-glass,
+  html.aqua .kanban-card-glass {
     background: rgba(255, 255, 255, 0.88) !important;
     border: 1px solid rgba(0,0,0,0.08) !important;
   }
@@ -383,6 +560,17 @@ html.aqua [role="tablist"] {
   
   html.aqua body {
     background-attachment: scroll !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html.aqua .kanban-header-strip {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  
+  html.aqua .readable-text-strong {
+    filter: none;
   }
 }
 
