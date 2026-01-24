@@ -3953,6 +3953,9 @@ export type Database = {
           cgp_variant: string | null
           client_id: string | null
           created_at: string
+          delete_reason: string | null
+          deleted_at: string | null
+          deleted_by: string | null
           demandados: string | null
           demandantes: string | null
           description: string | null
@@ -4009,6 +4012,9 @@ export type Database = {
           cgp_variant?: string | null
           client_id?: string | null
           created_at?: string
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           demandados?: string | null
           demandantes?: string | null
           description?: string | null
@@ -4065,6 +4071,9 @@ export type Database = {
           cgp_variant?: string | null
           client_id?: string | null
           created_at?: string
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           demandados?: string | null
           demandantes?: string | null
           description?: string | null

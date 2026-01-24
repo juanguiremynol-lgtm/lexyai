@@ -19,9 +19,8 @@ import { toast } from "sonner";
 import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
 import { WorkItemPipelineCard, WorkItemPipelineItem } from "./WorkItemPipelineCard";
 import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
-import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
-import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
-import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { ArchiveWorkItemDialog } from "@/components/shared/ArchiveWorkItemDialog";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   CGP_STAGES,
   derivePhaseFromStage,
@@ -55,18 +54,21 @@ const INVALIDATE_QUERIES = [
 
 export function WorkItemPipeline() {
   const queryClient = useQueryClient();
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [singleDeleteItem, setSingleDeleteItem] = useState<WorkItemPipelineItem | null>(null);
+  const [archiveDialog, setArchiveDialog] = useState(false);
+  const [singleArchiveItem, setSingleArchiveItem] = useState<WorkItemPipelineItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<'ALL' | 'RADICACION' | 'PROCESO'>('ALL');
 
-  // Use secure delete hook
-  const { deleteSingle, isDeleting: isSingleDeleting } = useDeleteWorkItems({
+  // Use soft delete hook (archive)
+  const { archiveSingle, archiveBulk, isArchiving } = useSoftDeleteWorkItems({
     onSuccess: () => {
-      setSingleDeleteItem(null);
+      setSingleArchiveItem(null);
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
+      setArchiveDialog(false);
       INVALIDATE_QUERIES.forEach(queryKey => {
         queryClient.invalidateQueries({ queryKey });
       });
@@ -104,7 +106,8 @@ export function WorkItemPipeline() {
         .eq("owner_id", user.user.id)
         .eq("workflow_type", "CGP")
         .neq("status", "CLOSED")
-        .neq("status", "ARCHIVED");
+        .neq("status", "ARCHIVED")
+        .is("deleted_at", null); // Exclude soft-deleted items
 
       if (error) throw error;
       
@@ -203,26 +206,6 @@ export function WorkItemPipeline() {
     onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      await supabase.from("work_item_acts").delete().in("work_item_id", ids);
-      const { error } = await supabase.from("work_items").delete().in("id", ids);
-      if (error) throw error;
-      return ids;
-    },
-    onSuccess: (ids) => {
-      INVALIDATE_QUERIES.forEach(queryKey => {
-        queryClient.invalidateQueries({ queryKey });
-      });
-      setSelectedIds(new Set());
-      setIsSelectionMode(false);
-      setDeleteDialog(false);
-      toast.success(`${ids.length} elemento${ids.length !== 1 ? "s" : ""} eliminado${ids.length !== 1 ? "s" : ""}`);
-    },
-    onError: () => toast.error("Error al eliminar elementos"),
-  });
-
   // Selection handlers
   const toggleSelectionMode = () => {
     if (isSelectionMode) {
@@ -284,7 +267,7 @@ export function WorkItemPipeline() {
       isSelectionMode={options.isSelectionMode}
       onToggleSelection={toggleItemSelection}
       onToggleFlag={(item) => toggleFlagMutation.mutate(item)}
-      onDelete={(item) => setSingleDeleteItem(item)}
+      onDelete={(item) => setSingleArchiveItem(item)}
     />
   ), [toggleItemSelection, toggleFlagMutation]);
 
@@ -408,28 +391,29 @@ export function WorkItemPipeline() {
           selectedCount={selectedIds.size}
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
-          onBulkDelete={() => setDeleteDialog(true)}
-          isDeleting={bulkDeleteMutation.isPending}
+          onBulkDelete={() => setArchiveDialog(true)}
+          isDeleting={isArchiving}
         />
       )}
 
-      <WorkItemBulkDeleteDialog
-        open={deleteDialog}
-        onOpenChange={setDeleteDialog}
-        selectedCount={selectedIds.size}
-        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
-        isDeleting={bulkDeleteMutation.isPending}
+      {/* Bulk archive dialog */}
+      <ArchiveWorkItemDialog
+        open={archiveDialog}
+        onOpenChange={setArchiveDialog}
+        count={selectedIds.size}
+        onConfirm={() => archiveBulk(Array.from(selectedIds))}
+        isArchiving={isArchiving}
       />
 
-      {/* Single delete dialog */}
-      <DeleteWorkItemDialog
-        open={!!singleDeleteItem}
-        onOpenChange={(open) => !open && setSingleDeleteItem(null)}
-        onConfirm={() => singleDeleteItem && deleteSingle(singleDeleteItem.id)}
-        isDeleting={isSingleDeleting}
+      {/* Single archive dialog */}
+      <ArchiveWorkItemDialog
+        open={!!singleArchiveItem}
+        onOpenChange={(open) => !open && setSingleArchiveItem(null)}
+        onConfirm={() => singleArchiveItem && archiveSingle(singleArchiveItem.id)}
+        isArchiving={isArchiving}
         itemInfo={{
-          title: singleDeleteItem?.title,
-          radicado: singleDeleteItem?.radicado,
+          title: singleArchiveItem?.title,
+          radicado: singleArchiveItem?.radicado,
           workflowType: "CGP",
         }}
       />

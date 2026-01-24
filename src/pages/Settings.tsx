@@ -18,6 +18,7 @@ import { HearingReminderSettings } from "@/components/settings/HearingReminderSe
 import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
 import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
 import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSection";
+import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -507,6 +508,7 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="danger" className="space-y-6">
+          <ArchivedItemsSection />
           <PurgeLegacyDataSection />
           <MasterDeleteSection />
         </TabsContent>
