@@ -1,5 +1,6 @@
 /**
- * Overview Tab - Shows work item summary information
+ * Overview Tab - Rich work item summary with Authority, Parties, and Electronic File cards
+ * Restored from CGPDetail's rich layout
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { 
   Building2, 
   MapPin, 
@@ -22,6 +24,14 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
+  Copy,
+  ExternalLink,
+  Mail,
+  Target,
+  Circle,
+  CheckCircle2,
+  Bot,
+  Clock,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -30,6 +40,7 @@ import { toast } from "sonner";
 import type { WorkItem } from "@/types/work-item";
 import { WORKFLOW_TYPES, getStageLabel, getStagesForWorkflow, getStageOrderForWorkflow } from "@/lib/workflow-constants";
 import { EntityClientLink, SharepointHub } from "@/components/shared";
+import { cn } from "@/lib/utils";
 
 interface OverviewTabProps {
   workItem: WorkItem & { _source?: string };
@@ -73,11 +84,48 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
     return format(new Date(dateStr), "d 'de' MMMM, yyyy", { locale: es });
   };
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado al portapapeles");
+  };
+
+  // Goals for CGP/CPACA workflows
+  const showGoals = workItem.workflow_type === "CGP" || workItem.workflow_type === "CPACA";
+  const goals = showGoals ? [
+    {
+      id: "radicado",
+      label: "Número de Radicado",
+      description: "23 dígitos del proceso",
+      completed: !!workItem.radicado,
+      value: workItem.radicado,
+      icon: FileText,
+    },
+    {
+      id: "court",
+      label: "Juzgado / Autoridad",
+      description: "Autoridad de conocimiento",
+      completed: !!workItem.authority_name,
+      value: workItem.authority_name,
+      icon: Building2,
+    },
+    {
+      id: "expediente",
+      label: "Expediente Electrónico",
+      description: "URL de acceso al expediente",
+      completed: !!workItem.expediente_url,
+      value: workItem.expediente_url,
+      icon: Link2,
+    },
+  ] : [];
+
+  const completedGoalsCount = goals.filter((g) => g.completed).length;
+  const allGoalsComplete = goals.length > 0 && completedGoalsCount === goals.length;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Main content - 2 columns */}
       <div className="lg:col-span-2 space-y-6">
-        {/* Client Link */}
+        {/* Client Link Card */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -95,33 +143,108 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
           </CardContent>
         </Card>
 
-        {/* Case Information */}
+        {/* Goals Card (for CGP/CPACA) */}
+        {showGoals && (
+          <Card className={cn(
+            "transition-colors",
+            allGoalsComplete && "border-green-500/50 bg-green-50/50 dark:bg-green-950/20"
+          )}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Target className="h-5 w-5" />
+                  Objetivos de la Radicación
+                </CardTitle>
+                <Badge variant={allGoalsComplete ? "default" : "secondary"}>
+                  {completedGoalsCount} / {goals.length}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {goals.map((goal) => (
+                <div
+                  key={goal.id}
+                  className={cn(
+                    "flex items-start gap-3 p-3 rounded-lg border transition-colors",
+                    goal.completed
+                      ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800"
+                      : "bg-muted/50 border-dashed"
+                  )}
+                >
+                  {goal.completed ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <Circle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <goal.icon className="h-4 w-4 text-muted-foreground" />
+                      <span className={cn(
+                        "font-medium",
+                        goal.completed && "text-green-700 dark:text-green-300"
+                      )}>
+                        {goal.label}
+                      </span>
+                    </div>
+                    {goal.completed ? (
+                      <p className="text-sm text-muted-foreground mt-1 truncate">
+                        {goal.id === "expediente" ? (
+                          <a
+                            href={goal.value || "#"}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            Ver expediente electrónico
+                          </a>
+                        ) : (
+                          goal.value
+                        )}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {goal.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {allGoalsComplete && (
+                <div className="text-center py-2">
+                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                    ✓ Todos los objetivos completados
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Authority Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Información del Caso
+              <Building2 className="h-5 w-5" />
+              {workItem.workflow_type === "PETICION" ? "Entidad" : "Juzgado / Autoridad"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              {workItem.radicado && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Radicado</p>
-                  <p className="font-mono font-medium">{workItem.radicado}</p>
-                </div>
-              )}
-              
-              {workItem.authority_name && (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {workItem.workflow_type === "CGP" || workItem.workflow_type === "CPACA" 
-                      ? "Juzgado/Tribunal" 
-                      : workItem.workflow_type === "PETICION" 
-                        ? "Entidad" 
-                        : "Autoridad"}
-                  </p>
-                  <p className="font-medium">{workItem.authority_name}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <p className="text-sm text-muted-foreground">Nombre</p>
+                <p className="font-medium">{workItem.authority_name || "Sin especificar"}</p>
+              </div>
+
+              {workItem.authority_email && (
+                <div className="col-span-2 flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <a 
+                    href={`mailto:${workItem.authority_email}`}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    {workItem.authority_email}
+                  </a>
                 </div>
               )}
 
@@ -135,64 +258,122 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
               )}
             </div>
 
-            {/* Parties - for CGP, CPACA, Tutela */}
-            {(workItem.demandantes || workItem.demandados) && (
+            {/* Radicado with copy */}
+            {workItem.radicado && (
               <>
                 <Separator />
-                <div className="space-y-3">
-                  <h4 className="font-medium flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Partes
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    {workItem.demandantes && (
-                      <div>
-                        <p className="text-sm text-muted-foreground">Demandante(s)</p>
-                        <p>{workItem.demandantes}</p>
-                      </div>
-                    )}
-                    {workItem.demandados && (
-                      <div>
-                        <p className="text-sm text-muted-foreground">Demandado(s)</p>
-                        <p>{workItem.demandados}</p>
-                      </div>
-                    )}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Radicado</p>
+                    <code className="font-mono font-medium text-lg">{workItem.radicado}</code>
                   </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => copyToClipboard(workItem.radicado!)}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
                 </div>
               </>
             )}
 
-            {/* Description */}
-            {workItem.description && (
+            {/* Expediente URL */}
+            {workItem.expediente_url && (
               <>
                 <Separator />
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Descripción</p>
-                  <p className="text-sm">{workItem.description}</p>
-                </div>
-              </>
-            )}
-
-            {/* Notes */}
-            {workItem.notes && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">Notas</p>
-                  <p className="text-sm">{workItem.notes}</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Expediente Electrónico</span>
+                  </div>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={workItem.expediente_url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Abrir
+                    </a>
+                  </Button>
                 </div>
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Monitoring Settings */}
+        {/* Parties Card - for CGP, CPACA, Tutela */}
+        {(workItem.demandantes || workItem.demandados) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Partes del Proceso
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300">
+                      {workItem.workflow_type === "TUTELA" ? "Accionante" : "Demandante"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm">{workItem.demandantes || "Sin especificar"}</p>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-300">
+                      {workItem.workflow_type === "TUTELA" ? "Accionado" : "Demandado"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm">{workItem.demandados || "Sin especificar"}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Case Information */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Información del Caso
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Description */}
+            {workItem.description && (
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Descripción</p>
+                <p className="text-sm">{workItem.description}</p>
+              </div>
+            )}
+
+            {/* Notes */}
+            {workItem.notes && (
+              <>
+                {workItem.description && <Separator />}
+                <div>
+                  <p className="text-sm text-muted-foreground mb-1">Notas</p>
+                  <p className="text-sm">{workItem.notes}</p>
+                </div>
+              </>
+            )}
+
+            {!workItem.description && !workItem.notes && (
+              <p className="text-sm text-muted-foreground italic">
+                Sin descripción ni notas registradas
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Monitoring Settings - for CGP, CPACA */}
         {(workItem.workflow_type === "CGP" || workItem.workflow_type === "CPACA") && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Eye className="h-5 w-5" />
-                Monitoreo
+                <Bot className="h-5 w-5" />
+                Rastreador Rama Judicial
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -206,9 +387,15 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                 <Switch
                   checked={workItem.monitoring_enabled}
                   onCheckedChange={(checked) => toggleMonitoringMutation.mutate(checked)}
-                  disabled={toggleMonitoringMutation.isPending}
+                  disabled={toggleMonitoringMutation.isPending || !workItem.radicado}
                 />
               </div>
+
+              {!workItem.radicado && (
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  ⚠️ Ingrese el número de radicado para habilitar el monitoreo automático
+                </p>
+              )}
 
               {workItem.last_crawled_at && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -236,6 +423,13 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                           : "Pendiente"}
                   </span>
                 </div>
+              )}
+
+              {workItem.monitoring_enabled && (
+                <Badge variant="outline" className="text-xs">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Se ejecuta automáticamente cada día
+                </Badge>
               )}
             </CardContent>
           </Card>
@@ -313,9 +507,16 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
             )}
 
             <div>
-              <p className="text-sm text-muted-foreground">Creado</p>
+              <p className="text-sm text-muted-foreground">Creado en ATENIA</p>
               <p className="font-medium">{formatDate(workItem.created_at)}</p>
             </div>
+
+            {workItem.updated_at && workItem.updated_at !== workItem.created_at && (
+              <div>
+                <p className="text-sm text-muted-foreground">Última Actualización</p>
+                <p className="font-medium">{formatDate(workItem.updated_at)}</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -338,6 +539,15 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                 {workItem.status === "ACTIVE" ? "Activo" : workItem.status === "CLOSED" ? "Cerrado" : "Inactivo"}
               </Badge>
             </div>
+            {workItem.monitoring_enabled && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Monitoreo</span>
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30">
+                  <Eye className="h-3 w-3 mr-1" />
+                  Activo
+                </Badge>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
