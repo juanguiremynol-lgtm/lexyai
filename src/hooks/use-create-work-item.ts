@@ -1,0 +1,146 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
+import { getDefaultStage } from "@/lib/workflow-constants";
+
+export interface CreateWorkItemData {
+  // Core classification
+  workflow_type: WorkflowType;
+  stage: string;
+  cgp_phase?: CGPPhase;
+  
+  // Basic metadata
+  title?: string;
+  radicado?: string;
+  authority_name?: string;
+  authority_city?: string;
+  authority_department?: string;
+  
+  // Parties
+  demandantes?: string;
+  demandados?: string;
+  
+  // Workflow-specific fields
+  // CGP
+  cgp_class?: string;
+  cgp_variant?: string;
+  cgp_cuantia?: string;
+  
+  // Peticion
+  filing_date?: string;
+  
+  // Tutela
+  auto_admisorio_date?: string;
+  
+  // CPACA
+  cpaca_medio_control?: string;
+  cpaca_phase?: string;
+  
+  // Client and matter
+  client_id?: string;
+  matter_id?: string;
+  
+  // Additional
+  notes?: string;
+  description?: string;
+  source?: ItemSource;
+}
+
+export function useCreateWorkItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: CreateWorkItemData) => {
+      // Get current user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        throw new Error("No autenticado");
+      }
+
+      // Derive CGP phase if applicable
+      let cgpPhase: CGPPhase | null = null;
+      let cgpPhaseSource: 'AUTO' | 'MANUAL' | null = null;
+      
+      if (data.workflow_type === 'CGP') {
+        cgpPhase = data.cgp_phase || 'FILING';
+        cgpPhaseSource = 'MANUAL';
+      }
+
+      // Build the insert payload
+      const workItemData = {
+        owner_id: user.id,
+        workflow_type: data.workflow_type,
+        stage: data.stage || getDefaultStage(data.workflow_type, cgpPhase || undefined),
+        status: 'ACTIVE' as const,
+        source: data.source || 'MANUAL' as const,
+        
+        // Basic metadata
+        title: data.title || null,
+        radicado: data.radicado || null,
+        authority_name: data.authority_name || null,
+        authority_city: data.authority_city || null,
+        authority_department: data.authority_department || null,
+        
+        // Parties
+        demandantes: data.demandantes || null,
+        demandados: data.demandados || null,
+        
+        // CGP-specific
+        cgp_phase: cgpPhase,
+        cgp_phase_source: cgpPhaseSource,
+        cgp_class: data.cgp_class || null,
+        cgp_variant: data.cgp_variant || null,
+        cgp_cuantia: data.cgp_cuantia || null,
+        
+        // Dates
+        filing_date: data.filing_date || null,
+        auto_admisorio_date: data.auto_admisorio_date || null,
+        
+        // Client / matter
+        client_id: data.client_id || null,
+        matter_id: data.matter_id || null,
+        
+        // Notes
+        notes: data.notes || null,
+        description: data.description || null,
+        
+        // Defaults
+        is_flagged: false,
+        monitoring_enabled: data.workflow_type === 'CGP' || data.workflow_type === 'CPACA',
+        email_linking_enabled: true,
+      };
+
+      const { data: workItem, error } = await supabase
+        .from("work_items")
+        .insert(workItemData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error creating work item:", error);
+        throw new Error(error.message);
+      }
+
+      return workItem;
+    },
+    onSuccess: (workItem) => {
+      toast.success("Asunto creado exitosamente");
+      
+      // Invalidate relevant queries
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["peticiones-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
+      
+      if (workItem.client_id) {
+        queryClient.invalidateQueries({ queryKey: ["client-work-items", workItem.client_id] });
+      }
+    },
+    onError: (error: Error) => {
+      toast.error("Error al crear el asunto: " + error.message);
+    },
+  });
+}

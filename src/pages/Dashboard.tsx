@@ -8,7 +8,7 @@ import { WorkItemPipeline, AdminPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
-import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
+import { CreateWorkItemWizard } from "@/components/workflow";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -229,7 +229,7 @@ export default function Dashboard() {
       </Tabs>
 
       {/* Universal Creation Dialog */}
-      <UnifiedFilingCreator
+      <CreateWorkItemWizard
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onSuccess={handleCreationSuccess}

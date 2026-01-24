@@ -62,7 +62,7 @@ import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ContractsTab, ClientDocumentsTab } from "@/components/clients";
-import { UnifiedFilingCreator } from "@/components/filings/UnifiedFilingCreator";
+import { CreateWorkItemWizard } from "@/components/workflow";
 import { EntityEmailTab } from "@/components/email";
 import type { Client } from "@/types/client";
 
@@ -826,16 +826,16 @@ export default function ClientDetail() {
         </CardContent>
       </Card>
 
-      {/* Unified Filing Creator */}
-      <UnifiedFilingCreator
+      {/* Unified Work Item Creator */}
+      <CreateWorkItemWizard
         open={newFilingOpen}
         onOpenChange={setNewFilingOpen}
-        clientId={id}
-        clientName={client.name}
+        defaultClientId={id}
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ["client-filings", id] });
           queryClient.invalidateQueries({ queryKey: ["client-peticiones", id] });
           queryClient.invalidateQueries({ queryKey: ["client-processes", id] });
+          queryClient.invalidateQueries({ queryKey: ["client-work-items", id] });
         }}
       />
     </div>
