@@ -7,13 +7,14 @@ import { EstadosTicker } from "@/components/ticker";
 export function AppLayout() {
   return (
     <SidebarProvider>
-      {/* Root container: block page-wide horizontal overflow */}
-      <div className="flex min-h-screen w-full max-w-full overflow-x-hidden">
+      {/* Root container: allow natural width, no global overflow lock */}
+      <div className="flex min-h-screen w-full">
         <AppSidebar />
-        <SidebarInset className="flex flex-1 flex-col min-w-0 max-w-full overflow-x-hidden">
+        <SidebarInset className="flex flex-1 flex-col min-w-0">
           <EstadosTicker />
           <TopBar />
-          <main className="flex-1 overflow-x-hidden overflow-y-auto bg-background p-4 lg:p-6">
+          {/* Main content area - allows child components to define their own scroll behavior */}
+          <main className="flex-1 overflow-y-auto bg-background p-4 lg:p-6">
             <Outlet />
           </main>
         </SidebarInset>

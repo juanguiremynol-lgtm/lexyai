@@ -5,13 +5,13 @@ import { Scale, Info } from "lucide-react";
 
 export default function CpacaPage() {
   return (
-    <div className="space-y-6 w-full max-w-full overflow-x-hidden">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* Header - stays fixed, no horizontal scroll */}
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             <Scale className="h-8 w-8 text-indigo-500 flex-shrink-0" />
-            <span className="truncate">CPACA – Contencioso Administrativo</span>
+            <span>CPACA – Contencioso Administrativo</span>
           </h1>
           <p className="text-muted-foreground mt-1">
             Gestión de procesos ordinarios contencioso administrativos
