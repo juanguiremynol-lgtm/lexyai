@@ -2127,12 +2127,14 @@ export type Database = {
           is_virtual: boolean | null
           location: string | null
           notes: string | null
+          organization_id: string | null
           owner_id: string
           reminder_sent: boolean | null
           scheduled_at: string
           title: string
           updated_at: string
           virtual_link: string | null
+          work_item_id: string | null
         }
         Insert: {
           auto_detected?: boolean | null
@@ -2143,12 +2145,14 @@ export type Database = {
           is_virtual?: boolean | null
           location?: string | null
           notes?: string | null
+          organization_id?: string | null
           owner_id: string
           reminder_sent?: boolean | null
           scheduled_at: string
           title: string
           updated_at?: string
           virtual_link?: string | null
+          work_item_id?: string | null
         }
         Update: {
           auto_detected?: boolean | null
@@ -2159,12 +2163,14 @@ export type Database = {
           is_virtual?: boolean | null
           location?: string | null
           notes?: string | null
+          organization_id?: string | null
           owner_id?: string
           reminder_sent?: boolean | null
           scheduled_at?: string
           title?: string
           updated_at?: string
           virtual_link?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -2182,10 +2188,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "hearings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hearings_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearings_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]

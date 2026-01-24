@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -19,9 +22,7 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -41,24 +42,31 @@ import {
   Search,
   Scale,
   Gavel,
-  FileText,
   Building2,
+  Landmark,
+  Send,
+  Check,
+  ChevronsUpDown,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { format, startOfMonth, endOfMonth, isSameDay, addMonths, subMonths, isAfter, isBefore, startOfDay } from "date-fns";
 import { es } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
+import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";
 
-// Unified process type for hearing linking
-interface ProcessOption {
+// Work item option for hearing linking
+interface WorkItemOption {
   id: string;
-  type: "filing" | "cpaca";
+  workflow_type: WorkflowType;
   radicado: string | null;
-  label: string;
-  clientName: string | null;
-  category: string;
-  icon: "scale" | "gavel" | "file" | "building";
+  title: string | null;
+  demandantes: string | null;
+  demandados: string | null;
+  authority_name: string | null;
+  client_name: string | null;
 }
 
 interface Hearing {
@@ -71,43 +79,53 @@ interface Hearing {
   notes: string | null;
   auto_detected: boolean | null;
   reminder_sent: boolean | null;
+  work_item_id: string | null;
+  organization_id: string | null;
+  // Legacy fields (deprecated but may still have data)
   filing_id: string | null;
   cpaca_process_id: string | null;
-  filing?: {
+  // Joined work_item data
+  work_item?: {
     id: string;
+    workflow_type: WorkflowType;
     radicado: string | null;
-    filing_type: string;
-    matter?: {
-      client_name: string;
-      matter_name: string;
-    };
+    title: string | null;
+    demandantes: string | null;
+    demandados: string | null;
+    authority_name: string | null;
     client?: {
       name: string;
-    };
-    linked_process?: {
-      id: string;
-      radicado: string;
-      demandantes: string | null;
-    };
-  };
-  cpaca_process?: {
-    id: string;
-    radicado: string | null;
-    titulo: string | null;
-    medio_de_control: string;
-    client?: {
-      name: string;
-    };
-  };
+    } | null;
+  } | null;
 }
 
+const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
+  CGP: <Scale className="h-3 w-3" />,
+  PETICION: <Send className="h-3 w-3" />,
+  TUTELA: <Gavel className="h-3 w-3" />,
+  GOV_PROCEDURE: <Building2 className="h-3 w-3" />,
+  CPACA: <Landmark className="h-3 w-3" />,
+};
+
+const WORKFLOW_COLORS: Record<WorkflowType, string> = {
+  CGP: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+  PETICION: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  TUTELA: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  GOV_PROCEDURE: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+  CPACA: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200",
+};
+
 export default function Hearings() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterProcess, setFilterProcess] = useState<string>("all");
+  const [filterWorkflow, setFilterWorkflow] = useState<string>("all");
+  const [workItemSearchOpen, setWorkItemSearchOpen] = useState(false);
+  const [workItemSearchQuery, setWorkItemSearchQuery] = useState("");
   const [formData, setFormData] = useState({
     title: "",
     scheduled_at: "",
@@ -116,30 +134,25 @@ export default function Hearings() {
     notes: "",
     is_virtual: false,
     virtual_link: "",
-    process_key: "", // Format: "type:id" e.g., "filing:uuid" or "cpaca:uuid"
+    work_item_id: "",
   });
 
-  // Fetch all hearings with filing/process details
+  // Fetch all hearings with work_item details
   const { data: hearings, isLoading } = useQuery({
-    queryKey: ["all-hearings"],
+    queryKey: ["all-hearings", organization?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("hearings")
         .select(`
           *,
-          filing:filings(
+          work_item:work_items(
             id,
+            workflow_type,
             radicado,
-            filing_type,
-            matter:matters(client_name, matter_name),
-            client:clients(name),
-            linked_process:monitored_processes(id, radicado, demandantes)
-          ),
-          cpaca_process:cpaca_processes(
-            id,
-            radicado,
-            titulo,
-            medio_de_control,
+            title,
+            demandantes,
+            demandados,
+            authority_name,
             client:clients(name)
           )
         `)
@@ -147,143 +160,145 @@ export default function Hearings() {
       if (error) throw error;
       return data as unknown as Hearing[];
     },
+    enabled: !!organization?.id,
   });
 
-  // Fetch all process options for dropdown (filings + CPACA)
-  const { data: processOptions } = useQuery({
-    queryKey: ["hearing-process-options"],
+  // Fetch all work_items for dropdown selection
+  const { data: workItemOptions } = useQuery({
+    queryKey: ["work-items-for-hearings", organization?.id],
     queryFn: async () => {
-      const options: ProcessOption[] = [];
-
-      // Fetch filings (CGP, Tutelas, Peticiones, etc.)
-      const { data: filings, error: filingsError } = await supabase
-        .from("filings")
+      const { data, error } = await supabase
+        .from("work_items")
         .select(`
           id,
+          workflow_type,
           radicado,
-          filing_type,
-          matter:matters(client_name, matter_name),
+          title,
+          demandantes,
+          demandados,
+          authority_name,
           client:clients(name)
         `)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
       
-      if (filingsError) throw filingsError;
-
-      filings?.forEach((f) => {
-        const clientName = f.client?.name || f.matter?.client_name || null;
-        let category = "Proceso";
-        let icon: ProcessOption["icon"] = "scale";
-        
-        if (f.filing_type === "TUTELA" || f.filing_type === "Tutela") {
-          category = "Tutela";
-          icon = "gavel";
-        } else if (f.filing_type === "PETICION" || f.filing_type === "Peticion" || f.filing_type === "DERECHO_PETICION") {
-          category = "Derecho de Petición";
-          icon = "file";
-        } else if (f.filing_type === "HABEAS_CORPUS" || f.filing_type === "Habeas Corpus") {
-          category = "Habeas Corpus";
-          icon = "gavel";
-        } else if (f.filing_type === "Demanda" || f.filing_type === "DEMANDA") {
-          category = "Proceso CGP";
-          icon = "scale";
-        }
-
-        options.push({
-          id: f.id,
-          type: "filing",
-          radicado: f.radicado,
-          label: f.radicado || f.matter?.matter_name || "Sin radicado",
-          clientName,
-          category,
-          icon,
-        });
-      });
-
-      // Fetch CPACA processes
-      const { data: cpacaProcesses, error: cpacaError } = await supabase
-        .from("cpaca_processes")
-        .select(`
-          id,
-          radicado,
-          titulo,
-          medio_de_control,
-          client:clients(name)
-        `)
-        .order("created_at", { ascending: false });
+      if (error) throw error;
       
-      if (cpacaError) throw cpacaError;
-
-      cpacaProcesses?.forEach((p) => {
-        options.push({
-          id: p.id,
-          type: "cpaca",
-          radicado: p.radicado,
-          label: p.radicado || p.titulo || "Sin radicado",
-          clientName: p.client?.name || null,
-          category: "Proceso CPACA",
-          icon: "building",
-        });
-      });
-
-      return options;
+      return (data || []).map((w) => ({
+        id: w.id,
+        workflow_type: w.workflow_type as WorkflowType,
+        radicado: w.radicado,
+        title: w.title,
+        demandantes: w.demandantes,
+        demandados: w.demandados,
+        authority_name: w.authority_name,
+        client_name: w.client?.name || null,
+      })) as WorkItemOption[];
     },
+    enabled: !!organization?.id,
   });
 
-  // Group options by category for the dropdown
-  const groupedOptions = useMemo(() => {
-    if (!processOptions) return {};
+  // Filter work items for the combobox
+  const filteredWorkItems = useMemo(() => {
+    if (!workItemOptions) return [];
+    if (!workItemSearchQuery) return workItemOptions;
     
-    return processOptions.reduce((acc, opt) => {
-      if (!acc[opt.category]) {
-        acc[opt.category] = [];
-      }
-      acc[opt.category].push(opt);
-      return acc;
-    }, {} as Record<string, ProcessOption[]>);
-  }, [processOptions]);
+    const query = workItemSearchQuery.toLowerCase();
+    return workItemOptions.filter((w) => {
+      return (
+        w.radicado?.toLowerCase().includes(query) ||
+        w.title?.toLowerCase().includes(query) ||
+        w.demandantes?.toLowerCase().includes(query) ||
+        w.demandados?.toLowerCase().includes(query) ||
+        w.client_name?.toLowerCase().includes(query) ||
+        w.authority_name?.toLowerCase().includes(query) ||
+        WORKFLOW_TYPES[w.workflow_type]?.label.toLowerCase().includes(query)
+      );
+    });
+  }, [workItemOptions, workItemSearchQuery]);
 
-  // Helper to parse process_key
-  const parseProcessKey = (key: string): { type: "filing" | "cpaca"; id: string } | null => {
-    if (!key) return null;
-    const [type, id] = key.split(":");
-    if (type === "filing" || type === "cpaca") {
-      return { type, id };
-    }
-    return null;
-  };
+  // Get selected work item for display
+  const selectedWorkItem = useMemo(() => {
+    if (!formData.work_item_id || !workItemOptions) return null;
+    return workItemOptions.find((w) => w.id === formData.work_item_id) || null;
+  }, [formData.work_item_id, workItemOptions]);
 
-  // Create hearing mutation
+  // Create hearing mutation with audit trail
   const createHearing = useMutation({
     mutationFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      const parsed = parseProcessKey(formData.process_key);
-      if (!parsed) {
+      if (!formData.work_item_id) {
         throw new Error("Debe seleccionar un proceso");
       }
 
       const scheduledAt = new Date(`${formData.scheduled_at}T${formData.scheduled_time}`);
 
-      const insertData = {
-        owner_id: user.id,
-        title: formData.title,
-        scheduled_at: scheduledAt.toISOString(),
-        location: formData.location || null,
-        notes: formData.notes || null,
-        is_virtual: formData.is_virtual,
-        virtual_link: formData.virtual_link || null,
-        auto_detected: false,
-        filing_id: parsed.type === "filing" ? parsed.id : null,
-        cpaca_process_id: parsed.type === "cpaca" ? parsed.id : null,
-      };
+      // Insert hearing
+      const { data: hearing, error: hearingError } = await supabase
+        .from("hearings")
+        .insert({
+          owner_id: user.id,
+          organization_id: organization?.id,
+          work_item_id: formData.work_item_id,
+          title: formData.title,
+          scheduled_at: scheduledAt.toISOString(),
+          location: formData.location || null,
+          notes: formData.notes || null,
+          is_virtual: formData.is_virtual,
+          virtual_link: formData.virtual_link || null,
+          auto_detected: false,
+        })
+        .select("id")
+        .single();
 
-      const { error } = await supabase.from("hearings").insert(insertData);
-      if (error) throw error;
+      if (hearingError) throw hearingError;
+
+      // Get work_item's legacy_filing_id for process_events compatibility
+      const { data: workItem } = await supabase
+        .from("work_items")
+        .select("legacy_filing_id")
+        .eq("id", formData.work_item_id)
+        .single();
+
+      // Create process_event audit trail (requires filing_id for legacy schema)
+      if (workItem?.legacy_filing_id) {
+        await supabase.from("process_events").insert({
+          owner_id: user.id,
+          filing_id: workItem.legacy_filing_id,
+          event_type: "AUDIENCE_CREATED",
+          event_date: new Date().toISOString(),
+          description: `Audiencia programada: ${formData.title}`,
+          source: "USER_UI",
+          raw_data: {
+            hearing_id: hearing.id,
+            work_item_id: formData.work_item_id,
+            title: formData.title,
+            scheduled_at: scheduledAt.toISOString(),
+            location: formData.location || null,
+            is_virtual: formData.is_virtual,
+          },
+        });
+      }
+
+      // Create alert for the hearing
+      const daysUntil = Math.ceil((scheduledAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      
+      await supabase.from("alerts").insert({
+        owner_id: user.id,
+        severity: daysUntil <= 3 ? "CRITICAL" : daysUntil <= 7 ? "WARN" : "INFO",
+        message: `Audiencia programada: ${formData.title} para ${scheduledAt.toLocaleDateString('es-CO')}`,
+        is_read: false,
+      });
+
+      return hearing;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all-hearings"] });
-      toast.success("Audiencia programada");
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
+      toast.success("Audiencia programada con éxito");
       setIsDialogOpen(false);
       resetForm();
     },
@@ -292,17 +307,47 @@ export default function Hearings() {
     },
   });
 
-  // Delete hearing mutation
+  // Delete hearing mutation with audit trail
   const deleteHearing = useMutation({
-    mutationFn: async (hearingId: string) => {
+    mutationFn: async (hearing: Hearing) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      // Create process_event audit trail before deletion
+      if (hearing.work_item_id) {
+        const { data: workItem } = await supabase
+          .from("work_items")
+          .select("legacy_filing_id")
+          .eq("id", hearing.work_item_id)
+          .single();
+
+        if (workItem?.legacy_filing_id) {
+          await supabase.from("process_events").insert({
+            owner_id: user.id,
+            filing_id: workItem.legacy_filing_id,
+            event_type: "AUDIENCE_DELETED",
+            event_date: new Date().toISOString(),
+            description: `Audiencia eliminada: ${hearing.title}`,
+            source: "USER_UI",
+            raw_data: {
+              hearing_id: hearing.id,
+              work_item_id: hearing.work_item_id,
+              title: hearing.title,
+              scheduled_at: hearing.scheduled_at,
+            },
+          });
+        }
+      }
+
       const { error } = await supabase
         .from("hearings")
         .delete()
-        .eq("id", hearingId);
+        .eq("id", hearing.id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all-hearings"] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia eliminada");
     },
     onError: (error) => {
@@ -319,8 +364,9 @@ export default function Hearings() {
       notes: "",
       is_virtual: false,
       virtual_link: "",
-      process_key: "",
+      work_item_id: "",
     });
+    setWorkItemSearchQuery("");
   };
 
   // Filter and group hearings
@@ -328,35 +374,24 @@ export default function Hearings() {
     if (!hearings) return [];
     
     return hearings.filter(h => {
-      // Search across filings and CPACA processes
-      const filingMatch = 
-        h.filing?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.filing?.matter?.client_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.filing?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const cpacaMatch = 
-        h.cpaca_process?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.cpaca_process?.titulo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        h.cpaca_process?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+      // Search across work_item fields
+      const workItemMatch = 
+        h.work_item?.radicado?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.work_item?.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.work_item?.demandantes?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.work_item?.demandados?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        h.work_item?.client?.name?.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesSearch = searchQuery === "" || 
         h.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        filingMatch ||
-        cpacaMatch;
+        workItemMatch;
       
-      // Filter by process
-      if (filterProcess === "all") return matchesSearch;
+      // Filter by workflow type
+      if (filterWorkflow === "all") return matchesSearch;
       
-      const parsed = parseProcessKey(filterProcess);
-      if (!parsed) return matchesSearch;
-      
-      if (parsed.type === "filing") {
-        return matchesSearch && h.filing_id === parsed.id;
-      } else {
-        return matchesSearch && h.cpaca_process_id === parsed.id;
-      }
+      return matchesSearch && h.work_item?.workflow_type === filterWorkflow;
     });
-  }, [hearings, searchQuery, filterProcess]);
+  }, [hearings, searchQuery, filterWorkflow]);
 
   // Get hearings for a specific date
   const getHearingsForDate = (date: Date) => {
@@ -439,40 +474,89 @@ export default function Hearings() {
               }}
               className="space-y-4"
             >
+              {/* Work Item Selector - Searchable Combobox */}
               <div className="space-y-2">
-                <Label htmlFor="process">Proceso / Radicación</Label>
-                <Select
-                  value={formData.process_key}
-                  onValueChange={(value) => setFormData({ ...formData, process_key: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar proceso..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    {Object.entries(groupedOptions).map(([category, options]) => (
-                      <SelectGroup key={category}>
-                        <SelectLabel className="flex items-center gap-2">
-                          {category === "Proceso CGP" && <Scale className="h-3 w-3" />}
-                          {category === "Tutela" && <Gavel className="h-3 w-3" />}
-                          {category === "Derecho de Petición" && <FileText className="h-3 w-3" />}
-                          {category === "Proceso CPACA" && <Building2 className="h-3 w-3" />}
-                          {category === "Habeas Corpus" && <Gavel className="h-3 w-3" />}
-                          {category}
-                        </SelectLabel>
-                        {options.map((opt) => (
-                          <SelectItem key={`${opt.type}:${opt.id}`} value={`${opt.type}:${opt.id}`}>
-                            <div className="flex flex-col">
-                              <span className="font-mono text-sm">{opt.label}</span>
-                              {opt.clientName && (
-                                <span className="text-xs text-muted-foreground">{opt.clientName}</span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Proceso / Caso</Label>
+                <Popover open={workItemSearchOpen} onOpenChange={setWorkItemSearchOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={workItemSearchOpen}
+                      className="w-full justify-between h-auto min-h-10 py-2"
+                    >
+                      {selectedWorkItem ? (
+                        <div className="flex items-start gap-2 text-left">
+                          <Badge 
+                            variant="secondary" 
+                            className={cn("shrink-0 mt-0.5", WORKFLOW_COLORS[selectedWorkItem.workflow_type])}
+                          >
+                            {WORKFLOW_ICONS[selectedWorkItem.workflow_type]}
+                            <span className="ml-1">{WORKFLOW_TYPES[selectedWorkItem.workflow_type]?.shortLabel}</span>
+                          </Badge>
+                          <div className="flex flex-col">
+                            <span className="font-mono text-sm">
+                              {selectedWorkItem.radicado || selectedWorkItem.title || "Sin identificar"}
+                            </span>
+                            {selectedWorkItem.client_name && (
+                              <span className="text-xs text-muted-foreground">{selectedWorkItem.client_name}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Seleccionar proceso...</span>
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput 
+                        placeholder="Buscar por radicado, cliente, partes..." 
+                        value={workItemSearchQuery}
+                        onValueChange={setWorkItemSearchQuery}
+                      />
+                      <CommandList>
+                        <CommandEmpty>No se encontraron procesos.</CommandEmpty>
+                        <CommandGroup>
+                          {filteredWorkItems.slice(0, 50).map((w) => (
+                            <CommandItem
+                              key={w.id}
+                              value={w.id}
+                              onSelect={() => {
+                                setFormData({ ...formData, work_item_id: w.id });
+                                setWorkItemSearchOpen(false);
+                              }}
+                              className="flex items-start gap-2 py-2"
+                            >
+                              <Check
+                                className={cn(
+                                  "h-4 w-4 mt-0.5",
+                                  formData.work_item_id === w.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <Badge 
+                                variant="secondary" 
+                                className={cn("shrink-0", WORKFLOW_COLORS[w.workflow_type])}
+                              >
+                                {WORKFLOW_ICONS[w.workflow_type]}
+                                <span className="ml-1">{WORKFLOW_TYPES[w.workflow_type]?.shortLabel}</span>
+                              </Badge>
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <span className="font-mono text-sm truncate">
+                                  {w.radicado || w.title || "Sin identificar"}
+                                </span>
+                                <span className="text-xs text-muted-foreground truncate">
+                                  {[w.demandantes, w.demandados].filter(Boolean).join(" vs ") || w.authority_name || w.client_name || "—"}
+                                </span>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="space-y-2">
@@ -572,21 +656,21 @@ export default function Hearings() {
             className="pl-10"
           />
         </div>
-        <Select value={filterProcess} onValueChange={setFilterProcess}>
-          <SelectTrigger className="w-full md:w-[300px]">
-            <SelectValue placeholder="Todos los procesos" />
+        <Select value={filterWorkflow} onValueChange={setFilterWorkflow}>
+          <SelectTrigger className="w-full md:w-[250px]">
+            <SelectValue placeholder="Todos los tipos" />
           </SelectTrigger>
-          <SelectContent className="max-h-[300px]">
-            <SelectItem value="all">Todos los procesos</SelectItem>
-            {Object.entries(groupedOptions).map(([category, options]) => (
-              <SelectGroup key={category}>
-                <SelectLabel>{category}</SelectLabel>
-                {options.map((opt) => (
-                  <SelectItem key={`${opt.type}:${opt.id}`} value={`${opt.type}:${opt.id}`}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+          <SelectContent>
+            <SelectItem value="all">
+              <span className="flex items-center gap-2">Todos los tipos</span>
+            </SelectItem>
+            {Object.entries(WORKFLOW_TYPES).map(([key, meta]) => (
+              <SelectItem key={key} value={key}>
+                <span className="flex items-center gap-2">
+                  {WORKFLOW_ICONS[key as WorkflowType]}
+                  {meta.label}
+                </span>
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -668,8 +752,9 @@ export default function Hearings() {
                     <HearingCard
                       key={hearing.id}
                       hearing={hearing}
-                      onDelete={() => deleteHearing.mutate(hearing.id)}
+                      onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
+                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
                     />
                   ))}
                 </div>
@@ -699,8 +784,9 @@ export default function Hearings() {
                     <HearingCard
                       key={hearing.id}
                       hearing={hearing}
-                      onDelete={() => deleteHearing.mutate(hearing.id)}
+                      onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
+                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
                       showDate
                     />
                   ))}
@@ -729,8 +815,9 @@ export default function Hearings() {
                     <HearingCard
                       key={hearing.id}
                       hearing={hearing}
-                      onDelete={() => deleteHearing.mutate(hearing.id)}
+                      onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
+                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
                       isPast
                       showDate
                     />
@@ -753,13 +840,15 @@ export default function Hearings() {
 interface HearingCardProps {
   hearing: Hearing;
   onDelete: () => void;
+  onNavigate: () => void;
   isDeleting: boolean;
   isPast?: boolean;
   showDate?: boolean;
 }
 
-function HearingCard({ hearing, onDelete, isDeleting, isPast, showDate }: HearingCardProps) {
+function HearingCard({ hearing, onDelete, onNavigate, isDeleting, isPast, showDate }: HearingCardProps) {
   const date = new Date(hearing.scheduled_at);
+  const workItem = hearing.work_item;
   
   return (
     <div className={cn(
@@ -809,32 +898,23 @@ function HearingCard({ hearing, onDelete, isDeleting, isPast, showDate }: Hearin
             )}
           </div>
 
-          {/* Process info - Filing or CPACA */}
-          {hearing.filing && (
-            <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
-              {hearing.filing.filing_type === "TUTELA" || hearing.filing.filing_type === "Tutela" ? (
-                <Gavel className="h-3 w-3" />
-              ) : hearing.filing.filing_type === "PETICION" || hearing.filing.filing_type === "DERECHO_PETICION" ? (
-                <FileText className="h-3 w-3" />
-              ) : (
-                <Scale className="h-3 w-3" />
+          {/* Work Item info */}
+          {workItem && (
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <Badge 
+                variant="secondary" 
+                className={cn("text-xs", WORKFLOW_COLORS[workItem.workflow_type])}
+              >
+                {WORKFLOW_ICONS[workItem.workflow_type]}
+                <span className="ml-1">{WORKFLOW_TYPES[workItem.workflow_type]?.shortLabel}</span>
+              </Badge>
+              <span className="font-mono text-xs text-muted-foreground">
+                {workItem.radicado || workItem.title || "Sin identificar"}
+              </span>
+              {workItem.client?.name && (
+                <span className="text-xs text-muted-foreground">• {workItem.client.name}</span>
               )}
-              <span className="font-mono">{hearing.filing.radicado || "Sin radicado"}</span>
-              {(hearing.filing.client?.name || hearing.filing.matter?.client_name) && (
-                <span> • {hearing.filing.client?.name || hearing.filing.matter?.client_name}</span>
-              )}
-            </p>
-          )}
-          
-          {hearing.cpaca_process && (
-            <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
-              <Building2 className="h-3 w-3" />
-              <span className="font-mono">{hearing.cpaca_process.radicado || hearing.cpaca_process.titulo || "Sin radicado"}</span>
-              {hearing.cpaca_process.client?.name && (
-                <span> • {hearing.cpaca_process.client.name}</span>
-              )}
-              <Badge variant="outline" className="ml-1 text-[10px] py-0">CPACA</Badge>
-            </p>
+            </div>
           )}
 
           {hearing.notes && (
@@ -843,6 +923,16 @@ function HearingCard({ hearing, onDelete, isDeleting, isPast, showDate }: Hearin
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {hearing.work_item_id && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onNavigate}
+              title="Ver proceso"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          )}
           {hearing.is_virtual && hearing.virtual_link && (
             <Button
               variant="outline"
