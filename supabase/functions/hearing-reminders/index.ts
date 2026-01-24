@@ -19,8 +19,9 @@ interface Hearing {
   virtual_link: string | null;
   notes: string | null;
   reminder_sent: boolean | null;
-  filing_id: string;
+  work_item_id: string | null;
   owner_id: string;
+  organization_id: string | null;
 }
 
 interface Profile {
@@ -30,18 +31,20 @@ interface Profile {
   email_reminders_enabled: boolean | null;
 }
 
-interface Filing {
+interface WorkItem {
   id: string;
   radicado: string | null;
-  matter: {
-    client_name: string;
-    matter_name: string;
-  } | null;
+  title: string | null;
+  workflow_type: string | null;
+  demandantes: string | null;
+  demandados: string | null;
+  client_id: string | null;
+  clients: { name: string }[] | null;
 }
 
 const generateHearingReminderHtml = (
   hearing: Hearing,
-  filing: Filing | null,
+  workItem: WorkItem | null,
   profile: Profile,
   daysUntil: number
 ): string => {
@@ -117,6 +120,11 @@ const generateHearingReminderHtml = (
     ? `<p style="margin: 4px 0; font-size: 14px;"><strong>📍 Ubicación:</strong> ${hearing.location}</p>`
     : "";
 
+  // Get client name from work item (clients is an array from the join)
+  const clientName = Array.isArray(workItem?.clients) && workItem.clients.length > 0
+    ? workItem.clients[0].name
+    : null;
+
   return `
     <!DOCTYPE html>
     <html>
@@ -147,8 +155,9 @@ const generateHearingReminderHtml = (
             <p style="margin: 4px 0; font-size: 14px;"><strong>Fecha:</strong> ${formattedDate}</p>
             <p style="margin: 4px 0; font-size: 14px;"><strong>Hora:</strong> ${formattedTime}</p>
             ${locationInfo}
-            ${filing?.radicado ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Radicado:</strong> <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px;">${filing.radicado}</code></p>` : ""}
-            ${filing?.matter?.client_name ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Cliente:</strong> ${filing.matter.client_name}</p>` : ""}
+            ${workItem?.workflow_type ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Tipo:</strong> ${workItem.workflow_type}</p>` : ""}
+            ${workItem?.radicado ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Radicado:</strong> <code style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px;">${workItem.radicado}</code></p>` : ""}
+            ${clientName ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Cliente:</strong> ${clientName}</p>` : ""}
           </div>
           
           ${hearing.notes ? `<p style="margin: 16px 0; font-size: 14px; line-height: 1.6;"><strong>Notas:</strong> ${hearing.notes}</p>` : ""}
@@ -183,28 +192,13 @@ const handler = async (req: Request): Promise<Response> => {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     const reminderDays = [0, 1, 3, 7]; // Same day, 1 day, 3 days, 7 days before
-    
-    // Calculate date ranges
-    const dateRanges = reminderDays.map(days => {
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() + days);
-      const startOfDay = new Date(targetDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(targetDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      return { days, startOfDay, endOfDay };
-    });
 
-    // Fetch hearings that need reminders
+    // Fetch hearings that need reminders - using work_item_id instead of filing_id
     const { data: hearings, error: hearingsError } = await supabase
       .from("hearings")
       .select(`
-        *,
-        filing:filings(
-          id,
-          radicado,
-          matter:matters(client_name, matter_name)
-        )
+        id, title, scheduled_at, location, is_virtual, virtual_link, notes, 
+        reminder_sent, work_item_id, owner_id, organization_id
       `)
       .eq("reminder_sent", false)
       .gte("scheduled_at", today.toISOString())
@@ -231,6 +225,23 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       console.log(`Processing hearing ${hearing.id} - ${hearing.title}, ${daysUntil} days until`);
+
+      // Fetch linked work item if available
+      let workItem: WorkItem | null = null;
+      if (hearing.work_item_id) {
+        const { data: workItemData, error: workItemError } = await supabase
+          .from("work_items")
+          .select(`
+            id, radicado, title, workflow_type, demandantes, demandados, client_id,
+            clients(name)
+          `)
+          .eq("id", hearing.work_item_id)
+          .single();
+        
+        if (!workItemError && workItemData) {
+          workItem = workItemData as WorkItem;
+        }
+      }
 
       // Get the owner's profile
       const { data: profile, error: profileError } = await supabase
@@ -260,10 +271,10 @@ const handler = async (req: Request): Promise<Response> => {
 
       const recipientEmail = profile.reminder_email || authUser.user.email;
 
-      // Generate and send email
+      // Generate and send email using work_item data
       const html = generateHearingReminderHtml(
         hearing,
-        hearing.filing,
+        workItem,
         profile,
         daysUntil
       );
@@ -302,12 +313,12 @@ const handler = async (req: Request): Promise<Response> => {
             .eq("id", hearing.id);
         }
 
-        // Create an alert for the hearing reminder
+        // Create an alert for the hearing reminder - link to work_item_id if available
         await supabase.from("alerts").insert({
           owner_id: hearing.owner_id,
-          filing_id: hearing.filing_id,
+          filing_id: null, // Deprecated, using work_item_id now
           severity: daysUntil === 0 ? "CRITICAL" : daysUntil <= 1 ? "WARN" : "INFO",
-          message: `Recordatorio: ${hearing.title} ${daysUntil === 0 ? "es HOY" : daysUntil === 1 ? "es MAÑANA" : `en ${daysUntil} días`}`,
+          message: `Recordatorio: ${hearing.title} ${daysUntil === 0 ? "es HOY" : daysUntil === 1 ? "es MAÑANA" : `en ${daysUntil} días`}${workItem?.radicado ? ` - Radicado: ${workItem.radicado}` : ""}`,
           is_read: false,
         });
 
