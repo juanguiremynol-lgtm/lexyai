@@ -92,9 +92,10 @@ export function LaboralPipeline() {
           client_id, clients(id, name)
         `)
         .eq("owner_id", user.user.id)
-        .eq("workflow_type", "LABORAL" as any) // Cast until types regenerate
+        .eq("workflow_type", "LABORAL" as any)
         .neq("status", "CLOSED")
-        .neq("status", "ARCHIVED");
+        .neq("status", "ARCHIVED")
+        .is("deleted_at", null); // Exclude soft-deleted items
 
       if (error) throw error;
       

@@ -109,7 +109,8 @@ export function CpacaPipeline() {
         .eq("owner_id", user.user.id)
         .eq("workflow_type", "CPACA")
         .neq("status", "CLOSED")
-        .neq("status", "ARCHIVED");
+        .neq("status", "ARCHIVED")
+        .is("deleted_at", null); // Exclude soft-deleted items
 
       if (error) throw error;
       
