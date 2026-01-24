@@ -91,17 +91,17 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-foreground">
+    <div className="space-y-6 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-3xl font-bold text-foreground truncate">
             Dashboard
           </h1>
           <p className="text-muted-foreground">
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
-        <Button onClick={() => setCreateDialogOpen(true)} size="icon" className="h-10 w-10">
+        <Button onClick={() => setCreateDialogOpen(true)} size="icon" className="h-10 w-10 flex-shrink-0">
           <Plus className="h-5 w-5" />
         </Button>
       </div>
@@ -183,15 +183,17 @@ export default function Dashboard() {
       </div>
 
       {/* Tabbed Pipelines */}
-      <Tabs defaultValue="cgp" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
-          <TabsTrigger value="laboral">Laborales</TabsTrigger>
-          <TabsTrigger value="cpaca">CPACA</TabsTrigger>
-          <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
-          <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
-          <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="cgp" className="space-y-4 w-full max-w-full">
+        <div className="w-full max-w-full overflow-x-auto">
+          <TabsList className="inline-flex min-w-max">
+            <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
+            <TabsTrigger value="laboral">Laborales</TabsTrigger>
+            <TabsTrigger value="cpaca">CPACA</TabsTrigger>
+            <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
+            <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
+            <TabsTrigger value="tutelas">Tutelas</TabsTrigger>
+          </TabsList>
+        </div>
         
         <TabsContent value="cgp" className="space-y-4">
           <p className="text-sm text-muted-foreground">
