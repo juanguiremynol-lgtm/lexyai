@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { WorkflowType } from "@/lib/workflow-constants";
+import { normalizeRadicadoInput, validateCgpRadicado } from "@/lib/radicado-utils";
 
 export interface ProcessData {
   despacho?: string;
@@ -49,13 +50,23 @@ export interface SyncResult extends LookupResult {
 
 export type LookupStatus = 'idle' | 'loading' | 'success' | 'error' | 'not_found';
 
+/**
+ * Validation result for radicado input
+ */
+export interface RadicadoValidation {
+  valid: boolean;
+  normalized: string;
+  error?: string;
+}
+
 export interface UseRadicadoLookupReturn {
   status: LookupStatus;
   result: LookupResult | null;
   error: string | null;
-  lookup: (radicado: string) => Promise<LookupResult | null>;
+  lookup: (radicado: string, workflowType?: WorkflowType) => Promise<LookupResult | null>;
   sync: (radicado: string, options: SyncOptions) => Promise<SyncResult | null>;
   reset: () => void;
+  validateRadicado: (radicado: string, workflowType?: WorkflowType) => RadicadoValidation;
 }
 
 export interface SyncOptions {
@@ -66,12 +77,52 @@ export interface SyncOptions {
 }
 
 /**
+ * Validate radicado based on workflow type
+ * CGP requires 23 digits ending in 00 or 01
+ * Other workflows require 23 digits
+ */
+function validateRadicadoForWorkflow(radicado: string, workflowType?: WorkflowType): RadicadoValidation {
+  const normalized = normalizeRadicadoInput(radicado);
+  
+  if (normalized.length === 0) {
+    return { valid: false, normalized: '', error: 'El radicado no contiene dígitos válidos' };
+  }
+  
+  if (normalized.length !== 23) {
+    return { 
+      valid: false, 
+      normalized, 
+      error: `El radicado debe tener exactamente 23 dígitos numéricos (tiene ${normalized.length})` 
+    };
+  }
+  
+  // CGP-specific: must end with 00 or 01
+  if (workflowType === 'CGP') {
+    const cgpValidation = validateCgpRadicado(radicado);
+    if (!cgpValidation.valid) {
+      return { valid: false, normalized, error: cgpValidation.error };
+    }
+  }
+  
+  return { valid: true, normalized };
+}
+
+/**
  * Hook for looking up and syncing radicados via the unified sync-by-radicado edge function
  * 
  * This hook provides:
  * - LOOKUP mode: Preview data without creating/updating work items
  * - SYNC mode: Create or update work items with full normalization pipeline
  * - Automatic FILING/PROCESS classification based on Auto Admisorio detection
+ */
+/**
+ * Hook for looking up and syncing radicados via the unified sync-by-radicado edge function
+ * 
+ * This hook provides:
+ * - LOOKUP mode: Preview data without creating/updating work items
+ * - SYNC mode: Create or update work items with full normalization pipeline
+ * - Automatic FILING/PROCESS classification based on Auto Admisorio detection
+ * - Proper validation including CGP-specific rules (ending 00/01)
  */
 export function useRadicadoLookup(): UseRadicadoLookupReturn {
   const [status, setStatus] = useState<LookupStatus>('idle');
@@ -85,18 +136,31 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
   }, []);
 
   /**
+   * Validate radicado for a specific workflow type
+   */
+  const validateRadicado = useCallback((radicado: string, workflowType?: WorkflowType): RadicadoValidation => {
+    return validateRadicadoForWorkflow(radicado, workflowType);
+  }, []);
+
+  /**
    * LOOKUP mode: Fetch process data without creating/updating work items
    * Returns preview data including FILING/PROCESS classification
+   * 
+   * @param radicado - The radicado string (will be normalized)
+   * @param workflowType - Optional workflow type for validation (CGP requires ending 00/01)
    */
-  const lookup = useCallback(async (radicado: string): Promise<LookupResult | null> => {
-    const cleanRadicado = radicado.replace(/\D/g, '');
+  const lookup = useCallback(async (radicado: string, workflowType?: WorkflowType): Promise<LookupResult | null> => {
+    // Validate with workflow-specific rules
+    const validation = validateRadicadoForWorkflow(radicado, workflowType);
     
-    if (cleanRadicado.length !== 23) {
-      const err = `El radicado debe tener 23 dígitos (tiene ${cleanRadicado.length})`;
-      setError(err);
+    if (!validation.valid) {
+      setError(validation.error || 'Radicado inválido');
       setStatus('error');
       return null;
     }
+
+    // Use the normalized string (preserves leading zeros)
+    const cleanRadicado = validation.normalized;
 
     setStatus('loading');
     setError(null);
@@ -107,6 +171,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         body: {
           radicado: cleanRadicado,
           mode: 'LOOKUP',
+          workflow_type: workflowType,
         },
       });
 
@@ -153,14 +218,17 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
     radicado: string,
     options: SyncOptions
   ): Promise<SyncResult | null> => {
-    const cleanRadicado = radicado.replace(/\D/g, '');
+    // Validate with workflow-specific rules
+    const validation = validateRadicadoForWorkflow(radicado, options.workflow_type);
     
-    if (cleanRadicado.length !== 23) {
-      const err = `El radicado debe tener 23 dígitos (tiene ${cleanRadicado.length})`;
-      setError(err);
+    if (!validation.valid) {
+      setError(validation.error || 'Radicado inválido');
       setStatus('error');
       return null;
     }
+
+    // Use the normalized string (preserves leading zeros)
+    const cleanRadicado = validation.normalized;
 
     setStatus('loading');
     setError(null);
@@ -218,5 +286,6 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
     lookup,
     sync,
     reset,
+    validateRadicado,
   };
 }

@@ -61,6 +61,7 @@ import { CGP_CUANTIA_CONFIG } from "@/lib/cgp-constants";
 import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
+import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
@@ -100,8 +101,9 @@ export function CreateWorkItemWizard({
   
   // Radicado lookup
   const [radicado, setRadicado] = useState('');
+  const [radicadoError, setRadicadoError] = useState<string | null>(null);
   const [useRadicadoInput, setUseRadicadoInput] = useState<'lookup' | 'manual'>('lookup');
-  const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup } = useRadicadoLookup();
+  const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
   
   // Step 2: Basic details
   const [title, setTitle] = useState('');
@@ -215,30 +217,49 @@ export function CreateWorkItemWizard({
   };
   
   const handleRadicadoLookup = async () => {
-    if (radicado.length !== 23) return;
-    await lookup(radicado);
+    // Clear previous errors
+    setRadicadoError(null);
+    
+    // Validate before lookup
+    const validation = validateRadicado(radicado, workflowType || undefined);
+    if (!validation.valid) {
+      setRadicadoError(validation.error || 'Radicado inválido');
+      return;
+    }
+    
+    await lookup(radicado, workflowType || undefined);
   };
   
   const handleRadicadoChange = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 23);
+    // Normalize input - strip non-digits, keep as string to preserve leading zeros
+    const digits = normalizeRadicadoInput(value).slice(0, 23);
     setRadicado(digits);
+    setRadicadoError(null);
+    
     if (digits.length !== 23) {
       resetLookup();
     }
   };
   
+  // Use the centralized formatRadicadoDisplay from radicado-utils
   const formatRadicado = (digits: string): string => {
     if (!digits) return "";
-    const parts = [
-      digits.slice(0, 2),
-      digits.slice(2, 5),
-      digits.slice(5, 7),
-      digits.slice(7, 10),
-      digits.slice(10, 14),
-      digits.slice(14, 19),
-      digits.slice(19, 21),
-    ].filter(Boolean);
-    return parts.join("-");
+    // For partial input, show with separators for readability
+    if (digits.length < 23) {
+      const parts = [
+        digits.slice(0, 2),
+        digits.slice(2, 5),
+        digits.slice(5, 7),
+        digits.slice(7, 10),
+        digits.slice(10, 14),
+        digits.slice(14, 19),
+        digits.slice(19, 21),
+        digits.slice(21, 23),
+      ].filter(Boolean);
+      return parts.join("-");
+    }
+    // For complete radicado, use standard format
+    return formatRadicadoDisplay(digits);
   };
   
   const handleProceedFromRadicado = () => {
@@ -515,22 +536,28 @@ export function CreateWorkItemWizard({
                 
                 <TabsContent value="lookup" className="mt-4 space-y-4">
                   <div className="space-y-2">
-                    <Label>Radicado (23 dígitos)</Label>
+                    <Label>Radicado (23 dígitos){workflowType === 'CGP' && <span className="text-muted-foreground"> - debe terminar en 00 o 01</span>}</Label>
                     <div className="flex gap-2">
                       <Input
+                        type="text"
+                        inputMode="numeric"
                         value={formatRadicado(radicado)}
                         onChange={(e) => handleRadicadoChange(e.target.value)}
-                        placeholder="11-001-31-03-012-2024-00001-00"
-                        className="font-mono flex-1"
+                        placeholder="05-001-400-302-3202-50063-800"
+                        className={`font-mono flex-1 ${radicadoError ? 'border-destructive' : ''}`}
                         maxLength={30}
                       />
                       <Badge variant={radicado.length === 23 ? "default" : "secondary"} className="shrink-0 self-center">
                         {radicado.length}/23
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Departamento-Distrito-Especialidad-Circuito-Despacho-Año-Consecutivo
-                    </p>
+                    {radicadoError ? (
+                      <p className="text-xs text-destructive">{radicadoError}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Ejemplo: 05001400302320250063800 (Depto-Mpio-Entidad-Espec-Año-Consec-Ctrl)
+                      </p>
+                    )}
                   </div>
                   
                   <Button 
@@ -614,11 +641,13 @@ export function CreateWorkItemWizard({
                   </Alert>
                   
                   <div className="space-y-2">
-                    <Label>Radicado (opcional)</Label>
+                    <Label>Radicado (opcional){workflowType === 'CGP' && radicado.length === 23 && <span className="text-muted-foreground"> - debe terminar en 00 o 01</span>}</Label>
                     <Input
+                      type="text"
+                      inputMode="numeric"
                       value={formatRadicado(radicado)}
                       onChange={(e) => handleRadicadoChange(e.target.value)}
-                      placeholder="11-001-31-03-012-2024-00001-00"
+                      placeholder="05-001-400-302-3202-50063-800"
                       className="font-mono"
                       maxLength={30}
                     />
