@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { memo, useMemo } from "react";
 import { useTickerEstados, useTickerSettings, TickerItem } from "@/hooks/use-ticker-estados";
 import { cn } from "@/lib/utils";
-import { Scale, Gavel, Briefcase, FileText, Radio } from "lucide-react";
+import { Scale, Gavel, Briefcase, FileText } from "lucide-react";
 
 // Workflow type icons
 const WORKFLOW_ICONS: Record<string, React.ElementType> = {
@@ -89,10 +89,10 @@ export function EstadosTicker() {
 
   // Calculate animation duration based on number of items
   // More items = longer duration for comfortable reading
-  // Speed increased by 25% (multiplier reduced from 5 to 4)
+  // Speed increased by 50% total (multiplier reduced from 5 to 3)
   const animationDuration = useMemo(() => {
-    if (!items) return 30;
-    return Math.max(items.length * 4, 30);
+    if (!items) return 22;
+    return Math.max(items.length * 3, 22);
   }, [items]);
 
   // Don't render if disabled or loading settings
@@ -115,17 +115,9 @@ export function EstadosTicker() {
       role="marquee"
       aria-label="Actualizaciones judiciales recientes"
     >
-      {/* Live indicator */}
-      <div className="absolute left-0 top-0 bottom-0 z-10 flex items-center px-3 bg-gradient-to-r from-card via-card to-transparent">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
-          <Radio className="h-3 w-3 animate-pulse" />
-          <span className="hidden sm:inline">EN VIVO</span>
-        </div>
-      </div>
-
-      {/* Scrolling container - animation happens inside overflow-hidden parent */}
+      {/* Scrolling container */}
       <div 
-        className="flex items-center py-1.5 pl-16 sm:pl-20 ticker-scroll whitespace-nowrap"
+        className="flex items-center py-1.5 pl-4 ticker-scroll whitespace-nowrap"
         style={{
           animation: `ticker-scroll ${animationDuration}s linear infinite`,
         }}
