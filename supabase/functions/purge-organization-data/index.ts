@@ -1,0 +1,393 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+interface PurgeRequest {
+  confirm_text: string;
+  purge_type?: "ALL" | "LEGACY_ONLY";
+}
+
+interface PurgeResult {
+  ok: boolean;
+  message: string;
+  deleted_counts: {
+    work_items: number;
+    cgp_items: number;
+    peticiones: number;
+    cpaca_processes: number;
+    monitored_processes: number;
+    filings: number;
+    process_events: number;
+    actuaciones: number;
+    documents: number;
+    tasks: number;
+    alerts: number;
+    hearings: number;
+    storage_files: number;
+  };
+  errors: string[];
+}
+
+Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    // 1. Validate authorization
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ ok: false, message: "Missing authorization header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+
+    // 2. Get authenticated user
+    const { data: { user }, error: userError } = await userClient.auth.getUser();
+    if (userError || !user) {
+      return new Response(
+        JSON.stringify({ ok: false, message: "Invalid or expired token" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Parse and validate request
+    const body: PurgeRequest = await req.json();
+    if (body.confirm_text !== "PURGE MY ORG") {
+      return new Response(
+        JSON.stringify({ ok: false, message: "Confirmation text must be exactly 'PURGE MY ORG'" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 4. Get user's organization
+    const { data: profile } = await serviceClient
+      .from("profiles")
+      .select("organization_id")
+      .eq("id", user.id)
+      .single();
+
+    const organizationId = profile?.organization_id;
+
+    // 5. Check if user is owner/admin
+    const { data: userRoles } = await serviceClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .in("role", ["owner", "admin"]);
+
+    // For now, allow any authenticated user to purge their own data
+    const isAdmin = userRoles && userRoles.length > 0;
+
+    console.log(`[purge-org] User ${user.id} (org: ${organizationId}, admin: ${isAdmin}) initiated purge`);
+
+    const result: PurgeResult = {
+      ok: true,
+      message: "",
+      deleted_counts: {
+        work_items: 0,
+        cgp_items: 0,
+        peticiones: 0,
+        cpaca_processes: 0,
+        monitored_processes: 0,
+        filings: 0,
+        process_events: 0,
+        actuaciones: 0,
+        documents: 0,
+        tasks: 0,
+        alerts: 0,
+        hearings: 0,
+        storage_files: 0,
+      },
+      errors: [],
+    };
+
+    // 6. Collect all IDs to delete from all tables
+    const [
+      workItemsRes,
+      cgpItemsRes,
+      peticionesRes,
+      cpacaRes,
+      processesRes,
+      filingsRes,
+    ] = await Promise.all([
+      serviceClient.from("work_items").select("id").eq("owner_id", user.id),
+      serviceClient.from("cgp_items").select("id").eq("owner_id", user.id),
+      serviceClient.from("peticiones").select("id").eq("owner_id", user.id),
+      serviceClient.from("cpaca_processes").select("id").eq("owner_id", user.id),
+      serviceClient.from("monitored_processes").select("id").eq("owner_id", user.id),
+      serviceClient.from("filings").select("id").eq("owner_id", user.id),
+    ]);
+
+    const workItemIds = (workItemsRes.data || []).map(r => r.id);
+    const cgpItemIds = (cgpItemsRes.data || []).map(r => r.id);
+    const peticionIds = (peticionesRes.data || []).map(r => r.id);
+    const cpacaIds = (cpacaRes.data || []).map(r => r.id);
+    const processIds = (processesRes.data || []).map(r => r.id);
+    const filingIds = (filingsRes.data || []).map(r => r.id);
+
+    const allIds = [...new Set([
+      ...workItemIds,
+      ...cgpItemIds,
+      ...peticionIds,
+      ...cpacaIds,
+      ...processIds,
+      ...filingIds,
+    ])];
+
+    console.log(`[purge-org] Found ${allIds.length} total entities to delete`);
+
+    // 7. Delete all dependent data first (order matters for FK constraints)
+    
+    // Delete work_item_acts
+    if (workItemIds.length > 0) {
+      await serviceClient.from("work_item_acts").delete().in("work_item_id", workItemIds);
+    }
+
+    // Delete work_item_deadlines
+    if (workItemIds.length > 0) {
+      await serviceClient.from("work_item_deadlines").delete().in("work_item_id", workItemIds);
+    }
+
+    // Delete process_events
+    if (workItemIds.length > 0) {
+      const res1 = await serviceClient.from("process_events").select("id").in("work_item_id", workItemIds);
+      result.deleted_counts.process_events += (res1.data?.length || 0);
+      await serviceClient.from("process_events").delete().in("work_item_id", workItemIds);
+    }
+    if (filingIds.length > 0) {
+      await serviceClient.from("process_events").delete().in("filing_id", filingIds);
+    }
+    if (processIds.length > 0) {
+      await serviceClient.from("process_events").delete().in("process_id", processIds);
+    }
+
+    // Delete alert_instances and alert_rules
+    if (allIds.length > 0) {
+      await serviceClient.from("alert_instances").delete().in("entity_id", allIds);
+      await serviceClient.from("alert_rules").delete().in("entity_id", allIds);
+    }
+
+    // Delete tasks
+    if (filingIds.length > 0) {
+      const tasksRes = await serviceClient.from("tasks").select("id").in("filing_id", filingIds);
+      result.deleted_counts.tasks += (tasksRes.data?.length || 0);
+      await serviceClient.from("tasks").delete().in("filing_id", filingIds);
+    }
+
+    // Delete cgp_deadlines, cgp_term_instances, cgp_milestones, cgp_inactivity_tracker
+    if (workItemIds.length > 0) {
+      await serviceClient.from("cgp_deadlines").delete().in("work_item_id", workItemIds);
+    }
+    if (filingIds.length > 0) {
+      await serviceClient.from("cgp_term_instances").delete().in("filing_id", filingIds);
+      await serviceClient.from("cgp_milestones").delete().in("filing_id", filingIds);
+      await serviceClient.from("cgp_inactivity_tracker").delete().in("filing_id", filingIds);
+    }
+    if (processIds.length > 0) {
+      await serviceClient.from("cgp_term_instances").delete().in("process_id", processIds);
+      await serviceClient.from("cgp_milestones").delete().in("process_id", processIds);
+      await serviceClient.from("cgp_inactivity_tracker").delete().in("process_id", processIds);
+    }
+
+    // Delete desacato_incidents
+    if (filingIds.length > 0) {
+      await serviceClient.from("desacato_incidents").delete().in("tutela_id", filingIds);
+    }
+    if (workItemIds.length > 0) {
+      await serviceClient.from("desacato_incidents").delete().in("linked_work_item_id", workItemIds);
+    }
+
+    // Delete peticion_alerts
+    if (peticionIds.length > 0) {
+      await serviceClient.from("peticion_alerts").delete().in("peticion_id", peticionIds);
+    }
+
+    // Delete message_links
+    if (filingIds.length > 0) {
+      await serviceClient.from("message_links").delete().in("filing_id", filingIds);
+    }
+
+    // Delete documents and storage files
+    if (filingIds.length > 0) {
+      const { data: docs } = await serviceClient
+        .from("documents")
+        .select("id, storage_path")
+        .in("filing_id", filingIds);
+
+      if (docs && docs.length > 0) {
+        for (const doc of docs) {
+          if (doc.storage_path) {
+            try {
+              await serviceClient.storage.from("lexdocket").remove([doc.storage_path]);
+              result.deleted_counts.storage_files++;
+            } catch (e) {
+              console.log(`[purge-org] Storage delete failed: ${doc.storage_path}`);
+            }
+          }
+        }
+        await serviceClient.from("documents").delete().in("filing_id", filingIds);
+        result.deleted_counts.documents = docs.length;
+      }
+    }
+
+    // Delete evidence_snapshots
+    if (processIds.length > 0) {
+      const { data: snapshots } = await serviceClient
+        .from("evidence_snapshots")
+        .select("id, storage_path")
+        .in("monitored_process_id", processIds);
+
+      if (snapshots && snapshots.length > 0) {
+        for (const snap of snapshots) {
+          if (snap.storage_path) {
+            try {
+              await serviceClient.storage.from("lexdocket").remove([snap.storage_path]);
+              result.deleted_counts.storage_files++;
+            } catch (e) {
+              console.log(`[purge-org] Storage delete failed: ${snap.storage_path}`);
+            }
+          }
+        }
+        await serviceClient.from("evidence_snapshots").delete().in("monitored_process_id", processIds);
+      }
+    }
+
+    // Delete actuaciones
+    if (filingIds.length > 0) {
+      const actRes1 = await serviceClient.from("actuaciones").select("id").in("filing_id", filingIds);
+      result.deleted_counts.actuaciones += (actRes1.data?.length || 0);
+      await serviceClient.from("actuaciones").delete().in("filing_id", filingIds);
+    }
+    if (processIds.length > 0) {
+      const actRes2 = await serviceClient.from("actuaciones").select("id").in("monitored_process_id", processIds);
+      result.deleted_counts.actuaciones += (actRes2.data?.length || 0);
+      await serviceClient.from("actuaciones").delete().in("monitored_process_id", processIds);
+    }
+
+    // Delete alerts
+    if (filingIds.length > 0) {
+      const alertsRes = await serviceClient.from("alerts").select("id").in("filing_id", filingIds);
+      result.deleted_counts.alerts += (alertsRes.data?.length || 0);
+      await serviceClient.from("alerts").delete().in("filing_id", filingIds);
+    }
+
+    // Delete hearings
+    if (filingIds.length > 0) {
+      const hearingsRes = await serviceClient.from("hearings").select("id").in("filing_id", filingIds);
+      result.deleted_counts.hearings += (hearingsRes.data?.length || 0);
+      await serviceClient.from("hearings").delete().in("filing_id", filingIds);
+    }
+    if (processIds.length > 0) {
+      await serviceClient.from("hearings").delete().in("process_id", processIds);
+    }
+
+    // Delete work_item_mappings
+    if (workItemIds.length > 0) {
+      await serviceClient.from("work_item_mappings").delete().in("work_item_id", workItemIds);
+    }
+    if (filingIds.length > 0) {
+      await serviceClient.from("work_item_mappings").delete().in("legacy_filing_id", filingIds);
+    }
+    if (processIds.length > 0) {
+      await serviceClient.from("work_item_mappings").delete().in("legacy_process_id", processIds);
+    }
+
+    // 8. Delete main entities
+    
+    // Delete work_items
+    if (workItemIds.length > 0) {
+      const { error } = await serviceClient.from("work_items").delete().in("id", workItemIds);
+      if (error) {
+        result.errors.push(`work_items: ${error.message}`);
+      } else {
+        result.deleted_counts.work_items = workItemIds.length;
+      }
+    }
+
+    // Delete cgp_items
+    if (cgpItemIds.length > 0) {
+      const { error } = await serviceClient.from("cgp_items").delete().in("id", cgpItemIds);
+      if (error) {
+        result.errors.push(`cgp_items: ${error.message}`);
+      } else {
+        result.deleted_counts.cgp_items = cgpItemIds.length;
+      }
+    }
+
+    // Delete peticiones
+    if (peticionIds.length > 0) {
+      const { error } = await serviceClient.from("peticiones").delete().in("id", peticionIds);
+      if (error) {
+        result.errors.push(`peticiones: ${error.message}`);
+      } else {
+        result.deleted_counts.peticiones = peticionIds.length;
+      }
+    }
+
+    // Delete cpaca_processes
+    if (cpacaIds.length > 0) {
+      const { error } = await serviceClient.from("cpaca_processes").delete().in("id", cpacaIds);
+      if (error) {
+        result.errors.push(`cpaca_processes: ${error.message}`);
+      } else {
+        result.deleted_counts.cpaca_processes = cpacaIds.length;
+      }
+    }
+
+    // Delete monitored_processes
+    if (processIds.length > 0) {
+      const { error } = await serviceClient.from("monitored_processes").delete().in("id", processIds);
+      if (error) {
+        result.errors.push(`monitored_processes: ${error.message}`);
+      } else {
+        result.deleted_counts.monitored_processes = processIds.length;
+      }
+    }
+
+    // Delete filings
+    if (filingIds.length > 0) {
+      const { error } = await serviceClient.from("filings").delete().in("id", filingIds);
+      if (error) {
+        result.errors.push(`filings: ${error.message}`);
+      } else {
+        result.deleted_counts.filings = filingIds.length;
+      }
+    }
+
+    // 9. Summary
+    const totalDeleted = Object.values(result.deleted_counts).reduce((a, b) => a + b, 0);
+    result.ok = result.errors.length === 0;
+    result.message = `Purge complete. Deleted ${totalDeleted} records across all tables.`;
+
+    console.log(`[purge-org] Complete:`, result.deleted_counts);
+
+    return new Response(
+      JSON.stringify(result),
+      { 
+        status: result.ok ? 200 : 207,
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      }
+    );
+
+  } catch (err) {
+    console.error("[purge-org] Unhandled error:", err);
+    return new Response(
+      JSON.stringify({ ok: false, message: String(err) }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+});

@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.sync-by-radicado]
 verify_jwt = false
+
+[functions.purge-organization-data]
+verify_jwt = false
