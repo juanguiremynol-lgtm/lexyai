@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertTriangle, Loader2, Trash2, FileText, Scale, Send, Gavel, Landmark, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface BulkDeleteItem {
   id: string;
@@ -27,9 +30,12 @@ interface BulkDeleteItem {
 interface BulkDeleteWorkItemsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-  isDeleting: boolean;
-  items: BulkDeleteItem[];
+  onConfirm?: () => void;
+  isDeleting?: boolean;
+  items?: BulkDeleteItem[];
+  // Simplified interface - just pass IDs and the component handles deletion
+  workItemIds?: string[];
+  onDeleted?: () => void;
 }
 
 const WORKFLOW_ICONS: Record<string, typeof Scale> = {
@@ -44,12 +50,42 @@ export function BulkDeleteWorkItemsDialog({
   open,
   onOpenChange,
   onConfirm,
-  isDeleting,
-  items,
+  isDeleting: externalIsDeleting,
+  items: externalItems,
+  workItemIds,
+  onDeleted,
 }: BulkDeleteWorkItemsDialogProps) {
+  const queryClient = useQueryClient();
   const [understood, setUnderstood] = useState(false);
   const [confirmText, setConfirmText] = useState("");
 
+  // Support both interfaces
+  const items: BulkDeleteItem[] = externalItems || (workItemIds?.map(id => ({ id })) || []);
+  
+  // Internal mutation for simplified interface
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data, error } = await supabase.functions.invoke("delete-work-items", {
+        body: { work_item_ids: ids },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      toast.success(`${items.length} proceso${items.length !== 1 ? "s" : ""} eliminado${items.length !== 1 ? "s" : ""}`);
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["processes"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      onDeleted?.();
+    },
+    onError: (error) => {
+      console.error("Error deleting work items:", error);
+      toast.error("Error al eliminar: " + (error.message || "Error desconocido"));
+    },
+  });
+
+  const isDeleting = externalIsDeleting || deleteMutation.isPending;
   const count = items.length;
   const requiredText = `DELETE ${count}`;
   const isValid = understood && confirmText === requiredText;
@@ -66,7 +102,7 @@ export function BulkDeleteWorkItemsDialog({
   }, [items]);
 
   const handleClose = (isOpen: boolean) => {
-    if (!isOpen) {
+    if (!isOpen && !isDeleting) {
       setUnderstood(false);
       setConfirmText("");
     }
@@ -75,12 +111,19 @@ export function BulkDeleteWorkItemsDialog({
 
   const handleConfirm = () => {
     if (isValid && !isDeleting) {
-      onConfirm();
+      if (onConfirm) {
+        // Use external handler
+        onConfirm();
+      } else if (workItemIds) {
+        // Use internal mutation
+        deleteMutation.mutate(workItemIds);
+      }
     }
   };
 
   const previewItems = items.slice(0, 10);
   const remainingCount = items.length - previewItems.length;
+  const hasWorkflowInfo = items.some(item => item.workflowType);
 
   return (
     <AlertDialog open={open} onOpenChange={handleClose}>
@@ -96,51 +139,62 @@ export function BulkDeleteWorkItemsDialog({
           </div>
           <AlertDialogDescription asChild>
             <div className="space-y-4 pt-4">
-              {/* Items preview */}
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Elementos seleccionados:</p>
-                <ScrollArea className="h-[140px] border rounded-md p-2">
-                  <div className="space-y-1.5">
-                    {previewItems.map((item) => {
-                      const Icon = WORKFLOW_ICONS[item.workflowType || ""] || FileText;
-                      return (
-                        <div
-                          key={item.id}
-                          className="flex items-center gap-2 text-sm py-1 px-2 rounded bg-muted/50"
-                        >
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                          <span className="truncate">
-                            {item.title || item.radicado || item.id.slice(0, 8)}
-                          </span>
-                          {item.workflowType && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 ml-auto">
-                              {item.workflowType}
-                            </Badge>
-                          )}
+              {/* Items preview - only show if we have meaningful data */}
+              {hasWorkflowInfo && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">Elementos seleccionados:</p>
+                  <ScrollArea className="h-[140px] border rounded-md p-2">
+                    <div className="space-y-1.5">
+                      {previewItems.map((item) => {
+                        const Icon = WORKFLOW_ICONS[item.workflowType || ""] || FileText;
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-center gap-2 text-sm py-1 px-2 rounded bg-muted/50"
+                          >
+                            <Icon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="truncate">
+                              {item.title || item.radicado || item.id.slice(0, 8)}
+                            </span>
+                            {item.workflowType && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 ml-auto">
+                                {item.workflowType}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {remainingCount > 0 && (
+                        <div className="text-sm text-muted-foreground py-1 px-2 italic">
+                          ... y {remainingCount} más
                         </div>
-                      );
-                    })}
-                    {remainingCount > 0 && (
-                      <div className="text-sm text-muted-foreground py-1 px-2 italic">
-                        ... y {remainingCount} más
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
 
-              {/* Type breakdown */}
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(groupedItems).map(([type, typeItems]) => {
-                  const Icon = WORKFLOW_ICONS[type] || FileText;
-                  return (
-                    <Badge key={type} variant="secondary" className="gap-1">
-                      <Icon className="h-3 w-3" />
-                      {typeItems.length} {type}
-                    </Badge>
-                  );
-                })}
-              </div>
+              {/* Type breakdown - only if we have workflow info */}
+              {hasWorkflowInfo && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(groupedItems).map(([type, typeItems]) => {
+                    const Icon = WORKFLOW_ICONS[type] || FileText;
+                    return (
+                      <Badge key={type} variant="secondary" className="gap-1">
+                        <Icon className="h-3 w-3" />
+                        {typeItems.length} {type}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Simple count if no workflow info */}
+              {!hasWorkflowInfo && (
+                <p className="text-sm">
+                  Se eliminarán <strong>{count} proceso{count !== 1 ? "s" : ""}</strong> seleccionado{count !== 1 ? "s" : ""}.
+                </p>
+              )}
 
               {/* Warning */}
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3">

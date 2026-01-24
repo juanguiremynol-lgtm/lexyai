@@ -141,9 +141,12 @@ export function EstadosImport() {
       queryClient.invalidateQueries({ queryKey: ["estados-import-runs"] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-acts"] });
       queryClient.invalidateQueries({ queryKey: ["cgp-terms"] });
       queryClient.invalidateQueries({ queryKey: ["cgp-milestones"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["processes"] });
 
       setStep("done");
       

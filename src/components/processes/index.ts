@@ -10,3 +10,4 @@ export { ProcessBulkDeleteDialog } from "./ProcessBulkDeleteDialog";
 export { NewProcessDialog } from "./NewProcessDialog";
 export { ProcessInfoEditor } from "./ProcessInfoEditor";
 export { BuscarProceso } from "./BuscarProceso";
+export { WorkflowTypeBadge } from "./WorkflowTypeBadge";
