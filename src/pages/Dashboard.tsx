@@ -91,14 +91,14 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 main-content-glass">
       {/* Header - always visible, never scrolls horizontally */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="font-display text-3xl font-bold text-foreground">
+          <h1 className="font-display text-3xl font-bold readable-text-strong">
             Dashboard
           </h1>
-          <p className="text-muted-foreground">
+          <p className="readable-muted">
             Vista general de radicaciones, procesos y peticiones
           </p>
         </div>
@@ -109,7 +109,7 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
             <Clock className="h-4 w-4 text-status-pending" />
@@ -118,7 +118,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.actaPending}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Radicado Pendiente</CardTitle>
             <FileText className="h-4 w-4 text-status-pending" />
@@ -127,7 +127,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.radicadoPending}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Tareas Vencidas</CardTitle>
             <AlertTriangle className="h-4 w-4 text-sla-critical" />
@@ -136,7 +136,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.overdueTasks}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
             <AlertTriangle className="h-4 w-4 text-sla-critical" />
@@ -145,7 +145,7 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.criticalAlerts}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">En Seguimiento</CardTitle>
             <Eye className="h-4 w-4 text-status-active" />
@@ -154,28 +154,28 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{stats.monitoredProcesses}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Peticiones</CardTitle>
-            <Send className="h-4 w-4 text-blue-500" />
+            <Send className="h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingPeticiones}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Tutelas</CardTitle>
-            <Gavel className="h-4 w-4 text-purple-500" />
+            <Gavel className="h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingTutelas}</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="dashboard-metric-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">CPACA</CardTitle>
-            <Scale className="h-4 w-4 text-indigo-500" />
+            <Scale className="h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.pendingCpaca}</div>
@@ -197,42 +197,42 @@ export default function Dashboard() {
         </div>
         
         <TabsContent value="cgp" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Radicaciones y procesos bajo Código General del Proceso (civil, comercial, familia). Arrastra entre etapas para reclasificar.
           </p>
           <WorkItemPipeline />
         </TabsContent>
 
         <TabsContent value="laboral" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Procesos laborales bajo Código Procesal del Trabajo (CPTSS). Audiencia única de conciliación, juzgamiento y fallo.
           </p>
           <LaboralPipeline />
         </TabsContent>
 
         <TabsContent value="cpaca" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Procesos ordinarios contencioso administrativos (CPACA). Cálculo automático de términos según Art. 199.
           </p>
           <CpacaPipeline />
         </TabsContent>
 
         <TabsContent value="administrativos" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Procesos ante autoridades administrativas (inspecciones, superintendencias, tránsito, disciplinarios). Arrastra entre fases.
           </p>
           <AdminPipeline />
         </TabsContent>
         
         <TabsContent value="peticiones" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Derechos de petición con seguimiento de plazos (15 días hábiles). Las peticiones vencidas pueden escalarse a tutela.
           </p>
           <PeticionesPipeline />
         </TabsContent>
 
         <TabsContent value="tutelas" className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm readable-muted">
             Acciones de tutela con seguimiento de fallos. Los fallos favorables permiten archivar el proceso.
           </p>
           <TutelasPipeline />

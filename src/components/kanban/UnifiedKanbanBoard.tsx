@@ -184,19 +184,19 @@ function KanbanColumn<TItem extends KanbanItem, TStage extends KanbanStage>({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col min-w-[280px] max-w-[300px] rounded-lg border-2 transition-all duration-200",
+        "kanban-column-glass flex flex-col min-w-[280px] max-w-[300px] rounded-lg border-2 transition-all duration-200",
         columnColor,
         isOver && "ring-2 ring-primary ring-offset-2 scale-[1.02] shadow-lg bg-primary/5"
       )}
       style={{ minHeight }}
     >
-      {/* Header */}
-      <div className={cn("px-3 py-2.5 border-b border-inherit", columnColor)}>
+      {/* Header with readable strip */}
+      <div className={cn("kanban-header-strip mx-2 mt-2 mb-1", columnColor)}>
         {renderColumnHeader ? (
           renderColumnHeader(stage, items)
         ) : (
-          <div className="flex items-center justify-between">
-            <h3 className={cn("font-semibold text-sm truncate", headerColor)}>
+          <div className="flex items-center justify-between w-full">
+            <h3 className={cn("font-semibold text-sm truncate readable-text-strong", headerColor)}>
               {stage.shortLabel}
             </h3>
             <Badge
@@ -207,18 +207,18 @@ function KanbanColumn<TItem extends KanbanItem, TStage extends KanbanStage>({
             </Badge>
           </div>
         )}
-        {stage.description && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-            {stage.description}
-          </p>
-        )}
       </div>
+      {stage.description && (
+        <p className="text-xs readable-muted mt-1 mx-3 line-clamp-2">
+          {stage.description}
+        </p>
+      )}
 
       {/* Cards */}
       <ScrollArea className="flex-1 px-2 py-2">
         <div className="space-y-2">
           {items.map((item) => (
-            <div key={item.id}>
+            <div key={item.id} className="kanban-card-glass rounded-lg">
               {renderCard(item, {
                 isDragging: false,
                 isFocused: focusedItemId === item.id,
@@ -228,7 +228,7 @@ function KanbanColumn<TItem extends KanbanItem, TStage extends KanbanStage>({
             </div>
           ))}
           {items.length === 0 && (
-            <div className="flex items-center justify-center h-24 text-sm text-muted-foreground italic">
+            <div className="flex items-center justify-center h-24 text-sm readable-muted italic">
               Arrastra aquí
             </div>
           )}
