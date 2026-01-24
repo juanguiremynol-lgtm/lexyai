@@ -2,6 +2,8 @@ import { useState, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { parseEstadosExcel, type EstadosExcelRow, type EstadosParseResult } from "@/lib/estados-excel-parser";
+import { convertEstadosToSnapshots } from "@/lib/ingestion/estados-converter";
+import { applyNormalizedSnapshot } from "@/lib/ingestion/ingestion-service";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -114,37 +116,55 @@ export function EstadosImport() {
 
       if (runError) throw runError;
 
-      // Insert matched estados
+      // Convert matched rows to normalized snapshots and apply them
       const matchedToInsert = matchedRows.filter((r) => r.matched_process_id);
       let inserted = 0;
+      let processedEvents = 0;
 
       for (const row of matchedToInsert) {
-        const { error } = await supabase.from("process_estados").insert({
-          owner_id: user.id,
-          monitored_process_id: row.matched_process_id,
-          radicado: row.radicado_norm,
-          distrito: row.distrito,
-          despacho: row.despacho,
-          juez_ponente: row.juez_ponente,
-          demandantes: row.demandantes,
-          demandados: row.demandados,
-          fecha_ultima_actuacion: row.fecha_ultima_actuacion,
-          fecha_ultima_actuacion_raw: row.fecha_ultima_actuacion_raw,
-          import_run_id: importRun.id,
-          source_payload: {
-            ...row,
-            all_columns: row.all_columns,
-          } as unknown as Record<string, unknown>,
-        } as never);
+        try {
+          // Insert legacy estados record
+          const { error } = await supabase.from("process_estados").insert({
+            owner_id: user.id,
+            monitored_process_id: row.matched_process_id,
+            radicado: row.radicado_norm,
+            distrito: row.distrito,
+            despacho: row.despacho,
+            juez_ponente: row.juez_ponente,
+            demandantes: row.demandantes,
+            demandados: row.demandados,
+            fecha_ultima_actuacion: row.fecha_ultima_actuacion,
+            fecha_ultima_actuacion_raw: row.fecha_ultima_actuacion_raw,
+            import_run_id: importRun.id,
+            source_payload: {
+              ...row,
+              all_columns: row.all_columns,
+            } as unknown as Record<string, unknown>,
+          } as never);
 
-        if (!error) inserted++;
+          if (!error) inserted++;
+
+          // Also apply to normalized ingestion pipeline (create process_events)
+          const snapshots = convertEstadosToSnapshots([row], importRun.id);
+          if (snapshots.length > 0) {
+            const result = await applyNormalizedSnapshot(snapshots[0], user.id);
+            if (result.events_created > 0) {
+              processedEvents += result.events_created;
+            }
+          }
+        } catch (e) {
+          console.error("Error processing estado row:", e);
+        }
+        
         setProgress(Math.round((inserted / matchedToInsert.length) * 100));
       }
 
       // Update import run status
       await supabase
         .from("estados_import_runs")
-        .update({ status: "COMPLETED" })
+        .update({ 
+          status: "COMPLETED",
+        })
         .eq("id", importRun.id);
 
       // Update profile last_estados_import_at
@@ -155,9 +175,11 @@ export function EstadosImport() {
 
       queryClient.invalidateQueries({ queryKey: ["process-estados"] });
       queryClient.invalidateQueries({ queryKey: ["estados-import-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
 
       setStep("done");
-      toast.success(`Se importaron ${inserted} estados de ${importStats.total} registros`);
+      toast.success(`Se importaron ${inserted} estados y ${processedEvents} eventos de ${importStats.total} registros`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error al importar");
       setStep("preview");

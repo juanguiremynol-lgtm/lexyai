@@ -149,3 +149,13 @@ export function convertEstadosBatch(
 ): NormalizedProcessSnapshot[] {
   return rows.map(row => estadosRowToSnapshot(row, runId));
 }
+
+/**
+ * Alias for convertEstadosBatch for backwards compatibility
+ */
+export function convertEstadosToSnapshots(
+  rows: EstadosExcelRow[],
+  runId: string
+): NormalizedProcessSnapshot[] {
+  return convertEstadosBatch(rows, runId);
+}
