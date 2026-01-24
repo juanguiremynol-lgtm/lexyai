@@ -1,4 +1,4 @@
-import { Moon, Sun, Monitor, Terminal } from "lucide-react";
+import { Moon, Sun, Monitor, Terminal, Waves } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -16,6 +16,9 @@ export function ThemeToggle() {
   const getIcon = () => {
     if (theme === "matrix") {
       return <Terminal className="h-5 w-5 text-[hsl(120_100%_50%)]" />;
+    }
+    if (theme === "aqua") {
+      return <Waves className="h-5 w-5 text-[hsl(187_80%_45%)]" />;
     }
     return (
       <>
@@ -49,6 +52,13 @@ export function ThemeToggle() {
           Oscuro
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem 
+          onClick={() => setTheme("aqua")}
+          className={theme === "aqua" ? "bg-accent" : ""}
+        >
+          <Waves className="mr-2 h-4 w-4" />
+          <span>Aqua Horizon</span>
+        </DropdownMenuItem>
         <DropdownMenuItem 
           onClick={() => setTheme("matrix")}
           className={theme === "matrix" ? "bg-accent" : ""}
