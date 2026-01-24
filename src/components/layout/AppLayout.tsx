@@ -12,28 +12,20 @@ export function AppLayout() {
 
   return (
     <SidebarProvider>
-      {/* Root container with aqua theme wallpaper support */}
+      {/* Root container - app-content class ensures it renders above overlays */}
       <div className={cn(
-        "flex min-h-screen w-full",
-        isAquaTheme && "aqua-shell"
+        "app-content flex min-h-screen w-full",
+        isAquaTheme && "relative z-[1]"
       )}>
-        {/* Overlay layers for aqua theme */}
-        {isAquaTheme && (
-          <>
-            <div className="aqua-overlay-gradient" aria-hidden="true" />
-            <div className="aqua-overlay-vignette" aria-hidden="true" />
-          </>
-        )}
-        
         <AppSidebar />
-        <SidebarInset className={cn(
-          "flex flex-1 flex-col min-w-0",
-          isAquaTheme && "relative z-[1]"
-        )}>
+        <SidebarInset className="flex flex-1 flex-col min-w-0">
           <EstadosTicker />
           <TopBar />
-          {/* Main content area */}
-          <main className="flex-1 overflow-y-auto bg-background/80 p-4 lg:p-6">
+          {/* Main content area - transparent for aqua theme */}
+          <main className={cn(
+            "flex-1 overflow-y-auto p-4 lg:p-6",
+            isAquaTheme ? "bg-transparent" : "bg-background"
+          )}>
             <Outlet />
           </main>
         </SidebarInset>
