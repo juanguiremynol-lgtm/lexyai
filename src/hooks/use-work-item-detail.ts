@@ -282,33 +282,31 @@ async function fetchWorkItem(id: string): Promise<(WorkItem & { _source: string 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchProcessEvents(id: string, legacyFilingId: string | null, legacyProcessId: string | null): Promise<any[]> {
-  // Try work_item_id first
-  const result1 = await supabase
-    .from("process_events")
-    .select("*")
-    .eq("work_item_id", id)
-    .order("event_date", { ascending: false });
+  // Try work_item_id first - use explicit any to avoid deep type instantiation
+  const baseQuery = supabase.from("process_events").select("*") as any;
+  const result1 = await baseQuery.eq("work_item_id", id);
+  const sorted1 = result1.data ? [...result1.data].sort((a: any, b: any) => 
+    new Date(b.event_date || 0).getTime() - new Date(a.event_date || 0).getTime()
+  ) : [];
 
-  if (result1.data?.length) {
-    return result1.data as unknown as any[];
+  if (sorted1.length) {
+    return sorted1;
   }
   
   if (legacyFilingId) {
-    const result2 = await supabase
-      .from("process_events")
-      .select("*")
-      .eq("filing_id", legacyFilingId)
-      .order("event_date", { ascending: false });
-    return (result2.data || []) as unknown as any[];
+    const query2 = supabase.from("process_events").select("*") as any;
+    const result2 = await query2.eq("filing_id", legacyFilingId);
+    return result2.data ? [...result2.data].sort((a: any, b: any) => 
+      new Date(b.event_date || 0).getTime() - new Date(a.event_date || 0).getTime()
+    ) : [];
   }
   
   if (legacyProcessId) {
-    const result3 = await supabase
-      .from("process_events")
-      .select("*")
-      .eq("process_id", legacyProcessId)
-      .order("event_date", { ascending: false });
-    return (result3.data || []) as unknown as any[];
+    const query3 = supabase.from("process_events").select("*") as any;
+    const result3 = await query3.eq("process_id", legacyProcessId);
+    return result3.data ? [...result3.data].sort((a: any, b: any) => 
+      new Date(b.event_date || 0).getTime() - new Date(a.event_date || 0).getTime()
+    ) : [];
   }
 
   return [];
@@ -317,20 +315,18 @@ async function fetchProcessEvents(id: string, legacyFilingId: string | null, leg
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchActuaciones(legacyFilingId: string | null, legacyProcessId: string | null): Promise<any[]> {
   if (legacyProcessId) {
-    const result = await supabase
-      .from("actuaciones")
-      .select("*")
-      .eq("monitored_process_id", legacyProcessId)
-      .order("act_date", { ascending: false });
-    return (result.data || []) as unknown as any[];
+    const query = supabase.from("actuaciones").select("*") as any;
+    const result = await query.eq("monitored_process_id", legacyProcessId);
+    return result.data ? [...result.data].sort((a: any, b: any) => 
+      new Date(b.act_date || 0).getTime() - new Date(a.act_date || 0).getTime()
+    ) : [];
   }
   if (legacyFilingId) {
-    const result = await supabase
-      .from("actuaciones")
-      .select("*")
-      .eq("filing_id", legacyFilingId)
-      .order("act_date", { ascending: false });
-    return (result.data || []) as unknown as any[];
+    const query = supabase.from("actuaciones").select("*") as any;
+    const result = await query.eq("filing_id", legacyFilingId);
+    return result.data ? [...result.data].sort((a: any, b: any) => 
+      new Date(b.act_date || 0).getTime() - new Date(a.act_date || 0).getTime()
+    ) : [];
   }
   return [];
 }
@@ -390,20 +386,18 @@ async function fetchEvidence(legacyProcessId: string | null): Promise<any[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchHearings(legacyFilingId: string | null, legacyProcessId: string | null): Promise<any[]> {
   if (legacyFilingId) {
-    const { data } = await supabase
-      .from("hearings")
-      .select("*")
-      .eq("filing_id", legacyFilingId)
-      .order("scheduled_at", { ascending: true });
-    return data || [];
+    const query = supabase.from("hearings").select("*") as any;
+    const result = await query.eq("filing_id", legacyFilingId);
+    return result.data ? [...result.data].sort((a: any, b: any) => 
+      new Date(a.scheduled_at || 0).getTime() - new Date(b.scheduled_at || 0).getTime()
+    ) : [];
   }
   if (legacyProcessId) {
-    const { data } = await supabase
-      .from("hearings")
-      .select("*")
-      .eq("process_id", legacyProcessId)
-      .order("scheduled_at", { ascending: true });
-    return data || [];
+    const query = supabase.from("hearings").select("*") as any;
+    const result = await query.eq("process_id", legacyProcessId);
+    return result.data ? [...result.data].sort((a: any, b: any) => 
+      new Date(a.scheduled_at || 0).getTime() - new Date(b.scheduled_at || 0).getTime()
+    ) : [];
   }
   return [];
 }
