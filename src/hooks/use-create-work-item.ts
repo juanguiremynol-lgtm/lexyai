@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
-
+import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
 export interface CreateWorkItemData {
   // Core classification
   workflow_type: WorkflowType;
@@ -124,8 +124,28 @@ export function useCreateWorkItem() {
 
       return workItem;
     },
-    onSuccess: (workItem) => {
+    onSuccess: async (workItem) => {
       toast.success("Asunto creado exitosamente");
+      
+      // Create milestone reminders for judicial workflows
+      try {
+        const workItemForReminders = {
+          id: workItem.id,
+          owner_id: workItem.owner_id,
+          workflow_type: workItem.workflow_type,
+          radicado: workItem.radicado,
+          authority_name: workItem.authority_name,
+          expediente_url: workItem.expediente_url,
+          auto_admisorio_date: workItem.auto_admisorio_date,
+        };
+        
+        if (isEligibleForReminders(workItemForReminders)) {
+          // Use owner_id as org_id for now (simplified)
+          await createRemindersForWorkItem(workItemForReminders, workItem.owner_id);
+        }
+      } catch (err) {
+        console.error("Error creating reminders:", err);
+      }
       
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
@@ -134,6 +154,7 @@ export function useCreateWorkItem() {
       queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
       queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
       queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["laboral-work-items"] });
       
       if (workItem.client_id) {
         queryClient.invalidateQueries({ queryKey: ["client-work-items", workItem.client_id] });
