@@ -59,3 +59,6 @@ verify_jwt = false
 
 [functions.delete-work-items]
 verify_jwt = false
+
+[functions.sync-by-radicado]
+verify_jwt = false
