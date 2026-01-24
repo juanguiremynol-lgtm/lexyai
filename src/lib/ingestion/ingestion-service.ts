@@ -390,3 +390,28 @@ export function createIngestionContext(
     ...options,
   };
 }
+
+/**
+ * Apply a single normalized snapshot (convenience wrapper)
+ */
+export async function applyNormalizedSnapshot(
+  snapshot: NormalizedProcessSnapshot,
+  ownerId: string,
+  options: Partial<IngestionContext> = {}
+): Promise<{ 
+  work_item_id: string | null; 
+  status: 'CREATED' | 'UPDATED' | 'SKIPPED' | 'ERROR';
+  reason?: string;
+  events_created: number;
+}> {
+  const context = createIngestionContext(
+    ownerId,
+    snapshot.source,
+    {
+      ...options,
+      create_process_events: true,
+      update_existing: true,
+    }
+  );
+  return processSnapshot(snapshot, context);
+}
