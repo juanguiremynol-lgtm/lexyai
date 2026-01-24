@@ -3790,6 +3790,71 @@ export type Database = {
           },
         ]
       }
+      work_item_deadlines: {
+        Row: {
+          business_days_count: number | null
+          calculation_meta: Json | null
+          created_at: string
+          deadline_date: string
+          deadline_type: string
+          description: string | null
+          id: string
+          label: string
+          met_at: string | null
+          notes: string | null
+          owner_id: string
+          status: string
+          trigger_date: string
+          trigger_event: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          business_days_count?: number | null
+          calculation_meta?: Json | null
+          created_at?: string
+          deadline_date: string
+          deadline_type: string
+          description?: string | null
+          id?: string
+          label: string
+          met_at?: string | null
+          notes?: string | null
+          owner_id: string
+          status?: string
+          trigger_date: string
+          trigger_event: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          business_days_count?: number | null
+          calculation_meta?: Json | null
+          created_at?: string
+          deadline_date?: string
+          deadline_type?: string
+          description?: string | null
+          id?: string
+          label?: string
+          met_at?: string | null
+          notes?: string | null
+          owner_id?: string
+          status?: string
+          trigger_date?: string
+          trigger_event?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_deadlines_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_items: {
         Row: {
           authority_city: string | null
