@@ -19,6 +19,7 @@ import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspe
 import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
 import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSection";
 import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection";
+import { TickerSettings } from "@/components/settings/TickerSettings";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -142,6 +143,7 @@ export default function Settings() {
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
+          <TabsTrigger value="ticker">Ticker</TabsTrigger>
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
           <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
@@ -153,6 +155,10 @@ export default function Settings() {
             Peligro
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="ticker">
+          <TickerSettings />
+        </TabsContent>
 
         <TabsContent value="profile">
           <Card>
