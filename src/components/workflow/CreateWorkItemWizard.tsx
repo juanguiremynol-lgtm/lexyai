@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -16,6 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -36,6 +38,13 @@ import {
   User,
   Plus,
   Loader2,
+  Search,
+  AlertCircle,
+  CheckCircle2,
+  FileText,
+  MapPin,
+  Users,
+  Calendar,
 } from "lucide-react";
 import {
   type WorkflowType,
@@ -51,6 +60,8 @@ import { COLOMBIAN_DEPARTMENTS } from "@/lib/constants";
 import { CGP_CUANTIA_CONFIG } from "@/lib/cgp-constants";
 import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
+import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
+import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
   open: boolean;
@@ -68,7 +79,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ReactNode> = {
   CPACA: <Landmark className="h-5 w-5" />,
 };
 
-type WizardStep = 'workflow' | 'details' | 'client';
+type WizardStep = 'workflow' | 'radicado' | 'details' | 'client';
 
 export function CreateWorkItemWizard({
   open,
@@ -77,6 +88,8 @@ export function CreateWorkItemWizard({
   defaultClientId,
   defaultWorkflowType,
 }: CreateWorkItemWizardProps) {
+  const queryClient = useQueryClient();
+  
   // Wizard state
   const [step, setStep] = useState<WizardStep>('workflow');
   
@@ -85,9 +98,13 @@ export function CreateWorkItemWizard({
   const [cgpPhase, setCgpPhase] = useState<CGPPhase>('FILING');
   const [stage, setStage] = useState<string>('');
   
+  // Radicado lookup
+  const [radicado, setRadicado] = useState('');
+  const [useRadicadoInput, setUseRadicadoInput] = useState<'lookup' | 'manual'>('lookup');
+  const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup } = useRadicadoLookup();
+  
   // Step 2: Basic details
   const [title, setTitle] = useState('');
-  const [radicado, setRadicado] = useState('');
   const [authorityName, setAuthorityName] = useState('');
   const [authorityCity, setAuthorityCity] = useState('');
   const [authorityDepartment, setAuthorityDepartment] = useState('');
@@ -133,12 +150,14 @@ export function CreateWorkItemWizard({
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
-      setStep(defaultWorkflowType ? 'details' : 'workflow');
+      setStep(defaultWorkflowType ? 'radicado' : 'workflow');
       setWorkflowType(defaultWorkflowType || null);
       setCgpPhase('FILING');
       setStage('');
-      setTitle('');
       setRadicado('');
+      setUseRadicadoInput('lookup');
+      resetLookup();
+      setTitle('');
       setAuthorityName('');
       setAuthorityCity('');
       setAuthorityDepartment('');
@@ -156,7 +175,7 @@ export function CreateWorkItemWizard({
       setNewClientName('');
       setNewClientIdNumber('');
     }
-  }, [open, defaultWorkflowType, defaultClientId]);
+  }, [open, defaultWorkflowType, defaultClientId, resetLookup]);
   
   // Set default stage when workflow changes
   useEffect(() => {
@@ -166,25 +185,81 @@ export function CreateWorkItemWizard({
     }
   }, [workflowType, cgpPhase]);
   
+  // Apply lookup data to form fields
+  useEffect(() => {
+    if (lookupResult?.process_data && lookupStatus === 'success') {
+      const data = lookupResult.process_data;
+      setAuthorityName(data.despacho || '');
+      setAuthorityCity(data.ciudad || '');
+      setDemandantes(data.demandante || '');
+      setDemandados(data.demandado || '');
+      
+      // Set CGP phase based on classification
+      if (workflowType === 'CGP' && lookupResult.cgp_phase) {
+        setCgpPhase(lookupResult.cgp_phase);
+      }
+    }
+  }, [lookupResult, lookupStatus, workflowType]);
+  
   const handleWorkflowSelect = (wf: WorkflowType) => {
     setWorkflowType(wf);
-    if (wf !== 'CGP') {
+    resetLookup();
+    setRadicado('');
+    
+    // Workflows that use radicado go to radicado step
+    if (workflowUsesRadicado(wf)) {
+      setStep('radicado');
+    } else {
       setStep('details');
     }
   };
   
-  const handleCGPPhaseSelect = (phase: CGPPhase) => {
-    setCgpPhase(phase);
+  const handleRadicadoLookup = async () => {
+    if (radicado.length !== 23) return;
+    await lookup(radicado);
+  };
+  
+  const handleRadicadoChange = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 23);
+    setRadicado(digits);
+    if (digits.length !== 23) {
+      resetLookup();
+    }
+  };
+  
+  const formatRadicado = (digits: string): string => {
+    if (!digits) return "";
+    const parts = [
+      digits.slice(0, 2),
+      digits.slice(2, 5),
+      digits.slice(5, 7),
+      digits.slice(7, 10),
+      digits.slice(10, 14),
+      digits.slice(14, 19),
+      digits.slice(19, 21),
+    ].filter(Boolean);
+    return parts.join("-");
+  };
+  
+  const handleProceedFromRadicado = () => {
+    // If lookup was successful, use the detected phase and apply data
+    if (lookupResult?.found_in_source && lookupResult.cgp_phase && workflowType === 'CGP') {
+      setCgpPhase(lookupResult.cgp_phase);
+      // Set appropriate stage based on classification
+      if (lookupResult.cgp_phase === 'PROCESS') {
+        setStage('AUTO_ADMISORIO');
+      } else {
+        setStage('RADICADO_CONFIRMED');
+      }
+    }
     setStep('details');
   };
   
   const handleNext = () => {
     if (step === 'workflow') {
-      if (workflowType === 'CGP') {
-        // Stay on workflow to select phase
-      } else if (workflowType) {
-        setStep('details');
-      }
+      // This shouldn't happen now as we go directly from workflow select
+    } else if (step === 'radicado') {
+      handleProceedFromRadicado();
     } else if (step === 'details') {
       setStep('client');
     }
@@ -194,8 +269,16 @@ export function CreateWorkItemWizard({
     if (step === 'client') {
       setStep('details');
     } else if (step === 'details') {
+      if (workflowType && workflowUsesRadicado(workflowType)) {
+        setStep('radicado');
+      } else {
+        setStep('workflow');
+        setWorkflowType(null);
+      }
+    } else if (step === 'radicado') {
       setStep('workflow');
       setWorkflowType(null);
+      resetLookup();
     }
   };
   
@@ -232,6 +315,7 @@ export function CreateWorkItemWizard({
         finalClientId = await handleCreateClient() || '';
       } catch (e) {
         console.error("Error creating client:", e);
+        toast.error("Error al crear cliente");
         return;
       }
     }
@@ -259,7 +343,6 @@ export function CreateWorkItemWizard({
     }
     
     if (workflowType === 'CPACA' && medioDeControl) {
-      // Store medio de control in description or source_payload
       data.description = `Medio de control: ${MEDIOS_DE_CONTROL[medioDeControl]?.label || medioDeControl}`;
     }
     
@@ -273,6 +356,12 @@ export function CreateWorkItemWizard({
     
     createWorkItem.mutate(data, {
       onSuccess: () => {
+        // Invalidate queries to refresh pipelines
+        queryClient.invalidateQueries({ queryKey: ["work-items"] });
+        queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
+        queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
+        queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
+        
         onOpenChange(false);
         onSuccess?.();
       },
@@ -286,10 +375,16 @@ export function CreateWorkItemWizard({
     ? getStageOrderForWorkflow(workflowType, workflowType === 'CGP' ? cgpPhase : undefined)
     : [];
   
+  const canProceedFromRadicado = () => {
+    if (useRadicadoInput === 'manual') return true;
+    if (radicado.length !== 23) return false;
+    // Allow proceeding even if not found (manual entry)
+    return lookupStatus === 'success' || lookupStatus === 'not_found' || lookupStatus === 'error';
+  };
+  
   const canProceedFromDetails = () => {
     if (!workflowType) return false;
     
-    // Each workflow has minimum requirements
     switch (workflowType) {
       case 'CGP':
         return !!stage;
@@ -312,6 +407,15 @@ export function CreateWorkItemWizard({
     if (clientTab === 'new' && !newClientName.trim()) return false;
     return true;
   };
+
+  const getStepNumber = (s: WizardStep): number => {
+    const steps: WizardStep[] = workflowType && workflowUsesRadicado(workflowType)
+      ? ['workflow', 'radicado', 'details', 'client']
+      : ['workflow', 'details', 'client'];
+    return steps.indexOf(s);
+  };
+
+  const totalSteps = workflowType && workflowUsesRadicado(workflowType) ? 4 : 3;
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -325,24 +429,24 @@ export function CreateWorkItemWizard({
         
         {/* Progress indicator */}
         <div className="flex items-center gap-2 py-2">
-          {(['workflow', 'details', 'client'] as WizardStep[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
+          {Array.from({ length: totalSteps }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2">
               <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium transition-colors ${
-                step === s 
+                getStepNumber(step) === i 
                   ? 'bg-primary text-primary-foreground' 
-                  : i < ['workflow', 'details', 'client'].indexOf(step)
+                  : getStepNumber(step) > i
                     ? 'bg-primary/20 text-primary'
                     : 'bg-muted text-muted-foreground'
               }`}>
-                {i < ['workflow', 'details', 'client'].indexOf(step) ? (
+                {getStepNumber(step) > i ? (
                   <Check className="h-4 w-4" />
                 ) : (
                   i + 1
                 )}
               </div>
-              {i < 2 && (
+              {i < totalSteps - 1 && (
                 <div className={`w-12 h-0.5 ${
-                  i < ['workflow', 'details', 'client'].indexOf(step)
+                  getStepNumber(step) > i
                     ? 'bg-primary'
                     : 'bg-muted'
                 }`} />
@@ -352,6 +456,7 @@ export function CreateWorkItemWizard({
           <div className="flex-1" />
           <span className="text-sm text-muted-foreground">
             {step === 'workflow' && 'Tipo de Asunto'}
+            {step === 'radicado' && 'Buscar Proceso'}
             {step === 'details' && 'Detalles'}
             {step === 'client' && 'Cliente'}
           </span>
@@ -361,88 +466,204 @@ export function CreateWorkItemWizard({
           {/* Step 1: Workflow Type Selection */}
           {step === 'workflow' && (
             <div className="space-y-4 py-2">
-              {!workflowType ? (
-                <>
-                  <Label className="text-sm font-medium">¿Qué tipo de asunto deseas crear?</Label>
-                  <div className="grid gap-2">
-                    {WORKFLOW_TYPES_ORDER.map((type) => {
-                      const config = WORKFLOW_TYPES[type];
-                      return (
-                        <button
-                          key={type}
-                          onClick={() => handleWorkflowSelect(type)}
-                          className="flex items-center gap-3 p-4 rounded-lg border border-border text-left transition-colors hover:border-primary/50 hover:bg-muted/50"
-                        >
-                          <div className="p-2 rounded-md bg-primary/10 text-primary">
-                            {WORKFLOW_ICONS[type]}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium">{config.label}</p>
-                            <p className="text-xs text-muted-foreground">{config.description}</p>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : workflowType === 'CGP' && step === 'workflow' ? (
-                <>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Badge variant="outline" className="bg-primary/10">
-                      <Scale className="h-3 w-3 mr-1" />
-                      CGP
-                    </Badge>
-                  </div>
-                  <Label className="text-sm font-medium">¿Este asunto ya tiene Auto Admisorio?</Label>
-                  <RadioGroup
-                    value={cgpPhase}
-                    onValueChange={(v) => handleCGPPhaseSelect(v as CGPPhase)}
-                    className="grid gap-3 mt-2"
-                  >
-                    <div
-                      className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                        cgpPhase === 'FILING'
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50'
-                      }`}
-                      onClick={() => handleCGPPhaseSelect('FILING')}
+              <Label className="text-sm font-medium">¿Qué tipo de asunto deseas crear?</Label>
+              <div className="grid gap-2">
+                {WORKFLOW_TYPES_ORDER.map((type) => {
+                  const config = WORKFLOW_TYPES[type];
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => handleWorkflowSelect(type)}
+                      className="flex items-center gap-3 p-4 rounded-lg border border-border text-left transition-colors hover:border-primary/50 hover:bg-muted/50"
                     >
-                      <RadioGroupItem value="FILING" id="phase-filing" />
-                      <div className="flex-1">
-                        <Label htmlFor="phase-filing" className="font-medium cursor-pointer">
-                          No, es Radicación
-                        </Label>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          La demanda fue radicada pero aún no ha sido admitida
-                        </p>
+                      <div className="p-2 rounded-md bg-primary/10 text-primary">
+                        {WORKFLOW_ICONS[type]}
                       </div>
-                    </div>
-                    <div
-                      className={`flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
-                        cgpPhase === 'PROCESS'
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50'
-                      }`}
-                      onClick={() => handleCGPPhaseSelect('PROCESS')}
-                    >
-                      <RadioGroupItem value="PROCESS" id="phase-process" />
                       <div className="flex-1">
-                        <Label htmlFor="phase-process" className="font-medium cursor-pointer">
-                          Sí, es Proceso
-                        </Label>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          La demanda ya tiene auto admisorio
-                        </p>
+                        <p className="font-medium">{config.label}</p>
+                        <p className="text-xs text-muted-foreground">{config.description}</p>
                       </div>
-                    </div>
-                  </RadioGroup>
-                </>
-              ) : null}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
           
-          {/* Step 2: Details */}
+          {/* Step 2: Radicado Lookup (for workflows that use radicado) */}
+          {step === 'radicado' && workflowType && (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-2 mb-4">
+                <Badge variant="outline" className="bg-primary/10">
+                  {WORKFLOW_ICONS[workflowType]}
+                  <span className="ml-1">{WORKFLOW_TYPES[workflowType].shortLabel}</span>
+                </Badge>
+              </div>
+              
+              <Tabs value={useRadicadoInput} onValueChange={(v) => setUseRadicadoInput(v as 'lookup' | 'manual')}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="lookup">
+                    <Search className="h-4 w-4 mr-2" />
+                    Buscar por Radicado
+                  </TabsTrigger>
+                  <TabsTrigger value="manual">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Ingresar Manualmente
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="lookup" className="mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label>Radicado (23 dígitos)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={formatRadicado(radicado)}
+                        onChange={(e) => handleRadicadoChange(e.target.value)}
+                        placeholder="11-001-31-03-012-2024-00001-00"
+                        className="font-mono flex-1"
+                        maxLength={30}
+                      />
+                      <Badge variant={radicado.length === 23 ? "default" : "secondary"} className="shrink-0 self-center">
+                        {radicado.length}/23
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Departamento-Distrito-Especialidad-Circuito-Despacho-Año-Consecutivo
+                    </p>
+                  </div>
+                  
+                  <Button 
+                    onClick={handleRadicadoLookup}
+                    disabled={radicado.length !== 23 || lookupStatus === 'loading'}
+                    className="w-full"
+                  >
+                    {lookupStatus === 'loading' ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Consultando CPNU + API externa...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-4 w-4 mr-2" />
+                        Buscar Proceso
+                      </>
+                    )}
+                  </Button>
+                  
+                  {/* Lookup Result */}
+                  {lookupStatus === 'success' && lookupResult?.found_in_source && (
+                    <ProcessPreview 
+                      data={lookupResult.process_data} 
+                      cgpPhase={lookupResult.cgp_phase}
+                      classificationReason={lookupResult.classification_reason}
+                      sourceUsed={lookupResult.source_used}
+                      eventsCount={lookupResult.new_events_count}
+                    />
+                  )}
+                  
+                  {lookupStatus === 'not_found' && (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Proceso no encontrado</AlertTitle>
+                      <AlertDescription>
+                        No se encontró información en CPNU ni en la API externa.
+                        Puedes continuar e ingresar los datos manualmente.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  {lookupStatus === 'error' && lookupError && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Error en consulta</AlertTitle>
+                      <AlertDescription>{lookupError}</AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  {/* Attempts detail */}
+                  {lookupResult?.attempts && lookupResult.attempts.length > 0 && (
+                    <div className="text-xs space-y-1 p-3 bg-muted/50 rounded-lg">
+                      <p className="font-medium text-muted-foreground">Fuentes consultadas:</p>
+                      {lookupResult.attempts.map((attempt, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          {attempt.success ? (
+                            <CheckCircle2 className="h-3 w-3 text-primary" />
+                          ) : (
+                            <AlertCircle className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          <span>{attempt.source}</span>
+                          <span className="text-muted-foreground">({attempt.latency_ms}ms)</span>
+                          {attempt.events_found !== undefined && attempt.success && (
+                            <span className="text-primary">{attempt.events_found} actuaciones</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="manual" className="mt-4 space-y-4">
+                  <Alert>
+                    <FileText className="h-4 w-4" />
+                    <AlertTitle>Ingreso manual</AlertTitle>
+                    <AlertDescription>
+                      Ingresarás los datos del proceso manualmente en el siguiente paso.
+                      Podrás sincronizar la información después.
+                    </AlertDescription>
+                  </Alert>
+                  
+                  <div className="space-y-2">
+                    <Label>Radicado (opcional)</Label>
+                    <Input
+                      value={formatRadicado(radicado)}
+                      onChange={(e) => handleRadicadoChange(e.target.value)}
+                      placeholder="11-001-31-03-012-2024-00001-00"
+                      className="font-mono"
+                      maxLength={30}
+                    />
+                  </div>
+                  
+                  {/* Manual CGP phase selection */}
+                  {workflowType === 'CGP' && (
+                    <div className="space-y-2">
+                      <Label>¿El proceso tiene Auto Admisorio?</Label>
+                      <RadioGroup
+                        value={cgpPhase}
+                        onValueChange={(v) => setCgpPhase(v as CGPPhase)}
+                        className="grid grid-cols-2 gap-2"
+                      >
+                        <div
+                          className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer ${
+                            cgpPhase === 'FILING' ? 'border-primary bg-primary/5' : 'border-border'
+                          }`}
+                          onClick={() => setCgpPhase('FILING')}
+                        >
+                          <RadioGroupItem value="FILING" id="manual-filing" />
+                          <Label htmlFor="manual-filing" className="cursor-pointer">
+                            <span className="font-medium">No (Radicación)</span>
+                          </Label>
+                        </div>
+                        <div
+                          className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer ${
+                            cgpPhase === 'PROCESS' ? 'border-primary bg-primary/5' : 'border-border'
+                          }`}
+                          onClick={() => setCgpPhase('PROCESS')}
+                        >
+                          <RadioGroupItem value="PROCESS" id="manual-process" />
+                          <Label htmlFor="manual-process" className="cursor-pointer">
+                            <span className="font-medium">Sí (Proceso)</span>
+                          </Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
+          )}
+          
+          {/* Step 3: Details */}
           {step === 'details' && workflowType && (
             <div className="space-y-4 py-2">
               <div className="flex items-center gap-2 mb-4">
@@ -453,6 +674,11 @@ export function CreateWorkItemWizard({
                 {workflowType === 'CGP' && (
                   <Badge variant="secondary">
                     {cgpPhase === 'FILING' ? 'Radicación' : 'Proceso'}
+                  </Badge>
+                )}
+                {radicado && (
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {formatRadicado(radicado)}
                   </Badge>
                 )}
               </div>
@@ -467,24 +693,6 @@ export function CreateWorkItemWizard({
                     placeholder="Ej: Proceso ejecutivo contra Empresa XYZ"
                   />
                 </div>
-                
-                {/* Radicado field for applicable workflows */}
-                {workflowUsesRadicado(workflowType) && (
-                  <div className="space-y-2">
-                    <Label>Radicado (23 dígitos)</Label>
-                    <Input
-                      value={radicado}
-                      onChange={(e) => setRadicado(e.target.value.replace(/\D/g, '').slice(0, 23))}
-                      placeholder="Ej: 11001310300220230012300"
-                      maxLength={23}
-                    />
-                    {radicado && radicado.length !== 23 && (
-                      <p className="text-xs text-amber-600">
-                        El radicado debe tener 23 dígitos ({radicado.length}/23)
-                      </p>
-                    )}
-                  </div>
-                )}
                 
                 {/* Stage selection */}
                 <div className="space-y-2">
@@ -752,7 +960,7 @@ export function CreateWorkItemWizard({
             </div>
           )}
           
-          {/* Step 3: Client */}
+          {/* Step 4: Client */}
           {step === 'client' && (
             <div className="space-y-4 py-2">
               <div className="flex items-center gap-2 mb-4">
@@ -835,6 +1043,13 @@ export function CreateWorkItemWizard({
               Cancelar
             </Button>
             
+            {step === 'radicado' && (
+              <Button onClick={handleNext} disabled={!canProceedFromRadicado()}>
+                Siguiente
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            )}
+            
             {step === 'details' && (
               <Button onClick={handleNext} disabled={!canProceedFromDetails()}>
                 Siguiente
@@ -864,5 +1079,103 @@ export function CreateWorkItemWizard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Process Preview Component
+function ProcessPreview({
+  data,
+  cgpPhase,
+  classificationReason,
+  sourceUsed,
+  eventsCount,
+}: {
+  data?: ProcessData;
+  cgpPhase: 'FILING' | 'PROCESS';
+  classificationReason?: string;
+  sourceUsed?: string | null;
+  eventsCount: number;
+}) {
+  if (!data) return null;
+  
+  return (
+    <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-5 w-5 text-primary" />
+          <span className="font-medium">Proceso encontrado</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={cgpPhase === 'PROCESS' ? 'default' : 'secondary'}>
+            {cgpPhase === 'PROCESS' ? 'Proceso (Admitido)' : 'Radicación (Pendiente)'}
+          </Badge>
+          {sourceUsed && (
+            <Badge variant="outline" className="text-xs">
+              {sourceUsed}
+            </Badge>
+          )}
+        </div>
+      </div>
+      
+      <Separator />
+      
+      <div className="grid gap-2 text-sm">
+        {data.despacho && (
+          <div className="flex items-start gap-2">
+            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div>
+              <span className="text-muted-foreground">Despacho:</span>
+              <span className="ml-2">{data.despacho}</span>
+            </div>
+          </div>
+        )}
+        
+        {(data.demandante || data.demandado) && (
+          <div className="flex items-start gap-2">
+            <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div className="flex-1 space-y-1">
+              {data.demandante && (
+                <div>
+                  <span className="text-muted-foreground">Demandante:</span>
+                  <span className="ml-2">{data.demandante}</span>
+                </div>
+              )}
+              {data.demandado && (
+                <div>
+                  <span className="text-muted-foreground">Demandado:</span>
+                  <span className="ml-2">{data.demandado}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {data.tipo_proceso && (
+          <div className="flex items-start gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div>
+              <span className="text-muted-foreground">Tipo:</span>
+              <span className="ml-2">{data.tipo_proceso}</span>
+            </div>
+          </div>
+        )}
+        
+        {eventsCount > 0 && (
+          <div className="flex items-start gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div>
+              <span className="text-muted-foreground">Actuaciones:</span>
+              <span className="ml-2">{eventsCount}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {classificationReason && (
+        <p className="text-xs text-muted-foreground bg-background/50 p-2 rounded">
+          {classificationReason}
+        </p>
+      )}
+    </div>
   );
 }
