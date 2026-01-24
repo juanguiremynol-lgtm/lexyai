@@ -32,7 +32,6 @@ import {
   FileText,
   Clock,
   Calendar,
-  Mail,
   Bell,
   Trash2,
   Flag,
@@ -53,11 +52,10 @@ import { WORKFLOW_TYPES, getStageLabel } from "@/lib/workflow-constants";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { TimelineTab } from "./tabs/TimelineTab";
 import { ActsTab } from "./tabs/ActsTab";
-import { DocumentsTab } from "./tabs/DocumentsTab";
-import { EmailsTab } from "./tabs/EmailsTab";
 import { DeadlinesTab } from "./tabs/DeadlinesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { EstadosTab } from "./tabs/EstadosTab";
+import { NotesTab } from "./tabs/NotesTab";
 
 const WORKFLOW_ICONS = {
   CGP: Scale,
@@ -83,27 +81,34 @@ const WORKFLOW_BG_COLORS = {
   CPACA: "bg-indigo-500/10",
 };
 
-type TabValue = "overview" | "estados" | "timeline" | "acts" | "documents" | "emails" | "deadlines" | "alerts";
+import { StickyNote } from "lucide-react";
+
+type TabValue = "overview" | "notes" | "estados" | "timeline" | "acts" | "deadlines" | "alerts";
 
 // Workflows that support Estados tab (judicial tracking)
 const ESTADOS_WORKFLOWS = ["CGP", "CPACA", "TUTELA"];
 
 // Build tabs dynamically based on workflow
+// REMOVED: Documents and Emails tabs (not being used currently)
+// ADDED: Notes tab for all workflows
 const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: string; icon: React.ReactNode }[] => {
   const baseTabs: { value: TabValue; label: string; icon: React.ReactNode }[] = [
     { value: "overview", label: "Resumen", icon: <FileText className="h-4 w-4" /> },
+    { value: "notes", label: "Notas", icon: <StickyNote className="h-4 w-4" /> },
   ];
   
-  // Estados tab only for CGP, CPACA, TUTELA
+  // Estados tab only for CGP, CPACA, TUTELA (judicial workflows)
   if (ESTADOS_WORKFLOWS.includes(workflowType)) {
     baseTabs.push({ value: "estados", label: "Estados", icon: <Activity className="h-4 w-4" /> });
   }
   
+  // Timeline tab for all judicial workflows - shows placeholder when no data
+  if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+    baseTabs.push({ value: "timeline", label: "Línea de Tiempo", icon: <Clock className="h-4 w-4" /> });
+  }
+  
   baseTabs.push(
-    { value: "timeline", label: "Línea de Tiempo", icon: <Clock className="h-4 w-4" /> },
     { value: "acts", label: "Actuaciones", icon: <Scale className="h-4 w-4" /> },
-    { value: "documents", label: "Documentos", icon: <FileText className="h-4 w-4" /> },
-    { value: "emails", label: "Correos", icon: <Mail className="h-4 w-4" /> },
     { value: "deadlines", label: "Términos", icon: <Calendar className="h-4 w-4" /> },
     { value: "alerts", label: "Alertas/Tareas", icon: <Bell className="h-4 w-4" /> },
   );
@@ -626,6 +631,11 @@ export default function WorkItemDetail() {
             <OverviewTab workItem={workItem} />
           </TabsContent>
           
+          {/* Notes tab - available for all workflows */}
+          <TabsContent value="notes" className="mt-0">
+            <NotesTab workItem={workItem} />
+          </TabsContent>
+          
           {/* Estados tab - only for CGP, CPACA, TUTELA */}
           {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
             <TabsContent value="estados" className="mt-0">
@@ -633,20 +643,15 @@ export default function WorkItemDetail() {
             </TabsContent>
           )}
           
-          <TabsContent value="timeline" className="mt-0">
-            <TimelineTab workItem={workItem} />
-          </TabsContent>
+          {/* Timeline tab - only for CGP, CPACA, TUTELA */}
+          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
+            <TabsContent value="timeline" className="mt-0">
+              <TimelineTab workItem={workItem} />
+            </TabsContent>
+          )}
           
           <TabsContent value="acts" className="mt-0">
             <ActsTab workItem={workItem} />
-          </TabsContent>
-          
-          <TabsContent value="documents" className="mt-0">
-            <DocumentsTab workItem={workItem} />
-          </TabsContent>
-          
-          <TabsContent value="emails" className="mt-0">
-            <EmailsTab workItem={workItem} />
           </TabsContent>
           
           <TabsContent value="deadlines" className="mt-0">
