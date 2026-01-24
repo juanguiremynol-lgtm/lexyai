@@ -6,7 +6,14 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SlaBadge } from "@/components/ui/sla-badge";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { User, ExternalLink, Scale, FileText, ArrowRightLeft, Flag } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { User, ExternalLink, Scale, FileText, ArrowRightLeft, Flag, MoreVertical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
@@ -43,6 +50,7 @@ interface WorkItemPipelineCardProps {
   onReclassify?: (item: WorkItemPipelineItem) => void;
   onToggleSelection?: (item: WorkItemPipelineItem, shiftKey: boolean) => void;
   onToggleFlag?: (item: WorkItemPipelineItem) => void;
+  onDelete?: (item: WorkItemPipelineItem) => void;
 }
 
 export function WorkItemPipelineCard({ 
@@ -54,6 +62,7 @@ export function WorkItemPipelineCard({
   onReclassify,
   onToggleSelection,
   onToggleFlag,
+  onDelete,
 }: WorkItemPipelineCardProps) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
@@ -137,43 +146,60 @@ export function WorkItemPipelineCard({
                 >
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                {onReclassify && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-900/50 transition-all"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onReclassify(item);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title="Reclasificar"
-                  >
-                    <ArrowRightLeft className="h-4 w-4" />
-                  </Button>
-                )}
-                {onToggleFlag && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-7 w-7 transition-all",
-                      item.is_flagged 
-                        ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/50" 
-                        : "hover:bg-muted hover:text-amber-500"
+                
+                {/* Actions dropdown menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 hover:bg-muted transition-all"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    {onReclassify && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onReclassify(item);
+                        }}
+                      >
+                        <ArrowRightLeft className="h-4 w-4 mr-2" />
+                        Reclasificar
+                      </DropdownMenuItem>
                     )}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onToggleFlag(item);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title={item.is_flagged ? "Quitar bandera" : "Marcar con bandera"}
-                  >
-                    <Flag className={cn("h-4 w-4", item.is_flagged && "fill-current")} />
-                  </Button>
-                )}
+                    {onToggleFlag && (
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFlag(item);
+                        }}
+                      >
+                        <Flag className={cn("h-4 w-4 mr-2", item.is_flagged && "fill-current text-amber-500")} />
+                        {item.is_flagged ? "Quitar bandera" : "Marcar con bandera"}
+                      </DropdownMenuItem>
+                    )}
+                    {onDelete && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(item);
+                          }}
+                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Eliminar
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             )}
           </div>
