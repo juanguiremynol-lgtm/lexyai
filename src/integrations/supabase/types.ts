@@ -1564,10 +1564,16 @@ export type Database = {
       desacato_incidents: {
         Row: {
           apertura_date: string | null
+          compliance_deadline: string | null
+          compliance_term_days: number | null
           created_at: string
           fallo_date: string | null
           fallo_favorable: boolean | null
           id: string
+          incumplimiento_date: string | null
+          incumplimiento_notes: string | null
+          incumplimiento_reportado: boolean | null
+          linked_work_item_id: string | null
           notes: string | null
           owner_id: string
           phase: string
@@ -1579,10 +1585,16 @@ export type Database = {
         }
         Insert: {
           apertura_date?: string | null
+          compliance_deadline?: string | null
+          compliance_term_days?: number | null
           created_at?: string
           fallo_date?: string | null
           fallo_favorable?: boolean | null
           id?: string
+          incumplimiento_date?: string | null
+          incumplimiento_notes?: string | null
+          incumplimiento_reportado?: boolean | null
+          linked_work_item_id?: string | null
           notes?: string | null
           owner_id: string
           phase?: string
@@ -1594,10 +1606,16 @@ export type Database = {
         }
         Update: {
           apertura_date?: string | null
+          compliance_deadline?: string | null
+          compliance_term_days?: number | null
           created_at?: string
           fallo_date?: string | null
           fallo_favorable?: boolean | null
           id?: string
+          incumplimiento_date?: string | null
+          incumplimiento_notes?: string | null
+          incumplimiento_reportado?: boolean | null
+          linked_work_item_id?: string | null
           notes?: string | null
           owner_id?: string
           phase?: string
@@ -1608,6 +1626,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "desacato_incidents_linked_work_item_id_fkey"
+            columns: ["linked_work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "desacato_incidents_owner_id_fkey"
             columns: ["owner_id"]
@@ -1901,6 +1926,10 @@ export type Database = {
           case_family: string | null
           case_subtype: string | null
           client_id: string | null
+          compliance_deadline: string | null
+          compliance_reported: boolean | null
+          compliance_reported_at: string | null
+          compliance_term_days: number | null
           court_city: string | null
           court_department: string | null
           court_email: string | null
@@ -1947,6 +1976,10 @@ export type Database = {
           case_family?: string | null
           case_subtype?: string | null
           client_id?: string | null
+          compliance_deadline?: string | null
+          compliance_reported?: boolean | null
+          compliance_reported_at?: string | null
+          compliance_term_days?: number | null
           court_city?: string | null
           court_department?: string | null
           court_email?: string | null
@@ -1993,6 +2026,10 @@ export type Database = {
           case_family?: string | null
           case_subtype?: string | null
           client_id?: string | null
+          compliance_deadline?: string | null
+          compliance_reported?: boolean | null
+          compliance_reported_at?: string | null
+          compliance_term_days?: number | null
           court_city?: string | null
           court_department?: string | null
           court_email?: string | null

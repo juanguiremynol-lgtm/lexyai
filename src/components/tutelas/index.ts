@@ -9,6 +9,7 @@ export { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
 export { TutelasPipeline } from "./TutelasPipeline";
 export { DesacatoPipeline } from "./DesacatoPipeline";
 export { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
+export { ReportIncumplimientoDialog } from "./ReportIncumplimientoDialog";
 export type { TutelaItem } from "./TutelaCard";
 export type { TutelaStageConfig } from "./TutelaColumn";
 export type { DesacatoItem } from "./DesacatoPipeline";
