@@ -3483,6 +3483,33 @@ export type Database = {
           },
         ]
       }
+      mrr_pricing_config: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          monthly_price_usd: number
+          tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          monthly_price_usd?: number
+          tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          monthly_price_usd?: number
+          tier?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       organization_invites: {
         Row: {
           accepted_at: string | null
@@ -3563,6 +3590,68 @@ export type Database = {
             foreignKeyName: "organization_memberships_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_plan_overrides: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email_sends_per_day: number | null
+          email_sends_per_hour: number | null
+          file_uploads_per_day: number | null
+          id: string
+          max_clients: number | null
+          max_members: number | null
+          max_work_items: number | null
+          notes: string | null
+          organization_id: string
+          storage_mb: number | null
+          sync_requests_per_day: number | null
+          sync_requests_per_hour: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email_sends_per_day?: number | null
+          email_sends_per_hour?: number | null
+          file_uploads_per_day?: number | null
+          id?: string
+          max_clients?: number | null
+          max_members?: number | null
+          max_work_items?: number | null
+          notes?: string | null
+          organization_id: string
+          storage_mb?: number | null
+          sync_requests_per_day?: number | null
+          sync_requests_per_hour?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email_sends_per_day?: number | null
+          email_sends_per_hour?: number | null
+          file_uploads_per_day?: number | null
+          id?: string
+          max_clients?: number | null
+          max_members?: number | null
+          max_work_items?: number | null
+          notes?: string | null
+          organization_id?: string
+          storage_mb?: number | null
+          sync_requests_per_day?: number | null
+          sync_requests_per_hour?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_plan_overrides_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
@@ -3791,6 +3880,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      plan_limits: {
+        Row: {
+          created_at: string
+          email_sends_per_day: number | null
+          email_sends_per_hour: number | null
+          file_uploads_per_day: number | null
+          id: string
+          max_clients: number | null
+          max_members: number | null
+          max_work_items: number | null
+          storage_mb: number | null
+          sync_requests_per_day: number | null
+          sync_requests_per_hour: number | null
+          tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email_sends_per_day?: number | null
+          email_sends_per_hour?: number | null
+          file_uploads_per_day?: number | null
+          id?: string
+          max_clients?: number | null
+          max_members?: number | null
+          max_work_items?: number | null
+          storage_mb?: number | null
+          sync_requests_per_day?: number | null
+          sync_requests_per_hour?: number | null
+          tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email_sends_per_day?: number | null
+          email_sends_per_hour?: number | null
+          file_uploads_per_day?: number | null
+          id?: string
+          max_clients?: number | null
+          max_members?: number | null
+          max_work_items?: number | null
+          storage_mb?: number | null
+          sync_requests_per_day?: number | null
+          sync_requests_per_hour?: number | null
+          tier?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Relationships: []
       }
       platform_admins: {
         Row: {
@@ -4259,6 +4396,7 @@ export type Database = {
           status: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
+          tier: Database["public"]["Enums"]["plan_tier"] | null
           trial_ends_at: string | null
           trial_started_at: string | null
           updated_at: string | null
@@ -4275,6 +4413,7 @@ export type Database = {
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          tier?: Database["public"]["Enums"]["plan_tier"] | null
           trial_ends_at?: string | null
           trial_started_at?: string | null
           updated_at?: string | null
@@ -4291,6 +4430,7 @@ export type Database = {
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
+          tier?: Database["public"]["Enums"]["plan_tier"] | null
           trial_ends_at?: string | null
           trial_started_at?: string | null
           updated_at?: string | null
@@ -4450,6 +4590,56 @@ export type Database = {
           },
         ]
       }
+      trial_vouchers: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string
+          expires_at: string | null
+          extension_days: number
+          id: string
+          notes: string | null
+          restricted_org_id: string | null
+          revoked_at: string | null
+          usage_count: number
+          usage_limit: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by: string
+          expires_at?: string | null
+          extension_days: number
+          id?: string
+          notes?: string | null
+          restricted_org_id?: string | null
+          revoked_at?: string | null
+          usage_count?: number
+          usage_limit?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string
+          expires_at?: string | null
+          extension_days?: number
+          id?: string
+          notes?: string | null
+          restricted_org_id?: string | null
+          revoked_at?: string | null
+          usage_count?: number
+          usage_limit?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_vouchers_restricted_org_id_fkey"
+            columns: ["restricted_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_preferences: {
         Row: {
           created_at: string
@@ -4516,6 +4706,48 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      voucher_redemptions: {
+        Row: {
+          extension_applied_days: number
+          id: string
+          organization_id: string
+          redeemed_at: string
+          redeemed_by: string
+          voucher_id: string
+        }
+        Insert: {
+          extension_applied_days: number
+          id?: string
+          organization_id: string
+          redeemed_at?: string
+          redeemed_by: string
+          voucher_id: string
+        }
+        Update: {
+          extension_applied_days?: number
+          id?: string
+          organization_id?: string
+          redeemed_at?: string
+          redeemed_by?: string
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voucher_redemptions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voucher_redemptions_voucher_id_fkey"
+            columns: ["voucher_id"]
+            isOneToOne: false
+            referencedRelation: "trial_vouchers"
             referencedColumns: ["id"]
           },
         ]
@@ -5144,6 +5376,7 @@ export type Database = {
         | "PETICION_RADICADA"
         | "CONSTANCIA_RADICACION"
         | "RESPUESTA"
+      plan_tier: "FREE_TRIAL" | "BASIC" | "PRO" | "ENTERPRISE"
       process_event_type:
         | "ACTUACION"
         | "ESTADO_ELECTRONICO"
@@ -5477,6 +5710,7 @@ export const Constants = {
         "CONSTANCIA_RADICACION",
         "RESPUESTA",
       ],
+      plan_tier: ["FREE_TRIAL", "BASIC", "PRO", "ENTERPRISE"],
       process_event_type: [
         "ACTUACION",
         "ESTADO_ELECTRONICO",
