@@ -3,12 +3,27 @@ import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
+import { SubscriptionBanner } from "@/components/subscription/SubscriptionBanner";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
+import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
 
 export function AppLayout() {
   const { theme } = useTheme();
   const isAquaTheme = theme === "aqua";
+
+  // Ensure user has an organization on first load
+  useEffect(() => {
+    const initOrganization = async () => {
+      const result = await ensureUserOrganization();
+      if (result.success && result.organizationId) {
+        // Backfill organization_id for existing data
+        await backfillOrganizationId(result.organizationId);
+      }
+    };
+    initOrganization();
+  }, []);
 
   return (
     <SidebarProvider>
@@ -19,6 +34,7 @@ export function AppLayout() {
       )}>
         <AppSidebar />
         <SidebarInset className="flex flex-1 flex-col min-w-0">
+          <SubscriptionBanner />
           <EstadosTicker />
           <TopBar />
           {/* Main content area - transparent for aqua theme */}

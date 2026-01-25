@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -21,9 +21,15 @@ import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSec
 import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection";
 import { TickerSettings } from "@/components/settings/TickerSettings";
 import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
+import { SubscriptionManagement } from "@/components/settings/SubscriptionManagement";
+import { MembershipManagement } from "@/components/settings/MembershipManagement";
+import { useOrganizationMembership } from "@/hooks/use-organization-membership";
+import { useOrganization } from "@/contexts/OrganizationContext";
 
 export default function Settings() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const { isOwner, isAdmin } = useOrganizationMembership(organization?.id || null);
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
@@ -144,6 +150,18 @@ export default function Settings() {
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="profile">Perfil</TabsTrigger>
+          {isAdmin && (
+            <>
+              <TabsTrigger value="subscription">
+                <Crown className="h-4 w-4 mr-1" />
+                Suscripción
+              </TabsTrigger>
+              <TabsTrigger value="members">
+                <Users className="h-4 w-4 mr-1" />
+                Miembros
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
           <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
@@ -156,6 +174,18 @@ export default function Settings() {
             Peligro
           </TabsTrigger>
         </TabsList>
+
+        {isAdmin && (
+          <>
+            <TabsContent value="subscription">
+              <SubscriptionManagement />
+            </TabsContent>
+
+            <TabsContent value="members">
+              <MembershipManagement />
+            </TabsContent>
+          </>
+        )}
 
         <TabsContent value="ticker">
           <TickerSettings />
