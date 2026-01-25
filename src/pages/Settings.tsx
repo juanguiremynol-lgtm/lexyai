@@ -146,7 +146,7 @@ export default function Settings() {
             <>
               <TabsTrigger value="admin" className="bg-primary/5 hover:bg-primary/10">
                 <Shield className="h-4 w-4 mr-1" />
-                Consola Admin
+                Administración de Cuenta
               </TabsTrigger>
               <TabsTrigger value="subscription">
                 <Crown className="h-4 w-4 mr-1" />
