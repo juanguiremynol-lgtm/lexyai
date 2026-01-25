@@ -33,7 +33,9 @@ import {
   CalendarDays,
   CheckSquare,
   Bell,
-  AlertCircle
+  AlertCircle,
+  ClipboardCheck,
+  ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -367,6 +369,65 @@ export function AdminSupportToolsTab() {
             <Trash2 className="h-4 w-4 mr-2" />
             Reiniciar Datos
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Production Verification Checklist */}
+      <Card className="border-primary/20">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-primary">
+            <ClipboardCheck className="h-5 w-5" />
+            Lista de Verificación de Producción
+          </CardTitle>
+          <CardDescription>
+            Pasos de verificación manual para confirmar el correcto funcionamiento del sistema.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-4 bg-muted/50 rounded-lg space-y-3">
+            <p className="text-sm font-medium">Verificaciones recomendadas:</p>
+            <ul className="text-sm text-muted-foreground space-y-2">
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-1">1.</span>
+                <span><strong>Purga de Auditoría:</strong> Vista previa → logs DATA_PURGE_PREVIEWED y job_runs creados</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-1">2.</span>
+                <span><strong>Ejecución de Purga:</strong> Confirmar → logs DATA_PURGED y system_health_events OK</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-1">3.</span>
+                <span><strong>Bloqueo de Reintento:</strong> Correos con failed_permanent=true requieren confirmación de anulación</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-1">4.</span>
+                <span><strong>Alertas Admin:</strong> DB_MEMBERSHIP_DELETED y DB_SUBSCRIPTION_UPDATED aparecen en campana</span>
+              </li>
+            </ul>
+          </div>
+          
+          <Separator />
+          
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">Documentación Completa</p>
+              <p className="text-xs text-muted-foreground">
+                Ver checklist detallado con queries SQL y pasos específicos.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // Open docs in new tab (would be internal link in real deployment)
+                window.open('https://github.com/your-org/atenia/blob/main/docs/production-verification.md', '_blank');
+                toast.info("Documento de verificación: docs/production-verification.md");
+              }}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Ver Documentación
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
