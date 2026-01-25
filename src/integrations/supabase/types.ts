@@ -3792,6 +3792,27 @@ export type Database = {
           },
         ]
       }
+      platform_admins: {
+        Row: {
+          created_at: string
+          notes: string | null
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          notes?: string | null
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          notes?: string | null
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       process_estados: {
         Row: {
           created_at: string
@@ -4984,6 +5005,7 @@ export type Database = {
       }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"

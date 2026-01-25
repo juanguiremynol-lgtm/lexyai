@@ -39,6 +39,7 @@ import NewProcess from "./pages/NewProcess";
 import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 import InviteAccept from "./pages/InviteAccept";
+import PlatformPage from "./pages/PlatformPage";
 
 const queryClient = new QueryClient();
 
@@ -119,6 +120,7 @@ const App = () => (
             <Route path="/cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
             <Route path="/pricing" element={<ErrorBoundary><PricingPage /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+            <Route path="/platform" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
