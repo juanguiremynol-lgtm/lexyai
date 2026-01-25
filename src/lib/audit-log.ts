@@ -55,6 +55,8 @@ export type AuditAction =
   | "EMAIL_RETRY"
   | "EMAIL_CANCELLED"
   | "EMAIL_BULK_RETRY"
+  | "EMAIL_WEBHOOK_EVENT"
+  | "EMAIL_RETRY_OVERRIDE"
   // Subscription Actions
   | "TRIAL_STARTED"
   | "TRIAL_EXTENDED"
@@ -71,6 +73,7 @@ export type AuditAction =
   // Support/Data Lifecycle Actions
   | "DATA_EXPORTED"
   | "DATA_PURGED"
+  | "DATA_PURGE_PREVIEWED"
   | "DEMO_DATA_RESET"
   | "RECYCLE_BIN_PURGED"
   | "RECYCLE_BIN_RESTORED"

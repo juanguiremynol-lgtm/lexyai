@@ -71,3 +71,6 @@ verify_jwt = false
 
 [functions.purge-old-audit-logs]
 verify_jwt = false
+
+[functions.resend-webhook]
+verify_jwt = false
