@@ -5238,6 +5238,7 @@ export type Database = {
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      platform_verification_snapshot: { Args: never; Returns: Json }
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"
