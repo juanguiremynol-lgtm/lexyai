@@ -82,8 +82,8 @@ interface EmailOutboxItem {
   status: string;
   created_at: string;
   sent_at: string | null;
-  attempt_count: number;
-  last_error: string | null;
+  attempts: number;
+  error: string | null;
   next_attempt_at: string | null;
   html: string | null;
 }
@@ -134,8 +134,8 @@ export function AdminEmailOperationsTab() {
         .from("email_outbox")
         .update({
           status: "PENDING",
-          attempt_count: 0,
-          last_error: null,
+          attempts: 0,
+          error: null,
           next_attempt_at: new Date().toISOString(),
         })
         .eq("id", emailId);
@@ -203,8 +203,8 @@ export function AdminEmailOperationsTab() {
         .from("email_outbox")
         .update({
           status: "PENDING",
-          attempt_count: 0,
-          last_error: null,
+          attempts: 0,
+          error: null,
           next_attempt_at: new Date().toISOString(),
         })
         .in("id", failedIds);
@@ -374,9 +374,9 @@ export function AdminEmailOperationsTab() {
                           <StatusIcon className="h-3 w-3 mr-1" />
                           {statusConfig.label}
                         </Badge>
-                        {email.attempt_count > 0 && email.status === "FAILED" && (
+                        {email.attempts > 0 && email.status === "FAILED" && (
                           <span className="text-xs text-muted-foreground ml-2">
-                            ({email.attempt_count} intentos)
+                            ({email.attempts} intentos)
                           </span>
                         )}
                       </TableCell>
@@ -473,10 +473,10 @@ export function AdminEmailOperationsTab() {
                 )}
               </div>
 
-              {selectedEmail.last_error && (
+              {selectedEmail.error && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-md">
                   <p className="text-sm font-medium text-destructive mb-1">Último Error</p>
-                  <p className="text-sm text-muted-foreground">{selectedEmail.last_error}</p>
+                  <p className="text-sm text-muted-foreground">{selectedEmail.error}</p>
                 </div>
               )}
 
