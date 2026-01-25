@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -67,15 +67,6 @@ export default function Settings() {
     },
   });
 
-  const handleProfileSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    updateProfile.mutate({
-      full_name: form.get("full_name"),
-      firm_name: form.get("firm_name"),
-      signature_block: form.get("signature_block"),
-    });
-  };
 
   const handleSlaSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -149,9 +140,8 @@ export default function Settings() {
         </p>
       </div>
 
-      <Tabs defaultValue="profile" className="space-y-6">
+      <Tabs defaultValue={isAdmin ? "admin" : "ticker"} className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="profile">Perfil</TabsTrigger>
           {isAdmin && (
             <>
               <TabsTrigger value="admin" className="bg-primary/5 hover:bg-primary/10">
@@ -215,58 +205,6 @@ export default function Settings() {
 
         <TabsContent value="ticker">
           <TickerSettings />
-        </TabsContent>
-
-        <TabsContent value="profile">
-          <Card>
-            <CardHeader>
-              <CardTitle>Información Personal</CardTitle>
-              <CardDescription>
-                Configura tu nombre y firma para los correos
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleProfileSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="full_name">Nombre Completo</Label>
-                    <Input
-                      id="full_name"
-                      name="full_name"
-                      defaultValue={profile?.full_name || ""}
-                      placeholder="Dr. Juan Pérez"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="firm_name">Nombre de la Firma</Label>
-                    <Input
-                      id="firm_name"
-                      name="firm_name"
-                      defaultValue={profile?.firm_name || ""}
-                      placeholder="Pérez & Asociados"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signature_block">Bloque de Firma</Label>
-                  <Textarea
-                    id="signature_block"
-                    name="signature_block"
-                    defaultValue={profile?.signature_block || ""}
-                    placeholder="Dr. Juan Pérez&#10;Abogado&#10;Pérez & Asociados&#10;Tel: (1) 234-5678"
-                    className="min-h-[120px]"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Este texto se insertará en las plantillas de correo como {"{{signature_block}}"}
-                  </p>
-                </div>
-                <Button type="submit" disabled={updateProfile.isPending}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Guardar Perfil
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="recordatorios" className="space-y-6">
