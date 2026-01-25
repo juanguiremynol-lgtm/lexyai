@@ -111,19 +111,20 @@ export function PlatformVerificationTab() {
     mutationFn: async () => {
       const results: ProbeResult[] = [];
       const probes = [
-        { name: "Organizations Cross-Org Read", table: "organizations", query: () => supabase.from("organizations").select("id,name").limit(5) },
-        { name: "Memberships Cross-Org Read", table: "organization_memberships", query: () => supabase.from("organization_memberships").select("id,organization_id,user_id,role").limit(5) },
-        { name: "Audit Logs Cross-Org Read", table: "audit_logs", query: () => supabase.from("audit_logs").select("id,organization_id,action,created_at").order("created_at", { ascending: false }).limit(5) },
-        { name: "Job Runs Read", table: "job_runs", query: () => supabase.from("job_runs").select("id,job_name,status,finished_at").order("created_at", { ascending: false }).limit(5) },
-        { name: "System Health Events Read", table: "system_health_events", query: () => supabase.from("system_health_events").select("id,event_type,status,created_at").order("created_at", { ascending: false }).limit(5) },
-        { name: "Subscriptions Cross-Org Read", table: "subscriptions", query: () => supabase.from("subscriptions").select("id,organization_id,status").limit(5) },
-        { name: "Platform Admins Read", table: "platform_admins", query: () => supabase.from("platform_admins").select("user_id,role").limit(5) },
+        // Use select with id only and limit for safer queries
+        { name: "Organizations Cross-Org Read", table: "organizations", query: () => supabase.from("organizations").select("id", { count: "exact", head: true }) },
+        { name: "Memberships Cross-Org Read", table: "organization_memberships", query: () => supabase.from("organization_memberships").select("id", { count: "exact", head: true }) },
+        { name: "Audit Logs Cross-Org Read", table: "audit_logs", query: () => supabase.from("audit_logs").select("id", { count: "exact", head: true }) },
+        { name: "Job Runs Read", table: "job_runs", query: () => supabase.from("job_runs").select("id", { count: "exact", head: true }) },
+        { name: "System Health Events Read", table: "system_health_events", query: () => supabase.from("system_health_events").select("id", { count: "exact", head: true }) },
+        { name: "Subscriptions Cross-Org Read", table: "subscriptions", query: () => supabase.from("subscriptions").select("id", { count: "exact", head: true }) },
+        { name: "Platform Admins Read", table: "platform_admins", query: () => supabase.from("platform_admins").select("user_id", { count: "exact", head: true }) },
       ];
 
       for (const probe of probes) {
         const start = performance.now();
         try {
-          const { data, error } = await probe.query();
+          const { count, error } = await probe.query();
           const duration = performance.now() - start;
           if (error) {
             results.push({
@@ -139,7 +140,7 @@ export function PlatformVerificationTab() {
               name: probe.name,
               table: probe.table,
               passed: true,
-              rowCount: Array.isArray(data) ? data.length : 0,
+              rowCount: count ?? 0,
               error: null,
               duration_ms: Math.round(duration)
             });
@@ -307,11 +308,36 @@ export function PlatformVerificationTab() {
 
       {/* Error state */}
       {snapshotError && (
-        <Alert variant="destructive">
-          <XCircle className="h-4 w-4" />
-          <AlertTitle>Snapshot Failed</AlertTitle>
-          <AlertDescription>{snapshotError.message}</AlertDescription>
-        </Alert>
+        <Card className="border-destructive/50 bg-destructive/10">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <XCircle className="h-5 w-5" />
+              Snapshot Failed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-foreground">{snapshotError.message}</p>
+            {(snapshotError as any)?.details && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  Show error details
+                </summary>
+                <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-40 font-mono">
+                  {JSON.stringify((snapshotError as any).details, null, 2)}
+                </pre>
+              </details>
+            )}
+            {(snapshotError as any)?.hint && (
+              <p className="text-xs text-muted-foreground">
+                <strong>Hint:</strong> {(snapshotError as any).hint}
+              </p>
+            )}
+            <Button variant="outline" size="sm" onClick={() => refetchSnapshot()} className="gap-1">
+              <RefreshCw className="h-3 w-3" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {/* Loading state */}
@@ -344,6 +370,21 @@ export function PlatformVerificationTab() {
               name="email_outbox indexes"
               status={snapshot.schema.email_outbox_indexes_ok ? "PASS" : "FAIL"}
               evidence={`${snapshot.schema.email_outbox_indexes_found?.length || 0} index(es) found`}
+            />
+            <CheckRow
+              name="job_runs table"
+              status={snapshot.schema.job_runs_table_exists ? "PASS" : "FAIL"}
+              evidence={snapshot.schema.job_runs_table_exists ? "Table exists" : "Table missing"}
+            />
+            <CheckRow
+              name="job_runs.metadata column"
+              status={snapshot.schema.job_runs_has_metadata ? "PASS" : "WARN"}
+              evidence={snapshot.schema.job_runs_has_metadata ? "Column exists" : "Column missing (preview flag unavailable)"}
+            />
+            <CheckRow
+              name="system_health_events table"
+              status={snapshot.schema.system_health_events_table_exists ? "PASS" : "FAIL"}
+              evidence={snapshot.schema.system_health_events_table_exists ? "Table exists" : "Table missing"}
             />
           </CardContent>
         </Card>

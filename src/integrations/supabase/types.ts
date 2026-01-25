@@ -2979,6 +2979,7 @@ export type Database = {
           finished_at: string | null
           id: string
           job_name: string
+          metadata: Json
           organization_id: string | null
           processed_count: number | null
           started_at: string
@@ -2990,6 +2991,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           job_name: string
+          metadata?: Json
           organization_id?: string | null
           processed_count?: number | null
           started_at?: string
@@ -3001,6 +3003,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           job_name?: string
+          metadata?: Json
           organization_id?: string | null
           processed_count?: number | null
           started_at?: string
