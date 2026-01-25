@@ -1,5 +1,6 @@
 /**
  * Admin Support Tools Tab - Data export and demo reset utilities
+ * Uses organization_id for multi-tenant scoping (not owner_id)
  */
 
 import { useState } from "react";
@@ -8,8 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +24,6 @@ import {
 import { 
   Download, 
   Trash2, 
-  Wrench, 
   FileJson, 
   FileSpreadsheet,
   Loader2,
@@ -32,7 +32,8 @@ import {
   Scale,
   CalendarDays,
   CheckSquare,
-  Bell
+  Bell,
+  AlertCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -54,19 +55,18 @@ export function AdminSupportToolsTab() {
   const [confirmReset, setConfirmReset] = useState("");
   const [exportFormat, setExportFormat] = useState<"json" | "csv">("json");
 
-  // Fetch entity counts for export preview
+  // Fetch entity counts for export preview - using organization_id for multi-tenant scoping
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["admin-export-stats", organization?.id],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
+      if (!organization?.id) return null;
 
       const [clients, workItems, tasks, hearings, alerts] = await Promise.all([
-        supabase.from("clients").select("id", { count: "exact", head: true }).eq("owner_id", user.id).is("deleted_at", null),
-        supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.id).is("deleted_at", null),
-        supabase.from("tasks").select("id", { count: "exact", head: true }).eq("owner_id", user.id).is("deleted_at", null),
-        supabase.from("hearings").select("id", { count: "exact", head: true }).eq("owner_id", user.id),
-        supabase.from("alert_instances").select("id", { count: "exact", head: true }).eq("owner_id", user.id),
+        supabase.from("clients").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
+        supabase.from("work_items").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
+        supabase.from("tasks").select("id", { count: "exact", head: true }).eq("organization_id", organization.id).is("deleted_at", null),
+        supabase.from("hearings").select("id", { count: "exact", head: true }).eq("organization_id", organization.id),
+        supabase.from("alert_instances").select("id", { count: "exact", head: true }).eq("organization_id", organization.id),
       ]);
 
       return {
@@ -80,11 +80,10 @@ export function AdminSupportToolsTab() {
     enabled: !!organization?.id,
   });
 
-  // Export data mutation
+  // Export data mutation - using organization_id for multi-tenant scoping
   const exportData = useMutation({
     mutationFn: async (entities: string[]) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
+      if (!organization?.id) throw new Error("Organización no cargada");
 
       const exportData: Record<string, unknown[]> = {};
 
@@ -92,7 +91,7 @@ export function AdminSupportToolsTab() {
         const { data } = await supabase
           .from(entity as any)
           .select("*")
-          .eq("owner_id", user.id)
+          .eq("organization_id", organization.id)
           .is("deleted_at", null)
           .limit(10000);
 
@@ -100,7 +99,7 @@ export function AdminSupportToolsTab() {
       }
 
       // Create download
-      const filename = `atenia_export_${new Date().toISOString().split("T")[0]}`;
+      const filename = `atenia_export_${organization.name?.replace(/\s+/g, '_') || 'org'}_${new Date().toISOString().split("T")[0]}`;
       
       if (exportFormat === "json") {
         const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
@@ -141,15 +140,13 @@ export function AdminSupportToolsTab() {
       }
 
       // Log audit
-      if (organization?.id) {
-        await logAudit({
-          organizationId: organization.id,
-          action: "DATA_EXPORTED",
-          entityType: "organization",
-          entityId: organization.id,
-          metadata: { entities, format: exportFormat },
-        });
-      }
+      await logAudit({
+        organizationId: organization.id,
+        action: "DATA_EXPORTED",
+        entityType: "organization",
+        entityId: organization.id,
+        metadata: { entities, format: exportFormat },
+      });
 
       return entities.length;
     },
@@ -161,13 +158,15 @@ export function AdminSupportToolsTab() {
     },
   });
 
-  // Reset demo data mutation
+  // Reset demo data mutation - using organization_id for multi-tenant scoping
   const resetDemoData = useMutation({
     mutationFn: async () => {
+      if (!organization?.id) throw new Error("Organización no cargada");
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Soft-delete all work_items
+      // Soft-delete all work_items in the organization
       const { error: workItemsError } = await supabase
         .from("work_items")
         .update({ 
@@ -175,33 +174,31 @@ export function AdminSupportToolsTab() {
           deleted_by: user.id,
           delete_reason: "Demo data reset"
         })
-        .eq("owner_id", user.id)
+        .eq("organization_id", organization.id)
         .is("deleted_at", null);
 
       if (workItemsError) throw workItemsError;
 
-      // Soft-delete all clients
+      // Soft-delete all clients in the organization
       const { error: clientsError } = await supabase
         .from("clients")
         .update({ 
           deleted_at: new Date().toISOString(),
           deleted_by: user.id
         })
-        .eq("owner_id", user.id)
+        .eq("organization_id", organization.id)
         .is("deleted_at", null);
 
       if (clientsError) throw clientsError;
 
       // Log audit
-      if (organization?.id) {
-        await logAudit({
-          organizationId: organization.id,
-          action: "DEMO_DATA_RESET",
-          entityType: "organization",
-          entityId: organization.id,
-          metadata: { resetBy: user.id },
-        });
-      }
+      await logAudit({
+        organizationId: organization.id,
+        action: "DEMO_DATA_RESET",
+        entityType: "organization",
+        entityId: organization.id,
+        metadata: { resetBy: user.id },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries();
@@ -216,6 +213,31 @@ export function AdminSupportToolsTab() {
 
   const exportEntities = ["clients", "work_items", "tasks", "hearings"];
 
+  // Defensive check: if organization context is not ready
+  if (!organization?.id) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            Contexto de Organización
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">
+              Cargando contexto de organización...
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Las herramientas de soporte están deshabilitadas hasta que se cargue el contexto.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Export Data */}
@@ -226,38 +248,46 @@ export function AdminSupportToolsTab() {
             Exportar Datos de la Organización
           </CardTitle>
           <CardDescription>
-            Descarga todos tus datos en formato JSON o CSV
+            Descarga todos los datos de <strong>{organization.name}</strong> en formato JSON o CSV
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Stats Preview */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="p-3 rounded-lg bg-muted/50 text-center">
-              <Users className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-2xl font-bold">{stats?.clients || 0}</p>
-              <p className="text-xs text-muted-foreground">Clientes</p>
+          {loadingStats ? (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-20 w-full" />
+              ))}
             </div>
-            <div className="p-3 rounded-lg bg-muted/50 text-center">
-              <Scale className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-2xl font-bold">{stats?.work_items || 0}</p>
-              <p className="text-xs text-muted-foreground">Procesos</p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="p-3 rounded-lg bg-muted/50 text-center">
+                <Users className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                <p className="text-2xl font-bold">{stats?.clients || 0}</p>
+                <p className="text-xs text-muted-foreground">Clientes</p>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50 text-center">
+                <Scale className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                <p className="text-2xl font-bold">{stats?.work_items || 0}</p>
+                <p className="text-xs text-muted-foreground">Procesos</p>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50 text-center">
+                <CheckSquare className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                <p className="text-2xl font-bold">{stats?.tasks || 0}</p>
+                <p className="text-xs text-muted-foreground">Tareas</p>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50 text-center">
+                <CalendarDays className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                <p className="text-2xl font-bold">{stats?.hearings || 0}</p>
+                <p className="text-xs text-muted-foreground">Audiencias</p>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/50 text-center">
+                <Bell className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
+                <p className="text-2xl font-bold">{stats?.alerts || 0}</p>
+                <p className="text-xs text-muted-foreground">Alertas</p>
+              </div>
             </div>
-            <div className="p-3 rounded-lg bg-muted/50 text-center">
-              <CheckSquare className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-2xl font-bold">{stats?.tasks || 0}</p>
-              <p className="text-xs text-muted-foreground">Tareas</p>
-            </div>
-            <div className="p-3 rounded-lg bg-muted/50 text-center">
-              <CalendarDays className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-2xl font-bold">{stats?.hearings || 0}</p>
-              <p className="text-xs text-muted-foreground">Audiencias</p>
-            </div>
-            <div className="p-3 rounded-lg bg-muted/50 text-center">
-              <Bell className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-2xl font-bold">{stats?.alerts || 0}</p>
-              <p className="text-xs text-muted-foreground">Alertas</p>
-            </div>
-          </div>
+          )}
 
           <Separator />
 
@@ -296,7 +326,7 @@ export function AdminSupportToolsTab() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            La exportación incluye: clientes, procesos (work_items), tareas y audiencias.
+            La exportación incluye: clientes, procesos (work_items), tareas y audiencias de toda la organización.
             Los datos sensibles como tokens de invitación no se incluyen.
           </p>
         </CardContent>
@@ -310,7 +340,7 @@ export function AdminSupportToolsTab() {
             Reiniciar Datos de Demostración
           </CardTitle>
           <CardDescription>
-            Archiva todos los procesos y clientes creados durante el período de prueba.
+            Archiva todos los procesos y clientes de <strong>{organization.name}</strong> creados durante el período de prueba.
             Podrás restaurarlos desde la Papelera de Reciclaje.
           </CardDescription>
         </CardHeader>
@@ -320,7 +350,7 @@ export function AdminSupportToolsTab() {
               <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
               <div className="text-sm">
                 <p className="font-medium text-amber-800 dark:text-amber-200">
-                  Esta acción archivará todos tus datos actuales
+                  Esta acción archivará todos los datos de la organización
                 </p>
                 <p className="text-amber-700 dark:text-amber-300">
                   Útil para comenzar de nuevo con una cuenta limpia. Los datos no se eliminan permanentemente.
@@ -350,7 +380,7 @@ export function AdminSupportToolsTab() {
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-4">
               <p>
-                Esto archivará <strong>todos los procesos y clientes</strong> actuales.
+                Esto archivará <strong>todos los procesos y clientes</strong> de la organización <strong>{organization.name}</strong>.
                 Los datos quedarán en la Papelera de Reciclaje por si deseas restaurarlos.
               </p>
 

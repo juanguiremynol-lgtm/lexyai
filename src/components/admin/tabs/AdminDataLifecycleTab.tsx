@@ -1,5 +1,6 @@
 /**
  * Admin Data Lifecycle Tab - Recycle bin with enhanced controls
+ * Uses organization_id for multi-tenant scoping (not owner_id)
  */
 
 import { useState } from "react";
@@ -13,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,13 +37,13 @@ import {
   AlertTriangle,
   Search,
   Users,
-  CalendarDays,
-  CheckSquare
+  AlertCircle
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { useRestoreWorkItems } from "@/hooks/use-restore-work-items";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -86,6 +88,7 @@ interface ArchivedClient {
 }
 
 export function AdminDataLifecycleTab() {
+  const { organization } = useOrganization();
   const [selectedWorkItems, setSelectedWorkItems] = useState<Set<string>>(new Set());
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
   const [hardDeleteDialogOpen, setHardDeleteDialogOpen] = useState(false);
@@ -105,12 +108,11 @@ export function AdminDataLifecycleTab() {
     },
   });
 
-  // Fetch archived work items
+  // Fetch archived work items - using organization_id for multi-tenant scoping
   const { data: archivedWorkItems, isLoading: loadingWorkItems } = useQuery({
-    queryKey: ["admin-archived-work-items"],
+    queryKey: ["admin-archived-work-items", organization?.id],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      if (!organization?.id) return [];
 
       const { data, error } = await supabase
         .from("work_items")
@@ -125,32 +127,33 @@ export function AdminDataLifecycleTab() {
           delete_reason,
           client:clients(name)
         `)
-        .eq("owner_id", user.id)
+        .eq("organization_id", organization.id)
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false });
 
       if (error) throw error;
       return (data || []) as ArchivedItem[];
     },
+    enabled: !!organization?.id,
   });
 
-  // Fetch archived clients
+  // Fetch archived clients - using organization_id for multi-tenant scoping
   const { data: archivedClients, isLoading: loadingClients } = useQuery({
-    queryKey: ["admin-archived-clients"],
+    queryKey: ["admin-archived-clients", organization?.id],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
+      if (!organization?.id) return [];
 
       const { data, error } = await supabase
         .from("clients")
         .select("id, name, id_number, deleted_at, deleted_by")
-        .eq("owner_id", user.id)
+        .eq("organization_id", organization.id)
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false });
 
       if (error) throw error;
       return (data || []) as ArchivedClient[];
     },
+    enabled: !!organization?.id,
   });
 
   // Filter items by search
@@ -210,6 +213,31 @@ export function AdminDataLifecycleTab() {
 
   const selectedCount = deleteType === "work_items" ? selectedWorkItems.size : selectedClients.size;
 
+  // Defensive check: if organization context is not ready
+  if (!organization?.id) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            Contexto de Organización
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">
+              Cargando contexto de organización...
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Las acciones destructivas están deshabilitadas hasta que se cargue el contexto.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Search */}
@@ -244,18 +272,20 @@ export function AdminDataLifecycleTab() {
                 Procesos Archivados
               </CardTitle>
               <CardDescription>
-                Elementos que han sido archivados. Puedes restaurarlos o eliminarlos permanentemente.
+                Elementos archivados de toda la organización. Puedes restaurarlos o eliminarlos permanentemente.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {loadingWorkItems ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
                 </div>
               ) : filteredWorkItems.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Trash2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No hay procesos archivados</p>
+                  <p>No hay procesos archivados en la organización</p>
                 </div>
               ) : (
                 <>
@@ -377,18 +407,19 @@ export function AdminDataLifecycleTab() {
                 Clientes Archivados
               </CardTitle>
               <CardDescription>
-                Clientes que han sido archivados.
+                Clientes archivados de toda la organización.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {loadingClients ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="space-y-2">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
                 </div>
               ) : filteredClients.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No hay clientes archivados</p>
+                  <p>No hay clientes archivados en la organización</p>
                 </div>
               ) : (
                 <>

@@ -96,6 +96,31 @@ export function AdminSecurityTab() {
     setHasChanges(true);
   };
 
+  // Defensive check: if organization context is not ready
+  if (!organization?.id) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-amber-500" />
+            Contexto de Organización
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">
+              Cargando contexto de organización...
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Las configuraciones de seguridad están deshabilitadas hasta que se cargue el contexto.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Current Session */}
