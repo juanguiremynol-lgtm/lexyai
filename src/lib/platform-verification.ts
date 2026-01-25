@@ -13,6 +13,9 @@ export interface VerificationSnapshot {
     email_outbox_columns_found: string[];
     email_outbox_indexes_ok: boolean;
     email_outbox_indexes_found: string[];
+    job_runs_table_exists: boolean;
+    job_runs_has_metadata: boolean;
+    system_health_events_table_exists: boolean;
   };
   triggers: {
     audit_trigger_function_exists: boolean;
@@ -36,6 +39,8 @@ export interface VerificationSnapshot {
     DB_EMAIL_STATUS_CHANGED: string | null;
   };
   jobs: {
+    job_runs_table_exists: boolean;
+    job_runs_has_metadata: boolean;
     purge_old_audit_logs_last_run: {
       status: string;
       finished_at: string;
