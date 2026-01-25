@@ -129,7 +129,7 @@ export function AdminEmailOperationsTab() {
 
   // Retry failed email
   const retryEmail = useMutation({
-    mutationFn: async (emailId: string) => {
+    mutationFn: async (email: EmailOutboxItem) => {
       const { error } = await supabase
         .from("email_outbox")
         .update({
@@ -138,7 +138,7 @@ export function AdminEmailOperationsTab() {
           error: null,
           next_attempt_at: new Date().toISOString(),
         })
-        .eq("id", emailId);
+        .eq("id", email.id);
 
       if (error) throw error;
 
@@ -147,8 +147,14 @@ export function AdminEmailOperationsTab() {
           organizationId: organization.id,
           action: "EMAIL_RETRY",
           entityType: "email_outbox",
-          entityId: emailId,
-          metadata: {},
+          entityId: email.id,
+          metadata: {
+            to_email: email.to_email,
+            subject: email.subject,
+            previous_status: email.status,
+            previous_attempts: email.attempts,
+            previous_error: email.error,
+          },
         });
       }
     },
@@ -163,11 +169,11 @@ export function AdminEmailOperationsTab() {
 
   // Cancel pending email
   const cancelEmail = useMutation({
-    mutationFn: async (emailId: string) => {
+    mutationFn: async (email: EmailOutboxItem) => {
       const { error } = await supabase
         .from("email_outbox")
         .update({ status: "CANCELLED" })
-        .eq("id", emailId);
+        .eq("id", email.id);
 
       if (error) throw error;
 
@@ -176,8 +182,13 @@ export function AdminEmailOperationsTab() {
           organizationId: organization.id,
           action: "EMAIL_CANCELLED",
           entityType: "email_outbox",
-          entityId: emailId,
-          metadata: {},
+          entityId: email.id,
+          metadata: {
+            to_email: email.to_email,
+            subject: email.subject,
+            previous_status: email.status,
+            attempts: email.attempts,
+          },
         });
       }
     },
@@ -197,7 +208,7 @@ export function AdminEmailOperationsTab() {
         .filter(e => e.status === "FAILED")
         .map(e => e.id);
 
-      if (failedIds.length === 0) return;
+      if (failedIds.length === 0) return 0;
 
       const { error } = await supabase
         .from("email_outbox")
@@ -210,10 +221,25 @@ export function AdminEmailOperationsTab() {
         .in("id", failedIds);
 
       if (error) throw error;
+
+      // Log audit for bulk retry
+      if (organization?.id) {
+        await logAudit({
+          organizationId: organization.id,
+          action: "EMAIL_BULK_RETRY",
+          entityType: "email_outbox",
+          metadata: {
+            retried_count: failedIds.length,
+            retried_ids: failedIds,
+          },
+        });
+      }
+
+      return failedIds.length;
     },
-    onSuccess: () => {
+    onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["admin-email-outbox"] });
-      toast.success("Correos fallidos programados para reenvío");
+      toast.success(`${count} correos fallidos programados para reenvío`);
     },
     onError: (error: Error) => {
       toast.error("Error: " + error.message);
@@ -424,7 +450,7 @@ export function AdminEmailOperationsTab() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => retryEmail.mutate(email.id)}
+                              onClick={() => retryEmail.mutate(email)}
                               disabled={retryEmail.isPending}
                             >
                               <RotateCcw className="h-4 w-4" />
@@ -446,7 +472,7 @@ export function AdminEmailOperationsTab() {
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>No</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => cancelEmail.mutate(email.id)}>
+                                  <AlertDialogAction onClick={() => cancelEmail.mutate(email)}>
                                     Cancelar Correo
                                   </AlertDialogAction>
                                 </AlertDialogFooter>

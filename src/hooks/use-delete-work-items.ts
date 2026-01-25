@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logAudit } from "@/lib/audit-log";
 
 interface DeleteResult {
   ok: boolean;
@@ -32,6 +33,7 @@ const INVALIDATE_QUERIES = [
   "tasks",
   "documents",
   "process-events",
+  "admin-archived-work-items",
 ];
 
 export function useDeleteWorkItems(options?: UseDeleteWorkItemsOptions) {
@@ -39,6 +41,8 @@ export function useDeleteWorkItems(options?: UseDeleteWorkItemsOptions) {
 
   const mutation = useMutation({
     mutationFn: async (workItemIds: string[]): Promise<DeleteResult> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      
       const { data, error } = await supabase.functions.invoke<DeleteResult>("delete-work-items", {
         body: { work_item_ids: workItemIds, mode: "HARD_DELETE" },
       });
@@ -49,6 +53,29 @@ export function useDeleteWorkItems(options?: UseDeleteWorkItemsOptions) {
 
       if (!data) {
         throw new Error("No se recibió respuesta del servidor");
+      }
+
+      // Log audit for bulk purge
+      if (data.deleted_count > 0 && user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", user.id)
+          .single();
+
+        if (profile?.organization_id) {
+          await logAudit({
+            organizationId: profile.organization_id,
+            action: "RECYCLE_BIN_PURGED",
+            entityType: "work_item",
+            metadata: {
+              purged_count: data.deleted_count,
+              purged_ids: data.deleted_ids,
+              storage_files_deleted: data.storage_files_deleted,
+              errors_count: data.errors.length,
+            },
+          });
+        }
       }
 
       return data;

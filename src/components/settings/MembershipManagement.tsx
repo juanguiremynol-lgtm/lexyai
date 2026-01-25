@@ -196,7 +196,7 @@ export function MembershipManagement() {
                               <AlertDialogFooter>
                                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() => removeMember.mutate(membership.id)}
+                                  onClick={() => removeMember.mutate({ membershipId: membership.id, targetUserId: membership.user_id })}
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 >
                                   Remover

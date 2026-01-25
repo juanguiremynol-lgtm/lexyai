@@ -91,15 +91,17 @@ export function useOrganizationMembership(organizationId: string | null) {
 
   // Update member role
   const updateMemberRole = useMutation({
-    mutationFn: async ({ membershipId, newRole }: { membershipId: string; newRole: MembershipRole }) => {
+    mutationFn: async ({ membershipId, newRole, targetUserId }: { membershipId: string; newRole: MembershipRole; targetUserId?: string }) => {
       const { error } = await supabase
         .from('organization_memberships')
         .update({ role: newRole })
         .eq('id', membershipId);
 
       if (error) throw error;
+      
+      return { membershipId, newRole, targetUserId };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['organization-memberships', organizationId] });
       toast.success('Rol actualizado');
     },
@@ -110,13 +112,15 @@ export function useOrganizationMembership(organizationId: string | null) {
 
   // Remove member
   const removeMember = useMutation({
-    mutationFn: async (membershipId: string) => {
+    mutationFn: async ({ membershipId, targetUserId }: { membershipId: string; targetUserId?: string }) => {
       const { error } = await supabase
         .from('organization_memberships')
         .delete()
         .eq('id', membershipId);
 
       if (error) throw error;
+      
+      return { membershipId, targetUserId };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organization-memberships', organizationId] });
