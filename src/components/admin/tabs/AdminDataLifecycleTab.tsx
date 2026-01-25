@@ -39,7 +39,8 @@ import {
   Users,
   AlertCircle,
   Clock,
-  History
+  History,
+  CheckCircle2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -102,6 +103,13 @@ export function AdminDataLifecycleTab() {
   const [searchQuery, setSearchQuery] = useState("");
   const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
   const [purgeConfirmText, setPurgeConfirmText] = useState("");
+  const [purgePreview, setPurgePreview] = useState<{
+    would_delete_count: number;
+    cutoff: string;
+    retention_days: number;
+    breakdown?: { normal: number; extended: number };
+  } | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
 
   const { restoreBulk, isRestoring } = useRestoreWorkItems({
     onSuccess: () => setSelectedWorkItems(new Set()),
@@ -130,19 +138,59 @@ export function AdminDataLifecycleTab() {
     enabled: !!organization?.id,
   });
 
-  // Manual purge mutation
-  const purgeMutation = useMutation({
+  // Preview purge mutation
+  const previewPurgeMutation = useMutation({
     mutationFn: async () => {
+      setIsPreviewLoading(true);
       const { data, error } = await supabase.functions.invoke("purge-old-audit-logs", {
-        body: { manual: true },
+        body: { mode: "preview", organization_id: organization?.id },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: async (data) => {
-      toast.success(`Purga completada: ${data?.deletedCount || 0} registros eliminados`);
+      setPurgePreview({
+        would_delete_count: data?.would_delete_count || 0,
+        cutoff: data?.cutoff || new Date().toISOString(),
+        retention_days: data?.retention_days || retentionDays || 365,
+        breakdown: data?.breakdown,
+      });
+      setIsPreviewLoading(false);
+
+      // Log preview action
+      if (organization?.id) {
+        await logAudit({
+          organizationId: organization.id,
+          action: "DATA_PURGE_PREVIEWED",
+          entityType: "audit_log",
+          metadata: {
+            would_delete_count: data?.would_delete_count || 0,
+            retention_days: data?.retention_days || retentionDays,
+            initiated_from: "AdminDataLifecycleTab",
+          },
+        });
+      }
+    },
+    onError: (error: Error) => {
+      setIsPreviewLoading(false);
+      toast.error("Error al obtener vista previa: " + error.message);
+    },
+  });
+
+  // Execute purge mutation
+  const purgeMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("purge-old-audit-logs", {
+        body: { mode: "execute", organization_id: organization?.id, manual: true },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: async (data) => {
+      toast.success(`Purga completada: ${data?.deleted || 0} registros eliminados`);
       setPurgeDialogOpen(false);
       setPurgeConfirmText("");
+      setPurgePreview(null);
       
       // Log the manual purge action
       if (organization?.id) {
@@ -152,8 +200,10 @@ export function AdminDataLifecycleTab() {
           entityType: "audit_log",
           metadata: {
             manual: true,
-            deletedCount: data?.deletedCount || 0,
-            retentionDays,
+            deleted_count: data?.deleted || 0,
+            retention_days: data?.retention_days || retentionDays,
+            cutoff: data?.cutoff,
+            initiated_from: "AdminDataLifecycleTab",
           },
         });
       }
@@ -165,6 +215,14 @@ export function AdminDataLifecycleTab() {
       toast.error("Error al purgar: " + error.message);
     },
   });
+
+  // Open purge dialog and trigger preview
+  const handleOpenPurgeDialog = () => {
+    setPurgeDialogOpen(true);
+    setPurgePreview(null);
+    setPurgeConfirmText("");
+    previewPurgeMutation.mutate();
+  };
 
   // Fetch archived work items - using organization_id for multi-tenant scoping
   const { data: archivedWorkItems, isLoading: loadingWorkItems } = useQuery({
@@ -589,23 +647,23 @@ export function AdminDataLifecycleTab() {
             </div>
             <Button
               variant="outline"
-              onClick={() => setPurgeDialogOpen(true)}
-              disabled={purgeMutation.isPending}
+              onClick={handleOpenPurgeDialog}
+              disabled={purgeMutation.isPending || previewPurgeMutation.isPending}
             >
-              {purgeMutation.isPending ? (
+              {purgeMutation.isPending || previewPurgeMutation.isPending ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Trash2 className="h-4 w-4 mr-2" />
               )}
-              Purgar Ahora
+              Vista Previa y Purgar
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Purge Confirmation Dialog */}
+      {/* Purge Confirmation Dialog with Preview */}
       <AlertDialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
-        <AlertDialogContent className="max-w-md">
+        <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <div className="flex items-center gap-3 text-amber-600">
               <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
@@ -616,49 +674,100 @@ export function AdminDataLifecycleTab() {
               </AlertDialogTitle>
             </div>
             <AlertDialogDescription className="space-y-4 pt-4">
-              <p>
-                Esta acción eliminará permanentemente los logs de auditoría más antiguos que <strong>{retentionDays} días</strong>.
-              </p>
+              {/* Preview Loading State */}
+              {isPreviewLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-muted-foreground">Calculando vista previa...</span>
+                </div>
+              )}
+
+              {/* Preview Results */}
+              {purgePreview && !isPreviewLoading && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-muted rounded-lg">
+                      <p className="text-xs text-muted-foreground">Retención</p>
+                      <p className="text-lg font-bold">{purgePreview.retention_days} días</p>
+                    </div>
+                    <div className="p-3 bg-muted rounded-lg">
+                      <p className="text-xs text-muted-foreground">Registros a eliminar</p>
+                      <p className="text-lg font-bold text-amber-600">{purgePreview.would_delete_count}</p>
+                    </div>
+                  </div>
+
+                  {purgePreview.breakdown && (
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>• {purgePreview.breakdown.normal} logs normales (más de {purgePreview.retention_days} días)</p>
+                      <p>• {purgePreview.breakdown.extended} logs críticos (más de {purgePreview.retention_days * 2} días)</p>
+                    </div>
+                  )}
+
+                  <p className="text-sm">
+                    Fecha de corte: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{new Date(purgePreview.cutoff).toLocaleString('es-CO')}</code>
+                  </p>
+                </div>
+              )}
 
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 space-y-2">
                 <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
                   <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <div className="text-sm space-y-1">
-                    <p className="font-medium">Nota importante:</p>
+                    <p className="font-medium">Esta acción es IRREVERSIBLE:</p>
                     <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
                       <li>Eventos críticos se mantienen el doble de tiempo</li>
                       <li>Esta purga se registrará en auditoría</li>
-                      <li>La acción no se puede deshacer</li>
+                      <li>Los datos eliminados no se pueden recuperar</li>
                     </ul>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm">
-                  Escribe <code className="bg-muted px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400 font-mono">PURGE</code> para confirmar:
-                </p>
-                <input
-                  type="text"
-                  value={purgeConfirmText}
-                  onChange={(e) => setPurgeConfirmText(e.target.value.toUpperCase())}
-                  placeholder="PURGE"
-                  className="w-full px-3 py-2 border rounded-md font-mono text-sm bg-background"
-                  disabled={purgeMutation.isPending}
-                />
-              </div>
+              {/* Confirmation Input - Only show if there are records to delete */}
+              {purgePreview && purgePreview.would_delete_count > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Escribe <code className="bg-muted px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400 font-mono">PURGE</code> para confirmar:
+                  </p>
+                  <input
+                    type="text"
+                    value={purgeConfirmText}
+                    onChange={(e) => setPurgeConfirmText(e.target.value.toUpperCase())}
+                    placeholder="PURGE"
+                    className="w-full px-3 py-2 border rounded-md font-mono text-sm bg-background"
+                    disabled={purgeMutation.isPending}
+                  />
+                </div>
+              )}
+
+              {/* No records message */}
+              {purgePreview && purgePreview.would_delete_count === 0 && (
+                <div className="text-center py-4 text-muted-foreground">
+                  <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+                  <p className="font-medium">No hay registros para purgar</p>
+                  <p className="text-xs">Todos los logs están dentro del período de retención.</p>
+                </div>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-4">
             <AlertDialogCancel 
               disabled={purgeMutation.isPending}
-              onClick={() => setPurgeConfirmText("")}
+              onClick={() => {
+                setPurgeConfirmText("");
+                setPurgePreview(null);
+              }}
             >
               Cancelar
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => purgeMutation.mutate()}
-              disabled={purgeConfirmText !== "PURGE" || purgeMutation.isPending}
+              disabled={
+                purgeConfirmText !== "PURGE" || 
+                purgeMutation.isPending || 
+                !purgePreview || 
+                purgePreview.would_delete_count === 0
+              }
               className="bg-amber-600 text-white hover:bg-amber-700"
             >
               {purgeMutation.isPending ? (

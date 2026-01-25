@@ -3,6 +3,10 @@
  * 
  * Scheduled function to remove audit logs older than the organization's
  * retention policy. Critical actions are retained for double the retention period.
+ * 
+ * Supports two modes:
+ * - preview: Returns count of logs that would be deleted without deleting
+ * - execute: Performs the actual deletion
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -31,6 +35,26 @@ interface Organization {
   audit_retention_days: number;
 }
 
+interface PreviewResult {
+  ok: boolean;
+  mode: "preview";
+  would_delete_count: number;
+  cutoff: string;
+  extended_cutoff: string;
+  retention_days: number;
+  breakdown?: { normal: number; extended: number };
+}
+
+interface ExecuteResult {
+  ok: boolean;
+  mode: "execute";
+  deleted: number;
+  cutoff: string;
+  retention_days: number;
+  results: Array<{ org_id: string; org_name: string; deleted: number; extended_deleted: number }>;
+  durationMs: number;
+}
+
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -53,33 +77,40 @@ Deno.serve(async (req: Request) => {
   // Start time for duration tracking
   const startTime = Date.now();
 
-  // Parse optional parameters
+  // Parse parameters
   let organizationId: string | null = null;
-  let dryRun = false;
+  let mode: "preview" | "execute" = "execute";
+  let manual = false;
 
   try {
     const body = await req.json().catch(() => ({}));
     organizationId = body.organization_id || null;
-    dryRun = body.dry_run === true;
+    mode = body.mode === "preview" ? "preview" : "execute";
+    manual = body.manual === true;
   } catch {
     // No body is fine
   }
 
-  console.log(`[purge-old-audit-logs] Starting purge. Org: ${organizationId || "ALL"}, DryRun: ${dryRun}`);
+  console.log(`[purge-old-audit-logs] Mode: ${mode}, Org: ${organizationId || "ALL"}, Manual: ${manual}`);
 
-  // Create job run record
-  const { data: jobRun, error: jobError } = await supabase
-    .from("job_runs")
-    .insert({
-      job_name: "purge_old_audit_logs",
-      status: "RUNNING",
-      organization_id: organizationId,
-    })
-    .select()
-    .single();
+  // Create job run record (only for execute mode)
+  let jobRunId: string | null = null;
+  if (mode === "execute") {
+    const { data: jobRun, error: jobError } = await supabase
+      .from("job_runs")
+      .insert({
+        job_name: "purge_old_audit_logs",
+        status: "RUNNING",
+        organization_id: organizationId,
+      })
+      .select("id")
+      .single();
 
-  if (jobError) {
-    console.error("[purge-old-audit-logs] Failed to create job run:", jobError.message);
+    if (jobError) {
+      console.error("[purge-old-audit-logs] Failed to create job run:", jobError.message);
+    } else {
+      jobRunId = jobRun?.id || null;
+    }
   }
 
   try {
@@ -103,7 +134,7 @@ Deno.serve(async (req: Request) => {
       console.log("[purge-old-audit-logs] No organizations found");
       
       // Update job run
-      if (jobRun?.id) {
+      if (jobRunId) {
         await supabase
           .from("job_runs")
           .update({
@@ -112,22 +143,72 @@ Deno.serve(async (req: Request) => {
             duration_ms: Date.now() - startTime,
             processed_count: 0,
           })
-          .eq("id", jobRun.id);
+          .eq("id", jobRunId);
       }
 
       return new Response(
-        JSON.stringify({ ok: true, message: "No organizations to process", deleted: 0 }),
+        JSON.stringify({ ok: true, mode, message: "No organizations to process", deleted: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    let totalDeleted = 0;
-    const results: Array<{ org_id: string; org_name: string; deleted: number; extended_deleted: number }> = [];
-
-    for (const org of organizations as Organization[]) {
+    // For preview mode with single org
+    if (mode === "preview" && organizations.length === 1) {
+      const org = organizations[0] as Organization;
       const retentionDays = org.audit_retention_days || 365;
       const normalCutoff = new Date();
       normalCutoff.setDate(normalCutoff.getDate() - retentionDays);
+
+      const extendedCutoff = new Date();
+      extendedCutoff.setDate(extendedCutoff.getDate() - (retentionDays * 2));
+
+      // Count normal logs that would be deleted
+      const { count: normalCount } = await supabase
+        .from("audit_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("organization_id", org.id)
+        .lt("created_at", normalCutoff.toISOString())
+        .not("action", "in", `(${EXTENDED_RETENTION_ACTIONS.join(",")})`);
+
+      // Count extended logs that would be deleted
+      const { count: extendedCount } = await supabase
+        .from("audit_logs")
+        .select("*", { count: "exact", head: true })
+        .eq("organization_id", org.id)
+        .lt("created_at", extendedCutoff.toISOString())
+        .in("action", EXTENDED_RETENTION_ACTIONS);
+
+      const previewResult: PreviewResult = {
+        ok: true,
+        mode: "preview",
+        would_delete_count: (normalCount || 0) + (extendedCount || 0),
+        cutoff: normalCutoff.toISOString(),
+        extended_cutoff: extendedCutoff.toISOString(),
+        retention_days: retentionDays,
+        breakdown: {
+          normal: normalCount || 0,
+          extended: extendedCount || 0,
+        },
+      };
+
+      return new Response(
+        JSON.stringify(previewResult),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Execute mode
+    let totalDeleted = 0;
+    const results: Array<{ org_id: string; org_name: string; deleted: number; extended_deleted: number }> = [];
+    let lastRetentionDays = 365;
+    let lastCutoff = "";
+
+    for (const org of organizations as Organization[]) {
+      const retentionDays = org.audit_retention_days || 365;
+      lastRetentionDays = retentionDays;
+      const normalCutoff = new Date();
+      normalCutoff.setDate(normalCutoff.getDate() - retentionDays);
+      lastCutoff = normalCutoff.toISOString();
 
       // Extended retention: double the normal period for critical actions
       const extendedCutoff = new Date();
@@ -135,73 +216,47 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[purge-old-audit-logs] Processing org ${org.id} (${org.name}): retention=${retentionDays}d, cutoff=${normalCutoff.toISOString()}`);
 
-      if (dryRun) {
-        // Count what would be deleted
-        const { count: normalCount } = await supabase
-          .from("audit_logs")
-          .select("*", { count: "exact", head: true })
-          .eq("organization_id", org.id)
-          .lt("created_at", normalCutoff.toISOString())
-          .not("action", "in", `(${EXTENDED_RETENTION_ACTIONS.join(",")})`);
+      // Delete normal retention logs (non-critical actions older than retention)
+      const { count: normalCount, error: normalError } = await supabase
+        .from("audit_logs")
+        .delete({ count: "exact" })
+        .eq("organization_id", org.id)
+        .lt("created_at", normalCutoff.toISOString())
+        .not("action", "in", `(${EXTENDED_RETENTION_ACTIONS.join(",")})`);
 
-        const { count: extendedCount } = await supabase
-          .from("audit_logs")
-          .select("*", { count: "exact", head: true })
-          .eq("organization_id", org.id)
-          .lt("created_at", extendedCutoff.toISOString())
-          .in("action", EXTENDED_RETENTION_ACTIONS);
-
-        results.push({
-          org_id: org.id,
-          org_name: org.name,
-          deleted: normalCount || 0,
-          extended_deleted: extendedCount || 0,
-        });
-
-        totalDeleted += (normalCount || 0) + (extendedCount || 0);
-      } else {
-        // Delete normal retention logs (non-critical actions older than retention)
-        const { count: normalCount, error: normalError } = await supabase
-          .from("audit_logs")
-          .delete({ count: "exact" })
-          .eq("organization_id", org.id)
-          .lt("created_at", normalCutoff.toISOString())
-          .not("action", "in", `(${EXTENDED_RETENTION_ACTIONS.join(",")})`);
-
-        if (normalError) {
-          console.error(`[purge-old-audit-logs] Error deleting normal logs for ${org.id}:`, normalError.message);
-        }
-
-        // Delete extended retention logs (critical actions older than 2x retention)
-        const { count: extendedCount, error: extendedError } = await supabase
-          .from("audit_logs")
-          .delete({ count: "exact" })
-          .eq("organization_id", org.id)
-          .lt("created_at", extendedCutoff.toISOString())
-          .in("action", EXTENDED_RETENTION_ACTIONS);
-
-        if (extendedError) {
-          console.error(`[purge-old-audit-logs] Error deleting extended logs for ${org.id}:`, extendedError.message);
-        }
-
-        const deleted = (normalCount || 0) + (extendedCount || 0);
-        totalDeleted += deleted;
-
-        results.push({
-          org_id: org.id,
-          org_name: org.name,
-          deleted: normalCount || 0,
-          extended_deleted: extendedCount || 0,
-        });
-
-        console.log(`[purge-old-audit-logs] Org ${org.id}: deleted ${normalCount || 0} normal + ${extendedCount || 0} extended = ${deleted} total`);
+      if (normalError) {
+        console.error(`[purge-old-audit-logs] Error deleting normal logs for ${org.id}:`, normalError.message);
       }
+
+      // Delete extended retention logs (critical actions older than 2x retention)
+      const { count: extendedCount, error: extendedError } = await supabase
+        .from("audit_logs")
+        .delete({ count: "exact" })
+        .eq("organization_id", org.id)
+        .lt("created_at", extendedCutoff.toISOString())
+        .in("action", EXTENDED_RETENTION_ACTIONS);
+
+      if (extendedError) {
+        console.error(`[purge-old-audit-logs] Error deleting extended logs for ${org.id}:`, extendedError.message);
+      }
+
+      const deleted = (normalCount || 0) + (extendedCount || 0);
+      totalDeleted += deleted;
+
+      results.push({
+        org_id: org.id,
+        org_name: org.name,
+        deleted: normalCount || 0,
+        extended_deleted: extendedCount || 0,
+      });
+
+      console.log(`[purge-old-audit-logs] Org ${org.id}: deleted ${normalCount || 0} normal + ${extendedCount || 0} extended = ${deleted} total`);
     }
 
     const durationMs = Date.now() - startTime;
 
     // Update job run with success
-    if (jobRun?.id) {
+    if (jobRunId) {
       await supabase
         .from("job_runs")
         .update({
@@ -210,27 +265,31 @@ Deno.serve(async (req: Request) => {
           duration_ms: durationMs,
           processed_count: totalDeleted,
         })
-        .eq("id", jobRun.id);
+        .eq("id", jobRunId);
     }
 
     // Log health event
     await supabase.from("system_health_events").insert({
       service: "purge_old_audit_logs",
       status: "OK",
-      message: `Purged ${totalDeleted} audit log entries${dryRun ? " (dry run)" : ""}`,
-      metadata: { results, dryRun, durationMs },
+      message: `Purged ${totalDeleted} audit log entries (retention: ${lastRetentionDays} days)${manual ? " [manual]" : ""}`,
+      metadata: { results, manual, durationMs, retention_days: lastRetentionDays },
     });
 
     console.log(`[purge-old-audit-logs] Completed. Total deleted: ${totalDeleted}, Duration: ${durationMs}ms`);
 
+    const executeResult: ExecuteResult = {
+      ok: true,
+      mode: "execute",
+      deleted: totalDeleted,
+      cutoff: lastCutoff,
+      retention_days: lastRetentionDays,
+      results,
+      durationMs,
+    };
+
     return new Response(
-      JSON.stringify({
-        ok: true,
-        message: dryRun ? "Dry run completed" : "Purge completed",
-        deleted: totalDeleted,
-        results,
-        durationMs,
-      }),
+      JSON.stringify(executeResult),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
@@ -239,7 +298,7 @@ Deno.serve(async (req: Request) => {
     console.error("[purge-old-audit-logs] Error:", errorMessage);
 
     // Update job run with error
-    if (jobRun?.id) {
+    if (jobRunId) {
       await supabase
         .from("job_runs")
         .update({
@@ -248,7 +307,7 @@ Deno.serve(async (req: Request) => {
           duration_ms: Date.now() - startTime,
           error: errorMessage,
         })
-        .eq("id", jobRun.id);
+        .eq("id", jobRunId);
     }
 
     // Log health event
@@ -256,7 +315,7 @@ Deno.serve(async (req: Request) => {
       service: "purge_old_audit_logs",
       status: "ERROR",
       message: `Purge failed: ${errorMessage}`,
-      metadata: { error: errorMessage },
+      metadata: { error: errorMessage, manual },
     });
 
     return new Response(

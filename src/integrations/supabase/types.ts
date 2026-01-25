@@ -1879,9 +1879,13 @@ export type Database = {
           attempts: number
           created_at: string
           error: string | null
+          failed_permanent: boolean
+          failure_type: string | null
           html: string
           id: string
           last_attempt_at: string | null
+          last_event_at: string | null
+          last_event_type: string | null
           metadata: Json | null
           next_attempt_at: string
           organization_id: string
@@ -1897,9 +1901,13 @@ export type Database = {
           attempts?: number
           created_at?: string
           error?: string | null
+          failed_permanent?: boolean
+          failure_type?: string | null
           html: string
           id?: string
           last_attempt_at?: string | null
+          last_event_at?: string | null
+          last_event_type?: string | null
           metadata?: Json | null
           next_attempt_at?: string
           organization_id: string
@@ -1915,9 +1923,13 @@ export type Database = {
           attempts?: number
           created_at?: string
           error?: string | null
+          failed_permanent?: boolean
+          failure_type?: string | null
           html?: string
           id?: string
           last_attempt_at?: string | null
+          last_event_at?: string | null
+          last_event_type?: string | null
           metadata?: Json | null
           next_attempt_at?: string
           organization_id?: string
