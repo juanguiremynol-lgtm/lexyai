@@ -2912,6 +2912,50 @@ export type Database = {
           },
         ]
       }
+      job_runs: {
+        Row: {
+          duration_ms: number | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          job_name: string
+          organization_id: string | null
+          processed_count: number | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          duration_ms?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_name: string
+          organization_id?: string | null
+          processed_count?: number | null
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          duration_ms?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_name?: string
+          organization_id?: string | null
+          processed_count?: number | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       judicial_term_suspensions: {
         Row: {
           active: boolean
@@ -3930,6 +3974,38 @@ export type Database = {
           },
         ]
       }
+      rate_limits: {
+        Row: {
+          count: number
+          id: string
+          key: string
+          organization_id: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          id?: string
+          key: string
+          organization_id: string
+          window_start?: string
+        }
+        Update: {
+          count?: number
+          id?: string
+          key?: string
+          organization_id?: string
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rate_limits_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       review_logs: {
         Row: {
           entity_id: string
@@ -4151,6 +4227,71 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      system_health_events: {
+        Row: {
+          created_at: string
+          id: string
+          message: string | null
+          metadata: Json
+          organization_id: string | null
+          service: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          organization_id?: string | null
+          service: string
+          status: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string | null
+          metadata?: Json
+          organization_id?: string | null
+          service?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "system_health_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_health_heartbeat: {
+        Row: {
+          last_error_at: string | null
+          last_message: string | null
+          last_ok_at: string | null
+          last_status: string
+          service: string
+          updated_at: string
+        }
+        Insert: {
+          last_error_at?: string | null
+          last_message?: string | null
+          last_ok_at?: string | null
+          last_status?: string
+          service: string
+          updated_at?: string
+        }
+        Update: {
+          last_error_at?: string | null
+          last_message?: string | null
+          last_ok_at?: string | null
+          last_status?: string
+          service?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
