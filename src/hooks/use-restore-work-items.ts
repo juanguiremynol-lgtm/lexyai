@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
+import { logRestore } from "@/lib/audit-log";
 interface RestoreResult {
   success: boolean;
   restored_count: number;
@@ -68,17 +68,19 @@ export function useRestoreWorkItems(options?: UseRestoreWorkItemsOptions) {
           result.restored_count++;
           result.restored_ids.push(id);
 
-          // Create process_event for audit trail
-          await supabase.from("process_events").insert({
-            filing_id: id,
-            owner_id: user.id,
-            event_type: "RESTORED",
-            description: "Elemento restaurado desde archivo",
-            raw_data: {
+          // Get org ID for audit log
+          const { data: item } = await supabase
+            .from("work_items")
+            .select("organization_id")
+            .eq("id", id)
+            .single();
+
+          if (item?.organization_id) {
+            await logRestore(item.organization_id, "work_item", id, {
               restored_at: new Date().toISOString(),
               restored_by: user.id,
-            },
-          });
+            });
+          }
         }
       }
 

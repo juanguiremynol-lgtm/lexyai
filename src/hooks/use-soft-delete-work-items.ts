@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logSoftDelete } from "@/lib/audit-log";
 
 interface SoftDeleteResult {
   success: boolean;
@@ -67,17 +68,19 @@ export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) 
           result.archived_count++;
           result.archived_ids.push(id);
 
-          // Create process_event for audit trail
-          await supabase.from("process_events").insert({
-            filing_id: id,
-            owner_id: user.id,
-            event_type: "SOFT_DELETED",
-            description: "Elemento archivado (soft delete)",
-            raw_data: {
+          // Get org ID for audit log
+          const { data: item } = await supabase
+            .from("work_items")
+            .select("organization_id")
+            .eq("id", id)
+            .single();
+
+          if (item?.organization_id) {
+            await logSoftDelete(item.organization_id, "work_item", id, {
               deleted_at: new Date().toISOString(),
               deleted_by: user.id,
-            },
-          });
+            });
+          }
         }
       }
 

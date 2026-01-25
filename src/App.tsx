@@ -38,6 +38,7 @@ import PricingPage from "./pages/PricingPage";
 import NewProcess from "./pages/NewProcess";
 import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
+import InviteAccept from "./pages/InviteAccept";
 
 const queryClient = new QueryClient();
 
@@ -74,6 +75,7 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/invite/accept" element={<InviteAccept />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><AppLayout /></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
