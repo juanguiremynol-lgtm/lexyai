@@ -14,7 +14,8 @@ import {
   Shield, 
   Wrench,
   History,
-  Lock
+  Lock,
+  Bell
 } from "lucide-react";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
@@ -29,6 +30,7 @@ import { AdminSystemHealthTab } from "./tabs/AdminSystemHealthTab";
 import { AdminSecurityTab } from "./tabs/AdminSecurityTab";
 import { AdminSupportToolsTab } from "./tabs/AdminSupportToolsTab";
 import { AdminAuditLogsTab } from "./tabs/AdminAuditLogsTab";
+import { AdminAlertsTab } from "./tabs/AdminAlertsTab";
 
 export function AdminConsole() {
   const { organization } = useOrganization();
@@ -95,6 +97,10 @@ export function AdminConsole() {
             <Shield className="h-4 w-4" />
             <span className="hidden sm:inline">Seguridad</span>
           </TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-2">
+            <Bell className="h-4 w-4" />
+            <span className="hidden sm:inline">Alertas</span>
+          </TabsTrigger>
           <TabsTrigger value="audit" className="gap-2">
             <History className="h-4 w-4" />
             <span className="hidden sm:inline">Auditoría</span>
@@ -131,6 +137,10 @@ export function AdminConsole() {
 
         <TabsContent value="security">
           <AdminSecurityTab />
+        </TabsContent>
+
+        <TabsContent value="alerts">
+          <AdminAlertsTab />
         </TabsContent>
 
         <TabsContent value="audit">

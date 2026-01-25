@@ -68,3 +68,6 @@ verify_jwt = false
 
 [functions.check-estados-staleness]
 verify_jwt = false
+
+[functions.purge-old-audit-logs]
+verify_jwt = false
