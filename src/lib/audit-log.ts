@@ -70,6 +70,7 @@ export type AuditAction =
   | "SECURITY_SETTINGS_UPDATED"
   // Support/Data Lifecycle Actions
   | "DATA_EXPORTED"
+  | "DATA_PURGED"
   | "DEMO_DATA_RESET"
   | "RECYCLE_BIN_PURGED"
   | "RECYCLE_BIN_RESTORED"
@@ -88,7 +89,8 @@ export type EntityType =
   | "email_outbox"
   | "subscription"
   | "import"
-  | "organization";
+  | "organization"
+  | "audit_log";
 
 export interface AuditLogParams {
   organizationId: string;
