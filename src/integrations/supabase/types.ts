@@ -284,6 +284,8 @@ export type Database = {
       alerts: {
         Row: {
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           filing_id: string | null
           id: string
           is_read: boolean | null
@@ -294,6 +296,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           filing_id?: string | null
           id?: string
           is_read?: boolean | null
@@ -304,6 +308,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           filing_id?: string | null
           id?: string
           is_read?: boolean | null
@@ -332,6 +338,50 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          action: string
+          actor_type: string
+          actor_user_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          metadata: Json
+          organization_id: string
+        }
+        Insert: {
+          action: string
+          actor_type?: string
+          actor_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          metadata?: Json
+          organization_id: string
+        }
+        Update: {
+          action?: string
+          actor_type?: string
+          actor_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          metadata?: Json
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -1083,6 +1133,8 @@ export type Database = {
           address: string | null
           city: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           email: string | null
           email_linking_enabled: boolean | null
           id: string
@@ -1097,6 +1149,8 @@ export type Database = {
           address?: string | null
           city?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           email?: string | null
           email_linking_enabled?: boolean | null
           id?: string
@@ -1111,6 +1165,8 @@ export type Database = {
           address?: string | null
           city?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           email?: string | null
           email_linking_enabled?: boolean | null
           id?: string
@@ -1772,47 +1828,94 @@ export type Database = {
       }
       email_outbox: {
         Row: {
+          attempts: number
           created_at: string
           error: string | null
           html: string
           id: string
+          last_attempt_at: string | null
           metadata: Json | null
+          next_attempt_at: string
           organization_id: string
+          provider_message_id: string | null
           sent_at: string | null
           status: string
           subject: string
+          suppressed_reason: string | null
           to_email: string
           to_user_id: string | null
         }
         Insert: {
+          attempts?: number
           created_at?: string
           error?: string | null
           html: string
           id?: string
+          last_attempt_at?: string | null
           metadata?: Json | null
+          next_attempt_at?: string
           organization_id: string
+          provider_message_id?: string | null
           sent_at?: string | null
           status?: string
           subject: string
+          suppressed_reason?: string | null
           to_email: string
           to_user_id?: string | null
         }
         Update: {
+          attempts?: number
           created_at?: string
           error?: string | null
           html?: string
           id?: string
+          last_attempt_at?: string | null
           metadata?: Json | null
+          next_attempt_at?: string
           organization_id?: string
+          provider_message_id?: string | null
           sent_at?: string | null
           status?: string
           subject?: string
+          suppressed_reason?: string | null
           to_email?: string
           to_user_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "email_outbox_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          organization_id: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          organization_id: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          organization_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_suppressions_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -2289,6 +2392,8 @@ export type Database = {
           auto_detected: boolean | null
           cpaca_process_id: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           filing_id: string | null
           id: string
           is_virtual: boolean | null
@@ -2307,6 +2412,8 @@ export type Database = {
           auto_detected?: boolean | null
           cpaca_process_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
@@ -2325,6 +2432,8 @@ export type Database = {
           auto_detected?: boolean | null
           cpaca_process_id?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           filing_id?: string | null
           id?: string
           is_virtual?: boolean | null
@@ -3270,6 +3379,56 @@ export type Database = {
           },
         ]
       }
+      organization_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string
+          organization_id: string
+          role: string
+          status: string
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          invited_by: string
+          organization_id: string
+          role?: string
+          status?: string
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string
+          organization_id?: string
+          role?: string
+          status?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_invites_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_memberships: {
         Row: {
           created_at: string
@@ -3997,6 +4156,8 @@ export type Database = {
         Row: {
           auto_generated: boolean | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           due_at: string
           filing_id: string | null
           id: string
@@ -4011,6 +4172,8 @@ export type Database = {
         Insert: {
           auto_generated?: boolean | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           due_at: string
           filing_id?: string | null
           id?: string
@@ -4025,6 +4188,8 @@ export type Database = {
         Update: {
           auto_generated?: boolean | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           due_at?: string
           filing_id?: string | null
           id?: string
