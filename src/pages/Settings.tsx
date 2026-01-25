@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -24,6 +24,7 @@ import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSett
 import { SubscriptionManagement } from "@/components/settings/SubscriptionManagement";
 import { MembershipManagement } from "@/components/settings/MembershipManagement";
 import { InvitesManagement } from "@/components/settings/InvitesManagement";
+import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboard";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { useOrganization } from "@/contexts/OrganizationContext";
 
@@ -165,6 +166,10 @@ export default function Settings() {
                 <Mail className="h-4 w-4 mr-1" />
                 Invitaciones
               </TabsTrigger>
+              <TabsTrigger value="health">
+                <Activity className="h-4 w-4 mr-1" />
+                Sistema
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
@@ -192,6 +197,10 @@ export default function Settings() {
 
             <TabsContent value="invites">
               <InvitesManagement />
+            </TabsContent>
+
+            <TabsContent value="health">
+              <SystemHealthDashboard />
             </TabsContent>
           </>
         )}
