@@ -15,7 +15,12 @@ import {
   Mail, 
   Activity,
   ShieldAlert,
-  Lock
+  Lock,
+  BarChart3,
+  Ticket,
+  Eye,
+  Gauge,
+  ShieldCheck
 } from "lucide-react";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
@@ -26,6 +31,11 @@ import { PlatformUsersTab } from "./tabs/PlatformUsersTab";
 import { PlatformAuditLogsTab } from "./tabs/PlatformAuditLogsTab";
 import { PlatformEmailOpsTab } from "./tabs/PlatformEmailOpsTab";
 import { PlatformSystemHealthTab } from "./tabs/PlatformSystemHealthTab";
+import { PlatformVerificationTab } from "./tabs/PlatformVerificationTab";
+import { PlatformSaaSMetricsTab } from "./tabs/PlatformSaaSMetricsTab";
+import { PlatformVouchersTab } from "./tabs/PlatformVouchersTab";
+import { PlatformImpersonationTab } from "./tabs/PlatformImpersonationTab";
+import { PlatformPlanLimitsTab } from "./tabs/PlatformPlanLimitsTab";
 
 export function PlatformConsole() {
   const { isPlatformAdmin, isLoading } = usePlatformAdmin();
@@ -77,8 +87,16 @@ export function PlatformConsole() {
         </p>
       </div>
 
-      <Tabs defaultValue="organizations" className="space-y-6">
+      <Tabs defaultValue="verification" className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1 bg-card/50 p-1">
+          <TabsTrigger value="verification" className="gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">Verificación</span>
+          </TabsTrigger>
+          <TabsTrigger value="metrics" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Métricas SaaS</span>
+          </TabsTrigger>
           <TabsTrigger value="organizations" className="gap-2">
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">Organizaciones</span>
@@ -87,13 +105,25 @@ export function PlatformConsole() {
             <Crown className="h-4 w-4" />
             <span className="hidden sm:inline">Suscripciones</span>
           </TabsTrigger>
+          <TabsTrigger value="vouchers" className="gap-2">
+            <Ticket className="h-4 w-4" />
+            <span className="hidden sm:inline">Vouchers</span>
+          </TabsTrigger>
+          <TabsTrigger value="limits" className="gap-2">
+            <Gauge className="h-4 w-4" />
+            <span className="hidden sm:inline">Límites</span>
+          </TabsTrigger>
+          <TabsTrigger value="impersonation" className="gap-2">
+            <Eye className="h-4 w-4" />
+            <span className="hidden sm:inline">Soporte</span>
+          </TabsTrigger>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Usuarios</span>
           </TabsTrigger>
           <TabsTrigger value="audit" className="gap-2">
             <History className="h-4 w-4" />
-            <span className="hidden sm:inline">Auditoría Global</span>
+            <span className="hidden sm:inline">Auditoría</span>
           </TabsTrigger>
           <TabsTrigger value="email-ops" className="gap-2">
             <Mail className="h-4 w-4" />
@@ -105,12 +135,32 @@ export function PlatformConsole() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="verification">
+          <PlatformVerificationTab />
+        </TabsContent>
+
+        <TabsContent value="metrics">
+          <PlatformSaaSMetricsTab />
+        </TabsContent>
+
         <TabsContent value="organizations">
           <PlatformOrganizationsTab />
         </TabsContent>
 
         <TabsContent value="subscriptions">
           <PlatformSubscriptionsTab />
+        </TabsContent>
+
+        <TabsContent value="vouchers">
+          <PlatformVouchersTab />
+        </TabsContent>
+
+        <TabsContent value="limits">
+          <PlatformPlanLimitsTab />
+        </TabsContent>
+
+        <TabsContent value="impersonation">
+          <PlatformImpersonationTab />
         </TabsContent>
 
         <TabsContent value="users">
