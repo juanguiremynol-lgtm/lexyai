@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { OrganizationProvider, SubscriptionProvider } from "@/contexts";
+import { OrganizationProvider, SubscriptionProvider, ImpersonationProvider } from "@/contexts";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
@@ -78,7 +78,7 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><AppLayout /></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
+          <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><ImpersonationProvider><AppLayout /></ImpersonationProvider></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
             <Route path="/new-process" element={<ErrorBoundary><NewProcess /></ErrorBoundary>} />
             <Route path="/clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
