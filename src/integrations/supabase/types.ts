@@ -109,6 +109,54 @@ export type Database = {
           },
         ]
       }
+      admin_notifications: {
+        Row: {
+          audit_log_id: string | null
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          organization_id: string
+          title: string
+          type: string
+        }
+        Insert: {
+          audit_log_id?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          organization_id: string
+          title: string
+          type?: string
+        }
+        Update: {
+          audit_log_id?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          organization_id?: string
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_notifications_audit_log_id_fkey"
+            columns: ["audit_log_id"]
+            isOneToOne: false
+            referencedRelation: "audit_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       alert_instances: {
         Row: {
           acknowledged_at: string | null
@@ -3510,6 +3558,7 @@ export type Database = {
       }
       organizations: {
         Row: {
+          audit_retention_days: number
           brand_logo_url: string | null
           brand_primary_color: string | null
           brand_tagline: string | null
@@ -3526,6 +3575,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          audit_retention_days?: number
           brand_logo_url?: string | null
           brand_primary_color?: string | null
           brand_tagline?: string | null
@@ -3542,6 +3592,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          audit_retention_days?: number
           brand_logo_url?: string | null
           brand_primary_color?: string | null
           brand_tagline?: string | null

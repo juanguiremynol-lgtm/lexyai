@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ColombianClock } from "./ColombianClock";
 import { ThemeToggle } from "./ThemeToggle";
 import { GlobalSearch } from "./GlobalSearch";
+import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
 import logo from "@/assets/atenia-logo.png";
 
 export function TopBar() {
@@ -60,6 +61,9 @@ export function TopBar() {
         <ColombianClock />
 
         <ThemeToggle />
+
+        {/* Admin Notification Bell (only shows for admins/owners) */}
+        <AdminNotificationBell />
 
         <Button
           variant="ghost"
