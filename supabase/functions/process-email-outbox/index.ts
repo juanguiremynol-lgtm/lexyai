@@ -93,8 +93,6 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-      );
-    }
 
     console.log(`[process-email-outbox] Processing ${emails.length} emails`);
 
