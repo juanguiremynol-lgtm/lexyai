@@ -9,6 +9,7 @@ import {
   Wrench,
   CalendarDays,
   Link2,
+  ShieldAlert,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -26,10 +27,10 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
@@ -51,6 +52,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const navigate = useNavigate();
+  const { isPlatformAdmin } = usePlatformAdmin();
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -156,6 +158,32 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+              {/* Platform Console - Only for platform superadmins */}
+              {isPlatformAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname === "/platform"}
+                    tooltip="Platform Console"
+                    className={cn(
+                      "transition-all duration-200",
+                      location.pathname === "/platform" && "bg-primary/15 text-primary border-l-2 border-primary"
+                    )}
+                  >
+                    <NavLink to="/platform" className="flex items-center gap-3">
+                      <ShieldAlert className={cn(
+                        "h-4 w-4 transition-colors",
+                        location.pathname === "/platform" ? "text-amber-500" : "text-amber-500/70"
+                      )} />
+                      <span className={cn(
+                        location.pathname === "/platform" ? "text-amber-500 font-medium" : "text-amber-500/80"
+                      )}>
+                        Platform Console
+                      </span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
