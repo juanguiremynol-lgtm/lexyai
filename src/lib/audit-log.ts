@@ -37,6 +37,7 @@ export type AuditAction =
   // Membership Actions
   | "MEMBERSHIP_ROLE_CHANGED"
   | "MEMBERSHIP_REMOVED"
+  | "MEMBERSHIP_ADDED"
   | "OWNERSHIP_TRANSFERRED"
   // Organization Actions
   | "ORGANIZATION_UPDATED"
@@ -53,6 +54,7 @@ export type AuditAction =
   | "EMAIL_SUPPRESSED"
   | "EMAIL_RETRY"
   | "EMAIL_CANCELLED"
+  | "EMAIL_BULK_RETRY"
   // Subscription Actions
   | "TRIAL_STARTED"
   | "TRIAL_EXTENDED"
@@ -66,9 +68,11 @@ export type AuditAction =
   | "IMPORT_FAILED"
   // Security Actions
   | "SECURITY_SETTINGS_UPDATED"
-  // Support Actions
+  // Support/Data Lifecycle Actions
   | "DATA_EXPORTED"
   | "DEMO_DATA_RESET"
+  | "RECYCLE_BIN_PURGED"
+  | "RECYCLE_BIN_RESTORED"
   // Generic
   | "GENERIC_ACTION";
 
@@ -92,6 +96,7 @@ export interface AuditLogParams {
   entityType: EntityType;
   entityId?: string;
   metadata?: Record<string, unknown>;
+  changes?: Record<string, unknown>;
   actorUserId?: string;
   actorType?: "USER" | "SYSTEM";
 }
