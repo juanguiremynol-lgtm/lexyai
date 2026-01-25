@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { 
   Shield, 
   Lock, 
@@ -20,7 +22,9 @@ import {
   Save,
   Loader2,
   User,
-  Clock
+  Clock,
+  Calendar,
+  History
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -46,6 +50,8 @@ export function AdminSecurityTab() {
     allowed_domains: [],
   });
   const [hasChanges, setHasChanges] = useState(false);
+  const [retentionDays, setRetentionDays] = useState(365);
+  const [retentionChanged, setRetentionChanged] = useState(false);
 
   // Fetch current user info for session display
   const { data: currentUser } = useQuery({
@@ -56,10 +62,24 @@ export function AdminSecurityTab() {
     },
   });
 
-  // Load settings from organization (using metadata field or defaults)
+  // Fetch organization retention settings
+  const { data: orgSettings } = useQuery({
+    queryKey: ["org-settings", organization?.id],
+    queryFn: async () => {
+      if (!organization?.id) return null;
+      const { data, error } = await supabase
+        .from("organizations")
+        .select("audit_retention_days")
+        .eq("id", organization.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!organization?.id,
+  });
+
+  // Load settings from organization
   useEffect(() => {
-    // For now, we use defaults since we don't have a security_settings column
-    // In production, these would be loaded from the organization record
     setSettings({
       require_invite_only: true,
       disable_external_links: false,
@@ -67,13 +87,18 @@ export function AdminSecurityTab() {
     });
   }, [organization]);
 
+  // Load retention days when org settings load
+  useEffect(() => {
+    if (orgSettings?.audit_retention_days) {
+      setRetentionDays(orgSettings.audit_retention_days);
+    }
+  }, [orgSettings]);
+
   // Save security settings
   const saveSettings = useMutation({
     mutationFn: async () => {
       if (!organization?.id) throw new Error("No organization");
 
-      // In a real implementation, we'd save to a security_settings column
-      // For now, we just log the audit event
       await logAudit({
         organizationId: organization.id,
         action: "SECURITY_SETTINGS_UPDATED",
@@ -91,9 +116,49 @@ export function AdminSecurityTab() {
     },
   });
 
+  // Save retention settings
+  const saveRetention = useMutation({
+    mutationFn: async () => {
+      if (!organization?.id) throw new Error("No organization");
+
+      const { error } = await supabase
+        .from("organizations")
+        .update({ audit_retention_days: retentionDays })
+        .eq("id", organization.id);
+
+      if (error) throw error;
+
+      await logAudit({
+        organizationId: organization.id,
+        action: "SECURITY_SETTINGS_UPDATED",
+        entityType: "organization",
+        entityId: organization.id,
+        metadata: { 
+          setting: "audit_retention_days",
+          oldValue: orgSettings?.audit_retention_days || 365,
+          newValue: retentionDays,
+        },
+      });
+    },
+    onSuccess: () => {
+      toast.success("Política de retención actualizada");
+      setRetentionChanged(false);
+      queryClient.invalidateQueries({ queryKey: ["org-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["org-retention-days"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Error: " + error.message);
+    },
+  });
+
   const handleToggle = (key: keyof SecuritySettings, value: boolean) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
+  };
+
+  const handleRetentionChange = (value: number[]) => {
+    setRetentionDays(value[0]);
+    setRetentionChanged(value[0] !== (orgSettings?.audit_retention_days || 365));
   };
 
   // Defensive check: if organization context is not ready
@@ -156,6 +221,89 @@ export function AdminSecurityTab() {
                 }
               </p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Data Retention Policy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5 text-primary" />
+            Política de Retención de Datos
+          </CardTitle>
+          <CardDescription>
+            Define cuánto tiempo se conservan los logs de auditoría
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <Label className="font-medium">Días de Retención</Label>
+                <p className="text-sm text-muted-foreground">
+                  Los logs más antiguos se eliminarán automáticamente
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={30}
+                  max={3650}
+                  value={retentionDays}
+                  onChange={(e) => {
+                    const val = Math.max(30, Math.min(3650, parseInt(e.target.value) || 365));
+                    setRetentionDays(val);
+                    setRetentionChanged(val !== (orgSettings?.audit_retention_days || 365));
+                  }}
+                  className="w-24 text-right"
+                />
+                <span className="text-sm text-muted-foreground">días</span>
+              </div>
+            </div>
+
+            <div className="px-2">
+              <Slider
+                value={[retentionDays]}
+                onValueChange={handleRetentionChange}
+                min={30}
+                max={3650}
+                step={30}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                <span>30 días</span>
+                <span>1 año</span>
+                <span>5 años</span>
+                <span>10 años</span>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+              <Calendar className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium">
+                  Retención actual: {retentionDays} días ({Math.round(retentionDays / 365 * 10) / 10} años)
+                </p>
+                <p className="text-muted-foreground">
+                  Los eventos críticos (cambios de membresía, suscripciones) se conservan el doble de tiempo.
+                </p>
+              </div>
+            </div>
+
+            {retentionChanged && (
+              <Button
+                onClick={() => saveRetention.mutate()}
+                disabled={saveRetention.isPending}
+              >
+                {saveRetention.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Guardar Política de Retención
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

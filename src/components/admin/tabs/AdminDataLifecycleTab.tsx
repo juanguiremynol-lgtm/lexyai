@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,9 @@ import {
   AlertTriangle,
   Search,
   Users,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  History
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -45,6 +47,8 @@ import { useRestoreWorkItems } from "@/hooks/use-restore-work-items";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { cn } from "@/lib/utils";
+import { logAudit } from "@/lib/audit-log";
+import { toast } from "sonner";
 import type { Database } from "@/integrations/supabase/types";
 
 type WorkflowType = Database["public"]["Enums"]["workflow_type"];
@@ -89,12 +93,15 @@ interface ArchivedClient {
 
 export function AdminDataLifecycleTab() {
   const { organization } = useOrganization();
+  const queryClient = useQueryClient();
   const [selectedWorkItems, setSelectedWorkItems] = useState<Set<string>>(new Set());
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
   const [hardDeleteDialogOpen, setHardDeleteDialogOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [deleteType, setDeleteType] = useState<"work_items" | "clients">("work_items");
   const [searchQuery, setSearchQuery] = useState("");
+  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+  const [purgeConfirmText, setPurgeConfirmText] = useState("");
 
   const { restoreBulk, isRestoring } = useRestoreWorkItems({
     onSuccess: () => setSelectedWorkItems(new Set()),
@@ -105,6 +112,57 @@ export function AdminDataLifecycleTab() {
       setSelectedWorkItems(new Set());
       setHardDeleteDialogOpen(false);
       setConfirmText("");
+    },
+  });
+
+  // Fetch organization retention settings
+  const { data: retentionDays } = useQuery({
+    queryKey: ["org-retention-days", organization?.id],
+    queryFn: async () => {
+      if (!organization?.id) return 365;
+      const { data } = await supabase
+        .from("organizations")
+        .select("audit_retention_days")
+        .eq("id", organization.id)
+        .maybeSingle();
+      return data?.audit_retention_days || 365;
+    },
+    enabled: !!organization?.id,
+  });
+
+  // Manual purge mutation
+  const purgeMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("purge-old-audit-logs", {
+        body: { manual: true },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: async (data) => {
+      toast.success(`Purga completada: ${data?.deletedCount || 0} registros eliminados`);
+      setPurgeDialogOpen(false);
+      setPurgeConfirmText("");
+      
+      // Log the manual purge action
+      if (organization?.id) {
+        await logAudit({
+          organizationId: organization.id,
+          action: "DATA_PURGED",
+          entityType: "audit_log",
+          metadata: {
+            manual: true,
+            deletedCount: data?.deletedCount || 0,
+            retentionDays,
+          },
+        });
+      }
+
+      // Invalidate audit logs query
+      queryClient.invalidateQueries({ queryKey: ["admin_audit_logs"] });
+    },
+    onError: (error: Error) => {
+      toast.error("Error al purgar: " + error.message);
     },
   });
 
@@ -494,6 +552,131 @@ export function AdminDataLifecycleTab() {
         </TabsContent>
       </Tabs>
 
+      {/* Audit Log Purge Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Purga de Logs de Auditoría
+          </CardTitle>
+          <CardDescription>
+            Elimina logs de auditoría antiguos según la política de retención configurada ({retentionDays} días).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-lg">
+            <Clock className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Política de Retención Actual</p>
+              <p className="text-sm text-muted-foreground">
+                Los logs de auditoría se conservan por <strong>{retentionDays} días</strong>.
+                Los eventos críticos se mantienen el doble de tiempo ({(retentionDays || 365) * 2} días).
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Puedes ajustar la política en la pestaña de Seguridad.
+              </p>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium text-sm">Purga Manual</p>
+              <p className="text-xs text-muted-foreground">
+                Ejecuta la purga inmediatamente en lugar de esperar el trabajo programado.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setPurgeDialogOpen(true)}
+              disabled={purgeMutation.isPending}
+            >
+              {purgeMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Purgar Ahora
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Purge Confirmation Dialog */}
+      <AlertDialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 text-amber-600">
+              <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <History className="h-5 w-5" />
+              </div>
+              <AlertDialogTitle className="text-lg">
+                Purgar Logs de Auditoría
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="space-y-4 pt-4">
+              <p>
+                Esta acción eliminará permanentemente los logs de auditoría más antiguos que <strong>{retentionDays} días</strong>.
+              </p>
+
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md p-3 space-y-2">
+                <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">Nota importante:</p>
+                    <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
+                      <li>Eventos críticos se mantienen el doble de tiempo</li>
+                      <li>Esta purga se registrará en auditoría</li>
+                      <li>La acción no se puede deshacer</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm">
+                  Escribe <code className="bg-muted px-1.5 py-0.5 rounded text-amber-600 dark:text-amber-400 font-mono">PURGE</code> para confirmar:
+                </p>
+                <input
+                  type="text"
+                  value={purgeConfirmText}
+                  onChange={(e) => setPurgeConfirmText(e.target.value.toUpperCase())}
+                  placeholder="PURGE"
+                  className="w-full px-3 py-2 border rounded-md font-mono text-sm bg-background"
+                  disabled={purgeMutation.isPending}
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4">
+            <AlertDialogCancel 
+              disabled={purgeMutation.isPending}
+              onClick={() => setPurgeConfirmText("")}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => purgeMutation.mutate()}
+              disabled={purgeConfirmText !== "PURGE" || purgeMutation.isPending}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {purgeMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Purgando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Confirmar Purga
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Hard delete confirmation dialog */}
       <AlertDialog open={hardDeleteDialogOpen} onOpenChange={setHardDeleteDialogOpen}>
         <AlertDialogContent className="max-w-md">
@@ -534,7 +717,7 @@ export function AdminDataLifecycleTab() {
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
                   placeholder={`DELETE ${selectedCount}`}
-                  className="w-full px-3 py-2 border rounded-md font-mono text-sm"
+                  className="w-full px-3 py-2 border rounded-md font-mono text-sm bg-background"
                   disabled={isDeleting}
                 />
               </div>
