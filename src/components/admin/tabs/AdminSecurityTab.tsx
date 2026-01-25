@@ -79,7 +79,7 @@ export function AdminSecurityTab() {
         action: "SECURITY_SETTINGS_UPDATED",
         entityType: "organization",
         entityId: organization.id,
-        metadata: settings,
+        metadata: settings as unknown as Record<string, unknown>,
       });
     },
     onSuccess: () => {

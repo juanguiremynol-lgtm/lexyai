@@ -37,6 +37,9 @@ export type AuditAction =
   // Membership Actions
   | "MEMBERSHIP_ROLE_CHANGED"
   | "MEMBERSHIP_REMOVED"
+  | "OWNERSHIP_TRANSFERRED"
+  // Organization Actions
+  | "ORGANIZATION_UPDATED"
   // Invite Actions
   | "INVITE_SENT"
   | "INVITE_RESENT"
@@ -48,16 +51,24 @@ export type AuditAction =
   | "EMAIL_SENT"
   | "EMAIL_FAILED"
   | "EMAIL_SUPPRESSED"
+  | "EMAIL_RETRY"
+  | "EMAIL_CANCELLED"
   // Subscription Actions
   | "TRIAL_STARTED"
   | "TRIAL_EXTENDED"
   | "SUBSCRIPTION_ACTIVATED"
   | "SUBSCRIPTION_SUSPENDED"
+  | "SUBSCRIPTION_UNSUSPENDED"
   | "SUBSCRIPTION_EXPIRED"
   // Import Actions
   | "IMPORT_STARTED"
   | "IMPORT_COMPLETED"
   | "IMPORT_FAILED"
+  // Security Actions
+  | "SECURITY_SETTINGS_UPDATED"
+  // Support Actions
+  | "DATA_EXPORTED"
+  | "DEMO_DATA_RESET"
   // Generic
   | "GENERIC_ACTION";
 
