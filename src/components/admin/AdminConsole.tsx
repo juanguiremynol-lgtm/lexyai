@@ -60,9 +60,9 @@ export function AdminConsole() {
           <Shield className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h2 className="text-2xl font-serif font-bold">Consola de Administración</h2>
+          <h2 className="text-2xl font-serif font-bold">Administración de Cuenta</h2>
           <p className="text-muted-foreground text-sm">
-            Gestión centralizada de la organización
+            Gestión de tu organización
           </p>
         </div>
       </div>
