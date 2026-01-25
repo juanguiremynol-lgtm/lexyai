@@ -1,93 +1,156 @@
 /**
- * Platform Verification Tab - Production-grade diagnostics and acceptance tests
+ * Platform Verification Tab - Production-grade acceptance tests
  * 
  * Features:
- * - DB RPC snapshot with strict PASS/FAIL/WARN checks
- * - Trigger activity last-seen timestamps
- * - RLS probe self-tests (read-only)
- * - Export/copy JSON diagnostics
+ * - System Gate banner with PASS/WARN/FAIL status
+ * - Deterministic verification checks with strict rules
+ * - Grouped checks by category with Accordion
+ * - RLS probe self-tests + negative probe validation
+ * - Export Acceptance Report JSON
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { 
   CheckCircle2, 
   XCircle, 
   AlertTriangle,
   ShieldCheck, 
-  Database, 
-  Lock,
-  Activity,
   RefreshCw,
   Copy,
   Download,
   Play,
-  Clock,
-  Zap,
-  Server
+  FileCheck,
+  ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
+import type { VerificationSnapshot, ProbeResult } from "@/lib/platform-verification";
+import { getRelativeTime } from "@/lib/platform-verification";
 import {
-  VerificationSnapshot,
-  ProbeResult,
-  VerificationExport,
-  CheckStatus,
-  getRelativeTime,
-  getActivityStatus,
-  formatDuration,
-  REQUIRED_EMAIL_COLUMNS,
-  TRIGGER_ACTIONS,
-  TriggerAction
-} from "@/lib/platform-verification";
+  VerificationCheck,
+  VerificationLevel,
+  AcceptanceReport,
+  evaluateSnapshot,
+  evaluateProbes,
+  evaluateRlsNegativeProbe,
+  computeOverallStatus,
+  countByLevel,
+  groupByCategory,
+  generateAcceptanceReport,
+  getRecommendation
+} from "@/lib/platform-verification-rules";
 
 // Status badge component
-function StatusBadge({ status }: { status: CheckStatus }) {
+function StatusBadge({ status, size = "default" }: { status: VerificationLevel; size?: "default" | "lg" }) {
   const config = {
     PASS: { icon: CheckCircle2, variant: "success" as const },
     FAIL: { icon: XCircle, variant: "destructive" as const },
     WARN: { icon: AlertTriangle, variant: "warning" as const }
   };
   const { icon: Icon, variant } = config[status];
+  const sizeClasses = size === "lg" ? "text-base px-4 py-2" : "";
+  
   return (
-    <Badge variant={variant}>
-      <Icon className="h-3 w-3 mr-1" />
+    <Badge variant={variant} className={sizeClasses}>
+      <Icon className={size === "lg" ? "h-5 w-5 mr-2" : "h-3 w-3 mr-1"} />
       {status}
     </Badge>
   );
 }
 
-// Check row component
-function CheckRow({ 
-  name, 
-  status, 
-  evidence 
-}: { 
-  name: string; 
-  status: CheckStatus; 
-  evidence?: string;
-}) {
+// Check row with evidence expandable
+function CheckRow({ check }: { check: VerificationCheck }) {
+  const [showEvidence, setShowEvidence] = useState(false);
+  
   return (
-    <div className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-      <div className="flex-1">
-        <p className="text-sm font-medium">{name}</p>
-        {evidence && (
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">{evidence}</p>
-        )}
+    <div className="py-2 border-b border-border/30 last:border-0">
+      <div className="flex items-center justify-between">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium">{check.label}</p>
+          {check.details && (
+            <p className="text-xs text-muted-foreground mt-0.5">{check.details}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 ml-2">
+          {check.evidence && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={() => setShowEvidence(!showEvidence)}
+            >
+              <ChevronRight className={`h-3 w-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} />
+              Evidence
+            </Button>
+          )}
+          <StatusBadge status={check.level} />
+        </div>
       </div>
-      <StatusBadge status={status} />
+      {showEvidence && check.evidence && (
+        <pre className="mt-2 p-2 bg-muted/50 rounded text-xs overflow-auto max-h-32 font-mono">
+          {JSON.stringify(check.evidence, null, 2)}
+        </pre>
+      )}
     </div>
+  );
+}
+
+// Category section in accordion
+function CategorySection({ 
+  category, 
+  checks 
+}: { 
+  category: string; 
+  checks: VerificationCheck[];
+}) {
+  const counts = countByLevel(checks);
+  const categoryStatus = computeOverallStatus(checks);
+  
+  return (
+    <AccordionItem value={category}>
+      <AccordionTrigger className="hover:no-underline">
+        <div className="flex items-center justify-between w-full pr-4">
+          <span className="font-medium">{category}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              {counts.pass > 0 && <span className="text-primary mr-2">✓{counts.pass}</span>}
+              {counts.warn > 0 && <span className="text-secondary-foreground mr-2">⚠{counts.warn}</span>}
+              {counts.fail > 0 && <span className="text-destructive">✗{counts.fail}</span>}
+            </span>
+            <StatusBadge status={categoryStatus} />
+          </div>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent>
+        <div className="space-y-0 px-1">
+          {checks.map((check) => (
+            <CheckRow key={check.id} check={check} />
+          ))}
+        </div>
+      </AccordionContent>
+    </AccordionItem>
   );
 }
 
 export function PlatformVerificationTab() {
   const [probeResults, setProbeResults] = useState<ProbeResult[]>([]);
   const [probesRunAt, setProbesRunAt] = useState<string | null>(null);
+  const [rlsNegativeResult, setRlsNegativeResult] = useState<{
+    ok: boolean;
+    policies?: Array<{ table: string; has_platform_policy: boolean; has_org_policy: boolean }>;
+    error?: string;
+  } | null>(null);
 
   // Fetch DB snapshot via RPC
   const { 
@@ -102,7 +165,7 @@ export function PlatformVerificationTab() {
       if (error) throw error;
       return data as unknown as VerificationSnapshot;
     },
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
     retry: 1,
   });
 
@@ -111,7 +174,6 @@ export function PlatformVerificationTab() {
     mutationFn: async () => {
       const results: ProbeResult[] = [];
       const probes = [
-        // Use select with id only and limit for safer queries
         { name: "Organizations Cross-Org Read", table: "organizations", query: () => supabase.from("organizations").select("id", { count: "exact", head: true }) },
         { name: "Memberships Cross-Org Read", table: "organization_memberships", query: () => supabase.from("organization_memberships").select("id", { count: "exact", head: true }) },
         { name: "Audit Logs Cross-Org Read", table: "audit_logs", query: () => supabase.from("audit_logs").select("id", { count: "exact", head: true }) },
@@ -126,25 +188,14 @@ export function PlatformVerificationTab() {
         try {
           const { count, error } = await probe.query();
           const duration = performance.now() - start;
-          if (error) {
-            results.push({
-              name: probe.name,
-              table: probe.table,
-              passed: false,
-              rowCount: null,
-              error: error.message,
-              duration_ms: Math.round(duration)
-            });
-          } else {
-            results.push({
-              name: probe.name,
-              table: probe.table,
-              passed: true,
-              rowCount: count ?? 0,
-              error: null,
-              duration_ms: Math.round(duration)
-            });
-          }
+          results.push({
+            name: probe.name,
+            table: probe.table,
+            passed: !error,
+            rowCount: error ? null : (count ?? 0),
+            error: error?.message || null,
+            duration_ms: Math.round(duration)
+          });
         } catch (e) {
           const duration = performance.now() - start;
           results.push({
@@ -156,6 +207,18 @@ export function PlatformVerificationTab() {
             duration_ms: Math.round(duration)
           });
         }
+      }
+
+      // Run RLS negative probe
+      try {
+        const { data, error } = await supabase.rpc("platform_rls_probe_negative");
+        if (error) {
+          setRlsNegativeResult({ ok: false, error: error.message });
+        } else {
+          setRlsNegativeResult(data as { ok: boolean; policies?: Array<{ table: string; has_platform_policy: boolean; has_org_policy: boolean }>; error?: string });
+        }
+      } catch (e) {
+        setRlsNegativeResult({ ok: false, error: e instanceof Error ? e.message : "Unknown error" });
       }
 
       return results;
@@ -171,87 +234,65 @@ export function PlatformVerificationTab() {
     }
   });
 
-  // Build export object
-  const buildExportData = useCallback((): VerificationExport => {
-    return {
-      exported_at: new Date().toISOString(),
-      snapshot: snapshot || null,
-      snapshot_error: snapshotError?.message || null,
-      probes: probeResults,
-      probes_run_at: probesRunAt
-    };
-  }, [snapshot, snapshotError, probeResults, probesRunAt]);
+  // Compute all checks
+  const allChecks = useMemo(() => {
+    const checks: VerificationCheck[] = [];
+    
+    if (snapshot) {
+      checks.push(...evaluateSnapshot(snapshot));
+    }
+    
+    if (probeResults.length > 0) {
+      checks.push(...evaluateProbes(probeResults));
+    }
+    
+    if (rlsNegativeResult) {
+      checks.push(...evaluateRlsNegativeProbe(rlsNegativeResult));
+    }
+    
+    return checks;
+  }, [snapshot, probeResults, rlsNegativeResult]);
+
+  const overallStatus = useMemo(() => computeOverallStatus(allChecks), [allChecks]);
+  const counts = useMemo(() => countByLevel(allChecks), [allChecks]);
+  const groupedChecks = useMemo(() => groupByCategory(allChecks), [allChecks]);
+
+  // Build export data
+  const buildAcceptanceReport = useCallback((): AcceptanceReport => {
+    return generateAcceptanceReport(allChecks);
+  }, [allChecks]);
 
   // Copy to clipboard
   const handleCopyJson = useCallback(() => {
-    const data = buildExportData();
+    const data = buildAcceptanceReport();
     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    toast.success("JSON copied to clipboard");
-  }, [buildExportData]);
+    toast.success("Acceptance report copied to clipboard");
+  }, [buildAcceptanceReport]);
 
   // Download JSON file
   const handleDownloadJson = useCallback(() => {
-    const data = buildExportData();
+    const data = buildAcceptanceReport();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `platform_verification_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    a.download = `acceptance_report_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    toast.success("JSON downloaded");
-  }, [buildExportData]);
+    toast.success("Acceptance report downloaded");
+  }, [buildAcceptanceReport]);
 
   // Refresh all
   const handleRefreshAll = useCallback(() => {
     refetchSnapshot();
     setProbeResults([]);
     setProbesRunAt(null);
+    setRlsNegativeResult(null);
   }, [refetchSnapshot]);
 
-  // Compute summary stats
-  const computeStats = () => {
-    if (!snapshot) return { pass: 0, fail: 0, warn: 0 };
-    
-    let pass = 0, fail = 0, warn = 0;
-
-    // Schema checks
-    if (snapshot.schema.email_outbox_columns_ok) pass++; else fail++;
-    if (snapshot.schema.email_outbox_indexes_ok) pass++; else fail++;
-
-    // Trigger checks
-    if (snapshot.triggers.audit_trigger_function_exists) pass++; else fail++;
-    if (snapshot.triggers.organization_memberships_triggers_ok) pass++; else fail++;
-    if (snapshot.triggers.subscriptions_trigger_ok) pass++; else fail++;
-    if (snapshot.triggers.email_outbox_trigger_ok) pass++; else fail++;
-
-    // RLS checks
-    if (snapshot.rls.audit_logs_rls_enabled) pass++; else fail++;
-    if (snapshot.rls.admin_notifications_rls_enabled) pass++; else fail++;
-    if (snapshot.rls.subscriptions_rls_enabled) pass++; else fail++;
-    if (snapshot.rls.organizations_rls_enabled) pass++; else fail++;
-
-    // Activity checks - WARN if null but trigger exists
-    TRIGGER_ACTIONS.forEach(action => {
-      const timestamp = snapshot.activity_last_seen[action];
-      const hasTrigger = action.includes("MEMBERSHIP") 
-        ? snapshot.triggers.organization_memberships_triggers_ok
-        : action.includes("SUBSCRIPTION")
-        ? snapshot.triggers.subscriptions_trigger_ok
-        : snapshot.triggers.email_outbox_trigger_ok;
-      
-      const status = getActivityStatus(timestamp, hasTrigger);
-      if (status === "PASS") pass++;
-      else if (status === "FAIL") fail++;
-      else warn++;
-    });
-
-    return { pass, fail, warn };
-  };
-
-  const stats = computeStats();
+  const categoryOrder = ["Schema", "Triggers", "RLS", "Activity", "Jobs", "Probes"];
 
   return (
     <div className="space-y-6">
@@ -263,17 +304,17 @@ export function PlatformVerificationTab() {
             Platform Verification
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Production-grade diagnostics and acceptance tests
+            Production-grade acceptance tests for deployment readiness
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleCopyJson} className="gap-1">
             <Copy className="h-4 w-4" />
-            Copy JSON
+            Copy
           </Button>
           <Button variant="outline" size="sm" onClick={handleDownloadJson} className="gap-1">
-            <Download className="h-4 w-4" />
-            Download
+            <FileCheck className="h-4 w-4" />
+            Export Report
           </Button>
           <Button variant="outline" size="sm" onClick={handleRefreshAll} className="gap-1">
             <RefreshCw className="h-4 w-4" />
@@ -282,28 +323,41 @@ export function PlatformVerificationTab() {
         </div>
       </div>
 
-      {/* Summary Stats */}
-      {snapshot && (
-        <div className="grid grid-cols-3 gap-4">
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-primary">{stats.pass}</div>
-              <div className="text-sm text-muted-foreground">PASS</div>
-            </CardContent>
-          </Card>
-          <Card className="border-secondary/50 bg-secondary/20">
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-secondary-foreground">{stats.warn}</div>
-              <div className="text-sm text-muted-foreground">WARN</div>
-            </CardContent>
-          </Card>
-          <Card className="border-destructive/30 bg-destructive/10">
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-destructive">{stats.fail}</div>
-              <div className="text-sm text-muted-foreground">FAIL</div>
-            </CardContent>
-          </Card>
-        </div>
+      {/* System Gate Banner */}
+      {allChecks.length > 0 && (
+        <Card className={`border-2 ${
+          overallStatus === "PASS" ? "border-primary/50 bg-primary/5" :
+          overallStatus === "WARN" ? "border-secondary/50 bg-secondary/10" :
+          "border-destructive/50 bg-destructive/10"
+        }`}>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <StatusBadge status={overallStatus} size="lg" />
+                <div>
+                  <p className="font-medium">System Gate Status</p>
+                  <p className="text-sm text-muted-foreground">
+                    {getRecommendation(overallStatus)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 text-sm">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-primary">{counts.pass}</div>
+                  <div className="text-xs text-muted-foreground">PASS</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-secondary-foreground">{counts.warn}</div>
+                  <div className="text-xs text-muted-foreground">WARN</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-destructive">{counts.fail}</div>
+                  <div className="text-xs text-muted-foreground">FAIL</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Error state */}
@@ -317,20 +371,15 @@ export function PlatformVerificationTab() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-foreground">{snapshotError.message}</p>
-            {(snapshotError as any)?.details && (
+            {(snapshotError as unknown as { details?: string })?.details && (
               <details className="text-xs">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                   Show error details
                 </summary>
                 <pre className="mt-2 p-2 bg-muted rounded text-xs overflow-auto max-h-40 font-mono">
-                  {JSON.stringify((snapshotError as any).details, null, 2)}
+                  {JSON.stringify((snapshotError as unknown as { details?: string }).details, null, 2)}
                 </pre>
               </details>
-            )}
-            {(snapshotError as any)?.hint && (
-              <p className="text-xs text-muted-foreground">
-                <strong>Hint:</strong> {(snapshotError as any).hint}
-              </p>
             )}
             <Button variant="outline" size="sm" onClick={() => refetchSnapshot()} className="gap-1">
               <RefreshCw className="h-3 w-3" />
@@ -350,220 +399,18 @@ export function PlatformVerificationTab() {
         </Card>
       )}
 
-      {/* Section 1: Schema Checks */}
-      {snapshot && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Database className="h-5 w-5" />
-              Schema Checks
-            </CardTitle>
-            <CardDescription>Database schema validation for critical tables</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <CheckRow
-              name="email_outbox columns"
-              status={snapshot.schema.email_outbox_columns_ok ? "PASS" : "FAIL"}
-              evidence={`Found: ${snapshot.schema.email_outbox_columns_found?.join(", ") || "none"}`}
-            />
-            <CheckRow
-              name="email_outbox indexes"
-              status={snapshot.schema.email_outbox_indexes_ok ? "PASS" : "FAIL"}
-              evidence={`${snapshot.schema.email_outbox_indexes_found?.length || 0} index(es) found`}
-            />
-            <CheckRow
-              name="job_runs table"
-              status={snapshot.schema.job_runs_table_exists ? "PASS" : "FAIL"}
-              evidence={snapshot.schema.job_runs_table_exists ? "Table exists" : "Table missing"}
-            />
-            <CheckRow
-              name="job_runs.metadata column"
-              status={snapshot.schema.job_runs_has_metadata ? "PASS" : "WARN"}
-              evidence={snapshot.schema.job_runs_has_metadata ? "Column exists" : "Column missing (preview flag unavailable)"}
-            />
-            <CheckRow
-              name="system_health_events table"
-              status={snapshot.schema.system_health_events_table_exists ? "PASS" : "FAIL"}
-              evidence={snapshot.schema.system_health_events_table_exists ? "Table exists" : "Table missing"}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Section 2: Trigger Checks */}
-      {snapshot && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Zap className="h-5 w-5" />
-              Trigger Checks
-            </CardTitle>
-            <CardDescription>Database trigger existence for audit safety-net</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <CheckRow
-              name="audit_trigger_write_audit_log() function"
-              status={snapshot.triggers.audit_trigger_function_exists ? "PASS" : "FAIL"}
-            />
-            <CheckRow
-              name="organization_memberships triggers"
-              status={snapshot.triggers.organization_memberships_triggers_ok ? "PASS" : "FAIL"}
-            />
-            <CheckRow
-              name="subscriptions trigger"
-              status={snapshot.triggers.subscriptions_trigger_ok ? "PASS" : "FAIL"}
-            />
-            <CheckRow
-              name="email_outbox trigger"
-              status={snapshot.triggers.email_outbox_trigger_ok ? "PASS" : "FAIL"}
-            />
-            {snapshot.triggers.triggers_found?.length > 0 && (
-              <p className="text-xs text-muted-foreground pt-2 font-mono">
-                Triggers found: {snapshot.triggers.triggers_found.join(", ")}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Section 3: RLS Checks */}
-      {snapshot && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Lock className="h-5 w-5" />
-              RLS Configuration
-            </CardTitle>
-            <CardDescription>Row Level Security enforcement status</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <CheckRow
-              name="audit_logs RLS enabled"
-              status={snapshot.rls.audit_logs_rls_enabled ? "PASS" : "FAIL"}
-              evidence={snapshot.rls.audit_logs_rls_forced ? "force_rls=true" : "force_rls=false"}
-            />
-            <CheckRow
-              name="admin_notifications RLS enabled"
-              status={snapshot.rls.admin_notifications_rls_enabled ? "PASS" : "FAIL"}
-            />
-            <CheckRow
-              name="subscriptions RLS enabled"
-              status={snapshot.rls.subscriptions_rls_enabled ? "PASS" : "FAIL"}
-            />
-            <CheckRow
-              name="organizations RLS enabled"
-              status={snapshot.rls.organizations_rls_enabled ? "PASS" : "FAIL"}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Section 4: Trigger Activity Last-Seen */}
-      {snapshot && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Activity className="h-5 w-5" />
-              Trigger Activity Last-Seen
-            </CardTitle>
-            <CardDescription>Most recent DB-trigger audit events</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-1">
-              {TRIGGER_ACTIONS.map(action => {
-                const timestamp = snapshot.activity_last_seen[action];
-                const hasTrigger = action.includes("MEMBERSHIP") 
-                  ? snapshot.triggers.organization_memberships_triggers_ok
-                  : action.includes("SUBSCRIPTION")
-                  ? snapshot.triggers.subscriptions_trigger_ok
-                  : snapshot.triggers.email_outbox_trigger_ok;
-                const status = getActivityStatus(timestamp, hasTrigger);
-                
-                return (
-                  <CheckRow
-                    key={action}
-                    name={action}
-                    status={status}
-                    evidence={timestamp 
-                      ? `${new Date(timestamp).toLocaleString("es-CO")} (${getRelativeTime(timestamp)})`
-                      : "never"
-                    }
-                  />
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Section 5: Job Runs */}
-      {snapshot && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Server className="h-5 w-5" />
-              Job Runs (Scheduled Ops)
-            </CardTitle>
-            <CardDescription>Status of scheduled background operations</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <h4 className="text-sm font-medium mb-2">purge-old-audit-logs</h4>
-              {snapshot.jobs.purge_old_audit_logs_last_run ? (
-                <div className="bg-muted/30 rounded-lg p-3 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Last Successful Run</span>
-                    <Badge variant={snapshot.jobs.purge_old_audit_logs_last_run.status === "OK" ? "success" : "destructive"}>
-                      {snapshot.jobs.purge_old_audit_logs_last_run.status}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {new Date(snapshot.jobs.purge_old_audit_logs_last_run.finished_at).toLocaleString("es-CO")}
-                    </div>
-                    <div>Duration: {formatDuration(snapshot.jobs.purge_old_audit_logs_last_run.duration_ms)}</div>
-                    <div>Processed: {snapshot.jobs.purge_old_audit_logs_last_run.processed_count} records</div>
-                    <div>Preview: {snapshot.jobs.purge_old_audit_logs_last_run.preview ? "Yes" : "No"}</div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No successful runs recorded</p>
-              )}
-              
-              {snapshot.jobs.purge_old_audit_logs_last_error && (
-                <div className="bg-destructive/10 rounded-lg p-3 mt-2 border border-destructive/30">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-destructive">Last Error</span>
-                    <Badge variant="destructive">ERROR</Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(snapshot.jobs.purge_old_audit_logs_last_error.finished_at).toLocaleString("es-CO")}
-                  </p>
-                  <p className="text-xs text-destructive mt-1 font-mono">
-                    {snapshot.jobs.purge_old_audit_logs_last_error.error}
-                  </p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Separator />
-
-      {/* Section 6: RLS Probes */}
+      {/* Run Probes Card */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <ShieldCheck className="h-5 w-5" />
-            RLS Probe Self-Tests
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Play className="h-5 w-5" />
+            RLS Probe Tests
           </CardTitle>
           <CardDescription>
-            Live read-only queries to verify platform admin cross-org access
+            Live read-only queries to verify platform admin cross-org access and policy structure
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <div className="flex items-center gap-4">
             <Button
               onClick={() => probesMutation.mutate()}
@@ -575,7 +422,7 @@ export function PlatformVerificationTab() {
               ) : (
                 <Play className="h-4 w-4" />
               )}
-              Run RLS Probes
+              Run All Probes
             </Button>
             {probesRunAt && (
               <span className="text-xs text-muted-foreground">
@@ -583,51 +430,35 @@ export function PlatformVerificationTab() {
               </span>
             )}
           </div>
-
-          {probeResults.length > 0 && (
-            <div className="space-y-1 mt-4">
-              {probeResults.map((probe, idx) => (
-                <div
-                  key={idx}
-                  className={`p-3 rounded-lg border flex items-start gap-3 ${
-                    probe.passed 
-                      ? "bg-primary/5 border-primary/30" 
-                      : "bg-destructive/10 border-destructive/30"
-                  }`}
-                >
-                  {probe.passed ? (
-                    <CheckCircle2 className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">{probe.name}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{probe.table}</p>
-                    {probe.passed ? (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {probe.rowCount} row(s) returned in {probe.duration_ms}ms
-                      </p>
-                    ) : (
-                      <p className="text-xs text-destructive mt-1 font-mono break-all">
-                        {probe.error}
-                      </p>
-                    )}
-                  </div>
-                  <Badge variant={probe.passed ? "success" : "destructive"}>
-                    {probe.passed ? "PASS" : "FAIL"}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {probeResults.length === 0 && !probesMutation.isPending && (
-            <p className="text-sm text-muted-foreground">
-              Click "Run RLS Probes" to execute read-only cross-org access tests
-            </p>
-          )}
         </CardContent>
       </Card>
+
+      {/* Grouped Checks Accordion */}
+      {allChecks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Verification Checks</CardTitle>
+            <CardDescription>
+              Detailed results grouped by category
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Accordion type="multiple" defaultValue={categoryOrder} className="w-full">
+              {categoryOrder.map(category => {
+                const checks = groupedChecks[category];
+                if (!checks || checks.length === 0) return null;
+                return (
+                  <CategorySection 
+                    key={category}
+                    category={category}
+                    checks={checks}
+                  />
+                );
+              })}
+            </Accordion>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Snapshot metadata */}
       {snapshot && (
