@@ -23,6 +23,7 @@ import { TickerSettings } from "@/components/settings/TickerSettings";
 import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
 import { SubscriptionManagement } from "@/components/settings/SubscriptionManagement";
 import { MembershipManagement } from "@/components/settings/MembershipManagement";
+import { InvitesManagement } from "@/components/settings/InvitesManagement";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { useOrganization } from "@/contexts/OrganizationContext";
 
@@ -160,6 +161,10 @@ export default function Settings() {
                 <Users className="h-4 w-4 mr-1" />
                 Miembros
               </TabsTrigger>
+              <TabsTrigger value="invites">
+                <Mail className="h-4 w-4 mr-1" />
+                Invitaciones
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
@@ -183,6 +188,10 @@ export default function Settings() {
 
             <TabsContent value="members">
               <MembershipManagement />
+            </TabsContent>
+
+            <TabsContent value="invites">
+              <InvitesManagement />
             </TabsContent>
           </>
         )}
