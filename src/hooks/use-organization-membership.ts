@@ -50,7 +50,7 @@ export function useOrganizationMembership(organizationId: string | null) {
   });
 
   // Get current user's role in the organization
-  const { data: currentUserRole } = useQuery({
+  const { data: currentUserRole, isLoading: isRoleLoading } = useQuery({
     queryKey: ['current-user-role', organizationId],
     queryFn: async () => {
       if (!organizationId) return null;
@@ -63,7 +63,7 @@ export function useOrganizationMembership(organizationId: string | null) {
         .select('role')
         .eq('organization_id', organizationId)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       if (error) return null;
       return data?.role as MembershipRole | null;
@@ -133,10 +133,11 @@ export function useOrganizationMembership(organizationId: string | null) {
 
   const isOwner = currentUserRole === 'OWNER';
   const isAdmin = currentUserRole === 'OWNER' || currentUserRole === 'ADMIN';
+  const combinedIsLoading = isLoading || isRoleLoading;
 
   return {
     memberships: memberships || [],
-    isLoading,
+    isLoading: combinedIsLoading,
     currentUserRole,
     isOwner,
     isAdmin,
