@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -25,6 +25,7 @@ import { SubscriptionManagement } from "@/components/settings/SubscriptionManage
 import { MembershipManagement } from "@/components/settings/MembershipManagement";
 import { InvitesManagement } from "@/components/settings/InvitesManagement";
 import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboard";
+import { AdminConsole } from "@/components/admin";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { useOrganization } from "@/contexts/OrganizationContext";
 
@@ -154,6 +155,10 @@ export default function Settings() {
           <TabsTrigger value="profile">Perfil</TabsTrigger>
           {isAdmin && (
             <>
+              <TabsTrigger value="admin" className="bg-primary/5 hover:bg-primary/10">
+                <Shield className="h-4 w-4 mr-1" />
+                Consola Admin
+              </TabsTrigger>
               <TabsTrigger value="subscription">
                 <Crown className="h-4 w-4 mr-1" />
                 Suscripción
@@ -187,6 +192,10 @@ export default function Settings() {
 
         {isAdmin && (
           <>
+            <TabsContent value="admin">
+              <AdminConsole />
+            </TabsContent>
+
             <TabsContent value="subscription">
               <SubscriptionManagement />
             </TabsContent>
