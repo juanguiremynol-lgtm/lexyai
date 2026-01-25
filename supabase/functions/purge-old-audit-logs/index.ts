@@ -93,24 +93,22 @@ Deno.serve(async (req: Request) => {
 
   console.log(`[purge-old-audit-logs] Mode: ${mode}, Org: ${organizationId || "ALL"}, Manual: ${manual}`);
 
-  // Create job run record (only for execute mode)
+  // Create job run record (for both preview and execute modes)
   let jobRunId: string | null = null;
-  if (mode === "execute") {
-    const { data: jobRun, error: jobError } = await supabase
-      .from("job_runs")
-      .insert({
-        job_name: "purge_old_audit_logs",
-        status: "RUNNING",
-        organization_id: organizationId,
-      })
-      .select("id")
-      .single();
+  const { data: jobRun, error: jobError } = await supabase
+    .from("job_runs")
+    .insert({
+      job_name: "purge_old_audit_logs",
+      status: "RUNNING",
+      organization_id: organizationId,
+    })
+    .select("id")
+    .single();
 
-    if (jobError) {
-      console.error("[purge-old-audit-logs] Failed to create job run:", jobError.message);
-    } else {
-      jobRunId = jobRun?.id || null;
-    }
+  if (jobError) {
+    console.error("[purge-old-audit-logs] Failed to create job run:", jobError.message);
+  } else {
+    jobRunId = jobRun?.id || null;
   }
 
   try {
@@ -178,10 +176,42 @@ Deno.serve(async (req: Request) => {
         .lt("created_at", extendedCutoff.toISOString())
         .in("action", EXTENDED_RETENTION_ACTIONS);
 
+      const durationMs = Date.now() - startTime;
+      const wouldDeleteCount = (normalCount || 0) + (extendedCount || 0);
+
+      // Update job run with preview result
+      if (jobRunId) {
+        await supabase
+          .from("job_runs")
+          .update({
+            status: "OK",
+            finished_at: new Date().toISOString(),
+            duration_ms: durationMs,
+            processed_count: 0, // Preview doesn't delete anything
+          })
+          .eq("id", jobRunId);
+      }
+
+      // Log health event for preview
+      await supabase.from("system_health_events").insert({
+        service: "purge_old_audit_logs",
+        status: "OK",
+        message: `Preview: ${wouldDeleteCount} audit logs would be deleted (retention: ${retentionDays} days)${manual ? " [manual]" : ""}`,
+        metadata: {
+          mode: "preview",
+          would_delete_count: wouldDeleteCount,
+          retention_days: retentionDays,
+          cutoff: normalCutoff.toISOString(),
+          organization_id: org.id,
+          breakdown: { normal: normalCount || 0, extended: extendedCount || 0 },
+          durationMs,
+        },
+      });
+
       const previewResult: PreviewResult = {
         ok: true,
         mode: "preview",
-        would_delete_count: (normalCount || 0) + (extendedCount || 0),
+        would_delete_count: wouldDeleteCount,
         cutoff: normalCutoff.toISOString(),
         extended_cutoff: extendedCutoff.toISOString(),
         retention_days: retentionDays,
