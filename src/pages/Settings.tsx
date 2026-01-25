@@ -31,9 +31,8 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 
 export default function Settings() {
   const queryClient = useQueryClient();
-  const { organization } = useOrganization();
-  const { isOwner, isAdmin } = useOrganizationMembership(organization?.id || null);
-
+  const { organization, isLoading: isOrgLoading } = useOrganization();
+  const { isOwner, isAdmin, isLoading: isMembershipLoading } = useOrganizationMembership(organization?.id || null);
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
     queryFn: async () => {
