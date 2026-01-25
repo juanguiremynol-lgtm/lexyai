@@ -35,24 +35,19 @@ interface Organization {
   audit_retention_days: number;
 }
 
+// Strict response interfaces - exactly 4 top-level fields each
 interface PreviewResult {
-  ok: boolean;
   mode: "preview";
   would_delete_count: number;
   cutoff: string;
-  extended_cutoff: string;
   retention_days: number;
-  breakdown?: { normal: number; extended: number };
 }
 
 interface ExecuteResult {
-  ok: boolean;
   mode: "execute";
-  deleted: number;
+  deleted_count: number;
   cutoff: string;
   retention_days: number;
-  results: Array<{ org_id: string; org_name: string; deleted: number; extended_deleted: number }>;
-  durationMs: number;
 }
 
 Deno.serve(async (req: Request) => {
@@ -208,17 +203,12 @@ Deno.serve(async (req: Request) => {
         },
       });
 
-      const previewResult: PreviewResult = {
-        ok: true,
-        mode: "preview",
+      // Strict JSON response - exactly 4 top-level fields
+      const previewResult = {
+        mode: "preview" as const,
         would_delete_count: wouldDeleteCount,
         cutoff: normalCutoff.toISOString(),
-        extended_cutoff: extendedCutoff.toISOString(),
         retention_days: retentionDays,
-        breakdown: {
-          normal: normalCount || 0,
-          extended: extendedCount || 0,
-        },
       };
 
       return new Response(
@@ -308,14 +298,12 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[purge-old-audit-logs] Completed. Total deleted: ${totalDeleted}, Duration: ${durationMs}ms`);
 
-    const executeResult: ExecuteResult = {
-      ok: true,
-      mode: "execute",
-      deleted: totalDeleted,
+    // Strict JSON response - exactly 4 top-level fields
+    const executeResult = {
+      mode: "execute" as const,
+      deleted_count: totalDeleted,
       cutoff: lastCutoff,
       retention_days: lastRetentionDays,
-      results,
-      durationMs,
     };
 
     return new Response(

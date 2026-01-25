@@ -187,7 +187,7 @@ export function AdminDataLifecycleTab() {
       return data;
     },
     onSuccess: async (data) => {
-      toast.success(`Purga completada: ${data?.deleted || 0} registros eliminados`);
+      toast.success(`Purga completada: ${data?.deleted_count || 0} registros eliminados`);
       setPurgeDialogOpen(false);
       setPurgeConfirmText("");
       setPurgePreview(null);
@@ -200,7 +200,7 @@ export function AdminDataLifecycleTab() {
           entityType: "audit_log",
           metadata: {
             manual: true,
-            deleted_count: data?.deleted || 0,
+            deleted_count: data?.deleted_count || 0,
             retention_days: data?.retention_days || retentionDays,
             cutoff: data?.cutoff,
             initiated_from: "AdminDataLifecycleTab",
