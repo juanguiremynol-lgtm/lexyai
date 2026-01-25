@@ -127,11 +127,11 @@ export function PlatformPlanLimitsTab() {
 
   // Update plan limit mutation
   const updatePlanLimit = useMutation({
-    mutationFn: async ({ tier, updates }: { tier: TierType; updates: Partial<Omit<PlanLimit, 'id' | 'tier'>> }) => {
+    mutationFn: async ({ tier, updates }: { tier: string; updates: Partial<Omit<PlanLimit, 'id' | 'tier'>> }) => {
       const { error } = await supabase
         .from("plan_limits")
         .update(updates)
-        .eq("tier", tier);
+        .eq("tier", tier as TierType);
 
       if (error) throw error;
     },
@@ -156,7 +156,7 @@ export function PlatformPlanLimitsTab() {
 
       const { error } = await supabase
         .from("subscriptions")
-        .update({ tier: newTier })
+        .update({ tier: newTier as TierType })
         .eq("id", subscription.id);
 
       if (error) throw error;
@@ -276,9 +276,8 @@ export function PlatformPlanLimitsTab() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     const form = new FormData(e.currentTarget);
-                    const tierValue = editingTier as TierType;
                     updatePlanLimit.mutate({
-                      tier: tierValue,
+                      tier: editingTier,
                       updates: {
                         max_work_items: parseInt(form.get("max_work_items") as string),
                         max_clients: parseInt(form.get("max_clients") as string),
