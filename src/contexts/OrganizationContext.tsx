@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -9,18 +9,22 @@ export interface Organization {
   brand_logo_url: string | null;
   brand_tagline: string;
   brand_primary_color: string | null;
+  is_active?: boolean;
+  created_by?: string;
 }
 
 interface OrganizationContextType {
   organization: Organization | null;
   isLoading: boolean;
   error: Error | null;
+  refetch: () => void;
 }
 
 const OrganizationContext = createContext<OrganizationContextType>({
   organization: null,
   isLoading: true,
   error: null,
+  refetch: () => {},
 });
 
 export function useOrganization() {
@@ -32,7 +36,7 @@ interface OrganizationProviderProps {
 }
 
 export function OrganizationProvider({ children }: OrganizationProviderProps) {
-  const { data: organization, isLoading, error } = useQuery({
+  const { data: organization, isLoading, error, refetch } = useQuery({
     queryKey: ["current-organization"],
     queryFn: async () => {
       // First get the user's profile to find their organization
@@ -46,7 +50,30 @@ export function OrganizationProvider({ children }: OrganizationProviderProps) {
         .single();
 
       if (!profile?.organization_id) {
-        // Return default ATENIA organization
+        // Check if user has a membership (might be newly created)
+        const { data: memberships } = await supabase
+          .from("organization_memberships")
+          .select("organization_id")
+          .eq("user_id", user.id)
+          .limit(1);
+
+        if (memberships && memberships.length > 0) {
+          // Update profile with organization_id
+          await supabase
+            .from("profiles")
+            .update({ organization_id: memberships[0].organization_id })
+            .eq("id", user.id);
+
+          const { data: org } = await supabase
+            .from("organizations")
+            .select("*")
+            .eq("id", memberships[0].organization_id)
+            .single();
+
+          return org as Organization;
+        }
+
+        // Return default ATENIA organization for backward compatibility
         return {
           id: "a0000000-0000-0000-0000-000000000001",
           name: "ATENIA",
@@ -75,7 +102,8 @@ export function OrganizationProvider({ children }: OrganizationProviderProps) {
       value={{ 
         organization: organization ?? null, 
         isLoading, 
-        error: error as Error | null 
+        error: error as Error | null,
+        refetch,
       }}
     >
       {children}
