@@ -339,6 +339,23 @@ Deno.serve(async (req) => {
           result.deleted_count++;
           result.deleted_ids.push(workItemId);
           console.log(`[delete-work-items] Successfully deleted ${workItemId}`);
+
+          // Log hard delete to audit_logs
+          if (organizationId) {
+            await serviceClient.from("audit_logs").insert({
+              organization_id: organizationId,
+              actor_user_id: user.id,
+              actor_type: "USER",
+              action: "WORK_ITEM_HARD_DELETED",
+              entity_type: sourceTable === "work_items" ? "work_item" : sourceTable,
+              entity_id: workItemId,
+              metadata: {
+                source_table: sourceTable,
+                deleted_at: new Date().toISOString(),
+                storage_files_deleted: result.storage_files_deleted,
+              },
+            });
+          }
         }
       } catch (itemErr) {
         console.error(`[delete-work-items] Error processing ${workItemId}:`, itemErr);
