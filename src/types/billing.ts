@@ -58,6 +58,9 @@ export interface BillingSubscriptionState {
   intro_offer_applied: boolean;
   price_lock_end_at: string | null;
   trial_end_at: string | null;
+  comped_until_at: string | null;
+  comped_reason: string | null;
+  comped_voucher_id: string | null;
   created_at: string;
   updated_at: string;
 }
