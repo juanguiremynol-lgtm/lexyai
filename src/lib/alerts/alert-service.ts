@@ -188,19 +188,68 @@ export async function dismissAlert(alertId: string): Promise<{ success: boolean;
 /**
  * Dismiss multiple alerts
  */
-export async function dismissAlerts(alertIds: string[]): Promise<{ success: boolean; error?: string }> {
-  const { error } = await supabase
+export async function dismissAlerts(alertIds: string[]): Promise<{ success: boolean; count?: number; error?: string }> {
+  if (alertIds.length === 0) {
+    return { success: true, count: 0 };
+  }
+  
+  const { data, error } = await supabase
     .from('alert_instances')
     .update({
       status: 'DISMISSED',
       dismissed_at: new Date().toISOString(),
     })
-    .in('id', alertIds);
+    .in('id', alertIds)
+    .select('id');
   
   if (error) {
     return { success: false, error: error.message };
   }
-  return { success: true };
+  return { success: true, count: data?.length || 0 };
+}
+
+/**
+ * Mark multiple alerts as read
+ */
+export async function markAlertsAsRead(alertIds: string[]): Promise<{ success: boolean; count?: number; error?: string }> {
+  if (alertIds.length === 0) {
+    return { success: true, count: 0 };
+  }
+  
+  const { data, error } = await supabase
+    .from('alert_instances')
+    .update({
+      read_at: new Date().toISOString(),
+    })
+    .in('id', alertIds)
+    .select('id');
+  
+  if (error) {
+    return { success: false, error: error.message };
+  }
+  return { success: true, count: data?.length || 0 };
+}
+
+/**
+ * Snooze multiple alerts until a specified date
+ */
+export async function snoozeAlerts(alertIds: string[], snoozeUntil: Date): Promise<{ success: boolean; count?: number; error?: string }> {
+  if (alertIds.length === 0) {
+    return { success: true, count: 0 };
+  }
+  
+  const { data, error } = await supabase
+    .from('alert_instances')
+    .update({
+      snoozed_until: snoozeUntil.toISOString(),
+    })
+    .in('id', alertIds)
+    .select('id');
+  
+  if (error) {
+    return { success: false, error: error.message };
+  }
+  return { success: true, count: data?.length || 0 };
 }
 
 /**

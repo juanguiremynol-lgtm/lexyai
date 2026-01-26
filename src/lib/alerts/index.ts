@@ -9,6 +9,8 @@ export {
   dismissAllAlerts,
   acknowledgeAlert,
   resolveAlert,
+  markAlertsAsRead,
+  snoozeAlerts,
   type AlertEntityType,
   type AlertSeverity,
   type AlertStatus,

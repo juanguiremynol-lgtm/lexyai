@@ -174,9 +174,11 @@ export type Database = {
           organization_id: string | null
           owner_id: string
           payload: Json | null
+          read_at: string | null
           resolved_at: string | null
           sent_at: string | null
           severity: string
+          snoozed_until: string | null
           status: string
           title: string
         }
@@ -196,9 +198,11 @@ export type Database = {
           organization_id?: string | null
           owner_id: string
           payload?: Json | null
+          read_at?: string | null
           resolved_at?: string | null
           sent_at?: string | null
           severity?: string
+          snoozed_until?: string | null
           status?: string
           title: string
         }
@@ -218,9 +222,11 @@ export type Database = {
           organization_id?: string | null
           owner_id?: string
           payload?: Json | null
+          read_at?: string | null
           resolved_at?: string | null
           sent_at?: string | null
           severity?: string
+          snoozed_until?: string | null
           status?: string
           title?: string
         }

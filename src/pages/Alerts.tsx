@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -5,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertCircle,
   AlertTriangle,
@@ -30,7 +32,13 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
 import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
-import { dismissAlert, dismissAllAlerts } from "@/lib/alerts";
+import { dismissAlert, dismissAlerts, markAlertsAsRead, snoozeAlerts } from "@/lib/alerts";
+import { useAlertSelection } from "@/hooks/use-alert-selection";
+import { 
+  AlertsBulkActionsBar, 
+  AlertSnoozeDialog, 
+  AlertBulkConfirmDialog 
+} from "@/components/alerts";
 
 type AlertInstanceAction = {
   label: string;
@@ -52,6 +60,8 @@ interface AlertInstance {
   fired_at: string;
   acknowledged_at?: string | null;
   resolved_at?: string | null;
+  read_at?: string | null;
+  snoozed_until?: string | null;
 }
 
 interface ReminderWithWorkItem extends WorkItemReminder {
@@ -77,15 +87,23 @@ export default function Alerts() {
   const navigate = useNavigate();
   const snoozeMutation = useSnoozeReminder();
   const dismissMutation = useDismissReminder();
+  
+  // Bulk action dialogs state
+  const [showSnoozeDialog, setShowSnoozeDialog] = useState(false);
+  const [showDismissConfirm, setShowDismissConfirm] = useState(false);
+  const [showMarkReadConfirm, setShowMarkReadConfirm] = useState(false);
 
   // Alert instances from 'alert_instances' table (authoritative source)
+  // Excludes dismissed and snoozed alerts
   const { data: alertInstances, isLoading: isLoadingInstances } = useQuery({
     queryKey: ["alert_instances"],
     queryFn: async () => {
+      const now = new Date().toISOString();
       const { data, error } = await supabase
         .from("alert_instances")
         .select("*")
         .in("status", ["PENDING", "SENT", "ACKNOWLEDGED"])
+        .or(`snoozed_until.is.null,snoozed_until.lt.${now}`)
         .order("fired_at", { ascending: false })
         .limit(100);
       if (error) throw error;
@@ -113,6 +131,28 @@ export default function Alerts() {
       return (data || []) as ReminderWithWorkItem[];
     },
   });
+
+  // Build selectable items list for bulk selection
+  const selectableItems = [
+    ...(alertInstances?.map(a => ({ id: a.id, type: "alert_instance" as const })) || []),
+    ...allReminders.map(r => ({ id: r.id, type: "reminder" as const })),
+  ];
+
+  const {
+    selectedIds,
+    isSelectionMode,
+    toggleSelection,
+    isSelected,
+    selectAll,
+    clearSelection,
+    getSelectedItems,
+    selectedCount,
+  } = useAlertSelection({ allItems: selectableItems });
+
+  // Get selected alert instance IDs only (reminders use different API)
+  const selectedAlertIds = Array.from(selectedIds).filter(id => 
+    alertInstances?.some(a => a.id === id)
+  );
 
   const acknowledgeInstance = useMutation({
     mutationFn: async (id: string) => {
@@ -148,18 +188,54 @@ export default function Alerts() {
     },
   });
 
-  const dismissAllInstances = useMutation({
-    mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-      
-      const result = await dismissAllAlerts(user.id);
+  // Bulk dismiss mutation
+  const bulkDismissMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const result = await dismissAlerts(ids);
       if (!result.success) throw new Error(result.error);
       return result.count;
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      clearSelection();
+      setShowDismissConfirm(false);
       toast.success(`${count} alerta(s) descartada(s)`);
+    },
+    onError: (error) => {
+      toast.error("Error: " + error.message);
+    },
+  });
+
+  // Bulk mark as read mutation
+  const bulkMarkReadMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const result = await markAlertsAsRead(ids);
+      if (!result.success) throw new Error(result.error);
+      return result.count;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      clearSelection();
+      setShowMarkReadConfirm(false);
+      toast.success(`${count} alerta(s) marcada(s) como leída(s)`);
+    },
+    onError: (error) => {
+      toast.error("Error: " + error.message);
+    },
+  });
+
+  // Bulk snooze mutation
+  const bulkSnoozeMutation = useMutation({
+    mutationFn: async ({ ids, snoozeUntil }: { ids: string[]; snoozeUntil: Date }) => {
+      const result = await snoozeAlerts(ids, snoozeUntil);
+      if (!result.success) throw new Error(result.error);
+      return result.count;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      clearSelection();
+      setShowSnoozeDialog(false);
+      toast.success(`${count} alerta(s) pospuesta(s)`);
     },
     onError: (error) => {
       toast.error("Error: " + error.message);
@@ -249,13 +325,38 @@ export default function Alerts() {
     dismissMutation.mutate(reminderId);
   };
 
+  // Bulk action handlers
+  const handleBulkDismiss = () => {
+    if (selectedAlertIds.length > 10) {
+      setShowDismissConfirm(true);
+    } else {
+      bulkDismissMutation.mutate(selectedAlertIds);
+    }
+  };
+
+  const handleBulkMarkRead = () => {
+    if (selectedAlertIds.length > 10) {
+      setShowMarkReadConfirm(true);
+    } else {
+      bulkMarkReadMutation.mutate(selectedAlertIds);
+    }
+  };
+
+  const handleBulkSnooze = () => {
+    setShowSnoozeDialog(true);
+  };
+
+  const handleConfirmSnooze = (snoozeUntil: Date) => {
+    bulkSnoozeMutation.mutate({ ids: selectedAlertIds, snoozeUntil });
+  };
+
   // Categorize reminders
   const now = new Date();
   const dueReminders = allReminders.filter(r => new Date(r.next_run_at) <= now);
   const upcomingReminders = allReminders.filter(r => new Date(r.next_run_at) > now);
 
-  // Counts based on modern alert_instances only
-  const pendingInstanceCount = alertInstances?.filter(a => a.status === "PENDING").length || 0;
+  // Counts based on modern alert_instances only (excluding snoozed)
+  const unreadCount = alertInstances?.filter(a => !a.read_at).length || 0;
   const criticalCount = alertInstances?.filter(a => a.severity === "CRITICAL").length || 0;
   const processUpdateCount = alertInstances?.filter(a => 
     a.entity_type === "CGP_FILING" || a.entity_type === "CGP_CASE"
@@ -265,7 +366,87 @@ export default function Alerts() {
   const isLoading = isLoadingInstances || isLoadingReminders;
   const totalAlerts = (alertInstances?.length || 0) + allReminders.length;
 
-  // Render a reminder card
+  // Render alert card with checkbox
+  const renderAlertCard = (instance: AlertInstance, showCheckbox = true) => (
+    <div
+      key={instance.id}
+      className={cn(
+        "flex items-start gap-4 p-4 rounded-lg border transition-colors",
+        instance.status === "PENDING" && !instance.read_at
+          ? "bg-muted/50 border-primary/20"
+          : "bg-background",
+        isSelected(instance.id) && "ring-2 ring-primary"
+      )}
+    >
+      {showCheckbox && (
+        <div className="flex-shrink-0 pt-0.5">
+          <Checkbox
+            checked={isSelected(instance.id)}
+            onCheckedChange={() => toggleSelection(instance.id)}
+            aria-label={`Seleccionar alerta: ${instance.title}`}
+          />
+        </div>
+      )}
+      <div className="flex-shrink-0 mt-0.5">
+        {getSeverityIcon(instance.severity)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          {getEntityTypeBadge(instance.entity_type)}
+          {getSeverityBadge(instance.severity)}
+          {instance.status === "PENDING" && !instance.read_at && (
+            <Badge variant="outline" className="text-xs">
+              Nueva
+            </Badge>
+          )}
+        </div>
+        <p className="text-sm font-medium">{instance.title}</p>
+        <p className="text-sm text-muted-foreground">{instance.message}</p>
+        {instance.payload?.radicado && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Radicado: <code className="bg-muted px-1 rounded">{String(instance.payload.radicado)}</code>
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">
+          {formatDateColombia(instance.fired_at)}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {instance.status === "PENDING" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => acknowledgeInstance.mutate(instance.id)}
+            title="Reconocer"
+          >
+            <Check className="h-4 w-4" />
+          </Button>
+        )}
+        {instance.actions?.map((action, idx) => (
+          <Button 
+            key={idx}
+            variant="ghost" 
+            size="sm" 
+            onClick={() => handleInstanceAction(action)}
+            title="Ver"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        ))}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => dismissInstance.mutate(instance.id)}
+          disabled={dismissInstance.isPending}
+          title="Descartar"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Render a reminder card with checkbox
   const renderReminderCard = (reminder: ReminderWithWorkItem) => {
     const config = REMINDER_CONFIG[reminder.reminder_type];
     const Icon = REMINDER_ICONS[reminder.reminder_type];
@@ -277,9 +458,17 @@ export default function Alerts() {
         key={reminder.id}
         className={cn(
           "flex items-start gap-4 p-4 rounded-lg border transition-colors",
-          isDue ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/10" : "bg-background"
+          isDue ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/10" : "bg-background",
+          isSelected(reminder.id) && "ring-2 ring-primary"
         )}
       >
+        <div className="flex-shrink-0 pt-0.5">
+          <Checkbox
+            checked={isSelected(reminder.id)}
+            onCheckedChange={() => toggleSelection(reminder.id)}
+            aria-label={`Seleccionar recordatorio: ${config.label}`}
+          />
+        </div>
         <div className={cn(
           "p-2 rounded-full shrink-0",
           isDue ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"
@@ -379,10 +568,20 @@ export default function Alerts() {
         <div>
           <h1 className="text-3xl font-serif font-bold">Alertas</h1>
           <p className="text-muted-foreground">
-            {pendingInstanceCount + milestoneReminderCount} pendientes • {criticalCount} críticas • {milestoneReminderCount} hitos
+            {unreadCount + milestoneReminderCount} pendientes • {criticalCount} críticas • {milestoneReminderCount} hitos
           </p>
         </div>
         <div className="flex gap-2">
+          {isSelectionMode && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearSelection}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Cancelar selección
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -395,16 +594,6 @@ export default function Alerts() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
-          {pendingInstanceCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => dismissAllInstances.mutate()}
-              disabled={dismissAllInstances.isPending}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Descartar todas
-            </Button>
-          )}
         </div>
       </div>
 
@@ -416,7 +605,7 @@ export default function Alerts() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{pendingInstanceCount}</p>
+            <p className="text-3xl font-bold">{unreadCount}</p>
           </CardContent>
         </Card>
         <Card>
@@ -541,73 +730,7 @@ export default function Alerts() {
                 <div className="space-y-3">
                   {alertInstances
                     ?.filter(a => a.entity_type === "CGP_FILING" || a.entity_type === "CGP_CASE")
-                    .map((instance) => (
-                      <div
-                        key={instance.id}
-                        className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${
-                          instance.status === "PENDING"
-                            ? "bg-muted/50 border-primary/20"
-                            : "bg-background"
-                        }`}
-                      >
-                        <div className="flex-shrink-0 mt-0.5">
-                          {getSeverityIcon(instance.severity)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            {getEntityTypeBadge(instance.entity_type)}
-                            {getSeverityBadge(instance.severity)}
-                            {instance.status === "PENDING" && (
-                              <Badge variant="outline" className="text-xs">
-                                Nueva
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm font-medium">{instance.title}</p>
-                          <p className="text-sm text-muted-foreground">{instance.message}</p>
-                          {instance.payload?.radicado && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Radicado: <code className="bg-muted px-1 rounded">{String(instance.payload.radicado)}</code>
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDateColombia(instance.fired_at)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {instance.status === "PENDING" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => acknowledgeInstance.mutate(instance.id)}
-                              title="Reconocer"
-                            >
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {instance.actions?.map((action, idx) => (
-                            <Button 
-                              key={idx}
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleInstanceAction(action)}
-                              title="Ver"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          ))}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => dismissInstance.mutate(instance.id)}
-                            disabled={dismissInstance.isPending}
-                            title="Descartar"
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                    .map((instance) => renderAlertCard(instance))}
                 </div>
               )}
             </CardContent>
@@ -631,58 +754,54 @@ export default function Alerts() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {alertInstances?.map((instance) => (
-                    <div
-                      key={instance.id}
-                      className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${
-                        instance.status === "PENDING"
-                          ? "bg-muted/50 border-primary/20"
-                          : "bg-background"
-                      }`}
-                    >
-                      <div className="flex-shrink-0 mt-0.5">
-                        {getSeverityIcon(instance.severity)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          {getEntityTypeBadge(instance.entity_type)}
-                          {getSeverityBadge(instance.severity)}
-                        </div>
-                        <p className="text-sm font-medium">{instance.title}</p>
-                        <p className="text-sm text-muted-foreground">{instance.message}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatDateColombia(instance.fired_at)}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {instance.status === "PENDING" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => acknowledgeInstance.mutate(instance.id)}
-                            title="Reconocer"
-                          >
-                            <Check className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => dismissInstance.mutate(instance.id)}
-                          disabled={dismissInstance.isPending}
-                          title="Descartar"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                  {alertInstances?.map((instance) => renderAlertCard(instance))}
                 </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Bulk Actions Bar */}
+      <AlertsBulkActionsBar
+        selectedCount={selectedCount}
+        onSelectAll={selectAll}
+        onClearSelection={clearSelection}
+        onBulkDismiss={handleBulkDismiss}
+        onBulkMarkRead={handleBulkMarkRead}
+        onBulkSnooze={handleBulkSnooze}
+        isDismissing={bulkDismissMutation.isPending}
+        isMarkingRead={bulkMarkReadMutation.isPending}
+      />
+
+      {/* Snooze Dialog */}
+      <AlertSnoozeDialog
+        open={showSnoozeDialog}
+        onOpenChange={setShowSnoozeDialog}
+        selectedCount={selectedAlertIds.length}
+        onConfirm={handleConfirmSnooze}
+        isProcessing={bulkSnoozeMutation.isPending}
+      />
+
+      {/* Bulk Dismiss Confirmation */}
+      <AlertBulkConfirmDialog
+        open={showDismissConfirm}
+        onOpenChange={setShowDismissConfirm}
+        count={selectedAlertIds.length}
+        action="dismiss"
+        onConfirm={() => bulkDismissMutation.mutate(selectedAlertIds)}
+        isProcessing={bulkDismissMutation.isPending}
+      />
+
+      {/* Bulk Mark Read Confirmation */}
+      <AlertBulkConfirmDialog
+        open={showMarkReadConfirm}
+        onOpenChange={setShowMarkReadConfirm}
+        count={selectedAlertIds.length}
+        action="markRead"
+        onConfirm={() => bulkMarkReadMutation.mutate(selectedAlertIds)}
+        isProcessing={bulkMarkReadMutation.isPending}
+      />
     </div>
   );
 }
