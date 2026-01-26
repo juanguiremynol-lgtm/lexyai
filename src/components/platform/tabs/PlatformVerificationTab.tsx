@@ -40,6 +40,7 @@ import { getRelativeTime, detectJobMismatch } from "@/lib/platform-verification"
 import {
   VerificationCheck,
   VerificationLevel,
+  AcceptanceReport,
   evaluateSnapshot,
   evaluateProbes,
   evaluateRlsNegativeProbe,
