@@ -16,11 +16,11 @@ import {
   Users, 
   History, 
   Plus, 
-  Settings2, 
   Copy, 
   Trash2,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Pencil
 } from "lucide-react";
 import { toast } from "sonner";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -30,6 +30,8 @@ import {
   deleteNotificationRule,
   duplicateNotificationRule,
   fetchNotificationRecipients,
+  toggleNotificationRecipient,
+  deleteNotificationRecipient,
   fetchDeliveryLog,
   getDeliveryStats,
 } from "@/lib/email-notifications";
@@ -44,11 +46,18 @@ import {
 } from "@/lib/email-notifications/types";
 import { formatDateColombia } from "@/lib/constants";
 import { Link } from "react-router-dom";
+import { NotificationRuleDialog, NotificationRecipientDialog } from "../dialogs";
 
 export function AdminEmailNotificationsTab() {
   const { organization } = useOrganization();
   const queryClient = useQueryClient();
   const orgId = organization?.id;
+
+  // Dialog state
+  const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+  const [recipientDialogOpen, setRecipientDialogOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<NotificationRule | null>(null);
+  const [editingRecipient, setEditingRecipient] = useState<NotificationRecipient | null>(null);
 
   // Fetch notification rules
   const { data: rules = [], isLoading: loadingRules } = useQuery({
@@ -192,7 +201,7 @@ export function AdminEmailNotificationsTab() {
                   <CardTitle>Reglas de Notificación</CardTitle>
                   <CardDescription>Configure cuándo y a quién enviar notificaciones por email</CardDescription>
                 </div>
-                <Button size="sm" disabled>
+                <Button size="sm" onClick={() => { setEditingRule(null); setRuleDialogOpen(true); }}>
                   <Plus className="h-4 w-4 mr-2" />
                   Nueva Regla
                 </Button>
@@ -228,6 +237,9 @@ export function AdminEmailNotificationsTab() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => { setEditingRule(rule); setRuleDialogOpen(true); }}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => duplicateMutation.mutate(rule.id)}>
                           <Copy className="h-4 w-4" />
                         </Button>
@@ -252,7 +264,7 @@ export function AdminEmailNotificationsTab() {
                   <CardTitle>Directorio de Destinatarios</CardTitle>
                   <CardDescription>Emails disponibles para las reglas de notificación</CardDescription>
                 </div>
-                <Button size="sm" disabled>
+                <Button size="sm" onClick={() => { setEditingRecipient(null); setRecipientDialogOpen(true); }}>
                   <Plus className="h-4 w-4 mr-2" />
                   Agregar Email
                 </Button>
@@ -272,11 +284,31 @@ export function AdminEmailNotificationsTab() {
                   {recipients.map((recipient) => (
                     <div key={recipient.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center gap-3">
-                        <Switch checked={recipient.enabled} disabled />
+                        <Switch 
+                          checked={recipient.enabled} 
+                          onCheckedChange={(checked) => {
+                            toggleNotificationRecipient(recipient.id, checked).then(() => {
+                              queryClient.invalidateQueries({ queryKey: ["notification-recipients", orgId] });
+                            });
+                          }}
+                        />
                         <div>
                           <p className="font-medium">{recipient.label}</p>
                           <p className="text-sm text-muted-foreground">{recipient.email}</p>
                         </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => { setEditingRecipient(recipient); setRecipientDialogOpen(true); }}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          deleteNotificationRecipient(recipient.id).then(() => {
+                            queryClient.invalidateQueries({ queryKey: ["notification-recipients", orgId] });
+                            toast.success("Destinatario eliminado");
+                          });
+                        }}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -348,6 +380,24 @@ export function AdminEmailNotificationsTab() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Dialogs */}
+      {orgId && (
+        <>
+          <NotificationRuleDialog
+            open={ruleDialogOpen}
+            onOpenChange={setRuleDialogOpen}
+            organizationId={orgId}
+            rule={editingRule}
+          />
+          <NotificationRecipientDialog
+            open={recipientDialogOpen}
+            onOpenChange={setRecipientDialogOpen}
+            organizationId={orgId}
+            recipient={editingRecipient}
+          />
+        </>
+      )}
     </div>
   );
 }
