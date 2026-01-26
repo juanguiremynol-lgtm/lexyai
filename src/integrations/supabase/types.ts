@@ -5205,46 +5205,88 @@ export type Database = {
           act_date: string | null
           act_date_raw: string | null
           act_type: string | null
+          confidence_level: string | null
           created_at: string
           description: string
+          despacho: string | null
+          event_category: string | null
+          event_date: string | null
+          event_summary: string | null
+          event_type_normalized: string | null
           hash_fingerprint: string
           id: string
+          is_retroactive: boolean | null
+          keywords_matched: string[] | null
           organization_id: string | null
           owner_id: string
+          parsing_errors: string[] | null
+          phase_inferred: number | null
           raw_data: Json | null
+          scrape_date: string | null
           source: string | null
+          source_platform: string | null
           source_reference: string | null
+          source_url: string | null
           work_item_id: string
+          workflow_type: string | null
         }
         Insert: {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          confidence_level?: string | null
           created_at?: string
           description: string
+          despacho?: string | null
+          event_category?: string | null
+          event_date?: string | null
+          event_summary?: string | null
+          event_type_normalized?: string | null
           hash_fingerprint: string
           id?: string
+          is_retroactive?: boolean | null
+          keywords_matched?: string[] | null
           organization_id?: string | null
           owner_id: string
+          parsing_errors?: string[] | null
+          phase_inferred?: number | null
           raw_data?: Json | null
+          scrape_date?: string | null
           source?: string | null
+          source_platform?: string | null
           source_reference?: string | null
+          source_url?: string | null
           work_item_id: string
+          workflow_type?: string | null
         }
         Update: {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          confidence_level?: string | null
           created_at?: string
           description?: string
+          despacho?: string | null
+          event_category?: string | null
+          event_date?: string | null
+          event_summary?: string | null
+          event_type_normalized?: string | null
           hash_fingerprint?: string
           id?: string
+          is_retroactive?: boolean | null
+          keywords_matched?: string[] | null
           organization_id?: string | null
           owner_id?: string
+          parsing_errors?: string[] | null
+          phase_inferred?: number | null
           raw_data?: Json | null
+          scrape_date?: string | null
           source?: string | null
+          source_platform?: string | null
           source_reference?: string | null
+          source_url?: string | null
           work_item_id?: string
+          workflow_type?: string | null
         }
         Relationships: [
           {
@@ -5444,6 +5486,10 @@ export type Database = {
           last_action_description: string | null
           last_checked_at: string | null
           last_crawled_at: string | null
+          last_event_at: string | null
+          last_event_summary: string | null
+          last_phase_change_at: string | null
+          last_scrape_at: string | null
           legacy_admin_process_id: string | null
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
@@ -5458,13 +5504,16 @@ export type Database = {
           notification_substatus: string | null
           organization_id: string | null
           owner_id: string
+          pipeline_stage: number | null
           radicado: string | null
           radicado_verified: boolean | null
           scrape_status: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields: Json | null
+          scraping_enabled: boolean | null
           sharepoint_url: string | null
           source: Database["public"]["Enums"]["item_source"]
           source_payload: Json | null
+          source_platform: string | null
           source_reference: string | null
           stage: string
           status: Database["public"]["Enums"]["item_status"]
@@ -5506,6 +5555,10 @@ export type Database = {
           last_action_description?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -5520,13 +5573,16 @@ export type Database = {
           notification_substatus?: string | null
           organization_id?: string | null
           owner_id: string
+          pipeline_stage?: number | null
           radicado?: string | null
           radicado_verified?: boolean | null
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
+          source_platform?: string | null
           source_reference?: string | null
           stage: string
           status?: Database["public"]["Enums"]["item_status"]
@@ -5568,6 +5624,10 @@ export type Database = {
           last_action_description?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
+          last_event_at?: string | null
+          last_event_summary?: string | null
+          last_phase_change_at?: string | null
+          last_scrape_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -5582,13 +5642,16 @@ export type Database = {
           notification_substatus?: string | null
           organization_id?: string | null
           owner_id?: string
+          pipeline_stage?: number | null
           radicado?: string | null
           radicado_verified?: boolean | null
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
+          scraping_enabled?: boolean | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
+          source_platform?: string | null
           source_reference?: string | null
           stage?: string
           status?: Database["public"]["Enums"]["item_status"]
@@ -5868,6 +5931,7 @@ export type Database = {
         | "GOV_PROCEDURE"
         | "CPACA"
         | "LABORAL"
+        | "PENAL_906"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -6208,6 +6272,7 @@ export const Constants = {
         "GOV_PROCEDURE",
         "CPACA",
         "LABORAL",
+        "PENAL_906",
       ],
     },
   },

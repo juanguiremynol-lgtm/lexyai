@@ -40,7 +40,8 @@ import {
   AlertCircle,
   Clock,
   History,
-  CheckCircle2
+  CheckCircle2,
+  Shield,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -61,6 +62,7 @@ const WORKFLOW_ICONS: Record<WorkflowType, React.ElementType> = {
   PETICION: FileText,
   GOV_PROCEDURE: Building2,
   LABORAL: Briefcase,
+  PENAL_906: Shield,
 };
 
 const WORKFLOW_LABELS: Record<WorkflowType, string> = {
@@ -70,6 +72,7 @@ const WORKFLOW_LABELS: Record<WorkflowType, string> = {
   PETICION: "Petición",
   GOV_PROCEDURE: "Administrativo",
   LABORAL: "Laboral",
+  PENAL_906: "Penal",
 };
 
 interface ArchivedItem {

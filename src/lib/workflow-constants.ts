@@ -4,7 +4,7 @@
  */
 
 // Workflow type enum matching database
-export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL';
+export type WorkflowType = 'CGP' | 'PETICION' | 'TUTELA' | 'GOV_PROCEDURE' | 'CPACA' | 'LABORAL' | 'PENAL_906';
 
 // Item source enum matching database
 export type ItemSource = 'ICARUS_IMPORT' | 'SCRAPE_API' | 'MANUAL' | 'EMAIL_IMPORT' | 'MIGRATION';
@@ -72,6 +72,14 @@ export const WORKFLOW_TYPES: Record<WorkflowType, {
     icon: 'Landmark',
     hasPhases: false,
   },
+  PENAL_906: {
+    label: 'Penal (Ley 906)',
+    shortLabel: 'Penal',
+    description: 'Procesos penales bajo el sistema acusatorio (Ley 906 de 2004)',
+    color: 'red',
+    icon: 'Shield',
+    hasPhases: false,
+  },
 };
 
 // Ordered list of workflow types for UI rendering
@@ -82,6 +90,7 @@ export const WORKFLOW_TYPES_ORDER: WorkflowType[] = [
   'TUTELA',
   'GOV_PROCEDURE',
   'CPACA',
+  'PENAL_906',
 ];
 
 // ============================================
@@ -252,5 +261,5 @@ export function getStageLabel(workflowType: WorkflowType, stage: string, cgpPhas
  * Check if a workflow type uses 23-digit radicado
  */
 export function workflowUsesRadicado(workflowType: WorkflowType): boolean {
-  return workflowType === 'CGP' || workflowType === 'CPACA' || workflowType === 'TUTELA' || workflowType === 'LABORAL';
+  return workflowType === 'CGP' || workflowType === 'CPACA' || workflowType === 'TUTELA' || workflowType === 'LABORAL' || workflowType === 'PENAL_906';
 }
