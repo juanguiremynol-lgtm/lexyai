@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { createAlertIdempotent, type AlertEntityType } from '@/lib/alerts';
 
 // Types for raw scraped events
 export interface RawScrapedEvent {
@@ -140,8 +141,14 @@ export async function createEventAlert(
   if (eventType === 'NORMAL') return false;
   
   const severity = getSeverityForEventType(eventType);
-  const entityType = workflowType === 'CPACA' ? 'CPACA_CASE' : 
-                     workflowType === 'PENAL_906' ? 'PENAL_CASE' : 'CGP_CASE';
+  
+  // Map workflow type to entity type
+  let entityType: AlertEntityType = 'CGP_CASE';
+  if (workflowType === 'CPACA') entityType = 'CPACA';
+  else if (workflowType === 'PENAL_906') entityType = 'PENAL_906';
+  else if (workflowType === 'TUTELA') entityType = 'TUTELA';
+  else if (workflowType === 'LABORAL') entityType = 'LABORAL';
+  else if (workflowType === 'GOV_PROCEDURE') entityType = 'GOV_PROCEDURE';
   
   const titleMap: Record<ImportantEventType, string> = {
     SENTENCIA: 'Sentencia detectada',
@@ -154,13 +161,13 @@ export async function createEventAlert(
   };
   
   try {
-    await supabase.from('alert_instances').insert({
-      owner_id: ownerId,
-      organization_id: organizationId,
-      entity_type: entityType,
-      entity_id: workItemId,
+    // Use idempotent alert creation to prevent duplicates
+    const result = await createAlertIdempotent({
+      ownerId,
+      organizationId: organizationId || undefined,
+      entityType,
+      entityId: workItemId,
       severity,
-      status: 'PENDING',
       title: titleMap[eventType],
       message: `Radicado ${radicado}: ${eventSummary}`,
       payload: {
@@ -171,8 +178,14 @@ export async function createEventAlert(
       actions: [
         { label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${workItemId}` } },
       ],
+      fingerprintKeys: {
+        radicado,
+        eventType,
+        eventDate: eventDate || undefined,
+      },
     });
-    return true;
+    
+    return result.success;
   } catch (err) {
     console.error('Error creating event alert:', err);
     return false;

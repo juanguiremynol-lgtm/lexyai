@@ -163,8 +163,10 @@ export type Database = {
           actions: Json | null
           alert_rule_id: string | null
           created_at: string
+          dismissed_at: string | null
           entity_id: string
           entity_type: string
+          fingerprint: string | null
           fired_at: string
           id: string
           message: string
@@ -183,8 +185,10 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           created_at?: string
+          dismissed_at?: string | null
           entity_id: string
           entity_type: string
+          fingerprint?: string | null
           fired_at?: string
           id?: string
           message: string
@@ -203,8 +207,10 @@ export type Database = {
           actions?: Json | null
           alert_rule_id?: string | null
           created_at?: string
+          dismissed_at?: string | null
           entity_id?: string
           entity_type?: string
+          fingerprint?: string | null
           fired_at?: string
           id?: string
           message?: string

@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { createAlertIdempotent } from "@/lib/alerts";
 import {
   addBusinessDays,
   calculateFechaInicioTermino,
@@ -320,15 +321,14 @@ export async function saveCpacaDeadlinesWithAlerts(
           alertsCreated++;
         }
         
-        // Create immediate alert if deadline is critical
+        // Create immediate alert if deadline is critical (idempotent)
         const urgency = calculateUrgency(businessDaysRemaining);
         if (urgency.severity === 'CRITICAL' || urgency.severity === 'WARNING') {
-          await supabase.from('alert_instances').insert({
-            owner_id: ownerId,
-            entity_type: 'CPACA',
-            entity_id: workItemId,
+          await createAlertIdempotent({
+            ownerId,
+            entityType: 'CPACA',
+            entityId: workItemId,
             severity: urgency.severity,
-            status: 'SENT',
             title: `${urgency.label}: ${deadline.label}`,
             message: `${deadline.description}. Vence el ${format(deadlineDate, "d 'de' MMMM, yyyy", { locale: es })}.`,
             payload: {
@@ -339,6 +339,10 @@ export async function saveCpacaDeadlinesWithAlerts(
             actions: [
               { label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${workItemId}?tab=deadlines` } },
             ],
+            fingerprintKeys: {
+              eventType: deadline.deadline_type,
+              eventDate: deadline.deadline_date,
+            },
           });
         }
       }

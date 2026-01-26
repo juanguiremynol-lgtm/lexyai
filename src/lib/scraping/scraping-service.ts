@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { adapterRegistry } from './adapter-registry';
 import { mapActuacionesToMilestones } from './milestone-mapper';
 import type { NormalizedActuacion } from './adapter-interface';
+import { createAlertIdempotent, type AlertEntityType } from '@/lib/alerts';
 
 export interface VerifyAndScrapeResult {
   success: boolean;
@@ -255,10 +256,10 @@ async function createNewActuacionesAlert(
   isMonitoredProcess: boolean,
   actuaciones?: NormalizedActuacion[]
 ): Promise<void> {
-  const entityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
+  const entityType: AlertEntityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
   
   // Determine severity based on actuacion types
-  let severity = 'INFO';
+  let severity: 'INFO' | 'WARNING' | 'CRITICAL' = 'INFO';
   const importantTypes = ['SENTENCIA', 'AUTO_ADMISORIO', 'AUDIENCIA', 'NOTIFICACION', 'MANDAMIENTO_DE_PAGO'];
   const hasImportant = actuaciones?.some(a => importantTypes.includes(a.actTypeGuess || ''));
   if (hasImportant) severity = 'WARNING';
@@ -270,12 +271,18 @@ async function createNewActuacionesAlert(
     ? `Radicado ${radicado}: ${actTypesSummary}${count > 3 ? ` y ${count - 3} más` : ''}`
     : `Se detectaron ${count} actuación(es) nueva(s) en el radicado ${radicado}`;
 
-  await supabase.from('alert_instances').insert({
-    owner_id: ownerId,
-    entity_type: entityType,
-    entity_id: caseId,
+  // Get most recent actuacion date for fingerprint
+  const latestActDate = actuaciones?.[0]?.actDate || new Date().toISOString().split('T')[0];
+  const eventType = hasImportant 
+    ? (actuaciones?.find(a => importantTypes.includes(a.actTypeGuess || ''))?.actTypeGuess || 'ACTUACION')
+    : 'ACTUACION';
+
+  // Use idempotent alert creation to prevent duplicates
+  await createAlertIdempotent({
+    ownerId,
+    entityType,
+    entityId: caseId,
     severity,
-    status: 'PENDING',
     title: `${count} nueva(s) actuación(es) detectada(s)`,
     message,
     payload: {
@@ -294,6 +301,11 @@ async function createNewActuacionesAlert(
         params: { path: isMonitoredProcess ? `/processes/${caseId}` : `/filings/${caseId}` } 
       },
     ],
+    fingerprintKeys: {
+      radicado,
+      eventType,
+      eventDate: latestActDate,
+    },
   });
 
   // Send email notification
