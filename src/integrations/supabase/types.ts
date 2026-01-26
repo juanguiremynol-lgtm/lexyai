@@ -35,6 +35,7 @@ export type Database = {
           raw_text: string
           source: string
           source_url: string | null
+          work_item_id: string | null
         }
         Insert: {
           act_date?: string | null
@@ -56,6 +57,7 @@ export type Database = {
           raw_text: string
           source?: string
           source_url?: string | null
+          work_item_id?: string | null
         }
         Update: {
           act_date?: string | null
@@ -77,6 +79,7 @@ export type Database = {
           raw_text?: string
           source?: string
           source_url?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -105,6 +108,13 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actuaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -1128,6 +1138,7 @@ export type Database = {
           updated_at: string
           user_confirmed_at: string | null
           user_rejected_at: string | null
+          work_item_id: string | null
         }
         Insert: {
           attachments?: Json | null
@@ -1155,6 +1166,7 @@ export type Database = {
           updated_at?: string
           user_confirmed_at?: string | null
           user_rejected_at?: string | null
+          work_item_id?: string | null
         }
         Update: {
           attachments?: Json | null
@@ -1182,6 +1194,7 @@ export type Database = {
           updated_at?: string
           user_confirmed_at?: string | null
           user_rejected_at?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -1217,6 +1230,13 @@ export type Database = {
             columns: ["source_actuacion_id"]
             isOneToOne: false
             referencedRelation: "actuaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_milestones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -4793,6 +4813,7 @@ export type Database = {
           source: string | null
           source_url: string | null
           title: string | null
+          work_item_id: string | null
         }
         Insert: {
           attachments?: Json | null
@@ -4812,6 +4833,7 @@ export type Database = {
           source?: string | null
           source_url?: string | null
           title?: string | null
+          work_item_id?: string | null
         }
         Update: {
           attachments?: Json | null
@@ -4831,6 +4853,7 @@ export type Database = {
           source?: string | null
           source_url?: string | null
           title?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -4859,6 +4882,13 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
