@@ -81,7 +81,7 @@ interface RawWorkItem {
   auto_admisorio_date: string | null;
   demandantes: string | null;
   demandados: string | null;
-  last_reviewed_at: string | null;
+  last_checked_at: string | null;
   client_id: string | null;
   is_flagged: boolean | null;
   clients: { id: string; name: string } | null;
@@ -111,7 +111,7 @@ function rawToTutelaItem(raw: RawWorkItem): TutelaItem {
     clientName: raw.clients?.name || null,
     demandantes: raw.demandantes,
     demandados: raw.demandados,
-    lastArchivedPromptAt: raw.last_reviewed_at,
+    lastArchivedPromptAt: raw.last_checked_at,
     isFavorable: isFinalPhase ? isFavorable : null,
     isFlagged: raw.is_flagged ?? false,
     complianceReported: false, // Would need dedicated field
@@ -163,7 +163,7 @@ export function TutelasPipeline() {
         .from("work_items")
         .select(`
           id, workflow_type, stage, radicado, authority_name, created_at, status,
-          auto_admisorio_date, demandantes, demandados, last_reviewed_at,
+          auto_admisorio_date, demandantes, demandados, last_checked_at,
           client_id, is_flagged, notes,
           clients(id, name)
         `)
