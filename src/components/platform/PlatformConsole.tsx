@@ -37,10 +37,14 @@ import { PlatformVouchersTab } from "./tabs/PlatformVouchersTab";
 import { PlatformImpersonationTab } from "./tabs/PlatformImpersonationTab";
 import { PlatformPlanLimitsTab } from "./tabs/PlatformPlanLimitsTab";
 
-export function PlatformConsole() {
+interface PlatformConsoleProps {
+  defaultTab?: string;
+}
+
+export function PlatformConsole({ defaultTab = "verification" }: PlatformConsoleProps) {
   const { isPlatformAdmin, isLoading } = usePlatformAdmin();
 
-  // Loading state
+  // Loading state - the route guard already checks but we double-check here
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -49,7 +53,7 @@ export function PlatformConsole() {
     );
   }
 
-  // Access denied for non-platform admins
+  // Access denied for non-platform admins (fallback - route guard should catch this)
   if (!isPlatformAdmin) {
     return (
       <Card className="max-w-lg mx-auto mt-12">
@@ -73,7 +77,7 @@ export function PlatformConsole() {
           <ShieldAlert className="h-5 w-5 text-amber-500" />
         </div>
         <div>
-          <h2 className="text-2xl font-serif font-bold">Consola de Plataforma</h2>
+          <h2 className="text-2xl font-serif font-bold text-foreground">Consola de Plataforma</h2>
           <p className="text-muted-foreground text-sm">
             Administración global del sistema ATENIA
           </p>
@@ -81,13 +85,13 @@ export function PlatformConsole() {
       </div>
 
       <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-        <p className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
+        <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
           <ShieldAlert className="h-4 w-4" />
           <span><strong>Modo Super Admin:</strong> Todas las acciones quedan registradas en auditoría.</span>
         </p>
       </div>
 
-      <Tabs defaultValue="verification" className="space-y-6">
+      <Tabs defaultValue={defaultTab} className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1 bg-card/50 p-1">
           <TabsTrigger value="verification" className="gap-2">
             <ShieldCheck className="h-4 w-4" />
