@@ -4206,6 +4206,10 @@ export type Database = {
           brand_tagline: string | null
           created_at: string
           created_by: string | null
+          email_suspend_reason: string | null
+          email_suspended: boolean
+          email_suspended_at: string | null
+          email_suspended_by: string | null
           estados_staleness_alerts_enabled: boolean | null
           estados_staleness_email_enabled: boolean | null
           estados_staleness_threshold_days: number | null
@@ -4223,6 +4227,10 @@ export type Database = {
           brand_tagline?: string | null
           created_at?: string
           created_by?: string | null
+          email_suspend_reason?: string | null
+          email_suspended?: boolean
+          email_suspended_at?: string | null
+          email_suspended_by?: string | null
           estados_staleness_alerts_enabled?: boolean | null
           estados_staleness_email_enabled?: boolean | null
           estados_staleness_threshold_days?: number | null
@@ -4240,6 +4248,10 @@ export type Database = {
           brand_tagline?: string | null
           created_at?: string
           created_by?: string | null
+          email_suspend_reason?: string | null
+          email_suspended?: boolean
+          email_suspended_at?: string | null
+          email_suspended_by?: string | null
           estados_staleness_alerts_enabled?: boolean | null
           estados_staleness_email_enabled?: boolean | null
           estados_staleness_threshold_days?: number | null
@@ -4491,6 +4503,95 @@ export type Database = {
           notes?: string | null
           role?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      platform_email_actions: {
+        Row: {
+          action_type: string
+          actor_user_id: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          reason: string | null
+          target_email_outbox_id: string | null
+          target_org_id: string | null
+        }
+        Insert: {
+          action_type: string
+          actor_user_id: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          reason?: string | null
+          target_email_outbox_id?: string | null
+          target_org_id?: string | null
+        }
+        Update: {
+          action_type?: string
+          actor_user_id?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          reason?: string | null
+          target_email_outbox_id?: string | null
+          target_org_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_email_actions_target_org_id_fkey"
+            columns: ["target_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_settings: {
+        Row: {
+          created_at: string
+          email_enabled: boolean
+          email_pause_reason: string | null
+          email_paused_at: string | null
+          email_paused_by: string | null
+          id: string
+          max_emails_per_org_per_day: number | null
+          max_emails_per_org_per_hour: number | null
+          max_global_emails_per_minute: number | null
+          max_retry_attempts: number | null
+          spike_detection_enabled: boolean | null
+          spike_threshold_multiplier: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email_enabled?: boolean
+          email_pause_reason?: string | null
+          email_paused_at?: string | null
+          email_paused_by?: string | null
+          id?: string
+          max_emails_per_org_per_day?: number | null
+          max_emails_per_org_per_hour?: number | null
+          max_global_emails_per_minute?: number | null
+          max_retry_attempts?: number | null
+          spike_detection_enabled?: boolean | null
+          spike_threshold_multiplier?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email_enabled?: boolean
+          email_pause_reason?: string | null
+          email_paused_at?: string | null
+          email_paused_by?: string | null
+          id?: string
+          max_emails_per_org_per_day?: number | null
+          max_emails_per_org_per_hour?: number | null
+          max_global_emails_per_minute?: number | null
+          max_retry_attempts?: number | null
+          spike_detection_enabled?: boolean | null
+          spike_threshold_multiplier?: number | null
+          updated_at?: string
         }
         Relationships: []
       }
