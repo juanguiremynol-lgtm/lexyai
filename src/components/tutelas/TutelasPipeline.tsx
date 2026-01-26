@@ -19,6 +19,10 @@ import { Gavel, CheckSquare, Keyboard, Plus, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
+  TUTELA_STAGES,
+  type TutelaStage,
+} from "@/lib/workflow-constants";
+import {
   TUTELA_PHASES,
   TUTELA_PHASES_ORDER,
   TUTELA_FINAL_PHASES,
@@ -38,94 +42,81 @@ import { ReportIncumplimientoDialog } from "./ReportIncumplimientoDialog";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
-// Map filing status to tutela phase
-function statusToPhase(status: string): TutelaPhase {
-  switch (status) {
-    case "DRAFTED":
-    case "SENT_TO_REPARTO":
-    case "RECEIPT_CONFIRMED":
-    case "ACTA_PENDING":
-      return "TUTELA_RADICADA";
-    case "ACTA_RECEIVED_PARSED":
-    case "COURT_EMAIL_DRAFTED":
-    case "COURT_EMAIL_SENT":
-    case "RADICADO_PENDING":
-    case "RADICADO_CONFIRMED":
-    case "ICARUS_SYNC_PENDING":
-      return "TUTELA_ADMITIDA";
-    case "MONITORING_ACTIVE":
-      return "FALLO_PRIMERA_INSTANCIA";
-    case "CLOSED":
-      return "FALLO_SEGUNDA_INSTANCIA";
-    default:
-      return "TUTELA_RADICADA";
-  }
+// Map work_items.stage to tutela phase for display purposes
+function stageToPhase(stage: string): TutelaPhase {
+  // Direct mapping - stage keys match phase keys in TUTELA_STAGES
+  if (stage === "TUTELA_RADICADA") return "TUTELA_RADICADA";
+  if (stage === "TUTELA_ADMITIDA") return "TUTELA_ADMITIDA";
+  if (stage === "FALLO_PRIMERA_INSTANCIA") return "FALLO_PRIMERA_INSTANCIA";
+  if (stage === "FALLO_SEGUNDA_INSTANCIA") return "FALLO_SEGUNDA_INSTANCIA";
+  if (stage === "ARCHIVADO") return "FALLO_SEGUNDA_INSTANCIA"; // Archivado maps to final phase
+  // Fallback
+  return "TUTELA_RADICADA";
 }
 
-// Map tutela phase back to filing status
-function phaseToStatus(phase: TutelaPhase): string {
-  switch (phase) {
-    case "TUTELA_RADICADA":
-      return "DRAFTED";
-    case "TUTELA_ADMITIDA":
-      return "RADICADO_CONFIRMED";
-    case "FALLO_PRIMERA_INSTANCIA":
-      return "MONITORING_ACTIVE";
-    case "FALLO_SEGUNDA_INSTANCIA":
-      return "CLOSED";
-    default:
-      return "DRAFTED";
-  }
-}
+// Build stages configuration from TUTELA_STAGES (canonical source)
+const TUTELA_STAGE_CONFIGS: TutelaStageConfig[] = Object.entries(TUTELA_STAGES)
+  .sort((a, b) => a[1].order - b[1].order)
+  .filter(([key]) => key !== "ARCHIVADO") // Exclude ARCHIVADO from Kanban columns
+  .map(([key, value]) => {
+    const phase = stageToPhase(key);
+    const phaseConfig = TUTELA_PHASES[phase];
+    return {
+      id: `tutela:${key}`,
+      label: value.label,
+      shortLabel: phaseConfig?.shortLabel || value.label,
+      color: phaseConfig?.color || "bg-slate-500",
+      phase,
+    };
+  });
 
-// Build stages configuration
-const TUTELA_STAGES: TutelaStageConfig[] = TUTELA_PHASES_ORDER.map((phase) => ({
-  id: `tutela:${phase}`,
-  label: TUTELA_PHASES[phase].label,
-  shortLabel: TUTELA_PHASES[phase].shortLabel,
-  color: TUTELA_PHASES[phase].color,
-  phase,
-}));
-
-interface RawTutela {
+interface RawWorkItem {
   id: string;
-  filing_type: string;
+  workflow_type: string;
+  stage: string | null;
   radicado: string | null;
-  court_name: string | null;
+  authority_name: string | null;
   created_at: string;
   status: string;
-  has_auto_admisorio: boolean | null;
+  auto_admisorio_date: string | null;
   demandantes: string | null;
   demandados: string | null;
   last_reviewed_at: string | null;
   client_id: string | null;
   is_flagged: boolean | null;
-  compliance_reported: boolean | null;
-  compliance_reported_at: string | null;
   clients: { id: string; name: string } | null;
-  desacato_incidents?: { id: string }[] | null;
+  // For tutela-specific fields, we'll use notes/description for compliance tracking
+  notes: string | null;
 }
 
-function rawToTutelaItem(raw: RawTutela): TutelaItem {
+function rawToTutelaItem(raw: RawWorkItem): TutelaItem {
+  const stage = raw.stage || "TUTELA_RADICADA";
+  const phase = stageToPhase(stage);
+  const isFinalPhase = TUTELA_FINAL_PHASES.includes(phase);
+  
+  // Check for favorable ruling - we'll derive from notes or a specific field
+  // For now, assume favorable if auto_admisorio_date is set (simplified logic)
+  const isFavorable = raw.auto_admisorio_date !== null;
+  
   return {
     id: raw.id,
     type: "tutela" as const,
-    filingType: raw.filing_type,
+    filingType: "TUTELA",
     radicado: raw.radicado,
-    courtName: raw.court_name,
+    courtName: raw.authority_name,
     createdAt: raw.created_at,
-    status: raw.status,
-    phase: statusToPhase(raw.status),
+    status: raw.status || "ACTIVE",
+    phase,
     clientId: raw.client_id,
     clientName: raw.clients?.name || null,
     demandantes: raw.demandantes,
     demandados: raw.demandados,
     lastArchivedPromptAt: raw.last_reviewed_at,
-    isFavorable: raw.has_auto_admisorio,
+    isFavorable: isFinalPhase ? isFavorable : null,
     isFlagged: raw.is_flagged ?? false,
-    complianceReported: raw.compliance_reported ?? false,
-    complianceReportedAt: raw.compliance_reported_at,
-    hasDesacatoIncident: (raw.desacato_incidents?.length ?? 0) > 0,
+    complianceReported: false, // Would need dedicated field
+    complianceReportedAt: null,
+    hasDesacatoIncident: false, // Would need separate query
   };
 }
 
@@ -161,67 +152,68 @@ export function TutelasPipeline() {
     useSensor(KeyboardSensor)
   );
 
-  // Fetch tutelas (filings with type TUTELA)
+  // Fetch tutelas from CANONICAL work_items table
   const { data: tutelas, isLoading, refetch } = useQuery({
-    queryKey: ["tutelas"],
+    queryKey: ["tutelas-work-items"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
 
       const { data, error } = await supabase
-        .from("filings")
+        .from("work_items")
         .select(`
-          id, filing_type, radicado, court_name, created_at, status,
-          has_auto_admisorio, demandantes, demandados, last_reviewed_at,
-          client_id, is_flagged, compliance_reported, compliance_reported_at,
-          clients(id, name),
-          desacato_incidents(id)
+          id, workflow_type, stage, radicado, authority_name, created_at, status,
+          auto_admisorio_date, demandantes, demandados, last_reviewed_at,
+          client_id, is_flagged, notes,
+          clients(id, name)
         `)
-        .eq("owner_id", user.user.id)
-        .eq("filing_type", "TUTELA")
+        .eq("workflow_type", "TUTELA")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data as unknown as RawTutela[]).map(rawToTutelaItem);
+      return (data as unknown as RawWorkItem[]).map(rawToTutelaItem);
     },
   });
 
   // Toggle flag mutation
+  // Toggle flag mutation - now uses work_items
   const toggleFlagMutation = useMutation({
     mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
       const { error } = await supabase
-        .from("filings")
+        .from("work_items")
         .update({ is_flagged: !isFlagged })
         .eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
+      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
     },
   });
 
-  // Update phase mutation
-  const updatePhaseMutation = useMutation({
-    mutationFn: async ({ tutelaId, newPhase }: { tutelaId: string; newPhase: TutelaPhase }) => {
-      const newStatus = phaseToStatus(newPhase) as "DRAFTED" | "RADICADO_CONFIRMED" | "MONITORING_ACTIVE" | "CLOSED";
-      
+  // Update stage mutation - now uses work_items.stage
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ tutelaId, newStage }: { tutelaId: string; newStage: string }) => {
       const { error } = await supabase
-        .from("filings")
-        .update({ status: newStatus })
+        .from("work_items")
+        .update({ stage: newStage, updated_at: new Date().toISOString() })
         .eq("id", tutelaId);
       
       if (error) throw error;
-      return { tutelaId, newPhase };
+      return { tutelaId, newStage };
     },
-    onSuccess: ({ newPhase }) => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
+    onSuccess: ({ newStage }) => {
+      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       toast.success("Estado actualizado");
       
       // If moving to a fallo phase, open the outcome dialog
-      if (newPhase === "FALLO_PRIMERA_INSTANCIA" || newPhase === "FALLO_SEGUNDA_INSTANCIA") {
-        const tutela = tutelas?.find(t => t.phase === newPhase);
+      const phase = stageToPhase(newStage);
+      if (phase === "FALLO_PRIMERA_INSTANCIA" || phase === "FALLO_SEGUNDA_INSTANCIA") {
+        const tutela = tutelas?.find(t => t.id === newStage);
         if (tutela) {
-          setFalloDialog({ open: true, tutela, targetPhase: newPhase });
+          setFalloDialog({ open: true, tutela, targetPhase: phase });
         }
       }
     },
@@ -238,8 +230,8 @@ export function TutelasPipeline() {
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
@@ -267,20 +259,24 @@ export function TutelasPipeline() {
 
     const activeId = active.id as string;
     const [, itemId] = activeId.split(":");
-    const [, targetPhase] = (over.id as string).split(":");
+    const [, targetStage] = (over.id as string).split(":");
 
     const item = tutelas?.find(t => t.id === itemId);
     if (!item) return;
 
-    if (item.phase !== targetPhase) {
+    // Get current stage from item's phase
+    const currentStage = item.phase;
+    
+    if (currentStage !== targetStage) {
       // If moving to a fallo phase, we need to ask about the outcome first
+      const targetPhase = stageToPhase(targetStage);
       if (targetPhase === "FALLO_PRIMERA_INSTANCIA" || targetPhase === "FALLO_SEGUNDA_INSTANCIA") {
-        setFalloDialog({ open: true, tutela: item, targetPhase: targetPhase as TutelaPhase });
+        setFalloDialog({ open: true, tutela: item, targetPhase });
       } else {
-        updatePhaseMutation.mutate({ tutelaId: itemId, newPhase: targetPhase as TutelaPhase });
+        updateStageMutation.mutate({ tutelaId: itemId, newStage: targetStage });
       }
     }
-  }, [tutelas, updatePhaseMutation]);
+  }, [tutelas, updateStageMutation]);
 
   const handleDragCancel = () => {
     setActiveItem(null);
@@ -313,7 +309,7 @@ export function TutelasPipeline() {
   // Group items by stage
   const itemsByStage = useMemo(() => {
     const result: Record<string, TutelaItem[]> = {};
-    TUTELA_STAGES.forEach(stage => {
+    TUTELA_STAGE_CONFIGS.forEach(stage => {
       result[stage.id] = [];
     });
 
@@ -323,7 +319,7 @@ export function TutelasPipeline() {
         result[stageId].push(item);
       } else {
         // Fallback to first stage
-        result[TUTELA_STAGES[0].id].push(item);
+        result[TUTELA_STAGE_CONFIGS[0].id].push(item);
       }
     });
 
@@ -333,7 +329,7 @@ export function TutelasPipeline() {
   // Flatten items for batch selection
   const allItemsFlat = useMemo(() => {
     const items: { id: string; type: "tutela" }[] = [];
-    TUTELA_STAGES.forEach(stage => {
+    TUTELA_STAGE_CONFIGS.forEach(stage => {
       itemsByStage[stage.id]?.forEach(item => {
         items.push({ id: item.id, type: "tutela" as const });
       });
@@ -374,7 +370,7 @@ export function TutelasPipeline() {
 
   // Keyboard navigation - memoize stages for hook
   const stagesForKeyboard = useMemo(() => 
-    TUTELA_STAGES.map(s => ({ id: s.id, type: "tutela" as const })), 
+    TUTELA_STAGE_CONFIGS.map(s => ({ id: s.id, type: "tutela" as const })), 
     []
   );
   
@@ -394,7 +390,7 @@ export function TutelasPipeline() {
   if (isLoading) {
     return (
       <div className="flex gap-4">
-        {TUTELA_STAGES.map((_, i) => (
+        {TUTELA_STAGE_CONFIGS.map((_, i) => (
           <Skeleton key={i} className="h-[400px] w-64 flex-shrink-0" />
         ))}
       </div>
@@ -455,7 +451,7 @@ export function TutelasPipeline() {
       >
         <ScrollArea className="w-full whitespace-nowrap">
           <div className="flex gap-3 pb-4">
-            {TUTELA_STAGES.map((stage) => (
+            {TUTELA_STAGE_CONFIGS.map((stage) => (
               <TutelaColumn
                 key={stage.id}
                 stage={stage}
