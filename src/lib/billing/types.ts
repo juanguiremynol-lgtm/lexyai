@@ -104,3 +104,22 @@ export interface PlanDisplay {
   features: string[];
   isActive: boolean;
 }
+
+// Tier display names for UI
+export const TIER_DISPLAY_NAMES: Record<BillingTier, string> = {
+  FREE_TRIAL: 'Prueba Gratuita',
+  BASIC: 'Básico',
+  PRO: 'Profesional',
+  ENTERPRISE: 'Empresarial',
+};
+
+// Price formatting helper
+export function formatPriceUsd(amount: number): string {
+  if (amount === 0) return 'Gratis';
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}

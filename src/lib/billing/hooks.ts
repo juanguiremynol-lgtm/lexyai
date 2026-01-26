@@ -8,13 +8,44 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { 
-  PricingConfig, 
-  PlanLimits, 
   PlanDisplay, 
   BillingTier,
   CheckoutSession,
   BillingInvoice 
 } from './types';
+
+/**
+ * Normalize a subscription plan name to BillingTier
+ */
+export function normalizeTierFromPlanName(planName: string | undefined | null): BillingTier | null {
+  if (!planName) return null;
+  
+  const mapping: Record<string, BillingTier> = {
+    trial: 'FREE_TRIAL',
+    basic: 'BASIC',
+    standard: 'PRO',
+    unlimited: 'ENTERPRISE',
+    // Also handle direct tier names
+    free_trial: 'FREE_TRIAL',
+    pro: 'PRO',
+    enterprise: 'ENTERPRISE',
+  };
+  
+  return mapping[planName.toLowerCase()] || null;
+}
+
+/**
+ * Map BillingTier to subscription_plans.name
+ */
+export function tierToPlanName(tier: BillingTier): string {
+  const mapping: Record<BillingTier, string> = {
+    FREE_TRIAL: 'trial',
+    BASIC: 'basic',
+    PRO: 'standard',
+    ENTERPRISE: 'unlimited',
+  };
+  return mapping[tier];
+}
 
 // Fetch public pricing data (no auth required)
 export function usePricingData() {
@@ -37,7 +68,7 @@ export function usePricingData() {
 
       if (limitsError) throw limitsError;
 
-      // Combine pricing and limits - use type assertions for DB types
+      // Combine pricing and limits
       const plans: PlanDisplay[] = (pricingData || []).map((pricing) => {
         const limits = limitsData?.find((l) => l.tier === pricing.tier);
         const featuresArray = limits?.features;
@@ -149,11 +180,13 @@ export function useCompleteMockCheckout() {
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.message || 'Failed to complete checkout');
       
-      return data as { ok: true };
+      return data as { ok: true; plan_id?: string; tier?: string };
     },
     onSuccess: () => {
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['billing'] });
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription-plans'] });
       toast.success('¡Suscripción activada exitosamente!');
     },
     onError: (error: Error) => {
@@ -181,8 +214,50 @@ export function useCreatePortalSession() {
       
       return data as { ok: true; portal_url: string };
     },
+    onSuccess: (data) => {
+      // In mock mode, show info toast
+      if (data.portal_url?.includes('settings')) {
+        toast.info('Portal de facturación (modo demo)');
+      }
+    },
     onError: (error: Error) => {
       toast.error(`Error: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Get current organization's billing tier from subscription
+ */
+export function useCurrentTier() {
+  return useQuery({
+    queryKey: ['billing', 'current-tier'],
+    queryFn: async (): Promise<{ tier: BillingTier | null; planName: string | null }> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { tier: null, planName: null };
+
+      // Get user's organization
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organization_id')
+        .eq('id', user.id)
+        .single();
+
+      if (!profile?.organization_id) return { tier: null, planName: null };
+
+      // Get subscription with plan
+      const { data: subscription } = await supabase
+        .from('subscriptions')
+        .select('*, plan:subscription_plans(*)')
+        .eq('organization_id', profile.organization_id)
+        .single();
+
+      if (!subscription?.plan) return { tier: null, planName: null };
+
+      const planName = (subscription.plan as { name?: string })?.name || null;
+      const tier = normalizeTierFromPlanName(planName);
+
+      return { tier, planName };
     },
   });
 }
