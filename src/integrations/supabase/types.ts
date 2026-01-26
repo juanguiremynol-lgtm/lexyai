@@ -434,6 +434,144 @@ export type Database = {
           },
         ]
       }
+      billing_checkout_sessions: {
+        Row: {
+          checkout_url: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          metadata: Json
+          organization_id: string
+          provider: string
+          provider_session_id: string | null
+          status: string
+          tier: string
+        }
+        Insert: {
+          checkout_url?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          organization_id: string
+          provider?: string
+          provider_session_id?: string | null
+          status?: string
+          tier: string
+        }
+        Update: {
+          checkout_url?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          organization_id?: string
+          provider?: string
+          provider_session_id?: string | null
+          status?: string
+          tier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_checkout_sessions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_customers: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string
+          provider: string
+          provider_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id: string
+          provider?: string
+          provider_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string
+          provider?: string
+          provider_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_customers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_invoices: {
+        Row: {
+          amount_usd: number | null
+          created_at: string
+          currency: string
+          hosted_invoice_url: string | null
+          id: string
+          metadata: Json
+          organization_id: string
+          period_end: string | null
+          period_start: string | null
+          provider: string
+          provider_invoice_id: string | null
+          status: string
+        }
+        Insert: {
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string
+          hosted_invoice_url?: string | null
+          id?: string
+          metadata?: Json
+          organization_id: string
+          period_end?: string | null
+          period_start?: string | null
+          provider?: string
+          provider_invoice_id?: string | null
+          status?: string
+        }
+        Update: {
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string
+          hosted_invoice_url?: string | null
+          id?: string
+          metadata?: Json
+          organization_id?: string
+          period_end?: string | null
+          period_start?: string | null
+          provider?: string
+          provider_invoice_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_invoices_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cgp_deadline_rules: {
         Row: {
           cgp_variant: string
@@ -3489,6 +3627,8 @@ export type Database = {
       mrr_pricing_config: {
         Row: {
           created_at: string
+          description: string | null
+          display_name: string | null
           id: string
           is_active: boolean
           monthly_price_usd: number
@@ -3497,6 +3637,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          description?: string | null
+          display_name?: string | null
           id?: string
           is_active?: boolean
           monthly_price_usd?: number
@@ -3505,6 +3647,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          description?: string | null
+          display_name?: string | null
           id?: string
           is_active?: boolean
           monthly_price_usd?: number
@@ -3889,6 +4033,7 @@ export type Database = {
           created_at: string
           email_sends_per_day: number | null
           email_sends_per_hour: number | null
+          features: Json
           file_uploads_per_day: number | null
           id: string
           max_clients: number | null
@@ -3904,6 +4049,7 @@ export type Database = {
           created_at?: string
           email_sends_per_day?: number | null
           email_sends_per_hour?: number | null
+          features?: Json
           file_uploads_per_day?: number | null
           id?: string
           max_clients?: number | null
@@ -3919,6 +4065,7 @@ export type Database = {
           created_at?: string
           email_sends_per_day?: number | null
           email_sends_per_hour?: number | null
+          features?: Json
           file_uploads_per_day?: number | null
           id?: string
           max_clients?: number | null
