@@ -54,6 +54,10 @@ export default function Processes() {
     "CGP",
     "CPACA",
     "TUTELA",
+    "GOV_PROCEDURE",
+    "LABORAL",
+    "PENAL_906",
+    "PETICION",
   ]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

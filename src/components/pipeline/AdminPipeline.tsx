@@ -18,10 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Building2, Keyboard, CheckSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { 
-  ADMIN_PROCESS_PHASES, 
-  ADMIN_PROCESS_PHASES_ORDER,
-  type AdminProcessPhase 
-} from "@/lib/admin-constants";
+  GOV_PROCEDURE_STAGES,
+  getStageOrderForWorkflow,
+  type GovProcedureStage,
+} from "@/lib/workflow-constants";
 import { toast } from "sonner";
 import { AdminPipelineColumn, AdminStageConfig } from "./AdminPipelineColumn";
 import { AdminPipelineCard, AdminItem } from "./AdminPipelineCard";
@@ -30,53 +30,65 @@ import { BulkDeleteDialog } from "./BulkDeleteDialog";
 import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 import { useBatchSelection } from "@/hooks/use-batch-selection";
 
-// Build admin stages configuration
-const ADMIN_STAGES: AdminStageConfig[] = ADMIN_PROCESS_PHASES_ORDER.map((phase) => ({
-  id: `admin:${phase}`,
-  label: ADMIN_PROCESS_PHASES[phase].label,
-  shortLabel: ADMIN_PROCESS_PHASES[phase].shortLabel,
-  color: ADMIN_PROCESS_PHASES[phase].color,
-}));
+// Column colors for Gov Procedure stages
+const STAGE_COLORS: Record<string, string> = {
+  INICIO_APERTURA: "orange",
+  REQUERIMIENTOS_TRASLADOS: "amber",
+  DESCARGOS: "yellow",
+  PRUEBAS: "lime",
+  ALEGATOS_INFORME: "green",
+  DECISION_PRIMERA: "emerald",
+  RECURSOS: "teal",
+  EJECUCION_CUMPLIMIENTO: "cyan",
+  ARCHIVADO: "slate",
+};
 
-interface RawAdminProcess {
+// Build admin stages configuration from GOV_PROCEDURE_STAGES
+const ADMIN_STAGES: AdminStageConfig[] = getStageOrderForWorkflow("GOV_PROCEDURE").map((stageKey) => {
+  const stageConfig = GOV_PROCEDURE_STAGES[stageKey as GovProcedureStage];
+  return {
+    id: `admin:${stageKey}`,
+    label: stageConfig.label,
+    shortLabel: stageConfig.label.length > 12 ? stageConfig.label.substring(0, 10) + "…" : stageConfig.label,
+    color: STAGE_COLORS[stageKey] || "slate",
+  };
+});
+
+interface RawWorkItem {
   id: string;
-  radicado: string;
-  admin_phase: string | null;
-  autoridad: string | null;
-  entidad: string | null;
-  dependencia: string | null;
-  expediente_administrativo: string | null;
-  tipo_actuacion: string | null;
-  correo_autoridad: string | null;
-  department: string | null;
-  municipality: string | null;
+  radicado: string | null;
+  stage: string;
+  authority_name: string | null;
+  authority_city: string | null;
+  authority_department: string | null;
+  authority_email: string | null;
   demandantes: string | null;
   demandados: string | null;
-  monitoring_enabled: boolean;
-  last_checked_at: string | null;
-  last_change_at: string | null;
+  title: string | null;
   notes: string | null;
+  last_checked_at: string | null;
+  updated_at: string;
   client_id: string | null;
   clients: { id: string; name: string } | null;
 }
 
-function rawToAdminItem(raw: RawAdminProcess): AdminItem {
+function rawToAdminItem(raw: RawWorkItem): AdminItem {
   return {
     id: raw.id,
-    radicado: raw.radicado,
-    expedienteAdmin: raw.expediente_administrativo,
-    autoridad: raw.autoridad,
-    entidad: raw.entidad,
-    dependencia: raw.dependencia,
-    tipoActuacion: raw.tipo_actuacion,
-    correoAutoridad: raw.correo_autoridad,
-    department: raw.department,
-    municipality: raw.municipality,
+    radicado: raw.radicado || raw.title || "Sin identificador",
+    expedienteAdmin: null,
+    autoridad: raw.authority_name,
+    entidad: raw.authority_name,
+    dependencia: null,
+    tipoActuacion: null,
+    correoAutoridad: raw.authority_email,
+    department: raw.authority_department,
+    municipality: raw.authority_city,
     demandantes: raw.demandantes,
     demandados: raw.demandados,
     clientId: raw.client_id,
     clientName: raw.clients?.name || null,
-    adminPhase: raw.admin_phase as AdminProcessPhase | null,
+    adminPhase: raw.stage as GovProcedureStage | null,
     lastCheckedAt: raw.last_checked_at,
     notes: raw.notes,
   };
@@ -96,44 +108,46 @@ export function AdminPipeline() {
     useSensor(KeyboardSensor)
   );
 
-  // Fetch administrative processes
+  // Fetch GOV_PROCEDURE work items from work_items table
   const { data: adminProcesses, isLoading } = useQuery({
-    queryKey: ["admin-pipeline-processes"],
+    queryKey: ["gov-procedure-work-items"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
 
       const { data, error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .select(`
-          id, radicado, admin_phase, autoridad, entidad, dependencia,
-          expediente_administrativo, tipo_actuacion, correo_autoridad,
-          department, municipality, demandantes, demandados,
-          monitoring_enabled, last_checked_at, last_change_at, notes, client_id,
-          clients(id, name)
+          id, radicado, stage, authority_name, authority_city, authority_department,
+          authority_email, demandantes, demandados, title, notes,
+          last_checked_at, updated_at, client_id,
+          clients:client_id(id, name)
         `)
-        .eq("owner_id", user.user.id)
-        .eq("process_type", "ADMINISTRATIVE");
+        .eq("workflow_type", "GOV_PROCEDURE")
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false });
 
       if (error) throw error;
-      return (data as unknown as RawAdminProcess[]).map(rawToAdminItem);
+      return (data as unknown as RawWorkItem[]).map(rawToAdminItem);
     },
   });
 
-  // Mutation for updating admin process phase
+  // Mutation for updating work item stage
   const updatePhaseMutation = useMutation({
-    mutationFn: async ({ processId, newPhase }: { processId: string; newPhase: AdminProcessPhase }) => {
+    mutationFn: async ({ workItemId, newStage }: { workItemId: string; newStage: string }) => {
       const { error } = await supabase
-        .from("monitored_processes")
-        .update({ admin_phase: newPhase })
-        .eq("id", processId);
+        .from("work_items")
+        .update({ stage: newStage, updated_at: new Date().toISOString() })
+        .eq("id", workItemId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-pipeline-processes"] });
-      toast.success("Fase actualizada");
+      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
+      toast.success("Etapa actualizada");
     },
-    onError: () => toast.error("Error al actualizar fase"),
+    onError: () => toast.error("Error al actualizar etapa"),
   });
 
   // Bulk delete mutation using edge function
@@ -141,21 +155,21 @@ export function AdminPipeline() {
     mutationFn: async (items: { id: string; type: string }[]) => {
       const ids = items.map(i => i.id);
       const { data, error } = await supabase.functions.invoke("delete-work-items", {
-        body: { work_item_ids: ids, mode: "HARD_DELETE" },
+        body: { work_item_ids: ids, mode: "SOFT_DELETE" },
       });
       if (error) throw error;
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["admin-pipeline-processes"] });
-      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       clearSelection();
       setDeleteDialog(false);
-      toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} eliminado${result?.deleted_count !== 1 ? "s" : ""}`);
+      toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} archivado${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => toast.error("Error al eliminar elementos"),
+    onError: () => toast.error("Error al archivar elementos"),
   });
 
   const allProcesses = adminProcesses || [];
@@ -173,6 +187,7 @@ export function AdminPipeline() {
       if (result[stageId]) {
         result[stageId].push(process);
       } else {
+        // Fallback to first stage if stage is unrecognized
         const firstStage = ADMIN_STAGES[0];
         if (firstStage && result[firstStage.id]) {
           result[firstStage.id].push(process);
@@ -262,14 +277,14 @@ export function AdminPipeline() {
 
     const activeId = active.id as string;
     const itemId = activeId.replace("admin:", "");
-    const targetPhase = (over.id as string).replace("admin:", "") as AdminProcessPhase;
+    const targetStage = (over.id as string).replace("admin:", "");
 
     const item = allProcesses.find(i => i.id === itemId);
     if (!item) return;
 
     const currentPhase = item.adminPhase || "INICIO_APERTURA";
-    if (currentPhase !== targetPhase) {
-      updatePhaseMutation.mutate({ processId: itemId, newPhase: targetPhase });
+    if (currentPhase !== targetStage) {
+      updatePhaseMutation.mutate({ workItemId: itemId, newStage: targetStage });
     }
   }, [allProcesses, updatePhaseMutation]);
 
@@ -301,8 +316,8 @@ export function AdminPipeline() {
       {/* Pipeline Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">Procesos Administrativos</h2>
-          <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 px-3 py-1">
+          <h2 className="text-lg font-semibold">Vía Gubernativa / Administrativos</h2>
+          <Badge variant="secondary" className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/50 dark:text-orange-300 px-3 py-1">
             <Building2 className="h-3.5 w-3.5 mr-1.5" />
             {allProcesses.length} Procesos
           </Badge>
@@ -368,7 +383,7 @@ export function AdminPipeline() {
         onSelectAllFilings={() => {}}
         onSelectAllProcesses={() => {}}
         onClearSelection={clearSelection}
-        onBulkReclassify={() => toast.info("Usa arrastrar y soltar para cambiar fase")}
+        onBulkReclassify={() => toast.info("Usa arrastrar y soltar para cambiar etapa")}
         onBulkDelete={() => setDeleteDialog(true)}
         isDeleting={bulkDeleteMutation.isPending}
       />

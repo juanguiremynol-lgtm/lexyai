@@ -21,6 +21,7 @@ export default function Dashboard() {
     pendingTutelas: 0,
     pendingCpaca: 0,
     pendingPenal: 0,
+    pendingGovProcedure: 0,
   });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -63,6 +64,11 @@ export default function Dashboard() {
       (w) => w.workflow_type === "PENAL_906"
     ).length || 0;
 
+    // GOV_PROCEDURE (administrative) pending
+    const pendingGovProcedure = workItemsData?.filter(
+      (w) => w.workflow_type === "GOV_PROCEDURE" && w.stage !== "ARCHIVADO"
+    ).length || 0;
+
     // Tasks and alerts still from their own tables
     const { count: overdueTasks } = await supabase
       .from("tasks")
@@ -86,6 +92,7 @@ export default function Dashboard() {
       pendingTutelas,
       pendingCpaca,
       pendingPenal,
+      pendingGovProcedure,
     });
   }, []);
 
