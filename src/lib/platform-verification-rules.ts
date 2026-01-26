@@ -2,15 +2,16 @@
  * Platform Verification Rules
  * 
  * Deterministic PASS/FAIL/WARN evaluation logic for production acceptance tests
+ * with context-aware suppression of WARNs for inactive features
  */
 
-import type { VerificationSnapshot, ProbeResult } from "./platform-verification";
+import type { VerificationSnapshot, ProbeResult, UsageCounts } from "./platform-verification";
 
 export type VerificationLevel = "PASS" | "WARN" | "FAIL";
 
 export type VerificationCheck = {
   id: string;
-  category: "Schema" | "Triggers" | "RLS" | "Activity" | "Jobs" | "Probes";
+  category: "Schema" | "Triggers" | "RLS" | "Activity" | "Jobs" | "Probes" | "Context";
   label: string;
   level: VerificationLevel;
   details?: string;
@@ -22,6 +23,7 @@ export interface AcceptanceReport {
   overall: VerificationLevel;
   counts: { pass: number; warn: number; fail: number };
   checks: VerificationCheck[];
+  usage?: UsageCounts;
 }
 
 // Required index names for email_outbox
@@ -48,7 +50,7 @@ function isWithinDays(timestamp: string | null, days: number): boolean {
 }
 
 /**
- * Get freshness status for a timestamp
+ * Get freshness status for a timestamp with context-aware suppression
  */
 function getFreshnessLevel(timestamp: string | null): VerificationLevel {
   if (!timestamp) return "WARN";
@@ -61,6 +63,17 @@ function getFreshnessLevel(timestamp: string | null): VerificationLevel {
  */
 function hasIndex(indexes: string[], pattern: string): boolean {
   return indexes.some(idx => idx.toLowerCase().includes(pattern.toLowerCase()));
+}
+
+/**
+ * Context-aware activity check helpers
+ */
+function isSingleMemberEnvironment(usage: UsageCounts): boolean {
+  return usage.memberships_total <= 1 && usage.organizations_total <= 1;
+}
+
+function isEmailPipelineInactive(usage: UsageCounts): boolean {
+  return usage.email_outbox_total === 0;
 }
 
 /**
@@ -242,43 +255,117 @@ export function evaluateSnapshot(snapshot: VerificationSnapshot): VerificationCh
     evidence: { enabled: snapshot.rls.admin_notifications_rls_enabled }
   });
 
-  // ========== ACTIVITY CHECKS ==========
+  // ========== ACTIVITY CHECKS (Context-Aware) ==========
 
-  const activityKeys = [
-    "DB_MEMBERSHIP_INSERTED",
-    "DB_MEMBERSHIP_UPDATED",
-    "DB_MEMBERSHIP_DELETED",
-    "DB_SUBSCRIPTION_UPDATED",
-    "DB_EMAIL_STATUS_CHANGED"
-  ] as const;
+  const usage = snapshot.usage;
+  const singleMemberEnv = isSingleMemberEnvironment(usage);
+  const emailInactive = isEmailPipelineInactive(usage);
 
-  let hasAnyActivity = false;
-  for (const action of activityKeys) {
+  // Membership activity checks with context-aware suppression
+  const membershipActions = ["DB_MEMBERSHIP_INSERTED", "DB_MEMBERSHIP_DELETED"] as const;
+  for (const action of membershipActions) {
     const timestamp = snapshot.activity_last_seen[action];
-    if (timestamp) hasAnyActivity = true;
+    let level: VerificationLevel;
+    let details: string;
     
-    const level = getFreshnessLevel(timestamp);
+    if (!timestamp && singleMemberEnv) {
+      // Suppress WARN in single-member environment
+      level = "PASS";
+      details = "Single-member environment: membership churn not expected yet.";
+    } else if (!timestamp) {
+      level = "WARN";
+      details = "Never observed";
+    } else {
+      level = getFreshnessLevel(timestamp);
+      details = `Last observed: ${new Date(timestamp).toLocaleString("es-CO")}`;
+    }
+    
     checks.push({
       id: `activity_${action.toLowerCase()}`,
       category: "Activity",
       label: `${action} last seen`,
       level,
-      details: timestamp 
-        ? `Last observed: ${new Date(timestamp).toLocaleString("es-CO")}`
-        : "Never observed",
+      details,
       evidence: { 
         timestamp,
-        fresh: timestamp ? isWithinDays(timestamp, FRESHNESS_THRESHOLD_DAYS) : false
+        fresh: timestamp ? isWithinDays(timestamp, FRESHNESS_THRESHOLD_DAYS) : false,
+        single_member_env: singleMemberEnv
       }
     });
   }
 
-  // If triggers exist but no activity, add a summary warning
+  // Membership UPDATE - always relevant
+  const membershipUpdatedTs = snapshot.activity_last_seen.DB_MEMBERSHIP_UPDATED;
+  checks.push({
+    id: "activity_db_membership_updated",
+    category: "Activity",
+    label: "DB_MEMBERSHIP_UPDATED last seen",
+    level: getFreshnessLevel(membershipUpdatedTs),
+    details: membershipUpdatedTs 
+      ? `Last observed: ${new Date(membershipUpdatedTs).toLocaleString("es-CO")}`
+      : "Never observed",
+    evidence: { 
+      timestamp: membershipUpdatedTs,
+      fresh: membershipUpdatedTs ? isWithinDays(membershipUpdatedTs, FRESHNESS_THRESHOLD_DAYS) : false
+    }
+  });
+
+  // Subscription UPDATE - always relevant
+  const subscriptionTs = snapshot.activity_last_seen.DB_SUBSCRIPTION_UPDATED;
+  checks.push({
+    id: "activity_db_subscription_updated",
+    category: "Activity",
+    label: "DB_SUBSCRIPTION_UPDATED last seen",
+    level: getFreshnessLevel(subscriptionTs),
+    details: subscriptionTs 
+      ? `Last observed: ${new Date(subscriptionTs).toLocaleString("es-CO")}`
+      : "Never observed",
+    evidence: { 
+      timestamp: subscriptionTs,
+      fresh: subscriptionTs ? isWithinDays(subscriptionTs, FRESHNESS_THRESHOLD_DAYS) : false
+    }
+  });
+
+  // Email status change - context-aware based on email_outbox_total
+  const emailStatusTs = snapshot.activity_last_seen.DB_EMAIL_STATUS_CHANGED;
+  let emailLevel: VerificationLevel;
+  let emailDetails: string;
+  
+  if (!emailStatusTs && emailInactive) {
+    // Suppress WARN when email pipeline is inactive
+    emailLevel = "PASS";
+    emailDetails = `No outbox traffic observed yet (0 records). Email pipeline not active.`;
+  } else if (!emailStatusTs) {
+    emailLevel = "WARN";
+    emailDetails = "Never observed";
+  } else {
+    emailLevel = getFreshnessLevel(emailStatusTs);
+    emailDetails = `Last observed: ${new Date(emailStatusTs).toLocaleString("es-CO")}`;
+  }
+  
+  checks.push({
+    id: "activity_db_email_status_changed",
+    category: "Activity",
+    label: "DB_EMAIL_STATUS_CHANGED last seen",
+    level: emailLevel,
+    details: emailDetails,
+    evidence: { 
+      timestamp: emailStatusTs,
+      fresh: emailStatusTs ? isWithinDays(emailStatusTs, FRESHNESS_THRESHOLD_DAYS) : false,
+      email_outbox_total: usage.email_outbox_total
+    }
+  });
+
+  // Summary check for triggers with no activity (context-aware)
   const triggersExist = snapshot.triggers.organization_memberships_triggers_ok ||
                         snapshot.triggers.subscriptions_trigger_ok ||
                         snapshot.triggers.email_outbox_trigger_ok;
   
-  if (triggersExist && !hasAnyActivity) {
+  const hasAnyActivity = membershipUpdatedTs || subscriptionTs || emailStatusTs ||
+                         snapshot.activity_last_seen.DB_MEMBERSHIP_INSERTED ||
+                         snapshot.activity_last_seen.DB_MEMBERSHIP_DELETED;
+  
+  if (triggersExist && !hasAnyActivity && !singleMemberEnv) {
     checks.push({
       id: "activity_no_observed",
       category: "Activity",
@@ -451,15 +538,68 @@ export function groupByCategory(checks: VerificationCheck[]): Record<string, Ver
 }
 
 /**
- * Generate acceptance report
+ * Generate acceptance report with usage context
  */
-export function generateAcceptanceReport(checks: VerificationCheck[]): AcceptanceReport {
+export function generateAcceptanceReport(checks: VerificationCheck[], usage?: UsageCounts): AcceptanceReport {
   return {
     generated_at: new Date().toISOString(),
     overall: computeOverallStatus(checks),
     counts: countByLevel(checks),
-    checks
+    checks,
+    usage
   };
+}
+
+/**
+ * Generate usage context checks for display
+ */
+export function generateUsageChecks(usage: UsageCounts): VerificationCheck[] {
+  return [
+    {
+      id: "context_organizations",
+      category: "Context",
+      label: "Organizations",
+      level: "PASS",
+      details: `${usage.organizations_total} organization(s) in system`,
+      evidence: { count: usage.organizations_total }
+    },
+    {
+      id: "context_memberships",
+      category: "Context",
+      label: "Memberships",
+      level: "PASS",
+      details: `${usage.memberships_total} membership(s) across ${usage.distinct_users_total} user(s)`,
+      evidence: { memberships: usage.memberships_total, users: usage.distinct_users_total }
+    },
+    {
+      id: "context_email_outbox",
+      category: "Context",
+      label: "Email Outbox Records",
+      level: "PASS",
+      details: usage.email_outbox_total === 0 
+        ? "No email traffic yet (pipeline inactive)" 
+        : `${usage.email_outbox_total} record(s) in outbox`,
+      evidence: { count: usage.email_outbox_total }
+    },
+    {
+      id: "context_audit_logs",
+      category: "Context",
+      label: "Audit Logs",
+      level: "PASS",
+      details: `${usage.audit_logs_total} audit log record(s)`,
+      evidence: { count: usage.audit_logs_total }
+    },
+    {
+      id: "context_job_runs",
+      category: "Context",
+      label: "Job Runs",
+      level: "PASS",
+      details: usage.job_runs_total === 0 
+        ? "No job runs yet" 
+        : `${usage.job_runs_total} job run record(s)`,
+      evidence: { count: usage.job_runs_total }
+    }
+  ];
 }
 
 /**

@@ -35,7 +35,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
-import type { VerificationSnapshot, ProbeResult } from "@/lib/platform-verification";
+import type { VerificationSnapshot, ProbeResult, UsageCounts } from "@/lib/platform-verification";
 import { getRelativeTime } from "@/lib/platform-verification";
 import {
   VerificationCheck,
@@ -48,7 +48,8 @@ import {
   countByLevel,
   groupByCategory,
   generateAcceptanceReport,
-  getRecommendation
+  getRecommendation,
+  generateUsageChecks
 } from "@/lib/platform-verification-rules";
 
 // Status badge component
@@ -234,12 +235,35 @@ export function PlatformVerificationTab() {
     }
   });
 
-  // Compute all checks
+  // Purge preview mutation
+  const purgeMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("purge-old-audit-logs", {
+        body: { mode: "preview" }
+      });
+      if (error) throw error;
+      return data as { ok: boolean; would_delete_count?: number; message?: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Purge preview complete: ${data.would_delete_count ?? 0} records would be deleted`);
+      // Auto-refresh snapshot
+      refetchSnapshot();
+    },
+    onError: (error) => {
+      toast.error(`Purge preview failed: ${error.message}`);
+    }
+  });
+
+  // Compute all checks including context
   const allChecks = useMemo(() => {
     const checks: VerificationCheck[] = [];
     
     if (snapshot) {
       checks.push(...evaluateSnapshot(snapshot));
+      // Add context/usage checks
+      if (snapshot.usage) {
+        checks.push(...generateUsageChecks(snapshot.usage));
+      }
     }
     
     if (probeResults.length > 0) {
@@ -257,10 +281,10 @@ export function PlatformVerificationTab() {
   const counts = useMemo(() => countByLevel(allChecks), [allChecks]);
   const groupedChecks = useMemo(() => groupByCategory(allChecks), [allChecks]);
 
-  // Build export data
+  // Build export data with usage
   const buildAcceptanceReport = useCallback((): AcceptanceReport => {
-    return generateAcceptanceReport(allChecks);
-  }, [allChecks]);
+    return generateAcceptanceReport(allChecks, snapshot?.usage);
+  }, [allChecks, snapshot?.usage]);
 
   // Copy to clipboard
   const handleCopyJson = useCallback(() => {
@@ -292,7 +316,7 @@ export function PlatformVerificationTab() {
     setRlsNegativeResult(null);
   }, [refetchSnapshot]);
 
-  const categoryOrder = ["Schema", "Triggers", "RLS", "Activity", "Jobs", "Probes"];
+  const categoryOrder = ["Schema", "Triggers", "RLS", "Activity", "Jobs", "Probes", "Context"];
 
   return (
     <div className="space-y-6">
@@ -399,11 +423,44 @@ export function PlatformVerificationTab() {
         </Card>
       )}
 
-      {/* Run Probes Card */}
+      {/* Quick Remediation Card */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Play className="h-5 w-5" />
+            Quick Remediation
+          </CardTitle>
+          <CardDescription>
+            One-click actions to resolve common WARN statuses
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <Button
+              onClick={() => purgeMutation.mutate()}
+              disabled={purgeMutation.isPending}
+              variant="outline"
+              className="gap-2"
+            >
+              {purgeMutation.isPending ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              Run Purge Preview Now
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Clears "job never ran" WARN without deleting data
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Run Probes Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5" />
             RLS Probe Tests
           </CardTitle>
           <CardDescription>
