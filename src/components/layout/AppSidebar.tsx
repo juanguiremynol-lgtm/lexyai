@@ -32,19 +32,20 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
+// All tenant nav items now use /app/* prefix
 const navItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Clientes", url: "/clients", icon: Briefcase },
-  { title: "Procesos", url: "/processes", icon: Scale },
-  { title: "Audiencias", url: "/hearings", icon: CalendarDays },
-  { title: "Tareas", url: "/tasks", icon: CheckSquare },
-  { title: "Alertas", url: "/alerts", icon: Bell },
-  { title: "Utilidades", url: "/utilities", icon: Wrench },
-  { title: "Enlaces", url: "/links", icon: Link2 },
+  { title: "Dashboard", url: "/app/dashboard", icon: LayoutDashboard },
+  { title: "Clientes", url: "/app/clients", icon: Briefcase },
+  { title: "Procesos", url: "/app/processes", icon: Scale },
+  { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
+  { title: "Tareas", url: "/app/tasks", icon: CheckSquare },
+  { title: "Alertas", url: "/app/alerts", icon: Bell },
+  { title: "Utilidades", url: "/app/utilities", icon: Wrench },
+  { title: "Enlaces", url: "/app/links", icon: Link2 },
 ];
 
 const settingsItems = [
-  { title: "Configuración", url: "/settings", icon: Settings },
+  { title: "Configuración", url: "/app/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -93,7 +94,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => {
-                const isActive = location.pathname === item.url;
+                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url + '/');
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -158,25 +159,26 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              {/* Platform Console - Only for platform superadmins */}
+              
+              {/* Platform Console - Only visible to platform admins */}
               {isPlatformAdmin && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
-                    isActive={location.pathname === "/platform"}
+                    isActive={location.pathname.startsWith("/platform")}
                     tooltip="Platform Console"
                     className={cn(
                       "transition-all duration-200",
-                      location.pathname === "/platform" && "bg-primary/15 text-primary border-l-2 border-primary"
+                      location.pathname.startsWith("/platform") && "bg-amber-500/15 text-amber-500 border-l-2 border-amber-500"
                     )}
                   >
                     <NavLink to="/platform" className="flex items-center gap-3">
                       <ShieldAlert className={cn(
                         "h-4 w-4 transition-colors",
-                        location.pathname === "/platform" ? "text-amber-500" : "text-amber-500/70"
+                        location.pathname.startsWith("/platform") ? "text-amber-500" : "text-amber-500/70"
                       )} />
                       <span className={cn(
-                        location.pathname === "/platform" ? "text-amber-500 font-medium" : "text-amber-500/80"
+                        location.pathname.startsWith("/platform") ? "text-amber-500 font-medium" : "text-amber-500/80"
                       )}>
                         Platform Console
                       </span>
