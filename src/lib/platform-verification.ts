@@ -4,6 +4,17 @@
  * Types and utilities for the Platform Verification tab
  */
 
+// Usage counts for context-aware rule evaluation
+export interface UsageCounts {
+  organizations_total: number;
+  memberships_total: number;
+  distinct_users_total: number;
+  email_outbox_total: number;
+  subscriptions_total: number;
+  audit_logs_total: number;
+  job_runs_total: number;
+}
+
 // Snapshot response from platform_verification_snapshot RPC
 export interface VerificationSnapshot {
   generated_at: string;
@@ -54,6 +65,7 @@ export interface VerificationSnapshot {
       error: string;
     } | null;
   };
+  usage: UsageCounts;
 }
 
 // RLS Probe result
