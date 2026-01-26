@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale, Briefcase } from "lucide-react";
+import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale, Briefcase, Shield } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { WorkItemPipeline, AdminPipeline, LaboralPipeline } from "@/components/pipeline";
+import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
@@ -20,6 +20,7 @@ export default function Dashboard() {
     pendingPeticiones: 0,
     pendingTutelas: 0,
     pendingCpaca: 0,
+    pendingPenal: 0,
   });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
@@ -57,6 +58,11 @@ export default function Dashboard() {
       (w) => w.workflow_type === "CPACA" && w.stage !== "ARCHIVADO"
     ).length || 0;
 
+    // PENAL_906 pending (non-terminal phases)
+    const pendingPenal = workItemsData?.filter(
+      (w) => w.workflow_type === "PENAL_906"
+    ).length || 0;
+
     // Tasks and alerts still from their own tables
     const { count: overdueTasks } = await supabase
       .from("tasks")
@@ -79,6 +85,7 @@ export default function Dashboard() {
       pendingPeticiones,
       pendingTutelas,
       pendingCpaca,
+      pendingPenal,
     });
   }, []);
 
@@ -189,6 +196,7 @@ export default function Dashboard() {
           <TabsList className="inline-flex whitespace-nowrap">
             <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>
             <TabsTrigger value="laboral">Laborales</TabsTrigger>
+            <TabsTrigger value="penal">Penal</TabsTrigger>
             <TabsTrigger value="cpaca">CPACA</TabsTrigger>
             <TabsTrigger value="administrativos">Procesos Administrativos</TabsTrigger>
             <TabsTrigger value="peticiones">Peticiones</TabsTrigger>
@@ -208,6 +216,13 @@ export default function Dashboard() {
             Procesos laborales bajo Código Procesal del Trabajo (CPTSS). Audiencia única de conciliación, juzgamiento y fallo.
           </p>
           <LaboralPipeline />
+        </TabsContent>
+
+        <TabsContent value="penal" className="space-y-4">
+          <p className="text-sm readable-muted">
+            Procesos penales bajo Ley 906 de 2004 (Sistema Penal Acusatorio). 14 etapas desde indagación hasta ejecutoria.
+          </p>
+          <PenalPipeline />
         </TabsContent>
 
         <TabsContent value="cpaca" className="space-y-4">

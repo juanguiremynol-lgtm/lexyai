@@ -68,6 +68,15 @@ export interface WorkItem {
   last_crawled_at: string | null;
   scraped_fields: Record<string, unknown> | null;
   
+  // Penal 906 specific fields
+  pipeline_stage?: number | null;
+  last_event_at?: string | null;
+  last_event_summary?: string | null;
+  last_phase_change_at?: string | null;
+  last_scrape_at?: string | null;
+  scraping_enabled?: boolean;
+  source_platform?: string | null;
+  
   // Statistics
   total_actuaciones: number;
   
