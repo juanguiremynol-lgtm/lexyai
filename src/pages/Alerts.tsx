@@ -21,6 +21,7 @@ import {
   Link2,
   RotateCcw,
   X,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils";
 import type { AlertSeverity } from "@/types/database";
 import { useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
 import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
+import { dismissAlert, dismissAllAlerts } from "@/lib/alerts";
 
 type AlertInstanceAction = {
   label: string;
@@ -170,20 +172,32 @@ export default function Alerts() {
     },
   });
 
-  const resolveInstance = useMutation({
+  const dismissInstance = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("alert_instances")
-        .update({ 
-          status: "RESOLVED",
-          resolved_at: new Date().toISOString()
-        })
-        .eq("id", id);
-      if (error) throw error;
+      const result = await dismissAlert(id);
+      if (!result.success) throw new Error(result.error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
-      toast.success("Alerta resuelta");
+      toast.success("Alerta descartada");
+    },
+    onError: (error) => {
+      toast.error("Error: " + error.message);
+    },
+  });
+
+  const dismissAllInstances = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+      
+      const result = await dismissAllAlerts(user.id);
+      if (!result.success) throw new Error(result.error);
+      return result.count;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      toast.success(`${count} alerta(s) descartada(s)`);
     },
     onError: (error) => {
       toast.error("Error: " + error.message);
@@ -443,6 +457,16 @@ export default function Alerts() {
               Marcar todas como leídas
             </Button>
           )}
+          {pendingInstanceCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => dismissAllInstances.mutate()}
+              disabled={dismissAllInstances.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Descartar todas
+            </Button>
+          )}
         </div>
       </div>
 
@@ -631,6 +655,7 @@ export default function Alerts() {
                               variant="ghost"
                               size="sm"
                               onClick={() => acknowledgeInstance.mutate(instance.id)}
+                              title="Reconocer"
                             >
                               <Check className="h-4 w-4" />
                             </Button>
@@ -641,10 +666,20 @@ export default function Alerts() {
                               variant="ghost" 
                               size="sm" 
                               onClick={() => handleInstanceAction(action)}
+                              title="Ver"
                             >
                               <ExternalLink className="h-4 w-4" />
                             </Button>
                           ))}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => dismissInstance.mutate(instance.id)}
+                            disabled={dismissInstance.isPending}
+                            title="Descartar"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -695,15 +730,25 @@ export default function Alerts() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {instance.status !== "RESOLVED" && (
+                        {instance.status === "PENDING" && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => resolveInstance.mutate(instance.id)}
+                            onClick={() => acknowledgeInstance.mutate(instance.id)}
+                            title="Reconocer"
                           >
                             <Check className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => dismissInstance.mutate(instance.id)}
+                          disabled={dismissInstance.isPending}
+                          title="Descartar"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
