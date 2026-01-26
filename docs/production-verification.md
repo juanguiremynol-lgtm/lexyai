@@ -376,6 +376,63 @@ GROUP BY failure_type;
 
 ---
 
+## 8. Platform Verification → Jobs WARN
+
+### Understanding Jobs WARN Status
+
+The Platform Verification tab may show a **WARN** status for the `purge-old-audit-logs` job. This indicates the job hasn't run successfully yet or there's a configuration mismatch.
+
+### Expected Job Signature
+
+The verification system expects:
+- **job_name**: `purge-old-audit-logs` (exact match, hyphenated)
+- **status**: `OK`
+- **finished_at**: Non-null timestamp
+
+### Mismatch Classifications
+
+| Mismatch Type | Meaning | Fix |
+|---------------|---------|-----|
+| `NAME_MISMATCH` | Job name doesn't match expected `purge-old-audit-logs` | Check edge function writes correct job_name |
+| `STATUS_MISMATCH` | Job exists but status is not `OK` | Check edge function for errors, review logs |
+| `NO_FINISHED_AT` | Job record exists but finished_at is NULL | Job may have crashed or still running |
+| `TABLE_MISSING` | job_runs table doesn't exist | Run required migration |
+
+### Quick Fix: Run Purge Preview
+
+1. Navigate to **Platform Console → Verification**
+2. Find the **Quick Remediation** card
+3. Click **"Run Purge Preview Now"**
+4. This executes the purge edge function in preview mode (no data deleted)
+5. The snapshot auto-refreshes and Jobs status should become **PASS**
+
+### Forensic Evidence Display
+
+When Jobs shows WARN/FAIL, the UI displays:
+- **Expected Signature**: What the verification expects
+- **Last Seen (Exact)**: Most recent job_runs record with exact job_name
+- **Last Seen (Fuzzy)**: Matches similar job names (catches naming drift)
+- **Recent Job Names**: All distinct job names from last 30 days
+- **Mismatch Hint**: Actionable guidance to fix the issue
+
+### Edge Function Requirements
+
+The `purge-old-audit-logs` edge function MUST:
+```typescript
+// Write to job_runs with exact values:
+await supabase.from('job_runs').insert({
+  job_name: 'purge-old-audit-logs',  // Exact hyphenated name
+  status: 'OK',                       // On success
+  started_at: startTime,
+  finished_at: new Date().toISOString(),
+  duration_ms: endTime - startTime,
+  processed_count: deletedCount,
+  metadata: { mode: 'preview' }       // Optional context
+});
+```
+
+---
+
 ## Pending Items (Deferred)
 
 The following items are prepared but not wired:
