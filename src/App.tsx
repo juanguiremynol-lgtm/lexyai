@@ -34,12 +34,14 @@ import DocumentSearch from "./pages/DocumentSearch";
 import PeticionDetail from "./pages/PeticionDetail";
 import AdminProcessDetail from "./pages/AdminProcessDetail";
 import EmailInboxPage from "./pages/EmailInboxPage";
-import PricingPage from "./pages/PricingPage";
 import NewProcess from "./pages/NewProcess";
 import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 import InviteAccept from "./pages/InviteAccept";
 import PlatformPage from "./pages/PlatformPage";
+import { PublicLayout } from "./components/layout/PublicLayout";
+import PublicPricingPage from "./pages/PublicPricingPage";
+import MockCheckoutPage from "./pages/MockCheckoutPage";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +80,16 @@ const App = () => (
           <Route path="/auth" element={<Auth />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          
+          {/* Public routes (no auth required) */}
+          <Route element={<PublicLayout />}>
+            <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
+          </Route>
+          
+          {/* Mock checkout route (auth required but no layout) */}
+          <Route path="/billing/checkout/mock" element={<ProtectedRoute><ErrorBoundary><MockCheckoutPage /></ErrorBoundary></ProtectedRoute>} />
+          
+          {/* Protected routes with app layout */}
           <Route element={<ProtectedRoute><OrganizationProvider><SubscriptionProvider><ImpersonationProvider><AppLayout /></ImpersonationProvider></SubscriptionProvider></OrganizationProvider></ProtectedRoute>}>
             <Route path="/dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
             <Route path="/new-process" element={<ErrorBoundary><NewProcess /></ErrorBoundary>} />
@@ -118,7 +130,7 @@ const App = () => (
             <Route path="/admin-processes/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="/email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
             <Route path="/cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
-            <Route path="/pricing" element={<ErrorBoundary><PricingPage /></ErrorBoundary>} />
+            <Route path="/billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="/platform" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
           </Route>
