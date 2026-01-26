@@ -16,22 +16,23 @@ export function TopBar() {
 
   useEffect(() => {
     const fetchUnreadAlerts = async () => {
+      // Query alert_instances (authoritative source) for pending/unacknowledged alerts
       const { count } = await supabase
-        .from('alerts')
+        .from('alert_instances')
         .select('*', { count: 'exact', head: true })
-        .eq('is_read', false);
+        .in('status', ['PENDING', 'SENT']);
       
       setUnreadAlerts(count || 0);
     };
 
     fetchUnreadAlerts();
 
-    // Subscribe to changes
+    // Subscribe to changes in alert_instances
     const channel = supabase
-      .channel('alerts-count')
+      .channel('alert-instances-count')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'alerts' },
+        { event: '*', schema: 'public', table: 'alert_instances' },
         () => fetchUnreadAlerts()
       )
       .subscribe();

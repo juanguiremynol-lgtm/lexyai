@@ -28,7 +28,6 @@ import { formatDateColombia } from "@/lib/constants";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import type { AlertSeverity } from "@/types/database";
 import { useSnoozeReminder, useDismissReminder } from "@/hooks/use-work-item-reminders";
 import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
 import { dismissAlert, dismissAllAlerts } from "@/lib/alerts";
@@ -79,27 +78,7 @@ export default function Alerts() {
   const snoozeMutation = useSnoozeReminder();
   const dismissMutation = useDismissReminder();
 
-  // Legacy alerts from 'alerts' table
-  const { data: alerts, isLoading: isLoadingAlerts } = useQuery({
-    queryKey: ["alerts"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("alerts")
-        .select(`
-          *,
-          filing:filings(
-            id,
-            filing_type,
-            matter:matters(client_name, matter_name)
-          )
-        `)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // New alert instances from 'alert_instances' table
+  // Alert instances from 'alert_instances' table (authoritative source)
   const { data: alertInstances, isLoading: isLoadingInstances } = useQuery({
     queryKey: ["alert_instances"],
     queryFn: async () => {
@@ -132,23 +111,6 @@ export default function Alerts() {
         .limit(50);
       if (error) throw error;
       return (data || []) as ReminderWithWorkItem[];
-    },
-  });
-
-  const markAsRead = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("alerts")
-        .update({ is_read: true })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["unreadAlerts"] });
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
     },
   });
 
@@ -204,28 +166,6 @@ export default function Alerts() {
     },
   });
 
-  const markAllAsRead = useMutation({
-    mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-      
-      const { error } = await supabase
-        .from("alerts")
-        .update({ is_read: true })
-        .eq("owner_id", user.id)
-        .eq("is_read", false);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["unreadAlerts"] });
-      toast.success("Todas las alertas marcadas como leídas");
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
-  });
-
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
       case "CRITICAL":
@@ -268,6 +208,14 @@ export default function Alerts() {
         return <Badge variant="outline">Tutela</Badge>;
       case "ADMIN_PROCESS":
         return <Badge variant="outline">Admin</Badge>;
+      case "GOV_PROCEDURE":
+        return <Badge variant="outline">Trámite</Badge>;
+      case "PENAL_906":
+        return <Badge variant="outline">Penal</Badge>;
+      case "LABORAL":
+        return <Badge variant="outline">Laboral</Badge>;
+      case "CPACA":
+        return <Badge variant="outline">CPACA</Badge>;
       default:
         return <Badge variant="outline">{entityType}</Badge>;
     }
@@ -306,15 +254,16 @@ export default function Alerts() {
   const dueReminders = allReminders.filter(r => new Date(r.next_run_at) <= now);
   const upcomingReminders = allReminders.filter(r => new Date(r.next_run_at) > now);
 
-  const unreadCount = alerts?.filter((a) => !a.is_read).length || 0;
-  const criticalCount = alerts?.filter((a) => a.severity === "CRITICAL" && !a.is_read).length || 0;
+  // Counts based on modern alert_instances only
   const pendingInstanceCount = alertInstances?.filter(a => a.status === "PENDING").length || 0;
+  const criticalCount = alertInstances?.filter(a => a.severity === "CRITICAL").length || 0;
   const processUpdateCount = alertInstances?.filter(a => 
     a.entity_type === "CGP_FILING" || a.entity_type === "CGP_CASE"
   ).length || 0;
   const milestoneReminderCount = dueReminders.length;
 
-  const isLoading = isLoadingAlerts || isLoadingInstances || isLoadingReminders;
+  const isLoading = isLoadingInstances || isLoadingReminders;
+  const totalAlerts = (alertInstances?.length || 0) + allReminders.length;
 
   // Render a reminder card
   const renderReminderCard = (reminder: ReminderWithWorkItem) => {
@@ -430,7 +379,7 @@ export default function Alerts() {
         <div>
           <h1 className="text-3xl font-serif font-bold">Alertas</h1>
           <p className="text-muted-foreground">
-            {unreadCount + pendingInstanceCount + milestoneReminderCount} pendientes • {criticalCount} críticas • {milestoneReminderCount} hitos
+            {pendingInstanceCount + milestoneReminderCount} pendientes • {criticalCount} críticas • {milestoneReminderCount} hitos
           </p>
         </div>
         <div className="flex gap-2">
@@ -438,7 +387,6 @@ export default function Alerts() {
             variant="outline"
             size="sm"
             onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["alerts"] });
               queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
               queryClient.invalidateQueries({ queryKey: ["all-active-reminders"] });
               toast.success("Alertas actualizadas");
@@ -447,16 +395,6 @@ export default function Alerts() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
-          {unreadCount > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => markAllAsRead.mutate()}
-              disabled={markAllAsRead.isPending}
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Marcar todas como leídas
-            </Button>
-          )}
           {pendingInstanceCount > 0 && (
             <Button
               variant="outline"
@@ -470,7 +408,7 @@ export default function Alerts() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -478,7 +416,7 @@ export default function Alerts() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{unreadCount + pendingInstanceCount}</p>
+            <p className="text-3xl font-bold">{pendingInstanceCount}</p>
           </CardContent>
         </Card>
         <Card>
@@ -504,21 +442,11 @@ export default function Alerts() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Actualizaciones
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-primary">{processUpdateCount}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
               Total
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{(alerts?.length || 0) + (alertInstances?.length || 0) + allReminders.length}</p>
+            <p className="text-3xl font-bold">{totalAlerts}</p>
           </CardContent>
         </Card>
       </div>
@@ -534,9 +462,6 @@ export default function Alerts() {
           </TabsTrigger>
           <TabsTrigger value="all_instances">
             Sistema ({alertInstances?.length || 0})
-          </TabsTrigger>
-          <TabsTrigger value="legacy">
-            Legacy ({alerts?.length || 0})
           </TabsTrigger>
         </TabsList>
 
@@ -597,7 +522,7 @@ export default function Alerts() {
         <TabsContent value="process_updates">
           <Card>
             <CardHeader>
-              <CardTitle>Actualizaciones de Procesos CGP</CardTitle>
+              <CardTitle>Actualizaciones de Procesos</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (
@@ -609,7 +534,7 @@ export default function Alerts() {
                   <Bell className="mx-auto h-12 w-12 text-muted-foreground/50" />
                   <h3 className="mt-4 text-lg font-medium">No hay actualizaciones de procesos</h3>
                   <p className="text-muted-foreground">
-                    Las actualizaciones se detectan automáticamente al consultar la API de Rama Judicial
+                    Las actualizaciones se detectan automáticamente al consultar fuentes judiciales
                   </p>
                 </div>
               ) : (
@@ -752,90 +677,6 @@ export default function Alerts() {
                       </div>
                     </div>
                   ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="legacy">
-          <Card>
-            <CardHeader>
-              <CardTitle>Alertas Legacy</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoadingAlerts ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  Cargando...
-                </div>
-              ) : alerts?.length === 0 ? (
-                <div className="text-center py-12">
-                  <Bell className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                  <h3 className="mt-4 text-lg font-medium">No hay alertas</h3>
-                  <p className="text-muted-foreground">
-                    Las alertas se crean automáticamente al gestionar radicaciones
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {alerts?.map((alert) => {
-                    const filing = alert.filing as {
-                      id: string;
-                      filing_type: string;
-                      matter: { client_name: string; matter_name: string } | null;
-                    } | null;
-                    return (
-                      <div
-                        key={alert.id}
-                        className={`flex items-start gap-4 p-4 rounded-lg border transition-colors ${
-                          alert.is_read
-                            ? "bg-background"
-                            : "bg-muted/50 border-primary/20"
-                        }`}
-                      >
-                        <div className="flex-shrink-0 mt-0.5">
-                          {getSeverityIcon(alert.severity as AlertSeverity)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            {getSeverityBadge(alert.severity as AlertSeverity)}
-                            {!alert.is_read && (
-                              <Badge variant="outline" className="text-xs">
-                                Nueva
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm font-medium">{alert.message}</p>
-                          {filing && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {filing.matter?.client_name} – {filing.matter?.matter_name}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDateColombia(alert.created_at)}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {!alert.is_read && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => markAsRead.mutate(alert.id)}
-                            >
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {filing && (
-                            <Button variant="ghost" size="sm" asChild>
-                              <Link to={`/work-items/${filing.id}`}>
-                                <ExternalLink className="h-4 w-4" />
-                              </Link>
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               )}
             </CardContent>
