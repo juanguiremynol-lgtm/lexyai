@@ -5,7 +5,14 @@
  * with context-aware suppression of WARNs for inactive features
  */
 
-import type { VerificationSnapshot, ProbeResult, UsageCounts } from "./platform-verification";
+import type { 
+  VerificationSnapshot, 
+  ProbeResult, 
+  UsageCounts,
+  JobRunEvidence,
+  JobMismatchType
+} from "./platform-verification";
+import { detectJobMismatch, getMismatchHint } from "./platform-verification";
 
 export type VerificationLevel = "PASS" | "WARN" | "FAIL";
 
@@ -16,6 +23,8 @@ export type VerificationCheck = {
   level: VerificationLevel;
   details?: string;
   evidence?: Record<string, unknown>;
+  mismatchType?: JobMismatchType;
+  mismatchHint?: string;
 };
 
 export interface AcceptanceReport {
@@ -24,6 +33,12 @@ export interface AcceptanceReport {
   counts: { pass: number; warn: number; fail: number };
   checks: VerificationCheck[];
   usage?: UsageCounts;
+  jobs_evidence?: {
+    expected_signature: { job_name: string; success_status: string };
+    last_seen_exact: JobRunEvidence | null;
+    last_seen_fuzzy: JobRunEvidence | null;
+    recent_job_names: string[];
+  };
 }
 
 // Required index names for email_outbox
@@ -376,41 +391,82 @@ export function evaluateSnapshot(snapshot: VerificationSnapshot): VerificationCh
     });
   }
 
-  // ========== JOBS CHECKS ==========
+  // ========== JOBS CHECKS (Evidence-Aware) ==========
 
-  const lastRun = snapshot.jobs.purge_old_audit_logs_last_run;
-  const lastError = snapshot.jobs.purge_old_audit_logs_last_error;
+  const jobs = snapshot.jobs;
+  const lastRun = jobs.purge_old_audit_logs_last_run;
+  const lastError = jobs.purge_old_audit_logs_last_error;
+  const lastSeenExact = jobs.purge_old_audit_logs_last_seen_exact;
+  const lastSeenFuzzy = jobs.purge_old_audit_logs_last_seen_fuzzy;
+  const expectedJobName = jobs.expected_signature?.job_name || 'purge-old-audit-logs';
 
-  // Check if job has run recently
-  if (!lastRun) {
+  // FAIL: job_runs table missing
+  if (!jobs.job_runs_table_exists) {
     checks.push({
-      id: "jobs_purge_last_run",
+      id: "jobs_purge_table_missing",
       category: "Jobs",
-      label: "purge-old-audit-logs last run",
-      level: "WARN",
-      details: "Job has never run successfully",
-      evidence: { last_run: null }
+      label: "purge-old-audit-logs job tracking",
+      level: "FAIL",
+      details: "job_runs table does not exist - cannot track job history",
+      mismatchType: "TABLE_MISSING",
+      mismatchHint: getMismatchHint("TABLE_MISSING"),
+      evidence: { job_runs_table_exists: false }
     });
   } else {
-    const isStale = !isWithinDays(lastRun.finished_at, JOB_STALE_THRESHOLD_DAYS);
-    checks.push({
-      id: "jobs_purge_last_run",
-      category: "Jobs",
-      label: "purge-old-audit-logs last run",
-      level: isStale ? "WARN" : "PASS",
-      details: isStale 
-        ? `Last run over ${JOB_STALE_THRESHOLD_DAYS} days ago`
-        : `Last run: ${new Date(lastRun.finished_at).toLocaleString("es-CO")}`,
-      evidence: {
-        finished_at: lastRun.finished_at,
-        duration_ms: lastRun.duration_ms,
-        processed_count: lastRun.processed_count,
-        preview: lastRun.preview
+    // Determine mismatch type if no success
+    const mismatchType = !lastRun ? detectJobMismatch(lastSeenExact, lastSeenFuzzy, expectedJobName) : null;
+
+    // Check if job has run successfully
+    if (!lastRun) {
+      // Build evidence-aware details
+      let details = "Job has never run successfully.";
+      
+      if (lastSeenExact) {
+        details = `Last exact record: job_name='${lastSeenExact.job_name}', status='${lastSeenExact.status}'`;
+        if (!lastSeenExact.finished_at) {
+          details += ", finished_at=NULL";
+        }
+      } else if (lastSeenFuzzy) {
+        details = `Found fuzzy match: job_name='${lastSeenFuzzy.job_name}' (expected '${expectedJobName}'), status='${lastSeenFuzzy.status}'`;
       }
-    });
+
+      checks.push({
+        id: "jobs_purge_last_run",
+        category: "Jobs",
+        label: "purge-old-audit-logs last run",
+        level: "WARN",
+        details,
+        mismatchType,
+        mismatchHint: mismatchType ? getMismatchHint(mismatchType) : undefined,
+        evidence: { 
+          last_run: null,
+          last_seen_exact: lastSeenExact,
+          last_seen_fuzzy: lastSeenFuzzy,
+          expected_job_name: expectedJobName,
+          mismatch_type: mismatchType
+        }
+      });
+    } else {
+      const isStale = !isWithinDays(lastRun.finished_at, JOB_STALE_THRESHOLD_DAYS);
+      checks.push({
+        id: "jobs_purge_last_run",
+        category: "Jobs",
+        label: "purge-old-audit-logs last run",
+        level: isStale ? "WARN" : "PASS",
+        details: isStale 
+          ? `Last run over ${JOB_STALE_THRESHOLD_DAYS} days ago`
+          : `Last run: ${new Date(lastRun.finished_at).toLocaleString("es-CO")}`,
+        evidence: {
+          finished_at: lastRun.finished_at,
+          duration_ms: lastRun.duration_ms,
+          processed_count: lastRun.processed_count,
+          preview: lastRun.preview
+        }
+      });
+    }
   }
 
-  // Check for recent errors
+  // Check for recent errors (FAIL if within 7 days)
   if (lastError && isWithinDays(lastError.finished_at, JOB_ERROR_THRESHOLD_DAYS)) {
     checks.push({
       id: "jobs_purge_recent_error",
@@ -538,15 +594,25 @@ export function groupByCategory(checks: VerificationCheck[]): Record<string, Ver
 }
 
 /**
- * Generate acceptance report with usage context
+ * Generate acceptance report with usage context and jobs evidence
  */
-export function generateAcceptanceReport(checks: VerificationCheck[], usage?: UsageCounts): AcceptanceReport {
+export function generateAcceptanceReport(
+  checks: VerificationCheck[], 
+  usage?: UsageCounts,
+  jobsEvidence?: {
+    expected_signature: { job_name: string; success_status: string };
+    last_seen_exact: JobRunEvidence | null;
+    last_seen_fuzzy: JobRunEvidence | null;
+    recent_job_names: string[];
+  }
+): AcceptanceReport {
   return {
     generated_at: new Date().toISOString(),
     overall: computeOverallStatus(checks),
     counts: countByLevel(checks),
     checks,
-    usage
+    usage,
+    jobs_evidence: jobsEvidence
   };
 }
 

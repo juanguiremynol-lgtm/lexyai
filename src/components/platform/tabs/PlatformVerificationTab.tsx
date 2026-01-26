@@ -7,6 +7,7 @@
  * - Grouped checks by category with Accordion
  * - RLS probe self-tests + negative probe validation
  * - Export Acceptance Report JSON
+ * - Jobs Evidence forensic display
  */
 
 import { useState, useCallback, useMemo } from "react";
@@ -29,18 +30,16 @@ import {
   ShieldCheck, 
   RefreshCw,
   Copy,
-  Download,
   Play,
   FileCheck,
   ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
-import type { VerificationSnapshot, ProbeResult, UsageCounts } from "@/lib/platform-verification";
-import { getRelativeTime } from "@/lib/platform-verification";
+import type { VerificationSnapshot, ProbeResult, JobMismatchType } from "@/lib/platform-verification";
+import { getRelativeTime, detectJobMismatch } from "@/lib/platform-verification";
 import {
   VerificationCheck,
   VerificationLevel,
-  AcceptanceReport,
   evaluateSnapshot,
   evaluateProbes,
   evaluateRlsNegativeProbe,
@@ -51,6 +50,7 @@ import {
   getRecommendation,
   generateUsageChecks
 } from "@/lib/platform-verification-rules";
+import { JobsEvidencePanel } from "./JobsEvidencePanel";
 
 // Status badge component
 function StatusBadge({ status, size = "default" }: { status: VerificationLevel; size?: "default" | "lg" }) {
@@ -70,7 +70,7 @@ function StatusBadge({ status, size = "default" }: { status: VerificationLevel; 
   );
 }
 
-// Check row with evidence expandable
+// Check row with evidence expandable and mismatch hints
 function CheckRow({ check }: { check: VerificationCheck }) {
   const [showEvidence, setShowEvidence] = useState(false);
   
@@ -82,8 +82,19 @@ function CheckRow({ check }: { check: VerificationCheck }) {
           {check.details && (
             <p className="text-xs text-muted-foreground mt-0.5">{check.details}</p>
           )}
+          {check.mismatchHint && (
+            <p className="text-xs text-warning mt-1 flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {check.mismatchHint}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 ml-2">
+          {check.mismatchType && (
+            <Badge variant="outline" className="text-xs font-mono">
+              {check.mismatchType}
+            </Badge>
+          )}
           {check.evidence && (
             <Button
               variant="ghost"
@@ -107,16 +118,30 @@ function CheckRow({ check }: { check: VerificationCheck }) {
   );
 }
 
-// Category section in accordion
+// Category section in accordion with Jobs Evidence support
 function CategorySection({ 
   category, 
-  checks 
+  checks,
+  snapshot
 }: { 
   category: string; 
   checks: VerificationCheck[];
+  snapshot?: VerificationSnapshot | null;
 }) {
   const counts = countByLevel(checks);
   const categoryStatus = computeOverallStatus(checks);
+  
+  // Compute jobs mismatch for Jobs category
+  const jobsMismatch = useMemo((): JobMismatchType => {
+    if (category !== "Jobs" || !snapshot?.jobs) return null;
+    const jobs = snapshot.jobs;
+    if (jobs.purge_old_audit_logs_last_run) return null; // Success exists
+    return detectJobMismatch(
+      jobs.purge_old_audit_logs_last_seen_exact,
+      jobs.purge_old_audit_logs_last_seen_fuzzy,
+      jobs.expected_signature?.job_name || 'purge-old-audit-logs'
+    );
+  }, [category, snapshot]);
   
   return (
     <AccordionItem value={category}>

@@ -15,6 +15,49 @@ export interface UsageCounts {
   job_runs_total: number;
 }
 
+// Forensic job run evidence record
+export interface JobRunEvidence {
+  id: string;
+  job_name: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  processed_count: number | null;
+  has_metadata: boolean;
+  preview_flag: boolean;
+  error: string | null;
+}
+
+// Expected signature for job verification
+export interface JobExpectedSignature {
+  job_name: string;
+  success_status: string;
+  notes: string;
+}
+
+// Jobs evidence block
+export interface JobsEvidence {
+  job_runs_table_exists: boolean;
+  job_runs_has_metadata: boolean;
+  expected_signature: JobExpectedSignature;
+  purge_old_audit_logs_last_run: {
+    status: string;
+    finished_at: string;
+    duration_ms: number;
+    processed_count: number;
+    preview: boolean;
+  } | null;
+  purge_old_audit_logs_last_error: {
+    status: string;
+    finished_at: string;
+    error: string;
+  } | null;
+  purge_old_audit_logs_last_seen_exact: JobRunEvidence | null;
+  purge_old_audit_logs_last_seen_fuzzy: JobRunEvidence | null;
+  job_runs_recent_names: string[];
+}
+
 // Snapshot response from platform_verification_snapshot RPC
 export interface VerificationSnapshot {
   generated_at: string;
@@ -49,22 +92,7 @@ export interface VerificationSnapshot {
     DB_SUBSCRIPTION_UPDATED: string | null;
     DB_EMAIL_STATUS_CHANGED: string | null;
   };
-  jobs: {
-    job_runs_table_exists: boolean;
-    job_runs_has_metadata: boolean;
-    purge_old_audit_logs_last_run: {
-      status: string;
-      finished_at: string;
-      duration_ms: number;
-      processed_count: number;
-      preview: boolean;
-    } | null;
-    purge_old_audit_logs_last_error: {
-      status: string;
-      finished_at: string;
-      error: string;
-    } | null;
-  };
+  jobs: JobsEvidence;
   usage: UsageCounts;
 }
 
@@ -89,6 +117,14 @@ export interface VerificationExport {
 
 // Check status type
 export type CheckStatus = "PASS" | "FAIL" | "WARN";
+
+// Job mismatch classification
+export type JobMismatchType = 
+  | "NAME_MISMATCH" 
+  | "STATUS_MISMATCH" 
+  | "NO_FINISHED_AT" 
+  | "TABLE_MISSING"
+  | null;
 
 // Get relative time string
 export function getRelativeTime(timestamp: string | null): string {
@@ -128,7 +164,8 @@ export function getActivityStatus(timestamp: string | null, hasTrigger: boolean)
 }
 
 // Format duration in ms to human readable
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number | null): string {
+  if (ms === null || ms === undefined) return "N/A";
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${(ms / 60000).toFixed(1)}m`;
@@ -153,3 +190,53 @@ export const TRIGGER_ACTIONS = [
 ] as const;
 
 export type TriggerAction = typeof TRIGGER_ACTIONS[number];
+
+// Detect job mismatch type from evidence
+export function detectJobMismatch(
+  lastSeenExact: JobRunEvidence | null,
+  lastSeenFuzzy: JobRunEvidence | null,
+  expectedJobName: string
+): JobMismatchType {
+  // If we have an exact match with OK status and finished_at, no mismatch
+  if (lastSeenExact && lastSeenExact.status === 'OK' && lastSeenExact.finished_at) {
+    return null;
+  }
+  
+  // Check for status mismatch on exact record
+  if (lastSeenExact && lastSeenExact.status !== 'OK') {
+    return "STATUS_MISMATCH";
+  }
+  
+  // Check for missing finished_at on exact record
+  if (lastSeenExact && !lastSeenExact.finished_at) {
+    return "NO_FINISHED_AT";
+  }
+  
+  // If no exact but we have fuzzy, it's a name mismatch
+  if (!lastSeenExact && lastSeenFuzzy) {
+    return "NAME_MISMATCH";
+  }
+  
+  // If fuzzy has different job_name than expected
+  if (lastSeenFuzzy && lastSeenFuzzy.job_name !== expectedJobName) {
+    return "NAME_MISMATCH";
+  }
+  
+  return null;
+}
+
+// Get actionable hint for mismatch type
+export function getMismatchHint(mismatchType: JobMismatchType): string {
+  switch (mismatchType) {
+    case "NAME_MISMATCH":
+      return "Edge function should write job_name='purge-old-audit-logs' exactly. Check the edge function code.";
+    case "STATUS_MISMATCH":
+      return "Edge function should write status='OK' on successful completion. Check if the function is completing without errors.";
+    case "NO_FINISHED_AT":
+      return "Edge function should set finished_at timestamp on completion. The job may have crashed or be still running.";
+    case "TABLE_MISSING":
+      return "The job_runs table does not exist. Run the required migration to create it.";
+    default:
+      return "";
+  }
+}
