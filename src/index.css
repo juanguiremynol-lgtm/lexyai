@@ -1124,3 +1124,173 @@
     background-size: 200% 100%;
   }
 }
+
+/* ============================================
+   PLATFORM CONSOLE - Dark Noir Theme
+   Completely separate from app themes
+   ============================================ */
+
+.platform-console-root {
+  --platform-bg: 222 47% 4%;
+  --platform-surface: 222 40% 8%;
+  --platform-surface-elevated: 222 35% 12%;
+  --platform-border: 222 20% 18%;
+  --platform-text: 220 14% 90%;
+  --platform-text-muted: 220 10% 55%;
+  --platform-accent: 43 95% 55%;
+  --platform-accent-muted: 43 70% 35%;
+  
+  background: hsl(var(--platform-bg));
+  color: hsl(var(--platform-text));
+}
+
+.platform-console-root,
+.platform-console-root * {
+  color-scheme: dark;
+}
+
+.platform-console-main {
+  background: hsl(var(--platform-bg));
+}
+
+/* Platform Console Cards */
+.platform-console-root [data-slot="card"],
+.platform-console-root .bg-card {
+  background: hsl(var(--platform-surface)) !important;
+  border-color: hsl(var(--platform-border)) !important;
+  color: hsl(var(--platform-text));
+}
+
+.platform-console-root [data-slot="card"]:hover {
+  background: hsl(var(--platform-surface-elevated)) !important;
+}
+
+/* Platform Console Inputs */
+.platform-console-root input,
+.platform-console-root textarea,
+.platform-console-root select,
+.platform-console-root [data-slot="input"] {
+  background: hsl(var(--platform-surface)) !important;
+  border-color: hsl(var(--platform-border)) !important;
+  color: hsl(var(--platform-text)) !important;
+}
+
+.platform-console-root input::placeholder,
+.platform-console-root textarea::placeholder {
+  color: hsl(var(--platform-text-muted)) !important;
+}
+
+/* Platform Console Buttons */
+.platform-console-root button[data-variant="outline"] {
+  border-color: hsl(var(--platform-border));
+  color: hsl(var(--platform-text));
+}
+
+.platform-console-root button[data-variant="outline"]:hover {
+  background: hsl(var(--platform-surface-elevated));
+}
+
+/* Platform Console Tables */
+.platform-console-root table {
+  border-color: hsl(var(--platform-border));
+}
+
+.platform-console-root th {
+  background: hsl(var(--platform-surface));
+  color: hsl(var(--platform-text-muted));
+  border-color: hsl(var(--platform-border));
+}
+
+.platform-console-root td {
+  border-color: hsl(var(--platform-border));
+}
+
+.platform-console-root tr:hover {
+  background: hsl(var(--platform-surface-elevated));
+}
+
+/* Platform Console Accordions */
+.platform-console-root [data-state="open"] > [data-slot="accordion-trigger"],
+.platform-console-root [data-slot="accordion-trigger"]:hover {
+  background: hsl(var(--platform-surface-elevated));
+}
+
+/* Platform Console Muted Text */
+.platform-console-root .text-muted-foreground {
+  color: hsl(var(--platform-text-muted)) !important;
+}
+
+/* Platform Console Dialogs */
+.platform-console-root [role="dialog"],
+.platform-console-root [data-slot="dialog-content"] {
+  background: hsl(var(--platform-surface)) !important;
+  border-color: hsl(var(--platform-border)) !important;
+}
+
+/* Platform Console Selects */
+.platform-console-root [data-slot="select-content"],
+.platform-console-root [role="listbox"] {
+  background: hsl(var(--platform-surface)) !important;
+  border-color: hsl(var(--platform-border)) !important;
+}
+
+.platform-console-root [data-slot="select-item"]:hover,
+.platform-console-root [role="option"]:hover,
+.platform-console-root [role="option"][data-highlighted] {
+  background: hsl(var(--platform-surface-elevated)) !important;
+}
+
+/* Platform Console Badges - Preserve status colors */
+.platform-console-root .bg-green-100 {
+  background: hsl(140 50% 15%) !important;
+}
+.platform-console-root .text-green-800 {
+  color: hsl(140 70% 65%) !important;
+}
+.platform-console-root .bg-blue-100 {
+  background: hsl(210 50% 15%) !important;
+}
+.platform-console-root .text-blue-800 {
+  color: hsl(210 70% 65%) !important;
+}
+.platform-console-root .bg-amber-100 {
+  background: hsl(43 50% 15%) !important;
+}
+.platform-console-root .text-amber-800 {
+  color: hsl(43 80% 60%) !important;
+}
+.platform-console-root .bg-red-100 {
+  background: hsl(0 50% 15%) !important;
+}
+.platform-console-root .text-red-800 {
+  color: hsl(0 70% 65%) !important;
+}
+
+/* Platform Console Amber Accents */
+.platform-console-root .text-primary {
+  color: hsl(var(--platform-accent)) !important;
+}
+
+.platform-console-root .bg-primary\/10,
+.platform-console-root .bg-primary\/5 {
+  background: hsl(var(--platform-accent) / 0.1) !important;
+}
+
+/* Platform Console Scrollbar */
+.platform-console-root ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.platform-console-root ::-webkit-scrollbar-track {
+  background: hsl(var(--platform-bg));
+}
+
+.platform-console-root ::-webkit-scrollbar-thumb {
+  background: hsl(var(--platform-border));
+  border-radius: 4px;
+}
+
+.platform-console-root ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--platform-text-muted));
+}

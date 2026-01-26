@@ -44,7 +44,19 @@ import JoinPage from "./pages/JoinPage";
 import VoucherRedeemPage from "./pages/VoucherRedeemPage";
 
 // Platform Console Pages
-import PlatformPage from "./pages/PlatformPage";
+import {
+  PlatformVerificationPage,
+  PlatformMetricsPage,
+  PlatformOrganizationsPage,
+  PlatformSubscriptionsPage,
+  PlatformVouchersPage,
+  PlatformLimitsPage,
+  PlatformSupportPage,
+  PlatformUsersPage,
+  PlatformAuditPage,
+  PlatformEmailOpsPage,
+  PlatformSystemPage,
+} from "./pages/platform";
 
 const queryClient = new QueryClient();
 
@@ -141,24 +153,28 @@ const App = () => (
           
           {/* ============================================ */}
           {/* PLATFORM ROUTES - /platform/* */}
+          {/* Each route maps directly to a page component */}
           {/* ============================================ */}
           <Route path="/platform" element={
             <PlatformRouteGuard>
-              <PlatformLayout />
+              <ImpersonationProvider>
+                <PlatformLayout />
+              </ImpersonationProvider>
             </PlatformRouteGuard>
           }>
-            <Route index element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            {/* Additional platform routes will render the same PlatformPage with different default tabs */}
-            <Route path="metrics" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="organizations" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="subscriptions" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="vouchers" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="limits" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="support" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="users" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="audit" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="email-ops" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
-            <Route path="system" element={<ErrorBoundary><PlatformPage /></ErrorBoundary>} />
+            {/* Default route redirects to verification */}
+            <Route index element={<Navigate to="/platform/verification" replace />} />
+            <Route path="verification" element={<ErrorBoundary><PlatformVerificationPage /></ErrorBoundary>} />
+            <Route path="metrics" element={<ErrorBoundary><PlatformMetricsPage /></ErrorBoundary>} />
+            <Route path="organizations" element={<ErrorBoundary><PlatformOrganizationsPage /></ErrorBoundary>} />
+            <Route path="subscriptions" element={<ErrorBoundary><PlatformSubscriptionsPage /></ErrorBoundary>} />
+            <Route path="vouchers" element={<ErrorBoundary><PlatformVouchersPage /></ErrorBoundary>} />
+            <Route path="limits" element={<ErrorBoundary><PlatformLimitsPage /></ErrorBoundary>} />
+            <Route path="support" element={<ErrorBoundary><PlatformSupportPage /></ErrorBoundary>} />
+            <Route path="users" element={<ErrorBoundary><PlatformUsersPage /></ErrorBoundary>} />
+            <Route path="audit" element={<ErrorBoundary><PlatformAuditPage /></ErrorBoundary>} />
+            <Route path="email-ops" element={<ErrorBoundary><PlatformEmailOpsPage /></ErrorBoundary>} />
+            <Route path="system" element={<ErrorBoundary><PlatformSystemPage /></ErrorBoundary>} />
           </Route>
           
           {/* 404 */}
