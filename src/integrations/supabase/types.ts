@@ -2183,10 +2183,57 @@ export type Database = {
           },
         ]
       }
+      email_delivery_events: {
+        Row: {
+          created_at: string
+          email_outbox_id: string | null
+          event_type: string
+          id: string
+          organization_id: string
+          provider_event_id: string | null
+          raw_payload: Json | null
+        }
+        Insert: {
+          created_at?: string
+          email_outbox_id?: string | null
+          event_type: string
+          id?: string
+          organization_id: string
+          provider_event_id?: string | null
+          raw_payload?: Json | null
+        }
+        Update: {
+          created_at?: string
+          email_outbox_id?: string | null
+          event_type?: string
+          id?: string
+          organization_id?: string
+          provider_event_id?: string | null
+          raw_payload?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_delivery_events_email_outbox_id_fkey"
+            columns: ["email_outbox_id"]
+            isOneToOne: false
+            referencedRelation: "email_outbox"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_delivery_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_outbox: {
         Row: {
+          alert_instance_id: string | null
           attempts: number
           created_at: string
+          dedupe_key: string | null
           error: string | null
           failed_permanent: boolean
           failure_type: string | null
@@ -2197,18 +2244,27 @@ export type Database = {
           last_event_type: string | null
           metadata: Json | null
           next_attempt_at: string
+          notification_rule_id: string | null
           organization_id: string
           provider_message_id: string | null
           sent_at: string | null
           status: string
           subject: string
           suppressed_reason: string | null
+          template_id: string | null
+          template_variables: Json | null
           to_email: string
           to_user_id: string | null
+          trigger_event: string | null
+          trigger_reason: string | null
+          triggered_by: string | null
+          work_item_id: string | null
         }
         Insert: {
+          alert_instance_id?: string | null
           attempts?: number
           created_at?: string
+          dedupe_key?: string | null
           error?: string | null
           failed_permanent?: boolean
           failure_type?: string | null
@@ -2219,18 +2275,27 @@ export type Database = {
           last_event_type?: string | null
           metadata?: Json | null
           next_attempt_at?: string
+          notification_rule_id?: string | null
           organization_id: string
           provider_message_id?: string | null
           sent_at?: string | null
           status?: string
           subject: string
           suppressed_reason?: string | null
+          template_id?: string | null
+          template_variables?: Json | null
           to_email: string
           to_user_id?: string | null
+          trigger_event?: string | null
+          trigger_reason?: string | null
+          triggered_by?: string | null
+          work_item_id?: string | null
         }
         Update: {
+          alert_instance_id?: string | null
           attempts?: number
           created_at?: string
+          dedupe_key?: string | null
           error?: string | null
           failed_permanent?: boolean
           failure_type?: string | null
@@ -2241,21 +2306,49 @@ export type Database = {
           last_event_type?: string | null
           metadata?: Json | null
           next_attempt_at?: string
+          notification_rule_id?: string | null
           organization_id?: string
           provider_message_id?: string | null
           sent_at?: string | null
           status?: string
           subject?: string
           suppressed_reason?: string | null
+          template_id?: string | null
+          template_variables?: Json | null
           to_email?: string
           to_user_id?: string | null
+          trigger_event?: string | null
+          trigger_reason?: string | null
+          triggered_by?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "email_outbox_alert_instance_id_fkey"
+            columns: ["alert_instance_id"]
+            isOneToOne: false
+            referencedRelation: "alert_instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_notification_rule_id_fkey"
+            columns: ["notification_rule_id"]
+            isOneToOne: false
+            referencedRelation: "notification_rules"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "email_outbox_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -3827,6 +3920,136 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      notification_recipients: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          email: string
+          enabled: boolean
+          id: string
+          label: string
+          organization_id: string
+          tags: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          email: string
+          enabled?: boolean
+          id?: string
+          label: string
+          organization_id: string
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          email?: string
+          enabled?: boolean
+          id?: string
+          label?: string
+          organization_id?: string
+          tags?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_recipients_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_rules: {
+        Row: {
+          alert_categories: string[] | null
+          body_template: string | null
+          created_at: string
+          created_by: string | null
+          dedupe_window_minutes: number | null
+          deleted_at: string | null
+          description: string | null
+          email_template_id: string | null
+          enabled: boolean
+          id: string
+          max_per_10min: number | null
+          name: string
+          organization_id: string
+          recipient_emails: string[] | null
+          recipient_mode: string
+          recipient_role: string | null
+          severity_min: string
+          subject_template: string | null
+          trigger_event: string
+          trigger_params: Json | null
+          updated_at: string
+          use_recipient_directory: boolean | null
+          workflow_types: string[] | null
+        }
+        Insert: {
+          alert_categories?: string[] | null
+          body_template?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_window_minutes?: number | null
+          deleted_at?: string | null
+          description?: string | null
+          email_template_id?: string | null
+          enabled?: boolean
+          id?: string
+          max_per_10min?: number | null
+          name: string
+          organization_id: string
+          recipient_emails?: string[] | null
+          recipient_mode?: string
+          recipient_role?: string | null
+          severity_min?: string
+          subject_template?: string | null
+          trigger_event: string
+          trigger_params?: Json | null
+          updated_at?: string
+          use_recipient_directory?: boolean | null
+          workflow_types?: string[] | null
+        }
+        Update: {
+          alert_categories?: string[] | null
+          body_template?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_window_minutes?: number | null
+          deleted_at?: string | null
+          description?: string | null
+          email_template_id?: string | null
+          enabled?: boolean
+          id?: string
+          max_per_10min?: number | null
+          name?: string
+          organization_id?: string
+          recipient_emails?: string[] | null
+          recipient_mode?: string
+          recipient_role?: string | null
+          severity_min?: string
+          subject_template?: string | null
+          trigger_event?: string
+          trigger_params?: Json | null
+          updated_at?: string
+          use_recipient_directory?: boolean | null
+          workflow_types?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       organization_invites: {
         Row: {
