@@ -7,6 +7,7 @@ export { AdminPipelineCard } from "./AdminPipelineCard";
 export { AdminPipelineColumn } from "./AdminPipelineColumn";
 export { NewAdminProcessDialog } from "./NewAdminProcessDialog";
 export { WorkItemPipeline } from "./WorkItemPipeline";
+export { PenalPipeline } from "./PenalPipeline";
 export { WorkItemPipelineCard } from "./WorkItemPipelineCard";
 export { WorkItemPipelineColumn } from "./WorkItemPipelineColumn";
 export { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
