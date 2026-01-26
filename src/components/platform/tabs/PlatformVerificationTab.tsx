@@ -165,6 +165,17 @@ function CategorySection({
             <CheckRow key={check.id} check={check} />
           ))}
         </div>
+        
+        {/* Jobs Evidence Panel - show when Jobs category has WARN/FAIL */}
+        {category === "Jobs" && snapshot?.jobs && (categoryStatus === "WARN" || categoryStatus === "FAIL") && (
+          <JobsEvidencePanel
+            expectedSignature={snapshot.jobs.expected_signature}
+            lastSeenExact={snapshot.jobs.purge_old_audit_logs_last_seen_exact}
+            lastSeenFuzzy={snapshot.jobs.purge_old_audit_logs_last_seen_fuzzy}
+            recentJobNames={snapshot.jobs.job_runs_recent_names || []}
+            mismatchType={jobsMismatch}
+          />
+        )}
       </AccordionContent>
     </AccordionItem>
   );
@@ -307,10 +318,19 @@ export function PlatformVerificationTab() {
   const counts = useMemo(() => countByLevel(allChecks), [allChecks]);
   const groupedChecks = useMemo(() => groupByCategory(allChecks), [allChecks]);
 
-  // Build export data with usage
+  // Build export data with usage and jobs evidence
   const buildAcceptanceReport = useCallback((): AcceptanceReport => {
-    return generateAcceptanceReport(allChecks, snapshot?.usage);
-  }, [allChecks, snapshot?.usage]);
+    const jobsEvidence = snapshot?.jobs ? {
+      expected_signature: {
+        job_name: snapshot.jobs.expected_signature?.job_name || 'purge-old-audit-logs',
+        success_status: snapshot.jobs.expected_signature?.success_status || 'OK'
+      },
+      last_seen_exact: snapshot.jobs.purge_old_audit_logs_last_seen_exact,
+      last_seen_fuzzy: snapshot.jobs.purge_old_audit_logs_last_seen_fuzzy,
+      recent_job_names: snapshot.jobs.job_runs_recent_names || []
+    } : undefined;
+    return generateAcceptanceReport(allChecks, snapshot?.usage, jobsEvidence);
+  }, [allChecks, snapshot?.usage, snapshot?.jobs]);
 
   // Copy to clipboard
   const handleCopyJson = useCallback(() => {
@@ -535,6 +555,7 @@ export function PlatformVerificationTab() {
                     key={category}
                     category={category}
                     checks={checks}
+                    snapshot={snapshot}
                   />
                 );
               })}
