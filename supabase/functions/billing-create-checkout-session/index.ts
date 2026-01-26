@@ -5,9 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Pricing window constants (must match src/lib/billing/pricing-windows.ts)
+const PROMO_END_AT = "2026-07-31T23:59:59-05:00";
+
 interface RequestBody {
   organization_id: string;
-  tier: string;
+  plan_code?: string; // New: BASIC | PRO | ENTERPRISE
+  tier?: string; // Legacy: for backward compatibility
+  billing_cycle_months?: number; // 1 or 24
 }
 
 Deno.serve(async (req) => {
@@ -48,20 +53,31 @@ Deno.serve(async (req) => {
 
     // Parse body
     const body: RequestBody = await req.json();
-    const { organization_id, tier } = body;
+    const { organization_id, billing_cycle_months = 1 } = body;
+    
+    // Support both plan_code (new) and tier (legacy)
+    const planCode = body.plan_code || body.tier;
 
-    if (!organization_id || !tier) {
+    if (!organization_id || !planCode) {
       return new Response(
-        JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "Missing organization_id or tier" }),
+        JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "Missing organization_id or plan_code" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate tier
-    const validTiers = ["BASIC", "PRO", "ENTERPRISE"];
-    if (!validTiers.includes(tier)) {
+    // Validate plan_code
+    const validPlanCodes = ["BASIC", "PRO", "ENTERPRISE"];
+    if (!validPlanCodes.includes(planCode)) {
       return new Response(
-        JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "Invalid tier" }),
+        JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "Invalid plan_code" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate billing_cycle_months
+    if (![1, 24].includes(billing_cycle_months)) {
+      return new Response(
+        JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "billing_cycle_months must be 1 or 24" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -91,6 +107,96 @@ Deno.serve(async (req) => {
     // Service client for DB writes
     const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Get organization to check account_type
+    const { data: org, error: orgError } = await supabaseService
+      .from("organizations")
+      .select("id, metadata")
+      .eq("id", organization_id)
+      .single();
+
+    if (orgError || !org) {
+      return new Response(
+        JSON.stringify({ ok: false, code: "NOT_FOUND", message: "Organization not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const accountType = (org.metadata as Record<string, unknown>)?.account_type || "INDIVIDUAL";
+
+    // ENTERPRISE requires FIRM account_type
+    if (planCode === "ENTERPRISE" && accountType !== "FIRM") {
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          code: "ENTERPRISE_REQUIRES_FIRM", 
+          message: "El plan Enterprise requiere una cuenta tipo Firma",
+          hint: "Actualiza tu tipo de cuenta a Firma para acceder al plan Enterprise."
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Find the billing plan
+    const { data: billingPlan, error: planError } = await supabaseService
+      .from("billing_plans")
+      .select("id, code, display_name")
+      .eq("code", planCode)
+      .single();
+
+    if (planError || !billingPlan) {
+      return new Response(
+        JSON.stringify({ ok: false, code: "PLAN_NOT_FOUND", message: `Plan ${planCode} not found` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Determine price type based on cycle and promo window
+    const now = new Date();
+    const promoEnd = new Date(PROMO_END_AT);
+    const isInPromoWindow = now <= promoEnd;
+
+    let priceType: "INTRO" | "REGULAR";
+    if (billing_cycle_months === 24) {
+      if (!isInPromoWindow) {
+        return new Response(
+          JSON.stringify({ 
+            ok: false, 
+            code: "PROMO_EXPIRED", 
+            message: "El período de promoción ha terminado",
+            hint: "El compromiso de 24 meses con precio de lanzamiento ya no está disponible."
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      priceType = "INTRO";
+    } else {
+      priceType = "REGULAR";
+    }
+
+    // Find the price point
+    const { data: pricePoint, error: priceError } = await supabaseService
+      .from("billing_price_points")
+      .select("*")
+      .eq("plan_id", billingPlan.id)
+      .eq("billing_cycle_months", billing_cycle_months)
+      .eq("price_type", priceType)
+      .lte("valid_from", now.toISOString())
+      .or(`valid_to.is.null,valid_to.gte.${now.toISOString()}`)
+      .single();
+
+    if (priceError || !pricePoint) {
+      console.error("Price point not found:", priceError);
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          code: "PRICE_NOT_FOUND", 
+          message: "No hay precio disponible para esta configuración",
+          hint: `Plan: ${planCode}, Ciclo: ${billing_cycle_months}, Tipo: ${priceType}`
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Get provider (mock for now)
     const provider = Deno.env.get("BILLING_PROVIDER") || "mock";
 
@@ -107,13 +213,19 @@ Deno.serve(async (req) => {
         id: sessionId,
         organization_id,
         provider,
-        tier,
+        tier: planCode, // Store as tier for backward compat
         status: "PENDING",
         checkout_url: checkoutUrl,
         created_by: userId,
+        billing_cycle_months,
+        price_point_id: pricePoint.id,
+        amount_cop_incl_iva: pricePoint.price_cop_incl_iva,
         metadata: { 
           created_via: "edge_function",
-          user_agent: req.headers.get("User-Agent") || "unknown"
+          user_agent: req.headers.get("User-Agent") || "unknown",
+          plan_code: planCode,
+          price_type: priceType,
+          account_type: accountType,
         },
       })
       .select()
@@ -127,6 +239,23 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Ensure billing customer exists
+    const { data: existingCustomer } = await supabaseService
+      .from("billing_customers")
+      .select("id")
+      .eq("organization_id", organization_id)
+      .maybeSingle();
+
+    if (!existingCustomer) {
+      await supabaseService
+        .from("billing_customers")
+        .insert({
+          organization_id,
+          provider: "mock",
+          provider_customer_id: `mock_cus_${organization_id}`,
+        });
+    }
+
     // Audit log
     await supabaseService.from("audit_logs").insert({
       organization_id,
@@ -135,16 +264,24 @@ Deno.serve(async (req) => {
       action: "BILLING_CHECKOUT_STARTED",
       entity_type: "billing_checkout_session",
       entity_id: sessionId,
-      metadata: { tier, provider },
+      metadata: { 
+        plan_code: planCode, 
+        billing_cycle_months,
+        price_type: priceType,
+        amount_cop: pricePoint.price_cop_incl_iva,
+        provider 
+      },
     });
 
-    console.log(`[billing-create-checkout-session] Created session ${sessionId} for org ${organization_id}, tier ${tier}`);
+    console.log(`[billing-create-checkout-session] Created session ${sessionId} for org ${organization_id}, plan ${planCode}, cycle ${billing_cycle_months}m, price ${pricePoint.price_cop_incl_iva} COP`);
 
     return new Response(
       JSON.stringify({
         ok: true,
         session_id: session.id,
         checkout_url: session.checkout_url,
+        amount_cop_incl_iva: pricePoint.price_cop_incl_iva,
+        price_type: priceType,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

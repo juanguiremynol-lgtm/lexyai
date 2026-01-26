@@ -9,9 +9,8 @@ interface RequestBody {
   session_id: string;
 }
 
-// Map billing tier to subscription_plans.name
-const TIER_TO_PLAN_NAME: Record<string, string> = {
-  "FREE_TRIAL": "trial",
+// Map plan_code to subscription_plans.name for backward compatibility
+const PLAN_CODE_TO_PLAN_NAME: Record<string, string> = {
   "BASIC": "basic",
   "PRO": "standard",
   "ENTERPRISE": "unlimited",
@@ -120,7 +119,16 @@ Deno.serve(async (req) => {
     }
 
     const now = new Date().toISOString();
-    const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // +30 days
+    const billingCycleMonths = session.billing_cycle_months || 1;
+    
+    // Calculate period end based on cycle
+    const periodEndDate = new Date();
+    if (billingCycleMonths === 24) {
+      periodEndDate.setMonth(periodEndDate.getMonth() + 24);
+    } else {
+      periodEndDate.setDate(periodEndDate.getDate() + 30); // Monthly mock
+    }
+    const periodEnd = periodEndDate.toISOString();
 
     // Update checkout session to COMPLETED
     const { error: updateSessionError } = await supabaseService
@@ -140,24 +148,53 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get pricing for the tier from mrr_pricing_config
-    const { data: pricing } = await supabaseService
-      .from("mrr_pricing_config")
-      .select("monthly_price_usd")
-      .eq("tier", session.tier)
-      .single();
-
-    const priceUsd = pricing?.monthly_price_usd || 0;
-
-    // Map tier to plan_id via subscription_plans
-    const planName = TIER_TO_PLAN_NAME[session.tier];
-    if (!planName) {
-      console.error(`Unknown tier: ${session.tier}`);
-      return new Response(
-        JSON.stringify({ ok: false, code: "INVALID_TIER", message: `Unknown tier: ${session.tier}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Get price point details if available
+    let priceType = "REGULAR";
+    let priceLockMonths = 0;
+    
+    if (session.price_point_id) {
+      const { data: pricePoint } = await supabaseService
+        .from("billing_price_points")
+        .select("price_type, price_lock_months")
+        .eq("id", session.price_point_id)
+        .single();
+      
+      if (pricePoint) {
+        priceType = pricePoint.price_type;
+        priceLockMonths = pricePoint.price_lock_months || 0;
+      }
     }
+
+    const isIntroOffer = priceType === "INTRO";
+    const priceLockEndAt = isIntroOffer && priceLockMonths > 0
+      ? new Date(Date.now() + priceLockMonths * 30 * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    // Extract plan_code from session (stored in tier field for backward compat)
+    const planCode = session.tier;
+
+    // Upsert billing_subscription_state
+    const { error: stateError } = await supabaseService
+      .from("billing_subscription_state")
+      .upsert({
+        organization_id: session.organization_id,
+        plan_code: planCode,
+        billing_cycle_months: billingCycleMonths,
+        currency: "COP",
+        current_price_cop_incl_iva: session.amount_cop_incl_iva || 0,
+        intro_offer_applied: isIntroOffer,
+        price_lock_end_at: priceLockEndAt,
+        trial_end_at: null, // Clear trial on paid plan
+        updated_at: now,
+      }, { onConflict: "organization_id" });
+
+    if (stateError) {
+      console.error("Failed to upsert billing_subscription_state:", stateError);
+      // Non-fatal, continue
+    }
+
+    // Map plan_code to subscription_plans.name for core subscriptions table
+    const planName = PLAN_CODE_TO_PLAN_NAME[planCode] || "basic";
 
     // Get plan_id from subscription_plans
     const { data: planRow, error: planError } = await supabaseService
@@ -231,7 +268,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Create invoice record
+    // Create invoice record with COP amount
     const invoiceId = crypto.randomUUID();
     const { error: invoiceError } = await supabaseService
       .from("billing_invoices")
@@ -240,38 +277,26 @@ Deno.serve(async (req) => {
         organization_id: session.organization_id,
         provider: "mock",
         provider_invoice_id: `mock_inv_${Date.now()}`,
-        amount_usd: priceUsd,
-        currency: "USD",
+        amount_usd: null, // No USD for COP invoices
+        amount_cop_incl_iva: session.amount_cop_incl_iva,
+        currency: "COP",
         status: "PAID",
         period_start: now,
         period_end: periodEnd,
         metadata: { 
           checkout_session_id: session_id,
-          tier: session.tier,
+          plan_code: planCode,
           plan_id: newPlanId,
+          billing_cycle_months: billingCycleMonths,
+          price_type: priceType,
+          includes_tax: true,
+          vat_included: true,
         },
       });
 
     if (invoiceError) {
       console.error("Failed to create invoice:", invoiceError);
       // Non-fatal - continue
-    }
-
-    // Ensure billing customer exists
-    const { data: existingCustomer } = await supabaseService
-      .from("billing_customers")
-      .select("id")
-      .eq("organization_id", session.organization_id)
-      .maybeSingle();
-
-    if (!existingCustomer) {
-      await supabaseService
-        .from("billing_customers")
-        .insert({
-          organization_id: session.organization_id,
-          provider: "mock",
-          provider_customer_id: `mock_cus_${session.organization_id}`,
-        });
     }
 
     // Audit logs
@@ -283,7 +308,13 @@ Deno.serve(async (req) => {
         action: "BILLING_CHECKOUT_COMPLETED",
         entity_type: "billing_checkout_session",
         entity_id: session_id,
-        metadata: { tier: session.tier, amount_usd: priceUsd, plan_id: newPlanId },
+        metadata: { 
+          plan_code: planCode, 
+          amount_cop: session.amount_cop_incl_iva, 
+          billing_cycle_months: billingCycleMonths,
+          price_type: priceType,
+          plan_id: newPlanId 
+        },
       },
       {
         organization_id: session.organization_id,
@@ -293,10 +324,11 @@ Deno.serve(async (req) => {
         entity_type: "subscription",
         entity_id: existingSub?.id || null,
         metadata: { 
-          new_tier: session.tier, 
+          new_plan_code: planCode, 
           new_plan_id: newPlanId,
           old_plan_id: oldPlanId,
-          source: "checkout" 
+          source: "checkout",
+          intro_offer: isIntroOffer,
         },
       },
       {
@@ -306,7 +338,12 @@ Deno.serve(async (req) => {
         action: "BILLING_INVOICE_CREATED",
         entity_type: "billing_invoice",
         entity_id: invoiceId,
-        metadata: { amount_usd: priceUsd, status: "PAID", tier: session.tier },
+        metadata: { 
+          amount_cop: session.amount_cop_incl_iva, 
+          status: "PAID", 
+          plan_code: planCode,
+          includes_tax: true,
+        },
       },
     ]);
 
@@ -315,10 +352,16 @@ Deno.serve(async (req) => {
       // Non-fatal
     }
 
-    console.log(`[billing-complete-checkout] Completed session ${session_id}, tier ${session.tier} -> plan ${planName}, org ${session.organization_id}`);
+    console.log(`[billing-complete-checkout] Completed session ${session_id}, plan ${planCode}, cycle ${billingCycleMonths}m, org ${session.organization_id}`);
 
     return new Response(
-      JSON.stringify({ ok: true, plan_id: newPlanId, tier: session.tier }),
+      JSON.stringify({ 
+        ok: true, 
+        plan_id: newPlanId, 
+        plan_code: planCode,
+        intro_offer_applied: isIntroOffer,
+        price_lock_end_at: priceLockEndAt,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

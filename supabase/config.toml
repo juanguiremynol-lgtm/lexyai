@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.billing-webhook]
 verify_jwt = false
+
+[functions.billing-grace-enroll]
+verify_jwt = false

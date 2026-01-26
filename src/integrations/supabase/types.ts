@@ -436,6 +436,8 @@ export type Database = {
       }
       billing_checkout_sessions: {
         Row: {
+          amount_cop_incl_iva: number | null
+          billing_cycle_months: number
           checkout_url: string | null
           completed_at: string | null
           created_at: string
@@ -443,12 +445,15 @@ export type Database = {
           id: string
           metadata: Json
           organization_id: string
+          price_point_id: string | null
           provider: string
           provider_session_id: string | null
           status: string
           tier: string
         }
         Insert: {
+          amount_cop_incl_iva?: number | null
+          billing_cycle_months?: number
           checkout_url?: string | null
           completed_at?: string | null
           created_at?: string
@@ -456,12 +461,15 @@ export type Database = {
           id?: string
           metadata?: Json
           organization_id: string
+          price_point_id?: string | null
           provider?: string
           provider_session_id?: string | null
           status?: string
           tier: string
         }
         Update: {
+          amount_cop_incl_iva?: number | null
+          billing_cycle_months?: number
           checkout_url?: string | null
           completed_at?: string | null
           created_at?: string
@@ -469,6 +477,7 @@ export type Database = {
           id?: string
           metadata?: Json
           organization_id?: string
+          price_point_id?: string | null
           provider?: string
           provider_session_id?: string | null
           status?: string
@@ -480,6 +489,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_checkout_sessions_price_point_id_fkey"
+            columns: ["price_point_id"]
+            isOneToOne: false
+            referencedRelation: "billing_price_points"
             referencedColumns: ["id"]
           },
         ]
@@ -521,6 +537,7 @@ export type Database = {
       }
       billing_invoices: {
         Row: {
+          amount_cop_incl_iva: number | null
           amount_usd: number | null
           created_at: string
           currency: string
@@ -535,6 +552,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          amount_cop_incl_iva?: number | null
           amount_usd?: number | null
           created_at?: string
           currency?: string
@@ -549,6 +567,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          amount_cop_incl_iva?: number | null
           amount_usd?: number | null
           created_at?: string
           currency?: string
@@ -567,6 +586,130 @@ export type Database = {
             foreignKeyName: "billing_invoices_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_plans: {
+        Row: {
+          code: string
+          created_at: string
+          display_name: string
+          id: string
+          is_enterprise: boolean
+          max_members: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          display_name: string
+          id?: string
+          is_enterprise?: boolean
+          max_members?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_enterprise?: boolean
+          max_members?: number
+        }
+        Relationships: []
+      }
+      billing_price_points: {
+        Row: {
+          billing_cycle_months: number
+          created_at: string
+          currency: string
+          id: string
+          plan_id: string
+          price_cop_incl_iva: number
+          price_lock_months: number
+          price_type: string
+          promo_requires_commit_24m: boolean
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          billing_cycle_months: number
+          created_at?: string
+          currency?: string
+          id?: string
+          plan_id: string
+          price_cop_incl_iva: number
+          price_lock_months?: number
+          price_type: string
+          promo_requires_commit_24m?: boolean
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          billing_cycle_months?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          plan_id?: string
+          price_cop_incl_iva?: number
+          price_lock_months?: number
+          price_type?: string
+          promo_requires_commit_24m?: boolean
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_price_points_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_subscription_state: {
+        Row: {
+          billing_cycle_months: number
+          created_at: string
+          currency: string
+          current_price_cop_incl_iva: number
+          intro_offer_applied: boolean
+          organization_id: string
+          plan_code: string
+          price_lock_end_at: string | null
+          trial_end_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          billing_cycle_months?: number
+          created_at?: string
+          currency?: string
+          current_price_cop_incl_iva?: number
+          intro_offer_applied?: boolean
+          organization_id: string
+          plan_code: string
+          price_lock_end_at?: string | null
+          trial_end_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          billing_cycle_months?: number
+          created_at?: string
+          currency?: string
+          current_price_cop_incl_iva?: number
+          intro_offer_applied?: boolean
+          organization_id?: string
+          plan_code?: string
+          price_lock_end_at?: string | null
+          trial_end_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_subscription_state_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },

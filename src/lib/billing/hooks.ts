@@ -13,6 +13,21 @@ import type {
   CheckoutSession,
   BillingInvoice 
 } from './types';
+import type {
+  BillingPlan,
+  BillingPricePoint,
+  BillingPlanWithPrices,
+  BillingSubscriptionState,
+  PlanCode,
+  BillingCycleMonths,
+  CreateCheckoutParams,
+  CreateCheckoutResult,
+} from '@/types/billing';
+import { isWithinPromoWindow } from './pricing-windows';
+
+// ============================================================================
+// LEGACY COMPATIBILITY HELPERS
+// ============================================================================
 
 /**
  * Normalize a subscription plan name to BillingTier
@@ -47,7 +62,100 @@ export function tierToPlanName(tier: BillingTier): string {
   return mapping[tier];
 }
 
-// Fetch public pricing data (no auth required)
+// ============================================================================
+// NEW BILLING PLANS + PRICE POINTS (COP-based)
+// ============================================================================
+
+/**
+ * Fetch all billing plans with their price points (COP)
+ */
+export function useBillingPlans() {
+  return useQuery({
+    queryKey: ["billing-plans"],
+    queryFn: async (): Promise<BillingPlanWithPrices[]> => {
+      // Fetch plans
+      const { data: plans, error: plansError } = await supabase
+        .from("billing_plans")
+        .select("*")
+        .order("code");
+
+      if (plansError) throw plansError;
+
+      // Fetch all price points
+      const { data: pricePoints, error: priceError } = await supabase
+        .from("billing_price_points")
+        .select("*");
+
+      if (priceError) throw priceError;
+
+      // Combine plans with their price points
+      const now = new Date();
+      return (plans || []).map((plan) => {
+        const planPrices = (pricePoints || []).filter((pp: BillingPricePoint) => pp.plan_id === plan.id);
+
+        // Find REGULAR monthly price (currently valid)
+        const regularPrice = planPrices.find(
+          (pp: BillingPricePoint) =>
+            pp.price_type === "REGULAR" &&
+            pp.billing_cycle_months === 1 &&
+            new Date(pp.valid_from) <= now &&
+            (!pp.valid_to || new Date(pp.valid_to) >= now)
+        ) || null;
+
+        // Find INTRO 24-month price (currently valid)
+        const introPrice = planPrices.find(
+          (pp: BillingPricePoint) =>
+            pp.price_type === "INTRO" &&
+            pp.billing_cycle_months === 24 &&
+            new Date(pp.valid_from) <= now &&
+            (!pp.valid_to || new Date(pp.valid_to) >= now)
+        ) || null;
+
+        return {
+          plan: plan as BillingPlan,
+          regularPrice: regularPrice as BillingPricePoint | null,
+          introPrice: introPrice as BillingPricePoint | null,
+        };
+      });
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Fetch billing subscription state for an organization
+ */
+export function useCurrentBillingState(organizationId: string | undefined) {
+  return useQuery({
+    queryKey: ["billing-subscription-state", organizationId],
+    queryFn: async (): Promise<BillingSubscriptionState | null> => {
+      if (!organizationId) return null;
+
+      const { data, error } = await supabase
+        .from("billing_subscription_state")
+        .select("*")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data as BillingSubscriptionState | null;
+    },
+    enabled: !!organizationId,
+  });
+}
+
+/**
+ * Check if intro pricing is currently available
+ */
+export function isIntroPricingAvailable(): boolean {
+  return isWithinPromoWindow();
+}
+
+// ============================================================================
+// LEGACY PRICING DATA (for backward compatibility)
+// ============================================================================
+
+// Fetch public pricing data (no auth required) - Legacy USD-based
 export function usePricingData() {
   return useQuery({
     queryKey: ['billing', 'pricing'],
@@ -95,6 +203,10 @@ export function usePricingData() {
   });
 }
 
+// ============================================================================
+// CHECKOUT SESSIONS
+// ============================================================================
+
 // Fetch checkout sessions for an organization
 export function useCheckoutSessions(organizationId: string | undefined) {
   return useQuery({
@@ -136,7 +248,44 @@ export function useInvoices(organizationId: string | undefined) {
   });
 }
 
-// Create checkout session mutation
+// Create checkout session mutation (NEW with plan_code + billing_cycle_months)
+export function useCreateCheckoutSessionV2() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: CreateCheckoutParams): Promise<CreateCheckoutResult> => {
+      const { data, error } = await supabase.functions.invoke("billing-create-checkout-session", {
+        body: {
+          organization_id: params.organizationId,
+          plan_code: params.planCode,
+          billing_cycle_months: params.billingCycleMonths,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || "Failed to create checkout session");
+      }
+
+      return data as CreateCheckoutResult;
+    },
+    onSuccess: (data, variables) => {
+      if (data.ok) {
+        queryClient.invalidateQueries({ queryKey: ["billing", "checkout-sessions", variables.organizationId] });
+        toast.success("Sesión de pago creada");
+      } else {
+        toast.error(data.error || "Error al crear sesión de pago", {
+          description: data.hint,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      console.error("Checkout session error:", error);
+      toast.error("Error al crear sesión de pago");
+    },
+  });
+}
+
+// Create checkout session mutation (legacy tier-based)
 export function useCreateCheckoutSession() {
   const queryClient = useQueryClient();
 
@@ -225,6 +374,55 @@ export function useCreatePortalSession() {
     },
   });
 }
+
+// ============================================================================
+// GRACE ENROLLMENT
+// ============================================================================
+
+/**
+ * Enroll organization in grace period trial
+ */
+export function useGraceEnroll() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: { organizationId: string; accountType: "INDIVIDUAL" | "FIRM" }) => {
+      const { data, error } = await supabase.functions.invoke("billing-grace-enroll", {
+        body: {
+          organization_id: params.organizationId,
+          account_type: params.accountType,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || "Failed to enroll in grace period");
+      }
+
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.ok) {
+        toast.success("¡Bienvenido!", {
+          description: "Tienes acceso gratuito hasta el fin del período de gracia.",
+        });
+        queryClient.invalidateQueries({ queryKey: ["billing"] });
+        queryClient.invalidateQueries({ queryKey: ["subscription"] });
+      } else {
+        toast.error(data.error || "Error al activar período de gracia", {
+          description: data.hint,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      console.error("Grace enroll error:", error);
+      toast.error("Error al activar período de gracia");
+    },
+  });
+}
+
+// ============================================================================
+// CURRENT TIER
+// ============================================================================
 
 /**
  * Get current organization's billing tier from subscription
