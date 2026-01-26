@@ -49,6 +49,7 @@ import {
   ChevronsUpDown,
   Eye,
   Briefcase,
+  Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDateColombia } from "@/lib/constants";
