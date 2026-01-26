@@ -43,6 +43,7 @@ import { PublicLayout } from "./components/layout/PublicLayout";
 import PublicPricingPage from "./pages/PublicPricingPage";
 import MockCheckoutPage from "./pages/MockCheckoutPage";
 import JoinPage from "./pages/JoinPage";
+import VoucherRedeemPage from "./pages/VoucherRedeemPage";
 
 const queryClient = new QueryClient();
 
@@ -86,6 +87,7 @@ const App = () => (
           <Route element={<PublicLayout />}>
             <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
             <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
+            <Route path="/v/redeem/:token" element={<ErrorBoundary><VoucherRedeemPage /></ErrorBoundary>} />
           </Route>
           
           {/* Mock checkout route (auth required but no layout) */}

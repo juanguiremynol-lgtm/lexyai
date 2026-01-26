@@ -671,6 +671,9 @@ export type Database = {
       billing_subscription_state: {
         Row: {
           billing_cycle_months: number
+          comped_reason: string | null
+          comped_until_at: string | null
+          comped_voucher_id: string | null
           created_at: string
           currency: string
           current_price_cop_incl_iva: number
@@ -683,6 +686,9 @@ export type Database = {
         }
         Insert: {
           billing_cycle_months?: number
+          comped_reason?: string | null
+          comped_until_at?: string | null
+          comped_voucher_id?: string | null
           created_at?: string
           currency?: string
           current_price_cop_incl_iva?: number
@@ -695,6 +701,9 @@ export type Database = {
         }
         Update: {
           billing_cycle_months?: number
+          comped_reason?: string | null
+          comped_until_at?: string | null
+          comped_voucher_id?: string | null
           created_at?: string
           currency?: string
           current_price_cop_incl_iva?: number
@@ -706,6 +715,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "billing_subscription_state_comped_voucher_id_fkey"
+            columns: ["comped_voucher_id"]
+            isOneToOne: false
+            referencedRelation: "platform_vouchers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "billing_subscription_state_organization_id_fkey"
             columns: ["organization_id"]
@@ -4243,6 +4259,112 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_voucher_events: {
+        Row: {
+          actor_email: string | null
+          actor_user_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json
+          voucher_id: string
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          voucher_id: string
+        }
+        Update: {
+          actor_email?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          voucher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_voucher_events_voucher_id_fkey"
+            columns: ["voucher_id"]
+            isOneToOne: false
+            referencedRelation: "platform_vouchers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_vouchers: {
+        Row: {
+          amount_cop_incl_iva: number
+          code: string
+          created_at: string
+          created_by_user_id: string
+          currency: string
+          duration_days: number
+          expires_at: string | null
+          id: string
+          note: string | null
+          plan_code: string
+          recipient_email: string
+          redeemed_at: string | null
+          redeemed_by_user_id: string | null
+          redeemed_for_org_id: string | null
+          status: string
+          token_hash: string
+          voucher_type: string
+        }
+        Insert: {
+          amount_cop_incl_iva?: number
+          code: string
+          created_at?: string
+          created_by_user_id: string
+          currency?: string
+          duration_days?: number
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          plan_code: string
+          recipient_email: string
+          redeemed_at?: string | null
+          redeemed_by_user_id?: string | null
+          redeemed_for_org_id?: string | null
+          status?: string
+          token_hash: string
+          voucher_type: string
+        }
+        Update: {
+          amount_cop_incl_iva?: number
+          code?: string
+          created_at?: string
+          created_by_user_id?: string
+          currency?: string
+          duration_days?: number
+          expires_at?: string | null
+          id?: string
+          note?: string | null
+          plan_code?: string
+          recipient_email?: string
+          redeemed_at?: string | null
+          redeemed_by_user_id?: string | null
+          redeemed_for_org_id?: string | null
+          status?: string
+          token_hash?: string
+          voucher_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_vouchers_redeemed_for_org_id_fkey"
+            columns: ["redeemed_for_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       process_estados: {
         Row: {
           created_at: string
@@ -5531,6 +5653,22 @@ export type Database = {
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      platform_create_courtesy_voucher: {
+        Args: {
+          p_expires_days?: number
+          p_note?: string
+          p_recipient_email: string
+        }
+        Returns: Json
+      }
+      platform_redeem_voucher: {
+        Args: { p_raw_token: string; p_target_org_id?: string }
+        Returns: Json
+      }
+      platform_revoke_voucher: {
+        Args: { p_reason?: string; p_voucher_id: string }
+        Returns: Json
+      }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
     }
