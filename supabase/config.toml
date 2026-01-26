@@ -74,3 +74,15 @@ verify_jwt = false
 
 [functions.resend-webhook]
 verify_jwt = false
+
+[functions.billing-create-checkout-session]
+verify_jwt = false
+
+[functions.billing-complete-checkout]
+verify_jwt = false
+
+[functions.billing-create-portal-session]
+verify_jwt = false
+
+[functions.billing-webhook]
+verify_jwt = false
