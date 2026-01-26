@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   CreditCard, 
@@ -13,26 +15,30 @@ import {
   Crown,
   Star,
   Zap,
-  Sparkles,
-  Clock
+  Clock,
+  Lock,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useSubscription } from "@/contexts/SubscriptionContext";
 import { 
-  usePricingData, 
-  useCreateCheckoutSession,
+  useBillingPlans,
+  useCurrentBillingState,
+  useCreateCheckoutSessionV2,
   useCompleteMockCheckout,
   useCreatePortalSession,
   useInvoices,
-  type BillingTier 
+  isWithinPromoWindow,
+  formatCOP,
+  getPromoDaysRemaining,
 } from "@/lib/billing";
+import type { PlanCode, BillingCycleMonths } from "@/types/billing";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-const TIER_ICONS: Record<BillingTier, React.ReactNode> = {
-  FREE_TRIAL: <Sparkles className="h-5 w-5" />,
+const PLAN_ICONS: Record<PlanCode, React.ReactNode> = {
   BASIC: <Star className="h-5 w-5" />,
   PRO: <Zap className="h-5 w-5" />,
   ENTERPRISE: <Crown className="h-5 w-5" />,
@@ -46,71 +52,64 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
   canceled: { label: "Cancelada", variant: "outline" },
 };
 
-function formatPrice(priceUsd: number): string {
-  if (priceUsd === 0) return "Gratis";
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-  }).format(priceUsd);
-}
-
-// Map plan names to billing tiers
-function planNameToTier(planName: string | undefined): BillingTier | undefined {
-  if (!planName) return undefined;
-  const mapping: Record<string, BillingTier> = {
-    trial: "FREE_TRIAL",
-    basic: "BASIC",
-    standard: "PRO",
-    unlimited: "ENTERPRISE",
-  };
-  return mapping[planName.toLowerCase()] || undefined;
-}
-
 export function BillingTab() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { organization } = useOrganization();
   const { subscription, plan, isTrialing, trialDaysRemaining, isLoading: subLoading } = useSubscription();
-  const { data: plans, isLoading: plansLoading } = usePricingData();
+  
+  const { data: plansData, isLoading: plansLoading } = useBillingPlans();
+  const { data: billingState, isLoading: stateLoading } = useCurrentBillingState(organization?.id);
   const { data: invoices, isLoading: invoicesLoading } = useInvoices(organization?.id);
   
-  const createCheckout = useCreateCheckoutSession();
+  const createCheckout = useCreateCheckoutSessionV2();
   const completeMockCheckout = useCompleteMockCheckout();
   const createPortal = useCreatePortalSession();
   
-  const [selectedTier, setSelectedTier] = useState<BillingTier | null>(
-    (searchParams.get("tier") as BillingTier) || null
+  // Selection state
+  const [selectedPlan, setSelectedPlan] = useState<PlanCode | null>(
+    (searchParams.get("plan") as PlanCode) || null
+  );
+  const [selectedCycle, setSelectedCycle] = useState<BillingCycleMonths>(
+    (parseInt(searchParams.get("cycle") || "1") as BillingCycleMonths) || 1
   );
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 
-  // Map current subscription tier from plan name
-  const currentTier = planNameToTier(plan?.name);
+  const showPromoOption = isWithinPromoWindow();
+  const promoDaysRemaining = getPromoDaysRemaining();
 
-  const handleSelectPlan = async (tier: BillingTier) => {
-    if (!organization?.id) {
-      toast.error("No se encontró la organización");
+  // Get current plan code from billing state or subscription
+  const currentPlanCode = billingState?.plan_code || 
+    (plan?.name === "basic" ? "BASIC" : plan?.name === "standard" ? "PRO" : plan?.name === "unlimited" ? "ENTERPRISE" : null);
+
+  const handleSelectPlan = async () => {
+    if (!organization?.id || !selectedPlan) {
+      toast.error("Selecciona un plan para continuar");
       return;
     }
 
-    if (tier === "ENTERPRISE") {
+    if (selectedPlan === "ENTERPRISE") {
       window.location.href = "mailto:ventas@atenia.co?subject=Consulta%20Plan%20Enterprise";
       return;
     }
 
-    setSelectedTier(tier);
+    // If selecting 24-month but promo expired
+    if (selectedCycle === 24 && !showPromoOption) {
+      toast.error("La promoción de 24 meses ha expirado");
+      setSelectedCycle(1);
+      return;
+    }
 
     try {
       const result = await createCheckout.mutateAsync({
         organizationId: organization.id,
-        tier,
+        planCode: selectedPlan,
+        billingCycleMonths: selectedCycle,
       });
 
-      if (result.session_id) {
+      if (result.ok && result.session_id) {
         setPendingSessionId(result.session_id);
-        // In mock mode, we show a button to complete checkout
-        // In real mode, we'd redirect to result.checkout_url
-        toast.success("Sesión de pago creada. Complete el checkout para activar su plan.");
+        toast.success("Sesión de pago creada");
       }
     } catch (error) {
       console.error("Checkout error:", error);
@@ -123,8 +122,8 @@ export function BillingTab() {
     try {
       await completeMockCheckout.mutateAsync({ sessionId: pendingSessionId });
       setPendingSessionId(null);
-      setSelectedTier(null);
-      // Refresh subscription data
+      setSelectedPlan(null);
+      // Refresh page to get updated subscription
       window.location.reload();
     } catch (error) {
       console.error("Mock checkout error:", error);
@@ -135,24 +134,28 @@ export function BillingTab() {
     if (!organization?.id) return;
 
     try {
-      const result = await createPortal.mutateAsync({
+      await createPortal.mutateAsync({
         organizationId: organization.id,
         returnUrl: window.location.href,
       });
-
-      if (result.portal_url) {
-        // In mock mode, just show a toast
-        toast.info("Portal de facturación (modo demo). En producción, esto abrirá el portal del proveedor.");
-      }
     } catch (error) {
       console.error("Portal error:", error);
     }
   };
 
-  const isLoading = subLoading || plansLoading;
+  const isLoading = subLoading || plansLoading || stateLoading;
 
-  // Filter plans for display (exclude FREE_TRIAL, show commercial plans)
-  const commercialPlans = (plans || []).filter(p => p.tier !== "FREE_TRIAL");
+  // Get selected plan price
+  const getSelectedPrice = (): number => {
+    if (!selectedPlan || !plansData) return 0;
+    const planData = plansData.find(p => p.plan.code === selectedPlan);
+    if (!planData) return 0;
+    
+    if (selectedCycle === 24 && planData.introPrice) {
+      return planData.introPrice.price_cop_incl_iva;
+    }
+    return planData.regularPrice?.price_cop_incl_iva || 0;
+  };
 
   return (
     <div className="space-y-6">
@@ -179,19 +182,20 @@ export function BillingTab() {
                 <div className="flex items-center gap-3">
                   <div className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center",
-                    currentTier === "ENTERPRISE" ? "bg-amber-100 text-amber-600" :
-                    currentTier === "PRO" ? "bg-purple-100 text-purple-600" :
-                    currentTier === "BASIC" ? "bg-blue-100 text-blue-600" :
-                    "bg-muted text-muted-foreground"
+                    currentPlanCode === "ENTERPRISE" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-300" :
+                    currentPlanCode === "PRO" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300" :
+                    "bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300"
                   )}>
-                    {currentTier && TIER_ICONS[currentTier]}
+                    {currentPlanCode && PLAN_ICONS[currentPlanCode as PlanCode]}
                   </div>
                   <div>
                     <p className="font-semibold text-lg">
-                      Plan {plan?.display_name || currentTier || "No definido"}
+                      Plan {billingState?.plan_code || plan?.display_name || "No definido"}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {plan?.price_cop ? formatPrice(plan.price_cop / 100) : "—"} / mes
+                      {billingState?.current_price_cop_incl_iva 
+                        ? `${formatCOP(billingState.current_price_cop_incl_iva)} / mes (IVA incluido)`
+                        : "—"}
                     </p>
                   </div>
                 </div>
@@ -204,7 +208,16 @@ export function BillingTab() {
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20">
                   <Clock className="h-4 w-4 text-primary" />
                   <span className="text-sm">
-                    <strong>{trialDaysRemaining} días</strong> restantes de prueba gratuita
+                    <strong>{trialDaysRemaining} días</strong> restantes de período de gracia
+                  </span>
+                </div>
+              )}
+
+              {billingState?.intro_offer_applied && billingState.price_lock_end_at && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                  <Lock className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-sm text-emerald-700 dark:text-emerald-300">
+                    Precio bloqueado hasta {format(new Date(billingState.price_lock_end_at), "d 'de' MMMM, yyyy", { locale: es })}
                   </span>
                 </div>
               )}
@@ -235,10 +248,40 @@ export function BillingTab() {
         <CardHeader>
           <CardTitle>Cambiar plan</CardTitle>
           <CardDescription>
-            Selecciona un plan para actualizar o cambiar tu suscripción
+            Selecciona un plan para actualizar tu suscripción
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          {/* Billing cycle selector */}
+          {showPromoOption && (
+            <div className="space-y-3">
+              <Label className="text-base font-medium">Período de facturación</Label>
+              <RadioGroup 
+                value={String(selectedCycle)} 
+                onValueChange={(v) => setSelectedCycle(parseInt(v) as BillingCycleMonths)}
+                className="flex gap-4"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="1" id="monthly" />
+                  <Label htmlFor="monthly" className="cursor-pointer">
+                    Mensual (precio regular)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="24" id="promo24" />
+                  <Label htmlFor="promo24" className="cursor-pointer flex items-center gap-1">
+                    <Lock className="h-3 w-3" />
+                    24 meses (precio promocional)
+                    <Badge variant="secondary" className="ml-2 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 text-xs">
+                      {promoDaysRemaining} días restantes
+                    </Badge>
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
+
+          {/* Plan cards */}
           {plansLoading ? (
             <div className="grid md:grid-cols-3 gap-4">
               <Skeleton className="h-48" />
@@ -247,20 +290,24 @@ export function BillingTab() {
             </div>
           ) : (
             <div className="grid md:grid-cols-3 gap-4">
-              {commercialPlans.map((tierPlan) => {
-                const isCurrentPlan = currentTier === tierPlan.tier;
-                const isSelected = selectedTier === tierPlan.tier;
+              {(plansData || []).map((planData) => {
+                const planCode = planData.plan.code as PlanCode;
+                const isCurrentPlan = currentPlanCode === planCode;
+                const isSelected = selectedPlan === planCode;
+                const price = selectedCycle === 24 && planData.introPrice 
+                  ? planData.introPrice.price_cop_incl_iva 
+                  : planData.regularPrice?.price_cop_incl_iva || 0;
 
                 return (
                   <div
-                    key={tierPlan.tier}
+                    key={planCode}
                     className={cn(
                       "relative border rounded-lg p-4 cursor-pointer transition-all",
                       isCurrentPlan && "border-primary bg-primary/5",
                       isSelected && !isCurrentPlan && "border-primary ring-2 ring-primary/20",
                       !isCurrentPlan && !isSelected && "hover:border-primary/50"
                     )}
-                    onClick={() => !isCurrentPlan && setSelectedTier(tierPlan.tier)}
+                    onClick={() => !isCurrentPlan && setSelectedPlan(planCode)}
                   >
                     {isCurrentPlan && (
                       <Badge className="absolute -top-2 left-4">
@@ -269,23 +316,27 @@ export function BillingTab() {
                     )}
                     <div className="flex items-center gap-3 mb-3 mt-1">
                       <div className={cn(
-                        "w-10 h-10 rounded-full flex items-center justify-center bg-primary/10 text-primary"
+                        "w-10 h-10 rounded-full flex items-center justify-center",
+                        planCode === "ENTERPRISE" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-300" :
+                        planCode === "PRO" ? "bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300" :
+                        "bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300"
                       )}>
-                        {TIER_ICONS[tierPlan.tier]}
+                        {PLAN_ICONS[planCode]}
                       </div>
                       <div>
-                        <p className="font-semibold">{tierPlan.displayName}</p>
+                        <p className="font-semibold">{planData.plan.display_name}</p>
                         <p className="text-sm text-muted-foreground">
-                          {formatPrice(tierPlan.monthlyPriceUsd)}/mes
+                          {formatCOP(price)}/mes
                         </p>
                       </div>
                     </div>
                     <ul className="text-sm text-muted-foreground space-y-1">
-                      {tierPlan.maxWorkItems && (
-                        <li>• {tierPlan.maxWorkItems.toLocaleString()} procesos</li>
-                      )}
-                      {tierPlan.maxMembers && (
-                        <li>• {tierPlan.maxMembers} usuarios</li>
+                      <li className="flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        {planData.plan.max_members === 1 ? "1 usuario" : `${planData.plan.max_members} usuarios`}
+                      </li>
+                      {planData.plan.is_enterprise && (
+                        <li>• Consola de admin</li>
                       )}
                     </ul>
                   </div>
@@ -294,23 +345,29 @@ export function BillingTab() {
             </div>
           )}
 
-          {selectedTier && selectedTier !== currentTier && (
+          {/* Checkout action */}
+          {selectedPlan && selectedPlan !== currentPlanCode && (
             <div className="mt-6 p-4 border rounded-lg bg-muted/50 space-y-4">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-5 w-5 text-primary" />
                 <span className="font-medium">
-                  Plan seleccionado: {commercialPlans.find(p => p.tier === selectedTier)?.displayName}
+                  Plan seleccionado: {plansData?.find(p => p.plan.code === selectedPlan)?.plan.display_name}
                 </span>
+              </div>
+              
+              <div className="text-sm text-muted-foreground">
+                Precio: <strong>{formatCOP(getSelectedPrice())}/mes</strong> (IVA incluido)
+                {selectedCycle === 24 && " • Compromiso 24 meses"}
               </div>
               
               <div className="flex gap-3">
                 <Button 
-                  onClick={() => handleSelectPlan(selectedTier)}
+                  onClick={handleSelectPlan}
                   disabled={createCheckout.isPending}
                 >
                   {createCheckout.isPending ? "Procesando..." : "Proceder al pago"}
                 </Button>
-                <Button variant="outline" onClick={() => setSelectedTier(null)}>
+                <Button variant="outline" onClick={() => setSelectedPlan(null)}>
                   Cancelar
                 </Button>
               </div>
@@ -367,7 +424,11 @@ export function BillingTab() {
                         {invoice.period_start && format(new Date(invoice.period_start), "MMMM yyyy", { locale: es })}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {invoice.amount_usd ? formatPrice(invoice.amount_usd) : "—"}
+                        {invoice.amount_cop_incl_iva 
+                          ? `${formatCOP(invoice.amount_cop_incl_iva)} (IVA incluido)`
+                          : invoice.amount_usd 
+                            ? `$${invoice.amount_usd} USD`
+                            : "—"}
                       </p>
                     </div>
                   </div>

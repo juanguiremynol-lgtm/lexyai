@@ -60,6 +60,7 @@ export interface BillingInvoice {
   provider: BillingProvider;
   provider_invoice_id: string | null;
   amount_usd: number | null;
+  amount_cop_incl_iva: number | null;
   currency: string;
   status: InvoiceStatus;
   period_start: string | null;

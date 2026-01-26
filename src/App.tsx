@@ -42,6 +42,7 @@ import PlatformPage from "./pages/PlatformPage";
 import { PublicLayout } from "./components/layout/PublicLayout";
 import PublicPricingPage from "./pages/PublicPricingPage";
 import MockCheckoutPage from "./pages/MockCheckoutPage";
+import JoinPage from "./pages/JoinPage";
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,7 @@ const App = () => (
           {/* Public routes (no auth required) */}
           <Route element={<PublicLayout />}>
             <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
+            <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
           </Route>
           
           {/* Mock checkout route (auth required but no layout) */}
