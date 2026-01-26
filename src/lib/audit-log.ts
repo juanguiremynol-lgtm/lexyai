@@ -112,7 +112,10 @@ export type EntityType =
   | "subscription"
   | "import"
   | "organization"
-  | "audit_log";
+  | "audit_log"
+  | "billing_checkout_session"
+  | "billing_invoice"
+  | "billing_customer";
 
 export interface AuditLogParams {
   organizationId: string;

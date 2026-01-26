@@ -9,6 +9,14 @@ interface RequestBody {
   session_id: string;
 }
 
+// Map billing tier to subscription_plans.name
+const TIER_TO_PLAN_NAME: Record<string, string> = {
+  "FREE_TRIAL": "trial",
+  "BASIC": "basic",
+  "PRO": "standard",
+  "ENTERPRISE": "unlimited",
+};
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -115,7 +123,7 @@ Deno.serve(async (req) => {
     const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // +30 days
 
     // Update checkout session to COMPLETED
-    await supabaseService
+    const { error: updateSessionError } = await supabaseService
       .from("billing_checkout_sessions")
       .update({
         status: "COMPLETED",
@@ -124,7 +132,15 @@ Deno.serve(async (req) => {
       })
       .eq("id", session_id);
 
-    // Get pricing for the tier
+    if (updateSessionError) {
+      console.error("Failed to update checkout session:", updateSessionError);
+      return new Response(
+        JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to update session" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Get pricing for the tier from mrr_pricing_config
     const { data: pricing } = await supabaseService
       .from("mrr_pricing_config")
       .select("monthly_price_usd")
@@ -133,29 +149,91 @@ Deno.serve(async (req) => {
 
     const priceUsd = pricing?.monthly_price_usd || 0;
 
-    // Update subscription
-    const { data: existingSub } = await supabaseService
-      .from("subscriptions")
+    // Map tier to plan_id via subscription_plans
+    const planName = TIER_TO_PLAN_NAME[session.tier];
+    if (!planName) {
+      console.error(`Unknown tier: ${session.tier}`);
+      return new Response(
+        JSON.stringify({ ok: false, code: "INVALID_TIER", message: `Unknown tier: ${session.tier}` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Get plan_id from subscription_plans
+    const { data: planRow, error: planError } = await supabaseService
+      .from("subscription_plans")
       .select("id")
+      .eq("name", planName)
+      .single();
+
+    if (planError || !planRow) {
+      console.error(`Plan not found for name: ${planName}`, planError);
+      return new Response(
+        JSON.stringify({ ok: false, code: "PLAN_NOT_FOUND", message: `Plan not found: ${planName}` }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const newPlanId = planRow.id;
+
+    // Get existing subscription
+    const { data: existingSub, error: subQueryError } = await supabaseService
+      .from("subscriptions")
+      .select("id, plan_id")
       .eq("organization_id", session.organization_id)
       .single();
 
+    if (subQueryError && subQueryError.code !== "PGRST116") {
+      console.error("Failed to query subscription:", subQueryError);
+    }
+
+    const oldPlanId = existingSub?.plan_id || null;
+
     if (existingSub) {
-      // Update existing subscription
-      await supabaseService
+      // Update existing subscription with new plan_id
+      const { error: subUpdateError } = await supabaseService
         .from("subscriptions")
         .update({
+          plan_id: newPlanId,
           status: "active",
           current_period_start: now,
           current_period_end: periodEnd,
+          trial_ends_at: null, // Clear trial on paid plan
           updated_at: now,
         })
         .eq("id", existingSub.id);
+
+      if (subUpdateError) {
+        console.error("Failed to update subscription:", subUpdateError);
+        return new Response(
+          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to update subscription" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    } else {
+      // Create new subscription
+      const { error: subInsertError } = await supabaseService
+        .from("subscriptions")
+        .insert({
+          organization_id: session.organization_id,
+          plan_id: newPlanId,
+          status: "active",
+          current_period_start: now,
+          current_period_end: periodEnd,
+        });
+
+      if (subInsertError) {
+        console.error("Failed to create subscription:", subInsertError);
+        return new Response(
+          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to create subscription" }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // Create invoice record
     const invoiceId = crypto.randomUUID();
-    await supabaseService
+    const { error: invoiceError } = await supabaseService
       .from("billing_invoices")
       .insert({
         id: invoiceId,
@@ -170,15 +248,21 @@ Deno.serve(async (req) => {
         metadata: { 
           checkout_session_id: session_id,
           tier: session.tier,
+          plan_id: newPlanId,
         },
       });
+
+    if (invoiceError) {
+      console.error("Failed to create invoice:", invoiceError);
+      // Non-fatal - continue
+    }
 
     // Ensure billing customer exists
     const { data: existingCustomer } = await supabaseService
       .from("billing_customers")
       .select("id")
       .eq("organization_id", session.organization_id)
-      .single();
+      .maybeSingle();
 
     if (!existingCustomer) {
       await supabaseService
@@ -191,7 +275,7 @@ Deno.serve(async (req) => {
     }
 
     // Audit logs
-    await supabaseService.from("audit_logs").insert([
+    const { error: auditError } = await supabaseService.from("audit_logs").insert([
       {
         organization_id: session.organization_id,
         actor_user_id: userId,
@@ -199,7 +283,7 @@ Deno.serve(async (req) => {
         action: "BILLING_CHECKOUT_COMPLETED",
         entity_type: "billing_checkout_session",
         entity_id: session_id,
-        metadata: { tier: session.tier, amount_usd: priceUsd },
+        metadata: { tier: session.tier, amount_usd: priceUsd, plan_id: newPlanId },
       },
       {
         organization_id: session.organization_id,
@@ -208,7 +292,12 @@ Deno.serve(async (req) => {
         action: "BILLING_TIER_CHANGED",
         entity_type: "subscription",
         entity_id: existingSub?.id || null,
-        metadata: { new_tier: session.tier, source: "checkout" },
+        metadata: { 
+          new_tier: session.tier, 
+          new_plan_id: newPlanId,
+          old_plan_id: oldPlanId,
+          source: "checkout" 
+        },
       },
       {
         organization_id: session.organization_id,
@@ -217,14 +306,19 @@ Deno.serve(async (req) => {
         action: "BILLING_INVOICE_CREATED",
         entity_type: "billing_invoice",
         entity_id: invoiceId,
-        metadata: { amount_usd: priceUsd, status: "PAID" },
+        metadata: { amount_usd: priceUsd, status: "PAID", tier: session.tier },
       },
     ]);
 
-    console.log(`[billing-complete-checkout] Completed session ${session_id}, tier ${session.tier}, org ${session.organization_id}`);
+    if (auditError) {
+      console.warn("Audit log insert failed:", auditError);
+      // Non-fatal
+    }
+
+    console.log(`[billing-complete-checkout] Completed session ${session_id}, tier ${session.tier} -> plan ${planName}, org ${session.organization_id}`);
 
     return new Response(
-      JSON.stringify({ ok: true }),
+      JSON.stringify({ ok: true, plan_id: newPlanId, tier: session.tier }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
