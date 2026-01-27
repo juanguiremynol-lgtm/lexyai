@@ -38,11 +38,13 @@ import {
   ExternalLink,
   Users,
   Activity,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
+import { SyncWorkItemButton } from "@/components/work-items/SyncWorkItemButton";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 
 import type { WorkItem } from "@/types/work-item";
@@ -570,6 +572,11 @@ export default function WorkItemDetail() {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Sync button - for judicial workflows */}
+          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
+            <SyncWorkItemButton workItem={workItem} />
+          )}
+          
           {workItem.expediente_url && (
             <Button variant="outline" size="sm" asChild>
               <a href={workItem.expediente_url} target="_blank" rel="noopener noreferrer">

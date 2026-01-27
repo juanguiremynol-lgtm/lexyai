@@ -5940,6 +5940,7 @@ export type Database = {
           status: Database["public"]["Enums"]["item_status"]
           title: string | null
           total_actuaciones: number | null
+          tutela_code: string | null
           updated_at: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
@@ -6009,6 +6010,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["item_status"]
           title?: string | null
           total_actuaciones?: number | null
+          tutela_code?: string | null
           updated_at?: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
@@ -6078,6 +6080,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["item_status"]
           title?: string | null
           total_actuaciones?: number | null
+          tutela_code?: string | null
           updated_at?: string
           workflow_type?: Database["public"]["Enums"]["workflow_type"]
         }
