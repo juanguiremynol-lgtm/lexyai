@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { SyncWorkItemButton } from "@/components/work-items/SyncWorkItemButton";
+import { StageSuggestionBannerDB } from "@/components/work-items/StageSuggestionBannerDB";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 
 import type { WorkItem } from "@/types/work-item";
@@ -625,6 +626,15 @@ export default function WorkItemDetail() {
           />
         </div>
       </div>
+
+      {/* Stage Suggestion Banner - shows pending inference suggestions */}
+      <StageSuggestionBannerDB
+        workItemId={workItem.id}
+        workflowType={workItem.workflow_type}
+        currentStage={workItem.stage}
+        currentCgpPhase={workItem.cgp_phase}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: ["work-item-detail", id] })}
+      />
 
       {/* Tabs */}
       <Tabs value={initialTab} onValueChange={handleTabChange} className="w-full">
