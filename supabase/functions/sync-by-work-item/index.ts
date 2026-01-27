@@ -1,8 +1,13 @@
 /**
  * sync-by-work-item Edge Function
  * 
- * Syncs a work item with external judicial APIs using org-scoped adapters.
- * All external URLs come from server-side env vars - never hardcoded.
+ * PRODUCTION-GRADE sync for existing work items using external judicial APIs.
+ * 
+ * Features:
+ * - Multi-tenant safe: validates user is member of work_item's organization
+ * - All external URLs from env vars: EXTERNAL_RAMA_API_URL, TUTELAS_BASE_URL, CPNU adapter
+ * - Adapter resolution via org_integration_settings
+ * - Idempotent: uses hash_fingerprint to prevent duplicates
  * 
  * Input: { work_item_id: string }
  * Output: { ok, inserted_count, skipped_count, latest_event_date, warnings, errors }
@@ -41,8 +46,9 @@ interface WorkItem {
   workflow_type: string;
   radicado: string | null;
   tutela_code: string | null;
-  scrape_status: string;
+  scrape_status: string | null;
   last_crawled_at: string | null;
+  expediente_url: string | null;
 }
 
 interface OrgIntegrationSettings {
@@ -51,6 +57,8 @@ interface OrgIntegrationSettings {
     enableExternalApi?: boolean;
     enableLegacyCpnu?: boolean;
     enableTutelasApi?: boolean;
+    enableSamaiApi?: boolean;
+    enablePublicacionesApi?: boolean;
   };
   workflow_overrides?: Record<string, string>;
 }
@@ -61,6 +69,20 @@ interface ActuacionRaw {
   anotacion?: string;
   fecha_inicia_termino?: string;
   fecha_finaliza_termino?: string;
+}
+
+interface FetchResult {
+  ok: boolean;
+  actuaciones: ActuacionRaw[];
+  expedienteUrl?: string;
+  caseMetadata?: {
+    despacho?: string;
+    demandante?: string;
+    demandado?: string;
+    tipo_proceso?: string;
+  };
+  error?: string;
+  source: string;
 }
 
 // ============= HELPERS =============
@@ -81,31 +103,21 @@ function errorResponse(code: string, message: string, status: number = 400): Res
   }, status);
 }
 
-/**
- * Validate tutela_code format: T followed by 6-10 digits
- */
 function isValidTutelaCode(code: string): boolean {
   return /^T\d{6,10}$/i.test(code);
 }
 
-/**
- * Validate radicado: 23 digits after normalization
- */
 function isValidRadicado(radicado: string): boolean {
   const normalized = radicado.replace(/\D/g, '');
   return normalized.length === 23;
 }
 
-/**
- * Generate fingerprint for deduplication
- */
 function generateFingerprint(
   workItemId: string,
   date: string,
   text: string
 ): string {
   const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}`;
-  // Simple hash (in production, use crypto.subtle.digest)
   let hash = 0;
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
@@ -115,16 +127,13 @@ function generateFingerprint(
   return `wi_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
 }
 
-/**
- * Parse Colombian date to ISO format
- */
 function parseColombianDate(dateStr: string | undefined): string | null {
   if (!dateStr) return null;
   
   const patterns = [
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,  // DD/MM/YYYY
-    /^(\d{2})-(\d{2})-(\d{4})$/,     // DD-MM-YYYY
-    /^(\d{4})-(\d{2})-(\d{2})$/,     // YYYY-MM-DD
+    /^(\d{2})\/(\d{2})\/(\d{4})$/,
+    /^(\d{2})-(\d{2})-(\d{4})$/,
+    /^(\d{4})-(\d{2})-(\d{2})$/,
   ];
 
   for (const pattern of patterns) {
@@ -167,48 +176,56 @@ async function getOrgSettings(
   };
 }
 
-function resolveAdapter(
+function resolveAdapters(
   workflowType: string,
   settings: OrgIntegrationSettings | null
-): { adapterId: string; enabled: boolean } {
+): string[] {
+  // Build list of adapters to try in priority order
+  const adapters: string[] = [];
+  
   // Check for workflow-specific override
   if (settings?.workflow_overrides?.[workflowType]) {
-    return { adapterId: settings.workflow_overrides[workflowType], enabled: true };
+    adapters.push(settings.workflow_overrides[workflowType]);
+    return adapters;
   }
 
-  // Check feature flags
   const flags = settings?.feature_flags || {};
   
-  // For TUTELA, prefer tutelas API if enabled
+  // For TUTELA, prefer tutelas API
   if (workflowType === 'TUTELA') {
     if (flags.enableTutelasApi !== false) {
-      return { adapterId: 'tutelas-api', enabled: true };
+      adapters.push('tutelas-api');
     }
   }
 
-  // For other workflows, use priority order
+  // Add adapters based on priority order and flags
   const priority = settings?.adapter_priority_order || ['external-rama-judicial-api', 'cpnu'];
   
   for (const adapterId of priority) {
     if (adapterId === 'external-rama-judicial-api' && flags.enableExternalApi !== false) {
-      return { adapterId, enabled: true };
+      adapters.push(adapterId);
     }
     if (adapterId === 'cpnu' && flags.enableLegacyCpnu !== false) {
-      return { adapterId, enabled: true };
+      adapters.push(adapterId);
+    }
+    if (adapterId === 'samai-api' && flags.enableSamaiApi) {
+      adapters.push(adapterId);
+    }
+    if (adapterId === 'publicaciones-api' && flags.enablePublicacionesApi) {
+      adapters.push(adapterId);
     }
   }
 
-  // Fallback to noop (graceful degradation)
-  return { adapterId: 'noop', enabled: false };
+  return adapters.length > 0 ? adapters : ['noop'];
 }
 
-// ============= EXTERNAL API CALLS (ENV VAR BASED) =============
+// ============= EXTERNAL API FETCHERS (ENV VAR BASED) =============
 
 async function fetchFromCpnu(
   supabaseUrl: string,
   authHeader: string,
   radicado: string
-): Promise<{ ok: boolean; actuaciones: ActuacionRaw[]; error?: string }> {
+): Promise<FetchResult> {
   try {
     const response = await fetch(
       `${supabaseUrl}/functions/v1/adapter-cpnu`,
@@ -234,25 +251,32 @@ async function fetchFromCpnu(
           fecha_inicia_termino: act.fecha_inicia_termino,
           fecha_finaliza_termino: act.fecha_finaliza_termino,
         })),
+        caseMetadata: {
+          despacho: result.proceso.despacho,
+          demandante: result.proceso.demandante,
+          demandado: result.proceso.demandado,
+          tipo_proceso: result.proceso.tipo,
+        },
+        source: 'cpnu',
       };
     }
 
-    return { ok: false, actuaciones: [], error: result.error || 'No results' };
+    return { ok: false, actuaciones: [], error: result.error || 'No results', source: 'cpnu' };
   } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'CPNU fetch failed' };
+    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'CPNU fetch failed', source: 'cpnu' };
   }
 }
 
 async function fetchFromExternalApi(
   radicado: string
-): Promise<{ ok: boolean; actuaciones: ActuacionRaw[]; error?: string }> {
+): Promise<FetchResult> {
   // Get base URL from env var - NEVER hardcoded
   const baseUrl = Deno.env.get('EXTERNAL_RAMA_API_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] EXTERNAL_RAMA_API_URL not configured');
-    return { ok: false, actuaciones: [], error: 'External API not configured' };
+    return { ok: false, actuaciones: [], error: 'External API not configured (missing EXTERNAL_RAMA_API_URL)', source: 'external-rama-judicial-api' };
   }
 
   try {
@@ -271,7 +295,7 @@ async function fetchFromExternalApi(
     );
 
     if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}` };
+      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'external-rama-judicial-api' };
     }
 
     const data = await response.json();
@@ -296,48 +320,66 @@ async function fetchFromExternalApi(
           return {
             ok: true,
             actuaciones: pollData.proceso.actuaciones.map((act: Record<string, unknown>) => ({
-              fecha: act.fecha || '',
-              actuacion: act.actuacion || '',
-              anotacion: act.anotacion || '',
+              fecha: act['Fecha de Actuación'] || act.fecha || '',
+              actuacion: act['Actuación'] || act.actuacion || '',
+              anotacion: act['Anotación'] || act.anotacion || '',
             })),
+            caseMetadata: {
+              despacho: pollData.proceso['Despacho'] || pollData.proceso.despacho,
+              demandante: pollData.proceso['Demandante'] || pollData.proceso.demandante,
+              demandado: pollData.proceso['Demandado'] || pollData.proceso.demandado,
+              tipo_proceso: pollData.proceso['Tipo de Proceso'],
+            },
+            source: 'external-rama-judicial-api',
           };
         } else if (pollData.status === 'failed' || pollData.estado === 'NO_ENCONTRADO') {
-          return { ok: false, actuaciones: [], error: 'Not found' };
+          return { ok: false, actuaciones: [], error: 'Not found', source: 'external-rama-judicial-api' };
         }
       }
       
-      return { ok: false, actuaciones: [], error: 'Polling timeout' };
+      return { ok: false, actuaciones: [], error: 'Polling timeout', source: 'external-rama-judicial-api' };
     }
 
     // Direct response
-    if (data.proceso?.actuaciones) {
+    if (data.proceso) {
+      const actuaciones = data.actuaciones || data.proceso.actuaciones || [];
       return {
         ok: true,
-        actuaciones: data.proceso.actuaciones.map((act: Record<string, unknown>) => ({
-          fecha: act.fecha || '',
-          actuacion: act.actuacion || '',
-          anotacion: act.anotacion || '',
+        actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
+          fecha: act['Fecha de Actuación'] || act.fecha || '',
+          actuacion: act['Actuación'] || act.actuacion || '',
+          anotacion: act['Anotación'] || act.anotacion || '',
         })),
+        caseMetadata: {
+          despacho: data.proceso['Despacho'] || data.proceso.despacho,
+          demandante: data.proceso['Demandante'] || data.proceso.demandante,
+          demandado: data.proceso['Demandado'] || data.proceso.demandado,
+          tipo_proceso: data.proceso['Tipo de Proceso'],
+        },
+        source: 'external-rama-judicial-api',
       };
     }
 
-    return { ok: false, actuaciones: [], error: 'No actuaciones in response' };
+    if (data.estado === 'NO_ENCONTRADO') {
+      return { ok: false, actuaciones: [], error: 'Not found', source: 'external-rama-judicial-api' };
+    }
+
+    return { ok: false, actuaciones: [], error: 'No actuaciones in response', source: 'external-rama-judicial-api' };
   } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'External API failed' };
+    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'External API failed', source: 'external-rama-judicial-api' };
   }
 }
 
 async function fetchFromTutelasApi(
   tutelaCode: string,
   _radicado: string | null
-): Promise<{ ok: boolean; actuaciones: ActuacionRaw[]; expedienteUrl?: string; error?: string }> {
-  // Get base URL from env var - NEVER hardcoded
+): Promise<FetchResult> {
   const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] TUTELAS_BASE_URL not configured');
-    return { ok: false, actuaciones: [], error: 'Tutelas API not configured' };
+    return { ok: false, actuaciones: [], error: 'Tutelas API not configured (missing TUTELAS_BASE_URL)', source: 'tutelas-api' };
   }
 
   try {
@@ -356,7 +398,7 @@ async function fetchFromTutelasApi(
     );
 
     if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}` };
+      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'tutelas-api' };
     }
 
     const data = await response.json();
@@ -370,12 +412,113 @@ async function fetchFromTutelasApi(
           anotacion: act.anotacion || '',
         })),
         expedienteUrl: data.expediente_url,
+        source: 'tutelas-api',
       };
     }
 
-    return { ok: false, actuaciones: [], error: 'No actuaciones' };
+    return { ok: false, actuaciones: [], error: 'No actuaciones', source: 'tutelas-api' };
   } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'Tutelas API failed' };
+    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'Tutelas API failed', source: 'tutelas-api' };
+  }
+}
+
+async function fetchFromSamaiApi(
+  radicado: string
+): Promise<FetchResult> {
+  const baseUrl = Deno.env.get('SAMAI_BASE_URL');
+  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!baseUrl) {
+    console.log('[sync-by-work-item] SAMAI_BASE_URL not configured');
+    return { ok: false, actuaciones: [], error: 'SAMAI API not configured', source: 'samai-api' };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+
+    const response = await fetch(
+      `${baseUrl}/proceso/${radicado}`,
+      { method: 'GET', headers }
+    );
+
+    if (!response.ok) {
+      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'samai-api' };
+    }
+
+    const data = await response.json();
+
+    if (data.actuaciones) {
+      return {
+        ok: true,
+        actuaciones: data.actuaciones.map((act: Record<string, unknown>) => ({
+          fecha: act.fecha || '',
+          actuacion: act.actuacion || '',
+          anotacion: act.anotacion || '',
+        })),
+        source: 'samai-api',
+      };
+    }
+
+    return { ok: false, actuaciones: [], error: 'No actuaciones', source: 'samai-api' };
+  } catch (err) {
+    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'SAMAI API failed', source: 'samai-api' };
+  }
+}
+
+async function fetchFromPublicacionesApi(
+  radicado: string
+): Promise<FetchResult> {
+  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!baseUrl) {
+    console.log('[sync-by-work-item] PUBLICACIONES_BASE_URL not configured');
+    return { ok: false, actuaciones: [], error: 'Publicaciones API not configured', source: 'publicaciones-api' };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+
+    const response = await fetch(
+      `${baseUrl}/estados/${radicado}`,
+      { method: 'GET', headers }
+    );
+
+    if (!response.ok) {
+      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'publicaciones-api' };
+    }
+
+    const data = await response.json();
+
+    if (data.estados) {
+      return {
+        ok: true,
+        actuaciones: data.estados.map((est: Record<string, unknown>) => ({
+          fecha: est.fecha_publicacion || est.fecha || '',
+          actuacion: est.descripcion || est.estado || '',
+          anotacion: est.detalle || '',
+        })),
+        source: 'publicaciones-api',
+      };
+    }
+
+    return { ok: false, actuaciones: [], error: 'No estados', source: 'publicaciones-api' };
+  } catch (err) {
+    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'Publicaciones API failed', source: 'publicaciones-api' };
   }
 }
 
@@ -428,7 +571,7 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
 
-    // Fetch work item with org scoping
+    // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
       .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url')
@@ -440,18 +583,24 @@ Deno.serve(async (req) => {
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
     }
 
-    // Verify user has access (via org membership)
-    const { data: membership } = await supabase
+    // ============= MULTI-TENANT SECURITY: Verify user is member of org =============
+    const { data: membership, error: membershipError } = await supabase
       .from('organization_memberships')
-      .select('id')
+      .select('id, role')
       .eq('organization_id', workItem.organization_id)
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (!membership) {
-      console.log(`[sync-by-work-item] User ${userId} not member of org ${workItem.organization_id}`);
-      return errorResponse('ACCESS_DENIED', 'You do not have access to this work item', 403);
+    if (membershipError || !membership) {
+      console.log(`[sync-by-work-item] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
+      return errorResponse(
+        'ACCESS_DENIED', 
+        'You do not have permission to sync this work item. You must be a member of the organization.', 
+        403
+      );
     }
+
+    console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
 
     const result: SyncResult = {
       ok: false,
@@ -469,7 +618,6 @@ Deno.serve(async (req) => {
     let identifierType: 'radicado' | 'tutela_code' = 'radicado';
 
     if (workItem.workflow_type === 'TUTELA') {
-      // TUTELA: prefer tutela_code, fallback to radicado
       if (workItem.tutela_code && isValidTutelaCode(workItem.tutela_code)) {
         identifier = workItem.tutela_code;
         identifierType = 'tutela_code';
@@ -479,7 +627,6 @@ Deno.serve(async (req) => {
         result.warnings.push('Using radicado as fallback - consider adding tutela_code (T + digits)');
       }
     } else {
-      // Non-TUTELA: require 23-digit radicado
       if (workItem.radicado && isValidRadicado(workItem.radicado)) {
         identifier = workItem.radicado.replace(/\D/g, '');
       }
@@ -498,38 +645,51 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-by-work-item] Identifier: ${identifier} (type: ${identifierType}), workflow: ${workItem.workflow_type}`);
 
-    // Get org settings and resolve adapter
+    // Get org settings and resolve adapters to try
     const orgSettings = await getOrgSettings(supabase, workItem.organization_id);
-    const { adapterId, enabled } = resolveAdapter(workItem.workflow_type, orgSettings);
+    const adaptersToTry = resolveAdapters(workItem.workflow_type, orgSettings);
     
-    result.adapter_used = adapterId;
+    console.log(`[sync-by-work-item] Adapters to try: ${adaptersToTry.join(', ')}`);
 
-    if (!enabled || adapterId === 'noop') {
-      console.log(`[sync-by-work-item] External API disabled for org ${workItem.organization_id}`);
+    if (adaptersToTry.length === 0 || (adaptersToTry.length === 1 && adaptersToTry[0] === 'noop')) {
+      console.log(`[sync-by-work-item] No adapters enabled for org ${workItem.organization_id}`);
       result.ok = true;
-      result.warnings.push('External API integration is not enabled for this organization. Data sync skipped.');
+      result.warnings.push('No external API adapters are enabled for this organization. Data sync skipped.');
       return jsonResponse(result);
     }
 
-    // Fetch data from appropriate source
-    let fetchResult: { ok: boolean; actuaciones: ActuacionRaw[]; expedienteUrl?: string; error?: string };
+    // Try adapters in priority order until one succeeds
+    let fetchResult: FetchResult | null = null;
 
-    if (adapterId === 'tutelas-api' && identifierType === 'tutela_code') {
-      fetchResult = await fetchFromTutelasApi(identifier, workItem.radicado);
-    } else if (adapterId === 'external-rama-judicial-api') {
-      fetchResult = await fetchFromExternalApi(identifier);
-    } else if (adapterId === 'cpnu') {
-      fetchResult = await fetchFromCpnu(supabaseUrl, authHeader, identifier);
-    } else {
-      result.ok = true;
-      result.warnings.push(`Adapter "${adapterId}" not implemented yet. Sync skipped.`);
-      return jsonResponse(result);
+    for (const adapterId of adaptersToTry) {
+      if (adapterId === 'noop') continue;
+
+      console.log(`[sync-by-work-item] Trying adapter: ${adapterId}`);
+
+      if (adapterId === 'tutelas-api' && identifierType === 'tutela_code') {
+        fetchResult = await fetchFromTutelasApi(identifier, workItem.radicado);
+      } else if (adapterId === 'external-rama-judicial-api') {
+        fetchResult = await fetchFromExternalApi(identifier);
+      } else if (adapterId === 'cpnu') {
+        fetchResult = await fetchFromCpnu(supabaseUrl, authHeader, identifier);
+      } else if (adapterId === 'samai-api') {
+        fetchResult = await fetchFromSamaiApi(identifier);
+      } else if (adapterId === 'publicaciones-api') {
+        fetchResult = await fetchFromPublicacionesApi(identifier);
+      }
+
+      if (fetchResult?.ok) {
+        console.log(`[sync-by-work-item] Adapter ${adapterId} succeeded with ${fetchResult.actuaciones.length} actuaciones`);
+        break;
+      } else {
+        console.log(`[sync-by-work-item] Adapter ${adapterId} failed: ${fetchResult?.error}`);
+        result.warnings.push(`${adapterId}: ${fetchResult?.error || 'No data'}`);
+        fetchResult = null;
+      }
     }
 
-    result.source_used = adapterId;
-
-    if (!fetchResult.ok) {
-      result.errors.push(fetchResult.error || 'Fetch failed');
+    if (!fetchResult?.ok) {
+      result.errors.push('All configured adapters failed to fetch data');
       // Update scrape status
       await supabase
         .from('work_items')
@@ -542,9 +702,12 @@ Deno.serve(async (req) => {
       return jsonResponse(result);
     }
 
+    result.source_used = fetchResult.source;
+    result.adapter_used = fetchResult.source;
+
     // Process actuaciones
     const actuaciones = fetchResult.actuaciones;
-    console.log(`[sync-by-work-item] Fetched ${actuaciones.length} actuaciones`);
+    console.log(`[sync-by-work-item] Fetched ${actuaciones.length} actuaciones from ${fetchResult.source}`);
 
     if (actuaciones.length === 0) {
       result.ok = true;
@@ -567,7 +730,7 @@ Deno.serve(async (req) => {
       const actDate = parseColombianDate(act.fecha);
       const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion);
 
-      // Check for existing record
+      // Check for existing record using fingerprint
       const { data: existing } = await supabase
         .from('actuaciones')
         .select('id')
@@ -591,14 +754,19 @@ Deno.serve(async (req) => {
           normalized_text: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
           act_date: actDate,
           act_date_raw: act.fecha,
-          source: adapterId,
-          adapter_name: adapterId,
+          source: fetchResult.source,
+          adapter_name: fetchResult.source,
           hash_fingerprint: fingerprint,
         });
 
       if (insertError) {
-        console.error(`[sync-by-work-item] Insert error:`, insertError);
-        result.errors.push(`Failed to insert actuacion: ${insertError.message}`);
+        // Check if it's a duplicate error (can happen in race conditions)
+        if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
+          result.skipped_count++;
+        } else {
+          console.error(`[sync-by-work-item] Insert error:`, insertError);
+          result.errors.push(`Failed to insert actuacion: ${insertError.message}`);
+        }
       } else {
         result.inserted_count++;
         if (actDate && (!latestDate || actDate > latestDate)) {
@@ -609,7 +777,7 @@ Deno.serve(async (req) => {
 
     result.latest_event_date = latestDate;
 
-    // Update work item with sync status
+    // Update work item with sync status and metadata
     const updatePayload: Record<string, unknown> = {
       scrape_status: result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       last_crawled_at: new Date().toISOString(),
@@ -621,9 +789,22 @@ Deno.serve(async (req) => {
       updatePayload.last_action_date = latestDate;
     }
 
-    // Update expediente_url if returned by tutelas API
+    // Update expediente_url if returned by tutelas API and not already set
     if (fetchResult.expedienteUrl && !workItem.expediente_url) {
       updatePayload.expediente_url = fetchResult.expedienteUrl;
+    }
+
+    // Update case metadata if available
+    if (fetchResult.caseMetadata) {
+      if (fetchResult.caseMetadata.despacho) {
+        updatePayload.authority_name = fetchResult.caseMetadata.despacho;
+      }
+      if (fetchResult.caseMetadata.demandante) {
+        updatePayload.demandantes = fetchResult.caseMetadata.demandante;
+      }
+      if (fetchResult.caseMetadata.demandado) {
+        updatePayload.demandados = fetchResult.caseMetadata.demandado;
+      }
     }
 
     await supabase
@@ -632,7 +813,7 @@ Deno.serve(async (req) => {
       .eq('id', work_item_id);
 
     result.ok = true;
-    console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}`);
+    console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, source=${result.source_used}`);
 
     return jsonResponse(result);
 

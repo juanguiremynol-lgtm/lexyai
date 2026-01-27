@@ -1,13 +1,12 @@
 /**
  * Rama Judicial API Client
  * 
- * Unified API client for interacting with the external Rama Judicial API.
- * Used for process lookups, updates, and scheduled crawling.
- * 
- * API: https://rama-judicial-api.onrender.com
+ * REFACTORED: This module now delegates to Edge Functions.
+ * NO external API URLs are hardcoded here.
+ * All actual API calls happen server-side via sync-by-radicado.
  */
 
-import { API_BASE_URL } from "@/config/api";
+import { supabase } from "@/integrations/supabase/client";
 
 // ============== Types ==============
 
