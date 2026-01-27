@@ -37,6 +37,7 @@ import {
   Shield,
   Database,
   ExternalLink,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -247,6 +248,30 @@ export default function ApiDebugPage() {
   const [radicado, setRadicado] = useState("");
   const [tutelaCode, setTutelaCode] = useState("");
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
+  const [workItemIdForSuggestion, setWorkItemIdForSuggestion] = useState("");
+
+  // Fetch pending stage suggestions for a work item
+  const { 
+    data: pendingSuggestions, 
+    isLoading: suggestionsLoading,
+    refetch: refetchSuggestions,
+  } = useQuery({
+    queryKey: ["debug-stage-suggestions", workItemIdForSuggestion],
+    queryFn: async () => {
+      if (!workItemIdForSuggestion || workItemIdForSuggestion.length < 10) return null;
+      
+      const { data, error } = await supabase
+        .from("work_item_stage_suggestions")
+        .select("*")
+        .eq("work_item_id", workItemIdForSuggestion)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: workItemIdForSuggestion.length > 10,
+  });
 
   // Check if user has admin access
   const { data: hasAdminAccess, isLoading: accessLoading } = useQuery({
@@ -826,6 +851,95 @@ export default function ApiDebugPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Stage Suggestions Debug Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5" />
+            Sugerencias de Etapa (Debug)
+          </CardTitle>
+          <CardDescription>
+            Ver sugerencias pendientes para un work_item específico
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <Label htmlFor="work-item-id">Work Item ID (UUID)</Label>
+              <Input
+                id="work-item-id"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={workItemIdForSuggestion}
+                onChange={(e) => setWorkItemIdForSuggestion(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="self-end"
+              onClick={() => refetchSuggestions()}
+              disabled={suggestionsLoading || !workItemIdForSuggestion}
+            >
+              {suggestionsLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+
+          {pendingSuggestions && pendingSuggestions.length > 0 ? (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Últimas {pendingSuggestions.length} sugerencias:</h4>
+              {pendingSuggestions.map((s: any) => (
+                <div 
+                  key={s.id} 
+                  className={cn(
+                    "p-3 rounded-lg border text-sm space-y-1",
+                    s.status === 'PENDING' ? "bg-primary/5 border-primary/30" :
+                    s.status === 'APPLIED' ? "bg-emerald-500/10 border-emerald-500/30" :
+                    "bg-muted/50"
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge variant={s.status === 'PENDING' ? 'default' : 'secondary'}>
+                      {s.status}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(s.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground">Sugerido:</span>
+                      <span className="ml-1 font-medium">{s.suggested_stage || s.suggested_pipeline_stage || 'N/A'}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Confianza:</span>
+                      <span className="ml-1 font-medium">{Math.round((s.confidence || 0) * 100)}%</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Fuente:</span>
+                      <span className="ml-1">{s.source_type}</span>
+                    </div>
+                    {s.reason && (
+                      <div className="col-span-2">
+                        <span className="text-muted-foreground">Razón:</span>
+                        <span className="ml-1 text-xs">{s.reason?.substring(0, 100)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : workItemIdForSuggestion.length > 10 ? (
+            <p className="text-sm text-muted-foreground">
+              No hay sugerencias para este work_item.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* Documentation link */}
       <Card>
