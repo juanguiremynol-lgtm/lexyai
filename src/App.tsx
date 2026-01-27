@@ -56,6 +56,7 @@ import {
   PlatformAuditPage,
   PlatformEmailOpsPage,
   PlatformSystemPage,
+  PlatformApiDebugPage,
 } from "./pages/platform";
 
 const queryClient = new QueryClient();
@@ -175,6 +176,7 @@ const App = () => (
             <Route path="audit" element={<ErrorBoundary><PlatformAuditPage /></ErrorBoundary>} />
             <Route path="email-ops" element={<ErrorBoundary><PlatformEmailOpsPage /></ErrorBoundary>} />
             <Route path="system" element={<ErrorBoundary><PlatformSystemPage /></ErrorBoundary>} />
+            <Route path="api-debug" element={<ErrorBoundary><PlatformApiDebugPage /></ErrorBoundary>} />
           </Route>
           
           {/* 404 */}

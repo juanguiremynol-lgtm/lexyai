@@ -21,6 +21,7 @@ const routeTitles: Record<string, string> = {
   "/platform/audit": "Auditoría",
   "/platform/email-ops": "Operaciones de Email",
   "/platform/system": "Estado del Sistema",
+  "/platform/api-debug": "API Debug",
 };
 
 export function PlatformLayout() {
