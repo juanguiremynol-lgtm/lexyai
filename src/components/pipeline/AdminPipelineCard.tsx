@@ -62,7 +62,8 @@ export function AdminPipelineCard({
       }
     : undefined;
 
-  const detailPath = `/process-status/${item.id}`;
+  // Use canonical work-items route with /app/ prefix
+  const detailPath = `/app/work-items/${item.id}`;
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (isSelectionMode && onToggleSelection) {
