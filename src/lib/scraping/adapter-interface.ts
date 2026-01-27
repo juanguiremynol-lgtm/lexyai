@@ -172,6 +172,17 @@ export interface ScrapingAdapter {
 }
 
 /**
+ * Feature flags for org-level integrations
+ */
+export interface OrgFeatureFlags {
+  enableExternalApi: boolean;
+  enableLegacyCpnu: boolean;
+  enableGoogleIntegration: boolean;
+  enableAwsIntegration: boolean;
+  [key: string]: boolean;
+}
+
+/**
  * Configuration for org-level adapter selection
  */
 export interface OrgAdapterConfig {
@@ -179,12 +190,7 @@ export interface OrgAdapterConfig {
   /** Ordered list of adapter IDs to try (first = highest priority) */
   adapterPriorityOrder: string[];
   /** Feature flags for future integrations */
-  featureFlags: {
-    enableExternalApi: boolean;
-    enableGoogleIntegration: boolean;
-    enableAwsIntegration: boolean;
-    [key: string]: boolean;
-  };
+  featureFlags: OrgFeatureFlags;
   /** Per-workflow adapter overrides */
   workflowOverrides?: Partial<Record<SupportedWorkflowType, string>>;
 }
@@ -214,11 +220,14 @@ export interface AdapterRegistry {
   /** Get adapters with a specific capability */
   getByCapability(capability: AdapterCapability): ScrapingAdapter[];
   
-  /** Set org-level configuration */
-  setOrgConfig(config: OrgAdapterConfig): void;
+  /** Set org-level configuration (persists to DB) */
+  setOrgConfig(config: OrgAdapterConfig): Promise<boolean>;
   
-  /** Get org-level configuration */
-  getOrgConfig(organizationId: string): OrgAdapterConfig | undefined;
+  /** Get org-level configuration (from cache/DB) */
+  getOrgConfig(organizationId: string): Promise<OrgAdapterConfig | null>;
+  
+  /** Clear config cache for an organization */
+  clearOrgConfigCache(organizationId: string): void;
 }
 
 /**
