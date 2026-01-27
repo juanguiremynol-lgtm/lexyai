@@ -1,66 +1,59 @@
 /**
  * integration-health Edge Function
- * 
+ *
  * Verifies that required secrets are present and can reach external provider hosts.
  * Includes email gateway health check for Cloud Run Option B architecture.
- * 
+ *
  * Features:
  * - Reports boolean presence for each secret (never exposes values)
  * - Optional reachability checks for each provider
  * - Email gateway configuration status
  * - Access control: Only platform admins or org admins
- * 
+ *
  * Output: { env: {...}, email_gateway: {...}, reachability?: {...}, timestamp }
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 // Required secret names for judicial providers
 const REQUIRED_SECRETS = [
-  'CPNU_BASE_URL',
-  'SAMAI_BASE_URL',
-  'TUTELAS_BASE_URL',
-  'PUBLICACIONES_BASE_URL',
-  'EXTERNAL_X_API_KEY',
+  "CPNU_BASE_URL",
+  "SAMAI_BASE_URL",
+  "TUTELAS_BASE_URL",
+  "PUBLICACIONES_BASE_URL",
+  "EXTERNAL_X_API_KEY",
 ];
 
 // Optional provider-specific API keys (take precedence over EXTERNAL_X_API_KEY)
-const OPTIONAL_API_KEYS = [
-  'CPNU_X_API_KEY',
-  'SAMAI_X_API_KEY',
-  'TUTELAS_X_API_KEY',
-  'PUBLICACIONES_X_API_KEY',
-];
+const OPTIONAL_API_KEYS = ["CPNU_X_API_KEY", "SAMAI_X_API_KEY", "TUTELAS_X_API_KEY", "PUBLICACIONES_X_API_KEY"];
 
 // Email gateway secrets (Cloud Run Option B)
-const EMAIL_GATEWAY_SECRETS = [
-  'EMAIL_GATEWAY_BASE_URL',
-  'EMAIL_GATEWAY_API_KEY',
-  'EMAIL_FROM_ADDRESS',
-];
+const EMAIL_GATEWAY_SECRETS = ["EMAIL_GATEWAY_BASE_URL", "EMAIL_GATEWAY_API_KEY", "EMAIL_FROM_ADDRESS"];
 
 // Safe fingerprint generation (first 8 chars of sha256)
 async function hashFingerprint(value: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(value);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   return hashHex.slice(0, 8);
 }
 
 // Get API key for a provider with safe diagnostics
-async function getApiKeyInfo(provider: string): Promise<{ source: string; present: boolean; fingerprint: string | null }> {
+async function getApiKeyInfo(
+  provider: string,
+): Promise<{ source: string; present: boolean; fingerprint: string | null }> {
   const providerKeyMap: Record<string, string> = {
-    cpnu: 'CPNU_X_API_KEY',
-    samai: 'SAMAI_X_API_KEY',
-    tutelas: 'TUTELAS_X_API_KEY',
-    publicaciones: 'PUBLICACIONES_X_API_KEY',
+    cpnu: "CPNU_X_API_KEY",
+    samai: "SAMAI_X_API_KEY",
+    tutelas: "TUTELAS_X_API_KEY",
+    publicaciones: "PUBLICACIONES_X_API_KEY",
   };
 
   // Try provider-specific key first
@@ -77,16 +70,16 @@ async function getApiKeyInfo(provider: string): Promise<{ source: string; presen
   }
 
   // Fall back to shared key
-  const sharedKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  const sharedKey = Deno.env.get("EXTERNAL_X_API_KEY");
   if (sharedKey && sharedKey.length > 0) {
     return {
-      source: 'EXTERNAL_X_API_KEY',
+      source: "EXTERNAL_X_API_KEY",
       present: true,
       fingerprint: await hashFingerprint(sharedKey),
     };
   }
 
-  return { source: 'MISSING', present: false, fingerprint: null };
+  return { source: "MISSING", present: false, fingerprint: null };
 }
 
 // Provider connectivity check (GET /health - no auth assumed)
@@ -109,7 +102,7 @@ interface ProviderAuthCheck {
   api_key_fingerprint: string | null;
   test_identifier_used?: string; // The test radicado used (masked)
   hint?: string; // Actionable hint for the user
-  response_kind?: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
+  response_kind?: "JSON" | "HTML_CANNOT_GET" | "HTML_OTHER" | "EMPTY" | "ERROR";
   response_headers_snippet?: Record<string, string>; // Sanitized headers (e.g., WWW-Authenticate)
 }
 
@@ -145,7 +138,7 @@ interface HealthResult {
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
@@ -157,61 +150,61 @@ function errorResponse(code: string, message: string, status: number = 400): Res
 function isHtmlCannotGet(body: string): boolean {
   const lower = body.toLowerCase();
   return (
-    lower.includes('cannot get') ||
-    lower.includes('<!doctype html') ||
-    lower.includes('<html') ||
-    lower.includes('not found</pre>')
+    lower.includes("cannot get") ||
+    lower.includes("<!doctype html") ||
+    lower.includes("<html") ||
+    lower.includes("not found</pre>")
   );
 }
 
 // Classify response kind
-function classifyResponseKind(body: string): ProviderAuthCheck['response_kind'] {
-  if (!body || body.trim() === '') return 'EMPTY';
-  
+function classifyResponseKind(body: string): ProviderAuthCheck["response_kind"] {
+  if (!body || body.trim() === "") return "EMPTY";
+
   try {
     JSON.parse(body);
-    return 'JSON';
+    return "JSON";
   } catch {
     if (isHtmlCannotGet(body)) {
-      return 'HTML_CANNOT_GET';
+      return "HTML_CANNOT_GET";
     }
-    return 'HTML_OTHER';
+    return "HTML_OTHER";
   }
 }
 
 // Safe URL join that handles base, prefix, and path
 function joinUrl(baseUrl: string, prefix: string, path: string): string {
-  const cleanBase = baseUrl.replace(/\/+$/, '');
-  let cleanPrefix = (prefix || '').trim();
-  if (cleanPrefix === '/') cleanPrefix = '';
-  if (cleanPrefix && !cleanPrefix.startsWith('/')) {
-    cleanPrefix = '/' + cleanPrefix;
+  const cleanBase = baseUrl.replace(/\/+$/, "");
+  let cleanPrefix = (prefix || "").trim();
+  if (cleanPrefix === "/") cleanPrefix = "";
+  if (cleanPrefix && !cleanPrefix.startsWith("/")) {
+    cleanPrefix = "/" + cleanPrefix;
   }
-  cleanPrefix = cleanPrefix.replace(/\/+$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  cleanPrefix = cleanPrefix.replace(/\/+$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${cleanBase}${cleanPrefix}${cleanPath}`;
 }
 
 // Check connectivity only (GET /health - no auth assumptions)
 async function checkConnectivity(
-  provider: string, 
-  baseUrl: string | undefined, 
-  pathPrefix: string
+  provider: string,
+  baseUrl: string | undefined,
+  pathPrefix: string,
 ): Promise<ProviderConnectivityCheck> {
   if (!baseUrl) {
-    return { ok: false, error: 'URL not configured' };
+    return { ok: false, error: "URL not configured" };
   }
 
   try {
     const start = Date.now();
-    const healthUrl = joinUrl(baseUrl, pathPrefix, '/health');
-    
+    const healthUrl = joinUrl(baseUrl, pathPrefix, "/health");
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch(healthUrl, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      method: "GET",
+      headers: { Accept: "application/json" },
       signal: controller.signal,
     });
 
@@ -226,7 +219,7 @@ async function checkConnectivity(
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Connection failed',
+      error: err instanceof Error ? err.message : "Connection failed",
     };
   }
 }
@@ -237,7 +230,7 @@ async function checkAuthWithSnapshot(
   baseUrl: string | undefined,
   pathPrefix: string,
   testRadicado: string | undefined,
-  apiKeyInfo: { source: string; present: boolean; fingerprint: string | null; value?: string }
+  apiKeyInfo: { source: string; present: boolean; fingerprint: string | null; value?: string },
 ): Promise<ProviderAuthCheck> {
   const result: ProviderAuthCheck = {
     ok: false,
@@ -247,24 +240,24 @@ async function checkAuthWithSnapshot(
   };
 
   // Skip if no test radicado configured
-  if (!testRadicado || testRadicado.trim() === '') {
-    result.error_code = 'SKIPPED';
-    result.error = 'No test radicado configured';
+  if (!testRadicado || testRadicado.trim() === "") {
+    result.error_code = "SKIPPED";
+    result.error = "No test radicado configured";
     result.hint = `Set ${provider.toUpperCase()}_TEST_RADICADO to enable auth check.`;
     return result;
   }
 
   // Skip if no API key
   if (!apiKeyInfo.present || !apiKeyInfo.value) {
-    result.error_code = 'MISSING_KEY';
-    result.error = 'No API key configured';
+    result.error_code = "MISSING_KEY";
+    result.error = "No API key configured";
     result.hint = `Set ${provider.toUpperCase()}_X_API_KEY or EXTERNAL_X_API_KEY.`;
     return result;
   }
 
   if (!baseUrl) {
-    result.error_code = 'NOT_CONFIGURED';
-    result.error = 'Base URL not configured';
+    result.error_code = "NOT_CONFIGURED";
+    result.error = "Base URL not configured";
     return result;
   }
 
@@ -272,15 +265,15 @@ async function checkAuthWithSnapshot(
     const start = Date.now();
     const snapshotPath = `/snapshot?numero_radicacion=${testRadicado.trim()}`;
     const snapshotUrl = joinUrl(baseUrl, pathPrefix, snapshotPath);
-    
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     const response = await fetch(snapshotUrl, {
-      method: 'GET',
+      method: "GET",
       headers: {
-        'Accept': 'application/json',
-        'X-API-Key': apiKeyInfo.value,
+        Accept: "application/json",
+        "x-api-key": apiKeyInfo.value, // ✅ FIXED: Changed to lowercase
       },
       signal: controller.signal,
     });
@@ -296,9 +289,9 @@ async function checkAuthWithSnapshot(
     result.test_identifier_used = `${testRadicado.slice(0, 6)}...${testRadicado.slice(-4)}`;
 
     // Extract useful response headers (sanitized)
-    const wwwAuth = response.headers.get('WWW-Authenticate');
+    const wwwAuth = response.headers.get("WWW-Authenticate");
     if (wwwAuth) {
-      result.response_headers_snippet = { 'WWW-Authenticate': wwwAuth.slice(0, 200) };
+      result.response_headers_snippet = { "WWW-Authenticate": wwwAuth.slice(0, 200) };
     }
 
     // Classify the result
@@ -310,26 +303,28 @@ async function checkAuthWithSnapshot(
 
     // Auth failure
     if (response.status === 401 || response.status === 403) {
-      result.error_code = 'UPSTREAM_AUTH';
+      result.error_code = "UPSTREAM_AUTH";
       result.error = `Auth failed (HTTP ${response.status})`;
       result.hint = `/health is reachable; protected endpoints are rejecting the key. Verify Cloud Run API_KEYS parsing/middleware. Key source: ${apiKeyInfo.source}, fingerprint: ${apiKeyInfo.fingerprint}`;
       return result;
     }
 
     // Route mismatch (HTML 404)
-    if (response.status === 404 && responseKind === 'HTML_CANNOT_GET') {
-      result.error_code = 'UPSTREAM_ROUTE_MISSING';
-      result.error = 'Route not found (HTML Cannot GET)';
-      result.hint = 'The /snapshot endpoint may not exist on this service. Check BASE_URL and PATH_PREFIX configuration.';
+    if (response.status === 404 && responseKind === "HTML_CANNOT_GET") {
+      result.error_code = "UPSTREAM_ROUTE_MISSING";
+      result.error = "Route not found (HTML Cannot GET)";
+      result.hint =
+        "The /snapshot endpoint may not exist on this service. Check BASE_URL and PATH_PREFIX configuration.";
       return result;
     }
 
     // Record not found (JSON 404 - this is actually success from auth perspective)
-    if (response.status === 404 && responseKind === 'JSON') {
+    if (response.status === 404 && responseKind === "JSON") {
       result.ok = true; // Auth worked, record just doesn't exist
-      result.error_code = 'RECORD_NOT_FOUND';
-      result.error = 'Test radicado not found (auth succeeded)';
-      result.hint = 'Auth check passed. The test radicado returned 404 JSON, which means auth is working but record does not exist.';
+      result.error_code = "RECORD_NOT_FOUND";
+      result.error = "Test radicado not found (auth succeeded)";
+      result.hint =
+        "Auth check passed. The test radicado returned 404 JSON, which means auth is working but record does not exist.";
       return result;
     }
 
@@ -337,38 +332,41 @@ async function checkAuthWithSnapshot(
     result.error_code = `HTTP_${response.status}`;
     result.error = `Unexpected response: HTTP ${response.status}`;
     return result;
-
   } catch (err) {
-    result.error_code = 'NETWORK_ERROR';
-    result.error = err instanceof Error ? err.message : 'Network error';
+    result.error_code = "NETWORK_ERROR";
+    result.error = err instanceof Error ? err.message : "Network error";
     return result;
   }
 }
 
 // Legacy reachability check (backward compatible)
-async function checkReachability(name: string, baseUrl: string | undefined, apiKey: string | undefined): Promise<{ ok: boolean; status?: number; latencyMs?: number; error?: string }> {
+async function checkReachability(
+  name: string,
+  baseUrl: string | undefined,
+  apiKey: string | undefined,
+): Promise<{ ok: boolean; status?: number; latencyMs?: number; error?: string }> {
   if (!baseUrl) {
-    return { ok: false, error: 'URL not configured' };
+    return { ok: false, error: "URL not configured" };
   }
 
   try {
     const start = Date.now();
     const headers: Record<string, string> = {
-      'Accept': 'application/json',
+      Accept: "application/json",
     };
-    
+
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
+      headers["x-api-key"] = apiKey; // ✅ FIXED: Changed to lowercase
     }
 
-    const healthUrl = new URL('/health', baseUrl).toString();
-    
+    const healthUrl = new URL("/health", baseUrl).toString();
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       const response = await fetch(healthUrl, {
-        method: 'GET',
+        method: "GET",
         headers,
         signal: controller.signal,
       });
@@ -383,15 +381,15 @@ async function checkReachability(name: string, baseUrl: string | undefined, apiK
       };
     } catch (fetchErr) {
       clearTimeout(timeoutId);
-      
+
       try {
         const headStart = Date.now();
         const headResponse = await fetch(baseUrl, {
-          method: 'HEAD',
+          method: "HEAD",
           headers,
           signal: AbortSignal.timeout(5000),
         });
-        
+
         return {
           ok: headResponse.status < 500,
           status: headResponse.status,
@@ -400,7 +398,7 @@ async function checkReachability(name: string, baseUrl: string | undefined, apiK
       } catch (headErr) {
         return {
           ok: false,
-          error: headErr instanceof Error ? headErr.message : 'Connection failed',
+          error: headErr instanceof Error ? headErr.message : "Connection failed",
           latencyMs: Date.now() - start,
         };
       }
@@ -408,47 +406,47 @@ async function checkReachability(name: string, baseUrl: string | undefined, apiK
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: err instanceof Error ? err.message : "Unknown error",
     };
   }
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
     if (!supabaseUrl || !supabaseServiceKey) {
-      return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500);
+      return errorResponse("MISSING_ENV", "Missing Supabase environment variables", 500);
     }
 
     // Auth check
-    const authHeader = req.headers.get('Authorization');
+    const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401);
+      return errorResponse("UNAUTHORIZED", "Missing Authorization header", 401);
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
-    
-    const token = authHeader.replace('Bearer ', '');
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY") || "");
+
+    const token = authHeader.replace("Bearer ", "");
     const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
-    
+
     if (authError || !claims?.claims?.sub) {
-      return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
+      return errorResponse("UNAUTHORIZED", "Invalid or expired token", 401);
     }
 
     const userId = claims.claims.sub as string;
 
     // Check if user is platform admin
     const { data: platformAdmin } = await supabase
-      .from('platform_admins')
-      .select('id')
-      .eq('user_id', userId)
+      .from("platform_admins")
+      .select("id")
+      .eq("user_id", userId)
       .maybeSingle();
 
     const isPlatformAdmin = !!platformAdmin;
@@ -457,25 +455,27 @@ Deno.serve(async (req) => {
     let isOrgAdmin = false;
     if (!isPlatformAdmin) {
       const { data: adminMemberships } = await supabase
-        .from('organization_memberships')
-        .select('id, role')
-        .eq('user_id', userId)
-        .in('role', ['OWNER', 'ADMIN'])
+        .from("organization_memberships")
+        .select("id, role")
+        .eq("user_id", userId)
+        .in("role", ["OWNER", "ADMIN"])
         .limit(1);
-      
+
       isOrgAdmin = (adminMemberships?.length ?? 0) > 0;
     }
 
     if (!isPlatformAdmin && !isOrgAdmin) {
-      return errorResponse('FORBIDDEN', 'This endpoint requires platform admin or organization admin access', 403);
+      return errorResponse("FORBIDDEN", "This endpoint requires platform admin or organization admin access", 403);
     }
 
-    console.log(`[integration-health] Access granted: user=${userId}, platformAdmin=${isPlatformAdmin}, orgAdmin=${isOrgAdmin}`);
+    console.log(
+      `[integration-health] Access granted: user=${userId}, platformAdmin=${isPlatformAdmin}, orgAdmin=${isOrgAdmin}`,
+    );
 
     // Check if reachability tests are requested
     const url = new URL(req.url);
-    const checkReach = url.searchParams.get('reachability') === 'true';
-    const checkAuth = url.searchParams.get('auth_check') === 'true';
+    const checkReach = url.searchParams.get("reachability") === "true";
+    const checkAuth = url.searchParams.get("auth_check") === "true";
 
     // Build env presence report (never expose values!)
     const envReport: Record<string, boolean> = {};
@@ -492,9 +492,9 @@ Deno.serve(async (req) => {
     }
 
     // Build email gateway health report
-    const emailGatewayBaseUrl = Deno.env.get('EMAIL_GATEWAY_BASE_URL');
-    const emailGatewayApiKey = Deno.env.get('EMAIL_GATEWAY_API_KEY');
-    const emailFromAddress = Deno.env.get('EMAIL_FROM_ADDRESS');
+    const emailGatewayBaseUrl = Deno.env.get("EMAIL_GATEWAY_BASE_URL");
+    const emailGatewayApiKey = Deno.env.get("EMAIL_GATEWAY_API_KEY");
+    const emailFromAddress = Deno.env.get("EMAIL_FROM_ADDRESS");
 
     const emailGatewayReport = {
       configured: !!(emailGatewayBaseUrl && emailGatewayApiKey),
@@ -504,8 +504,8 @@ Deno.serve(async (req) => {
     };
 
     // Check for test identifiers (for auth checks)
-    const cpnuTestRadicado = Deno.env.get('CPNU_TEST_RADICADO');
-    const samaiTestRadicado = Deno.env.get('SAMAI_TEST_RADICADO');
+    const cpnuTestRadicado = Deno.env.get("CPNU_TEST_RADICADO");
+    const samaiTestRadicado = Deno.env.get("SAMAI_TEST_RADICADO");
 
     const result: HealthResult = {
       ok: Object.values(envReport).every(Boolean) && emailGatewayReport.configured,
@@ -517,57 +517,55 @@ Deno.serve(async (req) => {
         samai_test_radicado_set: !!samaiTestRadicado && samaiTestRadicado.length > 0,
       },
       timestamp: new Date().toISOString(),
-      user_role: isPlatformAdmin ? 'platform_admin' : 'org_admin',
+      user_role: isPlatformAdmin ? "platform_admin" : "org_admin",
     };
 
     // Optional reachability checks (basic connectivity - legacy)
     if (checkReach) {
-      const providers = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
+      const providers = ["cpnu", "samai", "tutelas", "publicaciones"] as const;
       result.reachability = {};
-      
+
       for (const provider of providers) {
         const apiKeyInfo = await getApiKeyInfo(provider);
         const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
-        result.reachability[provider] = await checkReachability(provider, baseUrl, apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined);
+        result.reachability[provider] = await checkReachability(
+          provider,
+          baseUrl,
+          apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined,
+        );
       }
 
       // Also check email gateway if configured
       if (emailGatewayBaseUrl) {
         result.reachability.email_gateway = await checkReachability(
-          'email_gateway', 
-          emailGatewayBaseUrl, 
-          emailGatewayApiKey
+          "email_gateway",
+          emailGatewayBaseUrl,
+          emailGatewayApiKey,
         );
       }
     }
 
     // NEW: Combined provider health checks (connectivity + auth)
     // Always run these for the main providers (CPNU, SAMAI)
-    const providers = ['cpnu', 'samai'] as const;
+    const providers = ["cpnu", "samai"] as const;
     result.provider_health = {};
 
     for (const provider of providers) {
       const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
-      const pathPrefix = Deno.env.get(`${provider.toUpperCase()}_PATH_PREFIX`) || '';
-      const testRadicado = provider === 'cpnu' ? cpnuTestRadicado : samaiTestRadicado;
+      const pathPrefix = Deno.env.get(`${provider.toUpperCase()}_PATH_PREFIX`) || "";
+      const testRadicado = provider === "cpnu" ? cpnuTestRadicado : samaiTestRadicado;
       const apiKeyInfo = await getApiKeyInfo(provider);
 
       // A) Connectivity check (GET /health - no auth assumptions)
       const connectivity = await checkConnectivity(provider, baseUrl, pathPrefix);
 
       // B) Auth check (GET /snapshot with test radicado - requires valid API key)
-      const authCheck = await checkAuthWithSnapshot(
-        provider,
-        baseUrl,
-        pathPrefix,
-        testRadicado,
-        {
-          source: apiKeyInfo.source,
-          present: apiKeyInfo.present,
-          fingerprint: apiKeyInfo.fingerprint,
-          value: apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined,
-        }
-      );
+      const authCheck = await checkAuthWithSnapshot(provider, baseUrl, pathPrefix, testRadicado, {
+        source: apiKeyInfo.source,
+        present: apiKeyInfo.present,
+        fingerprint: apiKeyInfo.fingerprint,
+        value: apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined,
+      });
 
       result.provider_health[provider] = {
         connectivity,
@@ -577,49 +575,51 @@ Deno.serve(async (req) => {
 
     // Optional legacy auth checks (backward compatibility - calls /health with key)
     if (checkAuth) {
-      const allProviders = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
+      const allProviders = ["cpnu", "samai", "tutelas", "publicaciones"] as const;
       result.auth_checks = {};
-      
+
       for (const provider of allProviders) {
         const apiKeyInfo = await getApiKeyInfo(provider);
         const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
-        
+
         if (!baseUrl) {
           result.auth_checks[provider] = {
             ok: false,
-            error: 'URL not configured',
+            error: "URL not configured",
             api_key_source: apiKeyInfo.source,
             api_key_present: apiKeyInfo.present,
             api_key_fingerprint: apiKeyInfo.fingerprint,
           };
           continue;
         }
-        
+
         // Call /health with the selected API key
         const start = Date.now();
         try {
-          const headers: Record<string, string> = { 'Accept': 'application/json' };
+          const headers: Record<string, string> = { Accept: "application/json" };
           if (apiKeyInfo.present) {
             const keyValue = Deno.env.get(apiKeyInfo.source);
-            if (keyValue) headers['X-API-Key'] = keyValue;
+            if (keyValue) headers["x-api-key"] = keyValue; // ✅ FIXED: Changed to lowercase
           }
-          
-          const healthUrl = new URL('/health', baseUrl).toString();
-          const response = await fetch(healthUrl, { 
-            method: 'GET', 
+
+          const healthUrl = new URL("/health", baseUrl).toString();
+          const response = await fetch(healthUrl, {
+            method: "GET",
             headers,
             signal: AbortSignal.timeout(10000),
           });
-          
+
           const latencyMs = Date.now() - start;
-          
+
           result.auth_checks[provider] = {
             ok: response.ok,
             status: response.status,
             latencyMs,
-            error: response.ok ? undefined : (response.status === 401 || response.status === 403 
-              ? `Auth failed (${response.status}). Check ${apiKeyInfo.source} or Cloud Run API_KEYS.`
-              : `HTTP ${response.status}`),
+            error: response.ok
+              ? undefined
+              : response.status === 401 || response.status === 403
+                ? `Auth failed (${response.status}). Check ${apiKeyInfo.source} or Cloud Run API_KEYS.`
+                : `HTTP ${response.status}`,
             api_key_source: apiKeyInfo.source,
             api_key_present: apiKeyInfo.present,
             api_key_fingerprint: apiKeyInfo.fingerprint,
@@ -628,7 +628,7 @@ Deno.serve(async (req) => {
           result.auth_checks[provider] = {
             ok: false,
             latencyMs: Date.now() - start,
-            error: err instanceof Error ? err.message : 'Connection failed',
+            error: err instanceof Error ? err.message : "Connection failed",
             api_key_source: apiKeyInfo.source,
             api_key_present: apiKeyInfo.present,
             api_key_fingerprint: apiKeyInfo.fingerprint,
@@ -637,16 +637,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}, cpnu_connectivity=${result.provider_health?.cpnu?.connectivity?.ok}, cpnu_auth=${result.provider_health?.cpnu?.auth?.ok}`);
+    console.log(
+      `[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}, cpnu_connectivity=${result.provider_health?.cpnu?.connectivity?.ok}, cpnu_auth=${result.provider_health?.cpnu?.auth?.ok}`,
+    );
 
     return jsonResponse(result);
-
   } catch (err) {
-    console.error('[integration-health] Error:', err);
-    return errorResponse(
-      'INTERNAL_ERROR',
-      err instanceof Error ? err.message : 'An unexpected error occurred',
-      500
-    );
+    console.error("[integration-health] Error:", err);
+    return errorResponse("INTERNAL_ERROR", err instanceof Error ? err.message : "An unexpected error occurred", 500);
   }
 });
