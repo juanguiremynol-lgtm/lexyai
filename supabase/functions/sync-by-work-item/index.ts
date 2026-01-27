@@ -2418,9 +2418,10 @@ Deno.serve(async (req) => {
         }
         
         // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
-        const significantEventType = detectSignificantEvent(act.actuacion, act.anotacion || '');
-        if (significantEventType) {
-          const alertFingerprint = `alert_${work_item_id.slice(0, 8)}_${significantEventType}_${actDate || 'no-date'}`;
+        const significantEvent = detectSignificantEvent(act.actuacion, act.anotacion || '');
+        if (significantEvent) {
+          // Use the event type in the fingerprint (not the whole object)
+          const alertFingerprint = `alert_${work_item_id.slice(0, 8)}_${significantEvent.type}_${actDate || 'no-date'}`;
           
           // Check for existing alert with same fingerprint
           const { data: existingAlert } = await supabase
@@ -2438,20 +2439,22 @@ Deno.serve(async (req) => {
                 organization_id: workItem.organization_id,
                 entity_id: work_item_id,
                 entity_type: 'WORK_ITEM',
-                severity: significantEventType.severity,
-                title: significantEventType.title,
+                severity: significantEvent.severity,
+                title: significantEvent.title,
                 message: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`.slice(0, 500),
                 status: 'ACTIVE',
                 fingerprint: alertFingerprint,
                 payload: {
-                  event_type: significantEventType.type,
+                  event_type: significantEvent.type,
                   event_date: actDate,
                   provider: fetchResult.provider,
                 },
               });
             
-            if (!alertError) {
-              console.log(`[sync-by-work-item] Created alert for ${significantEventType.type}`);
+            if (alertError) {
+              console.warn(`[sync-by-work-item] Failed to create alert for ${significantEvent.type}:`, alertError.message);
+            } else {
+              console.log(`[sync-by-work-item] Created alert for ${significantEvent.type}`);
             }
           }
         }
@@ -2481,16 +2484,17 @@ Deno.serve(async (req) => {
                 work_item_id,
                 owner_id: workItem.owner_id,
                 organization_id: workItem.organization_id,
-                current_stage: null, // We don't have current stage loaded
                 suggested_stage: stageSuggestion.suggestedStage,
                 confidence: stageSuggestion.confidence,
                 reason: stageSuggestion.reason,
-                source: 'sync-by-work-item',
-                source_event_text: act.actuacion.slice(0, 500),
+                source_type: 'sync-by-work-item',
+                event_fingerprint: suggestionFingerprint,
                 status: stageSuggestion.confidence >= 0.8 ? 'AUTO_APPLIED' : 'PENDING',
               });
             
-            if (!suggestionError) {
+            if (suggestionError) {
+              console.warn(`[sync-by-work-item] Failed to create stage suggestion:`, suggestionError.message);
+            } else {
               console.log(`[sync-by-work-item] Created stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence})`);
               
               // Auto-apply high confidence suggestions
