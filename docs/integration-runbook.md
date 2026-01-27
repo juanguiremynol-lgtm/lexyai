@@ -36,13 +36,23 @@ The following secrets must be configured in Supabase Edge Function environment:
 
 **Critical Business Rule**: Provider selection is determined by `work_items.workflow_type`, NOT by a global default.
 
-| Workflow Type | Primary Provider | Fallback Provider | Fallback Enabled |
-|---------------|------------------|-------------------|------------------|
-| **CGP** | CPNU | SAMAI | ✅ Yes |
-| **LABORAL** | CPNU | SAMAI | ✅ Yes |
-| **CPACA** | SAMAI | CPNU | ❌ No (disabled by default) |
-| **TUTELA** | TUTELAS API | None | ❌ N/A |
-| **PENAL_906** | CPNU | SAMAI | ✅ Yes |
+| Workflow Type | Primary Provider | Fallback Provider | Fallback Enabled | Notification Source |
+|---------------|------------------|-------------------|------------------|---------------------|
+| **CGP** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) |
+| **LABORAL** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) |
+| **CPACA** | SAMAI | CPNU | ❌ No (disabled) | SAMAI actuaciones |
+| **TUTELA** | TUTELAS API | CPNU | ✅ Yes | TUTELAS expediente |
+| **PENAL_906** | CPNU | SAMAI | ✅ Yes | PUBLICACIONES first-class |
+
+### Notification Source Rules
+
+**CGP + LABORAL**: ESTADOS are the **primary notification source** because an Estado is what typically triggers legal terms (days start counting after the judicial act is notified). The Times Square ticker shows Estados. CPNU/SAMAI provide enrichment actuaciones but do NOT override Estado-driven notification logic.
+
+**TUTELA**: TUTELAS API is primary. If TUTELAS returns empty/not-found AND a radicado exists, CPNU is tried as fallback.
+
+**PENAL_906**: Publicaciones Procesales are treated as **first-class actuation source** because penal processes often surface relevant judicial activity via court publications (PDFs, annotations). The `sync-publicaciones-by-work-item` function extracts these automatically.
+
+**CPACA**: SAMAI is primary because administrative litigation cases are primarily tracked there.
 
 ### Why CPACA Uses SAMAI First
 
@@ -65,11 +75,15 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
     case 'CPACA':
       return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
     case 'TUTELA':
-      return { primary: 'tutelas-api', fallback: null, fallbackEnabled: false };
+      // TUTELAS API primary, CPNU fallback if TUTELAS empty/failed
+      return { primary: 'tutelas-api', fallback: 'cpnu', fallbackEnabled: true };
+    case 'PENAL_906':
+      // Publicaciones are first-class source (via sync-publicaciones)
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, usePublicacionesAsSource: true };
     case 'CGP':
     case 'LABORAL':
-    case 'PENAL_906':
     default:
+      // Estados remain canonical notification source
       return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
   }
 }
@@ -355,7 +369,7 @@ Test that provider order respects workflow_type:
 | **LABORAL** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
 | **CPACA** | `05001233300020240115300` | SAMAI called first | CPNU skipped (disabled) |
 | **PENAL_906** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
-| **TUTELA** | `T11728622` | TUTELAS API | N/A |
+| **TUTELA** | `T11728622` | TUTELAS API | CPNU if TUTELAS empty |
 
 **Validation Steps:**
 
@@ -371,6 +385,23 @@ Test that provider order respects workflow_type:
 6. Verify response includes:
    - `provider_attempts[0].provider === 'cpnu'`
    - `provider_order_reason === 'workflow_type=CGP'`
+
+7. **TUTELA with fallback**: Create a work_item with `workflow_type = 'TUTELA'` and a valid radicado but invalid tutela_code
+8. Verify that CPNU is attempted as fallback when TUTELAS returns empty
+
+### Gate 7: Notification Source Verification
+
+Verify that each workflow uses the correct notification source:
+
+| Workflow | Notification Source | Verification |
+|----------|---------------------|--------------|
+| CGP | Estados | Ticker shows Estados from `work_item_acts` |
+| LABORAL | Estados | Ticker shows Estados from `work_item_acts` |
+| CPACA | SAMAI actuaciones | Direct from SAMAI sync |
+| TUTELA | TUTELAS expediente | From TUTELAS API |
+| PENAL_906 | Publicaciones | From `work_item_publicaciones` |
+
+**Key Rule**: CGP/LABORAL legal terms are driven by Estados, NOT by raw actuaciones from CPNU/SAMAI. The estados ingestion pipeline remains the canonical source.
 
 ## Acceptance Criteria
 
