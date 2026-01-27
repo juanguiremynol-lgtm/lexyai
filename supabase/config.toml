@@ -101,3 +101,9 @@ verify_jwt = false
 
 [functions.process-email-outbox]
 verify_jwt = false
+
+[functions.integration-health]
+verify_jwt = false
+
+[functions.debug-external-provider]
+verify_jwt = false
