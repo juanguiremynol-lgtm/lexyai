@@ -1,0 +1,150 @@
+/**
+ * Sync Trace Utilities
+ * 
+ * Client-side helpers for generating trace IDs and fetching traces.
+ */
+
+import { supabase } from "@/integrations/supabase/client";
+
+// Generate a new trace ID
+export function generateTraceId(): string {
+  return crypto.randomUUID();
+}
+
+// Trace step names (must match Edge Function)
+export const TRACE_STEPS = {
+  SYNC_START: "SYNC_START",
+  AUTHZ_OK: "AUTHZ_OK",
+  AUTHZ_FAILED: "AUTHZ_FAILED",
+  WORK_ITEM_LOADED: "WORK_ITEM_LOADED",
+  WORK_ITEM_NOT_FOUND: "WORK_ITEM_NOT_FOUND",
+  PROVIDER_SELECTED: "PROVIDER_SELECTED",
+  PROVIDER_REQUEST_START: "PROVIDER_REQUEST_START",
+  PROVIDER_RESPONSE_RECEIVED: "PROVIDER_RESPONSE_RECEIVED",
+  PROVIDER_404: "PROVIDER_404",
+  PROVIDER_ERROR: "PROVIDER_ERROR",
+  PARSE_START: "PARSE_START",
+  PARSE_RESULT: "PARSE_RESULT",
+  PARSE_EMPTY: "PARSE_EMPTY",
+  DB_WRITE_START: "DB_WRITE_START",
+  DB_WRITE_RESULT: "DB_WRITE_RESULT",
+  DB_WRITE_FAILED: "DB_WRITE_FAILED",
+  SYNC_SUCCESS: "SYNC_SUCCESS",
+  SYNC_FAILED: "SYNC_FAILED",
+} as const;
+
+// Error codes (normalized)
+export const ERROR_CODES = {
+  WORK_ITEM_NOT_FOUND: "WORK_ITEM_NOT_FOUND",
+  UNAUTHORIZED: "UNAUTHORIZED",
+  ORG_MISMATCH: "ORG_MISMATCH",
+  PROVIDER_404: "PROVIDER_404",
+  PROVIDER_ERROR: "PROVIDER_ERROR",
+  PROVIDER_TIMEOUT: "PROVIDER_TIMEOUT",
+  PARSER_EMPTY: "PARSER_EMPTY",
+  PARSER_ERROR: "PARSER_ERROR",
+  DB_WRITE_FAILED: "DB_WRITE_FAILED",
+  DB_CONSTRAINT: "DB_CONSTRAINT",
+  MISSING_IDENTIFIER: "MISSING_IDENTIFIER",
+  INVALID_IDENTIFIER: "INVALID_IDENTIFIER",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+} as const;
+
+export interface SyncTrace {
+  id: string;
+  trace_id: string;
+  work_item_id: string | null;
+  organization_id: string | null;
+  workflow_type: string | null;
+  step: string;
+  provider: string | null;
+  http_status: number | null;
+  latency_ms: number | null;
+  success: boolean;
+  error_code: string | null;
+  message: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+// Fetch traces for a work item
+export async function fetchTracesForWorkItem(
+  workItemId: string,
+  limit = 100
+): Promise<SyncTrace[]> {
+  const { data, error } = await (supabase
+    .from("sync_traces") as any)
+    .select("*")
+    .eq("work_item_id", workItemId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn("[sync-trace] Failed to fetch traces:", error.message);
+    return [];
+  }
+
+  return (data || []) as SyncTrace[];
+}
+
+// Fetch traces by trace_id
+export async function fetchTraceById(traceId: string): Promise<SyncTrace[]> {
+  const { data, error } = await (supabase
+    .from("sync_traces") as any)
+    .select("*")
+    .eq("trace_id", traceId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.warn("[sync-trace] Failed to fetch trace:", error.message);
+    return [];
+  }
+
+  return (data || []) as SyncTrace[];
+}
+
+// Get the terminal step from a trace
+export function getTraceOutcome(traces: SyncTrace[]): {
+  success: boolean;
+  step: string;
+  errorCode: string | null;
+  message: string | null;
+} {
+  if (traces.length === 0) {
+    return { success: false, step: "NO_TRACES", errorCode: null, message: null };
+  }
+
+  const lastTrace = traces[traces.length - 1];
+  return {
+    success: lastTrace.step === TRACE_STEPS.SYNC_SUCCESS,
+    step: lastTrace.step,
+    errorCode: lastTrace.error_code,
+    message: lastTrace.message,
+  };
+}
+
+// Format error message for UI display
+export function formatSyncError(errorCode: string | null, message: string | null): string {
+  if (!errorCode && !message) return "Error desconocido";
+
+  const errorLabels: Record<string, string> = {
+    WORK_ITEM_NOT_FOUND: "Asunto no encontrado en la base de datos",
+    UNAUTHORIZED: "No autorizado para esta operación",
+    ORG_MISMATCH: "No perteneces a la organización de este asunto",
+    PROVIDER_404: "El proveedor no encontró el proceso (radicado no existe en fuente externa)",
+    PROVIDER_ERROR: "Error al consultar el proveedor externo",
+    PROVIDER_TIMEOUT: "Tiempo de espera agotado al consultar proveedor",
+    PARSER_EMPTY: "El proveedor respondió pero no devolvió datos",
+    PARSER_ERROR: "Error al procesar la respuesta del proveedor",
+    DB_WRITE_FAILED: "Error al guardar datos en la base de datos",
+    DB_CONSTRAINT: "Violación de restricción en base de datos",
+    MISSING_IDENTIFIER: "Falta identificador (radicado o código tutela)",
+    INVALID_IDENTIFIER: "Identificador inválido (formato incorrecto)",
+    INTERNAL_ERROR: "Error interno del servidor",
+  };
+
+  const label = errorCode ? errorLabels[errorCode] || errorCode : "";
+  const detail = message && message !== label ? ` - ${message}` : "";
+  
+  return label + detail;
+}

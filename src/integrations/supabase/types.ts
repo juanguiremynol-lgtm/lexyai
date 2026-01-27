@@ -5288,6 +5288,82 @@ export type Database = {
           },
         ]
       }
+      sync_traces: {
+        Row: {
+          created_at: string | null
+          error_code: string | null
+          http_status: number | null
+          id: string
+          latency_ms: number | null
+          message: string | null
+          meta: Json | null
+          organization_id: string | null
+          owner_id: string | null
+          provider: string | null
+          step: string
+          success: boolean | null
+          trace_id: string
+          work_item_id: string | null
+          workflow_type: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          message?: string | null
+          meta?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          provider?: string | null
+          step: string
+          success?: boolean | null
+          trace_id: string
+          work_item_id?: string | null
+          workflow_type?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          error_code?: string | null
+          http_status?: number | null
+          id?: string
+          latency_ms?: number | null
+          message?: string | null
+          meta?: Json | null
+          organization_id?: string | null
+          owner_id?: string | null
+          provider?: string | null
+          step?: string
+          success?: boolean | null
+          trace_id?: string
+          work_item_id?: string | null
+          workflow_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_traces_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_traces_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_health_events: {
         Row: {
           created_at: string

@@ -9,16 +9,18 @@
  * - TUTELAS API for TUTELA workflows (tutela_code-based)
  * - All external URLs from env vars: CPNU_BASE_URL, SAMAI_BASE_URL, TUTELAS_BASE_URL, EXTERNAL_X_API_KEY
  * - Idempotent: uses hash_fingerprint to prevent duplicates
+ * - **NEW**: Detailed trace logging via sync_traces table for debugging
  * 
  * Input: { work_item_id: string }
- * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors }
+ * Headers: X-Trace-Id (optional, for debugging)
+ * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors, trace_id }
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trace-id',
 };
 
 // ============= TYPES =============
@@ -48,6 +50,8 @@ interface SyncResult {
   provider_order_reason: string;
   warnings: string[];
   errors: string[];
+  trace_id?: string;
+  code?: string; // Error code for client
 }
 
 interface WorkItem {
@@ -84,6 +88,52 @@ interface FetchResult {
   provider: string;
   isEmpty?: boolean; // Indicates empty result (for fallback logic)
   latencyMs?: number;
+  httpStatus?: number;
+}
+
+// ============= TRACE LOGGING =============
+
+interface TraceEvent {
+  trace_id: string;
+  work_item_id: string | null;
+  organization_id: string | null;
+  workflow_type: string | null;
+  step: string;
+  provider: string | null;
+  http_status: number | null;
+  latency_ms: number | null;
+  success: boolean;
+  error_code: string | null;
+  message: string | null;
+  meta: Record<string, unknown>;
+}
+
+// Log a trace event to the database (non-blocking, fail-safe)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function logTrace(
+  supabase: any,
+  event: Partial<TraceEvent> & { trace_id: string; step: string }
+): Promise<void> {
+  try {
+    // Use 'any' cast since sync_traces table may not be in generated types yet
+    await (supabase.from('sync_traces') as any).insert({
+      trace_id: event.trace_id,
+      work_item_id: event.work_item_id || null,
+      organization_id: event.organization_id || null,
+      workflow_type: event.workflow_type || null,
+      step: event.step,
+      provider: event.provider || null,
+      http_status: event.http_status || null,
+      latency_ms: event.latency_ms || null,
+      success: event.success ?? false,
+      error_code: event.error_code || null,
+      message: event.message?.slice(0, 500) || null, // Truncate messages
+      meta: event.meta || {},
+    });
+  } catch (err) {
+    // Fail silently - tracing should never break the main flow
+    console.warn('[sync-by-work-item] Failed to log trace:', err);
+  }
 }
 
 // ============= WORKFLOW-BASED PROVIDER ORDER =============
@@ -137,11 +187,12 @@ function jsonResponse(data: object, status: number = 200): Response {
   });
 }
 
-function errorResponse(code: string, message: string, status: number = 400): Response {
+function errorResponse(code: string, message: string, status: number = 400, traceId?: string): Response {
   return jsonResponse({
     ok: false,
     code,
     message,
+    trace_id: traceId,
     timestamp: new Date().toISOString(),
   }, status);
 }
@@ -700,28 +751,47 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Get trace ID from header or generate new one
+  const traceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
+  const syncStartTime = Date.now();
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500);
+      return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500, traceId);
     }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Auth check
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401);
+      await logTrace(supabase, {
+        trace_id: traceId,
+        step: 'AUTHZ_FAILED',
+        success: false,
+        error_code: 'UNAUTHORIZED',
+        message: 'Missing Authorization header',
+      });
+      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, traceId);
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
     
     const token = authHeader.replace('Bearer ', '');
     const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
     
     if (authError || !claims?.claims?.sub) {
-      return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
+      await logTrace(supabase, {
+        trace_id: traceId,
+        step: 'AUTHZ_FAILED',
+        success: false,
+        error_code: 'UNAUTHORIZED',
+        message: 'Invalid or expired token',
+      });
+      return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, traceId);
     }
 
     const userId = claims.claims.sub as string;
@@ -731,16 +801,26 @@ Deno.serve(async (req) => {
     try {
       payload = await req.json();
     } catch {
-      return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
+      return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
     const { work_item_id } = payload;
     
     if (!work_item_id) {
-      return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400);
+      return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
     }
 
-    console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
+    console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}, trace_id=${traceId}`);
+
+    // Log sync start
+    await logTrace(supabase, {
+      trace_id: traceId,
+      work_item_id,
+      step: 'SYNC_START',
+      success: true,
+      message: `Starting sync for work_item_id=${work_item_id}`,
+      meta: { user_id: userId.slice(0, 8) + '...' },
+    });
 
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
@@ -751,8 +831,32 @@ Deno.serve(async (req) => {
 
     if (workItemError || !workItem) {
       console.log(`[sync-by-work-item] Work item not found: ${work_item_id}`);
-      return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        step: 'WORK_ITEM_NOT_FOUND',
+        success: false,
+        error_code: 'WORK_ITEM_NOT_FOUND',
+        message: 'Work item not found or access denied',
+      });
+      return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404, traceId);
     }
+
+    // Log work item loaded
+    await logTrace(supabase, {
+      trace_id: traceId,
+      work_item_id,
+      organization_id: workItem.organization_id,
+      workflow_type: workItem.workflow_type,
+      step: 'WORK_ITEM_LOADED',
+      success: true,
+      message: `Loaded work item: ${workItem.workflow_type}`,
+      meta: {
+        has_radicado: !!workItem.radicado,
+        has_tutela_code: !!workItem.tutela_code,
+        radicado_preview: workItem.radicado ? workItem.radicado.slice(0, 10) + '...' : null,
+      },
+    });
 
     // ============= MULTI-TENANT SECURITY: Verify user is member of org =============
     const { data: membership, error: membershipError } = await supabase
