@@ -97,6 +97,14 @@ interface RouteAttempt {
   error?: string;
 }
 
+// Auth diagnostics (safe to expose - no secrets)
+interface AuthDiagnostics {
+  auth_header_used: string;
+  api_key_source: 'CPNU_X_API_KEY' | 'SAMAI_X_API_KEY' | 'TUTELAS_X_API_KEY' | 'PUBLICACIONES_X_API_KEY' | 'EXTERNAL_X_API_KEY' | 'MISSING';
+  api_key_present: boolean;
+  api_key_fingerprint: string | null; // First 8 chars of sha256 hash (safe)
+}
+
 interface DebugResult {
   ok: boolean;
   provider_used: string;
@@ -107,6 +115,8 @@ interface DebugResult {
   // Path prefix diagnostics
   path_prefix_used?: string; // The prefix applied (e.g., "" or "/cpnu")
   path_prefix_note?: string; // Hint about prefix configuration
+  // Auth diagnostics (safe)
+  auth?: AuthDiagnostics;
   status: number;
   latencyMs: number;
   summary: DebugSummary;
@@ -360,6 +370,69 @@ function safeLog(
   }
 }
 
+// ============= API KEY SELECTION =============
+// Provider-specific keys take precedence over the shared EXTERNAL_X_API_KEY
+// This allows different credentials per upstream service
+
+interface ApiKeyInfo {
+  source: AuthDiagnostics['api_key_source'];
+  value: string | null;
+  fingerprint: string | null;
+}
+
+async function hashFingerprint(value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(value);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex.slice(0, 8); // First 8 chars of sha256 (safe fingerprint)
+}
+
+async function getApiKeyForProvider(provider: ProviderName): Promise<ApiKeyInfo> {
+  // Provider-specific key env vars
+  const providerKeyMap: Record<ProviderName, string> = {
+    cpnu: 'CPNU_X_API_KEY',
+    samai: 'SAMAI_X_API_KEY',
+    tutelas: 'TUTELAS_X_API_KEY',
+    publicaciones: 'PUBLICACIONES_X_API_KEY',
+  };
+
+  const sourceNameMap: Record<ProviderName, AuthDiagnostics['api_key_source']> = {
+    cpnu: 'CPNU_X_API_KEY',
+    samai: 'SAMAI_X_API_KEY',
+    tutelas: 'TUTELAS_X_API_KEY',
+    publicaciones: 'PUBLICACIONES_X_API_KEY',
+  };
+
+  // Try provider-specific key first
+  const providerKey = Deno.env.get(providerKeyMap[provider]);
+  if (providerKey && providerKey.length > 0) {
+    return {
+      source: sourceNameMap[provider],
+      value: providerKey,
+      fingerprint: await hashFingerprint(providerKey),
+    };
+  }
+
+  // Fall back to shared key
+  const sharedKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  if (sharedKey && sharedKey.length > 0) {
+    return {
+      source: 'EXTERNAL_X_API_KEY',
+      value: sharedKey,
+      fingerprint: await hashFingerprint(sharedKey),
+    };
+  }
+
+  // No key available
+  return {
+    source: 'MISSING',
+    value: null,
+    fingerprint: null,
+  };
+}
+
 // ============= PROVIDER CALLS WITH ROUTE PROBING =============
 
 function getRouteCandidates(provider: ProviderName): string[] {
@@ -385,6 +458,7 @@ async function callProviderWithProbing(
   body_snippet?: string;
   attempts: RouteAttempt[];
   route_probing_used: boolean;
+  auth: AuthDiagnostics;
 }> {
   const envMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_BASE_URL',
@@ -405,7 +479,16 @@ async function callProviderWithProbing(
 
   const baseUrl = Deno.env.get(envMap[provider]);
   const pathPrefix = Deno.env.get(prefixEnvMap[provider]) || ''; // Default to empty
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  
+  // Get API key with provider-specific selection
+  const apiKeyInfo = await getApiKeyForProvider(provider);
+  
+  const authDiagnostics: AuthDiagnostics = {
+    auth_header_used: 'X-API-Key',
+    api_key_source: apiKeyInfo.source,
+    api_key_present: apiKeyInfo.value !== null,
+    api_key_fingerprint: apiKeyInfo.fingerprint,
+  };
 
   if (!baseUrl) {
     return { 
@@ -417,6 +500,7 @@ async function callProviderWithProbing(
       path_prefix_used: pathPrefix,
       attempts: [],
       route_probing_used: false,
+      auth: authDiagnostics,
     };
   }
 
@@ -433,8 +517,9 @@ async function callProviderWithProbing(
     'Accept': 'application/json',
   };
   
-  if (apiKey) {
-    headers['X-API-Key'] = apiKey;
+  // Only add auth header if key is present
+  if (apiKeyInfo.value) {
+    headers['X-API-Key'] = apiKeyInfo.value;
   }
 
   for (let i = 0; i < routeCandidates.length; i++) {
@@ -505,6 +590,7 @@ async function callProviderWithProbing(
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
+          auth: authDiagnostics,
         };
       }
 
@@ -521,6 +607,7 @@ async function callProviderWithProbing(
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
+          auth: authDiagnostics,
         };
       }
 
@@ -539,6 +626,7 @@ async function callProviderWithProbing(
             path_prefix_used: normalizedPrefix,
             attempts,
             route_probing_used: routeProbingUsed,
+            auth: authDiagnostics,
           };
         }
 
@@ -549,6 +637,7 @@ async function callProviderWithProbing(
           path_prefix_used: normalizedPrefix,
           attempts,
           route_probing_used: routeProbingUsed,
+          auth: authDiagnostics,
         };
       } catch {
         // Got 200 but body is not valid JSON
@@ -562,6 +651,7 @@ async function callProviderWithProbing(
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
+          auth: authDiagnostics,
         };
       }
 
@@ -586,6 +676,7 @@ async function callProviderWithProbing(
           path_prefix_used: normalizedPrefix,
           attempts,
           route_probing_used: routeProbingUsed,
+          auth: authDiagnostics,
         };
       }
 
@@ -606,6 +697,7 @@ async function callProviderWithProbing(
         path_prefix_used: normalizedPrefix,
         attempts,
         route_probing_used: routeProbingUsed,
+        auth: authDiagnostics,
       };
     }
   }
@@ -619,6 +711,7 @@ async function callProviderWithProbing(
     path_prefix_used: normalizedPrefix,
     attempts,
     route_probing_used: false,
+    auth: authDiagnostics,
   };
 }
 
@@ -875,6 +968,7 @@ Deno.serve(async (req) => {
       request_method: 'GET',
       path_prefix_used: prefixUsed,
       path_prefix_note: prefixNote,
+      auth: result.auth, // Include auth diagnostics
       status: result.status,
       latencyMs,
       summary,
