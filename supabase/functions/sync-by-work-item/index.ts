@@ -1727,9 +1727,60 @@ Deno.serve(async (req) => {
           actuacionesCount: fetchResult.actuaciones.length,
         });
         
-        // CPNU fallback for TUTELA if TUTELAS API returns empty/not-found
+        // ============= CHECK IF SCRAPING WAS AUTO-INITIATED BY TUTELAS =============
+        // If scraping was initiated, DO NOT attempt fallback - return 202 immediately
+        if (fetchResult.scrapingInitiated && fetchResult.scrapingJobId) {
+          console.log(`[sync-by-work-item] TUTELAS: Auto-scraping initiated, skipping CPNU fallback`);
+          
+          result.ok = false;
+          result.provider_used = 'tutelas-api';
+          result.scraping_initiated = true;
+          result.scraping_job_id = fetchResult.scrapingJobId;
+          result.scraping_poll_url = fetchResult.scrapingPollUrl;
+          result.scraping_provider = 'tutelas-api';
+          result.scraping_message = fetchResult.scrapingMessage || 
+            `Tutela not found in cache. Scraping initiated (job ${fetchResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+          
+          // Log SCRAPING_INITIATED trace step
+          await logTrace(supabase, {
+            trace_id: traceId,
+            work_item_id,
+            organization_id: workItem.organization_id,
+            workflow_type: workItem.workflow_type,
+            step: 'SCRAPING_INITIATED',
+            provider: 'tutelas-api',
+            http_status: null,
+            latency_ms: fetchResult.latencyMs || null,
+            success: true,
+            error_code: null,
+            message: `Scraping job created: ${fetchResult.scrapingJobId}`,
+            meta: {
+              job_id: fetchResult.scrapingJobId,
+              poll_url: fetchResult.scrapingPollUrl,
+              tutela_code_preview: workItem.tutela_code?.slice(0, 6) + '...',
+            },
+          });
+          
+          // Update work_item with SCRAPING status and metadata
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: 'IN_PROGRESS',
+              scrape_provider: 'tutelas-api',
+              scrape_job_id: fetchResult.scrapingJobId,
+              scrape_poll_url: fetchResult.scrapingPollUrl,
+              last_scrape_initiated_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+            })
+            .eq('id', work_item_id);
+          
+          result.trace_id = traceId;
+          return jsonResponse(result, 202);
+        }
+        
+        // CPNU fallback for TUTELA if TUTELAS API returns empty/not-found (no scraping initiated)
         if (!fetchResult.ok && providerOrder.fallbackEnabled && fetchResult.isEmpty) {
-          console.log(`[sync-by-work-item] TUTELAS API empty, trying CPNU fallback`);
+          console.log(`[sync-by-work-item] TUTELAS API empty (no scraping), trying CPNU fallback`);
           result.warnings.push(`TUTELAS API (primary): ${fetchResult.error || 'Not found'}`);
           
           // Try CPNU using radicado if available
@@ -1969,9 +2020,60 @@ Deno.serve(async (req) => {
           actuacionesCount: fetchResult.actuaciones.length,
         });
         
-        // CPNU fallback for CPACA (only if explicitly enabled)
+        // ============= CHECK IF SCRAPING WAS AUTO-INITIATED BY SAMAI =============
+        // If scraping was initiated, DO NOT attempt CPNU fallback - return 202 immediately
+        if (fetchResult.scrapingInitiated && fetchResult.scrapingJobId) {
+          console.log(`[sync-by-work-item] SAMAI: Auto-scraping initiated, skipping CPNU fallback`);
+          
+          result.ok = false;
+          result.provider_used = 'samai';
+          result.scraping_initiated = true;
+          result.scraping_job_id = fetchResult.scrapingJobId;
+          result.scraping_poll_url = fetchResult.scrapingPollUrl;
+          result.scraping_provider = 'samai';
+          result.scraping_message = fetchResult.scrapingMessage || 
+            `Record not found in SAMAI cache. Scraping initiated (job ${fetchResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+          
+          // Log SCRAPING_INITIATED trace step
+          await logTrace(supabase, {
+            trace_id: traceId,
+            work_item_id,
+            organization_id: workItem.organization_id,
+            workflow_type: workItem.workflow_type,
+            step: 'SCRAPING_INITIATED',
+            provider: 'samai',
+            http_status: null,
+            latency_ms: fetchResult.latencyMs || null,
+            success: true,
+            error_code: null,
+            message: `Scraping job created: ${fetchResult.scrapingJobId}`,
+            meta: {
+              job_id: fetchResult.scrapingJobId,
+              poll_url: fetchResult.scrapingPollUrl,
+              radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+            },
+          });
+          
+          // Update work_item with SCRAPING status and metadata
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: 'IN_PROGRESS',
+              scrape_provider: 'samai',
+              scrape_job_id: fetchResult.scrapingJobId,
+              scrape_poll_url: fetchResult.scrapingPollUrl,
+              last_scrape_initiated_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+            })
+            .eq('id', work_item_id);
+          
+          result.trace_id = traceId;
+          return jsonResponse(result, 202);
+        }
+        
+        // CPNU fallback for CPACA (only if explicitly enabled and NO scraping was initiated)
         if (!fetchResult.ok && providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
-          console.log(`[sync-by-work-item] SAMAI failed/empty for CPACA, trying CPNU fallback`);
+          console.log(`[sync-by-work-item] SAMAI failed/empty (no scraping), trying CPNU fallback`);
           result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
           
           const cpnuResult = await fetchFromCpnu(normalizedRadicado);
@@ -1990,8 +2092,8 @@ Deno.serve(async (req) => {
           } else {
             result.warnings.push(`CPNU fallback: ${cpnuResult.error}`);
           }
-        } else if (!fetchResult.ok && !providerOrder.fallbackEnabled) {
-          // Log that CPNU fallback is disabled for CPACA
+        } else if (!fetchResult.ok && !providerOrder.fallbackEnabled && !fetchResult.scrapingInitiated) {
+          // Log that CPNU fallback is disabled for CPACA (only if no scraping was triggered)
           result.provider_attempts.push({
             provider: 'cpnu',
             status: 'skipped',
@@ -2013,10 +2115,61 @@ Deno.serve(async (req) => {
           actuacionesCount: fetchResult.actuaciones.length,
         });
         
-        // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error
+        // ============= CHECK IF SCRAPING WAS AUTO-INITIATED BY CPNU =============
+        // If scraping was initiated, DO NOT attempt SAMAI fallback - return 202 immediately
+        if (fetchResult.scrapingInitiated && fetchResult.scrapingJobId) {
+          console.log(`[sync-by-work-item] CPNU: Auto-scraping initiated, skipping SAMAI fallback`);
+          
+          result.ok = false;
+          result.provider_used = 'cpnu';
+          result.scraping_initiated = true;
+          result.scraping_job_id = fetchResult.scrapingJobId;
+          result.scraping_poll_url = fetchResult.scrapingPollUrl;
+          result.scraping_provider = 'cpnu';
+          result.scraping_message = fetchResult.scrapingMessage || 
+            `Record not found in CPNU cache. Scraping initiated (job ${fetchResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+          
+          // Log SCRAPING_INITIATED trace step
+          await logTrace(supabase, {
+            trace_id: traceId,
+            work_item_id,
+            organization_id: workItem.organization_id,
+            workflow_type: workItem.workflow_type,
+            step: 'SCRAPING_INITIATED',
+            provider: 'cpnu',
+            http_status: null,
+            latency_ms: fetchResult.latencyMs || null,
+            success: true,
+            error_code: null,
+            message: `Scraping job created: ${fetchResult.scrapingJobId}`,
+            meta: {
+              job_id: fetchResult.scrapingJobId,
+              poll_url: fetchResult.scrapingPollUrl,
+              radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+            },
+          });
+          
+          // Update work_item with SCRAPING status and metadata
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: 'IN_PROGRESS',
+              scrape_provider: 'cpnu',
+              scrape_job_id: fetchResult.scrapingJobId,
+              scrape_poll_url: fetchResult.scrapingPollUrl,
+              last_scrape_initiated_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+            })
+            .eq('id', work_item_id);
+          
+          result.trace_id = traceId;
+          return jsonResponse(result, 202);
+        }
+        
+        // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error AND no scraping was initiated
         if (!fetchResult.ok && providerOrder.fallbackEnabled && 
             (fetchResult.isEmpty || fetchResult.error?.includes('timeout') || fetchResult.error?.includes('5'))) {
-          console.log(`[sync-by-work-item] CPNU failed/empty, trying SAMAI fallback`);
+          console.log(`[sync-by-work-item] CPNU failed/empty (no scraping), trying SAMAI fallback`);
           result.warnings.push(`CPNU (primary): ${fetchResult.error}`);
           
           const samaiResult = await fetchFromSamai(normalizedRadicado);
@@ -2080,11 +2233,15 @@ Deno.serve(async (req) => {
           },
         });
         
-        // Update work_item with SCRAPING status (not FAILED)
+        // Update work_item with SCRAPING status and metadata
         await supabase
           .from('work_items')
           .update({
             scrape_status: 'IN_PROGRESS',
+            scrape_provider: providerUsed,
+            scrape_job_id: fetchResult.scrapingJobId,
+            scrape_poll_url: fetchResult.scrapingPollUrl,
+            last_scrape_initiated_at: new Date().toISOString(),
             last_checked_at: new Date().toISOString(),
           })
           .eq('id', work_item_id);
