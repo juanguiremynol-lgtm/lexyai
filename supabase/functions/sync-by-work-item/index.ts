@@ -52,6 +52,12 @@ interface SyncResult {
   errors: string[];
   trace_id?: string;
   code?: string; // Error code for client
+  // Auto-scraping fields
+  scraping_initiated?: boolean;
+  scraping_job_id?: string;
+  scraping_poll_url?: string;
+  scraping_provider?: string;
+  scraping_message?: string;
 }
 
 interface WorkItem {
@@ -89,6 +95,11 @@ interface FetchResult {
   isEmpty?: boolean; // Indicates empty result (for fallback logic)
   latencyMs?: number;
   httpStatus?: number;
+  // Auto-scraping fields
+  scrapingInitiated?: boolean;
+  scrapingJobId?: string;
+  scrapingPollUrl?: string;
+  scrapingMessage?: string;
 }
 
 // ============= TRACE LOGGING =============
@@ -331,6 +342,108 @@ async function getApiKeyForProvider(provider: string): Promise<ApiKeyInfo> {
   return { source: 'MISSING', value: null, fingerprint: null };
 }
 
+// ============= SCRAPING JOB TYPES =============
+
+interface ScrapingJobResult {
+  ok: boolean;
+  jobId?: string;
+  pollUrl?: string;
+  status?: string;
+  error?: string;
+  latencyMs?: number;
+}
+
+// ============= TRIGGER SCRAPING JOB =============
+// Calls /buscar to initiate async scraping when /snapshot returns 404
+
+async function triggerCpnuScrapingJob(
+  radicado: string,
+  baseUrl: string,
+  pathPrefix: string,
+  apiKeyInfo: ApiKeyInfo
+): Promise<ScrapingJobResult> {
+  const startTime = Date.now();
+  const buscarPath = `/buscar?numero_radicacion=${radicado}`;
+  const buscarUrl = joinUrl(baseUrl, pathPrefix, buscarPath);
+  
+  console.log(`[sync-by-work-item] SCRAPING_INITIATED: CPNU /buscar, url=${buscarUrl}`);
+  
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
+    }
+    
+    const response = await fetch(buscarUrl, {
+      method: 'GET',
+      headers,
+    });
+    
+    const body = await response.text();
+    const latencyMs = Date.now() - startTime;
+    
+    console.log(`[sync-by-work-item] SCRAPING_RESPONSE: CPNU /buscar, status=${response.status}, latencyMs=${latencyMs}`);
+    
+    if (!response.ok) {
+      console.warn(`[sync-by-work-item] /buscar failed: HTTP ${response.status}`);
+      return {
+        ok: false,
+        error: `Scraping job creation failed: HTTP ${response.status}`,
+        latencyMs,
+      };
+    }
+    
+    // Parse response
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      console.warn(`[sync-by-work-item] /buscar returned non-JSON: ${body.slice(0, 200)}`);
+      return {
+        ok: false,
+        error: 'Scraping service returned invalid response',
+        latencyMs,
+      };
+    }
+    
+    // Extract job info - CPNU returns { jobId, status, poll_url } or similar
+    const jobId = String(data.jobId || data.job_id || data.id || '');
+    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const status = String(data.status || 'PENDING');
+    
+    if (!jobId) {
+      console.warn(`[sync-by-work-item] /buscar response missing jobId:`, data);
+      return {
+        ok: false,
+        error: 'Scraping service did not return job ID',
+        latencyMs,
+      };
+    }
+    
+    console.log(`[sync-by-work-item] Scraping job created: jobId=${jobId}, status=${status}`);
+    
+    return {
+      ok: true,
+      jobId,
+      pollUrl: pollUrl || `${baseUrl}${pathPrefix}/resultado/${jobId}`,
+      status,
+      latencyMs,
+    };
+    
+  } catch (err) {
+    console.error('[sync-by-work-item] /buscar fetch error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Scraping job creation failed',
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
 // ============= PROVIDER: CPNU =============
 // CPNU Cloud Run service (cpnu-https-jobs) exposes routes at ROOT:
 // - GET /health - health check
@@ -434,32 +547,75 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       };
     }
 
-    // JSON 404 = record not found (valid response)
+    // JSON 404 = record not found - AUTO-TRIGGER SCRAPING
     if (snapshotResponse.status === 404) {
-      console.log(`[sync-by-work-item] CPNU: Record not found (JSON 404) for ${radicado}`);
-      return { 
-        ok: false, 
-        actuaciones: [], 
-        error: 'RECORD_NOT_FOUND', 
-        provider: 'cpnu',
-        isEmpty: true,
-        latencyMs: Date.now() - startTime,
-        httpStatus: 404,
-      };
+      console.log(`[sync-by-work-item] CPNU: Record not found (JSON 404) for ${radicado}. Auto-triggering scraping...`);
+      
+      // Attempt to trigger scraping job via /buscar
+      const scrapingResult = await triggerCpnuScrapingJob(radicado, baseUrl, pathPrefix, apiKeyInfo);
+      
+      if (scrapingResult.ok && scrapingResult.jobId) {
+        console.log(`[sync-by-work-item] CPNU: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'RECORD_NOT_FOUND', 
+          provider: 'cpnu',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 404,
+          scrapingInitiated: true,
+          scrapingJobId: scrapingResult.jobId,
+          scrapingPollUrl: scrapingResult.pollUrl,
+          scrapingMessage: `Record not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+        };
+      } else {
+        // Scraping trigger failed - return normal 404
+        console.log(`[sync-by-work-item] CPNU: Scraping trigger failed: ${scrapingResult.error}`);
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'RECORD_NOT_FOUND', 
+          provider: 'cpnu',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 404,
+        };
+      }
     }
 
-    // Check for "not found" indicators in JSON body
+    // Check for "not found" indicators in JSON body - also trigger scraping
     if (snapshotData.expediente_encontrado === false || snapshotData.found === false) {
-      console.log(`[sync-by-work-item] CPNU: found=false for ${radicado}`);
-      return { 
-        ok: false, 
-        actuaciones: [], 
-        error: 'RECORD_NOT_FOUND', 
-        provider: 'cpnu',
-        isEmpty: true,
-        latencyMs: Date.now() - startTime,
-        httpStatus: snapshotResponse.status,
-      };
+      console.log(`[sync-by-work-item] CPNU: found=false for ${radicado}. Auto-triggering scraping...`);
+      
+      const scrapingResult = await triggerCpnuScrapingJob(radicado, baseUrl, pathPrefix, apiKeyInfo);
+      
+      if (scrapingResult.ok && scrapingResult.jobId) {
+        console.log(`[sync-by-work-item] CPNU: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'RECORD_NOT_FOUND', 
+          provider: 'cpnu',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: snapshotResponse.status,
+          scrapingInitiated: true,
+          scrapingJobId: scrapingResult.jobId,
+          scrapingPollUrl: scrapingResult.pollUrl,
+          scrapingMessage: `Record not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+        };
+      } else {
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'RECORD_NOT_FOUND', 
+          provider: 'cpnu',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: snapshotResponse.status,
+        };
+      }
     }
 
     // Success - extract actuaciones
@@ -1349,7 +1505,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Handle fetch failure - with enhanced diagnostics
+    // Handle fetch failure - with enhanced diagnostics and auto-scraping
     if (!fetchResult || !fetchResult.ok) {
       const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : 'PROVIDER_ERROR';
       const providerUsed = fetchResult?.provider || providerOrder.primary;
@@ -1358,7 +1514,54 @@ Deno.serve(async (req) => {
       result.code = errorCode;
       result.provider_used = providerUsed;
       
-      // Log SYNC_FAILED trace step with diagnostics
+      // ============= CHECK IF SCRAPING WAS AUTO-INITIATED =============
+      if (fetchResult?.scrapingInitiated && fetchResult.scrapingJobId) {
+        console.log(`[sync-by-work-item] Auto-scraping initiated: jobId=${fetchResult.scrapingJobId}`);
+        
+        // Populate scraping fields in result
+        result.scraping_initiated = true;
+        result.scraping_job_id = fetchResult.scrapingJobId;
+        result.scraping_poll_url = fetchResult.scrapingPollUrl;
+        result.scraping_provider = providerUsed;
+        result.scraping_message = fetchResult.scrapingMessage || 
+          `Record not found in cache. Scraping initiated (job ${fetchResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+        
+        // Log SCRAPING_INITIATED trace step
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'SCRAPING_INITIATED',
+          provider: providerUsed,
+          http_status: null,
+          latency_ms: null,
+          success: true,
+          error_code: null,
+          message: `Scraping job created: ${fetchResult.scrapingJobId}`,
+          meta: {
+            job_id: fetchResult.scrapingJobId,
+            poll_url: fetchResult.scrapingPollUrl,
+            radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+          },
+        });
+        
+        // Update work_item with SCRAPING status (not FAILED)
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'IN_PROGRESS',
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', work_item_id);
+        
+        // Return with scraping info - use 202 Accepted to indicate async processing
+        result.ok = false; // Still "failed" to get data, but scraping is happening
+        result.trace_id = traceId;
+        return jsonResponse(result, 202);
+      }
+      
+      // Log SYNC_FAILED trace step with diagnostics (no scraping)
       await logTrace(supabase, {
         trace_id: traceId,
         work_item_id,
@@ -1374,11 +1577,11 @@ Deno.serve(async (req) => {
         meta: {
           radicado_preview: workItem.radicado?.slice(0, 10) + '...',
           provider_attempts: result.provider_attempts.length,
-          request_path: `/proceso/${normalizeRadicado(workItem.radicado || '')}`,
+          request_path: `/snapshot?numero_radicacion=${normalizeRadicado(workItem.radicado || '')}`,
         },
       });
       
-      // Update scrape status
+      // Update scrape status to FAILED
       await supabase
         .from('work_items')
         .update({
@@ -1387,6 +1590,7 @@ Deno.serve(async (req) => {
         })
         .eq('id', work_item_id);
       
+      result.trace_id = traceId;
       return jsonResponse(result);
     }
 
