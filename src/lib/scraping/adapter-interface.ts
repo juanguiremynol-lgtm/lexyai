@@ -98,6 +98,30 @@ export interface NormalizedActuacion {
 }
 
 /**
+ * Adapter Capabilities - what data types this adapter can fetch
+ * Used for capability-based routing and fallback ordering
+ */
+export type AdapterCapability = 
+  | 'ACTUACIONES'      // Can fetch actuaciones/timeline
+  | 'ESTADOS'          // Can fetch estados (status updates)
+  | 'DOCUMENTS'        // Can fetch attached documents
+  | 'CASE_METADATA'    // Can fetch case info (parties, court, etc.)
+  | 'HEARINGS'         // Can fetch hearing schedules
+  | 'NOTIFICATIONS';   // Can fetch notification status
+
+/**
+ * Workflow types that adapters can support
+ */
+export type SupportedWorkflowType = 
+  | 'CGP' 
+  | 'CPACA' 
+  | 'TUTELA' 
+  | 'LABORAL' 
+  | 'PENAL_906'
+  | 'GOV_PROCEDURE'
+  | 'ALL';
+
+/**
  * Abstract Scraping Adapter Interface
  * 
  * Implement this interface to create custom scrapers for different sources
@@ -116,6 +140,21 @@ export interface ScrapingAdapter {
   /** Whether this adapter is currently active/usable */
   readonly active: boolean;
   
+  /** Capabilities this adapter provides */
+  readonly capabilities: AdapterCapability[];
+  
+  /** Workflow types this adapter supports */
+  readonly supportedWorkflows: SupportedWorkflowType[];
+  
+  /** Priority for fallback ordering (higher = try first) */
+  readonly priority: number;
+  
+  /**
+   * Check if adapter is configured and ready to use
+   * Returns false if missing credentials or disabled
+   */
+  isReady(): Promise<boolean>;
+  
   /**
    * Look up a radicado number and return matching cases
    */
@@ -130,6 +169,24 @@ export interface ScrapingAdapter {
    * Normalize raw actuaciones into a standard format
    */
   normalizeActuaciones(actuacionesRaw: RawActuacion[], sourceUrl: string): NormalizedActuacion[];
+}
+
+/**
+ * Configuration for org-level adapter selection
+ */
+export interface OrgAdapterConfig {
+  organizationId: string;
+  /** Ordered list of adapter IDs to try (first = highest priority) */
+  adapterPriorityOrder: string[];
+  /** Feature flags for future integrations */
+  featureFlags: {
+    enableExternalApi: boolean;
+    enableGoogleIntegration: boolean;
+    enableAwsIntegration: boolean;
+    [key: string]: boolean;
+  };
+  /** Per-workflow adapter overrides */
+  workflowOverrides?: Partial<Record<SupportedWorkflowType, string>>;
 }
 
 /**
@@ -150,6 +207,18 @@ export interface AdapterRegistry {
   
   /** Set the default adapter */
   setDefault(id: string): void;
+  
+  /** Get adapter for a specific org and workflow (with fallback) */
+  getForContext(organizationId: string | null, workflowType: SupportedWorkflowType): Promise<ScrapingAdapter>;
+  
+  /** Get adapters with a specific capability */
+  getByCapability(capability: AdapterCapability): ScrapingAdapter[];
+  
+  /** Set org-level configuration */
+  setOrgConfig(config: OrgAdapterConfig): void;
+  
+  /** Get org-level configuration */
+  getOrgConfig(organizationId: string): OrgAdapterConfig | undefined;
 }
 
 /**

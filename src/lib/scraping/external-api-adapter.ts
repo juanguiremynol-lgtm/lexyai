@@ -26,6 +26,8 @@ import {
   RadicadoMatch,
   RawActuacion,
   NormalizedActuacion,
+  AdapterCapability,
+  SupportedWorkflowType,
   computeActuacionHash,
   normalizeActuacionText,
 } from './adapter-interface';
@@ -73,11 +75,20 @@ export class ExternalApiAdapter implements ScrapingAdapter {
   readonly name = 'API Nueva Rama Judicial (Render con búsqueda avanzada)';
   readonly description = 'API mejorada con búsqueda avanzada/profunda en Render para consulta de procesos judiciales';
   readonly active = true;
+  readonly capabilities: AdapterCapability[] = ['ACTUACIONES', 'CASE_METADATA', 'NOTIFICATIONS'];
+  readonly supportedWorkflows: SupportedWorkflowType[] = ['CGP', 'CPACA', 'TUTELA', 'LABORAL', 'PENAL_906'];
+  readonly priority = 10; // Highest priority - preferred adapter
 
   private readonly baseUrl = API_BASE_URL;
   private readonly pollingInterval = 2000; // 2 seconds between polls
   private readonly maxPollingAttempts = 45; // 45 * 2s = 90s max polling
   private readonly initialRequestTimeout = 45000; // 45s for initial request
+
+  async isReady(): Promise<boolean> {
+    // Check if the API is reachable with a simple health check
+    // For now, assume always ready since it's a public API
+    return this.active && !!this.baseUrl;
+  }
 
   /**
    * Perform job-based polling to get results
