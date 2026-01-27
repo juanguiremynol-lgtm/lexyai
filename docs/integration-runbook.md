@@ -32,12 +32,60 @@ The following secrets must be configured in Supabase Edge Function environment:
 | `integration-health` | Verify secrets present + provider reachability | Platform/Org Admin |
 | `debug-external-provider` | Test individual provider calls | Platform/Org Admin |
 
-## Provider Routing
+## Provider Order by Workflow
 
-### Radicado-Based Workflows (CGP, LABORAL, CPACA, PENAL_906)
+**Critical Business Rule**: Provider selection is determined by `work_items.workflow_type`, NOT by a global default.
+
+| Workflow Type | Primary Provider | Fallback Provider | Fallback Enabled |
+|---------------|------------------|-------------------|------------------|
+| **CGP** | CPNU | SAMAI | ✅ Yes |
+| **LABORAL** | CPNU | SAMAI | ✅ Yes |
+| **CPACA** | SAMAI | CPNU | ❌ No (disabled by default) |
+| **TUTELA** | TUTELAS API | None | ❌ N/A |
+| **PENAL_906** | CPNU | SAMAI | ✅ Yes |
+
+### Why CPACA Uses SAMAI First
+
+CPACA (Código de Procedimiento Administrativo y de lo Contencioso Administrativo) handles **administrative litigation** cases which are primarily tracked in the SAMAI system. CPNU is the Rama Judicial's system for civil/general processes.
+
+### Fallback Conditions
+
+Fallback occurs only when primary provider returns:
+- `isEmpty: true` (404 or no actuaciones)
+- Timeout errors
+- 5xx server errors
+
+### Implementation
+
+The `sync-by-work-item` Edge Function implements this via `getProviderOrder(workflow_type)`:
+
+```typescript
+function getProviderOrder(workflowType: string): ProviderOrderConfig {
+  switch (workflowType) {
+    case 'CPACA':
+      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
+    case 'TUTELA':
+      return { primary: 'tutelas-api', fallback: null, fallbackEnabled: false };
+    case 'CGP':
+    case 'LABORAL':
+    case 'PENAL_906':
+    default:
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
+  }
+}
+```
+
+## Provider Routing (Legacy Reference)
+
+### Radicado-Based Workflows (CGP, LABORAL, PENAL_906)
 
 1. **Primary**: CPNU API
 2. **Fallback**: SAMAI API (only if CPNU returns empty/not-found)
+
+### CPACA Workflow
+
+1. **Primary**: SAMAI API
+2. **Fallback**: CPNU (disabled by default; can be enabled via org settings)
 
 ### TUTELA Workflow
 
@@ -68,29 +116,62 @@ T12345678
 
 ## Expected Outcomes
 
-### Successful Sync (`sync-by-work-item`)
+### Successful Sync (`sync-by-work-item`) - Workflow-Aware Response
 
 ```json
 {
   "ok": true,
   "work_item_id": "...",
+  "workflow_type": "CGP",
   "inserted_count": 12,
   "skipped_count": 3,
   "latest_event_date": "2024-01-15",
   "provider_used": "cpnu",
+  "provider_attempts": [
+    { "provider": "cpnu", "status": "success", "latencyMs": 842, "actuacionesCount": 15 }
+  ],
+  "provider_order_reason": "workflow_type=CGP",
   "warnings": [],
   "errors": []
 }
 ```
 
-### Provider Not Found (with fallback)
+### CPACA Sync (SAMAI Primary)
 
 ```json
 {
-  "ok": false,
+  "ok": true,
+  "work_item_id": "...",
+  "workflow_type": "CPACA",
+  "inserted_count": 8,
+  "skipped_count": 2,
+  "latest_event_date": "2024-01-14",
   "provider_used": "samai",
-  "warnings": ["cpnu-empty-fallback-samai"],
-  "errors": ["No actuaciones found"]
+  "provider_attempts": [
+    { "provider": "samai", "status": "success", "latencyMs": 1023, "actuacionesCount": 10 },
+    { "provider": "cpnu", "status": "skipped", "latencyMs": 0, "message": "CPNU fallback disabled for CPACA workflow" }
+  ],
+  "provider_order_reason": "workflow_type=CPACA",
+  "warnings": [],
+  "errors": []
+}
+```
+
+### Provider Not Found (CGP with SAMAI fallback)
+
+```json
+{
+  "ok": true,
+  "work_item_id": "...",
+  "workflow_type": "CGP",
+  "provider_used": "samai",
+  "provider_attempts": [
+    { "provider": "cpnu", "status": "not_found", "latencyMs": 342, "message": "Not found" },
+    { "provider": "samai", "status": "success", "latencyMs": 567, "actuacionesCount": 5 }
+  ],
+  "provider_order_reason": "cgp_cpnu_failed_samai_fallback",
+  "warnings": ["CPNU (primary): Not found"],
+  "errors": []
 }
 ```
 
@@ -263,6 +344,33 @@ If `integration-health` returns 404 immediately after deployment:
 - Wait 30-60 seconds for propagation
 - The API Debug page includes automatic retry (3 attempts, 2s delay)
 - If still failing, redeploy via Lovable
+
+### Gate 6: Workflow-Aware Provider Order Verification
+
+Test that provider order respects workflow_type:
+
+| Workflow | Test Radicado | Expected Primary | Expected Fallback |
+|----------|---------------|------------------|-------------------|
+| **CGP** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
+| **LABORAL** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
+| **CPACA** | `05001233300020240115300` | SAMAI called first | CPNU skipped (disabled) |
+| **PENAL_906** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
+| **TUTELA** | `T11728622` | TUTELAS API | N/A |
+
+**Validation Steps:**
+
+1. Create a test work_item with `workflow_type = 'CPACA'`
+2. Call `sync-by-work-item` with the work_item_id
+3. Verify response includes:
+   - `provider_attempts[0].provider === 'samai'`
+   - `provider_attempts[1].provider === 'cpnu'` with `status === 'skipped'`
+   - `provider_order_reason === 'workflow_type=CPACA'`
+
+4. Create a test work_item with `workflow_type = 'CGP'`
+5. Call `sync-by-work-item` with the work_item_id
+6. Verify response includes:
+   - `provider_attempts[0].provider === 'cpnu'`
+   - `provider_order_reason === 'workflow_type=CGP'`
 
 ## Acceptance Criteria
 

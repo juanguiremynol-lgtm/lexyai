@@ -28,13 +28,24 @@ interface SyncRequest {
   force_refresh?: boolean;
 }
 
+interface ProviderAttempt {
+  provider: string;
+  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped';
+  latencyMs: number;
+  message?: string;
+  actuacionesCount?: number;
+}
+
 interface SyncResult {
   ok: boolean;
   work_item_id: string;
+  workflow_type: string;
   inserted_count: number;
   skipped_count: number;
   latest_event_date: string | null;
   provider_used: string | null;
+  provider_attempts: ProviderAttempt[];
+  provider_order_reason: string;
   warnings: string[];
   errors: string[];
 }
@@ -72,6 +83,38 @@ interface FetchResult {
   error?: string;
   provider: string;
   isEmpty?: boolean; // Indicates empty result (for fallback logic)
+  latencyMs?: number;
+}
+
+// ============= WORKFLOW-BASED PROVIDER ORDER =============
+// CGP/LABORAL: CPNU primary, SAMAI fallback
+// CPACA: SAMAI primary, CPNU fallback (optional, disabled by default)
+// TUTELA: TUTELAS API primary (uses tutela_code)
+// PENAL_906: CPNU primary, SAMAI fallback
+
+type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
+
+interface ProviderOrderConfig {
+  primary: 'cpnu' | 'samai' | 'tutelas-api';
+  fallback?: 'cpnu' | 'samai' | null;
+  fallbackEnabled: boolean;
+}
+
+function getProviderOrder(workflowType: string): ProviderOrderConfig {
+  switch (workflowType) {
+    case 'CPACA':
+      // SAMAI is primary for CPACA (administrative litigation)
+      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false }; // CPNU fallback disabled by default
+    case 'TUTELA':
+      // TUTELAS API for tutela workflows
+      return { primary: 'tutelas-api', fallback: null, fallbackEnabled: false };
+    case 'CGP':
+    case 'LABORAL':
+    case 'PENAL_906':
+    default:
+      // CPNU primary for CGP/LABORAL/PENAL_906
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
+  }
 }
 
 // ============= HELPERS =============
@@ -143,9 +186,10 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
   return null;
 }
 
-// ============= PROVIDER: CPNU (Primary for CGP/LABORAL/CPACA/PENAL_906) =============
+// ============= PROVIDER: CPNU =============
 
 async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
+  const startTime = Date.now();
   const baseUrl = Deno.env.get('CPNU_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
@@ -155,7 +199,8 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       ok: false, 
       actuaciones: [], 
       error: 'CPNU API not configured (missing CPNU_BASE_URL). Contact administrator.', 
-      provider: 'cpnu' 
+      provider: 'cpnu',
+      latencyMs: Date.now() - startTime,
     };
   }
 
@@ -185,6 +230,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
           error: 'Not found', 
           provider: 'cpnu',
           isEmpty: true,
+          latencyMs: Date.now() - startTime,
         };
       }
       const errorText = await response.text();
@@ -193,7 +239,8 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         ok: false, 
         actuaciones: [], 
         error: `HTTP ${response.status}`, 
-        provider: 'cpnu' 
+        provider: 'cpnu',
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -208,6 +255,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         error: 'Process not found in CPNU', 
         provider: 'cpnu',
         isEmpty: true,
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -222,6 +270,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         error: 'No actuaciones found', 
         provider: 'cpnu',
         isEmpty: true,
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -244,6 +293,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       },
       expedienteUrl: data.expediente_url,
       provider: 'cpnu',
+      latencyMs: Date.now() - startTime,
     };
   } catch (err) {
     console.error('[sync-by-work-item] CPNU fetch error:', err);
@@ -251,14 +301,16 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       ok: false, 
       actuaciones: [], 
       error: err instanceof Error ? err.message : 'CPNU fetch failed', 
-      provider: 'cpnu' 
+      provider: 'cpnu',
+      latencyMs: Date.now() - startTime,
     };
   }
 }
 
-// ============= PROVIDER: SAMAI (Fallback for CGP/LABORAL/CPACA/PENAL_906) =============
+// ============= PROVIDER: SAMAI =============
 
 async function fetchFromSamai(radicado: string): Promise<FetchResult> {
+  const startTime = Date.now();
   const baseUrl = Deno.env.get('SAMAI_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
@@ -267,8 +319,9 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
     return { 
       ok: false, 
       actuaciones: [], 
-      error: 'SAMAI API not configured (missing SAMAI_BASE_URL). Fallback unavailable.', 
-      provider: 'samai' 
+      error: 'SAMAI API not configured (missing SAMAI_BASE_URL).', 
+      provider: 'samai',
+      latencyMs: Date.now() - startTime,
     };
   }
 
@@ -282,7 +335,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       headers['X-API-Key'] = apiKey;
     }
 
-    console.log(`[sync-by-work-item] Calling SAMAI fallback: ${baseUrl}/proceso/${radicado}`);
+    console.log(`[sync-by-work-item] Calling SAMAI: ${baseUrl}/proceso/${radicado}`);
     
     const response = await fetch(`${baseUrl}/proceso/${radicado}`, {
       method: 'GET',
@@ -297,13 +350,15 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
           error: 'Not found in SAMAI', 
           provider: 'samai',
           isEmpty: true,
+          latencyMs: Date.now() - startTime,
         };
       }
       return { 
         ok: false, 
         actuaciones: [], 
         error: `HTTP ${response.status}`, 
-        provider: 'samai' 
+        provider: 'samai',
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -318,6 +373,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         error: 'No actuaciones in SAMAI', 
         provider: 'samai',
         isEmpty: true,
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -337,6 +393,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         tipo_proceso: data.tipo_proceso,
       },
       provider: 'samai',
+      latencyMs: Date.now() - startTime,
     };
   } catch (err) {
     console.error('[sync-by-work-item] SAMAI fetch error:', err);
@@ -344,7 +401,8 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       ok: false, 
       actuaciones: [], 
       error: err instanceof Error ? err.message : 'SAMAI fetch failed', 
-      provider: 'samai' 
+      provider: 'samai',
+      latencyMs: Date.now() - startTime,
     };
   }
 }
@@ -352,6 +410,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
 // ============= PROVIDER: TUTELAS API =============
 
 async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
+  const startTime = Date.now();
   const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
@@ -361,7 +420,8 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       ok: false, 
       actuaciones: [], 
       error: 'TUTELAS API not configured (missing TUTELAS_BASE_URL). Contact administrator.', 
-      provider: 'tutelas-api' 
+      provider: 'tutelas-api',
+      latencyMs: Date.now() - startTime,
     };
   }
 
@@ -390,13 +450,15 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
           error: 'Tutela not found', 
           provider: 'tutelas-api',
           isEmpty: true,
+          latencyMs: Date.now() - startTime,
         };
       }
       return { 
         ok: false, 
         actuaciones: [], 
         error: `HTTP ${response.status}`, 
-        provider: 'tutelas-api' 
+        provider: 'tutelas-api',
+        latencyMs: Date.now() - startTime,
       };
     }
 
@@ -421,6 +483,7 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
         tipo_proceso: 'TUTELA',
       },
       provider: 'tutelas-api',
+      latencyMs: Date.now() - startTime,
     };
   } catch (err) {
     console.error('[sync-by-work-item] TUTELAS fetch error:', err);
@@ -428,7 +491,8 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       ok: false, 
       actuaciones: [], 
       error: err instanceof Error ? err.message : 'TUTELAS API failed', 
-      provider: 'tutelas-api' 
+      provider: 'tutelas-api',
+      latencyMs: Date.now() - startTime,
     };
   }
 }
@@ -513,13 +577,20 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
 
+    // Determine provider order based on workflow_type
+    const providerOrder = getProviderOrder(workItem.workflow_type);
+    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}`);
+
     const result: SyncResult = {
       ok: false,
       work_item_id,
+      workflow_type: workItem.workflow_type,
       inserted_count: 0,
       skipped_count: 0,
       latest_event_date: null,
       provider_used: null,
+      provider_attempts: [],
+      provider_order_reason: `workflow_type=${workItem.workflow_type}`,
       warnings: [],
       errors: [],
     };
@@ -540,6 +611,14 @@ Deno.serve(async (req) => {
       console.log(`[sync-by-work-item] TUTELA workflow: using tutela_code=${workItem.tutela_code}`);
       fetchResult = await fetchFromTutelasApi(workItem.tutela_code);
       
+      result.provider_attempts.push({
+        provider: 'tutelas-api',
+        status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+        latencyMs: fetchResult.latencyMs || 0,
+        message: fetchResult.error,
+        actuacionesCount: fetchResult.actuaciones.length,
+      });
+      
     } else {
       // CGP/LABORAL/CPACA/PENAL_906: require radicado (23 digits)
       if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
@@ -551,23 +630,88 @@ Deno.serve(async (req) => {
       }
       
       const normalizedRadicado = normalizeRadicado(workItem.radicado);
-      console.log(`[sync-by-work-item] Radicado workflow: using radicado=${normalizedRadicado}`);
+      console.log(`[sync-by-work-item] Radicado workflow (${workItem.workflow_type}): using radicado=${normalizedRadicado}, provider_order=${providerOrder.primary}→${providerOrder.fallback || 'none'}`);
       
-      // CPNU primary
-      fetchResult = await fetchFromCpnu(normalizedRadicado);
-      
-      // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error
-      if (!fetchResult.ok && (fetchResult.isEmpty || fetchResult.error?.includes('timeout') || fetchResult.error?.includes('5'))) {
-        console.log(`[sync-by-work-item] CPNU failed/empty, trying SAMAI fallback`);
-        result.warnings.push(`CPNU: ${fetchResult.error}`);
+      // ============= WORKFLOW-AWARE PROVIDER SELECTION =============
+      if (providerOrder.primary === 'samai') {
+        // CPACA: SAMAI primary
+        console.log(`[sync-by-work-item] CPACA: Calling SAMAI as primary provider`);
+        fetchResult = await fetchFromSamai(normalizedRadicado);
         
-        const samaiResult = await fetchFromSamai(normalizedRadicado);
+        result.provider_attempts.push({
+          provider: 'samai',
+          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          latencyMs: fetchResult.latencyMs || 0,
+          message: fetchResult.error,
+          actuacionesCount: fetchResult.actuaciones.length,
+        });
         
-        if (samaiResult.ok) {
-          fetchResult = samaiResult;
-        } else {
-          // Both failed
-          result.warnings.push(`SAMAI fallback: ${samaiResult.error}`);
+        // CPNU fallback for CPACA (only if explicitly enabled)
+        if (!fetchResult.ok && providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
+          console.log(`[sync-by-work-item] SAMAI failed/empty for CPACA, trying CPNU fallback`);
+          result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
+          
+          const cpnuResult = await fetchFromCpnu(normalizedRadicado);
+          
+          result.provider_attempts.push({
+            provider: 'cpnu',
+            status: cpnuResult.ok ? 'success' : (cpnuResult.isEmpty ? 'not_found' : 'error'),
+            latencyMs: cpnuResult.latencyMs || 0,
+            message: cpnuResult.error,
+            actuacionesCount: cpnuResult.actuaciones.length,
+          });
+          
+          if (cpnuResult.ok) {
+            fetchResult = cpnuResult;
+            result.provider_order_reason = 'cpaca_samai_failed_cpnu_fallback';
+          } else {
+            result.warnings.push(`CPNU fallback: ${cpnuResult.error}`);
+          }
+        } else if (!fetchResult.ok && !providerOrder.fallbackEnabled) {
+          // Log that CPNU fallback is disabled for CPACA
+          result.provider_attempts.push({
+            provider: 'cpnu',
+            status: 'skipped',
+            latencyMs: 0,
+            message: 'CPNU fallback disabled for CPACA workflow',
+          });
+        }
+        
+      } else {
+        // CGP/LABORAL/PENAL_906: CPNU primary
+        console.log(`[sync-by-work-item] ${workItem.workflow_type}: Calling CPNU as primary provider`);
+        fetchResult = await fetchFromCpnu(normalizedRadicado);
+        
+        result.provider_attempts.push({
+          provider: 'cpnu',
+          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          latencyMs: fetchResult.latencyMs || 0,
+          message: fetchResult.error,
+          actuacionesCount: fetchResult.actuaciones.length,
+        });
+        
+        // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error
+        if (!fetchResult.ok && providerOrder.fallbackEnabled && 
+            (fetchResult.isEmpty || fetchResult.error?.includes('timeout') || fetchResult.error?.includes('5'))) {
+          console.log(`[sync-by-work-item] CPNU failed/empty, trying SAMAI fallback`);
+          result.warnings.push(`CPNU (primary): ${fetchResult.error}`);
+          
+          const samaiResult = await fetchFromSamai(normalizedRadicado);
+          
+          result.provider_attempts.push({
+            provider: 'samai',
+            status: samaiResult.ok ? 'success' : (samaiResult.isEmpty ? 'not_found' : 'error'),
+            latencyMs: samaiResult.latencyMs || 0,
+            message: samaiResult.error,
+            actuacionesCount: samaiResult.actuaciones.length,
+          });
+          
+          if (samaiResult.ok) {
+            fetchResult = samaiResult;
+            result.provider_order_reason = `${workItem.workflow_type.toLowerCase()}_cpnu_failed_samai_fallback`;
+          } else {
+            result.warnings.push(`SAMAI fallback: ${samaiResult.error}`);
+          }
         }
       }
     }
