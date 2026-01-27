@@ -1,6 +1,8 @@
 /**
  * Hook to trigger actuaciones normalization into process_events
  * Uses the normalize-actuaciones edge function
+ * 
+ * Updated to use work_item_id as primary input
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface NormalizeParams {
+  work_item_id?: string;
   monitored_process_id?: string;
   filing_id?: string;
   radicado?: string;
@@ -72,7 +75,20 @@ export function useNormalizeActuaciones() {
         toast.info("Sin actuaciones para normalizar");
       }
 
-      // Invalidate relevant queries
+      // Invalidate relevant queries - prioritize work_item_id
+      if (variables.work_item_id) {
+        queryClient.invalidateQueries({ 
+          queryKey: ["work-item-events"] 
+        });
+        queryClient.invalidateQueries({ 
+          queryKey: ["work-item-process-events", variables.work_item_id] 
+        });
+        queryClient.invalidateQueries({ 
+          queryKey: ["work-item-detail", variables.work_item_id] 
+        });
+      }
+      
+      // Legacy fallbacks
       if (variables.monitored_process_id) {
         queryClient.invalidateQueries({ 
           queryKey: ["work-item-events"] 

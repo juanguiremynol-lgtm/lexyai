@@ -10,6 +10,7 @@ const corsHeaders = {
 interface Actuacion {
   id: string;
   owner_id: string;
+  work_item_id: string | null;
   filing_id: string | null;
   monitored_process_id: string | null;
   source: string;
@@ -48,9 +49,8 @@ interface MilestonePattern {
 
 interface ProcessEvent {
   id?: string;
-  filing_id: string;
+  work_item_id: string;
   owner_id: string;
-  monitored_process_id: string | null;
   event_date: string | null;
   event_type: string;
   title: string | null;
@@ -207,6 +207,52 @@ function parseEventDate(dateStr: string | null, dateRaw: string | null): string 
   return null;
 }
 
+/**
+ * Resolve work_item_id from legacy identifiers
+ */
+async function resolveWorkItemId(
+  supabase: ReturnType<typeof createClient>,
+  workItemId: string | null,
+  filingId: string | null,
+  monitoredProcessId: string | null,
+  ownerId: string
+): Promise<string | null> {
+  // 1. If work_item_id provided directly, validate and return
+  if (workItemId) {
+    const { data } = await supabase
+      .from('work_items')
+      .select('id')
+      .eq('id', workItemId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (data) return (data as { id: string }).id;
+  }
+  
+  // 2. Try to find work_item from legacy_filing_id
+  if (filingId) {
+    const { data } = await supabase
+      .from('work_items')
+      .select('id')
+      .eq('legacy_filing_id', filingId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (data) return (data as { id: string }).id;
+  }
+  
+  // 3. Try to find work_item from legacy_process_id
+  if (monitoredProcessId) {
+    const { data } = await supabase
+      .from('work_items')
+      .select('id')
+      .eq('legacy_process_id', monitoredProcessId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (data) return (data as { id: string }).id;
+  }
+  
+  return null;
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -233,6 +279,7 @@ Deno.serve(async (req) => {
     // Parse request body
     const body = await req.json();
     const {
+      work_item_id,
       monitored_process_id,
       filing_id,
       owner_id,
@@ -247,11 +294,32 @@ Deno.serve(async (req) => {
       );
     }
     
-    if (!monitored_process_id && !filing_id) {
+    // Resolve work_item_id (primary) or fallback to legacy IDs
+    const resolvedWorkItemId = await resolveWorkItemId(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      supabase as any, 
+      work_item_id, 
+      filing_id, 
+      monitored_process_id, 
+      owner_id
+    );
+    
+    if (!resolvedWorkItemId && !monitored_process_id && !filing_id) {
       return new Response(
-        JSON.stringify({ ok: false, error: 'Either monitored_process_id or filing_id is required' }),
+        JSON.stringify({ ok: false, error: 'work_item_id, monitored_process_id, or filing_id is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+    
+    // Get radicado from work_item if not provided
+    let effectiveRadicado = radicado;
+    if (!effectiveRadicado && resolvedWorkItemId) {
+      const { data: wi } = await supabase
+        .from('work_items')
+        .select('radicado')
+        .eq('id', resolvedWorkItemId)
+        .single();
+      effectiveRadicado = wi?.radicado || 'unknown';
     }
     
     // Create crawler_run record for audit trail
@@ -259,10 +327,10 @@ Deno.serve(async (req) => {
       .from('crawler_runs')
       .insert({
         owner_id,
-        radicado: radicado || 'unknown',
+        radicado: effectiveRadicado || 'unknown',
         adapter: 'normalize-actuaciones',
         status: 'RUNNING',
-        request_meta: { monitored_process_id, filing_id, force_reprocess },
+        request_meta: { work_item_id: resolvedWorkItemId, monitored_process_id, filing_id, force_reprocess },
       })
       .select('id')
       .single();
@@ -285,15 +353,17 @@ Deno.serve(async (req) => {
       });
     };
     
-    await logStep('INIT', true, 'Normalization started', { monitored_process_id, filing_id });
+    await logStep('INIT', true, 'Normalization started', { work_item_id: resolvedWorkItemId, monitored_process_id, filing_id });
     
-    // Fetch actuaciones to normalize
+    // Fetch actuaciones to normalize - prioritize work_item_id
     let query = supabase
       .from('actuaciones')
       .select('*')
       .eq('owner_id', owner_id);
     
-    if (monitored_process_id) {
+    if (resolvedWorkItemId) {
+      query = query.eq('work_item_id', resolvedWorkItemId);
+    } else if (monitored_process_id) {
       query = query.eq('monitored_process_id', monitored_process_id);
     } else if (filing_id) {
       query = query.eq('filing_id', filing_id);
@@ -335,74 +405,18 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Determine the target filing_id for process_events
-    // process_events requires a filing_id, so we need to find or create one
-    let targetFilingId = filing_id;
+    // Target work_item_id is required for process_events
+    const targetWorkItemId = resolvedWorkItemId;
     
-    if (!targetFilingId && monitored_process_id) {
-      // Try to find an associated filing
-      const { data: process } = await supabase
-        .from('monitored_processes')
-        .select('radicado')
-        .eq('id', monitored_process_id)
-        .single();
-      
-      if (process?.radicado) {
-        // Look for a filing with this radicado
-        const { data: filing } = await supabase
-          .from('filings')
-          .select('id')
-          .eq('radicado', process.radicado)
-          .eq('owner_id', owner_id)
-          .limit(1)
-          .single();
-        
-        if (filing) {
-          targetFilingId = filing.id;
-        } else {
-          // Create a placeholder filing
-          const { data: newFiling, error: createError } = await supabase
-            .from('filings')
-            .insert({
-              owner_id,
-              radicado: process.radicado,
-              status: 'MONITORING_ACTIVE',
-              filing_type: 'IMPORTED',
-              last_event_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single();
-          
-          if (!createError && newFiling) {
-            targetFilingId = newFiling.id;
-            await logStep('CREATE_FILING', true, `Created placeholder filing: ${newFiling.id}`);
-          }
-        }
-      }
+    if (!targetWorkItemId) {
+      await logStep('RESOLVE_WORK_ITEM', false, 'Could not resolve work_item_id');
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Cannot normalize without a valid work_item_id. Please ensure the work item exists.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
     
-    if (!targetFilingId) {
-      // Last resort: create a minimal filing
-      const { data: newFiling, error: createError } = await supabase
-        .from('filings')
-        .insert({
-          owner_id,
-          radicado: radicado || 'unknown',
-          status: 'MONITORING_ACTIVE',
-          filing_type: 'IMPORTED',
-          last_event_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-      
-      if (createError) {
-        await logStep('CREATE_FILING', false, `Failed to create filing: ${createError.message}`);
-        throw new Error('Cannot create process_events without a filing_id');
-      }
-      
-      targetFilingId = newFiling.id;
-      await logStep('CREATE_FILING', true, `Created placeholder filing: ${newFiling.id}`);
-    }
+    await logStep('RESOLVE_WORK_ITEM', true, `Target work_item_id: ${targetWorkItemId}`);
     
     // Fetch milestone patterns for detection
     const { data: patterns } = await supabase
@@ -426,7 +440,7 @@ Deno.serve(async (req) => {
         // Compute fingerprint for deduplication
         const fingerprint = computeEventFingerprint(
           source,
-          radicado || 'unknown',
+          effectiveRadicado || 'unknown',
           eventDate,
           eventType,
           act.raw_text,
@@ -459,15 +473,14 @@ Deno.serve(async (req) => {
                 keywords_matched: keywordsMatched,
               });
             }
-          } catch (e) {
+          } catch {
             // Invalid regex, skip
           }
         }
         
         processEvents.push({
-          filing_id: targetFilingId,
+          work_item_id: targetWorkItemId,
           owner_id: act.owner_id,
-          monitored_process_id: act.monitored_process_id,
           event_date: eventDate,
           event_type: eventType,
           title: generateSummary(act.raw_text, 100),
@@ -487,11 +500,12 @@ Deno.serve(async (req) => {
     
     await logStep('TRANSFORM', true, `Transformed ${processEvents.length} events`, { errors_count: errors.length });
     
-    // Fetch existing fingerprints to deduplicate
+    // Fetch existing fingerprints to deduplicate - using work_item_id
     const fingerprints = processEvents.map(e => e.hash_fingerprint);
     const { data: existingEvents, error: existingError } = await supabase
       .from('process_events')
       .select('hash_fingerprint')
+      .eq('work_item_id', targetWorkItemId)
       .in('hash_fingerprint', fingerprints);
     
     if (existingError) {
@@ -531,12 +545,12 @@ Deno.serve(async (req) => {
       await logStep('INSERT', true, `Inserted ${insertedCount} events`, { batch_count: Math.ceil(newEvents.length / batchSize) });
     }
     
-    // Update monitored_process last_normalized_at
-    if (monitored_process_id) {
+    // Update work_item last_checked_at
+    if (targetWorkItemId) {
       await supabase
-        .from('monitored_processes')
+        .from('work_items')
         .update({ last_checked_at: new Date().toISOString() })
-        .eq('id', monitored_process_id);
+        .eq('id', targetWorkItemId);
     }
     
     // Finalize crawler_run

@@ -7,7 +7,6 @@ const corsHeaders = {
 
 // External API configuration
 const EXTERNAL_API_BASE = 'https://rama-judicial-api.onrender.com';
-const CRAWL_TIMEOUT = 30000; // 30 seconds
 
 interface ExternalApiResponse {
   proceso?: {
@@ -33,25 +32,24 @@ interface ExternalApiResponse {
 }
 
 interface CrawlResult {
-  filing_id?: string;
-  process_id?: string;
+  work_item_id: string;
   success: boolean;
   new_actuaciones: number;
   error?: string;
 }
 
-interface EntityToCrawl {
+interface WorkItemToCrawl {
   id: string;
   radicado: string;
   owner_id: string;
+  workflow_type: string;
   last_crawled_at?: string | null;
   last_checked_at?: string | null;
 }
 
 interface ActuacionRow {
   owner_id: string;
-  filing_id: string | null;
-  monitored_process_id: string | null;
+  work_item_id: string;
   source: string;
   source_url: string;
   raw_text: string;
@@ -76,8 +74,8 @@ function normalizeText(text: string): string {
 }
 
 // Compute hash for deduplication
-function computeHash(actDate: string | null, normalizedText: string, sourceUrl: string): string {
-  const data = `${actDate || ''}|${normalizedText}|${sourceUrl}`;
+function computeHash(workItemId: string, actDate: string | null, normalizedText: string, sourceUrl: string): string {
+  const data = `${workItemId}|${actDate || ''}|${normalizedText}|${sourceUrl}`;
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -132,7 +130,7 @@ function guessActType(normalizedText: string): string | null {
   return null;
 }
 
-// Fetch data from external API using job-based polling (same as frontend)
+// Fetch data from external API using job-based polling
 async function fetchFromExternalApi(radicado: string): Promise<ExternalApiResponse | null> {
   try {
     const cleanRadicado = radicado.replace(/\D/g, '');
@@ -222,52 +220,39 @@ async function fetchFromExternalApi(radicado: string): Promise<ExternalApiRespon
   }
 }
 
-// Process a single entity (filing or monitored_process)
-async function crawlEntity(
+// Process a single work_item
+async function crawlWorkItem(
   supabase: SupabaseClient,
-  entity: EntityToCrawl,
-  isMonitoredProcess: boolean
+  workItem: WorkItemToCrawl
 ): Promise<CrawlResult> {
-  const idField = isMonitoredProcess ? 'process_id' : 'filing_id';
-  
-  console.log(`Crawling ${isMonitoredProcess ? 'monitored_process' : 'filing'} ${entity.id} with radicado ${entity.radicado}`);
+  console.log(`Crawling work_item ${workItem.id} with radicado ${workItem.radicado}`);
 
-  const data = await fetchFromExternalApi(entity.radicado);
+  const data = await fetchFromExternalApi(workItem.radicado);
 
   if (!data || data.error || !data.proceso) {
-    if (isMonitoredProcess) {
-      await supabase
-        .from('monitored_processes')
-        .update({ 
-          last_checked_at: new Date().toISOString(),
-        } as Record<string, unknown>)
-        .eq('id', entity.id);
-    } else {
-      await supabase
-        .from('filings')
-        .update({ 
-          last_crawled_at: new Date().toISOString(),
-          scrape_status: 'FAILED' 
-        } as Record<string, unknown>)
-        .eq('id', entity.id);
-    }
+    await supabase
+      .from('work_items')
+      .update({ 
+        last_checked_at: new Date().toISOString(),
+        scrape_status: 'FAILED',
+      })
+      .eq('id', workItem.id);
 
     return {
-      [idField]: entity.id,
+      work_item_id: workItem.id,
       success: false,
       new_actuaciones: 0,
       error: data?.error || 'No data returned from API',
     };
   }
 
-  const sourceUrl = `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${entity.radicado}`;
+  const sourceUrl = `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${workItem.radicado}`;
 
   // Get existing actuaciones to detect new ones
-  const queryField = isMonitoredProcess ? 'monitored_process_id' : 'filing_id';
   const { data: existingActs } = await supabase
     .from('actuaciones')
     .select('hash_fingerprint')
-    .eq(queryField, entity.id);
+    .eq('work_item_id', workItem.id);
 
   const existingHashes = new Set(
     ((existingActs as Array<{ hash_fingerprint: string }>) || []).map(a => a.hash_fingerprint)
@@ -280,13 +265,12 @@ async function crawlEntity(
     const rawText = `${act['Actuación'] || ''}${act['Anotación'] ? ' - ' + act['Anotación'] : ''}`;
     const normalizedText = normalizeText(rawText);
     const actDate = parseColombianDate(act['Fecha de Actuación'] || '');
-    const hashFingerprint = computeHash(actDate, normalizedText, sourceUrl);
+    const hashFingerprint = computeHash(workItem.id, actDate, normalizedText, sourceUrl);
 
     if (!existingHashes.has(hashFingerprint)) {
       newActuaciones.push({
-        owner_id: entity.owner_id,
-        filing_id: isMonitoredProcess ? null : entity.id,
-        monitored_process_id: isMonitoredProcess ? entity.id : null,
+        owner_id: workItem.owner_id,
+        work_item_id: workItem.id,
         source: 'RAMA_JUDICIAL',
         source_url: sourceUrl,
         raw_text: rawText,
@@ -311,14 +295,14 @@ async function crawlEntity(
     if (insertError) {
       console.error('Error inserting actuaciones:', insertError);
     } else {
-      console.log(`Inserted ${newActuaciones.length} new actuaciones for ${entity.id}`);
+      console.log(`Inserted ${newActuaciones.length} new actuaciones for ${workItem.id}`);
 
       // Create alerts for new actuaciones
-      await createActuacionAlerts(supabase, entity, newActuaciones, isMonitoredProcess);
+      await createActuacionAlerts(supabase, workItem, newActuaciones);
     }
   }
 
-  // Update entity with scraped metadata
+  // Update work_item with scraped metadata
   const updateData: Record<string, unknown> = {
     scraped_fields: {
       despacho: data.proceso['Despacho'],
@@ -329,12 +313,15 @@ async function crawlEntity(
       fechaRadicacion: data.proceso['Fecha de Radicación'],
       totalActuaciones: data.total_actuaciones,
     },
-    radicado_status: 'VERIFIED_FOUND',
+    radicado_verified: true,
+    last_checked_at: new Date().toISOString(),
+    last_crawled_at: new Date().toISOString(),
+    scrape_status: 'SUCCESS',
   };
 
   // Also update court info if not already set
   if (data.proceso['Despacho']) {
-    updateData.court_name = data.proceso['Despacho'];
+    updateData.authority_name = data.proceso['Despacho'];
   }
   if (data.proceso['Demandante']) {
     updateData.demandantes = data.proceso['Demandante'];
@@ -343,17 +330,10 @@ async function crawlEntity(
     updateData.demandados = data.proceso['Demandado'];
   }
 
-  if (isMonitoredProcess) {
-    updateData.last_checked_at = new Date().toISOString();
-    await supabase.from('monitored_processes').update(updateData).eq('id', entity.id);
-  } else {
-    updateData.last_crawled_at = new Date().toISOString();
-    updateData.scrape_status = 'SUCCESS';
-    await supabase.from('filings').update(updateData).eq('id', entity.id);
-  }
+  await supabase.from('work_items').update(updateData).eq('id', workItem.id);
 
   return {
-    [idField]: entity.id,
+    work_item_id: workItem.id,
     success: true,
     new_actuaciones: newActuaciones.length,
   };
@@ -362,17 +342,14 @@ async function crawlEntity(
 // Create alerts for new actuaciones
 async function createActuacionAlerts(
   supabase: SupabaseClient,
-  entity: EntityToCrawl,
-  newActuaciones: ActuacionRow[],
-  isMonitoredProcess: boolean
+  workItem: WorkItemToCrawl,
+  newActuaciones: ActuacionRow[]
 ) {
-  const entityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
-  
   // Get user email for notifications
   const { data: profile } = await supabase
     .from('profiles')
     .select('email, full_name')
-    .eq('id', entity.owner_id)
+    .eq('id', workItem.owner_id)
     .single();
 
   const profileData = profile as { email?: string; full_name?: string } | null;
@@ -380,7 +357,7 @@ async function createActuacionAlerts(
   // Create a summary alert for all new actuaciones
   const alertTitle = `${newActuaciones.length} nueva(s) actuación(es) detectada(s)`;
   const recentActs = newActuaciones.slice(0, 3);
-  const alertMessage = `Radicado ${entity.radicado}: ${recentActs.map(a => 
+  const alertMessage = `Radicado ${workItem.radicado}: ${recentActs.map(a => 
     a.act_type_guess || 'Actuación'
   ).join(', ')}${newActuaciones.length > 3 ? ` y ${newActuaciones.length - 3} más` : ''}`;
 
@@ -391,17 +368,18 @@ async function createActuacionAlerts(
   );
   if (hasImportant) severity = 'WARNING';
 
-  // Create alert instance
+  // Create alert instance using canonical /work-items/:id route
   const alertInsert = {
-    owner_id: entity.owner_id,
-    entity_type: entityType,
-    entity_id: entity.id,
+    owner_id: workItem.owner_id,
+    entity_type: 'WORK_ITEM',
+    entity_id: workItem.id,
     severity,
     status: 'PENDING',
     title: alertTitle,
     message: alertMessage,
     payload: {
-      radicado: entity.radicado,
+      radicado: workItem.radicado,
+      workflow_type: workItem.workflow_type,
       new_count: newActuaciones.length,
       actuaciones: newActuaciones.map(a => ({
         text: a.raw_text.substring(0, 200),
@@ -413,7 +391,7 @@ async function createActuacionAlerts(
       { 
         label: 'Ver Proceso', 
         action: 'navigate', 
-        params: { path: isMonitoredProcess ? `/processes/${entity.id}` : `/filings/${entity.id}` } 
+        params: { path: `/work-items/${workItem.id}` } 
       },
     ],
   };
@@ -437,13 +415,13 @@ async function createActuacionAlerts(
           recipientEmail: profileData.email,
           recipientName: profileData.full_name || undefined,
           subject: alertTitle,
-          radicado: entity.radicado,
-          message: `Se detectaron ${newActuaciones.length} nueva(s) actuación(es) en el proceso ${entity.radicado}:\n\n${
+          radicado: workItem.radicado,
+          message: `Se detectaron ${newActuaciones.length} nueva(s) actuación(es) en el proceso ${workItem.radicado}:\n\n${
             newActuaciones.slice(0, 5).map(a => `• ${a.act_date || 'Sin fecha'}: ${a.raw_text.substring(0, 100)}...`).join('\n')
           }${newActuaciones.length > 5 ? `\n\n... y ${newActuaciones.length - 5} actuación(es) más.` : ''}`,
         }),
       });
-      console.log(`Email notification sent to ${profileData.email} for ${entity.radicado}`);
+      console.log(`Email notification sent to ${profileData.email} for ${workItem.radicado}`);
     } catch (emailError) {
       console.error('Error sending email notification:', emailError);
     }
@@ -460,93 +438,56 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log('Starting scheduled crawler run with external API...');
+    console.log('Starting scheduled crawler run with work_items...');
 
     const results: CrawlResult[] = [];
     let totalNewActuaciones = 0;
 
-    // Get all CGP filings with crawler enabled and a radicado
-    const { data: filings, error: filingsError } = await supabase
-      .from('filings')
-      .select('id, radicado, owner_id, last_crawled_at, case_family')
-      .eq('crawler_enabled', true)
+    // Get all work_items with monitoring enabled and valid radicado
+    // This replaces the legacy queries to filings and monitored_processes
+    const { data: workItems, error: workItemsError } = await supabase
+      .from('work_items')
+      .select('id, radicado, owner_id, workflow_type, last_crawled_at, last_checked_at')
+      .eq('monitoring_enabled', true)
+      .in('workflow_type', ['CGP', 'CPACA', 'TUTELA', 'LABORAL', 'PENAL_906'])
       .not('radicado', 'is', null)
-      .not('status', 'in', '(CLOSED,ARCHIVED)')
-      .or('case_family.eq.CGP,case_family.is.null');
+      .neq('status', 'ARCHIVED');
 
-    if (filingsError) {
-      console.error('Error fetching filings:', filingsError);
+    if (workItemsError) {
+      console.error('Error fetching work_items:', workItemsError);
+      return new Response(
+        JSON.stringify({ success: false, error: workItemsError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Get all monitored processes with active flag
-    const { data: processes, error: processesError } = await supabase
-      .from('monitored_processes')
-      .select('id, radicado, owner_id, last_checked_at')
-      .eq('active', true)
-      .not('radicado', 'is', null);
+    const workItemsArray = (workItems as WorkItemToCrawl[] | null) || [];
+    console.log(`Found ${workItemsArray.length} work_items to crawl`);
 
-    if (processesError) {
-      console.error('Error fetching monitored_processes:', processesError);
-    }
-
-    const filingsArray = (filings as EntityToCrawl[] | null) || [];
-    const processesArray = (processes as EntityToCrawl[] | null) || [];
-
-    console.log(`Found ${filingsArray.length} filings and ${processesArray.length} monitored processes to crawl`);
-
-    // Process filings
-    for (const filing of filingsArray) {
-      // Skip if crawled in the last 20 hours
-      if (filing.last_crawled_at) {
-        const lastCrawl = new Date(filing.last_crawled_at);
-        const hoursSinceCrawl = (Date.now() - lastCrawl.getTime()) / (1000 * 60 * 60);
-        if (hoursSinceCrawl < 20) {
-          console.log(`Skipping filing ${filing.id} - crawled ${hoursSinceCrawl.toFixed(1)} hours ago`);
-          continue;
-        }
-      }
-
-      try {
-        const result = await crawlEntity(supabase, filing, false);
-        results.push(result);
-        totalNewActuaciones += result.new_actuaciones;
-
-        // Small delay between requests
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      } catch (error) {
-        console.error(`Error crawling filing ${filing.id}:`, error);
-        results.push({
-          filing_id: filing.id,
-          success: false,
-          new_actuaciones: 0,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
-    }
-
-    // Process monitored processes
-    for (const process of processesArray) {
+    // Process work_items
+    for (const workItem of workItemsArray) {
       // Skip if checked in the last 20 hours
-      if (process.last_checked_at) {
-        const lastCheck = new Date(process.last_checked_at);
-        const hoursSinceCheck = (Date.now() - lastCheck.getTime()) / (1000 * 60 * 60);
+      const lastCheck = workItem.last_checked_at || workItem.last_crawled_at;
+      if (lastCheck) {
+        const lastCheckDate = new Date(lastCheck);
+        const hoursSinceCheck = (Date.now() - lastCheckDate.getTime()) / (1000 * 60 * 60);
         if (hoursSinceCheck < 20) {
-          console.log(`Skipping process ${process.id} - checked ${hoursSinceCheck.toFixed(1)} hours ago`);
+          console.log(`Skipping work_item ${workItem.id} - checked ${hoursSinceCheck.toFixed(1)} hours ago`);
           continue;
         }
       }
 
       try {
-        const result = await crawlEntity(supabase, process, true);
+        const result = await crawlWorkItem(supabase, workItem);
         results.push(result);
         totalNewActuaciones += result.new_actuaciones;
 
         // Small delay between requests
         await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (error) {
-        console.error(`Error crawling process ${process.id}:`, error);
+        console.error(`Error crawling work_item ${workItem.id}:`, error);
         results.push({
-          process_id: process.id,
+          work_item_id: workItem.id,
           success: false,
           new_actuaciones: 0,
           error: error instanceof Error ? error.message : 'Unknown error',
