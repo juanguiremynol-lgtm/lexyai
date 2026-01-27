@@ -338,7 +338,7 @@ export default function NewProcess() {
       setClientDialogOpen(false);
       setClassificationDialogOpen(false);
       setPendingClassification(null);
-      navigate(`/items/${data.id}`);
+      navigate(`/app/items/${data.id}`);
     },
     onError: (error) => {
       if (error.message === "DUPLICATE_RADICADO") {

@@ -98,5 +98,5 @@ export default function ItemRedirect() {
   }
 
   // Always redirect to canonical work-items detail view
-  return <Navigate to={`/work-items/${resolvedId || id}`} replace />;
+  return <Navigate to={`/app/work-items/${resolvedId || id}`} replace />;
 }

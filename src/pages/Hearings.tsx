@@ -760,7 +760,7 @@ export default function Hearings() {
                       hearing={hearing}
                       onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
-                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
+                      onNavigate={() => hearing.work_item_id && navigate(`/app/work-items/${hearing.work_item_id}`)}
                     />
                   ))}
                 </div>
@@ -792,7 +792,7 @@ export default function Hearings() {
                       hearing={hearing}
                       onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
-                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
+                      onNavigate={() => hearing.work_item_id && navigate(`/app/work-items/${hearing.work_item_id}`)}
                       showDate
                     />
                   ))}
@@ -823,7 +823,7 @@ export default function Hearings() {
                       hearing={hearing}
                       onDelete={() => deleteHearing.mutate(hearing)}
                       isDeleting={deleteHearing.isPending}
-                      onNavigate={() => hearing.work_item_id && navigate(`/work-items/${hearing.work_item_id}`)}
+                      onNavigate={() => hearing.work_item_id && navigate(`/app/work-items/${hearing.work_item_id}`)}
                       isPast
                       showDate
                     />

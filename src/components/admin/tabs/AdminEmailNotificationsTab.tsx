@@ -366,7 +366,7 @@ export function AdminEmailNotificationsTab() {
                         </div>
                         {entry.work_item && (
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/work-items/${entry.work_item.id}`}>
+                            <Link to={`/app/work-items/${entry.work_item.id}`}>
                               <ExternalLink className="h-4 w-4" />
                             </Link>
                           </Button>

@@ -240,7 +240,7 @@ export default function PublicPricingPage() {
     }
 
     // Logged in as admin - go to billing page with selection
-    navigate(`/settings?tab=billing&plan=${planCode}&cycle=${cycleMonths}`);
+    navigate(`/app/settings?tab=billing&plan=${planCode}&cycle=${cycleMonths}`);
   };
 
   return (

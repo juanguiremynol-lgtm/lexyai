@@ -217,7 +217,7 @@ export function TutelaCard({
             className="h-7 text-xs flex-1"
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/work-items/${item.id}`);
+              navigate(`/app/work-items/${item.id}`);
             }}
           >
             <ExternalLink className="h-3 w-3 mr-1" />

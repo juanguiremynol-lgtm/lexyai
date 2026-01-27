@@ -104,7 +104,7 @@ async function performSearch(query: string): Promise<GroupedResults> {
     subtitle: [item.demandantes, item.demandados].filter(Boolean).join(" vs ") || item.authority_name || "Sin partes",
     badge: item.workflow_type,
     badgeVariant: "secondary" as const,
-    route: `/work-items/${item.id}`,
+    route: `/app/work-items/${item.id}`,
   }));
 
   // Transform clients
@@ -115,7 +115,7 @@ async function performSearch(query: string): Promise<GroupedResults> {
     subtitle: [client.id_number, client.city, client.email].filter(Boolean).join(" • "),
     badge: "Cliente",
     badgeVariant: "outline" as const,
-    route: `/clients/${client.id}`,
+    route: `/app/clients/${client.id}`,
   }));
 
   // Transform process events
@@ -126,7 +126,7 @@ async function performSearch(query: string): Promise<GroupedResults> {
     subtitle: event.description?.substring(0, 60) + (event.description && event.description.length > 60 ? "..." : "") || "Sin descripción",
     badge: event.event_type,
     badgeVariant: "default" as const,
-    route: event.filing_id ? `/work-items/${event.filing_id}` : `/work-items`,
+    route: event.filing_id ? `/app/work-items/${event.filing_id}` : `/app/work-items`,
   }));
 
   return {

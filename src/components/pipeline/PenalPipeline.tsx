@@ -150,7 +150,7 @@ export function PenalPipeline() {
           options.isSelected && "border-primary bg-primary/5",
           item.is_flagged && "border-l-4 border-l-amber-500"
         )}
-        onClick={() => navigate(`/work-items/${item.id}`)}
+        onClick={() => navigate(`/app/work-items/${item.id}`)}
       >
         <div className="space-y-2">
           {/* Header */}

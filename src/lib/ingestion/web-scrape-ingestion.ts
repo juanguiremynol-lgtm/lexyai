@@ -176,7 +176,7 @@ export async function createEventAlert(
         event_type: eventType,
       },
       actions: [
-        { label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${workItemId}` } },
+        { label: 'Ver Proceso', action: 'navigate', params: { path: `/app/work-items/${workItemId}` } },
       ],
       fingerprintKeys: {
         radicado,

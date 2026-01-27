@@ -366,22 +366,22 @@ export function AdminAuditLogsTab() {
     const resolvedEntityId = entityId || (metadata?.work_item_id as string) || (metadata?.client_id as string);
 
     if (entityType === "work_item" && resolvedEntityId) {
-      navigate(`/work-items/${resolvedEntityId}`);
+      navigate(`/app/work-items/${resolvedEntityId}`);
       return;
     }
 
     if (entityType === "client" && resolvedEntityId) {
-      navigate(`/clients/${resolvedEntityId}`);
+      navigate(`/app/clients/${resolvedEntityId}`);
       return;
     }
 
     if (entityType === "task" && metadata?.work_item_id) {
-      navigate(`/work-items/${metadata.work_item_id}?tab=tareas`);
+      navigate(`/app/work-items/${metadata.work_item_id}?tab=tareas`);
       return;
     }
 
     if (entityType === "email_outbox" || entityType === "organization_memberships" || entityType === "subscriptions") {
-      navigate("/settings?tab=admin");
+      navigate("/app/settings?tab=admin");
       return;
     }
 
