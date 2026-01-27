@@ -140,7 +140,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchResult> {
     };
     
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
+      headers['x-api-key'] = apiKey;
     }
 
     console.log(`[sync-publicaciones] Calling: ${baseUrl}/publicaciones/${radicado}`);

@@ -364,7 +364,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
   
   // Only add auth header if key is present
   if (apiKeyInfo.value) {
-    headers['X-API-Key'] = apiKeyInfo.value;
+    headers['x-api-key'] = apiKeyInfo.value;
   }
 
   // Log auth context safely (no secrets)
@@ -531,7 +531,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
     };
     
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
+      headers['x-api-key'] = apiKey;
     }
 
     console.log(`[sync-by-work-item] Calling SAMAI: ${baseUrl}/proceso/${radicado}`);
@@ -636,7 +636,7 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
     };
     
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
+      headers['x-api-key'] = apiKey;
     }
 
     console.log(`[sync-by-work-item] Calling TUTELAS: ${baseUrl}/expediente/${tutelaCode}`);
@@ -759,7 +759,7 @@ async function fetchFromPublicaciones(
     };
     
     if (apiKey) {
-      headers['X-API-Key'] = apiKey;
+      headers['x-api-key'] = apiKey;
     }
 
     console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${baseUrl}/publicaciones/${radicado}`);

@@ -484,7 +484,7 @@ async function callProviderWithProbing(
   const apiKeyInfo = await getApiKeyForProvider(provider);
   
   const authDiagnostics: AuthDiagnostics = {
-    auth_header_used: 'X-API-Key',
+    auth_header_used: 'x-api-key',
     api_key_source: apiKeyInfo.source,
     api_key_present: apiKeyInfo.value !== null,
     api_key_fingerprint: apiKeyInfo.fingerprint,
@@ -519,7 +519,7 @@ async function callProviderWithProbing(
   
   // Only add auth header if key is present
   if (apiKeyInfo.value) {
-    headers['X-API-Key'] = apiKeyInfo.value;
+    headers['x-api-key'] = apiKeyInfo.value;
   }
 
   for (let i = 0; i < routeCandidates.length; i++) {
