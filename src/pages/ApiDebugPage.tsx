@@ -89,12 +89,16 @@ interface DebugResult {
 }
 
 // Workflow-specific provider order (mirrors Edge Function logic)
-const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { primary: string; fallback: string | null; description: string }> = {
-  CGP: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
-  LABORAL: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
+// CGP/LABORAL: Estados are primary notification source; CPNU/SAMAI for enrichment
+// TUTELA: TUTELAS API primary, CPNU fallback
+// PENAL_906: CPNU primary, Publicaciones are first-class source
+// CPACA: SAMAI primary (administrative litigation)
+const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { primary: string; fallback: string | null; description: string; notificationSource?: string }> = {
+  CGP: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
+  LABORAL: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
   CPACA: { primary: 'SAMAI', fallback: null, description: 'SAMAI primario (litigio administrativo)' },
-  TUTELA: { primary: 'TUTELAS', fallback: null, description: 'TUTELAS API (tutela_code)' },
-  PENAL_906: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
+  TUTELA: { primary: 'TUTELAS', fallback: 'CPNU', description: 'TUTELAS API primario, CPNU fallback' },
+  PENAL_906: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario + Publicaciones', notificationSource: 'Publicaciones Procesales' },
 };
 
 // ============== Helper Functions ==============
@@ -556,6 +560,11 @@ export default function ApiDebugPage() {
               </Select>
               <p className="text-xs text-muted-foreground">
                 {WORKFLOW_PROVIDER_ORDER[workflowType].description}
+                {WORKFLOW_PROVIDER_ORDER[workflowType].notificationSource && (
+                  <span className="block text-xs text-primary mt-1">
+                    📋 Fuente de notificación: {WORKFLOW_PROVIDER_ORDER[workflowType].notificationSource}
+                  </span>
+                )}
               </p>
             </div>
 

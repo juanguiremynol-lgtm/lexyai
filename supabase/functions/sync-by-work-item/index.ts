@@ -87,32 +87,42 @@ interface FetchResult {
 }
 
 // ============= WORKFLOW-BASED PROVIDER ORDER =============
-// CGP/LABORAL: CPNU primary, SAMAI fallback
-// CPACA: SAMAI primary, CPNU fallback (optional, disabled by default)
-// TUTELA: TUTELAS API primary (uses tutela_code)
-// PENAL_906: CPNU primary, SAMAI fallback
+// 
+// NOTIFICATION SOURCES:
+// - CGP/LABORAL: ESTADOS are primary notification source (for legal terms)
+//   - CPNU primary for enrichment actuaciones, SAMAI fallback
+// - CPACA: SAMAI primary (administrative litigation), CPNU optional fallback (disabled)
+// - TUTELA: TUTELAS API primary (tutela_code), CPNU fallback if TUTELAS empty/failed
+// - PENAL_906: PUBLICACIONES are first-class source for actuaciones; CPNU/SAMAI for enrichment
+// 
+// The Estados ingestion pipeline remains canonical for CGP/LABORAL.
 
 type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
 
 interface ProviderOrderConfig {
-  primary: 'cpnu' | 'samai' | 'tutelas-api';
+  primary: 'cpnu' | 'samai' | 'tutelas-api' | 'publicaciones';
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
+  usePublicacionesAsSource?: boolean; // For PENAL_906: treat Publicaciones as actuation-like source
 }
 
 function getProviderOrder(workflowType: string): ProviderOrderConfig {
   switch (workflowType) {
     case 'CPACA':
       // SAMAI is primary for CPACA (administrative litigation)
-      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false }; // CPNU fallback disabled by default
+      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
     case 'TUTELA':
-      // TUTELAS API for tutela workflows
-      return { primary: 'tutelas-api', fallback: null, fallbackEnabled: false };
+      // TUTELAS API primary, CPNU fallback if TUTELAS empty/failed
+      return { primary: 'tutelas-api', fallback: 'cpnu', fallbackEnabled: true };
+    case 'PENAL_906':
+      // PENAL_906: CPNU primary for actuaciones, Publicaciones are first-class source
+      // The sync-publicaciones function handles Publicaciones separately
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, usePublicacionesAsSource: true };
     case 'CGP':
     case 'LABORAL':
-    case 'PENAL_906':
     default:
-      // CPNU primary for CGP/LABORAL/PENAL_906
+      // CGP/LABORAL: CPNU primary, SAMAI fallback
+      // Note: Estados remain the canonical notification source (via estados ingestion pipeline)
       return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
   }
 }
@@ -599,25 +609,74 @@ Deno.serve(async (req) => {
     let fetchResult: FetchResult | null = null;
 
     if (workItem.workflow_type === 'TUTELA') {
-      // TUTELA workflow: require tutela_code
+      // TUTELA workflow: TUTELAS API primary, CPNU fallback
       if (!workItem.tutela_code || !isValidTutelaCode(workItem.tutela_code)) {
-        return errorResponse(
-          'MISSING_TUTELA_CODE',
-          'TUTELA workflow requires a valid tutela_code (format: T + 6-10 digits, e.g., T11728622). Please edit the work item to add it.',
-          400
-        );
+        // If no tutela_code, try radicado via CPNU
+        if (workItem.radicado && isValidRadicado(workItem.radicado)) {
+          console.log(`[sync-by-work-item] TUTELA workflow without tutela_code, using radicado via CPNU`);
+          const normalizedRadicado = normalizeRadicado(workItem.radicado);
+          fetchResult = await fetchFromCpnu(normalizedRadicado);
+          result.provider_attempts.push({
+            provider: 'cpnu',
+            status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+            latencyMs: fetchResult.latencyMs || 0,
+            message: 'Used CPNU (no tutela_code available)',
+            actuacionesCount: fetchResult.actuaciones.length,
+          });
+          result.provider_order_reason = 'tutela_no_code_cpnu_fallback';
+        } else {
+          return errorResponse(
+            'MISSING_IDENTIFIER',
+            'TUTELA workflow requires a valid tutela_code (format: T + 6-10 digits, e.g., T11728622) or a 23-digit radicado. Please edit the work item to add one.',
+            400
+          );
+        }
+      } else {
+        console.log(`[sync-by-work-item] TUTELA workflow: using tutela_code=${workItem.tutela_code}`);
+        fetchResult = await fetchFromTutelasApi(workItem.tutela_code);
+        
+        result.provider_attempts.push({
+          provider: 'tutelas-api',
+          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          latencyMs: fetchResult.latencyMs || 0,
+          message: fetchResult.error,
+          actuacionesCount: fetchResult.actuaciones.length,
+        });
+        
+        // CPNU fallback for TUTELA if TUTELAS API returns empty/not-found
+        if (!fetchResult.ok && providerOrder.fallbackEnabled && fetchResult.isEmpty) {
+          console.log(`[sync-by-work-item] TUTELAS API empty, trying CPNU fallback`);
+          result.warnings.push(`TUTELAS API (primary): ${fetchResult.error || 'Not found'}`);
+          
+          // Try CPNU using radicado if available
+          if (workItem.radicado && isValidRadicado(workItem.radicado)) {
+            const normalizedRadicado = normalizeRadicado(workItem.radicado);
+            const cpnuResult = await fetchFromCpnu(normalizedRadicado);
+            
+            result.provider_attempts.push({
+              provider: 'cpnu',
+              status: cpnuResult.ok ? 'success' : (cpnuResult.isEmpty ? 'not_found' : 'error'),
+              latencyMs: cpnuResult.latencyMs || 0,
+              message: cpnuResult.error,
+              actuacionesCount: cpnuResult.actuaciones.length,
+            });
+            
+            if (cpnuResult.ok) {
+              fetchResult = cpnuResult;
+              result.provider_order_reason = 'tutela_tutelas_failed_cpnu_fallback';
+            } else {
+              result.warnings.push(`CPNU fallback: ${cpnuResult.error}`);
+            }
+          } else {
+            result.provider_attempts.push({
+              provider: 'cpnu',
+              status: 'skipped',
+              latencyMs: 0,
+              message: 'No valid radicado for CPNU fallback',
+            });
+          }
+        }
       }
-      
-      console.log(`[sync-by-work-item] TUTELA workflow: using tutela_code=${workItem.tutela_code}`);
-      fetchResult = await fetchFromTutelasApi(workItem.tutela_code);
-      
-      result.provider_attempts.push({
-        provider: 'tutelas-api',
-        status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
-        latencyMs: fetchResult.latencyMs || 0,
-        message: fetchResult.error,
-        actuacionesCount: fetchResult.actuaciones.length,
-      });
       
     } else {
       // CGP/LABORAL/CPACA/PENAL_906: require radicado (23 digits)
