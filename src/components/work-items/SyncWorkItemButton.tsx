@@ -5,6 +5,7 @@
  * - Adapter resolution based on org settings
  * - External API calls (server-side only)
  * - Idempotent ingestion of actuaciones
+ * - Detailed trace logging for debugging
  */
 
 import { useState } from "react";
@@ -24,9 +25,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { WorkItem } from "@/types/work-item";
+import { generateTraceId, formatSyncError } from "@/lib/sync-trace";
 
 interface SyncWorkItemButtonProps {
   workItem: WorkItem;
+  onTraceIdGenerated?: (traceId: string) => void;
 }
 
 interface SyncResult {
@@ -52,7 +55,7 @@ function isValidRadicado(radicado: string): boolean {
   return normalized.length === 23;
 }
 
-export function SyncWorkItemButton({ workItem }: SyncWorkItemButtonProps) {
+export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkItemButtonProps) {
   const queryClient = useQueryClient();
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editedRadicado, setEditedRadicado] = useState(workItem.radicado || "");
@@ -66,11 +69,20 @@ export function SyncWorkItemButton({ workItem }: SyncWorkItemButtonProps) {
       (workItem.radicado && isValidRadicado(workItem.radicado))
     : workItem.radicado && isValidRadicado(workItem.radicado);
 
-  // Sync mutation
+  // Sync mutation with trace ID
   const syncMutation = useMutation({
     mutationFn: async (): Promise<SyncResult> => {
+      // Generate trace ID for debugging
+      const traceId = generateTraceId();
+      
+      // Notify parent about the trace ID
+      onTraceIdGenerated?.(traceId);
+      
       const { data, error } = await supabase.functions.invoke("sync-by-work-item", {
         body: { work_item_id: workItem.id },
+        headers: {
+          "X-Trace-Id": traceId,
+        },
       });
 
       if (error) {
@@ -102,12 +114,15 @@ export function SyncWorkItemButton({ workItem }: SyncWorkItemButtonProps) {
           toast.success("Sincronización completada");
         }
       } else {
+        // Use improved error message from trace utilities
+        const errorMsg = formatSyncError(
+          result.code || null,
+          result.errors?.[0] || result.message || null
+        );
         toast.error("Error de sincronización", {
-          description: result.errors?.[0] || result.message || "Error desconocido",
+          description: errorMsg,
         });
       }
-
-      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
       queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
     },
