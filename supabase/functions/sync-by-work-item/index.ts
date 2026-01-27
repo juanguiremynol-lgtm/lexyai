@@ -5,8 +5,9 @@
  * 
  * Features:
  * - Multi-tenant safe: validates user is member of work_item's organization
- * - All external URLs from env vars: EXTERNAL_RAMA_API_URL, TUTELAS_BASE_URL, CPNU adapter
- * - Adapter resolution via org_integration_settings
+ * - Gateway integration: calls Cloud Run gateway when enableGatewayIntegration=true
+ * - All external URLs from env vars: GATEWAY_BASE_URL, GATEWAY_API_KEY
+ * - Adapter fallback when gateway disabled
  * - Idempotent: uses hash_fingerprint to prevent duplicates
  * 
  * Input: { work_item_id: string }
@@ -59,6 +60,15 @@ interface OrgIntegrationSettings {
     enableTutelasApi?: boolean;
     enableSamaiApi?: boolean;
     enablePublicacionesApi?: boolean;
+    // Gateway integration flags
+    enableGatewayIntegration?: boolean;
+    enableDocumentsIngestion?: boolean;
+    gatewayCapabilities?: {
+      actuaciones?: boolean;
+      estados?: boolean;
+      expediente?: boolean;
+      documents?: boolean;
+    };
   };
   workflow_overrides?: Record<string, string>;
 }
@@ -83,6 +93,70 @@ interface FetchResult {
   };
   error?: string;
   source: string;
+}
+
+// ============= GATEWAY TYPES =============
+
+interface GatewayRequest {
+  workflow_type: string;
+  identifier: {
+    radicado?: string;
+    tutela_code?: string;
+  };
+  capabilities: {
+    actuaciones: boolean;
+    estados: boolean;
+    expediente: boolean;
+    documents: boolean;
+  };
+  since?: string;
+  tenant: {
+    organization_id: string;
+    work_item_id: string;
+  };
+}
+
+interface GatewayActuacion {
+  source_id: string;
+  date: string | null;
+  title: string;
+  detail: string;
+  url: string | null;
+  raw: Record<string, unknown>;
+}
+
+interface GatewayEstado {
+  source_id: string;
+  date: string;
+  text: string;
+  raw: Record<string, unknown>;
+}
+
+interface GatewayDocument {
+  source_id: string;
+  title: string;
+  url: string;
+  published_at: string;
+  raw: Record<string, unknown>;
+}
+
+interface GatewayResponse {
+  source: string;
+  workflow_type: string;
+  identifier: {
+    radicado?: string;
+    tutela_code?: string;
+  };
+  fetched_at: string;
+  actuaciones: GatewayActuacion[];
+  estados: GatewayEstado[];
+  expediente: {
+    items: unknown[];
+    raw: Record<string, unknown>;
+  } | null;
+  documents: GatewayDocument[];
+  warnings: string[];
+  errors: string[];
 }
 
 // ============= HELPERS =============
@@ -127,21 +201,22 @@ function generateFingerprint(
   return `wi_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
 }
 
-function parseColombianDate(dateStr: string | undefined): string | null {
+function parseColombianDate(dateStr: string | undefined | null): string | null {
   if (!dateStr) return null;
+  
+  // If already ISO format, return as-is
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return dateStr.slice(0, 10);
+  }
   
   const patterns = [
     /^(\d{2})\/(\d{2})\/(\d{4})$/,
     /^(\d{2})-(\d{2})-(\d{4})$/,
-    /^(\d{4})-(\d{2})-(\d{2})$/,
   ];
 
   for (const pattern of patterns) {
     const match = dateStr.match(pattern);
     if (match) {
-      if (pattern.source.startsWith('(\\d{4})')) {
-        return dateStr;
-      }
       return `${match[3]}-${match[2]}-${match[1]}`;
     }
   }
@@ -170,7 +245,7 @@ async function getOrgSettings(
   // deno-lint-ignore no-explicit-any
   const row = data as any;
   return {
-    adapter_priority_order: row.adapter_priority_order || ['external-rama-judicial-api', 'cpnu', 'noop'],
+    adapter_priority_order: row.adapter_priority_order || ['gateway', 'external-rama-judicial-api', 'cpnu', 'noop'],
     feature_flags: (row.feature_flags as OrgIntegrationSettings['feature_flags']) || {},
     workflow_overrides: row.workflow_overrides as Record<string, string> | undefined,
   };
@@ -191,35 +266,184 @@ function resolveAdapters(
 
   const flags = settings?.feature_flags || {};
   
-  // For TUTELA, prefer tutelas API
+  // Gateway is the preferred adapter when enabled
+  if (flags.enableGatewayIntegration) {
+    adapters.push('gateway');
+  }
+  
+  // For TUTELA, also check tutelas API as fallback
   if (workflowType === 'TUTELA') {
-    if (flags.enableTutelasApi !== false) {
+    if (flags.enableTutelasApi !== false && !flags.enableGatewayIntegration) {
       adapters.push('tutelas-api');
     }
   }
 
-  // Add adapters based on priority order and flags
-  const priority = settings?.adapter_priority_order || ['external-rama-judicial-api', 'cpnu'];
-  
-  for (const adapterId of priority) {
-    if (adapterId === 'external-rama-judicial-api' && flags.enableExternalApi !== false) {
-      adapters.push(adapterId);
-    }
-    if (adapterId === 'cpnu' && flags.enableLegacyCpnu !== false) {
-      adapters.push(adapterId);
-    }
-    if (adapterId === 'samai-api' && flags.enableSamaiApi) {
-      adapters.push(adapterId);
-    }
-    if (adapterId === 'publicaciones-api' && flags.enablePublicacionesApi) {
-      adapters.push(adapterId);
+  // Add legacy adapters based on priority order and flags (only if gateway not enabled)
+  if (!flags.enableGatewayIntegration) {
+    const priority = settings?.adapter_priority_order || ['external-rama-judicial-api', 'cpnu'];
+    
+    for (const adapterId of priority) {
+      if (adapterId === 'gateway') continue; // Skip gateway in legacy mode
+      if (adapterId === 'external-rama-judicial-api' && flags.enableExternalApi !== false) {
+        adapters.push(adapterId);
+      }
+      if (adapterId === 'cpnu' && flags.enableLegacyCpnu !== false) {
+        adapters.push(adapterId);
+      }
+      if (adapterId === 'samai-api' && flags.enableSamaiApi) {
+        adapters.push(adapterId);
+      }
+      if (adapterId === 'publicaciones-api' && flags.enablePublicacionesApi) {
+        adapters.push(adapterId);
+      }
     }
   }
 
   return adapters.length > 0 ? adapters : ['noop'];
 }
 
-// ============= EXTERNAL API FETCHERS (ENV VAR BASED) =============
+// ============= GATEWAY INTEGRATION =============
+
+async function fetchFromGateway(
+  workItem: WorkItem,
+  identifier: string,
+  identifierType: 'radicado' | 'tutela_code',
+  orgSettings: OrgIntegrationSettings | null
+): Promise<FetchResult> {
+  const gatewayBaseUrl = Deno.env.get('GATEWAY_BASE_URL');
+  const gatewayApiKey = Deno.env.get('GATEWAY_API_KEY');
+
+  if (!gatewayBaseUrl) {
+    console.log('[sync-by-work-item] GATEWAY_BASE_URL not configured');
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: 'Gateway not configured (missing GATEWAY_BASE_URL). Contact administrator.', 
+      source: 'gateway' 
+    };
+  }
+
+  if (!gatewayApiKey) {
+    console.log('[sync-by-work-item] GATEWAY_API_KEY not configured');
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: 'Gateway not configured (missing GATEWAY_API_KEY). Contact administrator.', 
+      source: 'gateway' 
+    };
+  }
+
+  // Determine capabilities based on workflow type and org settings
+  const flags = orgSettings?.feature_flags || {};
+  const gatewayCapabilities = flags.gatewayCapabilities || {};
+  
+  const capabilities = {
+    actuaciones: gatewayCapabilities.actuaciones !== false, // default true
+    estados: ['CGP', 'LABORAL', 'TUTELA'].includes(workItem.workflow_type) && 
+             gatewayCapabilities.estados !== false,
+    expediente: workItem.workflow_type === 'TUTELA' && 
+                gatewayCapabilities.expediente !== false,
+    documents: flags.enableDocumentsIngestion === true && 
+               gatewayCapabilities.documents !== false,
+  };
+
+  // Build gateway request
+  const gatewayRequest: GatewayRequest = {
+    workflow_type: workItem.workflow_type,
+    identifier: identifierType === 'tutela_code' 
+      ? { tutela_code: identifier }
+      : { radicado: identifier },
+    capabilities,
+    tenant: {
+      organization_id: workItem.organization_id,
+      work_item_id: workItem.id,
+    },
+  };
+
+  // Optionally add since timestamp for incremental sync
+  if (workItem.last_crawled_at) {
+    gatewayRequest.since = workItem.last_crawled_at;
+  }
+
+  console.log(`[sync-by-work-item] Calling gateway: ${gatewayBaseUrl}/v1/sync`);
+  console.log(`[sync-by-work-item] Gateway request:`, JSON.stringify(gatewayRequest, null, 2));
+
+  try {
+    const response = await fetch(`${gatewayBaseUrl}/v1/sync`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${gatewayApiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(gatewayRequest),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(`[sync-by-work-item] Gateway HTTP ${response.status}: ${errorText}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: `Gateway HTTP ${response.status}: ${errorText.slice(0, 200)}`, 
+        source: 'gateway' 
+      };
+    }
+
+    const gatewayResponse: GatewayResponse = await response.json();
+    console.log(`[sync-by-work-item] Gateway response: ${gatewayResponse.actuaciones?.length || 0} actuaciones, ${gatewayResponse.warnings?.length || 0} warnings`);
+
+    // Handle gateway errors
+    if (gatewayResponse.errors && gatewayResponse.errors.length > 0) {
+      console.log(`[sync-by-work-item] Gateway errors:`, gatewayResponse.errors);
+      // Continue with partial data if we have actuaciones
+      if (!gatewayResponse.actuaciones || gatewayResponse.actuaciones.length === 0) {
+        return {
+          ok: false,
+          actuaciones: [],
+          error: gatewayResponse.errors.join('; '),
+          source: 'gateway',
+        };
+      }
+    }
+
+    // Transform gateway actuaciones to our internal format
+    const actuaciones: ActuacionRaw[] = (gatewayResponse.actuaciones || []).map(act => ({
+      fecha: act.date || '',
+      actuacion: act.title || '',
+      anotacion: act.detail || '',
+    }));
+
+    // Build result with metadata
+    const result: FetchResult = {
+      ok: actuaciones.length > 0 || gatewayResponse.expediente !== null,
+      actuaciones,
+      source: 'gateway',
+    };
+
+    // Extract expediente URL if available
+    if (gatewayResponse.expediente?.raw?.url) {
+      result.expedienteUrl = String(gatewayResponse.expediente.raw.url);
+    }
+
+    // Add warnings if any
+    if (gatewayResponse.warnings && gatewayResponse.warnings.length > 0) {
+      console.log(`[sync-by-work-item] Gateway warnings:`, gatewayResponse.warnings);
+    }
+
+    return result;
+  } catch (err) {
+    console.error('[sync-by-work-item] Gateway fetch error:', err);
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: err instanceof Error ? err.message : 'Gateway fetch failed', 
+      source: 'gateway' 
+    };
+  }
+}
+
+// ============= LEGACY ADAPTER FETCHERS =============
 
 async function fetchFromCpnu(
   supabaseUrl: string,
@@ -666,7 +890,10 @@ Deno.serve(async (req) => {
 
       console.log(`[sync-by-work-item] Trying adapter: ${adapterId}`);
 
-      if (adapterId === 'tutelas-api' && identifierType === 'tutela_code') {
+      if (adapterId === 'gateway') {
+        // Use the new gateway integration
+        fetchResult = await fetchFromGateway(workItem as WorkItem, identifier, identifierType, orgSettings);
+      } else if (adapterId === 'tutelas-api' && identifierType === 'tutela_code') {
         fetchResult = await fetchFromTutelasApi(identifier, workItem.radicado);
       } else if (adapterId === 'external-rama-judicial-api') {
         fetchResult = await fetchFromExternalApi(identifier);
@@ -789,7 +1016,7 @@ Deno.serve(async (req) => {
       updatePayload.last_action_date = latestDate;
     }
 
-    // Update expediente_url if returned by tutelas API and not already set
+    // Update expediente_url if returned by gateway/tutelas API and not already set
     if (fetchResult.expedienteUrl && !workItem.expediente_url) {
       updatePayload.expediente_url = fetchResult.expedienteUrl;
     }
