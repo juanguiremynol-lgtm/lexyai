@@ -84,7 +84,10 @@ export type CgpProcessType =
 export interface CgpMilestone {
   id: string;
   owner_id: string;
+  work_item_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   filing_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   process_id?: string | null;
   milestone_type: CgpMilestoneType;
   custom_type_name?: string | null;
@@ -99,7 +102,10 @@ export interface CgpMilestone {
 }
 
 export interface CgpMilestoneInput {
+  work_item_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   filing_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   process_id?: string | null;
   milestone_type: CgpMilestoneType;
   custom_type_name?: string | null;
@@ -138,7 +144,10 @@ export interface CgpTermTemplate {
 export interface CgpTermInstance {
   id: string;
   owner_id: string;
+  work_item_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   filing_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   process_id?: string | null;
   term_template_id?: string | null;
   term_template_code: string;
@@ -165,7 +174,10 @@ export interface CgpTermInstance {
 export interface CgpInactivityTracker {
   id: string;
   owner_id: string;
+  work_item_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   filing_id?: string | null;
+  /** @deprecated Use work_item_id instead */
   process_id?: string | null;
   last_activity_date: string;
   last_activity_description?: string | null;
@@ -358,17 +370,28 @@ export async function fetchTermTemplates(): Promise<CgpTermTemplate[]> {
 }
 
 /**
- * Fetch milestones for a filing or process
+ * Fetch milestones for a work item (or legacy filing/process)
+ * @param workItemId - Primary identifier (preferred)
+ * @param filingId - Legacy filing ID (deprecated)
+ * @param processId - Legacy process ID (deprecated)
  */
 export async function fetchMilestones(
+  workItemId?: string,
   filingId?: string,
   processId?: string
 ): Promise<CgpMilestone[]> {
   let query = supabase.from('cgp_milestones').select('*');
 
-  if (filingId) {
+  // Prioritize work_item_id
+  if (workItemId) {
+    query = query.eq('work_item_id', workItemId);
+  } else if (filingId) {
+    // Legacy fallback
+    console.warn('[CGP Terms] Using legacy filing_id lookup for milestones');
     query = query.eq('filing_id', filingId);
   } else if (processId) {
+    // Legacy fallback
+    console.warn('[CGP Terms] Using legacy process_id lookup for milestones');
     query = query.eq('process_id', processId);
   } else {
     return [];
@@ -385,17 +408,28 @@ export async function fetchMilestones(
 }
 
 /**
- * Fetch term instances for a filing or process
+ * Fetch term instances for a work item (or legacy filing/process)
+ * @param workItemId - Primary identifier (preferred)
+ * @param filingId - Legacy filing ID (deprecated)
+ * @param processId - Legacy process ID (deprecated)
  */
 export async function fetchTermInstances(
+  workItemId?: string,
   filingId?: string,
   processId?: string
 ): Promise<CgpTermInstance[]> {
   let query = supabase.from('cgp_term_instances').select('*');
 
-  if (filingId) {
+  // Prioritize work_item_id
+  if (workItemId) {
+    query = query.eq('work_item_id', workItemId);
+  } else if (filingId) {
+    // Legacy fallback
+    console.warn('[CGP Terms] Using legacy filing_id lookup for term instances');
     query = query.eq('filing_id', filingId);
   } else if (processId) {
+    // Legacy fallback
+    console.warn('[CGP Terms] Using legacy process_id lookup for term instances');
     query = query.eq('process_id', processId);
   } else {
     return [];
@@ -413,6 +447,8 @@ export async function fetchTermInstances(
 
 /**
  * Create a new milestone and trigger term creation if applicable
+ * @param ownerId - User ID who owns this milestone
+ * @param milestone - Milestone data (must include work_item_id)
  */
 export async function createMilestone(
   ownerId: string,
@@ -422,6 +458,8 @@ export async function createMilestone(
     .from('cgp_milestones')
     .insert({
       owner_id: ownerId,
+      work_item_id: milestone.work_item_id,
+      // Legacy fields for backward compatibility
       filing_id: milestone.filing_id,
       process_id: milestone.process_id,
       milestone_type: milestone.milestone_type,
@@ -521,6 +559,8 @@ export async function triggerTermsForMilestone(
       .from('cgp_term_instances')
       .insert({
         owner_id: ownerId,
+        work_item_id: milestone.work_item_id,
+        // Legacy fields for backward compatibility
         filing_id: milestone.filing_id,
         process_id: milestone.process_id,
         term_template_id: template.id,
@@ -573,10 +613,14 @@ async function createTermAlerts(
         ? `VENCIDO hace ${daysBefore} día(s): ${term.term_name}`
         : `Vence en ${Math.abs(daysBefore)} día(s): ${term.term_name}`;
 
+    // Use work_item_id for canonical entity linking, fall back to legacy IDs
+    const entityId = term.work_item_id || term.filing_id || term.process_id;
+    const entityType = term.work_item_id ? 'WORK_ITEM' : (term.filing_id ? 'CGP_FILING' : 'CGP_CASE');
+
     await supabase.from('alert_instances').insert({
       owner_id: ownerId,
-      entity_type: term.filing_id ? 'CGP_FILING' : 'CGP_CASE',
-      entity_id: term.filing_id || term.process_id,
+      entity_type: entityType,
+      entity_id: entityId,
       severity,
       status: 'SCHEDULED',
       title,
@@ -586,6 +630,7 @@ async function createTermAlerts(
         term_template_code: term.term_template_code,
         due_date: term.due_date,
         days_before: daysBefore,
+        work_item_id: term.work_item_id,
       },
       next_fire_at: fireAt.toISOString(),
     });
@@ -686,9 +731,14 @@ export async function resumeTerm(
 
 /**
  * Update inactivity tracker when activity is registered
+ * @param ownerId - User ID
+ * @param workItemId - Primary identifier (preferred)
+ * @param filingId - Legacy filing ID (deprecated)
+ * @param processId - Legacy process ID (deprecated)
  */
 export async function registerActivity(
   ownerId: string,
+  workItemId?: string,
   filingId?: string,
   processId?: string,
   description?: string,
@@ -696,12 +746,36 @@ export async function registerActivity(
 ): Promise<void> {
   const today = new Date().toISOString().split('T')[0];
 
-  // Upsert inactivity tracker
-  const { data: existing } = await supabase
-    .from('cgp_inactivity_tracker')
-    .select('id')
-    .eq(filingId ? 'filing_id' : 'process_id', filingId || processId)
-    .single();
+  // Build query filter - prioritize work_item_id
+  let filterField: string;
+  let filterValue: string;
+  
+  if (workItemId) {
+    filterField = 'work_item_id';
+    filterValue = workItemId;
+  } else if (filingId) {
+    console.warn('[CGP Terms] Using legacy filing_id for inactivity tracker');
+    filterField = 'filing_id';
+    filterValue = filingId;
+  } else if (processId) {
+    console.warn('[CGP Terms] Using legacy process_id for inactivity tracker');
+    filterField = 'process_id';
+    filterValue = processId;
+  } else {
+    console.error('[CGP Terms] No identifier provided for registerActivity');
+    return;
+  }
+
+  // Upsert inactivity tracker - use explicit conditionals to avoid type depth issues
+  let existingQuery = supabase.from('cgp_inactivity_tracker').select('id');
+  if (workItemId) {
+    existingQuery = existingQuery.eq('work_item_id', workItemId);
+  } else if (filingId) {
+    existingQuery = existingQuery.eq('filing_id', filingId);
+  } else {
+    existingQuery = existingQuery.eq('process_id', processId!);
+  }
+  const { data: existing } = await existingQuery.maybeSingle();
 
   if (existing) {
     await supabase
@@ -717,6 +791,7 @@ export async function registerActivity(
   } else {
     await supabase.from('cgp_inactivity_tracker').insert({
       owner_id: ownerId,
+      work_item_id: workItemId,
       filing_id: filingId,
       process_id: processId,
       last_activity_date: today,
@@ -731,16 +806,29 @@ export async function registerActivity(
 
 /**
  * Check inactivity risk for a case
+ * @param workItemId - Primary identifier (preferred)
+ * @param filingId - Legacy filing ID (deprecated)
+ * @param processId - Legacy process ID (deprecated)
  */
 export async function checkInactivityRisk(
+  workItemId?: string,
   filingId?: string,
   processId?: string
 ): Promise<{ isAtRisk: boolean; monthsInactive: number; thresholdMonths: number } | null> {
-  const { data, error } = await supabase
-    .from('cgp_inactivity_tracker')
-    .select('*')
-    .eq(filingId ? 'filing_id' : 'process_id', filingId || processId)
-    .single();
+  // Build query with explicit conditionals to avoid type depth issues
+  let query = supabase.from('cgp_inactivity_tracker').select('*');
+  
+  if (workItemId) {
+    query = query.eq('work_item_id', workItemId);
+  } else if (filingId) {
+    query = query.eq('filing_id', filingId);
+  } else if (processId) {
+    query = query.eq('process_id', processId);
+  } else {
+    return null;
+  }
+
+  const { data, error } = await query.maybeSingle();
 
   if (error || !data) return null;
 
@@ -754,12 +842,16 @@ export async function checkInactivityRisk(
 
 /**
  * Recompute all open terms for a case (e.g., when suspensions change)
+ * @param workItemId - Primary identifier (preferred)
+ * @param filingId - Legacy filing ID (deprecated)
+ * @param processId - Legacy process ID (deprecated)
  */
 export async function recomputeOpenTerms(
+  workItemId?: string,
   filingId?: string,
   processId?: string
 ): Promise<void> {
-  const terms = await fetchTermInstances(filingId, processId);
+  const terms = await fetchTermInstances(workItemId, filingId, processId);
   const suspensions = await getActiveJudicialSuspensions();
   const templates = await fetchTermTemplates();
 

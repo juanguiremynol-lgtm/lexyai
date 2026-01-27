@@ -851,6 +851,7 @@ export type Database = {
           process_id: string | null
           risk_since: string | null
           updated_at: string
+          work_item_id: string | null
         }
         Insert: {
           created_at?: string
@@ -866,6 +867,7 @@ export type Database = {
           process_id?: string | null
           risk_since?: string | null
           updated_at?: string
+          work_item_id?: string | null
         }
         Update: {
           created_at?: string
@@ -881,6 +883,7 @@ export type Database = {
           process_id?: string | null
           risk_since?: string | null
           updated_at?: string
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -909,6 +912,13 @@ export type Database = {
             columns: ["process_id"]
             isOneToOne: false
             referencedRelation: "monitored_processes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_inactivity_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -1267,6 +1277,7 @@ export type Database = {
           trigger_date: string
           trigger_milestone_id: string | null
           updated_at: string
+          work_item_id: string | null
         }
         Insert: {
           computed_with_suspensions?: boolean
@@ -1293,6 +1304,7 @@ export type Database = {
           trigger_date: string
           trigger_milestone_id?: string | null
           updated_at?: string
+          work_item_id?: string | null
         }
         Update: {
           computed_with_suspensions?: boolean
@@ -1319,6 +1331,7 @@ export type Database = {
           trigger_date?: string
           trigger_milestone_id?: string | null
           updated_at?: string
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -1361,6 +1374,13 @@ export type Database = {
             columns: ["trigger_milestone_id"]
             isOneToOne: false
             referencedRelation: "cgp_milestones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cgp_term_instances_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -4066,6 +4086,41 @@ export type Database = {
             foreignKeyName: "notification_rules_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_integration_settings: {
+        Row: {
+          adapter_priority_order: string[]
+          created_at: string
+          feature_flags: Json
+          organization_id: string
+          updated_at: string
+          workflow_overrides: Json | null
+        }
+        Insert: {
+          adapter_priority_order?: string[]
+          created_at?: string
+          feature_flags?: Json
+          organization_id: string
+          updated_at?: string
+          workflow_overrides?: Json | null
+        }
+        Update: {
+          adapter_priority_order?: string[]
+          created_at?: string
+          feature_flags?: Json
+          organization_id?: string
+          updated_at?: string
+          workflow_overrides?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_integration_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },

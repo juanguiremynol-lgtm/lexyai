@@ -10,20 +10,25 @@
  * @note "Scraping Adapter is designed to be enhanced/replaced by a user-provided script later."
  */
 
+import { supabase } from '@/integrations/supabase/client';
 import { 
   ScrapingAdapter, 
   AdapterRegistry, 
   AdapterCapability,
   SupportedWorkflowType,
   OrgAdapterConfig,
+  OrgFeatureFlags,
 } from './adapter-interface';
 import { defaultAdapter } from './default-adapter';
 import { externalApiAdapter } from './external-api-adapter';
 import { noopAdapter } from './noop-adapter';
 
+// Cache configuration
+const CONFIG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const configCache = new Map<string, { config: OrgAdapterConfig; fetchedAt: number }>();
+
 class AdapterRegistryImpl implements AdapterRegistry {
   private adapters: Map<string, ScrapingAdapter> = new Map();
-  private orgConfigs: Map<string, OrgAdapterConfig> = new Map();
   // Default to external API adapter for better performance and reliability
   private defaultAdapterId: string = 'external-rama-judicial-api';
 
@@ -66,6 +71,57 @@ class AdapterRegistryImpl implements AdapterRegistry {
   }
 
   /**
+   * Load org config from database with caching
+   */
+  private async loadOrgConfigFromDb(organizationId: string): Promise<OrgAdapterConfig | null> {
+    // Check cache first
+    const cached = configCache.get(organizationId);
+    if (cached && Date.now() - cached.fetchedAt < CONFIG_CACHE_TTL_MS) {
+      return cached.config;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('org_integration_settings')
+        .select('adapter_priority_order, feature_flags, workflow_overrides')
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+
+      if (error) {
+        console.warn(`[AdapterRegistry] Error loading org config for ${organizationId}:`, error.message);
+        return null;
+      }
+
+      if (!data) {
+        return null;
+      }
+
+      // Cast feature_flags from Json to typed object
+      const flags = data.feature_flags as Record<string, unknown> | null;
+
+      const config: OrgAdapterConfig = {
+        organizationId,
+        adapterPriorityOrder: data.adapter_priority_order || ['external-rama-judicial-api', 'default-rama-judicial', 'noop-stub'],
+        featureFlags: {
+          enableExternalApi: (flags?.enableExternalApi as boolean) ?? true,
+          enableLegacyCpnu: (flags?.enableLegacyCpnu as boolean) ?? false,
+          enableGoogleIntegration: (flags?.enableGoogleIntegration as boolean) ?? false,
+          enableAwsIntegration: (flags?.enableAwsIntegration as boolean) ?? false,
+        },
+        workflowOverrides: data.workflow_overrides as Record<SupportedWorkflowType, string> | undefined,
+      };
+
+      // Cache the config
+      configCache.set(organizationId, { config, fetchedAt: Date.now() });
+
+      return config;
+    } catch (err) {
+      console.error(`[AdapterRegistry] Exception loading org config:`, err);
+      return null;
+    }
+  }
+
+  /**
    * Get adapter for a specific org and workflow context
    * 
    * Resolution order:
@@ -80,7 +136,7 @@ class AdapterRegistryImpl implements AdapterRegistry {
   ): Promise<ScrapingAdapter> {
     // If we have org config, use it
     if (organizationId) {
-      const orgConfig = this.orgConfigs.get(organizationId);
+      const orgConfig = await this.loadOrgConfigFromDb(organizationId);
       
       if (orgConfig) {
         // Check for workflow-specific override
@@ -102,8 +158,12 @@ class AdapterRegistryImpl implements AdapterRegistry {
           if (adapterId === 'external-rama-judicial-api' && !orgConfig.featureFlags.enableExternalApi) {
             continue;
           }
+          if (adapterId === 'default-rama-judicial' && !orgConfig.featureFlags.enableLegacyCpnu) {
+            continue;
+          }
           // Future: Check Google/AWS flags here
           // if (adapterId === 'google-api' && !orgConfig.featureFlags.enableGoogleIntegration) continue;
+          // if (adapterId === 'aws-api' && !orgConfig.featureFlags.enableAwsIntegration) continue;
 
           // Check if adapter supports this workflow
           const supportsWorkflow = adapter.supportedWorkflows.includes('ALL') || 
@@ -138,21 +198,56 @@ class AdapterRegistryImpl implements AdapterRegistry {
   }
 
   /**
-   * Set organization-level adapter configuration
+   * Save organization-level adapter configuration to database
    */
-  setOrgConfig(config: OrgAdapterConfig): void {
-    this.orgConfigs.set(config.organizationId, config);
-    console.log(`[AdapterRegistry] Org config set for ${config.organizationId}:`, {
-      priorityOrder: config.adapterPriorityOrder,
-      flags: config.featureFlags,
-    });
+  async setOrgConfig(config: OrgAdapterConfig): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('org_integration_settings')
+        .upsert({
+          organization_id: config.organizationId,
+          adapter_priority_order: config.adapterPriorityOrder,
+          feature_flags: config.featureFlags,
+          workflow_overrides: config.workflowOverrides || {},
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'organization_id',
+        });
+
+      if (error) {
+        console.error(`[AdapterRegistry] Error saving org config:`, error.message);
+        return false;
+      }
+
+      // Update cache
+      configCache.set(config.organizationId, { config, fetchedAt: Date.now() });
+      console.log(`[AdapterRegistry] Org config saved for ${config.organizationId}`);
+      return true;
+    } catch (err) {
+      console.error(`[AdapterRegistry] Exception saving org config:`, err);
+      return false;
+    }
   }
 
   /**
-   * Get organization-level adapter configuration
+   * Get organization-level adapter configuration (from cache or DB)
    */
-  getOrgConfig(organizationId: string): OrgAdapterConfig | undefined {
-    return this.orgConfigs.get(organizationId);
+  async getOrgConfig(organizationId: string): Promise<OrgAdapterConfig | null> {
+    return this.loadOrgConfigFromDb(organizationId);
+  }
+
+  /**
+   * Clear cache for an organization (call when settings change externally)
+   */
+  clearOrgConfigCache(organizationId: string): void {
+    configCache.delete(organizationId);
+  }
+
+  /**
+   * Clear all cached configs
+   */
+  clearAllCache(): void {
+    configCache.clear();
   }
 
   // ============= Convenience Methods =============
