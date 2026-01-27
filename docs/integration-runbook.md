@@ -36,13 +36,22 @@ The following secrets must be configured in Supabase Edge Function environment:
 
 **Critical Business Rule**: Provider selection is determined by `work_items.workflow_type`, NOT by a global default.
 
-| Workflow Type | Primary Provider | Fallback Provider | Fallback Enabled | Notification Source |
-|---------------|------------------|-------------------|------------------|---------------------|
-| **CGP** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) |
-| **LABORAL** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) |
-| **CPACA** | SAMAI | CPNU | ❌ No (disabled) | SAMAI actuaciones |
-| **TUTELA** | TUTELAS API | CPNU | ✅ Yes | TUTELAS expediente |
-| **PENAL_906** | **PUBLICACIONES** | CPNU | ❌ No (disabled) | **PUBLICACIONES** (primary) |
+| Workflow Type | Primary Provider | Fallback Provider | Fallback Enabled | Notification Source | Verification Gate |
+|---------------|------------------|-------------------|------------------|---------------------|-------------------|
+| **CGP** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) | `provider_attempts[0].provider === 'cpnu'` |
+| **LABORAL** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) | `provider_attempts[0].provider === 'cpnu'` |
+| **CPACA** | SAMAI | CPNU | ❌ No (disabled) | SAMAI actuaciones | `provider_attempts[0].provider === 'samai'` |
+| **TUTELA** | TUTELAS API | CPNU | ✅ Yes (if radicado) | TUTELAS expediente | `provider_attempts[0].provider === 'tutelas-api'` |
+| **PENAL_906** | **PUBLICACIONES** | CPNU | ❌ No (disabled) | **PUBLICACIONES** | ⚠️ `provider_attempts[0].provider === 'publicaciones'` |
+
+### PENAL_906 Implementation Note
+
+**CRITICAL**: For `PENAL_906`, `sync-by-work-item` MUST call **Publicaciones FIRST** because penal updates frequently surface via published PDFs and annotations, not via CPNU/SAMAI actuaciones.
+
+- The Edge Function calls `fetchFromPublicaciones(...)` as the first provider attempt.
+- Ingests into `work_item_publicaciones` with `hash_fingerprint` deduplication.
+- CPNU/SAMAI are **disabled by default** for PENAL_906 (can be enabled via org settings if needed).
+- Response MUST include `provider_attempts[0].provider === 'publicaciones'` to pass verification.
 
 ### Notification Source Rules
 
@@ -364,13 +373,13 @@ If `integration-health` returns 404 immediately after deployment:
 
 Test that provider order respects workflow_type:
 
-| Workflow | Test Radicado | Expected Primary | Expected Fallback |
-|----------|---------------|------------------|-------------------|
-| **CGP** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
-| **LABORAL** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
-| **CPACA** | `05001233300020240115300` | SAMAI called first | CPNU skipped (disabled) |
-| **PENAL_906** | `05001400301520240193000` | **PUBLICACIONES called first** | CPNU skipped (disabled) |
-| **TUTELA** | `T11728622` | TUTELAS API | CPNU if TUTELAS empty |
+| Workflow | Test Radicado | Expected Primary | Expected Fallback | Verification Assert |
+|----------|---------------|------------------|-------------------|---------------------|
+| **CGP** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails | `provider_attempts[0].provider === 'cpnu'` |
+| **LABORAL** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails | `provider_attempts[0].provider === 'cpnu'` |
+| **CPACA** | `05001233300020240115300` | SAMAI called first | CPNU skipped (disabled) | `provider_attempts[0].provider === 'samai'` |
+| **PENAL_906** | `05001400301520240193000` | **PUBLICACIONES called first** | CPNU skipped (disabled) | ⚠️ `provider_attempts[0].provider === 'publicaciones'` |
+| **TUTELA** | `T11728622` | TUTELAS API | CPNU if TUTELAS empty | `provider_attempts[0].provider === 'tutelas-api'` |
 
 **Validation Steps:**
 
@@ -387,15 +396,20 @@ Test that provider order respects workflow_type:
    - `provider_attempts[0].provider === 'cpnu'`
    - `provider_order_reason === 'workflow_type=CGP'`
 
-7. **PENAL_906 with Publicaciones Primary**: Create a work_item with `workflow_type = 'PENAL_906'`
+7. **⚠️ PENAL_906 with Publicaciones Primary (CRITICAL)**: Create a work_item with `workflow_type = 'PENAL_906'`
 8. Call `sync-by-work-item` with the work_item_id
 9. Verify response includes:
-   - `provider_attempts[0].provider === 'publicaciones'` **(MUST be first)**
-   - `provider_attempts[1].provider === 'cpnu'` with `status === 'skipped'`
+   - `provider_attempts[0].provider === 'publicaciones'` **(MUST be first - this is the acceptance gate)**
+   - `provider_attempts[1].provider === 'cpnu'` with `status === 'skipped'` and `message === 'CPNU enrichment disabled for PENAL_906 (Publicaciones is primary)'`
    - `provider_order_reason === 'penal_906_publicaciones_primary'`
+   - `provider_used === 'publicaciones'`
 
-10. **TUTELA with fallback**: Create a work_item with `workflow_type = 'TUTELA'` and a valid radicado but invalid tutela_code
-11. Verify that CPNU is attempted as fallback when TUTELAS returns empty
+10. **PENAL_906 Deduplication Test**: Run sync twice for the same PENAL_906 work_item
+    - First run: `inserted_count >= 0`
+    - Second run: `inserted_count === 0`, `skipped_count >= 0` (no duplicates)
+
+11. **TUTELA with fallback**: Create a work_item with `workflow_type = 'TUTELA'` and a valid radicado but invalid tutela_code
+12. Verify that CPNU is attempted as fallback when TUTELAS returns empty
 
 ### Gate 7: Notification Source Verification
 

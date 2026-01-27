@@ -93,12 +93,48 @@ interface DebugResult {
 // TUTELA: TUTELAS API primary, CPNU fallback
 // PENAL_906: PUBLICACIONES is PRIMARY sync source (called FIRST)
 // CPACA: SAMAI primary (administrative litigation)
-const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { primary: string; fallback: string | null; description: string; notificationSource?: string }> = {
-  CGP: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
-  LABORAL: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
-  CPACA: { primary: 'SAMAI', fallback: null, description: 'SAMAI primario (litigio administrativo)' },
-  TUTELA: { primary: 'TUTELAS', fallback: 'CPNU', description: 'TUTELAS API primario, CPNU fallback' },
-  PENAL_906: { primary: 'PUBLICACIONES', fallback: null, description: 'Publicaciones primario (PDFs/anotaciones)', notificationSource: 'Publicaciones Procesales' },
+// Provider order per workflow (mirrors sync-by-work-item Edge Function logic)
+// IMPORTANT: PENAL_906 uses Publicaciones as PRIMARY sync source (called FIRST)
+const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { 
+  primary: string; 
+  fallback: string | null; 
+  fallbackEnabled: boolean;
+  description: string; 
+  notificationSource?: string;
+}> = {
+  CGP: { 
+    primary: 'CPNU', 
+    fallback: 'SAMAI', 
+    fallbackEnabled: true,
+    description: 'CPNU primario, SAMAI fallback', 
+    notificationSource: 'Estados (términos legales)' 
+  },
+  LABORAL: { 
+    primary: 'CPNU', 
+    fallback: 'SAMAI', 
+    fallbackEnabled: true,
+    description: 'CPNU primario, SAMAI fallback', 
+    notificationSource: 'Estados (términos legales)' 
+  },
+  CPACA: { 
+    primary: 'SAMAI', 
+    fallback: 'CPNU', 
+    fallbackEnabled: false,
+    description: 'SAMAI primario (litigio administrativo), CPNU fallback deshabilitado' 
+  },
+  TUTELA: { 
+    primary: 'TUTELAS', 
+    fallback: 'CPNU', 
+    fallbackEnabled: true,
+    description: 'TUTELAS API primario, CPNU fallback si TUTELAS vacío' 
+  },
+  PENAL_906: { 
+    primary: 'PUBLICACIONES', 
+    fallback: 'CPNU', 
+    fallbackEnabled: false,
+    description: '⚠️ Publicaciones es PRIMARY (se llama PRIMERO). CPNU/SAMAI deshabilitados.', 
+    notificationSource: 'Publicaciones Procesales' 
+  },
 };
 
 // ============== Helper Functions ==============
@@ -558,14 +594,19 @@ export default function ApiDebugPage() {
                   <SelectItem value="PENAL_906">PENAL 906</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                {WORKFLOW_PROVIDER_ORDER[workflowType].description}
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>{WORKFLOW_PROVIDER_ORDER[workflowType].description}</p>
+                <p className="font-mono text-[10px]">
+                  Primary: {WORKFLOW_PROVIDER_ORDER[workflowType].primary} | 
+                  Fallback: {WORKFLOW_PROVIDER_ORDER[workflowType].fallback || 'ninguno'} 
+                  ({WORKFLOW_PROVIDER_ORDER[workflowType].fallbackEnabled ? 'habilitado' : 'deshabilitado'})
+                </p>
                 {WORKFLOW_PROVIDER_ORDER[workflowType].notificationSource && (
-                  <span className="block text-xs text-primary mt-1">
+                  <span className="block text-xs text-primary">
                     📋 Fuente de notificación: {WORKFLOW_PROVIDER_ORDER[workflowType].notificationSource}
                   </span>
                 )}
-              </p>
+              </div>
             </div>
 
             <div className="space-y-2">
