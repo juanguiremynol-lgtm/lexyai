@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 // ============== Types ==============
 
 type ProviderName = "cpnu" | "samai" | "tutelas" | "publicaciones";
+type WorkflowType = "CGP" | "LABORAL" | "CPACA" | "TUTELA" | "PENAL_906";
 
 interface IntegrationHealthResult {
   ok: boolean;
@@ -64,6 +65,14 @@ interface DebugSummary {
   tipoProceso?: string;
 }
 
+interface ProviderAttempt {
+  provider: string;
+  status: 'success' | 'not_found' | 'empty' | 'error' | 'timeout' | 'skipped';
+  latencyMs: number;
+  message?: string;
+  actuacionesCount?: number;
+}
+
 interface DebugResult {
   ok: boolean;
   provider_used: string;
@@ -73,7 +82,20 @@ interface DebugResult {
   raw: unknown;
   error?: string;
   truncated?: boolean;
+  // New workflow-aware fields
+  workflow_type?: string;
+  provider_attempts?: ProviderAttempt[];
+  provider_order_reason?: string;
 }
+
+// Workflow-specific provider order (mirrors Edge Function logic)
+const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { primary: string; fallback: string | null; description: string }> = {
+  CGP: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
+  LABORAL: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
+  CPACA: { primary: 'SAMAI', fallback: null, description: 'SAMAI primario (litigio administrativo)' },
+  TUTELA: { primary: 'TUTELAS', fallback: null, description: 'TUTELAS API (tutela_code)' },
+  PENAL_906: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback' },
+};
 
 // ============== Helper Functions ==============
 
@@ -181,6 +203,7 @@ function JsonViewer({ data, title }: { data: unknown; title?: string }) {
 export default function ApiDebugPage() {
   const { isPlatformAdmin, isLoading: platformLoading } = usePlatformAdmin();
   const [provider, setProvider] = useState<ProviderName>("cpnu");
+  const [workflowType, setWorkflowType] = useState<WorkflowType>("CGP");
   const [radicado, setRadicado] = useState("");
   const [tutelaCode, setTutelaCode] = useState("");
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
@@ -515,17 +538,40 @@ export default function ApiDebugPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Provider selector */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Workflow + Provider selector */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="provider">Proveedor</Label>
+              <Label htmlFor="workflow">Flujo de Trabajo</Label>
+              <Select value={workflowType} onValueChange={(v) => setWorkflowType(v as WorkflowType)}>
+                <SelectTrigger id="workflow">
+                  <SelectValue placeholder="Seleccionar flujo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CGP">CGP (Civil General)</SelectItem>
+                  <SelectItem value="LABORAL">LABORAL</SelectItem>
+                  <SelectItem value="CPACA">CPACA (Administrativo)</SelectItem>
+                  <SelectItem value="TUTELA">TUTELA</SelectItem>
+                  <SelectItem value="PENAL_906">PENAL 906</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {WORKFLOW_PROVIDER_ORDER[workflowType].description}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="provider">Proveedor a Probar</Label>
               <Select value={provider} onValueChange={(v) => setProvider(v as ProviderName)}>
                 <SelectTrigger id="provider">
                   <SelectValue placeholder="Seleccionar proveedor" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cpnu">CPNU (Primario)</SelectItem>
-                  <SelectItem value="samai">SAMAI (Fallback)</SelectItem>
+                  <SelectItem value="cpnu">
+                    CPNU {workflowType !== 'CPACA' && workflowType !== 'TUTELA' ? '(Primario)' : ''}
+                  </SelectItem>
+                  <SelectItem value="samai">
+                    SAMAI {workflowType === 'CPACA' ? '(Primario para CPACA)' : ''}
+                  </SelectItem>
                   <SelectItem value="tutelas">TUTELAS</SelectItem>
                   <SelectItem value="publicaciones">PUBLICACIONES</SelectItem>
                 </SelectContent>
@@ -627,12 +673,66 @@ export default function ApiDebugPage() {
                 <Clock className="h-3 w-3 mr-1" />
                 {debugResult.latencyMs}ms
               </Badge>
+              {debugResult.workflow_type && (
+                <Badge variant="outline">
+                  Workflow: {debugResult.workflow_type}
+                </Badge>
+              )}
               {debugResult.truncated && (
                 <Badge variant="outline" className="text-amber-600">
                   Respuesta truncada
                 </Badge>
               )}
             </div>
+
+            {/* Provider Attempts (workflow-aware) */}
+            {debugResult.provider_attempts && debugResult.provider_attempts.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Intentos de Proveedores
+                  {debugResult.provider_order_reason && (
+                    <span className="text-xs text-muted-foreground">
+                      ({debugResult.provider_order_reason})
+                    </span>
+                  )}
+                </h4>
+                <div className="space-y-1">
+                  {debugResult.provider_attempts.map((attempt, idx) => (
+                    <div 
+                      key={idx} 
+                      className={cn(
+                        "flex items-center justify-between p-2 rounded text-sm",
+                        attempt.status === 'success' ? "bg-emerald-500/10" :
+                        attempt.status === 'skipped' ? "bg-muted/50" :
+                        "bg-destructive/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-medium uppercase">{attempt.provider}</span>
+                        <Badge 
+                          variant={attempt.status === 'success' ? 'secondary' : 'outline'}
+                          className="text-xs"
+                        >
+                          {attempt.status}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        {attempt.actuacionesCount !== undefined && (
+                          <span className="text-xs">{attempt.actuacionesCount} acts</span>
+                        )}
+                        <span className="text-xs">{attempt.latencyMs}ms</span>
+                        {attempt.message && (
+                          <span className="text-xs truncate max-w-32" title={attempt.message}>
+                            {attempt.message}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Summary */}
             {debugResult.summary && (
