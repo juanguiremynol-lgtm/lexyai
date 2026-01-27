@@ -22,9 +22,6 @@ interface HearingInfo {
 
 // Parse radicado to construct Rama Judicial search URL
 function buildRamaJudicialUrl(radicado: string): string {
-  // Colombian radicado format: 23 digits
-  // Format: DDDDD-CC-CCC-AAAA-NNNNN-00
-  // Where: D=department, C=court code, A=year, N=case number
   const baseUrl = 'https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion';
   return `${baseUrl}?numero=${radicado}`;
 }
@@ -109,7 +106,7 @@ function parseColombianDate(dateStr: string): string | null {
 }
 
 // Extract hearing information from content
-function parseHearings(markdown: string, html: string): HearingInfo[] {
+function parseHearings(markdown: string): HearingInfo[] {
   const hearings: HearingInfo[] = [];
   
   // Look for audiencia patterns with future dates
@@ -150,11 +147,20 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { filing_id, radicado, owner_id, manual_trigger } = await req.json();
+    // Accept work_item_id as primary, with filing_id fallback for legacy
+    const { work_item_id, filing_id, radicado, owner_id, manual_trigger } = await req.json();
     
-    if (!filing_id || !radicado || !owner_id) {
+    if (!radicado || !owner_id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Missing required fields' }),
+        JSON.stringify({ success: false, error: 'Missing required fields: radicado and owner_id' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Require work_item_id or filing_id
+    if (!work_item_id && !filing_id) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Either work_item_id or filing_id is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -171,6 +177,18 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Resolve work_item_id from filing_id if not provided
+    let resolvedWorkItemId = work_item_id;
+    if (!resolvedWorkItemId && filing_id) {
+      const { data: wi } = await supabase
+        .from('work_items')
+        .select('id')
+        .eq('legacy_filing_id', filing_id)
+        .eq('owner_id', owner_id)
+        .maybeSingle();
+      resolvedWorkItemId = wi?.id || null;
+    }
 
     // Build the Rama Judicial URL
     const ramaUrl = buildRamaJudicialUrl(radicado);
@@ -211,32 +229,36 @@ Deno.serve(async (req) => {
 
     // Parse events and hearings
     const events = parseProcessEvents(markdown, html);
-    const hearings = parseHearings(markdown, html);
+    const hearings = parseHearings(markdown);
     
     console.log(`Found ${events.length} events and ${hearings.length} hearings`);
 
-    // Get existing events to avoid duplicates
-    const { data: existingEvents } = await supabase
-      .from('process_events')
-      .select('description')
-      .eq('filing_id', filing_id);
+    // Get existing events to avoid duplicates - prioritize work_item_id
+    let existingDescriptions = new Set<string>();
     
-    const existingDescriptions = new Set(existingEvents?.map(e => e.description) || []);
+    if (resolvedWorkItemId) {
+      const { data: existingEvents } = await supabase
+        .from('process_events')
+        .select('description')
+        .eq('work_item_id', resolvedWorkItemId);
+      existingDescriptions = new Set(existingEvents?.map(e => e.description) || []);
+    }
     
     // Insert new events
     const newEvents = events.filter(e => !existingDescriptions.has(e.description));
     
-    if (newEvents.length > 0) {
+    if (newEvents.length > 0 && resolvedWorkItemId) {
       const { error: insertError } = await supabase
         .from('process_events')
         .insert(newEvents.map(e => ({
-          filing_id,
+          work_item_id: resolvedWorkItemId,
           owner_id,
           event_date: e.event_date,
           event_type: e.event_type,
           description: e.description,
           raw_data: e.raw_data,
-          source_url: ramaUrl
+          source_url: ramaUrl,
+          source: 'FIRECRAWL'
         })));
       
       if (insertError) {
@@ -245,35 +267,42 @@ Deno.serve(async (req) => {
       
       // Create alerts for new events
       if (newEvents.length > 0 && !manual_trigger) {
-        await supabase.from('alerts').insert({
-          filing_id,
+        await supabase.from('alert_instances').insert({
+          entity_id: resolvedWorkItemId,
+          entity_type: 'WORK_ITEM',
           owner_id,
+          title: 'Nuevas actuaciones detectadas',
           message: `Se encontraron ${newEvents.length} nuevas actuaciones en el proceso ${radicado}`,
-          severity: 'INFO'
+          severity: 'INFO',
+          status: 'PENDING',
+          payload: { radicado, new_count: newEvents.length },
+          actions: [{ label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${resolvedWorkItemId}` } }],
         });
       }
     }
 
     // Get existing hearings to avoid duplicates
-    const { data: existingHearings } = await supabase
-      .from('hearings')
-      .select('scheduled_at')
-      .eq('filing_id', filing_id);
-    
-    const existingHearingDates = new Set(
-      existingHearings?.map(h => new Date(h.scheduled_at).toISOString().split('T')[0]) || []
-    );
+    let existingHearingDates = new Set<string>();
+    if (resolvedWorkItemId) {
+      const { data: existingHearings } = await supabase
+        .from('hearings')
+        .select('scheduled_at')
+        .eq('work_item_id', resolvedWorkItemId);
+      existingHearingDates = new Set(
+        existingHearings?.map(h => new Date(h.scheduled_at).toISOString().split('T')[0]) || []
+      );
+    }
     
     // Insert new hearings
     const newHearings = hearings.filter(h => 
       !existingHearingDates.has(new Date(h.scheduled_at).toISOString().split('T')[0])
     );
     
-    if (newHearings.length > 0) {
+    if (newHearings.length > 0 && resolvedWorkItemId) {
       const { error: hearingError } = await supabase
         .from('hearings')
         .insert(newHearings.map(h => ({
-          filing_id,
+          work_item_id: resolvedWorkItemId,
           owner_id,
           title: h.title,
           scheduled_at: h.scheduled_at,
@@ -289,24 +318,31 @@ Deno.serve(async (req) => {
       
       // Create alerts for new hearings
       for (const hearing of newHearings) {
-        await supabase.from('alerts').insert({
-          filing_id,
+        await supabase.from('alert_instances').insert({
+          entity_id: resolvedWorkItemId,
+          entity_type: 'WORK_ITEM',
           owner_id,
-          message: `Nueva audiencia detectada: ${hearing.title} programada para ${new Date(hearing.scheduled_at).toLocaleDateString('es-CO')}`,
-          severity: 'WARN'
+          title: 'Nueva audiencia detectada',
+          message: `${hearing.title} programada para ${new Date(hearing.scheduled_at).toLocaleDateString('es-CO')}`,
+          severity: 'WARN',
+          status: 'PENDING',
+          payload: { radicado, hearing },
+          actions: [{ label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${resolvedWorkItemId}` } }],
         });
       }
     }
 
-    // Update filing with crawl timestamp and URL
-    await supabase
-      .from('filings')
-      .update({ 
-        last_crawled_at: new Date().toISOString(),
-        rama_judicial_url: ramaUrl,
-        crawler_enabled: true
-      })
-      .eq('id', filing_id);
+    // Update work_item with crawl timestamp
+    if (resolvedWorkItemId) {
+      await supabase
+        .from('work_items')
+        .update({ 
+          last_crawled_at: new Date().toISOString(),
+          expediente_url: ramaUrl,
+          scrape_status: 'SUCCESS',
+        })
+        .eq('id', resolvedWorkItemId);
+    }
 
     return new Response(
       JSON.stringify({ 

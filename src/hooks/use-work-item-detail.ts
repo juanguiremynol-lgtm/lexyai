@@ -313,7 +313,19 @@ async function fetchProcessEvents(id: string, legacyFilingId: string | null, leg
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchActuaciones(legacyFilingId: string | null, legacyProcessId: string | null): Promise<any[]> {
+async function fetchActuaciones(id: string, legacyFilingId: string | null, legacyProcessId: string | null): Promise<any[]> {
+  // Try work_item_id first
+  const baseQuery = supabase.from("actuaciones").select("*") as any;
+  const result1 = await baseQuery.eq("work_item_id", id);
+  const sorted1 = result1.data ? [...result1.data].sort((a: any, b: any) => 
+    new Date(b.act_date || 0).getTime() - new Date(a.act_date || 0).getTime()
+  ) : [];
+
+  if (sorted1.length) {
+    return sorted1;
+  }
+  
+  // Fallback to legacy IDs
   if (legacyProcessId) {
     const query = supabase.from("actuaciones").select("*") as any;
     const result = await query.eq("monitored_process_id", legacyProcessId);
@@ -421,11 +433,11 @@ export function useWorkItemDetail(id: string | undefined) {
     enabled: !!workItem,
   });
 
-  // Fetch actuaciones (acts) - legacy table
+  // Fetch actuaciones (acts) - now uses work_item_id primarily
   const actuacionesQuery = useQuery({
     queryKey: ["work-item-actuaciones", id, legacyFilingId, legacyProcessId],
-    queryFn: () => fetchActuaciones(legacyFilingId, legacyProcessId),
-    enabled: !!(legacyFilingId || legacyProcessId),
+    queryFn: () => fetchActuaciones(id!, legacyFilingId, legacyProcessId),
+    enabled: !!workItem,
   });
 
   // Fetch documents
