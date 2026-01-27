@@ -193,45 +193,46 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
 
 // ============= SIGNIFICANT EVENT DETECTION =============
 // Detects important judicial events that warrant alerts
+// IMPORTANT: Severity must be uppercase to match DB constraint: 'INFO', 'WARNING', 'CRITICAL'
 
 interface SignificantEventInfo {
   type: string;
   title: string;
-  severity: 'info' | 'warn' | 'error';
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
 }
 
 const SIGNIFICANT_EVENT_PATTERNS: Array<{ patterns: string[]; info: SignificantEventInfo }> = [
   {
     patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda', 'se admite demanda'],
-    info: { type: 'AUTO_ADMISORIO', title: 'Auto Admisorio detectado', severity: 'info' },
+    info: { type: 'AUTO_ADMISORIO', title: 'Auto Admisorio detectado', severity: 'INFO' },
   },
   {
     patterns: ['sentencia', 'fallo de primera', 'fallo de segunda', 'se profiere sentencia'],
-    info: { type: 'SENTENCIA', title: 'Sentencia detectada', severity: 'warn' },
+    info: { type: 'SENTENCIA', title: 'Sentencia detectada', severity: 'CRITICAL' },
   },
   {
     patterns: ['audiencia fijada', 'fija fecha para audiencia', 'señala fecha audiencia'],
-    info: { type: 'AUDIENCIA_PROGRAMADA', title: 'Audiencia programada', severity: 'info' },
+    info: { type: 'AUDIENCIA_PROGRAMADA', title: 'Audiencia programada', severity: 'INFO' },
   },
   {
     patterns: ['recurso de apelación', 'concede apelación', 'admite recurso'],
-    info: { type: 'APELACION', title: 'Recurso de apelación', severity: 'info' },
+    info: { type: 'APELACION', title: 'Recurso de apelación', severity: 'WARNING' },
   },
   {
     patterns: ['rechaza la demanda', 'rechaza demanda', 'auto de rechazo'],
-    info: { type: 'RECHAZO', title: 'Demanda rechazada', severity: 'error' },
+    info: { type: 'RECHAZO', title: 'Demanda rechazada', severity: 'CRITICAL' },
   },
   {
     patterns: ['inadmite la demanda', 'auto inadmisorio', 'se inadmite'],
-    info: { type: 'INADMISION', title: 'Demanda inadmitida', severity: 'warn' },
+    info: { type: 'INADMISION', title: 'Demanda inadmitida', severity: 'WARNING' },
   },
   {
     patterns: ['medida cautelar', 'embargo', 'secuestro de bienes'],
-    info: { type: 'MEDIDA_CAUTELAR', title: 'Medida cautelar ordenada', severity: 'warn' },
+    info: { type: 'MEDIDA_CAUTELAR', title: 'Medida cautelar ordenada', severity: 'WARNING' },
   },
   {
     patterns: ['ejecutoria', 'queda ejecutoriada', 'en firme'],
-    info: { type: 'EJECUTORIA', title: 'Decisión en firme', severity: 'info' },
+    info: { type: 'EJECUTORIA', title: 'Decisión en firme', severity: 'INFO' },
   },
 ];
 
@@ -2442,7 +2443,7 @@ Deno.serve(async (req) => {
                 severity: significantEvent.severity,
                 title: significantEvent.title,
                 message: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`.slice(0, 500),
-                status: 'ACTIVE',
+                status: 'PENDING', // Must be: PENDING, SENT, ACKNOWLEDGED, RESOLVED, CANCELLED, DISMISSED
                 fingerprint: alertFingerprint,
                 payload: {
                   event_type: significantEvent.type,
@@ -2487,9 +2488,9 @@ Deno.serve(async (req) => {
                 suggested_stage: stageSuggestion.suggestedStage,
                 confidence: stageSuggestion.confidence,
                 reason: stageSuggestion.reason,
-                source_type: 'sync-by-work-item',
+                source_type: 'ACTUACION', // Must be: ESTADO, ACTUACION, PUBLICACION, TUTELA_EXPEDIENTE
                 event_fingerprint: suggestionFingerprint,
-                status: stageSuggestion.confidence >= 0.8 ? 'AUTO_APPLIED' : 'PENDING',
+                status: stageSuggestion.confidence >= 0.8 ? 'APPLIED' : 'PENDING', // Must be: PENDING, APPLIED, DISMISSED
               });
             
             if (suggestionError) {
