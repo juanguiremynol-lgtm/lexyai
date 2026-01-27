@@ -93,7 +93,7 @@ interface FetchResult {
 //   - CPNU primary for enrichment actuaciones, SAMAI fallback
 // - CPACA: SAMAI primary (administrative litigation), CPNU optional fallback (disabled)
 // - TUTELA: TUTELAS API primary (tutela_code), CPNU fallback if TUTELAS empty/failed
-// - PENAL_906: PUBLICACIONES are first-class source for actuaciones; CPNU/SAMAI for enrichment
+// - PENAL_906: PUBLICACIONES are PRIMARY sync source (called FIRST); CPNU/SAMAI are optional enrichment
 // 
 // The Estados ingestion pipeline remains canonical for CGP/LABORAL.
 
@@ -103,7 +103,7 @@ interface ProviderOrderConfig {
   primary: 'cpnu' | 'samai' | 'tutelas-api' | 'publicaciones';
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
-  usePublicacionesAsSource?: boolean; // For PENAL_906: treat Publicaciones as actuation-like source
+  usePublicacionesAsPrimary?: boolean; // For PENAL_906: Publicaciones is the PRIMARY sync source
 }
 
 function getProviderOrder(workflowType: string): ProviderOrderConfig {
@@ -115,9 +115,10 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
       // TUTELAS API primary, CPNU fallback if TUTELAS empty/failed
       return { primary: 'tutelas-api', fallback: 'cpnu', fallbackEnabled: true };
     case 'PENAL_906':
-      // PENAL_906: CPNU primary for actuaciones, Publicaciones are first-class source
-      // The sync-publicaciones function handles Publicaciones separately
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, usePublicacionesAsSource: true };
+      // PENAL_906: PUBLICACIONES is the PRIMARY sync source
+      // Publicaciones must be called FIRST because penal updates frequently surface via published PDFs
+      // CPNU/SAMAI are optional enrichment providers (disabled by default)
+      return { primary: 'publicaciones', fallback: 'cpnu', fallbackEnabled: false, usePublicacionesAsPrimary: true };
     case 'CGP':
     case 'LABORAL':
     default:
@@ -507,6 +508,191 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
   }
 }
 
+// ============= PROVIDER: PUBLICACIONES (for PENAL_906) =============
+
+interface PublicacionesResult {
+  ok: boolean;
+  publicacionesCount: number;
+  insertedCount: number;
+  skippedCount: number;
+  isEmpty?: boolean;
+  error?: string;
+  latencyMs?: number;
+}
+
+function generatePublicacionFingerprint(
+  workItemId: string,
+  title: string,
+  publishedAt: string | null
+): string {
+  const normalized = `pub|${workItemId}|${title.toLowerCase().trim().slice(0, 100)}|${publishedAt || 'no-date'}`;
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return `pub_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
+}
+
+async function fetchFromPublicaciones(
+  radicado: string,
+  workItemId: string,
+  ownerId: string,
+  organizationId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabaseClient: any
+): Promise<PublicacionesResult> {
+  const startTime = Date.now();
+  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!baseUrl) {
+    console.log('[sync-by-work-item] PUBLICACIONES_BASE_URL not configured');
+    return { 
+      ok: false, 
+      publicacionesCount: 0,
+      insertedCount: 0,
+      skippedCount: 0,
+      error: 'PUBLICACIONES API not configured (missing PUBLICACIONES_BASE_URL).', 
+      latencyMs: Date.now() - startTime,
+    };
+  }
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+
+    console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${baseUrl}/publicaciones/${radicado}`);
+    
+    const response = await fetch(`${baseUrl}/publicaciones/${radicado}`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.log(`[sync-by-work-item] PUBLICACIONES: No publications found for ${radicado}`);
+        return { 
+          ok: true, // 404 is ok - just no data
+          publicacionesCount: 0,
+          insertedCount: 0,
+          skippedCount: 0,
+          error: 'No publications found', 
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+        };
+      }
+      const errorText = await response.text();
+      console.log(`[sync-by-work-item] PUBLICACIONES HTTP ${response.status}: ${errorText.slice(0, 200)}`);
+      return { 
+        ok: false, 
+        publicacionesCount: 0,
+        insertedCount: 0,
+        skippedCount: 0,
+        error: `HTTP ${response.status}`, 
+        latencyMs: Date.now() - startTime,
+      };
+    }
+
+    const data = await response.json();
+    
+    // Extract publications array
+    const publications = data.publicaciones || data.publications || [];
+    
+    if (publications.length === 0) {
+      console.log(`[sync-by-work-item] PUBLICACIONES: No publications for ${radicado}`);
+      return { 
+        ok: true,
+        publicacionesCount: 0,
+        insertedCount: 0,
+        skippedCount: 0,
+        error: 'No publications found', 
+        isEmpty: true,
+        latencyMs: Date.now() - startTime,
+      };
+    }
+
+    console.log(`[sync-by-work-item] PUBLICACIONES: Found ${publications.length} publications for ${radicado}`);
+    
+    // Ingest publications with deduplication
+    let insertedCount = 0;
+    let skippedCount = 0;
+
+    for (const pub of publications) {
+      const title = String(pub.titulo || pub.title || '');
+      const annotation = String(pub.anotacion || pub.annotation || '');
+      const pdfUrl = pub.pdf_url || pub.url || null;
+      const publishedAt = pub.fecha_publicacion || pub.published_at || pub.fecha || null;
+      
+      const fingerprint = generatePublicacionFingerprint(workItemId, title, publishedAt);
+
+      // Check for existing record using fingerprint
+      const { data: existing } = await supabaseClient
+        .from('work_item_publicaciones')
+        .select('id')
+        .eq('work_item_id', workItemId)
+        .eq('hash_fingerprint', fingerprint)
+        .maybeSingle();
+
+      if (existing) {
+        skippedCount++;
+        continue;
+      }
+
+      // Insert new publication
+      const { error: insertError } = await supabaseClient
+        .from('work_item_publicaciones')
+        .insert({
+          work_item_id: workItemId,
+          owner_id: ownerId,
+          organization_id: organizationId,
+          title,
+          annotation,
+          pdf_url: pdfUrl,
+          published_at: publishedAt ? parseColombianDate(publishedAt) : null,
+          hash_fingerprint: fingerprint,
+          source: 'publicaciones-api',
+        });
+
+      if (insertError) {
+        // Check if it's a duplicate error (can happen in race conditions)
+        if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
+          skippedCount++;
+        } else {
+          console.error(`[sync-by-work-item] PUBLICACIONES insert error:`, insertError);
+        }
+      } else {
+        insertedCount++;
+      }
+    }
+
+    return {
+      ok: true,
+      publicacionesCount: publications.length,
+      insertedCount,
+      skippedCount,
+      latencyMs: Date.now() - startTime,
+    };
+  } catch (err) {
+    console.error('[sync-by-work-item] PUBLICACIONES fetch error:', err);
+    return { 
+      ok: false, 
+      publicacionesCount: 0,
+      insertedCount: 0,
+      skippedCount: 0,
+      error: err instanceof Error ? err.message : 'PUBLICACIONES API failed', 
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -678,8 +864,104 @@ Deno.serve(async (req) => {
         }
       }
       
+    } else if (workItem.workflow_type === 'PENAL_906') {
+      // ============= PENAL_906: PUBLICACIONES PRIMARY =============
+      // For PENAL_906, Publicaciones Procesales is the PRIMARY sync source
+      // because penal updates frequently surface via published PDFs/annotations
+      
+      if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
+        return errorResponse(
+          'MISSING_RADICADO',
+          'PENAL_906 workflow requires a valid radicado (23 digits). Please edit the work item to add it.',
+          400
+        );
+      }
+      
+      const normalizedRadicado = normalizeRadicado(workItem.radicado);
+      console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES as PRIMARY provider (radicado=${normalizedRadicado})`);
+      
+      // Call sync-publicaciones-by-work-item internally via the Publicaciones API
+      // For now, we attempt to fetch Publicaciones directly here
+      const publicacionesResult = await fetchFromPublicaciones(normalizedRadicado, workItem.id, workItem.owner_id, workItem.organization_id, supabase);
+      
+      result.provider_attempts.push({
+        provider: 'publicaciones',
+        status: publicacionesResult.ok ? 'success' : (publicacionesResult.isEmpty ? 'not_found' : 'error'),
+        latencyMs: publicacionesResult.latencyMs || 0,
+        message: publicacionesResult.error || (publicacionesResult.ok ? `Ingested ${publicacionesResult.insertedCount || 0} publications` : undefined),
+        actuacionesCount: publicacionesResult.publicacionesCount || 0,
+      });
+      
+      result.provider_order_reason = 'penal_906_publicaciones_primary';
+      
+      // For PENAL_906, Publicaciones is the primary source
+      // We report success based on Publicaciones, not CPNU/SAMAI
+      if (publicacionesResult.ok) {
+        result.ok = true;
+        result.provider_used = 'publicaciones';
+        result.inserted_count = publicacionesResult.insertedCount || 0;
+        result.skipped_count = publicacionesResult.skippedCount || 0;
+        
+        // Update work_item metadata
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'SUCCESS',
+            last_crawled_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', work_item_id);
+        
+        return jsonResponse(result);
+      }
+      
+      // Publicaciones returned empty/error - optionally try CPNU if fallback enabled
+      if (providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
+        console.log(`[sync-by-work-item] PENAL_906: Publicaciones empty, trying CPNU fallback`);
+        result.warnings.push(`Publicaciones (primary): ${publicacionesResult.error || 'No publications found'}`);
+        
+        fetchResult = await fetchFromCpnu(normalizedRadicado);
+        
+        result.provider_attempts.push({
+          provider: 'cpnu',
+          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          latencyMs: fetchResult.latencyMs || 0,
+          message: fetchResult.error,
+          actuacionesCount: fetchResult.actuaciones.length,
+        });
+        
+        if (!fetchResult.ok) {
+          result.warnings.push(`CPNU fallback: ${fetchResult.error}`);
+        } else {
+          result.provider_order_reason = 'penal_906_publicaciones_empty_cpnu_fallback';
+        }
+      } else {
+        // CPNU fallback disabled for PENAL_906 by default
+        result.provider_attempts.push({
+          provider: 'cpnu',
+          status: 'skipped',
+          latencyMs: 0,
+          message: 'CPNU enrichment disabled for PENAL_906 (Publicaciones is primary)',
+        });
+        
+        // Publicaciones was the only attempt and it failed/empty
+        result.ok = true; // Still "ok" because we successfully queried
+        result.provider_used = 'publicaciones';
+        result.warnings.push(publicacionesResult.error || 'No publications found');
+        
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: publicacionesResult.isEmpty ? 'SUCCESS' : 'FAILED',
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', work_item_id);
+        
+        return jsonResponse(result);
+      }
+      
     } else {
-      // CGP/LABORAL/CPACA/PENAL_906: require radicado (23 digits)
+      // CGP/LABORAL/CPACA: require radicado (23 digits)
       if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
         return errorResponse(
           'MISSING_RADICADO',
@@ -737,7 +1019,7 @@ Deno.serve(async (req) => {
         }
         
       } else {
-        // CGP/LABORAL/PENAL_906: CPNU primary
+        // CGP/LABORAL: CPNU primary
         console.log(`[sync-by-work-item] ${workItem.workflow_type}: Calling CPNU as primary provider`);
         fetchResult = await fetchFromCpnu(normalizedRadicado);
         
