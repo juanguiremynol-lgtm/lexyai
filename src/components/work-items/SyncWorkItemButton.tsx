@@ -147,8 +147,12 @@ export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkIte
           duration: 6000,
         });
       }
+      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
       queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-acts", workItem.id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-alerts", workItem.id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-process-events", workItem.id] });
     },
     onError: (error: Error) => {
       toast.error("Error al sincronizar", {

@@ -38,61 +38,49 @@ const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
 };
 
 export function ActsTab({ workItem }: ActsTabProps) {
-  // Fetch acts from work_item_acts table
+  // Fetch acts from actuaciones table using work_item_id (canonical source)
   const { data: acts, isLoading } = useQuery({
-    queryKey: ["work-item-acts", workItem.id],
+    queryKey: ["work-item-actuaciones", workItem.id],
     queryFn: async () => {
-      // First try work_item_acts table
-      const { data: workItemActs } = await supabase
-        .from("work_item_acts")
+      console.log("[ActsTab] Fetching actuaciones for work_item:", workItem.id);
+      
+      // Query actuaciones directly using work_item_id (canonical approach)
+      const { data: actuaciones, error } = await supabase
+        .from("actuaciones")
         .select("*")
         .eq("work_item_id", workItem.id)
-        .order("act_date", { ascending: false });
+        .order("act_date", { ascending: false, nullsFirst: false });
       
-      if (workItemActs && workItemActs.length > 0) {
-        return workItemActs as WorkItemAct[];
+      if (error) {
+        console.error("[ActsTab] Error fetching actuaciones:", error);
+        throw error;
       }
       
-      // Fallback to legacy actuaciones table
-      const legacyFilingId = workItem.legacy_filing_id;
-      const legacyProcessId = workItem.legacy_process_id;
+      console.log("[ActsTab] Fetched actuaciones:", actuaciones?.length);
       
-      if (legacyFilingId || legacyProcessId) {
-        let query = supabase
-          .from("actuaciones")
-          .select("*")
-          .order("actuacion_date", { ascending: false });
-        
-        if (legacyFilingId) {
-          query = query.eq("filing_id", legacyFilingId);
-        } else if (legacyProcessId) {
-          query = query.eq("monitored_process_id", legacyProcessId);
-        }
-        
-        const { data: legacyActs } = await query;
-        
-        if (legacyActs) {
-          // Map legacy actuaciones to WorkItemAct structure
-          return legacyActs.map((act: any) => ({
-            id: act.id,
-            owner_id: act.owner_id,
-            work_item_id: workItem.id,
-            act_date: act.actuacion_date,
-            act_date_raw: act.fecha_actuacion_raw,
-            description: act.normalized_text || act.raw_text || act.anotacion,
-            act_type: act.act_type_guess,
-            source: act.adapter_name || "legacy",
-            source_reference: act.source_url,
-            raw_data: null,
-            hash_fingerprint: act.hash_fingerprint,
-            created_at: act.created_at,
-          })) as WorkItemAct[];
-        }
+      if (actuaciones && actuaciones.length > 0) {
+        // Map actuaciones to WorkItemAct structure
+        return actuaciones.map((act: any) => ({
+          id: act.id,
+          owner_id: act.owner_id,
+          work_item_id: act.work_item_id,
+          act_date: act.act_date,
+          act_date_raw: act.act_date_raw,
+          description: act.normalized_text || act.raw_text,
+          act_type: act.act_type_guess,
+          source: act.adapter_name || act.source || "sync",
+          source_reference: act.source_url,
+          raw_data: act.raw_data,
+          hash_fingerprint: act.hash_fingerprint,
+          created_at: act.created_at,
+        })) as WorkItemAct[];
       }
       
       return [];
     },
     enabled: !!workItem.id,
+    staleTime: 30000, // 30 seconds
+    refetchOnWindowFocus: true,
   });
 
   const getActTypeConfig = (actType: string | null) => {
