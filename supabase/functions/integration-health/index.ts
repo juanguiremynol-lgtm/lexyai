@@ -2,13 +2,15 @@
  * integration-health Edge Function
  * 
  * Verifies that required secrets are present and can reach external provider hosts.
+ * Includes email gateway health check for Cloud Run Option B architecture.
  * 
  * Features:
  * - Reports boolean presence for each secret (never exposes values)
  * - Optional reachability checks for each provider
+ * - Email gateway configuration status
  * - Access control: Only platform admins or org admins
  * 
- * Output: { env: {...}, reachability?: {...}, timestamp }
+ * Output: { env: {...}, email_gateway: {...}, reachability?: {...}, timestamp }
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -18,7 +20,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Required secret names
+// Required secret names for judicial providers
 const REQUIRED_SECRETS = [
   'CPNU_BASE_URL',
   'SAMAI_BASE_URL',
@@ -27,9 +29,22 @@ const REQUIRED_SECRETS = [
   'EXTERNAL_X_API_KEY',
 ];
 
+// Email gateway secrets (Cloud Run Option B)
+const EMAIL_GATEWAY_SECRETS = [
+  'EMAIL_GATEWAY_BASE_URL',
+  'EMAIL_GATEWAY_API_KEY',
+  'EMAIL_FROM_ADDRESS',
+];
+
 interface HealthResult {
   ok: boolean;
   env: Record<string, boolean>;
+  email_gateway: {
+    configured: boolean;
+    base_url_set: boolean;
+    api_key_set: boolean;
+    from_address_set: boolean;
+  };
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
   timestamp: string;
   user_role?: string;
@@ -185,9 +200,22 @@ Deno.serve(async (req) => {
       envReport[secretName] = !!value && value.length > 0;
     }
 
+    // Build email gateway health report
+    const emailGatewayBaseUrl = Deno.env.get('EMAIL_GATEWAY_BASE_URL');
+    const emailGatewayApiKey = Deno.env.get('EMAIL_GATEWAY_API_KEY');
+    const emailFromAddress = Deno.env.get('EMAIL_FROM_ADDRESS');
+
+    const emailGatewayReport = {
+      configured: !!(emailGatewayBaseUrl && emailGatewayApiKey),
+      base_url_set: !!emailGatewayBaseUrl && emailGatewayBaseUrl.length > 0,
+      api_key_set: !!emailGatewayApiKey && emailGatewayApiKey.length > 0,
+      from_address_set: !!emailFromAddress && emailFromAddress.length > 0,
+    };
+
     const result: HealthResult = {
-      ok: Object.values(envReport).every(Boolean),
+      ok: Object.values(envReport).every(Boolean) && emailGatewayReport.configured,
       env: envReport,
+      email_gateway: emailGatewayReport,
       timestamp: new Date().toISOString(),
       user_role: isPlatformAdmin ? 'platform_admin' : 'org_admin',
     };
@@ -202,9 +230,18 @@ Deno.serve(async (req) => {
         tutelas: await checkReachability('tutelas', Deno.env.get('TUTELAS_BASE_URL'), apiKey),
         publicaciones: await checkReachability('publicaciones', Deno.env.get('PUBLICACIONES_BASE_URL'), apiKey),
       };
+
+      // Also check email gateway if configured
+      if (emailGatewayBaseUrl) {
+        result.reachability.email_gateway = await checkReachability(
+          'email_gateway', 
+          emailGatewayBaseUrl, 
+          emailGatewayApiKey
+        );
+      }
     }
 
-    console.log(`[integration-health] Result: all_present=${result.ok}`);
+    console.log(`[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}`);
 
     return jsonResponse(result);
 
