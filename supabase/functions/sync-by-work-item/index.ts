@@ -579,12 +579,27 @@ async function triggerCpnuScrapingJob(
 
 // ============= TRIGGER SCRAPING JOB: SAMAI =============
 // Calls /buscar to initiate async scraping when SAMAI returns 404
+// IMPORTANT: /buscar may return CACHED data directly (success=true, status="done")
+// or create an async job (success=true, status="queued", jobId)
+
+interface SamaiScrapingResult extends ScrapingJobResult {
+  // If cached data is available, return it directly
+  cachedData?: {
+    actuaciones: ActuacionRaw[];
+    caseMetadata?: {
+      despacho?: string;
+      demandante?: string;
+      demandado?: string;
+      tipo_proceso?: string;
+    };
+  };
+}
 
 async function triggerSamaiScrapingJob(
   radicado: string,
   baseUrl: string,
   apiKeyInfo: ApiKeyInfo
-): Promise<ScrapingJobResult> {
+): Promise<SamaiScrapingResult> {
   const startTime = Date.now();
   const buscarPath = `/buscar?numero_radicacion=${radicado}`;
   const buscarUrl = `${baseUrl.replace(/\/+$/, '')}${buscarPath}`;
@@ -633,27 +648,58 @@ async function triggerSamaiScrapingJob(
       };
     }
     
-    // Extract job info - SAMAI returns { jobId, status, poll_url } or similar
+    // CRITICAL: Check if /buscar returned CACHED data directly
+    // Response format when cached: { success: true, status: "done", cached: true, result: {...} }
+    if (data.success === true && (data.status === 'done' || data.cached === true) && data.result) {
+      console.log(`[sync-by-work-item] SAMAI /buscar returned CACHED data directly`);
+      
+      const resultData = data.result as Record<string, unknown>;
+      const actuaciones = (resultData.actuaciones || []) as Array<Record<string, unknown>>;
+      
+      if (actuaciones.length > 0) {
+        console.log(`[sync-by-work-item] SAMAI /buscar: Found ${actuaciones.length} cached actuaciones`);
+        return {
+          ok: true,
+          latencyMs,
+          status: 'cached',
+          cachedData: {
+            actuaciones: actuaciones.map((act) => ({
+              fecha: String(act.fechaActuacion || act.fecha || ''),
+              actuacion: String(act.actuacion || ''),
+              anotacion: String(act.anotacion || ''),
+            })),
+            caseMetadata: {
+              despacho: resultData.corporacionNombre as string || resultData.ponente as string,
+              demandante: (resultData.sujetos as Array<Record<string, unknown>>)?.find(s => s.tipo?.toString().includes('Demandante'))?.nombre as string,
+              demandado: (resultData.sujetos as Array<Record<string, unknown>>)?.find(s => s.tipo?.toString().includes('Demandado'))?.nombre as string,
+              tipo_proceso: resultData.clase as string,
+            },
+          },
+        };
+      }
+    }
+    
+    // Check for queued scraping job (async case)
     const jobId = String(data.jobId || data.job_id || data.id || '');
     const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
     const status = String(data.status || 'PENDING');
     
-    if (!jobId) {
-      console.warn(`[sync-by-work-item] SAMAI /buscar response missing jobId:`, data);
+    if (jobId) {
+      console.log(`[sync-by-work-item] SAMAI Scraping job created: jobId=${jobId}, status=${status}`);
       return {
-        ok: false,
-        error: 'Scraping service did not return job ID',
+        ok: true,
+        jobId,
+        pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+        status,
         latencyMs,
       };
     }
     
-    console.log(`[sync-by-work-item] SAMAI Scraping job created: jobId=${jobId}, status=${status}`);
-    
+    // No jobId and no cached data - unexpected response
+    console.warn(`[sync-by-work-item] SAMAI /buscar response missing jobId and no cached data:`, data);
     return {
-      ok: true,
-      jobId,
-      pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
-      status,
+      ok: false,
+      error: 'Scraping service did not return job ID or cached data',
       latencyMs,
     };
     
@@ -1118,8 +1164,23 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         console.log(`[sync-by-work-item] SAMAI: Record not found (404) for ${radicado}. Auto-triggering scraping...`);
         
         // Attempt to trigger scraping job via /buscar
+        // IMPORTANT: /buscar may return CACHED data directly or create an async job
         const scrapingResult = await triggerSamaiScrapingJob(radicado, baseUrl, apiKeyInfo);
         
+        // Case 1: /buscar returned CACHED data directly - use it!
+        if (scrapingResult.ok && scrapingResult.cachedData) {
+          console.log(`[sync-by-work-item] SAMAI: /buscar returned ${scrapingResult.cachedData.actuaciones.length} cached actuaciones`);
+          return { 
+            ok: scrapingResult.cachedData.actuaciones.length > 0, 
+            actuaciones: scrapingResult.cachedData.actuaciones, 
+            caseMetadata: scrapingResult.cachedData.caseMetadata,
+            provider: 'samai',
+            latencyMs: Date.now() - startTime,
+            httpStatus: 200, // Treat cached data as success
+          };
+        }
+        
+        // Case 2: /buscar created an async scraping job
         if (scrapingResult.ok && scrapingResult.jobId) {
           console.log(`[sync-by-work-item] SAMAI: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
           return { 
@@ -1135,18 +1196,19 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
             scrapingPollUrl: scrapingResult.pollUrl,
             scrapingMessage: `Record not found in SAMAI cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
           };
-        } else {
-          console.log(`[sync-by-work-item] SAMAI: Scraping trigger failed: ${scrapingResult.error}`);
-          return { 
-            ok: false, 
-            actuaciones: [], 
-            error: 'Not found in SAMAI', 
-            provider: 'samai',
-            isEmpty: true,
-            latencyMs: Date.now() - startTime,
-            httpStatus: 404,
-          };
         }
+        
+        // Case 3: /buscar failed - return original 404
+        console.log(`[sync-by-work-item] SAMAI: Scraping trigger failed: ${scrapingResult.error}`);
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'Not found in SAMAI', 
+          provider: 'samai',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 404,
+        };
       }
       return { 
         ok: false, 
