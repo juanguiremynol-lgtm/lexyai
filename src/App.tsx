@@ -12,6 +12,7 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 
 // Pages
 import Auth from "./pages/Auth";
+import PublicLandingPage from "./pages/PublicLandingPage";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
@@ -68,14 +69,27 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          {/* Auth route */}
+          {/* ============================================ */}
+          {/* PUBLIC ROUTES - No auth required */}
+          {/* ============================================ */}
+          
+          {/* Root landing page - public marketing page */}
+          <Route path="/" element={<ErrorBoundary><PublicLandingPage /></ErrorBoundary>} />
+          
+          {/* Auth routes */}
           <Route path="/auth" element={<Auth />} />
+          <Route path="/auth/login" element={<Auth />} />
+          <Route path="/auth/signup" element={<Auth />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           
-          {/* Root redirects to tenant app */}
-          <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+          {/* Public routes with PublicLayout */}
+          <Route element={<PublicLayout />}>
+            <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
+            <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
+            <Route path="/v/redeem/:token" element={<ErrorBoundary><VoucherRedeemPage /></ErrorBoundary>} />
+          </Route>
           
-          {/* Legacy routes redirect to new /app/* paths */}
+          {/* Legacy root redirects to app (for authenticated users) */}
           <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />
           <Route path="/clients" element={<Navigate to="/app/clients" replace />} />
           <Route path="/clients/:id" element={<Navigate to="/app/clients/:id" replace />} />
@@ -86,13 +100,6 @@ const App = () => (
           <Route path="/settings" element={<Navigate to="/app/settings" replace />} />
           <Route path="/utilities" element={<Navigate to="/app/utilities" replace />} />
           <Route path="/links" element={<Navigate to="/app/links" replace />} />
-          
-          {/* Public routes (no auth required) */}
-          <Route element={<PublicLayout />}>
-            <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
-            <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
-            <Route path="/v/redeem/:token" element={<ErrorBoundary><VoucherRedeemPage /></ErrorBoundary>} />
-          </Route>
           
           {/* Mock checkout route (auth required but no layout) */}
           <Route path="/billing/checkout/mock" element={
