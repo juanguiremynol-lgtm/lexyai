@@ -1,16 +1,33 @@
 /**
  * API Configuration
- * Central configuration for external API endpoints and error handling
+ * 
+ * IMPORTANT: This file only contains CLIENT-SAFE constants and type definitions.
+ * ALL external API URLs must come from server-side env vars in Edge Functions.
+ * 
+ * @deprecated API_BASE_URL is kept for backward compatibility but should not be used
+ * for new code. Use Edge Functions (sync-by-radicado, sync-by-work-item) instead.
  */
 
+/**
+ * @deprecated Use Edge Functions instead of direct API calls
+ * This URL is only for legacy code paths and debug pages.
+ * All production sync operations should use server-side edge functions.
+ */
 export const API_BASE_URL = 'https://rama-judicial-api.onrender.com';
 
+/**
+ * API endpoint paths (relative, not absolute URLs)
+ */
 export const API_ENDPOINTS = {
   BUSCAR: '/buscar',
   RESULTADO: '/resultado',
   HEALTH: '/health',
 } as const;
 
+/**
+ * Timeout configurations for polling behavior
+ * These can be used client-side for UX purposes
+ */
 export const API_TIMEOUTS = {
   INITIAL_REQUEST_MS: 60000,   // 60s for initial request (cold start + scraping)
   POLLING_INTERVAL_FAST_MS: 2000,  // 2s between polls for first 20s
@@ -57,6 +74,10 @@ export const ERROR_CODES = {
   
   // False negative indicators
   FALSE_NEGATIVE_RISK: 'FALSE_NEGATIVE_RISK',
+  
+  // Configuration errors
+  ADAPTER_NOT_CONFIGURED: 'ADAPTER_NOT_CONFIGURED',
+  ENV_VAR_MISSING: 'ENV_VAR_MISSING',
   
   UNKNOWN: 'UNKNOWN',
 } as const;

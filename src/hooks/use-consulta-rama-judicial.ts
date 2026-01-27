@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
-import { API_BASE_URL, API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type ErrorCode, type ResponseStatus } from "@/config/api";
+import { API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type ErrorCode, type ResponseStatus } from "@/config/api";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   normalizeRadicado, 
   validateCompleteness, 
