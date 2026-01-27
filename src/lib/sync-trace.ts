@@ -124,6 +124,7 @@ export function getTraceOutcome(traces: SyncTrace[]): {
 }
 
 // Format error message for UI display
+// Format error message for UI display
 export function formatSyncError(errorCode: string | null, message: string | null): string {
   if (!errorCode && !message) return "Error desconocido";
 
@@ -132,6 +133,7 @@ export function formatSyncError(errorCode: string | null, message: string | null
     UNAUTHORIZED: "No autorizado para esta operación",
     ORG_MISMATCH: "No perteneces a la organización de este asunto",
     PROVIDER_404: "El proveedor no encontró el proceso (radicado no existe en fuente externa)",
+    PROVIDER_NOT_FOUND: "Proceso no encontrado en el proveedor externo",
     PROVIDER_ERROR: "Error al consultar el proveedor externo",
     PROVIDER_TIMEOUT: "Tiempo de espera agotado al consultar proveedor",
     PARSER_EMPTY: "El proveedor respondió pero no devolvió datos",
@@ -139,12 +141,32 @@ export function formatSyncError(errorCode: string | null, message: string | null
     DB_WRITE_FAILED: "Error al guardar datos en la base de datos",
     DB_CONSTRAINT: "Violación de restricción en base de datos",
     MISSING_IDENTIFIER: "Falta identificador (radicado o código tutela)",
+    MISSING_RADICADO: "Falta radicado (23 dígitos requeridos)",
     INVALID_IDENTIFIER: "Identificador inválido (formato incorrecto)",
+    INVALID_RADICADO: "Radicado inválido (debe tener 23 dígitos)",
     INTERNAL_ERROR: "Error interno del servidor",
+    // HTTP error codes
+    HTTP_404: "Recurso no encontrado (HTTP 404)",
+    HTTP_500: "Error del servidor externo (HTTP 500)",
   };
 
   const label = errorCode ? errorLabels[errorCode] || errorCode : "";
   const detail = message && message !== label ? ` - ${message}` : "";
   
   return label + detail;
+}
+
+// Get provider display name
+export function getProviderDisplayName(provider: string | null): string {
+  if (!provider) return 'Desconocido';
+  
+  const names: Record<string, string> = {
+    cpnu: 'CPNU (Consulta Nacional)',
+    samai: 'SAMAI (Administrativo)',
+    'tutelas-api': 'TUTELAS',
+    tutelas: 'TUTELAS',
+    publicaciones: 'Publicaciones Procesales',
+  };
+  
+  return names[provider.toLowerCase()] || provider.toUpperCase();
 }

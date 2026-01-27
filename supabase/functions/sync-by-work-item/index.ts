@@ -413,6 +413,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
           provider: 'samai',
           isEmpty: true,
           latencyMs: Date.now() - startTime,
+          httpStatus: 404,
         };
       }
       return { 
@@ -421,6 +422,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         error: `HTTP ${response.status}`, 
         provider: 'samai',
         latencyMs: Date.now() - startTime,
+        httpStatus: response.status,
       };
     }
 
@@ -436,6 +438,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         provider: 'samai',
         isEmpty: true,
         latencyMs: Date.now() - startTime,
+        httpStatus: 200,
       };
     }
 
@@ -456,6 +459,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       },
       provider: 'samai',
       latencyMs: Date.now() - startTime,
+      httpStatus: 200,
     };
   } catch (err) {
     console.error('[sync-by-work-item] SAMAI fetch error:', err);
@@ -465,6 +469,7 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       error: err instanceof Error ? err.message : 'SAMAI fetch failed', 
       provider: 'samai',
       latencyMs: Date.now() - startTime,
+      httpStatus: 0,
     };
   }
 }
@@ -1081,7 +1086,45 @@ Deno.serve(async (req) => {
       if (providerOrder.primary === 'samai') {
         // CPACA: SAMAI primary
         console.log(`[sync-by-work-item] CPACA: Calling SAMAI as primary provider`);
+        
+        // Log PROVIDER_REQUEST trace step with request path (no host/secrets)
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'PROVIDER_REQUEST_START',
+          provider: 'samai',
+          success: true,
+          message: `SAMAI request: /proceso/${normalizedRadicado}`,
+          meta: { 
+            request_path: `/proceso/${normalizedRadicado}`,
+            request_method: 'GET',
+            is_primary: true,
+          },
+        });
+        
         fetchResult = await fetchFromSamai(normalizedRadicado);
+        
+        // Log PROVIDER_RESPONSE trace step
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'PROVIDER_RESPONSE_RECEIVED',
+          provider: 'samai',
+          http_status: fetchResult.httpStatus || (fetchResult.ok ? 200 : 404),
+          latency_ms: fetchResult.latencyMs || 0,
+          success: fetchResult.ok,
+          error_code: fetchResult.ok ? null : (fetchResult.isEmpty ? 'PROVIDER_404' : 'PROVIDER_ERROR'),
+          message: fetchResult.error || (fetchResult.ok ? `Found ${fetchResult.actuaciones.length} actuaciones` : 'Not found'),
+          meta: { 
+            actuaciones_count: fetchResult.actuaciones.length,
+            is_empty: fetchResult.isEmpty || false,
+            request_path: `/proceso/${normalizedRadicado}`,
+          },
+        });
         
         result.provider_attempts.push({
           provider: 'samai',
@@ -1161,9 +1204,34 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Handle fetch failure
+    // Handle fetch failure - with enhanced diagnostics
     if (!fetchResult || !fetchResult.ok) {
+      const errorCode = fetchResult?.isEmpty ? 'PROVIDER_NOT_FOUND' : 'PROVIDER_ERROR';
+      const providerUsed = fetchResult?.provider || providerOrder.primary;
+      
       result.errors.push(fetchResult?.error || 'All providers failed to fetch data');
+      result.code = errorCode;
+      result.provider_used = providerUsed;
+      
+      // Log SYNC_FAILED trace step with diagnostics
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'SYNC_FAILED',
+        provider: providerUsed,
+        http_status: fetchResult?.httpStatus || null,
+        latency_ms: fetchResult?.latencyMs || null,
+        success: false,
+        error_code: errorCode,
+        message: `${providerUsed.toUpperCase()}: ${fetchResult?.error || 'Provider failed'}`,
+        meta: {
+          radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+          provider_attempts: result.provider_attempts.length,
+          request_path: `/proceso/${normalizeRadicado(workItem.radicado || '')}`,
+        },
+      });
       
       // Update scrape status
       await supabase

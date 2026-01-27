@@ -25,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { WorkItem } from "@/types/work-item";
-import { generateTraceId, formatSyncError } from "@/lib/sync-trace";
+import { generateTraceId, formatSyncError, getProviderDisplayName } from "@/lib/sync-trace";
 
 interface SyncWorkItemButtonProps {
   workItem: WorkItem;
@@ -35,15 +35,24 @@ interface SyncWorkItemButtonProps {
 interface SyncResult {
   ok: boolean;
   work_item_id: string;
+  workflow_type?: string;
   inserted_count: number;
   skipped_count: number;
   latest_event_date: string | null;
   source_used: string | null;
+  provider_used?: string | null;
   warnings: string[];
   errors: string[];
   adapter_used?: string;
   code?: string;
   message?: string;
+  trace_id?: string;
+  provider_attempts?: Array<{
+    provider: string;
+    status: string;
+    latencyMs: number;
+    message?: string;
+  }>;
 }
 
 function isValidTutelaCode(code: string): boolean {
@@ -94,12 +103,11 @@ export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkIte
     onSuccess: (result) => {
       if (result.ok) {
         if (result.inserted_count > 0) {
+          const providerName = getProviderDisplayName(result.provider_used || result.source_used);
           toast.success(
             `Sincronización exitosa: ${result.inserted_count} nuevas actuaciones`,
             {
-              description: result.source_used 
-                ? `Fuente: ${result.source_used}` 
-                : undefined,
+              description: `Fuente: ${providerName}`,
             }
           );
         } else if (result.skipped_count > 0) {
@@ -114,13 +122,16 @@ export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkIte
           toast.success("Sincronización completada");
         }
       } else {
-        // Use improved error message from trace utilities
+        // Use improved error message from trace utilities with provider info
+        const providerName = getProviderDisplayName(result.provider_used || result.source_used);
         const errorMsg = formatSyncError(
           result.code || null,
           result.errors?.[0] || result.message || null
         );
+        
         toast.error("Error de sincronización", {
-          description: errorMsg,
+          description: `${providerName}: ${errorMsg}`,
+          duration: 6000,
         });
       }
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
