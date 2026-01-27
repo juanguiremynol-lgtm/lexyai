@@ -124,7 +124,6 @@ export function getTraceOutcome(traces: SyncTrace[]): {
 }
 
 // Format error message for UI display
-// Format error message for UI display
 export function formatSyncError(errorCode: string | null, message: string | null): string {
   if (!errorCode && !message) return "Error desconocido";
 
@@ -134,6 +133,7 @@ export function formatSyncError(errorCode: string | null, message: string | null
     ORG_MISMATCH: "No perteneces a la organización de este asunto",
     PROVIDER_404: "El proveedor no encontró el proceso (radicado no existe en fuente externa)",
     PROVIDER_NOT_FOUND: "Proceso no encontrado en el proveedor externo",
+    RECORD_NOT_FOUND: "El proveedor no encontró el proceso (radicado no existe en fuente externa)",
     PROVIDER_ERROR: "Error al consultar el proveedor externo",
     PROVIDER_TIMEOUT: "Tiempo de espera agotado al consultar proveedor",
     PARSER_EMPTY: "El proveedor respondió pero no devolvió datos",
@@ -145,6 +145,15 @@ export function formatSyncError(errorCode: string | null, message: string | null
     INVALID_IDENTIFIER: "Identificador inválido (formato incorrecto)",
     INVALID_RADICADO: "Radicado inválido (debe tener 23 dígitos)",
     INTERNAL_ERROR: "Error interno del servidor",
+    // Route/upstream error codes
+    UPSTREAM_ROUTE_MISSING: "Ruta del proveedor no encontrada (verificar configuración BASE_URL)",
+    UPSTREAM_AUTH: "Error de autenticación con proveedor externo",
+    UPSTREAM_FORBIDDEN: "Acceso denegado por el proveedor externo",
+    UPSTREAM_UNAVAILABLE: "Proveedor externo no disponible (error 5xx)",
+    PROVIDER_NOT_CONFIGURED: "Proveedor no configurado (falta URL base)",
+    INVALID_JSON_RESPONSE: "El proveedor retornó respuesta inválida (no JSON)",
+    TIMEOUT: "Tiempo de espera agotado",
+    NETWORK_ERROR: "Error de red al conectar con proveedor",
     // HTTP error codes
     HTTP_404: "Recurso no encontrado (HTTP 404)",
     HTTP_500: "Error del servidor externo (HTTP 500)",
@@ -169,4 +178,19 @@ export function getProviderDisplayName(provider: string | null): string {
   };
   
   return names[provider.toLowerCase()] || provider.toUpperCase();
+}
+
+// Get actionable hint for error codes
+export function getErrorHint(errorCode: string | null): string | null {
+  if (!errorCode) return null;
+  
+  const hints: Record<string, string> = {
+    UPSTREAM_ROUTE_MISSING: "Verifica que la variable CPNU_BASE_URL/SAMAI_BASE_URL apunte al endpoint correcto (puede requerir prefijo /api).",
+    PROVIDER_NOT_CONFIGURED: "Contacta al administrador para configurar las credenciales del proveedor.",
+    RECORD_NOT_FOUND: "El radicado no existe en el sistema judicial externo. Verifica que esté correcto.",
+    UPSTREAM_AUTH: "Las credenciales del proveedor externo pueden ser inválidas o haber expirado.",
+    TIMEOUT: "El proveedor externo tardó demasiado en responder. Intenta de nuevo más tarde.",
+  };
+  
+  return hints[errorCode] || null;
 }

@@ -9,9 +9,11 @@
  * - Returns status, latency, summary, and raw response
  * - Truncates large arrays to safe limits (200 items)
  * - Never exposes secrets in logs or responses
+ * - **NEW**: Route probing for CPNU when route missing (HTML 404)
+ * - **NEW**: Structured error classification (ROUTE_MISSING vs RECORD_NOT_FOUND)
  * 
  * Input: { provider, identifier: { radicado?, tutela_code? }, mode, timeoutMs }
- * Output: { provider_used, status, latencyMs, summary, raw, truncated, limits, error_code?, retried }
+ * Output: { provider_used, status, latencyMs, summary, raw, truncated, limits, error_code?, retried, attempts }
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -27,6 +29,32 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_TIMEOUT_MS = 30000;
 const MAX_ARRAY_ITEMS = 200;
 const MAX_RAW_SIZE = 100000;
+
+// ============= ROUTE CANDIDATES =============
+// When CPNU returns HTML "Cannot GET", try these paths in order
+
+const CPNU_ROUTE_CANDIDATES = [
+  '/proceso/{id}',
+  '/api/proceso/{id}',
+  '/v1/proceso/{id}',
+  '/cgp/proceso/{id}',
+  '/api/v1/proceso/{id}',
+];
+
+const SAMAI_ROUTE_CANDIDATES = [
+  '/proceso/{id}',
+  '/api/proceso/{id}',
+];
+
+const TUTELAS_ROUTE_CANDIDATES = [
+  '/expediente/{id}',
+  '/api/expediente/{id}',
+];
+
+const PUBLICACIONES_ROUTE_CANDIDATES = [
+  '/publicaciones/{id}',
+  '/api/publicaciones/{id}',
+];
 
 // ============= TYPES =============
 
@@ -60,11 +88,20 @@ interface TruncationLimits {
   sujetos_procesales?: { shown: number; total: number };
 }
 
+interface RouteAttempt {
+  path: string;
+  http_status: number;
+  latency_ms: number;
+  response_kind: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
+  error?: string;
+}
+
 interface DebugResult {
   ok: boolean;
   provider_used: string;
   // Enhanced diagnostics (no secrets exposed)
-  request_url?: string; // Masked URL: base path only, no host/secrets
+  request_url_masked?: string; // Masked URL: <PROVIDER>/path
+  request_path?: string; // Path only, no host/secrets
   request_method?: string;
   status: number;
   latencyMs: number;
@@ -75,6 +112,11 @@ interface DebugResult {
   truncated: boolean;
   limits?: TruncationLimits;
   retried: boolean;
+  // Route probing results
+  attempts?: RouteAttempt[];
+  route_probing_used?: boolean;
+  // Debug body snippet for errors
+  _debug_body_snippet?: string;
 }
 
 // ============= HELPERS =============
@@ -112,6 +154,88 @@ function isValidRadicado(radicado: string): boolean {
 
 function isValidTutelaCode(code: string): boolean {
   return /^T\d{6,10}$/i.test(code);
+}
+
+// Safe URL join that handles trailing slashes
+function safeJoinUrl(baseUrl: string, path: string): string {
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
+}
+
+// Mask host in URL for safe logging/UI display
+function maskHost(provider: ProviderName): string {
+  const masks: Record<ProviderName, string> = {
+    cpnu: '<CPNU>',
+    samai: '<SAMAI>',
+    tutelas: '<TUTELAS>',
+    publicaciones: '<PUBLICACIONES>',
+  };
+  return masks[provider] || '<PROVIDER>';
+}
+
+// Detect if response body looks like HTML "Cannot GET" (Express 404)
+function isHtmlCannotGet(body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    lower.includes('cannot get') ||
+    lower.includes('<!doctype html') ||
+    lower.includes('<html') ||
+    lower.includes('not found</pre>')
+  );
+}
+
+// Classify response kind
+function classifyResponseKind(body: string, status: number): RouteAttempt['response_kind'] {
+  if (!body || body.trim() === '') return 'EMPTY';
+  
+  try {
+    JSON.parse(body);
+    return 'JSON';
+  } catch {
+    // Not JSON
+    if (isHtmlCannotGet(body)) {
+      return 'HTML_CANNOT_GET';
+    }
+    return 'HTML_OTHER';
+  }
+}
+
+// Classify error code based on response
+function classifyErrorCode(
+  httpStatus: number,
+  responseKind: RouteAttempt['response_kind'],
+  jsonData?: unknown
+): string {
+  // Route missing (HTML 404 with "Cannot GET")
+  if (httpStatus === 404 && responseKind === 'HTML_CANNOT_GET') {
+    return 'UPSTREAM_ROUTE_MISSING';
+  }
+  
+  // Record not found (JSON 404 or JSON with found=false)
+  if (httpStatus === 404 && responseKind === 'JSON') {
+    return 'RECORD_NOT_FOUND';
+  }
+  
+  // Check JSON body for not-found indicators
+  if (responseKind === 'JSON' && jsonData && typeof jsonData === 'object') {
+    const obj = jsonData as Record<string, unknown>;
+    if (obj.found === false || obj.expediente_encontrado === false) {
+      return 'RECORD_NOT_FOUND';
+    }
+  }
+  
+  // Auth errors
+  if (httpStatus === 401) return 'UPSTREAM_AUTH';
+  if (httpStatus === 403) return 'UPSTREAM_FORBIDDEN';
+  
+  // Server errors
+  if (httpStatus >= 500) return 'UPSTREAM_UNAVAILABLE';
+  
+  // Generic
+  if (httpStatus >= 400) return `HTTP_${httpStatus}`;
+  
+  return 'UNKNOWN';
 }
 
 function truncateRaw(raw: unknown): { data: unknown; truncated: boolean; limits: TruncationLimits } {
@@ -177,6 +301,7 @@ function safeLog(
     work_item_id?: string;
     user_id?: string;
     error_code?: string;
+    request_path?: string;
   }
 ) {
   // Never log EXTERNAL_X_API_KEY or sensitive headers
@@ -188,6 +313,7 @@ function safeLog(
     work_item_id: context.work_item_id?.slice(0, 8) + '...',
     user_id: context.user_id?.slice(0, 8) + '...',
     error_code: context.error_code,
+    request_path: context.request_path,
   };
 
   const logMessage = `[debug-external-provider] ${message}`;
@@ -205,9 +331,18 @@ function safeLog(
   }
 }
 
-// ============= PROVIDER CALLS =============
+// ============= PROVIDER CALLS WITH ROUTE PROBING =============
 
-async function callProvider(
+function getRouteCandidates(provider: ProviderName): string[] {
+  switch (provider) {
+    case 'cpnu': return CPNU_ROUTE_CANDIDATES;
+    case 'samai': return SAMAI_ROUTE_CANDIDATES;
+    case 'tutelas': return TUTELAS_ROUTE_CANDIDATES;
+    case 'publicaciones': return PUBLICACIONES_ROUTE_CANDIDATES;
+  }
+}
+
+async function callProviderWithProbing(
   provider: ProviderName,
   identifier: string,
   timeoutMs: number
@@ -216,8 +351,10 @@ async function callProvider(
   data: unknown; 
   error_code?: string; 
   message?: string;
-  request_path?: string; // Path only, no host/secrets
-  body_snippet?: string; // First ~2KB of response for debugging
+  request_path?: string;
+  body_snippet?: string;
+  attempts: RouteAttempt[];
+  route_probing_used: boolean;
 }> {
   const envMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_BASE_URL',
@@ -229,95 +366,196 @@ async function callProvider(
   const baseUrl = Deno.env.get(envMap[provider]);
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
-  // Build path based on provider (for diagnostics, no host exposed)
-  let requestPath: string;
-  switch (provider) {
-    case 'cpnu':
-    case 'samai':
-      requestPath = `/proceso/${identifier}`;
-      break;
-    case 'tutelas':
-      requestPath = `/expediente/${identifier}`;
-      break;
-    case 'publicaciones':
-      requestPath = `/publicaciones/${identifier}`;
-      break;
-  }
-
   if (!baseUrl) {
     return { 
       status: 0, 
       data: null, 
       error_code: 'PROVIDER_NOT_CONFIGURED', 
       message: `${envMap[provider]} not configured`,
-      request_path: requestPath,
+      request_path: undefined,
+      attempts: [],
+      route_probing_used: false,
     };
   }
 
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKey) {
-      headers['X-API-Key'] = apiKey;
-    }
+  const routeCandidates = getRouteCandidates(provider);
+  const attempts: RouteAttempt[] = [];
+  let routeProbingUsed = false;
 
-    // Build full endpoint URL
-    const endpoint = new URL(requestPath, baseUrl).toString();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
 
-    // Log without sensitive data
-    safeLog('info', `Calling provider`, { provider, status: 0, latencyMs: 0 });
+  for (let i = 0; i < routeCandidates.length; i++) {
+    const pathTemplate = routeCandidates[i];
+    const requestPath = pathTemplate.replace('{id}', identifier);
+    const fullUrl = safeJoinUrl(baseUrl, requestPath);
+    const attemptStart = Date.now();
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
+    safeLog('info', `Attempting route ${i + 1}/${routeCandidates.length}`, { 
+      provider, 
+      request_path: requestPath,
     });
 
-    clearTimeout(timeoutId);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!response.ok) {
-      const errorText = await response.text();
+      const response = await fetch(fullUrl, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - attemptStart;
+      const bodyText = await response.text();
+      const responseKind = classifyResponseKind(bodyText, response.status);
+
+      const attempt: RouteAttempt = {
+        path: requestPath,
+        http_status: response.status,
+        latency_ms: latencyMs,
+        response_kind: responseKind,
+      };
+      attempts.push(attempt);
+
+      // If we get HTML "Cannot GET" 404, try next route
+      if (response.status === 404 && responseKind === 'HTML_CANNOT_GET') {
+        safeLog('warn', `Route missing (HTML Cannot GET), trying next`, { 
+          provider, 
+          status: 404, 
+          request_path: requestPath,
+        });
+        
+        if (i < routeCandidates.length - 1) {
+          routeProbingUsed = true;
+          continue; // Try next candidate
+        }
+        
+        // Last candidate also failed
+        return {
+          status: 404,
+          data: null,
+          error_code: 'UPSTREAM_ROUTE_MISSING',
+          message: `All route candidates returned 404. Check CPNU_BASE_URL configuration.`,
+          request_path: requestPath,
+          body_snippet: bodyText.slice(0, 2000),
+          attempts,
+          route_probing_used: routeProbingUsed,
+        };
+      }
+
+      // Non-404 error or JSON 404 (record not found)
+      if (!response.ok) {
+        const errorCode = classifyErrorCode(response.status, responseKind, null);
+        return {
+          status: response.status,
+          data: null,
+          error_code: errorCode,
+          message: bodyText.slice(0, 500),
+          request_path: requestPath,
+          body_snippet: bodyText.slice(0, 2000),
+          attempts,
+          route_probing_used: routeProbingUsed,
+        };
+      }
+
+      // Success - parse JSON
+      try {
+        const jsonData = JSON.parse(bodyText);
+        
+        // Check for JSON "not found" indicators
+        if (jsonData.found === false || jsonData.expediente_encontrado === false) {
+          return {
+            status: response.status,
+            data: jsonData,
+            error_code: 'RECORD_NOT_FOUND',
+            message: 'Provider returned JSON but record not found',
+            request_path: requestPath,
+            attempts,
+            route_probing_used: routeProbingUsed,
+          };
+        }
+
+        return { 
+          status: response.status, 
+          data: jsonData,
+          request_path: requestPath,
+          attempts,
+          route_probing_used: routeProbingUsed,
+        };
+      } catch {
+        // Got 200 but body is not valid JSON
+        return {
+          status: response.status,
+          data: null,
+          error_code: 'INVALID_JSON_RESPONSE',
+          message: 'Provider returned 200 but body is not valid JSON',
+          request_path: requestPath,
+          body_snippet: bodyText.slice(0, 2000),
+          attempts,
+          route_probing_used: routeProbingUsed,
+        };
+      }
+
+    } catch (err) {
+      const latencyMs = Date.now() - attemptStart;
+      
+      if (err instanceof Error && err.name === 'AbortError') {
+        attempts.push({
+          path: requestPath,
+          http_status: 0,
+          latency_ms: latencyMs,
+          response_kind: 'ERROR',
+          error: 'TIMEOUT',
+        });
+        
+        return { 
+          status: 0, 
+          data: null, 
+          error_code: 'TIMEOUT', 
+          message: `Request timed out after ${timeoutMs}ms`,
+          request_path: requestPath,
+          attempts,
+          route_probing_used: routeProbingUsed,
+        };
+      }
+
+      attempts.push({
+        path: requestPath,
+        http_status: 0,
+        latency_ms: latencyMs,
+        response_kind: 'ERROR',
+        error: err instanceof Error ? err.message : 'Unknown',
+      });
+
       return {
-        status: response.status,
+        status: 0,
         data: null,
-        error_code: `HTTP_${response.status}`,
-        message: errorText.slice(0, 500),
+        error_code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown network error',
         request_path: requestPath,
-        body_snippet: errorText.slice(0, 2000), // Truncated response body for debugging
+        attempts,
+        route_probing_used: routeProbingUsed,
       };
     }
-
-    const data = await response.json();
-    return { 
-      status: response.status, 
-      data,
-      request_path: requestPath,
-    };
-
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      return { 
-        status: 0, 
-        data: null, 
-        error_code: 'TIMEOUT', 
-        message: `Request timed out after ${timeoutMs}ms`,
-        request_path: requestPath,
-      };
-    }
-    return {
-      status: 0,
-      data: null,
-      error_code: 'NETWORK_ERROR',
-      message: err instanceof Error ? err.message : 'Unknown network error',
-      request_path: requestPath,
-    };
   }
+
+  // Should not reach here, but safety fallback
+  return {
+    status: 0,
+    data: null,
+    error_code: 'NO_ROUTES',
+    message: 'No route candidates available',
+    attempts,
+    route_probing_used: false,
+  };
 }
 
 function buildSummary(provider: ProviderName, data: unknown): DebugSummary {
@@ -481,11 +719,11 @@ Deno.serve(async (req) => {
       resolvedIdentifier = normalizeRadicado(identifier.radicado);
     }
 
-    safeLog('info', `Calling ${provider}`, { provider, status: 0, latencyMs: 0 });
+    safeLog('info', `Calling ${provider} with route probing`, { provider, status: 0, latencyMs: 0 });
 
-    // Call provider
+    // Call provider with route probing
     const callStartTime = Date.now();
-    const result = await callProvider(provider, resolvedIdentifier, timeoutMs);
+    const result = await callProviderWithProbing(provider, resolvedIdentifier, timeoutMs);
     const latencyMs = Date.now() - callStartTime;
 
     // Build response
@@ -494,30 +732,34 @@ Deno.serve(async (req) => {
       ? truncateRaw(result.data) 
       : { data: null, truncated: false, limits: {} };
 
+    const maskedUrl = result.request_path 
+      ? `${maskHost(provider)}${result.request_path}` 
+      : undefined;
+
     const debugResult: DebugResult = {
       ok: result.status >= 200 && result.status < 300 && !result.error_code,
       provider_used: provider,
+      request_url_masked: maskedUrl,
+      request_path: result.request_path,
+      request_method: 'GET',
       status: result.status,
       latencyMs,
       summary,
       raw: rawData,
       truncated,
       limits: Object.keys(limits).length > 0 ? limits : undefined,
-      retried: false,
-      // Enhanced diagnostics - request_url shows path only (no host/secrets)
-      request_url: result.request_path || undefined,
-      request_method: 'GET',
+      retried: result.route_probing_used,
+      attempts: result.attempts,
+      route_probing_used: result.route_probing_used,
     };
 
     if (result.error_code) {
       debugResult.error_code = result.error_code;
       debugResult.message = result.message;
-      // Include body snippet for 404/error debugging
-      if (result.body_snippet && !summary.found) {
-        debugResult.raw = { 
-          _debug_body_snippet: result.body_snippet.slice(0, 2000),
-          _note: 'Upstream response body (first 2KB, sanitized)'
-        };
+      
+      // Include body snippet for debugging route issues
+      if (result.body_snippet) {
+        debugResult._debug_body_snippet = result.body_snippet.slice(0, 2000);
       }
     }
 
@@ -526,6 +768,7 @@ Deno.serve(async (req) => {
       status: result.status, 
       latencyMs,
       error_code: result.error_code,
+      request_path: result.request_path,
     });
 
     return jsonResponse(debugResult);
