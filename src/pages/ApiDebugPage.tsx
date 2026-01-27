@@ -84,6 +84,15 @@ interface ProviderAttempt {
   actuacionesCount?: number;
 }
 
+// Route attempt from debug-external-provider (for route probing diagnostics)
+interface RouteAttempt {
+  path: string;
+  http_status: number;
+  latency_ms: number;
+  response_kind: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
+  error?: string;
+}
+
 interface DebugResult {
   ok: boolean;
   provider_used: string;
@@ -96,12 +105,19 @@ interface DebugResult {
   message?: string;
   truncated?: boolean;
   // Enhanced diagnostics
-  request_url?: string; // Request path (no host/secrets)
+  request_url?: string; // Legacy: path only
+  request_url_masked?: string; // New: <PROVIDER>/path
+  request_path?: string; // Path only, no host/secrets
   request_method?: string;
   // Workflow-aware fields
   workflow_type?: string;
   provider_attempts?: ProviderAttempt[];
   provider_order_reason?: string;
+  // Route probing results
+  attempts?: RouteAttempt[];
+  route_probing_used?: boolean;
+  // Debug body snippet for errors
+  _debug_body_snippet?: string;
 }
 
 // Workflow-specific provider order (mirrors Edge Function logic)
@@ -930,12 +946,66 @@ export default function ApiDebugPage() {
             )}
 
             {/* Request details for debugging */}
-            {debugResult.request_url && (
+            {(debugResult.request_url_masked || debugResult.request_url || debugResult.request_path) && (
               <div className="p-3 bg-muted/50 rounded-lg border">
                 <p className="text-xs text-muted-foreground mb-1">Request Path (sin host/secrets)</p>
                 <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
-                  {debugResult.request_method || 'GET'} {debugResult.request_url}
+                  {debugResult.request_method || 'GET'} {debugResult.request_url_masked || debugResult.request_url || debugResult.request_path}
                 </code>
+              </div>
+            )}
+
+            {/* Route Probing Attempts (new diagnostics) */}
+            {debugResult.attempts && debugResult.attempts.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="font-medium text-sm">Intentos de Ruta</h4>
+                  {debugResult.route_probing_used && (
+                    <Badge variant="outline" className="text-xs text-amber-600">
+                      Route probing activado
+                    </Badge>
+                  )}
+                </div>
+                <div className="space-y-1 text-xs">
+                  {debugResult.attempts.map((attempt, idx) => (
+                    <div 
+                      key={idx} 
+                      className={cn(
+                        "flex items-center justify-between p-2 rounded font-mono",
+                        attempt.response_kind === 'JSON' && attempt.http_status < 400 ? "bg-emerald-500/10" :
+                        attempt.response_kind === 'HTML_CANNOT_GET' ? "bg-amber-500/10" :
+                        "bg-destructive/10"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{attempt.path}</span>
+                        <Badge 
+                          variant={attempt.http_status < 400 ? 'secondary' : 'outline'}
+                          className="text-[10px]"
+                        >
+                          {attempt.http_status || 'ERR'}
+                        </Badge>
+                        <Badge 
+                          variant="outline"
+                          className={cn(
+                            "text-[10px]",
+                            attempt.response_kind === 'HTML_CANNOT_GET' && "text-amber-600 border-amber-500",
+                            attempt.response_kind === 'JSON' && "text-emerald-600 border-emerald-500"
+                          )}
+                        >
+                          {attempt.response_kind}
+                        </Badge>
+                      </div>
+                      <span className="text-muted-foreground">{attempt.latency_ms}ms</span>
+                    </div>
+                  ))}
+                </div>
+                {debugResult.error_code === 'UPSTREAM_ROUTE_MISSING' && (
+                  <p className="text-xs text-amber-600 bg-amber-500/10 p-2 rounded">
+                    ⚠️ Todas las rutas candidatas fallaron con "Cannot GET". 
+                    <strong> Verifica que CPNU_BASE_URL apunte al endpoint correcto</strong> (puede requerir prefijo /api).
+                  </p>
+                )}
               </div>
             )}
 
@@ -952,6 +1022,23 @@ export default function ApiDebugPage() {
                   {debugResult.message || debugResult.error}
                 </p>
               </div>
+            )}
+
+            {/* Debug body snippet for route issues */}
+            {debugResult._debug_body_snippet && (
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary">
+                  <ChevronRight className="h-3 w-3" />
+                  Ver respuesta upstream (primeros 2KB)
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <ScrollArea className="h-32 mt-2 rounded border bg-muted/30 p-2">
+                    <pre className="text-[10px] font-mono whitespace-pre-wrap">
+                      {debugResult._debug_body_snippet}
+                    </pre>
+                  </ScrollArea>
+                </CollapsibleContent>
+              </Collapsible>
             )}
 
             {/* Raw JSON */}
