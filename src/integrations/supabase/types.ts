@@ -6059,9 +6059,31 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      migration_health_check: {
+        Row: {
+          missing_work_item_id: number | null
+          pct_mapped: number | null
+          potential_duplicates: number | null
+          table_name: string | null
+          total_rows: number | null
+          unique_work_items: number | null
+          with_work_item_id: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      backfill_work_item_ids: {
+        Args: never
+        Returns: {
+          already_mapped: number
+          exceptions: Json
+          newly_mapped: number
+          table_name: string
+          total_rows: number
+          unmapped: number
+        }[]
+      }
       get_user_org_id: { Args: never; Returns: string }
       get_user_organization_id: { Args: never; Returns: string }
       has_org_role: {
@@ -6100,6 +6122,15 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      resolve_work_item_id: {
+        Args: {
+          p_legacy_filing_id?: string
+          p_legacy_process_id?: string
+          p_owner_id?: string
+          p_radicado?: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       alert_severity: "INFO" | "WARN" | "CRITICAL"
