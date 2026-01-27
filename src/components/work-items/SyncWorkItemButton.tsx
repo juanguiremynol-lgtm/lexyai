@@ -53,6 +53,12 @@ interface SyncResult {
     latencyMs: number;
     message?: string;
   }>;
+  // Auto-scraping fields
+  scraping_initiated?: boolean;
+  scraping_job_id?: string;
+  scraping_poll_url?: string;
+  scraping_provider?: string;
+  scraping_message?: string;
 }
 
 function isValidTutelaCode(code: string): boolean {
@@ -121,6 +127,13 @@ export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkIte
         } else {
           toast.success("Sincronización completada");
         }
+      } else if (result.scraping_initiated && result.scraping_job_id) {
+        // Handle auto-scraping initiated (HTTP 202 response)
+        const providerName = getProviderDisplayName(result.scraping_provider || result.provider_used);
+        toast.info("Scraping iniciado automáticamente", {
+          description: `${providerName}: El proceso no estaba en caché. Reintenta en 30-60 segundos.`,
+          duration: 8000,
+        });
       } else {
         // Use improved error message from trace utilities with provider info
         const providerName = getProviderDisplayName(result.provider_used || result.source_used);

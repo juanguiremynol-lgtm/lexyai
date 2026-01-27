@@ -191,6 +191,139 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
 
 // ============= HELPERS =============
 
+// ============= SIGNIFICANT EVENT DETECTION =============
+// Detects important judicial events that warrant alerts
+
+interface SignificantEventInfo {
+  type: string;
+  title: string;
+  severity: 'info' | 'warn' | 'error';
+}
+
+const SIGNIFICANT_EVENT_PATTERNS: Array<{ patterns: string[]; info: SignificantEventInfo }> = [
+  {
+    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda', 'se admite demanda'],
+    info: { type: 'AUTO_ADMISORIO', title: 'Auto Admisorio detectado', severity: 'info' },
+  },
+  {
+    patterns: ['sentencia', 'fallo de primera', 'fallo de segunda', 'se profiere sentencia'],
+    info: { type: 'SENTENCIA', title: 'Sentencia detectada', severity: 'warn' },
+  },
+  {
+    patterns: ['audiencia fijada', 'fija fecha para audiencia', 'señala fecha audiencia'],
+    info: { type: 'AUDIENCIA_PROGRAMADA', title: 'Audiencia programada', severity: 'info' },
+  },
+  {
+    patterns: ['recurso de apelación', 'concede apelación', 'admite recurso'],
+    info: { type: 'APELACION', title: 'Recurso de apelación', severity: 'info' },
+  },
+  {
+    patterns: ['rechaza la demanda', 'rechaza demanda', 'auto de rechazo'],
+    info: { type: 'RECHAZO', title: 'Demanda rechazada', severity: 'error' },
+  },
+  {
+    patterns: ['inadmite la demanda', 'auto inadmisorio', 'se inadmite'],
+    info: { type: 'INADMISION', title: 'Demanda inadmitida', severity: 'warn' },
+  },
+  {
+    patterns: ['medida cautelar', 'embargo', 'secuestro de bienes'],
+    info: { type: 'MEDIDA_CAUTELAR', title: 'Medida cautelar ordenada', severity: 'warn' },
+  },
+  {
+    patterns: ['ejecutoria', 'queda ejecutoriada', 'en firme'],
+    info: { type: 'EJECUTORIA', title: 'Decisión en firme', severity: 'info' },
+  },
+];
+
+function detectSignificantEvent(actuacion: string, anotacion: string): SignificantEventInfo | null {
+  const textToSearch = `${actuacion} ${anotacion}`.toLowerCase();
+  
+  for (const { patterns, info } of SIGNIFICANT_EVENT_PATTERNS) {
+    for (const pattern of patterns) {
+      if (textToSearch.includes(pattern.toLowerCase())) {
+        return info;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// ============= STAGE INFERENCE =============
+// Lightweight stage inference from actuación text
+
+interface StageSuggestion {
+  suggestedStage: string;
+  confidence: number;
+  reason: string;
+}
+
+const STAGE_INFERENCE_PATTERNS: Array<{
+  patterns: string[];
+  stages: Record<string, string>; // workflow_type -> stage
+  confidence: number;
+  reason: string;
+}> = [
+  {
+    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda'],
+    stages: { CGP: 'AUTO_ADMISORIO', LABORAL: 'AUDIENCIA_INICIAL', CPACA: 'AUTO_ADMISORIO', TUTELA: 'TUTELA_ADMITIDA' },
+    confidence: 0.9,
+    reason: 'Auto admisorio detectado en actuación',
+  },
+  {
+    patterns: ['radicación de proceso', 'radicación demanda'],
+    stages: { CGP: 'RADICADO_CONFIRMED', LABORAL: 'RADICACION', CPACA: 'DEMANDA_RADICADA', TUTELA: 'TUTELA_RADICADA' },
+    confidence: 0.85,
+    reason: 'Radicación de proceso detectada',
+  },
+  {
+    patterns: ['audiencia inicial', 'fija fecha para audiencia inicial'],
+    stages: { CGP: 'AUDIENCIA_INICIAL', LABORAL: 'AUDIENCIA_INICIAL', CPACA: 'AUDIENCIA_INICIAL' },
+    confidence: 0.85,
+    reason: 'Audiencia inicial detectada',
+  },
+  {
+    patterns: ['notificación personal', 'se notifica personalmente'],
+    stages: { CGP: 'NOTIFICACION_PERSONAL', CPACA: 'NOTIFICACION_TRASLADOS' },
+    confidence: 0.8,
+    reason: 'Notificación personal detectada',
+  },
+  {
+    patterns: ['sentencia', 'fallo de primera instancia'],
+    stages: { CGP: 'ALEGATOS_SENTENCIA', LABORAL: 'SENTENCIA_1A_INSTANCIA', CPACA: 'ALEGATOS_SENTENCIA', TUTELA: 'FALLO_PRIMERA_INSTANCIA' },
+    confidence: 0.9,
+    reason: 'Sentencia detectada en actuación',
+  },
+  {
+    patterns: ['recurso de apelación', 'concede apelación'],
+    stages: { CGP: 'APELACION', LABORAL: 'APELACION', CPACA: 'RECURSOS', TUTELA: 'FALLO_SEGUNDA_INSTANCIA' },
+    confidence: 0.85,
+    reason: 'Recurso de apelación detectado',
+  },
+];
+
+function inferStageFromActuacion(
+  workflowType: string,
+  actuacion: string,
+  anotacion: string
+): StageSuggestion | null {
+  const textToSearch = `${actuacion} ${anotacion}`.toLowerCase();
+  
+  for (const { patterns, stages, confidence, reason } of STAGE_INFERENCE_PATTERNS) {
+    for (const pattern of patterns) {
+      if (textToSearch.includes(pattern.toLowerCase())) {
+        const suggestedStage = stages[workflowType];
+        if (suggestedStage) {
+          return { suggestedStage, confidence, reason };
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -2063,6 +2196,94 @@ Deno.serve(async (req) => {
         result.inserted_count++;
         if (actDate && (!latestDate || actDate > latestDate)) {
           latestDate = actDate;
+        }
+        
+        // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
+        const significantEventType = detectSignificantEvent(act.actuacion, act.anotacion || '');
+        if (significantEventType) {
+          const alertFingerprint = `alert_${work_item_id.slice(0, 8)}_${significantEventType}_${actDate || 'no-date'}`;
+          
+          // Check for existing alert with same fingerprint
+          const { data: existingAlert } = await supabase
+            .from('alert_instances')
+            .select('id')
+            .eq('entity_id', work_item_id)
+            .eq('fingerprint', alertFingerprint)
+            .maybeSingle();
+          
+          if (!existingAlert) {
+            const { error: alertError } = await supabase
+              .from('alert_instances')
+              .insert({
+                owner_id: workItem.owner_id,
+                organization_id: workItem.organization_id,
+                entity_id: work_item_id,
+                entity_type: 'WORK_ITEM',
+                severity: significantEventType.severity,
+                title: significantEventType.title,
+                message: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`.slice(0, 500),
+                status: 'ACTIVE',
+                fingerprint: alertFingerprint,
+                payload: {
+                  event_type: significantEventType.type,
+                  event_date: actDate,
+                  provider: fetchResult.provider,
+                },
+              });
+            
+            if (!alertError) {
+              console.log(`[sync-by-work-item] Created alert for ${significantEventType.type}`);
+            }
+          }
+        }
+        
+        // ============= STAGE INFERENCE =============
+        const stageSuggestion = inferStageFromActuacion(
+          workItem.workflow_type,
+          act.actuacion,
+          act.anotacion || ''
+        );
+        
+        if (stageSuggestion && stageSuggestion.confidence >= 0.7) {
+          const suggestionFingerprint = `stage_${work_item_id.slice(0, 8)}_${stageSuggestion.suggestedStage}`;
+          
+          // Check for existing pending suggestion
+          const { data: existingSuggestion } = await supabase
+            .from('work_item_stage_suggestions')
+            .select('id')
+            .eq('work_item_id', work_item_id)
+            .eq('status', 'PENDING')
+            .maybeSingle();
+          
+          if (!existingSuggestion) {
+            const { error: suggestionError } = await supabase
+              .from('work_item_stage_suggestions')
+              .insert({
+                work_item_id,
+                owner_id: workItem.owner_id,
+                organization_id: workItem.organization_id,
+                current_stage: null, // We don't have current stage loaded
+                suggested_stage: stageSuggestion.suggestedStage,
+                confidence: stageSuggestion.confidence,
+                reason: stageSuggestion.reason,
+                source: 'sync-by-work-item',
+                source_event_text: act.actuacion.slice(0, 500),
+                status: stageSuggestion.confidence >= 0.8 ? 'AUTO_APPLIED' : 'PENDING',
+              });
+            
+            if (!suggestionError) {
+              console.log(`[sync-by-work-item] Created stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence})`);
+              
+              // Auto-apply high confidence suggestions
+              if (stageSuggestion.confidence >= 0.8) {
+                await supabase
+                  .from('work_items')
+                  .update({ stage: stageSuggestion.suggestedStage })
+                  .eq('id', work_item_id);
+                console.log(`[sync-by-work-item] Auto-applied stage: ${stageSuggestion.suggestedStage}`);
+              }
+            }
+          }
         }
       }
     }
