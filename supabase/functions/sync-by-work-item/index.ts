@@ -248,11 +248,48 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
   return null;
 }
 
+// ============= URL HELPERS =============
+
+// Safe URL join that handles base, prefix, and path
+// Rules:
+// - base has no trailing slash
+// - prefix is either "" or starts with "/" and has no trailing slash (normalized)
+// - path always starts with "/" (query params preserved)
+// - result has exactly one slash between segments (never "//health")
+function joinUrl(baseUrl: string, prefix: string, path: string): string {
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  let cleanPrefix = (prefix || '').trim();
+  if (cleanPrefix === '/') cleanPrefix = '';
+  if (cleanPrefix && !cleanPrefix.startsWith('/')) {
+    cleanPrefix = '/' + cleanPrefix;
+  }
+  cleanPrefix = cleanPrefix.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPrefix}${cleanPath}`;
+}
+
+// Detect if response body looks like HTML "Cannot GET" (Express 404)
+function isHtmlCannotGet(body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    lower.includes('cannot get') ||
+    lower.includes('<!doctype html') ||
+    lower.includes('<html') ||
+    lower.includes('not found</pre>')
+  );
+}
+
 // ============= PROVIDER: CPNU =============
+// CPNU Cloud Run service (cpnu-https-jobs) exposes routes at ROOT:
+// - GET /health - health check
+// - GET /snapshot?numero_radicacion={radicado} - synchronous lookup (preferred)
+// - GET /buscar?numero_radicacion={radicado} - async job creation
+// - GET /resultado/{jobId} - async job result
 
 async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('CPNU_BASE_URL');
+  const pathPrefix = Deno.env.get('CPNU_PATH_PREFIX') || ''; // Default empty for root-exposed service
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
@@ -266,63 +303,102 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     };
   }
 
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKey) {
-      headers['X-API-Key'] = apiKey;
-    }
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
 
-    console.log(`[sync-by-work-item] Calling CPNU: ${baseUrl}/proceso/${radicado}`);
-    
-    const response = await fetch(`${baseUrl}/proceso/${radicado}`, {
+  // STEP 1: Try /snapshot (synchronous lookup - preferred)
+  const snapshotPath = `/snapshot?numero_radicacion=${radicado}`;
+  const snapshotUrl = joinUrl(baseUrl, pathPrefix, snapshotPath);
+  
+  console.log(`[sync-by-work-item] Calling CPNU /snapshot: ${snapshotPath}`);
+
+  try {
+    const snapshotResponse = await fetch(snapshotUrl, {
       method: 'GET',
       headers,
     });
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log(`[sync-by-work-item] CPNU: Process not found for ${radicado}`);
-        return { 
-          ok: false, 
-          actuaciones: [], 
-          error: 'Not found', 
-          provider: 'cpnu',
-          isEmpty: true,
-          latencyMs: Date.now() - startTime,
-        };
-      }
-      const errorText = await response.text();
-      console.log(`[sync-by-work-item] CPNU HTTP ${response.status}: ${errorText.slice(0, 200)}`);
+    const snapshotBody = await snapshotResponse.text();
+    
+    // Check for route mismatch (HTML "Cannot GET")
+    if (snapshotResponse.status === 404 && isHtmlCannotGet(snapshotBody)) {
+      console.warn(`[sync-by-work-item] CPNU route mismatch: HTML 404 for ${snapshotPath}. Check CPNU_BASE_URL/CPNU_PATH_PREFIX.`);
       return { 
         ok: false, 
         actuaciones: [], 
-        error: `HTTP ${response.status}`, 
+        error: `UPSTREAM_ROUTE_MISSING: CPNU returned HTML 404. Check CPNU_BASE_URL configuration.`, 
         provider: 'cpnu',
         latencyMs: Date.now() - startTime,
+        httpStatus: 404,
       };
     }
 
-    const data = await response.json();
-    
-    // Check for "not found" indicators
-    if (data.expediente_encontrado === false || data.found === false) {
-      console.log(`[sync-by-work-item] CPNU: expediente_encontrado=false for ${radicado}`);
+    // Auth errors
+    if (snapshotResponse.status === 401 || snapshotResponse.status === 403) {
+      console.warn(`[sync-by-work-item] CPNU auth error: HTTP ${snapshotResponse.status}`);
       return { 
         ok: false, 
         actuaciones: [], 
-        error: 'Process not found in CPNU', 
+        error: `UPSTREAM_AUTH: CPNU returned ${snapshotResponse.status}. Check EXTERNAL_X_API_KEY.`, 
+        provider: 'cpnu',
+        latencyMs: Date.now() - startTime,
+        httpStatus: snapshotResponse.status,
+      };
+    }
+
+    // Try to parse JSON
+    let snapshotData: Record<string, unknown>;
+    try {
+      snapshotData = JSON.parse(snapshotBody);
+    } catch {
+      console.warn(`[sync-by-work-item] CPNU returned non-JSON: ${snapshotBody.slice(0, 200)}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: `INVALID_JSON_RESPONSE: CPNU returned non-JSON response.`, 
+        provider: 'cpnu',
+        latencyMs: Date.now() - startTime,
+        httpStatus: snapshotResponse.status,
+      };
+    }
+
+    // JSON 404 = record not found (valid response)
+    if (snapshotResponse.status === 404) {
+      console.log(`[sync-by-work-item] CPNU: Record not found (JSON 404) for ${radicado}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'RECORD_NOT_FOUND', 
         provider: 'cpnu',
         isEmpty: true,
         latencyMs: Date.now() - startTime,
+        httpStatus: 404,
       };
     }
 
-    // Extract actuaciones
-    const actuaciones = data.actuaciones || data.proceso?.actuaciones || [];
+    // Check for "not found" indicators in JSON body
+    if (snapshotData.expediente_encontrado === false || snapshotData.found === false) {
+      console.log(`[sync-by-work-item] CPNU: found=false for ${radicado}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'RECORD_NOT_FOUND', 
+        provider: 'cpnu',
+        isEmpty: true,
+        latencyMs: Date.now() - startTime,
+        httpStatus: snapshotResponse.status,
+      };
+    }
+
+    // Success - extract actuaciones
+    const proceso = snapshotData.proceso as Record<string, unknown> | undefined;
+    const actuaciones = (snapshotData.actuaciones || proceso?.actuaciones || []) as Record<string, unknown>[];
     
     if (actuaciones.length === 0) {
       console.log(`[sync-by-work-item] CPNU: No actuaciones for ${radicado}`);
@@ -333,6 +409,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         provider: 'cpnu',
         isEmpty: true,
         latencyMs: Date.now() - startTime,
+        httpStatus: snapshotResponse.status,
       };
     }
 
@@ -340,7 +417,7 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     
     return {
       ok: true,
-      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
+      actuaciones: actuaciones.map((act) => ({
         fecha: String(act.fecha_actuacion || act.fecha || ''),
         actuacion: String(act.actuacion || ''),
         anotacion: String(act.anotacion || ''),
@@ -348,15 +425,17 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         fecha_finaliza_termino: act.fecha_finaliza_termino ? String(act.fecha_finaliza_termino) : undefined,
       })),
       caseMetadata: {
-        despacho: data.despacho || data.proceso?.despacho,
-        demandante: data.demandante || data.proceso?.demandante,
-        demandado: data.demandado || data.proceso?.demandado,
-        tipo_proceso: data.tipo_proceso || data.proceso?.tipo,
+        despacho: (snapshotData.despacho || proceso?.despacho) as string | undefined,
+        demandante: (snapshotData.demandante || proceso?.demandante) as string | undefined,
+        demandado: (snapshotData.demandado || proceso?.demandado) as string | undefined,
+        tipo_proceso: (snapshotData.tipo_proceso || proceso?.tipo) as string | undefined,
       },
-      expedienteUrl: data.expediente_url,
+      expedienteUrl: snapshotData.expediente_url as string | undefined,
       provider: 'cpnu',
       latencyMs: Date.now() - startTime,
+      httpStatus: snapshotResponse.status,
     };
+
   } catch (err) {
     console.error('[sync-by-work-item] CPNU fetch error:', err);
     return { 

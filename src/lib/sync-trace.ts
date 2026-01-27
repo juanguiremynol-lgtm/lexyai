@@ -185,11 +185,15 @@ export function getErrorHint(errorCode: string | null): string | null {
   if (!errorCode) return null;
   
   const hints: Record<string, string> = {
-    UPSTREAM_ROUTE_MISSING: "Verifica que la variable CPNU_BASE_URL/SAMAI_BASE_URL apunte al endpoint correcto (puede requerir prefijo /api).",
+    UPSTREAM_ROUTE_MISSING: "La ruta no existe en el proveedor. Verifica que CPNU_BASE_URL/SAMAI_BASE_URL apunte al servicio correcto y que CPNU_PATH_PREFIX esté vacío para servicios expuestos en raíz.",
+    UPSTREAM_BASE_URL_WRONG: "La URL base del proveedor parece incorrecta. Verifica la configuración de CPNU_BASE_URL o SAMAI_BASE_URL.",
     PROVIDER_NOT_CONFIGURED: "Contacta al administrador para configurar las credenciales del proveedor.",
     RECORD_NOT_FOUND: "El radicado no existe en el sistema judicial externo. Verifica que esté correcto.",
-    UPSTREAM_AUTH: "Las credenciales del proveedor externo pueden ser inválidas o haber expirado.",
+    UPSTREAM_AUTH: "Las credenciales del proveedor externo (EXTERNAL_X_API_KEY) pueden ser inválidas o haber expirado.",
+    UPSTREAM_FORBIDDEN: "Acceso denegado por el proveedor externo. Verifica permisos de la API key.",
     TIMEOUT: "El proveedor externo tardó demasiado en responder. Intenta de nuevo más tarde.",
+    INVALID_JSON_RESPONSE: "El proveedor retornó una respuesta no-JSON. Puede indicar error de configuración.",
+    NETWORK_ERROR: "Error de red al conectar con el proveedor. Verifica conectividad.",
   };
   
   return hints[errorCode] || null;
