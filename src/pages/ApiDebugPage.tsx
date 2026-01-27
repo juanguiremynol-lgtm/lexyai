@@ -91,14 +91,14 @@ interface DebugResult {
 // Workflow-specific provider order (mirrors Edge Function logic)
 // CGP/LABORAL: Estados are primary notification source; CPNU/SAMAI for enrichment
 // TUTELA: TUTELAS API primary, CPNU fallback
-// PENAL_906: CPNU primary, Publicaciones are first-class source
+// PENAL_906: PUBLICACIONES is PRIMARY sync source (called FIRST)
 // CPACA: SAMAI primary (administrative litigation)
 const WORKFLOW_PROVIDER_ORDER: Record<WorkflowType, { primary: string; fallback: string | null; description: string; notificationSource?: string }> = {
   CGP: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
   LABORAL: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario, SAMAI fallback', notificationSource: 'Estados (términos legales)' },
   CPACA: { primary: 'SAMAI', fallback: null, description: 'SAMAI primario (litigio administrativo)' },
   TUTELA: { primary: 'TUTELAS', fallback: 'CPNU', description: 'TUTELAS API primario, CPNU fallback' },
-  PENAL_906: { primary: 'CPNU', fallback: 'SAMAI', description: 'CPNU primario + Publicaciones', notificationSource: 'Publicaciones Procesales' },
+  PENAL_906: { primary: 'PUBLICACIONES', fallback: null, description: 'Publicaciones primario (PDFs/anotaciones)', notificationSource: 'Publicaciones Procesales' },
 };
 
 // ============== Helper Functions ==============

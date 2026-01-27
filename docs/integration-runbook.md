@@ -42,7 +42,7 @@ The following secrets must be configured in Supabase Edge Function environment:
 | **LABORAL** | CPNU | SAMAI | ✅ Yes | ESTADOS (legal terms) |
 | **CPACA** | SAMAI | CPNU | ❌ No (disabled) | SAMAI actuaciones |
 | **TUTELA** | TUTELAS API | CPNU | ✅ Yes | TUTELAS expediente |
-| **PENAL_906** | CPNU | SAMAI | ✅ Yes | PUBLICACIONES first-class |
+| **PENAL_906** | **PUBLICACIONES** | CPNU | ❌ No (disabled) | **PUBLICACIONES** (primary) |
 
 ### Notification Source Rules
 
@@ -50,7 +50,7 @@ The following secrets must be configured in Supabase Edge Function environment:
 
 **TUTELA**: TUTELAS API is primary. If TUTELAS returns empty/not-found AND a radicado exists, CPNU is tried as fallback.
 
-**PENAL_906**: Publicaciones Procesales are treated as **first-class actuation source** because penal processes often surface relevant judicial activity via court publications (PDFs, annotations). The `sync-publicaciones-by-work-item` function extracts these automatically.
+**PENAL_906**: **Publicaciones Procesales is the PRIMARY sync source** (called FIRST) because penal processes often surface relevant judicial activity via court publications (PDFs, annotations). CPNU/SAMAI are optional enrichment providers disabled by default. The `sync-by-work-item` function calls PUBLICACIONES first for PENAL_906 workflows.
 
 **CPACA**: SAMAI is primary because administrative litigation cases are primarily tracked there.
 
@@ -78,8 +78,9 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
       // TUTELAS API primary, CPNU fallback if TUTELAS empty/failed
       return { primary: 'tutelas-api', fallback: 'cpnu', fallbackEnabled: true };
     case 'PENAL_906':
-      // Publicaciones are first-class source (via sync-publicaciones)
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, usePublicacionesAsSource: true };
+      // PUBLICACIONES is the PRIMARY sync source (called FIRST)
+      // CPNU/SAMAI are optional enrichment (disabled by default)
+      return { primary: 'publicaciones', fallback: 'cpnu', fallbackEnabled: false, usePublicacionesAsPrimary: true };
     case 'CGP':
     case 'LABORAL':
     default:
@@ -368,7 +369,7 @@ Test that provider order respects workflow_type:
 | **CGP** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
 | **LABORAL** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
 | **CPACA** | `05001233300020240115300` | SAMAI called first | CPNU skipped (disabled) |
-| **PENAL_906** | `05001400301520240193000` | CPNU called first | SAMAI if CPNU fails |
+| **PENAL_906** | `05001400301520240193000` | **PUBLICACIONES called first** | CPNU skipped (disabled) |
 | **TUTELA** | `T11728622` | TUTELAS API | CPNU if TUTELAS empty |
 
 **Validation Steps:**
@@ -386,8 +387,15 @@ Test that provider order respects workflow_type:
    - `provider_attempts[0].provider === 'cpnu'`
    - `provider_order_reason === 'workflow_type=CGP'`
 
-7. **TUTELA with fallback**: Create a work_item with `workflow_type = 'TUTELA'` and a valid radicado but invalid tutela_code
-8. Verify that CPNU is attempted as fallback when TUTELAS returns empty
+7. **PENAL_906 with Publicaciones Primary**: Create a work_item with `workflow_type = 'PENAL_906'`
+8. Call `sync-by-work-item` with the work_item_id
+9. Verify response includes:
+   - `provider_attempts[0].provider === 'publicaciones'` **(MUST be first)**
+   - `provider_attempts[1].provider === 'cpnu'` with `status === 'skipped'`
+   - `provider_order_reason === 'penal_906_publicaciones_primary'`
+
+10. **TUTELA with fallback**: Create a work_item with `workflow_type = 'TUTELA'` and a valid radicado but invalid tutela_code
+11. Verify that CPNU is attempted as fallback when TUTELAS returns empty
 
 ### Gate 7: Notification Source Verification
 
