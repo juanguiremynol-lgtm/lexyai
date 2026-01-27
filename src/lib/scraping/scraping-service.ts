@@ -4,13 +4,14 @@
  * Orchestrates the verification, scraping, and milestone detection workflow.
  * This is the main entry point for triggering scraping operations.
  * 
- * Uses the External API adapter by default for all CGP process lookups.
+ * UPDATED: Now uses work_items table as the canonical source.
+ * Legacy filings/monitored_processes paths have been removed.
  */
 
 import { supabase } from '@/integrations/supabase/client';
 import { adapterRegistry } from './adapter-registry';
 import { mapActuacionesToMilestones } from './milestone-mapper';
-import type { NormalizedActuacion } from './adapter-interface';
+import type { NormalizedActuacion, SupportedWorkflowType } from './adapter-interface';
 import { createAlertIdempotent, type AlertEntityType } from '@/lib/alerts';
 
 export interface VerifyAndScrapeResult {
@@ -31,36 +32,39 @@ export interface VerifyAndScrapeResult {
 }
 
 /**
- * Verify radicado and scrape actuaciones (non-blocking)
- * Uses the External API adapter by default
+ * Verify radicado and scrape actuaciones for a work_item
+ * Uses the adapter registry to get the appropriate scraping adapter
  */
-export async function verifyAndScrapeRadicado(
-  caseId: string,
+export async function verifyAndScrapeWorkItem(
+  workItemId: string,
   radicadoNumber: string,
   ownerId: string,
-  isMonitoredProcess: boolean = false
+  organizationId?: string,
+  workflowType: SupportedWorkflowType = 'CGP'
 ): Promise<VerifyAndScrapeResult> {
-  const adapter = adapterRegistry.getDefault();
-  const tableName = isMonitoredProcess ? 'monitored_processes' : 'filings';
+  // Get adapter based on org/workflow context
+  const adapter = await adapterRegistry.getForContext(organizationId || null, workflowType);
+  
+  console.log(`[ScrapingService] Using adapter: ${adapter.id} for work_item ${workItemId}`);
 
   try {
     // Update status to in progress
     await supabase
-      .from(tableName)
+      .from('work_items')
       .update({ 
-        radicado_status: 'PROVIDED_NOT_VERIFIED',
+        radicado_verified: false,
         scrape_status: 'IN_PROGRESS' 
       })
-      .eq('id', caseId);
+      .eq('id', workItemId);
 
     // Step 1: Lookup
     const lookupResult = await adapter.lookup(radicadoNumber);
 
     if (lookupResult.status === 'NOT_FOUND') {
-      await supabase.from(tableName).update({ 
-        radicado_status: 'NOT_FOUND',
+      await supabase.from('work_items').update({ 
+        radicado_verified: false,
         scrape_status: 'FAILED' 
-      }).eq('id', caseId);
+      }).eq('id', workItemId);
       
       return {
         success: false,
@@ -74,10 +78,10 @@ export async function verifyAndScrapeRadicado(
     }
 
     if (lookupResult.status === 'UNAVAILABLE' || lookupResult.status === 'ERROR') {
-      await supabase.from(tableName).update({ 
-        radicado_status: 'LOOKUP_UNAVAILABLE',
+      await supabase.from('work_items').update({ 
+        radicado_verified: false,
         scrape_status: 'FAILED' 
-      }).eq('id', caseId);
+      }).eq('id', workItemId);
       
       return {
         success: false,
@@ -91,10 +95,10 @@ export async function verifyAndScrapeRadicado(
     }
 
     if (lookupResult.status === 'AMBIGUOUS') {
-      await supabase.from(tableName).update({ 
-        radicado_status: 'AMBIGUOUS_MATCH_NEEDS_USER_CONFIRMATION',
+      await supabase.from('work_items').update({ 
+        radicado_verified: false,
         scrape_status: 'NOT_ATTEMPTED' 
-      }).eq('id', caseId);
+      }).eq('id', workItemId);
       
       return {
         success: true,
@@ -111,10 +115,10 @@ export async function verifyAndScrapeRadicado(
     const scrapeResult = await adapter.scrapeCase(match);
 
     if (scrapeResult.status === 'FAILED') {
-      await supabase.from(tableName).update({ 
-        radicado_status: 'VERIFIED_FOUND',
+      await supabase.from('work_items').update({ 
+        radicado_verified: true,
         scrape_status: 'FAILED' 
-      }).eq('id', caseId);
+      }).eq('id', workItemId);
       
       return {
         success: false,
@@ -129,31 +133,46 @@ export async function verifyAndScrapeRadicado(
 
     // Step 3: Normalize and store actuaciones
     const normalized = adapter.normalizeActuaciones(scrapeResult.actuaciones, match.sourceUrl);
-    const { count: newActuacionesCount, newActuaciones } = await storeActuaciones(caseId, ownerId, normalized, isMonitoredProcess);
+    const { count: newActuacionesCount, newActuaciones } = await storeActuaciones(
+      workItemId, 
+      ownerId, 
+      normalized,
+      organizationId
+    );
 
     // Step 4: Map to milestones
     const suggestions = await mapActuacionesToMilestones(normalized);
     const autoCreated = await createHighConfidenceMilestones(
-      caseId, ownerId, suggestions, isMonitoredProcess
+      workItemId, 
+      ownerId, 
+      suggestions
     );
 
-    // Step 5: Create alerts and send email for new actuaciones
+    // Step 5: Create alerts for new actuaciones
     if (newActuacionesCount > 0) {
-      await createNewActuacionesAlert(caseId, ownerId, radicadoNumber, newActuacionesCount, isMonitoredProcess, newActuaciones);
+      await createNewActuacionesAlert(
+        workItemId, 
+        ownerId, 
+        radicadoNumber, 
+        newActuacionesCount, 
+        workflowType,
+        newActuaciones
+      );
     }
 
     // Update final status with case metadata
     const updateData: Record<string, unknown> = {
-      radicado_status: 'VERIFIED_FOUND',
+      radicado_verified: true,
       scrape_status: 'SUCCESS',
       scraped_fields: scrapeResult.caseMetadata || {},
       source_links: [match.sourceUrl],
       last_crawled_at: new Date().toISOString(),
+      last_checked_at: new Date().toISOString(),
     };
 
     // Update additional fields from case metadata
     if (scrapeResult.caseMetadata?.despacho) {
-      updateData.court_name = scrapeResult.caseMetadata.despacho;
+      updateData.authority_name = scrapeResult.caseMetadata.despacho;
     }
     if (scrapeResult.caseMetadata?.demandantes) {
       updateData.demandantes = scrapeResult.caseMetadata.demandantes;
@@ -162,7 +181,7 @@ export async function verifyAndScrapeRadicado(
       updateData.demandados = scrapeResult.caseMetadata.demandados;
     }
 
-    await supabase.from(tableName).update(updateData).eq('id', caseId);
+    await supabase.from('work_items').update(updateData).eq('id', workItemId);
 
     return {
       success: true,
@@ -182,7 +201,7 @@ export async function verifyAndScrapeRadicado(
 
   } catch (err) {
     console.error('Scraping error:', err);
-    await supabase.from(tableName).update({ scrape_status: 'FAILED' }).eq('id', caseId);
+    await supabase.from('work_items').update({ scrape_status: 'FAILED' }).eq('id', workItemId);
     
     return {
       success: false,
@@ -196,23 +215,56 @@ export async function verifyAndScrapeRadicado(
   }
 }
 
+/**
+ * Legacy wrapper for backward compatibility
+ * @deprecated Use verifyAndScrapeWorkItem instead
+ */
+export async function verifyAndScrapeRadicado(
+  caseId: string,
+  radicadoNumber: string,
+  ownerId: string,
+  isMonitoredProcess: boolean = false
+): Promise<VerifyAndScrapeResult> {
+  console.warn('[DEPRECATED] verifyAndScrapeRadicado is deprecated. Use verifyAndScrapeWorkItem instead.');
+  
+  // Try to resolve work_item_id from the legacy case ID
+  // This maintains backward compatibility during migration
+  const { data: workItem } = await supabase
+    .from('work_items')
+    .select('id, organization_id, workflow_type')
+    .or(`id.eq.${caseId},legacy_filing_id.eq.${caseId},legacy_process_id.eq.${caseId}`)
+    .maybeSingle();
+
+  if (workItem) {
+    return verifyAndScrapeWorkItem(
+      workItem.id,
+      radicadoNumber,
+      ownerId,
+      workItem.organization_id || undefined,
+      (workItem.workflow_type as SupportedWorkflowType) || 'CGP'
+    );
+  }
+
+  // Fallback: use the caseId as work_item_id directly
+  return verifyAndScrapeWorkItem(caseId, radicadoNumber, ownerId);
+}
+
 interface StoreActuacionesResult {
   count: number;
   newActuaciones: NormalizedActuacion[];
 }
 
 async function storeActuaciones(
-  caseId: string,
+  workItemId: string,
   ownerId: string,
   actuaciones: NormalizedActuacion[],
-  isMonitoredProcess: boolean
+  organizationId?: string
 ): Promise<StoreActuacionesResult> {
-  // Get existing hashes to avoid duplicates
-  const queryField = isMonitoredProcess ? 'monitored_process_id' : 'filing_id';
+  // Get existing hashes to avoid duplicates - use work_item_id (canonical)
   const { data: existingActs } = await supabase
     .from('actuaciones')
     .select('hash_fingerprint')
-    .eq(queryField, caseId);
+    .eq('work_item_id', workItemId);
 
   const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
 
@@ -220,8 +272,8 @@ async function storeActuaciones(
   
   const newRows = newActuaciones.map(act => ({
     owner_id: ownerId,
-    filing_id: isMonitoredProcess ? null : caseId,
-    monitored_process_id: isMonitoredProcess ? caseId : null,
+    organization_id: organizationId || null,
+    work_item_id: workItemId, // Canonical key
     source: 'RAMA_JUDICIAL',
     source_url: act.sourceUrl,
     raw_text: act.rawText,
@@ -249,14 +301,25 @@ async function storeActuaciones(
 }
 
 async function createNewActuacionesAlert(
-  caseId: string,
+  workItemId: string,
   ownerId: string,
   radicado: string,
   count: number,
-  isMonitoredProcess: boolean,
+  workflowType: SupportedWorkflowType,
   actuaciones?: NormalizedActuacion[]
 ): Promise<void> {
-  const entityType: AlertEntityType = isMonitoredProcess ? 'CGP_CASE' : 'CGP_FILING';
+  // Map workflow type to alert entity type
+  const entityTypeMap: Record<SupportedWorkflowType, AlertEntityType> = {
+    CGP: 'CGP_CASE',
+    CPACA: 'CPACA',
+    TUTELA: 'TUTELA',
+    LABORAL: 'LABORAL',
+    PENAL_906: 'PENAL_906',
+    GOV_PROCEDURE: 'GOV_PROCEDURE',
+    ALL: 'CGP_CASE', // Default fallback
+  };
+  
+  const entityType = entityTypeMap[workflowType] || 'CGP_CASE';
   
   // Determine severity based on actuacion types
   let severity: 'INFO' | 'WARNING' | 'CRITICAL' = 'INFO';
@@ -281,12 +344,13 @@ async function createNewActuacionesAlert(
   await createAlertIdempotent({
     ownerId,
     entityType,
-    entityId: caseId,
+    entityId: workItemId,
     severity,
     title: `${count} nueva(s) actuación(es) detectada(s)`,
     message,
     payload: {
       radicado,
+      workflow_type: workflowType,
       new_count: count,
       actuaciones: actuaciones?.slice(0, 5).map(a => ({
         text: a.rawText.substring(0, 200),
@@ -298,7 +362,7 @@ async function createNewActuacionesAlert(
       { 
         label: 'Ver Proceso', 
         action: 'navigate', 
-        params: { path: isMonitoredProcess ? `/processes/${caseId}` : `/filings/${caseId}` } 
+        params: { path: `/work-items/${workItemId}` } // Canonical route
       },
     ],
     fingerprintKeys: {
@@ -309,7 +373,7 @@ async function createNewActuacionesAlert(
   });
 
   // Send email notification
-  await sendActuacionEmailNotification(ownerId, radicado, count, actuaciones, isMonitoredProcess, caseId);
+  await sendActuacionEmailNotification(ownerId, radicado, count, actuaciones, workItemId);
 }
 
 /**
@@ -320,8 +384,7 @@ async function sendActuacionEmailNotification(
   radicado: string,
   count: number,
   actuaciones?: NormalizedActuacion[],
-  isMonitoredProcess?: boolean,
-  caseId?: string
+  workItemId?: string
 ): Promise<void> {
   try {
     // Get user profile for email
@@ -354,7 +417,7 @@ async function sendActuacionEmailNotification(
       }
     }
     
-    emailMessage += '\n\nIngrese a Lex Docket para ver los detalles completos.';
+    emailMessage += '\n\nIngrese a ATENIA para ver los detalles completos.';
 
     // Call the send-reminder edge function
     const { error } = await supabase.functions.invoke('send-reminder', {
@@ -365,6 +428,7 @@ async function sendActuacionEmailNotification(
         subject: `${count} nueva(s) actuación(es) detectada(s) - ${radicado}`,
         radicado,
         message: emailMessage,
+        workItemId, // Include for deep-linking
       },
     });
 
@@ -379,10 +443,9 @@ async function sendActuacionEmailNotification(
 }
 
 async function createHighConfidenceMilestones(
-  caseId: string,
+  workItemId: string,
   ownerId: string,
-  suggestions: Awaited<ReturnType<typeof mapActuacionesToMilestones>>,
-  isMonitoredProcess: boolean
+  suggestions: Awaited<ReturnType<typeof mapActuacionesToMilestones>>
 ): Promise<number> {
   let created = 0;
   
@@ -390,8 +453,7 @@ async function createHighConfidenceMilestones(
     if (s.confidence >= 0.80 && s.eventDate) {
       const { error } = await supabase.from('cgp_milestones').insert({
         owner_id: ownerId,
-        filing_id: isMonitoredProcess ? null : caseId,
-        process_id: isMonitoredProcess ? caseId : null,
+        work_item_id: workItemId, // Canonical key
         milestone_type: s.milestoneType,
         event_date: s.eventDate,
         occurred: true,
@@ -410,13 +472,14 @@ async function createHighConfidenceMilestones(
 }
 
 /**
- * Trigger manual refresh for a specific case/filing
+ * Trigger manual refresh for a specific work_item
  */
 export async function triggerManualRefresh(
-  caseId: string,
+  workItemId: string,
   radicado: string,
   ownerId: string,
-  isMonitoredProcess: boolean = false
+  organizationId?: string,
+  workflowType: SupportedWorkflowType = 'CGP'
 ): Promise<VerifyAndScrapeResult> {
-  return verifyAndScrapeRadicado(caseId, radicado, ownerId, isMonitoredProcess);
+  return verifyAndScrapeWorkItem(workItemId, radicado, ownerId, organizationId, workflowType);
 }

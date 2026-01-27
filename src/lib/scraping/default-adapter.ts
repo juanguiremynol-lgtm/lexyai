@@ -15,6 +15,8 @@ import {
   RadicadoMatch,
   RawActuacion,
   NormalizedActuacion,
+  AdapterCapability,
+  SupportedWorkflowType,
   computeActuacionHash,
   normalizeActuacionText,
 } from './adapter-interface';
@@ -26,6 +28,15 @@ export class DefaultRamaJudicialAdapter implements ScrapingAdapter {
   readonly name = 'Consulta de Procesos Nacional Unificada (CPNU)';
   readonly description = 'Portal principal de consulta de procesos de la Rama Judicial';
   readonly active = true;
+  readonly capabilities: AdapterCapability[] = ['ACTUACIONES', 'CASE_METADATA'];
+  readonly supportedWorkflows: SupportedWorkflowType[] = ['CGP', 'CPACA', 'TUTELA', 'LABORAL'];
+  readonly priority = 5; // Medium priority - legacy adapter
+
+  async isReady(): Promise<boolean> {
+    // This adapter uses Firecrawl via edge function, check if configured
+    // For now, assume always ready if active
+    return this.active;
+  }
 
   async lookup(radicadoNumber: string): Promise<LookupResult> {
     try {
