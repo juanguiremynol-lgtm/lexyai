@@ -5930,6 +5930,79 @@ export type Database = {
           },
         ]
       }
+      work_item_stage_suggestions: {
+        Row: {
+          confidence: number
+          created_at: string
+          event_fingerprint: string | null
+          id: string
+          organization_id: string
+          owner_id: string
+          reason: string | null
+          source_type: string
+          status: string
+          suggested_cgp_phase: string | null
+          suggested_pipeline_stage: string | null
+          suggested_stage: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          event_fingerprint?: string | null
+          id?: string
+          organization_id: string
+          owner_id: string
+          reason?: string | null
+          source_type: string
+          status?: string
+          suggested_cgp_phase?: string | null
+          suggested_pipeline_stage?: string | null
+          suggested_stage?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          event_fingerprint?: string | null
+          id?: string
+          organization_id?: string
+          owner_id?: string
+          reason?: string | null
+          source_type?: string
+          status?: string
+          suggested_cgp_phase?: string | null
+          suggested_pipeline_stage?: string | null
+          suggested_stage?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_stage_suggestions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_suggestions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_items: {
         Row: {
           acta_reparto_notes: string | null

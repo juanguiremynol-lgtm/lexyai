@@ -26,7 +26,7 @@ import type { CpacaPhase } from '@/lib/cpaca-constants';
 // Normalized Input Types
 // ============================================
 
-export type EventSourceType = 'ESTADO' | 'ACTUACION' | 'PUBLICACION' | 'TUTELA_EXPEDIENTE' | 'CPNU' | 'SAMAI';
+export type EventSourceType = 'ESTADO' | 'ACTUACION' | 'PUBLICACION' | 'TUTELA_EXPEDIENTE';
 
 export interface NormalizedInferenceInput {
   source_type: EventSourceType;
