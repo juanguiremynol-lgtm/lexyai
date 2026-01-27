@@ -4,9 +4,13 @@
  * REFACTORED: This module now delegates to Edge Functions.
  * NO external API URLs are hardcoded here.
  * All actual API calls happen server-side via sync-by-radicado.
+ * 
+ * @deprecated API_BASE_URL is only for legacy/debug paths.
+ * Production sync operations should use Edge Functions.
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { API_BASE_URL, API_ENDPOINTS } from "@/config/api";
 
 // ============== Types ==============
 
@@ -240,7 +244,7 @@ export async function fetchFromRamaJudicial(
     let startResponse: Response;
     try {
       startResponse = await fetch(
-        `${API_BASE_URL}/buscar?numero_radicacion=${encodeURIComponent(validation.cleaned)}`,
+        `${API_BASE_URL}${API_ENDPOINTS.BUSCAR}?numero_radicacion=${encodeURIComponent(validation.cleaned)}`,
         {
           method: 'GET',
           headers: {
@@ -330,7 +334,7 @@ export async function fetchFromRamaJudicial(
           const pollTimeoutId = setTimeout(() => pollController.abort(), 5000);
           
           const resultResponse = await fetch(
-            `${API_BASE_URL}/resultado/${jobId}`,
+            `${API_BASE_URL}${API_ENDPOINTS.RESULTADO}/${jobId}`,
             {
               method: 'GET',
               headers: {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type DebugTrace } from "@/config/api";
+import { API_BASE_URL, API_ENDPOINTS, API_TIMEOUTS, ERROR_CODES, type DebugTrace } from "@/config/api";
 import { adapterRegistry } from "@/lib/scraping/adapter-registry";
 import { 
   normalizeRadicado, 
