@@ -18,6 +18,10 @@ import {
 import { createStageSuggestion } from "@/hooks/useStageSuggestion";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
+// Gate 5: Inference logging controlled by env variable (silent in production)
+const INFERENCE_DEBUG = import.meta.env.VITE_INFERENCE_DEBUG === 'true' || import.meta.env.DEV;
+const log = (...args: unknown[]) => INFERENCE_DEBUG && console.log(...args);
+
 // Confidence threshold for HIGH (auto-apply)
 const HIGH_CONFIDENCE_THRESHOLD = 0.8;
 
@@ -56,7 +60,7 @@ export async function processEventForInference(
   event: InferenceEvent
 ): Promise<ProcessInferenceResult> {
   try {
-    console.log('[Inference] Processing event:', {
+    log('[Inference] Processing event:', {
       work_item_id: workItem.id,
       source_type: event.source_type,
       workflow_type: workItem.workflow_type,
@@ -83,7 +87,7 @@ export async function processEventForInference(
       input
     );
 
-    console.log('[Inference] Result:', {
+    log('[Inference] Result:', {
       work_item_id: workItem.id,
       suggested_stage: inference.suggested_stage,
       confidence: inference.confidence,
@@ -144,7 +148,7 @@ export async function processEventForInference(
         };
       }
 
-      console.log('[Inference] ✅ AUTO-APPLIED stage change:', {
+      log('[Inference] ✅ AUTO-APPLIED stage change:', {
         workItemId: workItem.id,
         from: workItem.stage,
         to: inference.suggested_stage,
@@ -158,7 +162,7 @@ export async function processEventForInference(
       };
     }
 
-    console.log('[Inference] Creating PENDING suggestion (confidence below threshold):', {
+    log('[Inference] Creating PENDING suggestion (confidence below threshold):', {
       workItemId: workItem.id,
       confidence: inference.confidence,
       threshold: HIGH_CONFIDENCE_THRESHOLD,
@@ -179,7 +183,7 @@ export async function processEventForInference(
     });
 
     if (!result.success) {
-      console.warn('[Inference] Failed to create suggestion:', result.error);
+      log('[Inference] Failed to create suggestion:', result.error);
       return {
         inference,
         action: 'SKIPPED',
@@ -189,7 +193,7 @@ export async function processEventForInference(
 
     // Check if it was a duplicate
     if (result.alreadyExists) {
-      console.log('[Inference] Suggestion already exists (idempotent):', {
+      log('[Inference] Suggestion already exists (idempotent):', {
         workItemId: workItem.id,
         existingId: result.id,
       });
@@ -200,7 +204,7 @@ export async function processEventForInference(
       };
     }
 
-    console.log('[Inference] 📋 Created PENDING stage suggestion:', {
+    log('[Inference] 📋 Created PENDING stage suggestion:', {
       workItemId: workItem.id,
       suggestionId: result.id,
       confidence: inference.confidence,
