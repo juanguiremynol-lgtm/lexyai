@@ -59,6 +59,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { EstadosTab } from "./tabs/EstadosTab";
 import { NotesTab } from "./tabs/NotesTab";
 import { HearingsTab } from "./tabs/HearingsTab";
+import { PublicacionesTab } from "./tabs/PublicacionesTab";
 
 const WORKFLOW_ICONS = {
   CGP: Scale,
@@ -84,16 +85,16 @@ const WORKFLOW_BG_COLORS = {
   CPACA: "bg-indigo-500/10",
 };
 
-import { StickyNote } from "lucide-react";
+import { StickyNote, Newspaper } from "lucide-react";
 
-type TabValue = "overview" | "notes" | "estados" | "timeline" | "acts" | "deadlines" | "hearings" | "alerts";
+type TabValue = "overview" | "notes" | "estados" | "publicaciones" | "timeline" | "acts" | "deadlines" | "hearings" | "alerts";
 
 // Workflows that support Estados tab (judicial tracking)
 const ESTADOS_WORKFLOWS = ["CGP", "CPACA", "TUTELA"];
 
 // Build tabs dynamically based on workflow
 // REMOVED: Documents and Emails tabs (not being used currently)
-// ADDED: Notes tab for all workflows
+// ADDED: Notes tab for all workflows, Publicaciones for judicial workflows
 const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: string; icon: React.ReactNode }[] => {
   const baseTabs: { value: TabValue; label: string; icon: React.ReactNode }[] = [
     { value: "overview", label: "Resumen", icon: <FileText className="h-4 w-4" /> },
@@ -103,6 +104,11 @@ const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: str
   // Estados tab only for CGP, CPACA, TUTELA (judicial workflows)
   if (ESTADOS_WORKFLOWS.includes(workflowType)) {
     baseTabs.push({ value: "estados", label: "Estados", icon: <Activity className="h-4 w-4" /> });
+  }
+  
+  // Publicaciones tab for judicial workflows (requires radicado)
+  if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+    baseTabs.push({ value: "publicaciones", label: "Publicaciones", icon: <Newspaper className="h-4 w-4" /> });
   }
   
   // Timeline tab for all judicial workflows - shows placeholder when no data
@@ -649,6 +655,13 @@ export default function WorkItemDetail() {
           {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
             <TabsContent value="estados" className="mt-0">
               <EstadosTab workItem={workItem} />
+            </TabsContent>
+          )}
+          
+          {/* Publicaciones tab - only for CGP, CPACA, TUTELA */}
+          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
+            <TabsContent value="publicaciones" className="mt-0">
+              <PublicacionesTab workItem={workItem} />
             </TabsContent>
           )}
           

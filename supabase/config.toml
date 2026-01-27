@@ -93,6 +93,9 @@ verify_jwt = false
 [functions.sync-by-work-item]
 verify_jwt = false
 
+[functions.sync-publicaciones-by-work-item]
+verify_jwt = false
+
 [functions.sync-penal906-by-radicado]
 verify_jwt = false
 

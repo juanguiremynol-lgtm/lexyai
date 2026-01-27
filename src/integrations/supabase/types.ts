@@ -5808,6 +5808,56 @@ export type Database = {
           },
         ]
       }
+      work_item_publicaciones: {
+        Row: {
+          annotation: string | null
+          created_at: string
+          hash_fingerprint: string
+          id: string
+          organization_id: string
+          pdf_url: string | null
+          published_at: string | null
+          raw_data: Json | null
+          source: string
+          title: string
+          work_item_id: string
+        }
+        Insert: {
+          annotation?: string | null
+          created_at?: string
+          hash_fingerprint: string
+          id?: string
+          organization_id: string
+          pdf_url?: string | null
+          published_at?: string | null
+          raw_data?: Json | null
+          source?: string
+          title: string
+          work_item_id: string
+        }
+        Update: {
+          annotation?: string | null
+          created_at?: string
+          hash_fingerprint?: string
+          id?: string
+          organization_id?: string
+          pdf_url?: string | null
+          published_at?: string | null
+          raw_data?: Json | null
+          source?: string
+          title?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_reminders: {
         Row: {
           cadence_business_days: number
