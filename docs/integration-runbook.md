@@ -225,6 +225,45 @@ All error responses must conform to:
 | Response with 500 actuaciones | `truncated: true`, `limits.actuaciones: { shown: 200, total: 500 }` |
 | Response under limit | `truncated: false`, `limits: undefined` |
 
+## Integration Gates
+
+Before enabling sync in production, ALL gates must pass:
+
+### Gate 1: Secrets Verification
+```
+GET /functions/v1/integration-health
+Expected: 200 OK
+Response: { "ok": true, "env": { all 5 secrets: true } }
+```
+
+### Gate 2: Provider Reachability
+```
+GET /functions/v1/integration-health?reachability=true
+Expected: At least ONE provider shows { "ok": true }
+```
+
+### Gate 3: Multi-Tenant Negative Test
+```
+POST /functions/v1/sync-by-work-item
+Body: { "work_item_id": "<uuid-from-different-org>" }
+Expected: 403 Forbidden
+Validates: Cross-tenant writes are blocked
+```
+
+### Gate 4: Publications Dedupe Validation
+```
+# Run sync twice for same work_item
+1st run: { "inserted_count": N, "skipped_count": 0 }
+2nd run: { "inserted_count": 0, "skipped_count": N }
+Validates: hash_fingerprint deduplication works
+```
+
+### Gate 5: Edge Function Propagation
+If `integration-health` returns 404 immediately after deployment:
+- Wait 30-60 seconds for propagation
+- The API Debug page includes automatic retry (3 attempts, 2s delay)
+- If still failing, redeploy via Lovable
+
 ## Acceptance Criteria
 
 Before deploying to production, verify:

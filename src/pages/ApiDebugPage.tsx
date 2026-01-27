@@ -213,7 +213,7 @@ export default function ApiDebugPage() {
     },
   });
 
-  // Fetch integration health
+  // Fetch integration health with retry/backoff for 404/network errors
   const {
     data: healthData,
     isLoading: healthLoading,
@@ -222,15 +222,43 @@ export default function ApiDebugPage() {
   } = useQuery({
     queryKey: ["integration-health"],
     queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke<IntegrationHealthResult>(
-        "integration-health",
-        { body: {} }
-      );
-      if (error) throw error;
-      return data;
+      const maxRetries = 3;
+      const retryDelayMs = 2000;
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const { data, error } = await supabase.functions.invoke<IntegrationHealthResult>(
+            "integration-health",
+            { body: {} }
+          );
+          if (error) {
+            // Check if it's a 404 or network error (propagation issue)
+            const is404 = error.message?.includes("404") || error.message?.includes("Not Found");
+            const isNetworkError = error.message?.includes("Failed to fetch") || error.message?.includes("network");
+            
+            if ((is404 || isNetworkError) && attempt < maxRetries) {
+              console.warn(`[integration-health] Attempt ${attempt}/${maxRetries} failed (${error.message}), retrying in ${retryDelayMs}ms...`);
+              await new Promise(r => setTimeout(r, retryDelayMs));
+              continue;
+            }
+            throw error;
+          }
+          return data;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (attempt < maxRetries) {
+            console.warn(`[integration-health] Attempt ${attempt}/${maxRetries} failed, retrying in ${retryDelayMs}ms...`);
+            await new Promise(r => setTimeout(r, retryDelayMs));
+          }
+        }
+      }
+      
+      throw new Error(`integration-health failed after ${maxRetries} attempts: ${lastError?.message || "Unknown error"}`);
     },
     enabled: hasAdminAccess === true,
     staleTime: 60000,
+    retry: false, // We handle retries manually above
   });
 
   // Fetch with reachability check
