@@ -47,6 +47,7 @@ import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
 import { SyncWorkItemButton } from "@/components/work-items/SyncWorkItemButton";
 import { SyncDebugDrawer } from "@/components/work-items/SyncDebugDrawer";
 import { StageSuggestionBannerDB } from "@/components/work-items/StageSuggestionBannerDB";
+import { ScrapingStatusBanner } from "@/components/work-items/ScrapingStatusBanner";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 
 import type { WorkItem } from "@/types/work-item";
@@ -631,6 +632,17 @@ export default function WorkItemDetail() {
           />
         </div>
       </div>
+
+      {/* Scraping Status Banner - shows when scraping is in progress */}
+      {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
+        <ScrapingStatusBanner 
+          workItem={workItem as any} 
+          onRetrySync={() => {
+            // Trigger re-fetch by invalidating the query
+            queryClient.invalidateQueries({ queryKey: ["work-item-detail", id] });
+          }}
+        />
+      )}
 
       {/* Stage Suggestion Banner - shows pending inference suggestions */}
       <StageSuggestionBannerDB

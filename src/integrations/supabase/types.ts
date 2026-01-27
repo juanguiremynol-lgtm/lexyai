@@ -6117,6 +6117,7 @@ export type Database = {
           last_event_summary: string | null
           last_phase_change_at: string | null
           last_scrape_at: string | null
+          last_scrape_initiated_at: string | null
           legacy_admin_process_id: string | null
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
@@ -6134,6 +6135,9 @@ export type Database = {
           pipeline_stage: number | null
           radicado: string | null
           radicado_verified: boolean | null
+          scrape_job_id: string | null
+          scrape_poll_url: string | null
+          scrape_provider: string | null
           scrape_status: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields: Json | null
           scraping_enabled: boolean | null
@@ -6187,6 +6191,7 @@ export type Database = {
           last_event_summary?: string | null
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -6204,6 +6209,9 @@ export type Database = {
           pipeline_stage?: number | null
           radicado?: string | null
           radicado_verified?: boolean | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
@@ -6257,6 +6265,7 @@ export type Database = {
           last_event_summary?: string | null
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
+          last_scrape_initiated_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -6274,6 +6283,9 @@ export type Database = {
           pipeline_stage?: number | null
           radicado?: string | null
           radicado_verified?: boolean | null
+          scrape_job_id?: string | null
+          scrape_poll_url?: string | null
+          scrape_provider?: string | null
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
