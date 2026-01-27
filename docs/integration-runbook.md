@@ -149,6 +149,96 @@ If reachability check fails:
 2. **All external calls** go through Edge Functions
 3. **Multi-tenant isolation** is enforced via org membership checks
 4. **Debug endpoints** are restricted to admin users only
+5. **Array truncation**: Large payloads are truncated to 200 items max with `limits` metadata
+
+## Test Matrix
+
+Use the API Debug page (`/app/debug/api`) to verify each provider scenario.
+
+### CPNU Provider Tests
+
+| Test Case | Input | Expected Outcome |
+|-----------|-------|------------------|
+| Existing radicado | `05001400301520240193000` | `ok: true`, `summary.found: true`, `actuacionesCount > 0` |
+| Non-existing radicado | `99999999999999999999999` | `ok: true/false`, `summary.found: false` |
+| Invalid length (22 digits) | `0500140030152024019300` | `error_code: INVALID_RADICADO`, status 400 |
+| Invalid length (24 digits) | `050014003015202401930000` | `error_code: INVALID_RADICADO`, status 400 |
+| With non-digits | `05001-4003-01520-2401930-00` | Normalizes to 23 digits, proceeds normally |
+
+### SAMAI Fallback Tests
+
+| Test Case | Input | Expected Outcome |
+|-----------|-------|------------------|
+| CPNU empty → SAMAI fallback | Use `sync-by-work-item` with radicado not in CPNU | `provider_used: "samai"`, `warnings` contains fallback note |
+| Both empty | Radicado in neither provider | `ok: false`, `errors` array populated |
+
+### TUTELAS Provider Tests
+
+| Test Case | Input | Expected Outcome |
+|-----------|-------|------------------|
+| Valid tutela_code | `T11728622` | `ok: true`, `summary.tipoProceso: "TUTELA"` |
+| Invalid format (no T) | `11728622` | `error_code: INVALID_IDENTIFIER`, status 400 |
+| Invalid format (short) | `T12345` | `error_code: INVALID_IDENTIFIER`, status 400 |
+| Case insensitive | `t11728622` | Normalizes to uppercase, proceeds normally |
+
+### PUBLICACIONES Provider Tests
+
+| Test Case | Input | Expected Outcome |
+|-----------|-------|------------------|
+| Existing publications | Valid radicado with publications | `summary.publicacionesCount > 0`, `summary.hasDocuments: true/false` |
+| No publications | Valid radicado, no publications | `ok: true`, `summary.found: false` |
+| Sync dedupe test | Run `sync-publicaciones-by-work-item` twice | Second run: `inserted_count: 0`, `skipped_count: N` |
+
+### Error Handling Tests
+
+| Test Case | Expected Response |
+|-----------|-------------------|
+| Timeout (set `timeoutMs: 100`) | `error_code: TIMEOUT`, `message: "Request timed out..."` |
+| Network error | `error_code: NETWORK_ERROR` |
+| Provider not configured | `error_code: PROVIDER_NOT_CONFIGURED` |
+| Unauthorized (no token) | `error_code: UNAUTHORIZED`, status 401 |
+| Forbidden (not admin) | `error_code: FORBIDDEN`, status 403 |
+
+### Response Schema Validation
+
+All error responses must conform to:
+
+```json
+{
+  "ok": false,
+  "provider_used": "cpnu|samai|tutelas|publicaciones|none",
+  "status": 0-599,
+  "latencyMs": number,
+  "summary": { "found": false },
+  "raw": null,
+  "error_code": "ERROR_TYPE",
+  "message": "Human-readable message",
+  "truncated": false,
+  "retried": false
+}
+```
+
+### Truncation Tests
+
+| Test Case | Expected Outcome |
+|-----------|------------------|
+| Response with 500 actuaciones | `truncated: true`, `limits.actuaciones: { shown: 200, total: 500 }` |
+| Response under limit | `truncated: false`, `limits: undefined` |
+
+## Acceptance Criteria
+
+Before deploying to production, verify:
+
+- [ ] `integration-health` shows all 5 secrets present (`true`)
+- [ ] CPNU lookup by existing radicado returns data
+- [ ] SAMAI fallback triggers when CPNU returns empty
+- [ ] TUTELAS lookup by tutela_code works
+- [ ] PUBLICACIONES returns metadata for existing process
+- [ ] Dedupe: Running publicaciones sync twice shows `skipped_count` on second run
+- [ ] No Cloud Run URLs or API keys appear in browser Network tab
+- [ ] Only one "Publicaciones" tab in WorkItemDetail
+- [ ] 403 returned for non-member access attempts
+- [ ] Large payloads are truncated with limits metadata
 
 ## Deployment Checklist
 
@@ -158,4 +248,6 @@ If reachability check fails:
 - [ ] `integration-health` deployed
 - [ ] `debug-external-provider` deployed
 - [ ] `work_item_publicaciones` table exists with RLS
+- [ ] FK constraint to `organizations(id)` on `work_item_publicaciones.organization_id`
 - [ ] API Debug page rewired to use Edge Functions
+- [ ] Test Matrix scenarios verified

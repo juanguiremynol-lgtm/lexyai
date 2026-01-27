@@ -329,12 +329,12 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Insert new publication
+      // Insert new publication - ALWAYS use parent work_item's organization_id for integrity
       const { error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
           work_item_id,
-          organization_id: workItem.organization_id,
+          organization_id: workItem.organization_id, // CRITICAL: Always from parent work_item
           source: 'publicaciones-procesales',
           title: pub.title,
           annotation: pub.annotation || null,
