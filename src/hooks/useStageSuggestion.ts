@@ -196,8 +196,25 @@ export async function createStageSuggestion(params: {
   suggestedPipelineStage: number | null;
   confidence: number;
   reason: string;
-}): Promise<{ success: boolean; id?: string; error?: string }> {
+}): Promise<{ success: boolean; id?: string; error?: string; alreadyExists?: boolean }> {
   try {
+    // First check for existing PENDING suggestion with same fingerprint
+    // This is a defensive check in addition to the unique partial index
+    if (params.eventFingerprint) {
+      const { data: existing } = await supabase
+        .from("work_item_stage_suggestions")
+        .select("id")
+        .eq("work_item_id", params.workItemId)
+        .eq("event_fingerprint", params.eventFingerprint)
+        .eq("status", "PENDING")
+        .maybeSingle();
+      
+      if (existing) {
+        console.log('[createStageSuggestion] Skipping - duplicate PENDING suggestion exists:', existing.id);
+        return { success: true, id: existing.id, alreadyExists: true };
+      }
+    }
+
     const { data, error } = await supabase
       .from("work_item_stage_suggestions")
       .insert({
@@ -217,12 +234,20 @@ export async function createStageSuggestion(params: {
       .single();
 
     if (error) {
-      // Check for duplicate constraint violation
+      // Check for duplicate constraint violation (23505 = unique_violation)
       if (error.code === "23505") {
-        return { success: true, id: undefined }; // Already exists, not an error
+        console.log('[createStageSuggestion] Skipping - unique constraint violation (duplicate)');
+        return { success: true, id: undefined, alreadyExists: true };
       }
       throw error;
     }
+
+    console.log('[createStageSuggestion] Created new suggestion:', {
+      id: data.id,
+      workItemId: params.workItemId,
+      suggestedStage: params.suggestedStage,
+      confidence: params.confidence,
+    });
 
     return { success: true, id: data.id };
   } catch (err) {

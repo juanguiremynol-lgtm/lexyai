@@ -1,26 +1,35 @@
 /**
  * Tenant Route Guard
- * Protects /app/* routes - requires authenticated user
+ * Protects /app/* routes - requires authenticated user with org membership
  * Platform admins can also access tenant routes for testing/support
  * 
  * CRITICAL: This guard must be SELF-CONTAINED and not depend on providers
  * that are mounted inside the protected route tree.
+ * 
+ * States:
+ * - checking: Verifying auth and membership
+ * - authorized: User has access (has org membership or is platform admin)
+ * - no-session: Not authenticated -> redirect to login
+ * - no-org-access: Authenticated but no org membership -> show error page
+ * - error: Unexpected error -> show retry UI
  */
 
 import { ReactNode, useEffect, useState } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle, Building2, Home, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface TenantRouteGuardProps {
   children: ReactNode;
 }
 
-type GuardState = 'checking' | 'authorized' | 'unauthorized' | 'error' | 'no-session';
+type GuardState = 'checking' | 'authorized' | 'unauthorized' | 'error' | 'no-session' | 'no-org-access';
 
 export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [state, setState] = useState<GuardState>('checking');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -51,27 +60,7 @@ export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
 
         console.log('[TenantRouteGuard] Session found for user:', session.user.id);
 
-        // Step 2: For tenant routes, we just need a valid session
-        // The OrganizationProvider inside will handle org-specific logic
-        // Platform admins AND regular users with org membership can access
-        
-        // We do a lightweight check to see if user has any org access
-        // This is optional but helps show better error messages
-        const { data: memberships, error: membershipError } = await supabase
-          .from('organization_memberships')
-          .select('id')
-          .eq('user_id', session.user.id)
-          .limit(1);
-
-        if (membershipError) {
-          console.warn('[TenantRouteGuard] Membership check failed:', membershipError.message);
-          // Don't block access - let the app handle this gracefully
-        }
-
-        const hasMembership = memberships && memberships.length > 0;
-        console.log('[TenantRouteGuard] Has org membership:', hasMembership);
-
-        // Check if platform admin (they can always access tenant routes)
+        // Step 2: Check if platform admin (they can always access tenant routes)
         const { data: adminRecord } = await supabase
           .from('platform_admins')
           .select('user_id')
@@ -81,12 +70,42 @@ export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
         const isPlatformAdmin = !!adminRecord;
         console.log('[TenantRouteGuard] Is platform admin:', isPlatformAdmin);
 
-        // Authorize if: has org membership OR is platform admin
-        // Even without membership, allow access - the app will guide them to onboarding
-        if (isMounted) {
-          console.log('[TenantRouteGuard] Access AUTHORIZED');
-          setState('authorized');
+        if (isPlatformAdmin) {
+          // Platform admins always have access
+          console.log('[TenantRouteGuard] Access AUTHORIZED (platform admin)');
+          if (isMounted) setState('authorized');
+          return;
         }
+
+        // Step 3: Check org membership (required for non-platform-admins)
+        const { data: memberships, error: membershipError } = await supabase
+          .from('organization_memberships')
+          .select('id, organization_id')
+          .eq('user_id', session.user.id)
+          .limit(1);
+
+        if (membershipError) {
+          console.error('[TenantRouteGuard] Membership check failed:', membershipError.message);
+          if (isMounted) {
+            setErrorMessage('Error al verificar membresías: ' + membershipError.message);
+            setState('error');
+          }
+          return;
+        }
+
+        const hasMembership = memberships && memberships.length > 0;
+        console.log('[TenantRouteGuard] Has org membership:', hasMembership);
+
+        if (!hasMembership) {
+          // No org access - show dedicated error page
+          console.log('[TenantRouteGuard] Access DENIED - no organization membership');
+          if (isMounted) setState('no-org-access');
+          return;
+        }
+
+        // Authorized - has org membership
+        console.log('[TenantRouteGuard] Access AUTHORIZED (org member)');
+        if (isMounted) setState('authorized');
 
       } catch (err) {
         console.error('[TenantRouteGuard] Unexpected error:', err);
@@ -131,6 +150,57 @@ export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
   // State: No session - redirect to login
   if (state === 'no-session') {
     return <Navigate to="/auth" state={{ from: location }} replace />;
+  }
+
+  // State: No organization access - show dedicated error page
+  if (state === 'no-org-access') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <div className="mx-auto h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <Building2 className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <CardTitle className="text-2xl">Sin Acceso a Organización</CardTitle>
+            <CardDescription className="text-base">
+              Tu cuenta no pertenece a ninguna organización activa.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Para acceder a ATENIA necesitas:
+              </p>
+              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>Recibir una invitación de un administrador existente</li>
+                <li>O crear una nueva organización desde tu perfil</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => navigate('/')} className="w-full">
+                <Home className="h-4 w-4 mr-2" />
+                Ir al Inicio
+              </Button>
+              <Button variant="outline" onClick={() => navigate(-1)} className="w-full">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Volver
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  navigate('/auth');
+                }}
+                className="w-full text-muted-foreground"
+              >
+                Cerrar Sesión
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   // State: Error - show error UI with retry
