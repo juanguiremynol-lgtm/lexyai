@@ -6061,9 +6061,10 @@ export type Database = {
     Views: {
       migration_health_check: {
         Row: {
+          dupe_groups: number | null
+          max_dupe_count: number | null
           missing_work_item_id: number | null
           pct_mapped: number | null
-          potential_duplicates: number | null
           table_name: string | null
           total_rows: number | null
           unique_work_items: number | null
@@ -6126,6 +6127,7 @@ export type Database = {
         Args: {
           p_legacy_filing_id?: string
           p_legacy_process_id?: string
+          p_organization_id?: string
           p_owner_id?: string
           p_radicado?: string
         }
