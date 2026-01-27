@@ -109,6 +109,9 @@ interface DebugResult {
   request_url_masked?: string; // New: <PROVIDER>/path
   request_path?: string; // Path only, no host/secrets
   request_method?: string;
+  // Path prefix diagnostics (new)
+  path_prefix_used?: string; // The prefix applied (e.g., "" or "/cpnu")
+  path_prefix_note?: string; // Hint about prefix configuration
   // Workflow-aware fields
   workflow_type?: string;
   provider_attempts?: ProviderAttempt[];
@@ -947,11 +950,26 @@ export default function ApiDebugPage() {
 
             {/* Request details for debugging */}
             {(debugResult.request_url_masked || debugResult.request_url || debugResult.request_path) && (
-              <div className="p-3 bg-muted/50 rounded-lg border">
-                <p className="text-xs text-muted-foreground mb-1">Request Path (sin host/secrets)</p>
-                <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
-                  {debugResult.request_method || 'GET'} {debugResult.request_url_masked || debugResult.request_url || debugResult.request_path}
-                </code>
+              <div className="p-3 bg-muted/50 rounded-lg border space-y-2">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Request Path (sin host/secrets)</p>
+                  <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                    {debugResult.request_method || 'GET'} {debugResult.request_url_masked || debugResult.request_url || debugResult.request_path}
+                  </code>
+                </div>
+                
+                {/* Path Prefix Diagnostics */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Path prefix:</span>
+                  <code className="font-mono bg-muted px-1 rounded">
+                    {debugResult.path_prefix_used === '' || debugResult.path_prefix_used === undefined 
+                      ? '(vacío)' 
+                      : debugResult.path_prefix_used}
+                  </code>
+                  {debugResult.path_prefix_note && (
+                    <span className="text-amber-600">{debugResult.path_prefix_note}</span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1000,11 +1018,21 @@ export default function ApiDebugPage() {
                     </div>
                   ))}
                 </div>
+                
+                {/* Prefix mismatch hint */}
                 {debugResult.error_code === 'UPSTREAM_ROUTE_MISSING' && (
-                  <p className="text-xs text-amber-600 bg-amber-500/10 p-2 rounded">
-                    ⚠️ Todas las rutas candidatas fallaron con "Cannot GET". 
-                    <strong> Verifica que CPNU_BASE_URL apunte al endpoint correcto</strong> (puede requerir prefijo /api).
-                  </p>
+                  <div className="text-xs text-amber-600 bg-amber-500/10 p-2 rounded space-y-1">
+                    <p className="font-medium">⚠️ Todas las rutas candidatas fallaron con "Cannot GET".</p>
+                    <p>
+                      {debugResult.path_prefix_used 
+                        ? `El prefijo "${debugResult.path_prefix_used}" puede ser incorrecto si el servicio expone rutas en raíz. Configura ${debugResult.provider_used?.toUpperCase()}_PATH_PREFIX vacío.`
+                        : `El servicio puede requerir un prefijo (ej: ${debugResult.provider_used?.toUpperCase()}_PATH_PREFIX=/api) o CPNU_BASE_URL apunta al servicio incorrecto.`
+                      }
+                    </p>
+                    <p className="text-muted-foreground">
+                      <strong>Hoy:</strong> Cloud Run expuesto en raíz → prefijo vacío. <strong>Futuro:</strong> Gateway unificado → prefijo /cpnu, /samai, etc.
+                    </p>
+                  </div>
                 )}
               </div>
             )}

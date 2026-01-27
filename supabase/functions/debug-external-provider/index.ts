@@ -103,6 +103,9 @@ interface DebugResult {
   request_url_masked?: string; // Masked URL: <PROVIDER>/path
   request_path?: string; // Path only, no host/secrets
   request_method?: string;
+  // Path prefix diagnostics
+  path_prefix_used?: string; // The prefix applied (e.g., "" or "/cpnu")
+  path_prefix_note?: string; // Hint about prefix configuration
   status: number;
   latencyMs: number;
   summary: DebugSummary;
@@ -156,11 +159,36 @@ function isValidTutelaCode(code: string): boolean {
   return /^T\d{6,10}$/i.test(code);
 }
 
-// Safe URL join that handles trailing slashes
-function safeJoinUrl(baseUrl: string, path: string): string {
+// Safe URL join that handles base, prefix, and path
+// Rules:
+// - base has no trailing slash
+// - prefix is either "" or starts with "/" and has no trailing slash (normalized)
+// - path always starts with "/"
+// - result has exactly one slash between segments (never "//health")
+function joinUrl(baseUrl: string, prefix: string, path: string): string {
+  // Normalize base: remove trailing slashes
   const cleanBase = baseUrl.replace(/\/+$/, '');
+  
+  // Normalize prefix: if it's just "/" or whitespace, treat as empty
+  let cleanPrefix = (prefix || '').trim();
+  if (cleanPrefix === '/') cleanPrefix = '';
+  
+  // Ensure prefix starts with "/" if non-empty, and has no trailing slash
+  if (cleanPrefix && !cleanPrefix.startsWith('/')) {
+    cleanPrefix = '/' + cleanPrefix;
+  }
+  cleanPrefix = cleanPrefix.replace(/\/+$/, '');
+  
+  // Ensure path starts with "/"
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${cleanBase}${cleanPath}`;
+  
+  // Join: base + prefix + path (each segment properly separated)
+  return `${cleanBase}${cleanPrefix}${cleanPath}`;
+}
+
+// Legacy helper for backward compatibility
+function safeJoinUrl(baseUrl: string, path: string): string {
+  return joinUrl(baseUrl, '', path);
 }
 
 // Mask host in URL for safe logging/UI display
@@ -352,6 +380,7 @@ async function callProviderWithProbing(
   error_code?: string; 
   message?: string;
   request_path?: string;
+  path_prefix_used?: string;
   body_snippet?: string;
   attempts: RouteAttempt[];
   route_probing_used: boolean;
@@ -362,8 +391,19 @@ async function callProviderWithProbing(
     tutelas: 'TUTELAS_BASE_URL',
     publicaciones: 'PUBLICACIONES_BASE_URL',
   };
+  
+  // Path prefix env vars (optional, default to empty string)
+  // TODAY: Cloud Run services exposed at root -> prefix should be empty
+  // FUTURE: Single gateway domain -> prefix may be /cpnu, /samai, etc.
+  const prefixEnvMap: Record<ProviderName, string> = {
+    cpnu: 'CPNU_PATH_PREFIX',
+    samai: 'SAMAI_PATH_PREFIX',
+    tutelas: 'TUTELAS_PATH_PREFIX',
+    publicaciones: 'PUBLICACIONES_PATH_PREFIX',
+  };
 
   const baseUrl = Deno.env.get(envMap[provider]);
+  const pathPrefix = Deno.env.get(prefixEnvMap[provider]) || ''; // Default to empty
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
@@ -373,6 +413,7 @@ async function callProviderWithProbing(
       error_code: 'PROVIDER_NOT_CONFIGURED', 
       message: `${envMap[provider]} not configured`,
       request_path: undefined,
+      path_prefix_used: pathPrefix,
       attempts: [],
       route_probing_used: false,
     };
@@ -381,6 +422,10 @@ async function callProviderWithProbing(
   const routeCandidates = getRouteCandidates(provider);
   const attempts: RouteAttempt[] = [];
   let routeProbingUsed = false;
+  
+  // Normalize the path prefix for logging
+  let normalizedPrefix = (pathPrefix || '').trim();
+  if (normalizedPrefix === '/') normalizedPrefix = '';
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -394,7 +439,8 @@ async function callProviderWithProbing(
   for (let i = 0; i < routeCandidates.length; i++) {
     const pathTemplate = routeCandidates[i];
     const requestPath = pathTemplate.replace('{id}', identifier);
-    const fullUrl = safeJoinUrl(baseUrl, requestPath);
+    // Use joinUrl with the prefix
+    const fullUrl = joinUrl(baseUrl, pathPrefix, requestPath);
     const attemptStart = Date.now();
 
     safeLog('info', `Attempting route ${i + 1}/${routeCandidates.length}`, { 
@@ -427,7 +473,12 @@ async function callProviderWithProbing(
 
       // If we get HTML "Cannot GET" 404, try next route
       if (response.status === 404 && responseKind === 'HTML_CANNOT_GET') {
-        safeLog('warn', `Route missing (HTML Cannot GET), trying next`, { 
+        // Check if this might be a prefix mismatch
+        const prefixHint = normalizedPrefix 
+          ? `Path prefix "${normalizedPrefix}" may be incorrect for this service.`
+          : 'Service may require a path prefix (e.g., CPNU_PATH_PREFIX=/api).';
+        
+        safeLog('warn', `Route missing (HTML Cannot GET), trying next. ${prefixHint}`, { 
           provider, 
           status: 404, 
           request_path: requestPath,
@@ -438,13 +489,18 @@ async function callProviderWithProbing(
           continue; // Try next candidate
         }
         
-        // Last candidate also failed
+        // Last candidate also failed - determine if it's a prefix mismatch
+        const errorMessage = normalizedPrefix
+          ? `All route candidates returned 404. Prefix "${normalizedPrefix}" may be wrong for a root-exposed service. Try setting CPNU_PATH_PREFIX to empty.`
+          : `All route candidates returned 404. Check ${envMap[provider]} configuration or set a path prefix if using a gateway.`;
+        
         return {
           status: 404,
           data: null,
           error_code: 'UPSTREAM_ROUTE_MISSING',
-          message: `All route candidates returned 404. Check CPNU_BASE_URL configuration.`,
+          message: errorMessage,
           request_path: requestPath,
+          path_prefix_used: normalizedPrefix,
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
@@ -460,6 +516,7 @@ async function callProviderWithProbing(
           error_code: errorCode,
           message: bodyText.slice(0, 500),
           request_path: requestPath,
+          path_prefix_used: normalizedPrefix,
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
@@ -478,6 +535,7 @@ async function callProviderWithProbing(
             error_code: 'RECORD_NOT_FOUND',
             message: 'Provider returned JSON but record not found',
             request_path: requestPath,
+            path_prefix_used: normalizedPrefix,
             attempts,
             route_probing_used: routeProbingUsed,
           };
@@ -487,6 +545,7 @@ async function callProviderWithProbing(
           status: response.status, 
           data: jsonData,
           request_path: requestPath,
+          path_prefix_used: normalizedPrefix,
           attempts,
           route_probing_used: routeProbingUsed,
         };
@@ -498,6 +557,7 @@ async function callProviderWithProbing(
           error_code: 'INVALID_JSON_RESPONSE',
           message: 'Provider returned 200 but body is not valid JSON',
           request_path: requestPath,
+          path_prefix_used: normalizedPrefix,
           body_snippet: bodyText.slice(0, 2000),
           attempts,
           route_probing_used: routeProbingUsed,
@@ -522,6 +582,7 @@ async function callProviderWithProbing(
           error_code: 'TIMEOUT', 
           message: `Request timed out after ${timeoutMs}ms`,
           request_path: requestPath,
+          path_prefix_used: normalizedPrefix,
           attempts,
           route_probing_used: routeProbingUsed,
         };
@@ -541,6 +602,7 @@ async function callProviderWithProbing(
         error_code: 'NETWORK_ERROR',
         message: err instanceof Error ? err.message : 'Unknown network error',
         request_path: requestPath,
+        path_prefix_used: normalizedPrefix,
         attempts,
         route_probing_used: routeProbingUsed,
       };
@@ -553,6 +615,7 @@ async function callProviderWithProbing(
     data: null,
     error_code: 'NO_ROUTES',
     message: 'No route candidates available',
+    path_prefix_used: normalizedPrefix,
     attempts,
     route_probing_used: false,
   };
@@ -736,12 +799,23 @@ Deno.serve(async (req) => {
       ? `${maskHost(provider)}${result.request_path}` 
       : undefined;
 
+    // Generate prefix note for UI
+    const prefixUsed = result.path_prefix_used || '';
+    let prefixNote: string | undefined;
+    if (result.error_code === 'UPSTREAM_ROUTE_MISSING') {
+      prefixNote = prefixUsed
+        ? `⚠️ Path prefix "${prefixUsed}" is set. If service is exposed at root, set ${provider.toUpperCase()}_PATH_PREFIX to empty.`
+        : `ℹ️ No path prefix set. If using a gateway, you may need to set ${provider.toUpperCase()}_PATH_PREFIX (e.g., /${provider}).`;
+    }
+
     const debugResult: DebugResult = {
       ok: result.status >= 200 && result.status < 300 && !result.error_code,
       provider_used: provider,
       request_url_masked: maskedUrl,
       request_path: result.request_path,
       request_method: 'GET',
+      path_prefix_used: prefixUsed,
+      path_prefix_note: prefixNote,
       status: result.status,
       latencyMs,
       summary,
