@@ -89,14 +89,34 @@ async function getApiKeyInfo(provider: string): Promise<{ source: string; presen
   return { source: 'MISSING', present: false, fingerprint: null };
 }
 
+// Provider connectivity check (GET /health - no auth assumed)
+interface ProviderConnectivityCheck {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  error?: string;
+}
+
+// Provider auth check (GET /snapshot with test radicado - requires valid API key)
 interface ProviderAuthCheck {
   ok: boolean;
   status?: number;
   latencyMs?: number;
   error?: string;
+  error_code?: string; // UPSTREAM_AUTH, UPSTREAM_ROUTE_MISSING, RECORD_NOT_FOUND, SKIPPED, etc.
   api_key_source: string;
   api_key_present: boolean;
   api_key_fingerprint: string | null;
+  test_identifier_used?: string; // The test radicado used (masked)
+  hint?: string; // Actionable hint for the user
+  response_kind?: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
+  response_headers_snippet?: Record<string, string>; // Sanitized headers (e.g., WWW-Authenticate)
+}
+
+// Combined provider health check result
+interface ProviderHealthCheck {
+  connectivity: ProviderConnectivityCheck;
+  auth?: ProviderAuthCheck;
 }
 
 interface HealthResult {
@@ -111,6 +131,13 @@ interface HealthResult {
   };
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
   auth_checks?: Record<string, ProviderAuthCheck>;
+  // NEW: Combined connectivity + auth checks per provider
+  provider_health?: Record<string, ProviderHealthCheck>;
+  // NEW: Test identifier configuration
+  test_identifiers?: {
+    cpnu_test_radicado_set: boolean;
+    samai_test_radicado_set: boolean;
+  };
   timestamp: string;
   user_role?: string;
 }
@@ -126,6 +153,199 @@ function errorResponse(code: string, message: string, status: number = 400): Res
   return jsonResponse({ ok: false, code, message }, status);
 }
 
+// Detect if response body looks like HTML "Cannot GET" (Express 404)
+function isHtmlCannotGet(body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    lower.includes('cannot get') ||
+    lower.includes('<!doctype html') ||
+    lower.includes('<html') ||
+    lower.includes('not found</pre>')
+  );
+}
+
+// Classify response kind
+function classifyResponseKind(body: string): ProviderAuthCheck['response_kind'] {
+  if (!body || body.trim() === '') return 'EMPTY';
+  
+  try {
+    JSON.parse(body);
+    return 'JSON';
+  } catch {
+    if (isHtmlCannotGet(body)) {
+      return 'HTML_CANNOT_GET';
+    }
+    return 'HTML_OTHER';
+  }
+}
+
+// Safe URL join that handles base, prefix, and path
+function joinUrl(baseUrl: string, prefix: string, path: string): string {
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  let cleanPrefix = (prefix || '').trim();
+  if (cleanPrefix === '/') cleanPrefix = '';
+  if (cleanPrefix && !cleanPrefix.startsWith('/')) {
+    cleanPrefix = '/' + cleanPrefix;
+  }
+  cleanPrefix = cleanPrefix.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPrefix}${cleanPath}`;
+}
+
+// Check connectivity only (GET /health - no auth assumptions)
+async function checkConnectivity(
+  provider: string, 
+  baseUrl: string | undefined, 
+  pathPrefix: string
+): Promise<ProviderConnectivityCheck> {
+  if (!baseUrl) {
+    return { ok: false, error: 'URL not configured' };
+  }
+
+  try {
+    const start = Date.now();
+    const healthUrl = joinUrl(baseUrl, pathPrefix, '/health');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(healthUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - start;
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      latencyMs,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Connection failed',
+    };
+  }
+}
+
+// Check auth by calling an authenticated endpoint (GET /snapshot?numero_radicacion=...)
+async function checkAuthWithSnapshot(
+  provider: string,
+  baseUrl: string | undefined,
+  pathPrefix: string,
+  testRadicado: string | undefined,
+  apiKeyInfo: { source: string; present: boolean; fingerprint: string | null; value?: string }
+): Promise<ProviderAuthCheck> {
+  const result: ProviderAuthCheck = {
+    ok: false,
+    api_key_source: apiKeyInfo.source,
+    api_key_present: apiKeyInfo.present,
+    api_key_fingerprint: apiKeyInfo.fingerprint,
+  };
+
+  // Skip if no test radicado configured
+  if (!testRadicado || testRadicado.trim() === '') {
+    result.error_code = 'SKIPPED';
+    result.error = 'No test radicado configured';
+    result.hint = `Set ${provider.toUpperCase()}_TEST_RADICADO to enable auth check.`;
+    return result;
+  }
+
+  // Skip if no API key
+  if (!apiKeyInfo.present || !apiKeyInfo.value) {
+    result.error_code = 'MISSING_KEY';
+    result.error = 'No API key configured';
+    result.hint = `Set ${provider.toUpperCase()}_X_API_KEY or EXTERNAL_X_API_KEY.`;
+    return result;
+  }
+
+  if (!baseUrl) {
+    result.error_code = 'NOT_CONFIGURED';
+    result.error = 'Base URL not configured';
+    return result;
+  }
+
+  try {
+    const start = Date.now();
+    const snapshotPath = `/snapshot?numero_radicacion=${testRadicado.trim()}`;
+    const snapshotUrl = joinUrl(baseUrl, pathPrefix, snapshotPath);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const response = await fetch(snapshotUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-API-Key': apiKeyInfo.value,
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    const latencyMs = Date.now() - start;
+    const bodyText = await response.text();
+    const responseKind = classifyResponseKind(bodyText);
+
+    result.status = response.status;
+    result.latencyMs = latencyMs;
+    result.response_kind = responseKind;
+    result.test_identifier_used = `${testRadicado.slice(0, 6)}...${testRadicado.slice(-4)}`;
+
+    // Extract useful response headers (sanitized)
+    const wwwAuth = response.headers.get('WWW-Authenticate');
+    if (wwwAuth) {
+      result.response_headers_snippet = { 'WWW-Authenticate': wwwAuth.slice(0, 200) };
+    }
+
+    // Classify the result
+    if (response.ok) {
+      result.ok = true;
+      result.error_code = undefined;
+      return result;
+    }
+
+    // Auth failure
+    if (response.status === 401 || response.status === 403) {
+      result.error_code = 'UPSTREAM_AUTH';
+      result.error = `Auth failed (HTTP ${response.status})`;
+      result.hint = `/health is reachable; protected endpoints are rejecting the key. Verify Cloud Run API_KEYS parsing/middleware. Key source: ${apiKeyInfo.source}, fingerprint: ${apiKeyInfo.fingerprint}`;
+      return result;
+    }
+
+    // Route mismatch (HTML 404)
+    if (response.status === 404 && responseKind === 'HTML_CANNOT_GET') {
+      result.error_code = 'UPSTREAM_ROUTE_MISSING';
+      result.error = 'Route not found (HTML Cannot GET)';
+      result.hint = 'The /snapshot endpoint may not exist on this service. Check BASE_URL and PATH_PREFIX configuration.';
+      return result;
+    }
+
+    // Record not found (JSON 404 - this is actually success from auth perspective)
+    if (response.status === 404 && responseKind === 'JSON') {
+      result.ok = true; // Auth worked, record just doesn't exist
+      result.error_code = 'RECORD_NOT_FOUND';
+      result.error = 'Test radicado not found (auth succeeded)';
+      result.hint = 'Auth check passed. The test radicado returned 404 JSON, which means auth is working but record does not exist.';
+      return result;
+    }
+
+    // Other errors
+    result.error_code = `HTTP_${response.status}`;
+    result.error = `Unexpected response: HTTP ${response.status}`;
+    return result;
+
+  } catch (err) {
+    result.error_code = 'NETWORK_ERROR';
+    result.error = err instanceof Error ? err.message : 'Network error';
+    return result;
+  }
+}
+
+// Legacy reachability check (backward compatible)
 async function checkReachability(name: string, baseUrl: string | undefined, apiKey: string | undefined): Promise<{ ok: boolean; status?: number; latencyMs?: number; error?: string }> {
   if (!baseUrl) {
     return { ok: false, error: 'URL not configured' };
@@ -141,7 +361,6 @@ async function checkReachability(name: string, baseUrl: string | undefined, apiK
       headers['X-API-Key'] = apiKey;
     }
 
-    // Try a simple health/ping endpoint or just the base URL
     const healthUrl = new URL('/health', baseUrl).toString();
     
     const controller = new AbortController();
@@ -163,7 +382,6 @@ async function checkReachability(name: string, baseUrl: string | undefined, apiK
         latencyMs,
       };
     } catch (fetchErr) {
-      // If /health 404s, try base URL with HEAD
       clearTimeout(timeoutId);
       
       try {
@@ -285,16 +503,24 @@ Deno.serve(async (req) => {
       from_address_set: !!emailFromAddress && emailFromAddress.length > 0,
     };
 
+    // Check for test identifiers (for auth checks)
+    const cpnuTestRadicado = Deno.env.get('CPNU_TEST_RADICADO');
+    const samaiTestRadicado = Deno.env.get('SAMAI_TEST_RADICADO');
+
     const result: HealthResult = {
       ok: Object.values(envReport).every(Boolean) && emailGatewayReport.configured,
       env: envReport,
       optional_keys: optionalKeysReport,
       email_gateway: emailGatewayReport,
+      test_identifiers: {
+        cpnu_test_radicado_set: !!cpnuTestRadicado && cpnuTestRadicado.length > 0,
+        samai_test_radicado_set: !!samaiTestRadicado && samaiTestRadicado.length > 0,
+      },
       timestamp: new Date().toISOString(),
       user_role: isPlatformAdmin ? 'platform_admin' : 'org_admin',
     };
 
-    // Optional reachability checks (basic connectivity)
+    // Optional reachability checks (basic connectivity - legacy)
     if (checkReach) {
       const providers = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
       result.reachability = {};
@@ -315,12 +541,46 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Optional auth checks (verify API key is accepted)
+    // NEW: Combined provider health checks (connectivity + auth)
+    // Always run these for the main providers (CPNU, SAMAI)
+    const providers = ['cpnu', 'samai'] as const;
+    result.provider_health = {};
+
+    for (const provider of providers) {
+      const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
+      const pathPrefix = Deno.env.get(`${provider.toUpperCase()}_PATH_PREFIX`) || '';
+      const testRadicado = provider === 'cpnu' ? cpnuTestRadicado : samaiTestRadicado;
+      const apiKeyInfo = await getApiKeyInfo(provider);
+
+      // A) Connectivity check (GET /health - no auth assumptions)
+      const connectivity = await checkConnectivity(provider, baseUrl, pathPrefix);
+
+      // B) Auth check (GET /snapshot with test radicado - requires valid API key)
+      const authCheck = await checkAuthWithSnapshot(
+        provider,
+        baseUrl,
+        pathPrefix,
+        testRadicado,
+        {
+          source: apiKeyInfo.source,
+          present: apiKeyInfo.present,
+          fingerprint: apiKeyInfo.fingerprint,
+          value: apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined,
+        }
+      );
+
+      result.provider_health[provider] = {
+        connectivity,
+        auth: authCheck,
+      };
+    }
+
+    // Optional legacy auth checks (backward compatibility - calls /health with key)
     if (checkAuth) {
-      const providers = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
+      const allProviders = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
       result.auth_checks = {};
       
-      for (const provider of providers) {
+      for (const provider of allProviders) {
         const apiKeyInfo = await getApiKeyInfo(provider);
         const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
         
@@ -377,7 +637,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}`);
+    console.log(`[integration-health] Result: all_present=${result.ok}, email_configured=${emailGatewayReport.configured}, cpnu_connectivity=${result.provider_health?.cpnu?.connectivity?.ok}, cpnu_auth=${result.provider_health?.cpnu?.auth?.ok}`);
 
     return jsonResponse(result);
 

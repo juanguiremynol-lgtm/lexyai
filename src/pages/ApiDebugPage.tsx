@@ -63,6 +63,36 @@ interface AuthDiagnostics {
   api_key_fingerprint: string | null;
 }
 
+// NEW: Provider connectivity check (GET /health)
+interface ProviderConnectivityCheck {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  error?: string;
+}
+
+// NEW: Provider auth check (GET /snapshot with test radicado)
+interface ProviderAuthCheck {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  error?: string;
+  error_code?: string;
+  api_key_source: string;
+  api_key_present: boolean;
+  api_key_fingerprint: string | null;
+  test_identifier_used?: string;
+  hint?: string;
+  response_kind?: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
+  response_headers_snippet?: Record<string, string>;
+}
+
+// NEW: Combined provider health check
+interface ProviderHealthCheck {
+  connectivity: ProviderConnectivityCheck;
+  auth?: ProviderAuthCheck;
+}
+
 interface IntegrationHealthResult {
   ok: boolean;
   env: Record<string, boolean>;
@@ -70,6 +100,13 @@ interface IntegrationHealthResult {
   email_gateway?: EmailGatewayHealth;
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
   auth_checks?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string; api_key_source: string; api_key_present: boolean; api_key_fingerprint: string | null }>;
+  // NEW: Combined connectivity + auth checks per provider
+  provider_health?: Record<string, ProviderHealthCheck>;
+  // NEW: Test identifier configuration
+  test_identifiers?: {
+    cpnu_test_radicado_set: boolean;
+    samai_test_radicado_set: boolean;
+  };
   timestamp: string;
   user_role?: string;
 }
@@ -248,6 +285,132 @@ function ReachabilityStatus({ name, data }: { name: string; data?: { ok: boolean
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// NEW: Provider Health Status (split connectivity + auth)
+function ProviderHealthStatus({ 
+  name, 
+  health,
+  testRadicadoConfigured 
+}: { 
+  name: string; 
+  health?: ProviderHealthCheck;
+  testRadicadoConfigured: boolean;
+}) {
+  if (!health) return null;
+  
+  const { connectivity, auth } = health;
+  
+  return (
+    <div className="border rounded-lg p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="font-medium uppercase text-sm">{name}</span>
+        <div className="flex gap-2">
+          {/* Connectivity badge */}
+          {connectivity.ok ? (
+            <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700 text-xs">
+              <Wifi className="h-3 w-3 mr-1" />
+              /health OK
+            </Badge>
+          ) : (
+            <Badge variant="destructive" className="text-xs">
+              <WifiOff className="h-3 w-3 mr-1" />
+              /health {connectivity.status || 'Error'}
+            </Badge>
+          )}
+          
+          {/* Auth badge */}
+          {auth?.ok ? (
+            <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700 text-xs">
+              <Shield className="h-3 w-3 mr-1" />
+              Auth OK
+            </Badge>
+          ) : auth?.error_code === 'SKIPPED' ? (
+            <Badge variant="outline" className="text-xs text-muted-foreground">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Auth skipped
+            </Badge>
+          ) : auth ? (
+            <Badge variant="destructive" className="text-xs">
+              <Shield className="h-3 w-3 mr-1" />
+              Auth {auth.status || auth.error_code}
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+      
+      {/* Details row */}
+      <div className="grid grid-cols-2 gap-4 text-xs text-muted-foreground">
+        <div>
+          <span className="block font-medium text-foreground">Conectividad (/health)</span>
+          {connectivity.ok ? (
+            <span className="text-emerald-600">HTTP {connectivity.status} • {connectivity.latencyMs}ms</span>
+          ) : (
+            <span className="text-destructive">{connectivity.error || `HTTP ${connectivity.status}`}</span>
+          )}
+        </div>
+        
+        <div>
+          <span className="block font-medium text-foreground">Auth (/snapshot)</span>
+          {auth?.error_code === 'SKIPPED' ? (
+            <span className="text-muted-foreground">Sin test radicado configurado</span>
+          ) : auth?.ok ? (
+            <span className="text-emerald-600">
+              HTTP {auth.status} • {auth.latencyMs}ms
+              {auth.error_code === 'RECORD_NOT_FOUND' && ' (record not found, auth OK)'}
+            </span>
+          ) : auth ? (
+            <span className="text-destructive">
+              {auth.error_code}: {auth.error?.slice(0, 50)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">No verificado</span>
+          )}
+        </div>
+      </div>
+      
+      {/* Auth diagnostics */}
+      {auth && (
+        <div className="text-xs space-y-1 bg-muted/30 rounded p-2">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">API Key Source:</span>
+            <span className="font-mono">{auth.api_key_source}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Key Present:</span>
+            <span>{auth.api_key_present ? '✓ Yes' : '✗ No'}</span>
+          </div>
+          {auth.api_key_fingerprint && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fingerprint:</span>
+              <span className="font-mono">{auth.api_key_fingerprint}</span>
+            </div>
+          )}
+          {auth.test_identifier_used && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Test ID:</span>
+              <span className="font-mono">{auth.test_identifier_used}</span>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Hint */}
+      {auth?.hint && !auth.ok && auth.error_code !== 'SKIPPED' && (
+        <div className="text-xs p-2 rounded bg-amber-500/10 text-amber-700 border border-amber-200">
+          <AlertTriangle className="h-3 w-3 inline mr-1" />
+          {auth.hint}
+        </div>
+      )}
+      
+      {/* Skipped hint with configuration guidance */}
+      {auth?.error_code === 'SKIPPED' && !testRadicadoConfigured && (
+        <div className="text-xs p-2 rounded bg-muted border">
+          💡 Para habilitar verificación de auth, configure <code className="bg-muted-foreground/20 px-1 rounded">{name.toUpperCase()}_TEST_RADICADO</code> con un radicado de prueba.
+        </div>
+      )}
     </div>
   );
 }
@@ -607,13 +770,41 @@ export default function ApiDebugPage() {
                 ))}
               </div>
 
-              {/* Reachability section */}
+              {/* NEW: Provider Health Section (Connectivity + Auth) */}
+              {healthData.provider_health && (
+                <>
+                  <Separator className="my-4" />
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    Estado de Proveedores (Conectividad + Auth)
+                  </h4>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    /health = conectividad básica (puede ser pública) • /snapshot = verifica auth con API key
+                  </p>
+                  <div className="grid gap-3">
+                    {Object.entries(healthData.provider_health).map(([name, health]) => (
+                      <ProviderHealthStatus 
+                        key={name} 
+                        name={name} 
+                        health={health} 
+                        testRadicadoConfigured={
+                          name === 'cpnu' 
+                            ? healthData.test_identifiers?.cpnu_test_radicado_set || false
+                            : healthData.test_identifiers?.samai_test_radicado_set || false
+                        }
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Legacy Reachability section */}
               {reachabilityMutation.data?.reachability && (
                 <>
                   <Separator className="my-4" />
                   <h4 className="font-medium flex items-center gap-2">
                     <Wifi className="h-4 w-4" />
-                    Conectividad con Proveedores
+                    Conectividad con Proveedores (Legacy)
                   </h4>
                   <div className="grid gap-2">
                     {Object.entries(reachabilityMutation.data.reachability).map(([name, data]) => (
