@@ -182,10 +182,13 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
       return { primary: 'publicaciones', fallback: 'cpnu', fallbackEnabled: false, usePublicacionesAsPrimary: true };
     case 'CGP':
     case 'LABORAL':
-    default:
-      // CGP/LABORAL: CPNU primary, SAMAI fallback
+      // CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI
+      // Civil/labor/family processes in CPNU are NOT in SAMAI, so fallback is technically useless
       // Note: Estados remain the canonical notification source (via estados ingestion pipeline)
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
+    default:
+      // Unknown workflows: CPNU primary, no fallback
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
   }
 }
 
@@ -265,41 +268,96 @@ const STAGE_INFERENCE_PATTERNS: Array<{
   confidence: number;
   reason: string;
 }> = [
+  // ============= AUTO ADMISORIO (HIGH CONFIDENCE) =============
   {
-    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda'],
-    stages: { CGP: 'AUTO_ADMISORIO', LABORAL: 'AUDIENCIA_INICIAL', CPACA: 'AUTO_ADMISORIO', TUTELA: 'TUTELA_ADMITIDA' },
+    patterns: ['auto admisorio', 'auto admite demanda', 'admite la demanda', 'se admite demanda'],
+    stages: { CGP: 'AUTO_ADMISORIO', LABORAL: 'AUTO_ADMISORIO', CPACA: 'AUTO_ADMISORIO', TUTELA: 'TUTELA_ADMITIDA' },
     confidence: 0.9,
     reason: 'Auto admisorio detectado en actuación',
   },
+  // ============= RADICACIÓN =============
   {
-    patterns: ['radicación de proceso', 'radicación demanda'],
+    patterns: ['radicación de proceso', 'radicación demanda', 'se radica demanda'],
     stages: { CGP: 'RADICADO_CONFIRMED', LABORAL: 'RADICACION', CPACA: 'DEMANDA_RADICADA', TUTELA: 'TUTELA_RADICADA' },
     confidence: 0.85,
     reason: 'Radicación de proceso detectada',
   },
+  // ============= NOTIFICACIÓN (CGP-specific) =============
   {
-    patterns: ['audiencia inicial', 'fija fecha para audiencia inicial'],
+    patterns: ['notificación personal', 'se notifica personalmente', 'notificación por estado', 'notificación por aviso'],
+    stages: { CGP: 'NOTIFICACION', LABORAL: 'NOTIFICACION', CPACA: 'NOTIFICACION_TRASLADOS' },
+    confidence: 0.8,
+    reason: 'Notificación detectada',
+  },
+  // ============= AUDIENCIA INICIAL (CGP) =============
+  {
+    patterns: ['audiencia inicial', 'fija fecha para audiencia inicial', 'citación audiencia inicial'],
     stages: { CGP: 'AUDIENCIA_INICIAL', LABORAL: 'AUDIENCIA_INICIAL', CPACA: 'AUDIENCIA_INICIAL' },
     confidence: 0.85,
     reason: 'Audiencia inicial detectada',
   },
+  // ============= AUDIENCIA DE INSTRUCCIÓN Y JUZGAMIENTO (CGP-specific) =============
   {
-    patterns: ['notificación personal', 'se notifica personalmente'],
-    stages: { CGP: 'NOTIFICACION_PERSONAL', CPACA: 'NOTIFICACION_TRASLADOS' },
-    confidence: 0.8,
-    reason: 'Notificación personal detectada',
+    patterns: ['audiencia de instrucción', 'audiencia de juzgamiento', 'audiencia instrucción y juzgamiento', 'audiencia de trámite y juzgamiento'],
+    stages: { CGP: 'AUDIENCIA_INSTRUCCION_JUZGAMIENTO', LABORAL: 'AUDIENCIA_TRAMITE_JUZGAMIENTO' },
+    confidence: 0.9,
+    reason: 'Audiencia de instrucción y juzgamiento detectada',
   },
+  // ============= CONTESTACIÓN DEMANDA (CGP) =============
   {
-    patterns: ['sentencia', 'fallo de primera instancia'],
-    stages: { CGP: 'ALEGATOS_SENTENCIA', LABORAL: 'SENTENCIA_1A_INSTANCIA', CPACA: 'ALEGATOS_SENTENCIA', TUTELA: 'FALLO_PRIMERA_INSTANCIA' },
+    patterns: ['contestación demanda', 'contesta demanda', 'contestación de la demanda'],
+    stages: { CGP: 'CONTESTACION', LABORAL: 'CONTESTACION', CPACA: 'CONTESTACION' },
+    confidence: 0.85,
+    reason: 'Contestación de demanda detectada',
+  },
+  // ============= TRASLADO (CGP) =============
+  {
+    patterns: ['traslado de la demanda', 'traslado demanda', 'corre traslado'],
+    stages: { CGP: 'TRASLADO', LABORAL: 'TRASLADO', CPACA: 'TRASLADO_DEMANDA' },
+    confidence: 0.8,
+    reason: 'Traslado de demanda detectado',
+  },
+  // ============= SENTENCIA (HIGH CONFIDENCE) =============
+  {
+    patterns: ['sentencia', 'fallo de primera instancia', 'profiere sentencia', 'se profiere sentencia'],
+    stages: { CGP: 'SENTENCIA', LABORAL: 'SENTENCIA_1A_INSTANCIA', CPACA: 'ALEGATOS_SENTENCIA', TUTELA: 'FALLO_PRIMERA_INSTANCIA' },
     confidence: 0.9,
     reason: 'Sentencia detectada en actuación',
   },
+  // ============= RECURSOS =============
   {
-    patterns: ['recurso de apelación', 'concede apelación'],
-    stages: { CGP: 'APELACION', LABORAL: 'APELACION', CPACA: 'RECURSOS', TUTELA: 'FALLO_SEGUNDA_INSTANCIA' },
+    patterns: ['recurso de apelación', 'concede apelación', 'interpone recurso', 'recurso de reposición'],
+    stages: { CGP: 'RECURSOS', LABORAL: 'APELACION', CPACA: 'RECURSOS', TUTELA: 'FALLO_SEGUNDA_INSTANCIA' },
     confidence: 0.85,
-    reason: 'Recurso de apelación detectado',
+    reason: 'Recurso detectado',
+  },
+  // ============= MANDAMIENTO DE PAGO (EJECUTIVO CGP) =============
+  {
+    patterns: ['mandamiento de pago', 'libra mandamiento', 'mandamiento ejecutivo'],
+    stages: { CGP: 'MANDAMIENTO_PAGO' },
+    confidence: 0.9,
+    reason: 'Mandamiento de pago detectado (proceso ejecutivo)',
+  },
+  // ============= EXCEPCIONES (CGP) =============
+  {
+    patterns: ['propone excepciones', 'excepciones previas', 'formula excepciones'],
+    stages: { CGP: 'EXCEPCIONES', LABORAL: 'EXCEPCIONES' },
+    confidence: 0.8,
+    reason: 'Excepciones detectadas',
+  },
+  // ============= PRUEBAS (CGP) =============
+  {
+    patterns: ['decreto de pruebas', 'decreta pruebas', 'período probatorio'],
+    stages: { CGP: 'PRUEBAS', LABORAL: 'PRUEBAS', CPACA: 'PERIODO_PROBATORIO' },
+    confidence: 0.8,
+    reason: 'Etapa probatoria detectada',
+  },
+  // ============= ALEGATOS =============
+  {
+    patterns: ['alegatos de conclusión', 'traslado para alegar', 'presenta alegatos'],
+    stages: { CGP: 'ALEGATOS', LABORAL: 'ALEGATOS', CPACA: 'ALEGATOS_SENTENCIA' },
+    confidence: 0.75,
+    reason: 'Etapa de alegatos detectada',
   },
 ];
 
@@ -2166,9 +2224,50 @@ Deno.serve(async (req) => {
         }
         
       } else {
-        // CGP/LABORAL: CPNU primary
-        console.log(`[sync-by-work-item] ${workItem.workflow_type}: Calling CPNU as primary provider`);
+        // ============= CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI =============
+        // Civil, labor, and family processes in CPNU are NOT in SAMAI
+        // Attempting SAMAI fallback is technically useless and generates noise
+        console.log(`[sync-by-work-item] ${workItem.workflow_type}: Calling CPNU as PRIMARY provider (NO SAMAI fallback)`);
+        
+        // Log PROVIDER_REQUEST trace step
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'PROVIDER_REQUEST_START',
+          provider: 'cpnu',
+          success: true,
+          message: `CPNU request: /snapshot?numero_radicacion=${normalizedRadicado}`,
+          meta: { 
+            request_path: `/snapshot?numero_radicacion=${normalizedRadicado}`,
+            request_method: 'GET',
+            is_primary: true,
+            fallback_enabled: false, // Explicitly NO fallback for CGP/LABORAL
+          },
+        });
+        
         fetchResult = await fetchFromCpnu(normalizedRadicado);
+        
+        // Log PROVIDER_RESPONSE trace step
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'PROVIDER_RESPONSE_RECEIVED',
+          provider: 'cpnu',
+          http_status: fetchResult.httpStatus || (fetchResult.ok ? 200 : 404),
+          latency_ms: fetchResult.latencyMs || 0,
+          success: fetchResult.ok,
+          error_code: fetchResult.ok ? null : (fetchResult.isEmpty ? 'PROVIDER_404' : 'PROVIDER_ERROR'),
+          message: fetchResult.error || (fetchResult.ok ? `Found ${fetchResult.actuaciones.length} actuaciones` : 'Not found'),
+          meta: { 
+            actuaciones_count: fetchResult.actuaciones.length,
+            is_empty: fetchResult.isEmpty || false,
+            request_path: `/snapshot?numero_radicacion=${normalizedRadicado}`,
+          },
+        });
         
         result.provider_attempts.push({
           provider: 'cpnu',
@@ -2179,9 +2278,9 @@ Deno.serve(async (req) => {
         });
         
         // ============= CHECK IF SCRAPING WAS AUTO-INITIATED BY CPNU =============
-        // If scraping was initiated, DO NOT attempt SAMAI fallback - return 202 immediately
+        // If scraping was initiated, return 202 immediately (NO fallback)
         if (fetchResult.scrapingInitiated && fetchResult.scrapingJobId) {
-          console.log(`[sync-by-work-item] CPNU: Auto-scraping initiated, skipping SAMAI fallback`);
+          console.log(`[sync-by-work-item] CPNU: Auto-scraping initiated. Returning 202 (NO SAMAI fallback for ${workItem.workflow_type})`);
           
           result.ok = false;
           result.provider_used = 'cpnu';
@@ -2209,6 +2308,8 @@ Deno.serve(async (req) => {
               job_id: fetchResult.scrapingJobId,
               poll_url: fetchResult.scrapingPollUrl,
               radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+              workflow_type: workItem.workflow_type,
+              fallback_attempted: false, // Explicit: NO SAMAI fallback
             },
           });
           
@@ -2229,27 +2330,72 @@ Deno.serve(async (req) => {
           return jsonResponse(result, 202);
         }
         
-        // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error AND no scraping was initiated
-        if (!fetchResult.ok && providerOrder.fallbackEnabled && 
-            (fetchResult.isEmpty || fetchResult.error?.includes('timeout') || fetchResult.error?.includes('5'))) {
-          console.log(`[sync-by-work-item] CPNU failed/empty (no scraping), trying SAMAI fallback`);
-          result.warnings.push(`CPNU (primary): ${fetchResult.error}`);
-          
-          const samaiResult = await fetchFromSamai(normalizedRadicado);
-          
-          result.provider_attempts.push({
-            provider: 'samai',
-            status: samaiResult.ok ? 'success' : (samaiResult.isEmpty ? 'not_found' : 'error'),
-            latencyMs: samaiResult.latencyMs || 0,
-            message: samaiResult.error,
-            actuacionesCount: samaiResult.actuaciones.length,
-          });
-          
-          if (samaiResult.ok) {
-            fetchResult = samaiResult;
-            result.provider_order_reason = `${workItem.workflow_type.toLowerCase()}_cpnu_failed_samai_fallback`;
+        // ============= CGP/LABORAL: NO SAMAI FALLBACK =============
+        // If CPNU fails with an error (not 404/scraping), return 502 immediately
+        if (!fetchResult.ok && !fetchResult.scrapingInitiated) {
+          // Check if it's an empty result (404) vs actual error
+          if (fetchResult.isEmpty) {
+            // 404 without scraping initiated - this shouldn't happen normally
+            // (auto-scraping should have triggered), but handle gracefully
+            console.log(`[sync-by-work-item] CPNU: Record not found (NO SAMAI fallback for ${workItem.workflow_type})`);
+            result.warnings.push(`CPNU: ${fetchResult.error || 'Not found'}`);
+            // Log that SAMAI fallback is NOT attempted
+            result.provider_attempts.push({
+              provider: 'samai',
+              status: 'skipped',
+              latencyMs: 0,
+              message: `SAMAI fallback disabled for ${workItem.workflow_type} - civil/labor processes are NOT in SAMAI`,
+            });
           } else {
-            result.warnings.push(`SAMAI fallback: ${samaiResult.error}`);
+            // Actual CPNU error (timeout, 5xx, network error)
+            console.error(`[sync-by-work-item] ❌ CPNU failed for ${workItem.workflow_type} (NO SAMAI fallback)`, {
+              work_item_id,
+              workflow_type: workItem.workflow_type,
+              radicado: workItem.radicado?.slice(0, 10) + '...',
+              error_message: fetchResult.error,
+              http_status: fetchResult.httpStatus,
+            });
+            
+            // Log SYNC_FAILED with explicit no-fallback note
+            await logTrace(supabase, {
+              trace_id: traceId,
+              work_item_id,
+              organization_id: workItem.organization_id,
+              workflow_type: workItem.workflow_type,
+              step: 'SYNC_FAILED',
+              provider: 'cpnu',
+              http_status: fetchResult.httpStatus || null,
+              latency_ms: fetchResult.latencyMs || null,
+              success: false,
+              error_code: 'CPNU_SYNC_FAILED',
+              message: `CPNU failed: ${fetchResult.error}. NO fallback configured for ${workItem.workflow_type}.`,
+              meta: {
+                radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+                fallback_attempted: false,
+                reason: 'CGP/LABORAL workflows use CPNU only - SAMAI does not have civil/labor cases',
+              },
+            });
+            
+            // Update work_item status to FAILED
+            await supabase
+              .from('work_items')
+              .update({
+                scrape_status: 'FAILED',
+                last_checked_at: new Date().toISOString(),
+              })
+              .eq('id', work_item_id);
+            
+            // Return 502 with clear error message
+            return jsonResponse({
+              ok: false,
+              code: 'CPNU_SYNC_FAILED',
+              message: `CPNU provider failed and no fallback is configured for ${workItem.workflow_type}. Error: ${fetchResult.error}`,
+              provider: 'cpnu',
+              provider_attempts: result.provider_attempts,
+              work_item_id,
+              workflow_type: workItem.workflow_type,
+              trace_id: traceId,
+            }, 502);
           }
         }
       }
