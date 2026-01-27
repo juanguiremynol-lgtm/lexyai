@@ -23,6 +23,7 @@ export const TRACE_STEPS = {
   PROVIDER_RESPONSE_RECEIVED: "PROVIDER_RESPONSE_RECEIVED",
   PROVIDER_404: "PROVIDER_404",
   PROVIDER_ERROR: "PROVIDER_ERROR",
+  SCRAPING_INITIATED: "SCRAPING_INITIATED",
   PARSE_START: "PARSE_START",
   PARSE_RESULT: "PARSE_RESULT",
   PARSE_EMPTY: "PARSE_EMPTY",
@@ -145,6 +146,9 @@ export function formatSyncError(errorCode: string | null, message: string | null
     INVALID_IDENTIFIER: "Identificador inválido (formato incorrecto)",
     INVALID_RADICADO: "Radicado inválido (debe tener 23 dígitos)",
     INTERNAL_ERROR: "Error interno del servidor",
+    // Scraping-related
+    SCRAPING_INITIATED: "Scraping iniciado automáticamente",
+    SCRAPING_IN_PROGRESS: "Scraping en progreso",
     // Route/upstream error codes
     UPSTREAM_ROUTE_MISSING: "Ruta del proveedor no encontrada (verificar configuración BASE_URL)",
     UPSTREAM_AUTH: "Error de autenticación con proveedor externo",
