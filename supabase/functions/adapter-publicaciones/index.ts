@@ -19,8 +19,9 @@ interface ProcessEvent {
 }
 
 // Compute hash fingerprint for deduplication
-function computeFingerprint(source: string, eventDate: string | null, description: string, sourceUrl: string): string {
-  const data = `${source}|${eventDate || ''}|${description}|${sourceUrl}`;
+// IMPORTANT: work_item_id is now included in fingerprint for proper scoping
+function computeFingerprint(workItemId: string, source: string, eventDate: string | null, description: string, sourceUrl: string): string {
+  const data = `${workItemId}|${source}|${eventDate || ''}|${description}|${sourceUrl}`;
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -49,7 +50,7 @@ function parseColombianDate(dateStr: string): string | null {
 }
 
 // Parse estados electrónicos from publicaciones portal
-function parseEstadosElectronicos(markdown: string, html: string, sourceUrl: string): ProcessEvent[] {
+function parseEstadosElectronicos(markdown: string, html: string, sourceUrl: string, workItemId: string): ProcessEvent[] {
   const events: ProcessEvent[] = [];
   const baseUrl = 'https://publicacionesprocesales.ramajudicial.gov.co';
   
@@ -63,7 +64,7 @@ function parseEstadosElectronicos(markdown: string, html: string, sourceUrl: str
     
     if (description && description.length > 5) {
       const eventDate = parseColombianDate(dateStr);
-      const fingerprint = computeFingerprint('PUBLICACIONES', eventDate, description, sourceUrl);
+      const fingerprint = computeFingerprint(workItemId, 'PUBLICACIONES', eventDate, description, sourceUrl);
       
       events.push({
         source: 'PUBLICACIONES',
@@ -103,7 +104,7 @@ function parseEstadosElectronicos(markdown: string, html: string, sourceUrl: str
     
     if (dateCell && descCell && !events.some(e => e.description === descCell)) {
       const eventDate = parseColombianDate(dateCell);
-      const fingerprint = computeFingerprint('PUBLICACIONES', eventDate, descCell, sourceUrl);
+      const fingerprint = computeFingerprint(workItemId, 'PUBLICACIONES', eventDate, descCell, sourceUrl);
       
       // Extract PDF links from the row
       const attachments: Array<{ label: string; url: string }> = [];
@@ -184,6 +185,46 @@ async function getAuthenticatedUser(req: Request, supabaseUrl: string, supabaseA
   return { user_id: user.id };
 }
 
+// PHASE 3.1: Strict precedence - resolve work_item_id from legacy or direct
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveWorkItemId(
+  supabase: any,
+  workItemId: string | null,
+  legacyProcessId: string | null,
+  ownerId: string
+): Promise<string | null> {
+  // Priority 1: Direct work_item_id
+  if (workItemId) {
+    const { data } = await supabase
+      .from('work_items')
+      .select('id')
+      .eq('id', workItemId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (data) {
+      console.log(`[PUBLICACIONES] Resolved work_item_id directly: ${workItemId}`);
+      return (data as { id: string }).id;
+    }
+  }
+  
+  // Priority 2: Legacy fallback (with logging for observability)
+  if (legacyProcessId) {
+    console.log(`[PUBLICACIONES][FALLBACK] Using legacy monitored_process_id: ${legacyProcessId}`);
+    const { data } = await supabase
+      .from('work_items')
+      .select('id')
+      .eq('legacy_process_id', legacyProcessId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (data) {
+      console.log(`[PUBLICACIONES][FALLBACK] Resolved to work_item_id: ${(data as { id: string }).id}`);
+      return (data as { id: string }).id;
+    }
+  }
+  
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -203,10 +244,23 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Use authenticated user's ID instead of trusting request body
+    // Use authenticated user's ID - NEVER trust request body for owner_id
     const owner_id = authUser.user_id;
     
-    const { action, departamento, municipio, despacho, fecha_desde, fecha_hasta, monitored_process_id, include_screenshot } = await req.json();
+    const body = await req.json();
+    const { 
+      action, 
+      departamento, 
+      municipio, 
+      despacho, 
+      fecha_desde, 
+      fecha_hasta, 
+      // Primary: work_item_id
+      work_item_id,
+      // Legacy fallback (for backward compatibility)
+      monitored_process_id, 
+      include_screenshot 
+    } = body;
     
     if (!action) {
       return new Response(
@@ -264,7 +318,8 @@ Deno.serve(async (req) => {
       const markdown = scrapeData.data?.markdown || '';
       const html = scrapeData.data?.html || '';
       
-      const events = parseEstadosElectronicos(markdown, html, searchUrl);
+      // For search, we don't have a work_item_id yet, use placeholder
+      const events = parseEstadosElectronicos(markdown, html, searchUrl, 'SEARCH_PREVIEW');
       
       return new Response(
         JSON.stringify({
@@ -328,6 +383,25 @@ Deno.serve(async (req) => {
     }
     
     if (action === 'crawl' && despacho) {
+      // PHASE 3.1: Resolve work_item_id with strict precedence
+      const resolvedWorkItemId = await resolveWorkItemId(
+        supabase,
+        work_item_id || null,
+        monitored_process_id || null,
+        owner_id
+      );
+      
+      if (!resolvedWorkItemId) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'work_item_id is required. Provide work_item_id or a valid monitored_process_id that maps to a work_item.',
+            source: 'PUBLICACIONES'
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       // Crawl specific despacho for estados
       const despachoUrl = `${baseUrl}/web/publicaciones-procesales/publicaciones-procesales?despacho=${encodeURIComponent(despacho)}`;
       console.log('PUBLICACIONES: Crawling despacho:', despachoUrl);
@@ -363,29 +437,26 @@ Deno.serve(async (req) => {
       const html = scrapeData.data?.html || '';
       const screenshot = scrapeData.data?.screenshot;
       
-      const events = parseEstadosElectronicos(markdown, html, despachoUrl);
+      // Use work_item_id in fingerprint computation
+      const events = parseEstadosElectronicos(markdown, html, despachoUrl, resolvedWorkItemId);
       
-      // Get existing fingerprints
-      let existingFingerprints: Set<string> = new Set();
-      if (monitored_process_id) {
-        const { data: existingEvents } = await supabase
-          .from('process_events')
-          .select('hash_fingerprint')
-          .eq('monitored_process_id', monitored_process_id)
-          .eq('source', 'PUBLICACIONES');
-        
-        existingFingerprints = new Set(existingEvents?.map(e => e.hash_fingerprint).filter(Boolean) || []);
-      }
+      // Get existing fingerprints using work_item_id (canonical)
+      const { data: existingEvents } = await supabase
+        .from('process_events')
+        .select('hash_fingerprint')
+        .eq('work_item_id', resolvedWorkItemId)
+        .eq('source', 'PUBLICACIONES');
       
+      const existingFingerprints = new Set(existingEvents?.map(e => e.hash_fingerprint).filter(Boolean) || []);
       const newEvents = events.filter(e => !existingFingerprints.has(e.hash_fingerprint));
       
-      // Insert new events
-      if (newEvents.length > 0 && monitored_process_id) {
+      // Insert new events with work_item_id
+      if (newEvents.length > 0) {
         const { error: insertError } = await supabase
           .from('process_events')
           .insert(newEvents.map(e => ({
             owner_id,
-            monitored_process_id,
+            work_item_id: resolvedWorkItemId,
             source: e.source,
             event_type: e.event_type,
             event_date: e.event_date,
@@ -402,21 +473,28 @@ Deno.serve(async (req) => {
           console.error('Error inserting events:', insertError);
         }
         
-        // Update monitored_process timestamps
+        // Update work_item timestamps (canonical)
         await supabase
-          .from('monitored_processes')
+          .from('work_items')
           .update({
             last_checked_at: new Date().toISOString(),
             last_change_at: new Date().toISOString(),
           })
-          .eq('id', monitored_process_id);
+          .eq('id', resolvedWorkItemId);
         
-        // Create alert
+        // Create alert using canonical route
         if (newEvents.length > 0) {
-          await supabase.from('alerts').insert({
+          await supabase.from('alert_instances').insert({
             owner_id,
-            message: `PUBLICACIONES: ${newEvents.length} nuevo(s) estado(s) electrónico(s) encontrado(s)`,
-            severity: 'INFO'
+            entity_type: 'WORK_ITEM',
+            entity_id: resolvedWorkItemId,
+            severity: 'INFO',
+            status: 'PENDING',
+            title: `PUBLICACIONES: ${newEvents.length} nuevo(s) estado(s) electrónico(s)`,
+            message: `Se encontraron ${newEvents.length} nuevos estados electrónicos en el portal de publicaciones.`,
+            actions: [
+              { label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${resolvedWorkItemId}` } }
+            ],
           });
         }
       }
@@ -425,6 +503,7 @@ Deno.serve(async (req) => {
         JSON.stringify({
           success: true,
           source: 'PUBLICACIONES',
+          work_item_id: resolvedWorkItemId,
           events_found: events.length,
           new_events: newEvents.length,
           events: newEvents,
