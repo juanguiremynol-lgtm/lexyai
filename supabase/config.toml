@@ -89,3 +89,12 @@ verify_jwt = false
 
 [functions.billing-grace-enroll]
 verify_jwt = false
+
+[functions.sync-by-work-item]
+verify_jwt = false
+
+[functions.sync-penal906-by-radicado]
+verify_jwt = false
+
+[functions.process-email-outbox]
+verify_jwt = false

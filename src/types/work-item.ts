@@ -9,6 +9,7 @@ import type { WorkflowType, ItemSource, ItemStatus, CGPPhase } from '@/lib/workf
 export interface WorkItem {
   id: string;
   owner_id: string;
+  organization_id?: string;
   
   // Client and matter relationships
   client_id: string | null;
@@ -31,6 +32,7 @@ export interface WorkItem {
   // Core identification
   radicado: string | null;
   radicado_verified: boolean;
+  tutela_code: string | null; // TUTELA-specific identifier (T + digits)
   
   // Authority/court information
   authority_name: string | null;
