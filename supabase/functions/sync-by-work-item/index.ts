@@ -5,13 +5,13 @@
  * 
  * Features:
  * - Multi-tenant safe: validates user is member of work_item's organization
- * - Gateway integration: calls Cloud Run gateway when enableGatewayIntegration=true
- * - All external URLs from env vars: GATEWAY_BASE_URL, GATEWAY_API_KEY
- * - Adapter fallback when gateway disabled
+ * - CPNU primary + SAMAI fallback for radicado workflows
+ * - TUTELAS API for TUTELA workflows (tutela_code-based)
+ * - All external URLs from env vars: CPNU_BASE_URL, SAMAI_BASE_URL, TUTELAS_BASE_URL, EXTERNAL_X_API_KEY
  * - Idempotent: uses hash_fingerprint to prevent duplicates
  * 
  * Input: { work_item_id: string }
- * Output: { ok, inserted_count, skipped_count, latest_event_date, warnings, errors }
+ * Output: { ok, inserted_count, skipped_count, latest_event_date, provider_used, warnings, errors }
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -34,10 +34,9 @@ interface SyncResult {
   inserted_count: number;
   skipped_count: number;
   latest_event_date: string | null;
-  source_used: string | null;
+  provider_used: string | null;
   warnings: string[];
   errors: string[];
-  adapter_used?: string;
 }
 
 interface WorkItem {
@@ -50,27 +49,6 @@ interface WorkItem {
   scrape_status: string | null;
   last_crawled_at: string | null;
   expediente_url: string | null;
-}
-
-interface OrgIntegrationSettings {
-  adapter_priority_order: string[];
-  feature_flags: {
-    enableExternalApi?: boolean;
-    enableLegacyCpnu?: boolean;
-    enableTutelasApi?: boolean;
-    enableSamaiApi?: boolean;
-    enablePublicacionesApi?: boolean;
-    // Gateway integration flags
-    enableGatewayIntegration?: boolean;
-    enableDocumentsIngestion?: boolean;
-    gatewayCapabilities?: {
-      actuaciones?: boolean;
-      estados?: boolean;
-      expediente?: boolean;
-      documents?: boolean;
-    };
-  };
-  workflow_overrides?: Record<string, string>;
 }
 
 interface ActuacionRaw {
@@ -92,71 +70,8 @@ interface FetchResult {
     tipo_proceso?: string;
   };
   error?: string;
-  source: string;
-}
-
-// ============= GATEWAY TYPES =============
-
-interface GatewayRequest {
-  workflow_type: string;
-  identifier: {
-    radicado?: string;
-    tutela_code?: string;
-  };
-  capabilities: {
-    actuaciones: boolean;
-    estados: boolean;
-    expediente: boolean;
-    documents: boolean;
-  };
-  since?: string;
-  tenant: {
-    organization_id: string;
-    work_item_id: string;
-  };
-}
-
-interface GatewayActuacion {
-  source_id: string;
-  date: string | null;
-  title: string;
-  detail: string;
-  url: string | null;
-  raw: Record<string, unknown>;
-}
-
-interface GatewayEstado {
-  source_id: string;
-  date: string;
-  text: string;
-  raw: Record<string, unknown>;
-}
-
-interface GatewayDocument {
-  source_id: string;
-  title: string;
-  url: string;
-  published_at: string;
-  raw: Record<string, unknown>;
-}
-
-interface GatewayResponse {
-  source: string;
-  workflow_type: string;
-  identifier: {
-    radicado?: string;
-    tutela_code?: string;
-  };
-  fetched_at: string;
-  actuaciones: GatewayActuacion[];
-  estados: GatewayEstado[];
-  expediente: {
-    items: unknown[];
-    raw: Record<string, unknown>;
-  } | null;
-  documents: GatewayDocument[];
-  warnings: string[];
-  errors: string[];
+  provider: string;
+  isEmpty?: boolean; // Indicates empty result (for fallback logic)
 }
 
 // ============= HELPERS =============
@@ -184,6 +99,10 @@ function isValidTutelaCode(code: string): boolean {
 function isValidRadicado(radicado: string): boolean {
   const normalized = radicado.replace(/\D/g, '');
   return normalized.length === 23;
+}
+
+function normalizeRadicado(radicado: string): string {
+  return radicado.replace(/\D/g, '');
 }
 
 function generateFingerprint(
@@ -224,437 +143,133 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
   return null;
 }
 
-// ============= ADAPTER RESOLUTION =============
+// ============= PROVIDER: CPNU (Primary for CGP/LABORAL/CPACA/PENAL_906) =============
 
-// deno-lint-ignore no-explicit-any
-async function getOrgSettings(
-  supabase: any,
-  organizationId: string
-): Promise<OrgIntegrationSettings | null> {
-  const { data, error } = await supabase
-    .from('org_integration_settings')
-    .select('adapter_priority_order, feature_flags, workflow_overrides')
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
+  const baseUrl = Deno.env.get('CPNU_BASE_URL');
+  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
-  if (error || !data) {
-    console.log(`[sync-by-work-item] No org settings for ${organizationId}, using defaults`);
-    return null;
-  }
-
-  // deno-lint-ignore no-explicit-any
-  const row = data as any;
-  return {
-    adapter_priority_order: row.adapter_priority_order || ['gateway', 'external-rama-judicial-api', 'cpnu', 'noop'],
-    feature_flags: (row.feature_flags as OrgIntegrationSettings['feature_flags']) || {},
-    workflow_overrides: row.workflow_overrides as Record<string, string> | undefined,
-  };
-}
-
-function resolveAdapters(
-  workflowType: string,
-  settings: OrgIntegrationSettings | null
-): string[] {
-  // Build list of adapters to try in priority order
-  const adapters: string[] = [];
-  
-  // Check for workflow-specific override
-  if (settings?.workflow_overrides?.[workflowType]) {
-    adapters.push(settings.workflow_overrides[workflowType]);
-    return adapters;
-  }
-
-  const flags = settings?.feature_flags || {};
-  
-  // Gateway is the preferred adapter when enabled
-  if (flags.enableGatewayIntegration) {
-    adapters.push('gateway');
-  }
-  
-  // For TUTELA, also check tutelas API as fallback
-  if (workflowType === 'TUTELA') {
-    if (flags.enableTutelasApi !== false && !flags.enableGatewayIntegration) {
-      adapters.push('tutelas-api');
-    }
-  }
-
-  // Add legacy adapters based on priority order and flags (only if gateway not enabled)
-  if (!flags.enableGatewayIntegration) {
-    const priority = settings?.adapter_priority_order || ['external-rama-judicial-api', 'cpnu'];
-    
-    for (const adapterId of priority) {
-      if (adapterId === 'gateway') continue; // Skip gateway in legacy mode
-      if (adapterId === 'external-rama-judicial-api' && flags.enableExternalApi !== false) {
-        adapters.push(adapterId);
-      }
-      if (adapterId === 'cpnu' && flags.enableLegacyCpnu !== false) {
-        adapters.push(adapterId);
-      }
-      if (adapterId === 'samai-api' && flags.enableSamaiApi) {
-        adapters.push(adapterId);
-      }
-      if (adapterId === 'publicaciones-api' && flags.enablePublicacionesApi) {
-        adapters.push(adapterId);
-      }
-    }
-  }
-
-  return adapters.length > 0 ? adapters : ['noop'];
-}
-
-// ============= GATEWAY INTEGRATION =============
-
-async function fetchFromGateway(
-  workItem: WorkItem,
-  identifier: string,
-  identifierType: 'radicado' | 'tutela_code',
-  orgSettings: OrgIntegrationSettings | null
-): Promise<FetchResult> {
-  const gatewayBaseUrl = Deno.env.get('GATEWAY_BASE_URL');
-  const gatewayApiKey = Deno.env.get('GATEWAY_API_KEY');
-
-  if (!gatewayBaseUrl) {
-    console.log('[sync-by-work-item] GATEWAY_BASE_URL not configured');
+  if (!baseUrl) {
+    console.log('[sync-by-work-item] CPNU_BASE_URL not configured');
     return { 
       ok: false, 
       actuaciones: [], 
-      error: 'Gateway not configured (missing GATEWAY_BASE_URL). Contact administrator.', 
-      source: 'gateway' 
+      error: 'CPNU API not configured (missing CPNU_BASE_URL). Contact administrator.', 
+      provider: 'cpnu' 
     };
   }
-
-  if (!gatewayApiKey) {
-    console.log('[sync-by-work-item] GATEWAY_API_KEY not configured');
-    return { 
-      ok: false, 
-      actuaciones: [], 
-      error: 'Gateway not configured (missing GATEWAY_API_KEY). Contact administrator.', 
-      source: 'gateway' 
-    };
-  }
-
-  // Determine capabilities based on workflow type and org settings
-  const flags = orgSettings?.feature_flags || {};
-  const gatewayCapabilities = flags.gatewayCapabilities || {};
-  
-  const capabilities = {
-    actuaciones: gatewayCapabilities.actuaciones !== false, // default true
-    estados: ['CGP', 'LABORAL', 'TUTELA'].includes(workItem.workflow_type) && 
-             gatewayCapabilities.estados !== false,
-    expediente: workItem.workflow_type === 'TUTELA' && 
-                gatewayCapabilities.expediente !== false,
-    documents: flags.enableDocumentsIngestion === true && 
-               gatewayCapabilities.documents !== false,
-  };
-
-  // Build gateway request
-  const gatewayRequest: GatewayRequest = {
-    workflow_type: workItem.workflow_type,
-    identifier: identifierType === 'tutela_code' 
-      ? { tutela_code: identifier }
-      : { radicado: identifier },
-    capabilities,
-    tenant: {
-      organization_id: workItem.organization_id,
-      work_item_id: workItem.id,
-    },
-  };
-
-  // Optionally add since timestamp for incremental sync
-  if (workItem.last_crawled_at) {
-    gatewayRequest.since = workItem.last_crawled_at;
-  }
-
-  console.log(`[sync-by-work-item] Calling gateway: ${gatewayBaseUrl}/v1/sync`);
-  console.log(`[sync-by-work-item] Gateway request:`, JSON.stringify(gatewayRequest, null, 2));
 
   try {
-    const response = await fetch(`${gatewayBaseUrl}/v1/sync`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${gatewayApiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify(gatewayRequest),
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKey) {
+      headers['X-API-Key'] = apiKey;
+    }
+
+    console.log(`[sync-by-work-item] Calling CPNU: ${baseUrl}/proceso/${radicado}`);
+    
+    const response = await fetch(`${baseUrl}/proceso/${radicado}`, {
+      method: 'GET',
+      headers,
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        console.log(`[sync-by-work-item] CPNU: Process not found for ${radicado}`);
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'Not found', 
+          provider: 'cpnu',
+          isEmpty: true,
+        };
+      }
       const errorText = await response.text();
-      console.log(`[sync-by-work-item] Gateway HTTP ${response.status}: ${errorText}`);
+      console.log(`[sync-by-work-item] CPNU HTTP ${response.status}: ${errorText.slice(0, 200)}`);
       return { 
         ok: false, 
         actuaciones: [], 
-        error: `Gateway HTTP ${response.status}: ${errorText.slice(0, 200)}`, 
-        source: 'gateway' 
+        error: `HTTP ${response.status}`, 
+        provider: 'cpnu' 
       };
     }
 
-    const gatewayResponse: GatewayResponse = await response.json();
-    console.log(`[sync-by-work-item] Gateway response: ${gatewayResponse.actuaciones?.length || 0} actuaciones, ${gatewayResponse.warnings?.length || 0} warnings`);
-
-    // Handle gateway errors
-    if (gatewayResponse.errors && gatewayResponse.errors.length > 0) {
-      console.log(`[sync-by-work-item] Gateway errors:`, gatewayResponse.errors);
-      // Continue with partial data if we have actuaciones
-      if (!gatewayResponse.actuaciones || gatewayResponse.actuaciones.length === 0) {
-        return {
-          ok: false,
-          actuaciones: [],
-          error: gatewayResponse.errors.join('; '),
-          source: 'gateway',
-        };
-      }
+    const data = await response.json();
+    
+    // Check for "not found" indicators
+    if (data.expediente_encontrado === false || data.found === false) {
+      console.log(`[sync-by-work-item] CPNU: expediente_encontrado=false for ${radicado}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'Process not found in CPNU', 
+        provider: 'cpnu',
+        isEmpty: true,
+      };
     }
 
-    // Transform gateway actuaciones to our internal format
-    const actuaciones: ActuacionRaw[] = (gatewayResponse.actuaciones || []).map(act => ({
-      fecha: act.date || '',
-      actuacion: act.title || '',
-      anotacion: act.detail || '',
-    }));
+    // Extract actuaciones
+    const actuaciones = data.actuaciones || data.proceso?.actuaciones || [];
+    
+    if (actuaciones.length === 0) {
+      console.log(`[sync-by-work-item] CPNU: No actuaciones for ${radicado}`);
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'No actuaciones found', 
+        provider: 'cpnu',
+        isEmpty: true,
+      };
+    }
 
-    // Build result with metadata
-    const result: FetchResult = {
-      ok: actuaciones.length > 0 || gatewayResponse.expediente !== null,
-      actuaciones,
-      source: 'gateway',
+    console.log(`[sync-by-work-item] CPNU: Found ${actuaciones.length} actuaciones for ${radicado}`);
+    
+    return {
+      ok: true,
+      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
+        fecha: String(act.fecha_actuacion || act.fecha || ''),
+        actuacion: String(act.actuacion || ''),
+        anotacion: String(act.anotacion || ''),
+        fecha_inicia_termino: act.fecha_inicia_termino ? String(act.fecha_inicia_termino) : undefined,
+        fecha_finaliza_termino: act.fecha_finaliza_termino ? String(act.fecha_finaliza_termino) : undefined,
+      })),
+      caseMetadata: {
+        despacho: data.despacho || data.proceso?.despacho,
+        demandante: data.demandante || data.proceso?.demandante,
+        demandado: data.demandado || data.proceso?.demandado,
+        tipo_proceso: data.tipo_proceso || data.proceso?.tipo,
+      },
+      expedienteUrl: data.expediente_url,
+      provider: 'cpnu',
     };
-
-    // Extract expediente URL if available
-    if (gatewayResponse.expediente?.raw?.url) {
-      result.expedienteUrl = String(gatewayResponse.expediente.raw.url);
-    }
-
-    // Add warnings if any
-    if (gatewayResponse.warnings && gatewayResponse.warnings.length > 0) {
-      console.log(`[sync-by-work-item] Gateway warnings:`, gatewayResponse.warnings);
-    }
-
-    return result;
   } catch (err) {
-    console.error('[sync-by-work-item] Gateway fetch error:', err);
+    console.error('[sync-by-work-item] CPNU fetch error:', err);
     return { 
       ok: false, 
       actuaciones: [], 
-      error: err instanceof Error ? err.message : 'Gateway fetch failed', 
-      source: 'gateway' 
+      error: err instanceof Error ? err.message : 'CPNU fetch failed', 
+      provider: 'cpnu' 
     };
   }
 }
 
-// ============= LEGACY ADAPTER FETCHERS =============
+// ============= PROVIDER: SAMAI (Fallback for CGP/LABORAL/CPACA/PENAL_906) =============
 
-async function fetchFromCpnu(
-  supabaseUrl: string,
-  authHeader: string,
-  radicado: string
-): Promise<FetchResult> {
-  try {
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/adapter-cpnu`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ radicado, action: 'search' }),
-      }
-    );
-
-    const result = await response.json();
-    
-    if (result.ok && result.proceso?.actuaciones) {
-      return {
-        ok: true,
-        actuaciones: result.proceso.actuaciones.map((act: Record<string, unknown>) => ({
-          fecha: act.fecha_actuacion || act.fecha || '',
-          actuacion: act.actuacion || '',
-          anotacion: act.anotacion || '',
-          fecha_inicia_termino: act.fecha_inicia_termino,
-          fecha_finaliza_termino: act.fecha_finaliza_termino,
-        })),
-        caseMetadata: {
-          despacho: result.proceso.despacho,
-          demandante: result.proceso.demandante,
-          demandado: result.proceso.demandado,
-          tipo_proceso: result.proceso.tipo,
-        },
-        source: 'cpnu',
-      };
-    }
-
-    return { ok: false, actuaciones: [], error: result.error || 'No results', source: 'cpnu' };
-  } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'CPNU fetch failed', source: 'cpnu' };
-  }
-}
-
-async function fetchFromExternalApi(
-  radicado: string
-): Promise<FetchResult> {
-  // Get base URL from env var - NEVER hardcoded
-  const baseUrl = Deno.env.get('EXTERNAL_RAMA_API_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
-
-  if (!baseUrl) {
-    console.log('[sync-by-work-item] EXTERNAL_RAMA_API_URL not configured');
-    return { ok: false, actuaciones: [], error: 'External API not configured (missing EXTERNAL_RAMA_API_URL)', source: 'external-rama-judicial-api' };
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKey) {
-      headers['X-API-Key'] = apiKey;
-    }
-
-    const response = await fetch(
-      `${baseUrl}/buscar?numero_radicacion=${radicado}`,
-      { method: 'GET', headers }
-    );
-
-    if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'external-rama-judicial-api' };
-    }
-
-    const data = await response.json();
-
-    // Handle job-based polling
-    if (data.jobId) {
-      let pollAttempts = 0;
-      const maxPolls = 30;
-      
-      while (pollAttempts < maxPolls) {
-        pollAttempts++;
-        await new Promise(r => setTimeout(r, 2000));
-        
-        const pollResponse = await fetch(
-          `${baseUrl}/resultado/${data.jobId}`,
-          { method: 'GET', headers: { 'Accept': 'application/json' } }
-        );
-        
-        const pollData = await pollResponse.json();
-        
-        if (pollData.status === 'completed' && pollData.proceso?.actuaciones) {
-          return {
-            ok: true,
-            actuaciones: pollData.proceso.actuaciones.map((act: Record<string, unknown>) => ({
-              fecha: act['Fecha de Actuación'] || act.fecha || '',
-              actuacion: act['Actuación'] || act.actuacion || '',
-              anotacion: act['Anotación'] || act.anotacion || '',
-            })),
-            caseMetadata: {
-              despacho: pollData.proceso['Despacho'] || pollData.proceso.despacho,
-              demandante: pollData.proceso['Demandante'] || pollData.proceso.demandante,
-              demandado: pollData.proceso['Demandado'] || pollData.proceso.demandado,
-              tipo_proceso: pollData.proceso['Tipo de Proceso'],
-            },
-            source: 'external-rama-judicial-api',
-          };
-        } else if (pollData.status === 'failed' || pollData.estado === 'NO_ENCONTRADO') {
-          return { ok: false, actuaciones: [], error: 'Not found', source: 'external-rama-judicial-api' };
-        }
-      }
-      
-      return { ok: false, actuaciones: [], error: 'Polling timeout', source: 'external-rama-judicial-api' };
-    }
-
-    // Direct response
-    if (data.proceso) {
-      const actuaciones = data.actuaciones || data.proceso.actuaciones || [];
-      return {
-        ok: true,
-        actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
-          fecha: act['Fecha de Actuación'] || act.fecha || '',
-          actuacion: act['Actuación'] || act.actuacion || '',
-          anotacion: act['Anotación'] || act.anotacion || '',
-        })),
-        caseMetadata: {
-          despacho: data.proceso['Despacho'] || data.proceso.despacho,
-          demandante: data.proceso['Demandante'] || data.proceso.demandante,
-          demandado: data.proceso['Demandado'] || data.proceso.demandado,
-          tipo_proceso: data.proceso['Tipo de Proceso'],
-        },
-        source: 'external-rama-judicial-api',
-      };
-    }
-
-    if (data.estado === 'NO_ENCONTRADO') {
-      return { ok: false, actuaciones: [], error: 'Not found', source: 'external-rama-judicial-api' };
-    }
-
-    return { ok: false, actuaciones: [], error: 'No actuaciones in response', source: 'external-rama-judicial-api' };
-  } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'External API failed', source: 'external-rama-judicial-api' };
-  }
-}
-
-async function fetchFromTutelasApi(
-  tutelaCode: string,
-  _radicado: string | null
-): Promise<FetchResult> {
-  const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
-
-  if (!baseUrl) {
-    console.log('[sync-by-work-item] TUTELAS_BASE_URL not configured');
-    return { ok: false, actuaciones: [], error: 'Tutelas API not configured (missing TUTELAS_BASE_URL)', source: 'tutelas-api' };
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKey) {
-      headers['X-API-Key'] = apiKey;
-    }
-
-    const response = await fetch(
-      `${baseUrl}/expediente/${tutelaCode}`,
-      { method: 'GET', headers }
-    );
-
-    if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'tutelas-api' };
-    }
-
-    const data = await response.json();
-
-    if (data.actuaciones) {
-      return {
-        ok: true,
-        actuaciones: data.actuaciones.map((act: Record<string, unknown>) => ({
-          fecha: act.fecha || '',
-          actuacion: act.actuacion || act.descripcion || '',
-          anotacion: act.anotacion || '',
-        })),
-        expedienteUrl: data.expediente_url,
-        source: 'tutelas-api',
-      };
-    }
-
-    return { ok: false, actuaciones: [], error: 'No actuaciones', source: 'tutelas-api' };
-  } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'Tutelas API failed', source: 'tutelas-api' };
-  }
-}
-
-async function fetchFromSamaiApi(
-  radicado: string
-): Promise<FetchResult> {
+async function fetchFromSamai(radicado: string): Promise<FetchResult> {
   const baseUrl = Deno.env.get('SAMAI_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] SAMAI_BASE_URL not configured');
-    return { ok: false, actuaciones: [], error: 'SAMAI API not configured', source: 'samai-api' };
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: 'SAMAI API not configured (missing SAMAI_BASE_URL). Fallback unavailable.', 
+      provider: 'samai' 
+    };
   }
 
   try {
@@ -667,44 +282,87 @@ async function fetchFromSamaiApi(
       headers['X-API-Key'] = apiKey;
     }
 
-    const response = await fetch(
-      `${baseUrl}/proceso/${radicado}`,
-      { method: 'GET', headers }
-    );
+    console.log(`[sync-by-work-item] Calling SAMAI fallback: ${baseUrl}/proceso/${radicado}`);
+    
+    const response = await fetch(`${baseUrl}/proceso/${radicado}`, {
+      method: 'GET',
+      headers,
+    });
 
     if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'samai-api' };
-    }
-
-    const data = await response.json();
-
-    if (data.actuaciones) {
-      return {
-        ok: true,
-        actuaciones: data.actuaciones.map((act: Record<string, unknown>) => ({
-          fecha: act.fecha || '',
-          actuacion: act.actuacion || '',
-          anotacion: act.anotacion || '',
-        })),
-        source: 'samai-api',
+      if (response.status === 404) {
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'Not found in SAMAI', 
+          provider: 'samai',
+          isEmpty: true,
+        };
+      }
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: `HTTP ${response.status}`, 
+        provider: 'samai' 
       };
     }
 
-    return { ok: false, actuaciones: [], error: 'No actuaciones', source: 'samai-api' };
+    const data = await response.json();
+    
+    const actuaciones = data.actuaciones || [];
+    
+    if (actuaciones.length === 0) {
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'No actuaciones in SAMAI', 
+        provider: 'samai',
+        isEmpty: true,
+      };
+    }
+
+    console.log(`[sync-by-work-item] SAMAI: Found ${actuaciones.length} actuaciones for ${radicado}`);
+    
+    return {
+      ok: true,
+      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
+        fecha: String(act.fecha || ''),
+        actuacion: String(act.actuacion || ''),
+        anotacion: String(act.anotacion || ''),
+      })),
+      caseMetadata: {
+        despacho: data.despacho,
+        demandante: data.demandante,
+        demandado: data.demandado,
+        tipo_proceso: data.tipo_proceso,
+      },
+      provider: 'samai',
+    };
   } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'SAMAI API failed', source: 'samai-api' };
+    console.error('[sync-by-work-item] SAMAI fetch error:', err);
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: err instanceof Error ? err.message : 'SAMAI fetch failed', 
+      provider: 'samai' 
+    };
   }
 }
 
-async function fetchFromPublicacionesApi(
-  radicado: string
-): Promise<FetchResult> {
-  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+// ============= PROVIDER: TUTELAS API =============
+
+async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
+  const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
-    console.log('[sync-by-work-item] PUBLICACIONES_BASE_URL not configured');
-    return { ok: false, actuaciones: [], error: 'Publicaciones API not configured', source: 'publicaciones-api' };
+    console.log('[sync-by-work-item] TUTELAS_BASE_URL not configured');
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: 'TUTELAS API not configured (missing TUTELAS_BASE_URL). Contact administrator.', 
+      provider: 'tutelas-api' 
+    };
   }
 
   try {
@@ -717,32 +375,61 @@ async function fetchFromPublicacionesApi(
       headers['X-API-Key'] = apiKey;
     }
 
-    const response = await fetch(
-      `${baseUrl}/estados/${radicado}`,
-      { method: 'GET', headers }
-    );
+    console.log(`[sync-by-work-item] Calling TUTELAS: ${baseUrl}/expediente/${tutelaCode}`);
+    
+    const response = await fetch(`${baseUrl}/expediente/${tutelaCode}`, {
+      method: 'GET',
+      headers,
+    });
 
     if (!response.ok) {
-      return { ok: false, actuaciones: [], error: `HTTP ${response.status}`, source: 'publicaciones-api' };
-    }
-
-    const data = await response.json();
-
-    if (data.estados) {
-      return {
-        ok: true,
-        actuaciones: data.estados.map((est: Record<string, unknown>) => ({
-          fecha: est.fecha_publicacion || est.fecha || '',
-          actuacion: est.descripcion || est.estado || '',
-          anotacion: est.detalle || '',
-        })),
-        source: 'publicaciones-api',
+      if (response.status === 404) {
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: 'Tutela not found', 
+          provider: 'tutelas-api',
+          isEmpty: true,
+        };
+      }
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: `HTTP ${response.status}`, 
+        provider: 'tutelas-api' 
       };
     }
 
-    return { ok: false, actuaciones: [], error: 'No estados', source: 'publicaciones-api' };
+    const data = await response.json();
+    
+    const actuaciones = data.actuaciones || [];
+    
+    console.log(`[sync-by-work-item] TUTELAS: Found ${actuaciones.length} actuaciones for ${tutelaCode}`);
+    
+    return {
+      ok: actuaciones.length > 0 || !!data.expediente_url,
+      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
+        fecha: String(act.fecha || ''),
+        actuacion: String(act.actuacion || act.descripcion || ''),
+        anotacion: String(act.anotacion || ''),
+      })),
+      expedienteUrl: data.expediente_url,
+      caseMetadata: {
+        despacho: data.despacho,
+        demandante: data.accionante,
+        demandado: data.accionado,
+        tipo_proceso: 'TUTELA',
+      },
+      provider: 'tutelas-api',
+    };
   } catch (err) {
-    return { ok: false, actuaciones: [], error: err instanceof Error ? err.message : 'Publicaciones API failed', source: 'publicaciones-api' };
+    console.error('[sync-by-work-item] TUTELAS fetch error:', err);
+    return { 
+      ok: false, 
+      actuaciones: [], 
+      error: err instanceof Error ? err.message : 'TUTELAS API failed', 
+      provider: 'tutelas-api' 
+    };
   }
 }
 
@@ -832,91 +519,63 @@ Deno.serve(async (req) => {
       inserted_count: 0,
       skipped_count: 0,
       latest_event_date: null,
-      source_used: null,
+      provider_used: null,
       warnings: [],
       errors: [],
     };
 
-    // Resolve identifier based on workflow type
-    let identifier: string | null = null;
-    let identifierType: 'radicado' | 'tutela_code' = 'radicado';
-
-    if (workItem.workflow_type === 'TUTELA') {
-      if (workItem.tutela_code && isValidTutelaCode(workItem.tutela_code)) {
-        identifier = workItem.tutela_code;
-        identifierType = 'tutela_code';
-      } else if (workItem.radicado && isValidRadicado(workItem.radicado)) {
-        identifier = workItem.radicado.replace(/\D/g, '');
-        identifierType = 'radicado';
-        result.warnings.push('Using radicado as fallback - consider adding tutela_code (T + digits)');
-      }
-    } else {
-      if (workItem.radicado && isValidRadicado(workItem.radicado)) {
-        identifier = workItem.radicado.replace(/\D/g, '');
-      }
-    }
-
-    if (!identifier) {
-      const missingField = workItem.workflow_type === 'TUTELA' 
-        ? 'tutela_code (T + digits) or radicado (23 digits)'
-        : 'radicado (23 digits)';
-      return errorResponse(
-        'MISSING_IDENTIFIER',
-        `Work item is missing required identifier: ${missingField}. Please edit the work item to add it.`,
-        400
-      );
-    }
-
-    console.log(`[sync-by-work-item] Identifier: ${identifier} (type: ${identifierType}), workflow: ${workItem.workflow_type}`);
-
-    // Get org settings and resolve adapters to try
-    const orgSettings = await getOrgSettings(supabase, workItem.organization_id);
-    const adaptersToTry = resolveAdapters(workItem.workflow_type, orgSettings);
-    
-    console.log(`[sync-by-work-item] Adapters to try: ${adaptersToTry.join(', ')}`);
-
-    if (adaptersToTry.length === 0 || (adaptersToTry.length === 1 && adaptersToTry[0] === 'noop')) {
-      console.log(`[sync-by-work-item] No adapters enabled for org ${workItem.organization_id}`);
-      result.ok = true;
-      result.warnings.push('No external API adapters are enabled for this organization. Data sync skipped.');
-      return jsonResponse(result);
-    }
-
-    // Try adapters in priority order until one succeeds
+    // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
 
-    for (const adapterId of adaptersToTry) {
-      if (adapterId === 'noop') continue;
-
-      console.log(`[sync-by-work-item] Trying adapter: ${adapterId}`);
-
-      if (adapterId === 'gateway') {
-        // Use the new gateway integration
-        fetchResult = await fetchFromGateway(workItem as WorkItem, identifier, identifierType, orgSettings);
-      } else if (adapterId === 'tutelas-api' && identifierType === 'tutela_code') {
-        fetchResult = await fetchFromTutelasApi(identifier, workItem.radicado);
-      } else if (adapterId === 'external-rama-judicial-api') {
-        fetchResult = await fetchFromExternalApi(identifier);
-      } else if (adapterId === 'cpnu') {
-        fetchResult = await fetchFromCpnu(supabaseUrl, authHeader, identifier);
-      } else if (adapterId === 'samai-api') {
-        fetchResult = await fetchFromSamaiApi(identifier);
-      } else if (adapterId === 'publicaciones-api') {
-        fetchResult = await fetchFromPublicacionesApi(identifier);
+    if (workItem.workflow_type === 'TUTELA') {
+      // TUTELA workflow: require tutela_code
+      if (!workItem.tutela_code || !isValidTutelaCode(workItem.tutela_code)) {
+        return errorResponse(
+          'MISSING_TUTELA_CODE',
+          'TUTELA workflow requires a valid tutela_code (format: T + 6-10 digits, e.g., T11728622). Please edit the work item to add it.',
+          400
+        );
       }
-
-      if (fetchResult?.ok) {
-        console.log(`[sync-by-work-item] Adapter ${adapterId} succeeded with ${fetchResult.actuaciones.length} actuaciones`);
-        break;
-      } else {
-        console.log(`[sync-by-work-item] Adapter ${adapterId} failed: ${fetchResult?.error}`);
-        result.warnings.push(`${adapterId}: ${fetchResult?.error || 'No data'}`);
-        fetchResult = null;
+      
+      console.log(`[sync-by-work-item] TUTELA workflow: using tutela_code=${workItem.tutela_code}`);
+      fetchResult = await fetchFromTutelasApi(workItem.tutela_code);
+      
+    } else {
+      // CGP/LABORAL/CPACA/PENAL_906: require radicado (23 digits)
+      if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
+        return errorResponse(
+          'MISSING_RADICADO',
+          'This workflow requires a valid radicado (23 digits). Please edit the work item to add it.',
+          400
+        );
+      }
+      
+      const normalizedRadicado = normalizeRadicado(workItem.radicado);
+      console.log(`[sync-by-work-item] Radicado workflow: using radicado=${normalizedRadicado}`);
+      
+      // CPNU primary
+      fetchResult = await fetchFromCpnu(normalizedRadicado);
+      
+      // SAMAI fallback: only if CPNU returns not found, empty, or recoverable error
+      if (!fetchResult.ok && (fetchResult.isEmpty || fetchResult.error?.includes('timeout') || fetchResult.error?.includes('5'))) {
+        console.log(`[sync-by-work-item] CPNU failed/empty, trying SAMAI fallback`);
+        result.warnings.push(`CPNU: ${fetchResult.error}`);
+        
+        const samaiResult = await fetchFromSamai(normalizedRadicado);
+        
+        if (samaiResult.ok) {
+          fetchResult = samaiResult;
+        } else {
+          // Both failed
+          result.warnings.push(`SAMAI fallback: ${samaiResult.error}`);
+        }
       }
     }
 
-    if (!fetchResult?.ok) {
-      result.errors.push('All configured adapters failed to fetch data');
+    // Handle fetch failure
+    if (!fetchResult || !fetchResult.ok) {
+      result.errors.push(fetchResult?.error || 'All providers failed to fetch data');
+      
       // Update scrape status
       await supabase
         .from('work_items')
@@ -929,16 +588,14 @@ Deno.serve(async (req) => {
       return jsonResponse(result);
     }
 
-    result.source_used = fetchResult.source;
-    result.adapter_used = fetchResult.source;
+    result.provider_used = fetchResult.provider;
+    console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
-    // Process actuaciones
-    const actuaciones = fetchResult.actuaciones;
-    console.log(`[sync-by-work-item] Fetched ${actuaciones.length} actuaciones from ${fetchResult.source}`);
-
-    if (actuaciones.length === 0) {
+    // Handle empty actuaciones (success but no data)
+    if (fetchResult.actuaciones.length === 0) {
       result.ok = true;
       result.warnings.push('No actuaciones found in external source');
+      
       await supabase
         .from('work_items')
         .update({
@@ -947,13 +604,14 @@ Deno.serve(async (req) => {
           last_checked_at: new Date().toISOString(),
         })
         .eq('id', work_item_id);
+      
       return jsonResponse(result);
     }
 
-    // Upsert actuaciones with deduplication
+    // ============= INGEST ACTUACIONES WITH DEDUPLICATION =============
     let latestDate: string | null = null;
 
-    for (const act of actuaciones) {
+    for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
       const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion);
 
@@ -981,8 +639,8 @@ Deno.serve(async (req) => {
           normalized_text: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
           act_date: actDate,
           act_date_raw: act.fecha,
-          source: fetchResult.source,
-          adapter_name: fetchResult.source,
+          source: fetchResult.provider,
+          adapter_name: fetchResult.provider,
           hash_fingerprint: fingerprint,
         });
 
@@ -1004,19 +662,19 @@ Deno.serve(async (req) => {
 
     result.latest_event_date = latestDate;
 
-    // Update work item with sync status and metadata
+    // ============= UPDATE WORK ITEM METADATA =============
     const updatePayload: Record<string, unknown> = {
       scrape_status: result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       last_crawled_at: new Date().toISOString(),
       last_checked_at: new Date().toISOString(),
-      total_actuaciones: actuaciones.length,
+      total_actuaciones: fetchResult.actuaciones.length,
     };
 
     if (latestDate) {
       updatePayload.last_action_date = latestDate;
     }
 
-    // Update expediente_url if returned by gateway/tutelas API and not already set
+    // Update expediente_url if returned and not already set
     if (fetchResult.expedienteUrl && !workItem.expediente_url) {
       updatePayload.expediente_url = fetchResult.expedienteUrl;
     }
@@ -1040,7 +698,7 @@ Deno.serve(async (req) => {
       .eq('id', work_item_id);
 
     result.ok = true;
-    console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, source=${result.source_used}`);
+    console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);
 
     return jsonResponse(result);
 
