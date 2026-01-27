@@ -374,8 +374,11 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
   const snapshotPath = `/snapshot?numero_radicacion=${radicado}`;
   const snapshotUrl = joinUrl(baseUrl, pathPrefix, snapshotPath);
   
-  console.log(`[sync-by-work-item] Calling CPNU /snapshot: ${snapshotPath}`);
+  // Trace: PROVIDER_REQUEST_START
+  console.log(`[sync-by-work-item] PROVIDER_REQUEST_START: CPNU, url=${snapshotUrl}, method=GET, auth_header=${apiKeyInfo.value ? 'x-api-key (present)' : 'none'}`);
 
+  const requestStartTime = Date.now();
+  
   try {
     const snapshotResponse = await fetch(snapshotUrl, {
       method: 'GET',
@@ -383,6 +386,11 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     });
 
     const snapshotBody = await snapshotResponse.text();
+    const requestLatencyMs = Date.now() - requestStartTime;
+    
+    // Trace: PROVIDER_RESPONSE_RECEIVED
+    console.log(`[sync-by-work-item] PROVIDER_RESPONSE_RECEIVED: CPNU, status=${snapshotResponse.status}, latencyMs=${requestLatencyMs}, bodyLength=${snapshotBody.length}`);
+    
     
     // Check for route mismatch (HTML "Cannot GET")
     if (snapshotResponse.status === 404 && isHtmlCannotGet(snapshotBody)) {
