@@ -31,19 +31,20 @@ const MAX_ARRAY_ITEMS = 200;
 const MAX_RAW_SIZE = 100000;
 
 // ============= ROUTE CANDIDATES =============
-// When CPNU returns HTML "Cannot GET", try these paths in order
+// CPNU Cloud Run service exposes routes at ROOT: /health, /snapshot, /buscar, /resultado/{jobId}
+// The primary lookup route is /snapshot?numero_radicacion={radicado}
 
+// For CPNU, we use query-param based routes (not path-based like /proceso/{id})
+// The {id} placeholder is replaced with the radicado in the query string
 const CPNU_ROUTE_CANDIDATES = [
-  '/proceso/{id}',
-  '/api/proceso/{id}',
-  '/v1/proceso/{id}',
-  '/cgp/proceso/{id}',
-  '/api/v1/proceso/{id}',
+  '/snapshot?numero_radicacion={id}',      // Primary: synchronous snapshot
+  '/buscar?numero_radicacion={id}',        // Fallback: async job creation
 ];
 
+// SAMAI uses similar routes
 const SAMAI_ROUTE_CANDIDATES = [
-  '/proceso/{id}',
-  '/api/proceso/{id}',
+  '/snapshot?numero_radicacion={id}',
+  '/buscar?numero_radicacion={id}',
 ];
 
 const TUTELAS_ROUTE_CANDIDATES = [
@@ -52,8 +53,8 @@ const TUTELAS_ROUTE_CANDIDATES = [
 ];
 
 const PUBLICACIONES_ROUTE_CANDIDATES = [
-  '/publicaciones/{id}',
-  '/api/publicaciones/{id}',
+  '/publicaciones?radicado={id}',
+  '/api/publicaciones?radicado={id}',
 ];
 
 // ============= TYPES =============
@@ -619,6 +620,64 @@ async function callProviderWithProbing(
     attempts,
     route_probing_used: false,
   };
+}
+
+// ============= CPNU ASYNC JOB FLOW =============
+// If /snapshot doesn't work or returns pending, we can try /buscar -> /resultado
+
+async function tryBuscarResultadoFlow(
+  baseUrl: string,
+  pathPrefix: string,
+  radicado: string,
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<{ ok: boolean; data?: unknown; error?: string; jobId?: string }> {
+  const buscarPath = `/buscar?numero_radicacion=${radicado}`;
+  const buscarUrl = joinUrl(baseUrl, pathPrefix, buscarPath);
+  
+  try {
+    const buscarResponse = await fetch(buscarUrl, { method: 'GET', headers });
+    const buscarBody = await buscarResponse.text();
+    
+    if (!buscarResponse.ok) {
+      return { ok: false, error: `buscar returned ${buscarResponse.status}` };
+    }
+    
+    let buscarData: Record<string, unknown>;
+    try {
+      buscarData = JSON.parse(buscarBody);
+    } catch {
+      return { ok: false, error: 'buscar returned non-JSON' };
+    }
+    
+    // Extract job ID
+    const jobId = (buscarData.jobId || buscarData.id || buscarData.resultId || buscarData.job_id) as string | undefined;
+    if (!jobId) {
+      return { ok: false, error: 'buscar did not return a jobId' };
+    }
+    
+    // Wait briefly then fetch resultado
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const resultadoPath = `/resultado/${jobId}`;
+    const resultadoUrl = joinUrl(baseUrl, pathPrefix, resultadoPath);
+    
+    const resultadoResponse = await fetch(resultadoUrl, { method: 'GET', headers });
+    const resultadoBody = await resultadoResponse.text();
+    
+    if (!resultadoResponse.ok) {
+      return { ok: false, error: `resultado returned ${resultadoResponse.status}`, jobId };
+    }
+    
+    try {
+      const resultadoData = JSON.parse(resultadoBody);
+      return { ok: true, data: resultadoData, jobId };
+    } catch {
+      return { ok: false, error: 'resultado returned non-JSON', jobId };
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'buscar/resultado failed' };
+  }
 }
 
 function buildSummary(provider: ProviderName, data: unknown): DebugSummary {
