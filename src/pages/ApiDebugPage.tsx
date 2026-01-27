@@ -35,6 +35,8 @@ import {
   Wifi,
   WifiOff,
   Shield,
+  Mail,
+  Send,
   Database,
   ExternalLink,
   Sparkles,
@@ -47,9 +49,17 @@ import { cn } from "@/lib/utils";
 type ProviderName = "cpnu" | "samai" | "tutelas" | "publicaciones";
 type WorkflowType = "CGP" | "LABORAL" | "CPACA" | "TUTELA" | "PENAL_906";
 
+interface EmailGatewayHealth {
+  configured: boolean;
+  base_url_set: boolean;
+  api_key_set: boolean;
+  from_address_set: boolean;
+}
+
 interface IntegrationHealthResult {
   ok: boolean;
   env: Record<string, boolean>;
+  email_gateway?: EmailGatewayHealth;
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
   timestamp: string;
   user_role?: string;
@@ -588,6 +598,65 @@ export default function ApiDebugPage() {
               </div>
             </>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Email Gateway Health Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Email Gateway (Cloud Run)
+          </CardTitle>
+          <CardDescription>
+            Estado de configuración del gateway de correo (Option B architecture)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {healthLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Verificando configuración...
+            </div>
+          ) : healthData?.email_gateway ? (
+            <>
+              <div className={cn(
+                "flex items-center gap-3 p-4 rounded-lg",
+                healthData.email_gateway.configured ? "bg-emerald-500/10" : "bg-amber-500/10"
+              )}>
+                {healthData.email_gateway.configured ? (
+                  <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-6 w-6 text-amber-600" />
+                )}
+                <div>
+                  <p className="font-medium">
+                    {healthData.email_gateway.configured 
+                      ? "Gateway configurado y listo" 
+                      : "Gateway no configurado (emails no se enviarán)"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Los emails se encolan en email_outbox y se procesan vía process-email-outbox
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <SecretStatusBadge name="EMAIL_GATEWAY_BASE_URL" present={healthData.email_gateway.base_url_set} />
+                <SecretStatusBadge name="EMAIL_GATEWAY_API_KEY" present={healthData.email_gateway.api_key_set} />
+                <SecretStatusBadge name="EMAIL_FROM_ADDRESS" present={healthData.email_gateway.from_address_set} />
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                <Send className="h-3 w-3 inline mr-1" />
+                Documentación: <code className="bg-muted px-1 rounded">docs/runbook-email-gateway.md</code>
+              </p>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Ejecute la verificación de integración para ver el estado del gateway.
+            </p>
+          )}
         </CardContent>
       </Card>
 

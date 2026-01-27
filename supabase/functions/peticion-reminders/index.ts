@@ -1,7 +1,13 @@
+/**
+ * Peticion Reminders Edge Function
+ * 
+ * Scans for peticiones with approaching deadlines and enqueues reminder emails.
+ * Does NOT send directly - uses queue-first architecture via process-email-outbox.
+ */
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -21,6 +27,7 @@ interface Peticion {
   prorogation_deadline_at: string | null;
   phase: string;
   owner_id: string;
+  organization_id: string | null;
 }
 
 interface Profile {
@@ -79,7 +86,7 @@ const generatePeticionReminderHtml = (
     <body style="margin: 0; padding: 20px; background-color: #f3f4f6;">
       <div style="${baseStyles}">
         <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%); color: white; padding: 24px; text-align: center;">
-          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ Lex Docket</h1>
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ ATENIA</h1>
           <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">Recordatorio de Petición</p>
         </div>
         
@@ -118,7 +125,7 @@ const generatePeticionReminderHtml = (
         </div>
         
         <div style="background-color: #f9fafb; padding: 16px 24px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb;">
-          <p style="margin: 0;">© ${new Date().getFullYear()} Lex Docket - Asistente Legal</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} ATENIA - Asistente Legal</p>
           <p style="margin: 4px 0 0;">Este correo fue enviado automáticamente. No responda a este mensaje.</p>
         </div>
       </div>
@@ -128,7 +135,7 @@ const generatePeticionReminderHtml = (
 };
 
 const handler = async (req: Request): Promise<Response> => {
-  console.log("peticion-reminders function invoked");
+  console.log("[peticion-reminders] Function invoked");
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -143,7 +150,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Fetch peticiones that need reminders (not in RESPUESTA phase)
     const { data: peticiones, error: peticionesError } = await supabase
       .from("peticiones")
-      .select("*")
+      .select("*, organization_id")
       .neq("phase", "RESPUESTA")
       .or(`deadline_at.gte.${today.toISOString()},prorogation_deadline_at.gte.${today.toISOString()}`);
 
@@ -151,9 +158,9 @@ const handler = async (req: Request): Promise<Response> => {
       throw peticionesError;
     }
 
-    console.log(`Found ${peticiones?.length || 0} peticiones to check`);
+    console.log(`[peticion-reminders] Found ${peticiones?.length || 0} peticiones to check`);
 
-    const emailsSent: string[] = [];
+    const emailsQueued: string[] = [];
     const alertsCreated: string[] = [];
     const errors: string[] = [];
 
@@ -173,7 +180,41 @@ const handler = async (req: Request): Promise<Response> => {
       const shouldSendReminder = reminderDays.includes(daysUntil);
       if (!shouldSendReminder) continue;
 
-      // Check if we already sent an alert for this day
+      // Get organization_id from peticion or profile
+      let organizationId = peticion.organization_id;
+      
+      if (!organizationId) {
+        // Try to get org from owner's profile
+        const { data: ownerProfile } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", peticion.owner_id)
+          .single();
+        organizationId = ownerProfile?.organization_id;
+      }
+
+      if (!organizationId) {
+        console.error(`[peticion-reminders] No organization_id for peticion ${peticion.id}, skipping`);
+        continue;
+      }
+
+      // Generate dedupe key for this specific day
+      const dedupeKey = `peticion:${peticion.id}:${daysUntil}:${isProrogation ? 'proro' : 'deadline'}`;
+
+      // Check if we already sent/queued for this day
+      const { data: existing } = await supabase
+        .from("email_outbox")
+        .select("id")
+        .eq("dedupe_key", dedupeKey)
+        .in("status", ["PENDING", "SENDING", "SENT"])
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        console.log(`[peticion-reminders] Reminder already queued/sent for peticion ${peticion.id}, days=${daysUntil}`);
+        continue;
+      }
+
+      // Also check peticion_alerts table for legacy deduplication
       const { data: existingAlerts } = await supabase
         .from("peticion_alerts")
         .select("id")
@@ -182,10 +223,10 @@ const handler = async (req: Request): Promise<Response> => {
         .limit(1);
 
       if (existingAlerts && existingAlerts.length > 0) {
-        continue; // Already sent today
+        continue; // Already processed today via legacy system
       }
 
-      console.log(`Processing peticion ${peticion.id} - ${peticion.subject}, ${daysUntil} days until deadline`);
+      console.log(`[peticion-reminders] Processing peticion ${peticion.id} - ${peticion.subject}, ${daysUntil} days until deadline`);
 
       // Get the owner's profile
       const { data: profile, error: profileError } = await supabase
@@ -195,11 +236,11 @@ const handler = async (req: Request): Promise<Response> => {
         .single();
 
       if (profileError || !profile) {
-        console.error(`Could not find profile for owner ${peticion.owner_id}`);
+        console.error(`[peticion-reminders] Could not find profile for owner ${peticion.owner_id}`);
         continue;
       }
 
-      // Determine severity
+      // Determine severity for in-app alert
       let severity: "INFO" | "WARN" | "CRITICAL" = "INFO";
       let alertType = "DEADLINE_WARNING";
       
@@ -210,7 +251,7 @@ const handler = async (req: Request): Promise<Response> => {
         severity = "WARN";
       }
 
-      // Create alert
+      // Create in-app alert
       const { error: alertError } = await supabase.from("peticion_alerts").insert({
         owner_id: peticion.owner_id,
         peticion_id: peticion.id,
@@ -227,7 +268,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       // Check if email reminders are enabled
       if (profile.email_reminders_enabled === false) {
-        console.log(`Email reminders disabled for user ${profile.id}`);
+        console.log(`[peticion-reminders] Email reminders disabled for user ${profile.id}`);
         continue;
       }
 
@@ -235,43 +276,58 @@ const handler = async (req: Request): Promise<Response> => {
       const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(peticion.owner_id);
       
       if (authError || !authUser.user?.email) {
-        console.error(`Could not find email for user ${peticion.owner_id}`);
+        console.error(`[peticion-reminders] Could not find email for user ${peticion.owner_id}`);
         continue;
       }
 
       const recipientEmail = profile.reminder_email || authUser.user.email;
 
-      // Generate and send email
+      // Generate email HTML
       const html = generatePeticionReminderHtml(peticion, profile, daysUntil, isProrogation);
-      const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "Lex Docket <onboarding@resend.dev>";
+      const subject = daysUntil <= 0
+        ? `[URGENTE] Petición VENCIDA: ${peticion.subject}`
+        : `[ATENIA] Petición vence en ${daysUntil} día${daysUntil !== 1 ? "s" : ""}: ${peticion.subject}`;
 
       try {
-        const resendResponse = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: fromEmail,
-            to: [recipientEmail],
-            subject: daysUntil <= 0
-              ? `[URGENTE] Petición VENCIDA: ${peticion.subject}`
-              : `[Lex Docket] Petición vence en ${daysUntil} día${daysUntil !== 1 ? "s" : ""}: ${peticion.subject}`,
-            html,
-          }),
-        });
+        // Enqueue email into email_outbox (do NOT send directly)
+        const { data: outboxRow, error: insertError } = await supabase
+          .from("email_outbox")
+          .insert({
+            organization_id: organizationId,
+            to_email: recipientEmail,
+            subject: subject,
+            html: html,
+            status: "PENDING",
+            next_attempt_at: new Date().toISOString(),
+            attempts: 0,
+            trigger_event: isProrogation ? "PETICION_PROROGATION_REMINDER" : "PETICION_DEADLINE_REMINDER",
+            trigger_reason: daysUntil <= 0
+              ? `Petición vencida: ${peticion.subject}`
+              : `Petición vence en ${daysUntil} día(s): ${peticion.subject}`,
+            dedupe_key: dedupeKey,
+            metadata: {
+              peticion_id: peticion.id,
+              days_until: daysUntil,
+              is_prorogation: isProrogation,
+              entity_name: peticion.entity_name,
+            },
+          })
+          .select("id")
+          .single();
 
-        const emailResult = await resendResponse.json();
-
-        if (!resendResponse.ok) {
-          throw new Error(emailResult.message || "Failed to send email");
+        if (insertError) {
+          // Handle duplicate constraint
+          if (insertError.code === "23505") {
+            console.log(`[peticion-reminders] Duplicate insert for peticion ${peticion.id}`);
+            continue;
+          }
+          throw insertError;
         }
 
-        console.log(`Email sent for peticion ${peticion.id} to ${recipientEmail}`);
-        emailsSent.push(peticion.id);
+        console.log(`[peticion-reminders] Email queued for peticion ${peticion.id}: ${outboxRow.id}`);
+        emailsQueued.push(peticion.id);
 
-        // Update alert as sent
+        // Update peticion_alert sent_at
         await supabase
           .from("peticion_alerts")
           .update({ sent_at: new Date().toISOString() })
@@ -280,7 +336,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       } catch (emailError) {
         const errorMsg = emailError instanceof Error ? emailError.message : "Unknown error";
-        console.error(`Failed to send email for peticion ${peticion.id}:`, errorMsg);
+        console.error(`[peticion-reminders] Failed to queue email for peticion ${peticion.id}:`, errorMsg);
         errors.push(`${peticion.id}: ${errorMsg}`);
       }
     }
@@ -289,9 +345,10 @@ const handler = async (req: Request): Promise<Response> => {
       JSON.stringify({
         success: true,
         alertsCreated: alertsCreated.length,
-        emailsSent: emailsSent.length,
-        peticionIds: emailsSent,
+        emailsQueued: emailsQueued.length,
+        peticionIds: emailsQueued,
         errors: errors.length > 0 ? errors : undefined,
+        message: "Emails enqueued for batch processing via process-email-outbox",
       }),
       {
         status: 200,
@@ -300,7 +357,7 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error in peticion-reminders function:", errorMessage);
+    console.error("[peticion-reminders] Error:", errorMessage);
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       {

@@ -1,7 +1,13 @@
+/**
+ * Hearing Reminders Edge Function
+ * 
+ * Scans for upcoming hearings and enqueues reminder emails into email_outbox.
+ * Does NOT send directly - uses queue-first architecture via process-email-outbox.
+ */
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -39,6 +45,7 @@ interface WorkItem {
   demandantes: string | null;
   demandados: string | null;
   client_id: string | null;
+  organization_id: string | null;
   clients: { name: string }[] | null;
 }
 
@@ -56,27 +63,6 @@ const generateHearingReminderHtml = (
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     overflow: hidden;
-  `;
-
-  const headerStyles = `
-    background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%);
-    color: white;
-    padding: 24px;
-    text-align: center;
-  `;
-
-  const contentStyles = `
-    padding: 24px;
-    color: #374151;
-  `;
-
-  const footerStyles = `
-    background-color: #f9fafb;
-    padding: 16px 24px;
-    text-align: center;
-    font-size: 12px;
-    color: #6b7280;
-    border-top: 1px solid #e5e7eb;
   `;
 
   let urgencyBadge = "";
@@ -120,7 +106,6 @@ const generateHearingReminderHtml = (
     ? `<p style="margin: 4px 0; font-size: 14px;"><strong>📍 Ubicación:</strong> ${hearing.location}</p>`
     : "";
 
-  // Get client name from work item (clients is an array from the join)
   const clientName = Array.isArray(workItem?.clients) && workItem.clients.length > 0
     ? workItem.clients[0].name
     : null;
@@ -134,12 +119,12 @@ const generateHearingReminderHtml = (
     </head>
     <body style="margin: 0; padding: 20px; background-color: #f3f4f6;">
       <div style="${baseStyles}">
-        <div style="${headerStyles}">
-          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ Lex Docket</h1>
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d4a6f 100%); color: white; padding: 24px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ ATENIA</h1>
           <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">Recordatorio de Audiencia</p>
         </div>
         
-        <div style="${contentStyles}">
+        <div style="padding: 24px; color: #374151;">
           <div style="display: inline-block; background-color: ${urgencyColor}15; color: ${urgencyColor}; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 16px;">
             ${urgencyBadge}
           </div>
@@ -167,8 +152,8 @@ const generateHearingReminderHtml = (
           </p>
         </div>
         
-        <div style="${footerStyles}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} Lex Docket - Asistente Legal</p>
+        <div style="background-color: #f9fafb; padding: 16px 24px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb;">
+          <p style="margin: 0;">© ${new Date().getFullYear()} ATENIA - Asistente Legal</p>
           <p style="margin: 4px 0 0;">Este correo fue enviado automáticamente. No responda a este mensaje.</p>
         </div>
       </div>
@@ -178,7 +163,7 @@ const generateHearingReminderHtml = (
 };
 
 const handler = async (req: Request): Promise<Response> => {
-  console.log("hearing-reminders function invoked");
+  console.log("[hearing-reminders] Function invoked");
 
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -187,13 +172,12 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get today and upcoming dates for reminders (1, 3, 7 days before)
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     const reminderDays = [0, 1, 3, 7]; // Same day, 1 day, 3 days, 7 days before
 
-    // Fetch hearings that need reminders - using work_item_id instead of filing_id
+    // Fetch hearings that need reminders
     const { data: hearings, error: hearingsError } = await supabase
       .from("hearings")
       .select(`
@@ -208,9 +192,10 @@ const handler = async (req: Request): Promise<Response> => {
       throw hearingsError;
     }
 
-    console.log(`Found ${hearings?.length || 0} upcoming hearings to check`);
+    console.log(`[hearing-reminders] Found ${hearings?.length || 0} upcoming hearings to check`);
 
-    const emailsSent: string[] = [];
+    const emailsQueued: string[] = [];
+    const alertsCreated: string[] = [];
     const errors: string[] = [];
 
     for (const hearing of hearings || []) {
@@ -224,15 +209,17 @@ const handler = async (req: Request): Promise<Response> => {
         continue;
       }
 
-      console.log(`Processing hearing ${hearing.id} - ${hearing.title}, ${daysUntil} days until`);
+      console.log(`[hearing-reminders] Processing hearing ${hearing.id} - ${hearing.title}, ${daysUntil} days until`);
 
       // Fetch linked work item if available
       let workItem: WorkItem | null = null;
+      let organizationId = hearing.organization_id;
+      
       if (hearing.work_item_id) {
         const { data: workItemData, error: workItemError } = await supabase
           .from("work_items")
           .select(`
-            id, radicado, title, workflow_type, demandantes, demandados, client_id,
+            id, radicado, title, workflow_type, demandantes, demandados, client_id, organization_id,
             clients(name)
           `)
           .eq("id", hearing.work_item_id)
@@ -240,7 +227,14 @@ const handler = async (req: Request): Promise<Response> => {
         
         if (!workItemError && workItemData) {
           workItem = workItemData as WorkItem;
+          // Prefer organization_id from work_item
+          organizationId = workItemData.organization_id || organizationId;
         }
+      }
+
+      if (!organizationId) {
+        console.error(`[hearing-reminders] No organization_id for hearing ${hearing.id}, skipping`);
+        continue;
       }
 
       // Get the owner's profile
@@ -251,13 +245,13 @@ const handler = async (req: Request): Promise<Response> => {
         .single();
 
       if (profileError || !profile) {
-        console.error(`Could not find profile for owner ${hearing.owner_id}`);
+        console.error(`[hearing-reminders] Could not find profile for owner ${hearing.owner_id}`);
         continue;
       }
 
       // Check if email reminders are enabled
       if (profile.email_reminders_enabled === false) {
-        console.log(`Email reminders disabled for user ${profile.id}`);
+        console.log(`[hearing-reminders] Email reminders disabled for user ${profile.id}`);
         continue;
       }
 
@@ -265,47 +259,70 @@ const handler = async (req: Request): Promise<Response> => {
       const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(hearing.owner_id);
       
       if (authError || !authUser.user?.email) {
-        console.error(`Could not find email for user ${hearing.owner_id}`);
+        console.error(`[hearing-reminders] Could not find email for user ${hearing.owner_id}`);
         continue;
       }
 
       const recipientEmail = profile.reminder_email || authUser.user.email;
 
-      // Generate and send email using work_item data
-      const html = generateHearingReminderHtml(
-        hearing,
-        workItem,
-        profile,
-        daysUntil
-      );
+      // Generate email HTML
+      const html = generateHearingReminderHtml(hearing, workItem, profile, daysUntil);
+      const subject = `[ATENIA] Recordatorio: ${hearing.title} - ${daysUntil === 0 ? "HOY" : daysUntil === 1 ? "MAÑANA" : `En ${daysUntil} días`}`;
 
-      const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "Lex Docket <onboarding@resend.dev>";
+      // Generate dedupe key for this specific reminder
+      const dedupeKey = `hearing:${hearing.id}:${daysUntil}`;
 
       try {
-        const resendResponse = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: fromEmail,
-            to: [recipientEmail],
-            subject: `[Lex Docket] Recordatorio: ${hearing.title} - ${daysUntil === 0 ? "HOY" : daysUntil === 1 ? "MAÑANA" : `En ${daysUntil} días`}`,
-            html,
-          }),
-        });
+        // Check for existing pending email with same dedupe key
+        const { data: existing } = await supabase
+          .from("email_outbox")
+          .select("id")
+          .eq("dedupe_key", dedupeKey)
+          .in("status", ["PENDING", "SENDING", "SENT"])
+          .limit(1);
 
-        const emailResult = await resendResponse.json();
-
-        if (!resendResponse.ok) {
-          throw new Error(emailResult.message || "Failed to send email");
+        if (existing && existing.length > 0) {
+          console.log(`[hearing-reminders] Reminder already queued/sent for hearing ${hearing.id}, days=${daysUntil}`);
+          continue;
         }
 
-        console.log(`Email sent for hearing ${hearing.id} to ${recipientEmail}`);
-        emailsSent.push(hearing.id);
+        // Enqueue email into email_outbox (do NOT send directly)
+        const { data: outboxRow, error: insertError } = await supabase
+          .from("email_outbox")
+          .insert({
+            organization_id: organizationId,
+            to_email: recipientEmail,
+            subject: subject,
+            html: html,
+            status: "PENDING",
+            next_attempt_at: new Date().toISOString(),
+            attempts: 0,
+            trigger_event: "HEARING_REMINDER",
+            trigger_reason: `Audiencia en ${daysUntil} día(s): ${hearing.title}`,
+            work_item_id: hearing.work_item_id || null,
+            dedupe_key: dedupeKey,
+            metadata: {
+              hearing_id: hearing.id,
+              days_until: daysUntil,
+              scheduled_at: hearing.scheduled_at,
+            },
+          })
+          .select("id")
+          .single();
 
-        // Mark reminder as sent only if it's the day of (to allow multiple reminders)
+        if (insertError) {
+          // Handle duplicate constraint
+          if (insertError.code === "23505") {
+            console.log(`[hearing-reminders] Duplicate insert for hearing ${hearing.id}`);
+            continue;
+          }
+          throw insertError;
+        }
+
+        console.log(`[hearing-reminders] Email queued for hearing ${hearing.id}: ${outboxRow.id}`);
+        emailsQueued.push(hearing.id);
+
+        // Mark reminder as sent only if it's the day of (to allow multiple reminders for future days)
         if (daysUntil === 0) {
           await supabase
             .from("hearings")
@@ -313,18 +330,22 @@ const handler = async (req: Request): Promise<Response> => {
             .eq("id", hearing.id);
         }
 
-        // Create an alert for the hearing reminder - link to work_item_id if available
-        await supabase.from("alerts").insert({
+        // Create an in-app alert for the hearing reminder
+        const { error: alertError } = await supabase.from("alerts").insert({
           owner_id: hearing.owner_id,
-          filing_id: null, // Deprecated, using work_item_id now
+          organization_id: organizationId,
           severity: daysUntil === 0 ? "CRITICAL" : daysUntil <= 1 ? "WARN" : "INFO",
           message: `Recordatorio: ${hearing.title} ${daysUntil === 0 ? "es HOY" : daysUntil === 1 ? "es MAÑANA" : `en ${daysUntil} días`}${workItem?.radicado ? ` - Radicado: ${workItem.radicado}` : ""}`,
           is_read: false,
         });
 
+        if (!alertError) {
+          alertsCreated.push(hearing.id);
+        }
+
       } catch (emailError) {
         const errorMsg = emailError instanceof Error ? emailError.message : "Unknown error";
-        console.error(`Failed to send email for hearing ${hearing.id}:`, errorMsg);
+        console.error(`[hearing-reminders] Failed to queue email for hearing ${hearing.id}:`, errorMsg);
         errors.push(`${hearing.id}: ${errorMsg}`);
       }
     }
@@ -332,9 +353,11 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         success: true,
-        emailsSent: emailsSent.length,
-        hearingIds: emailsSent,
+        emailsQueued: emailsQueued.length,
+        alertsCreated: alertsCreated.length,
+        hearingIds: emailsQueued,
         errors: errors.length > 0 ? errors : undefined,
+        message: "Emails enqueued for batch processing via process-email-outbox",
       }),
       {
         status: 200,
@@ -343,7 +366,7 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error in hearing-reminders function:", errorMessage);
+    console.error("[hearing-reminders] Error:", errorMessage);
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       {

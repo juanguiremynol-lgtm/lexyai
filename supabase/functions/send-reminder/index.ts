@@ -1,7 +1,12 @@
+/**
+ * Send Reminder Edge Function
+ * 
+ * Enqueues a reminder email into email_outbox for batch processing.
+ * Does NOT send directly - uses queue-first architecture via process-email-outbox.
+ */
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,10 +21,12 @@ interface ReminderRequest {
   subject: string;
   filingId?: string;
   processId?: string;
+  workItemId?: string;
   radicado?: string;
   dueDate?: string;
   daysRemaining?: number;
   message?: string;
+  organizationId?: string;
 }
 
 const generateEmailHtml = (data: ReminderRequest): string => {
@@ -84,7 +91,7 @@ const generateEmailHtml = (data: ReminderRequest): string => {
     <body style="margin: 0; padding: 20px; background-color: #f3f4f6;">
       <div style="${baseStyles}">
         <div style="${headerStyles}">
-          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ Lex Docket</h1>
+          <h1 style="margin: 0; font-size: 24px; font-weight: 600;">⚖️ ATENIA</h1>
           <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">Sistema de Gestión Legal</p>
         </div>
         
@@ -107,12 +114,12 @@ const generateEmailHtml = (data: ReminderRequest): string => {
           ${data.message ? `<p style="margin: 16px 0; font-size: 14px; line-height: 1.6;">${data.message}</p>` : ""}
           
           <p style="margin: 16px 0 0; font-size: 14px; color: #6b7280;">
-            Este es un recordatorio automático generado por Lex Docket. Por favor, tome las acciones necesarias.
+            Este es un recordatorio automático generado por ATENIA. Por favor, tome las acciones necesarias.
           </p>
         </div>
         
         <div style="${footerStyles}">
-          <p style="margin: 0;">© ${new Date().getFullYear()} Lex Docket - Asistente Legal</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} ATENIA - Asistente Legal</p>
           <p style="margin: 4px 0 0;">Este correo fue enviado automáticamente. No responda a este mensaje.</p>
         </div>
       </div>
@@ -122,7 +129,7 @@ const generateEmailHtml = (data: ReminderRequest): string => {
 };
 
 const handler = async (req: Request): Promise<Response> => {
-  console.log("send-reminder function invoked");
+  console.log("[send-reminder] Function invoked");
 
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -135,7 +142,7 @@ const handler = async (req: Request): Promise<Response> => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const data: ReminderRequest = await req.json();
-    console.log("Reminder request:", JSON.stringify(data));
+    console.log("[send-reminder] Request type:", data.type);
 
     if (!data.recipientEmail) {
       throw new Error("recipientEmail is required");
@@ -145,44 +152,124 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("subject is required");
     }
 
-    const html = generateEmailHtml(data);
+    // Determine organization_id
+    let organizationId = data.organizationId;
 
-    // Use onboarding@resend.dev for testing, or configure your domain
-    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "Lex Docket <onboarding@resend.dev>";
-
-    // Use fetch to call Resend API directly
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [data.recipientEmail],
-        subject: `[Lex Docket] ${data.subject}`,
-        html,
-      }),
-    });
-
-    const emailResponse = await resendResponse.json();
-
-    if (!resendResponse.ok) {
-      throw new Error(emailResponse.message || "Failed to send email");
+    // If not provided, try to resolve from work item
+    if (!organizationId && data.workItemId) {
+      const { data: workItem } = await supabase
+        .from("work_items")
+        .select("organization_id")
+        .eq("id", data.workItemId)
+        .single();
+      organizationId = workItem?.organization_id;
     }
 
-    console.log("Email sent successfully:", emailResponse);
+    // If still not found, try from filing or process (legacy)
+    if (!organizationId && data.filingId) {
+      const { data: filing } = await supabase
+        .from("filings")
+        .select("organization_id")
+        .eq("id", data.filingId)
+        .single();
+      organizationId = filing?.organization_id;
+    }
 
-    return new Response(JSON.stringify({ success: true, emailResponse }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        ...corsHeaders,
-      },
-    });
+    if (!organizationId) {
+      throw new Error("Could not determine organization_id for email");
+    }
+
+    const html = generateEmailHtml(data);
+    const fullSubject = `[ATENIA] ${data.subject}`;
+
+    // Generate dedupe key to prevent duplicate emails for same event
+    const dedupeKey = data.workItemId 
+      ? `reminder:${data.type}:${data.workItemId}:${data.dueDate || "nodate"}`
+      : `reminder:${data.type}:${data.recipientEmail}:${data.subject}`;
+
+    // Check for existing pending email with same dedupe key
+    const { data: existing } = await supabase
+      .from("email_outbox")
+      .select("id")
+      .eq("dedupe_key", dedupeKey)
+      .in("status", ["PENDING", "SENDING"])
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      console.log("[send-reminder] Duplicate detected, skipping:", dedupeKey);
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          queued: false, 
+          reason: "duplicate", 
+          existing_id: existing[0].id 
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+
+    // Enqueue email into email_outbox (do NOT send directly)
+    const { data: outboxRow, error: insertError } = await supabase
+      .from("email_outbox")
+      .insert({
+        organization_id: organizationId,
+        to_email: data.recipientEmail,
+        subject: fullSubject,
+        html: html,
+        status: "PENDING",
+        next_attempt_at: new Date().toISOString(),
+        attempts: 0,
+        trigger_event: `REMINDER_${data.type.toUpperCase()}`,
+        trigger_reason: data.message || `${data.type} reminder`,
+        work_item_id: data.workItemId || null,
+        dedupe_key: dedupeKey,
+        metadata: {
+          reminder_type: data.type,
+          radicado: data.radicado,
+          due_date: data.dueDate,
+          days_remaining: data.daysRemaining,
+          filing_id: data.filingId,
+          process_id: data.processId,
+        },
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      // Check for unique constraint violation (23505)
+      if (insertError.code === "23505") {
+        console.log("[send-reminder] Duplicate insert detected via constraint:", dedupeKey);
+        return new Response(
+          JSON.stringify({ success: true, queued: false, reason: "duplicate" }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...corsHeaders },
+          }
+        );
+      }
+      throw insertError;
+    }
+
+    console.log("[send-reminder] Email queued successfully:", outboxRow.id);
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        queued: true, 
+        email_outbox_id: outboxRow.id,
+        message: "Email queued for delivery via batch processor"
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error in send-reminder function:", errorMessage);
+    console.error("[send-reminder] Error:", errorMessage);
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       {
