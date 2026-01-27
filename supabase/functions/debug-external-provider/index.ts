@@ -7,10 +7,11 @@
  * - Platform admins or org admins only
  * - Calls CPNU, SAMAI, TUTELAS, or PUBLICACIONES providers
  * - Returns status, latency, summary, and raw response
- * - Never exposes secrets
+ * - Truncates large arrays to safe limits (200 items)
+ * - Never exposes secrets in logs or responses
  * 
  * Input: { provider, identifier: { radicado?, tutela_code? }, mode, timeoutMs }
- * Output: { provider_used, status, latencyMs, summary, raw }
+ * Output: { provider_used, status, latencyMs, summary, raw, truncated, limits, error_code?, retried }
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -19,6 +20,13 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// ============= CONSTANTS =============
+
+const DEFAULT_TIMEOUT_MS = 15000;
+const MAX_TIMEOUT_MS = 30000;
+const MAX_ARRAY_ITEMS = 200;
+const MAX_RAW_SIZE = 100000;
 
 // ============= TYPES =============
 
@@ -45,6 +53,13 @@ interface DebugSummary {
   tipoProceso?: string;
 }
 
+interface TruncationLimits {
+  actuaciones?: { shown: number; total: number };
+  estados?: { shown: number; total: number };
+  publicaciones?: { shown: number; total: number };
+  sujetos_procesales?: { shown: number; total: number };
+}
+
 interface DebugResult {
   ok: boolean;
   provider_used: string;
@@ -52,8 +67,11 @@ interface DebugResult {
   latencyMs: number;
   summary: DebugSummary;
   raw: unknown;
-  error?: string;
-  truncated?: boolean;
+  error_code?: string;
+  message?: string;
+  truncated: boolean;
+  limits?: TruncationLimits;
+  retried: boolean;
 }
 
 // ============= HELPERS =============
@@ -65,8 +83,20 @@ function jsonResponse(data: object, status: number = 200): Response {
   });
 }
 
-function errorResponse(code: string, message: string, status: number = 400): Response {
-  return jsonResponse({ ok: false, code, message }, status);
+function errorResponse(code: string, message: string, status: number = 400, latencyMs: number = 0): Response {
+  const result: DebugResult = {
+    ok: false,
+    provider_used: 'none',
+    status,
+    latencyMs,
+    summary: { found: false },
+    raw: null,
+    error_code: code,
+    message,
+    truncated: false,
+    retried: false,
+  };
+  return jsonResponse(result, status);
 }
 
 function normalizeRadicado(radicado: string): string {
@@ -81,29 +111,95 @@ function isValidTutelaCode(code: string): boolean {
   return /^T\d{6,10}$/i.test(code);
 }
 
-function truncateRaw(raw: unknown, maxSize: number = 50000): { data: unknown; truncated: boolean } {
-  const jsonStr = JSON.stringify(raw);
-  if (jsonStr.length <= maxSize) {
-    return { data: raw, truncated: false };
+function truncateRaw(raw: unknown): { data: unknown; truncated: boolean; limits: TruncationLimits } {
+  const limits: TruncationLimits = {};
+  let truncated = false;
+
+  if (typeof raw !== 'object' || raw === null) {
+    return { data: raw, truncated: false, limits };
   }
-  
-  // Truncate arrays in the response
-  if (typeof raw === 'object' && raw !== null) {
-    const truncated = { ...raw } as Record<string, unknown>;
-    const arrayKeys = ['actuaciones', 'estados', 'publicaciones', 'sujetos_procesales'];
-    
-    for (const key of arrayKeys) {
-      if (Array.isArray(truncated[key]) && truncated[key].length > 20) {
-        truncated[key] = truncated[key].slice(0, 20);
-        truncated[`${key}_truncated`] = true;
-        truncated[`${key}_total`] = (raw as Record<string, unknown[]>)[key].length;
+
+  const result = { ...raw } as Record<string, unknown>;
+  const arrayKeys = ['actuaciones', 'estados', 'publicaciones', 'sujetos_procesales'] as const;
+
+  for (const key of arrayKeys) {
+    if (Array.isArray(result[key])) {
+      const arr = result[key] as unknown[];
+      if (arr.length > MAX_ARRAY_ITEMS) {
+        result[key] = arr.slice(0, MAX_ARRAY_ITEMS);
+        limits[key] = { shown: MAX_ARRAY_ITEMS, total: arr.length };
+        truncated = true;
       }
     }
-    
-    return { data: truncated, truncated: true };
   }
+
+  // Also truncate nested proceso.actuaciones if present
+  if (typeof result.proceso === 'object' && result.proceso !== null) {
+    const proceso = result.proceso as Record<string, unknown>;
+    if (Array.isArray(proceso.actuaciones) && proceso.actuaciones.length > MAX_ARRAY_ITEMS) {
+      limits.actuaciones = { shown: MAX_ARRAY_ITEMS, total: proceso.actuaciones.length };
+      proceso.actuaciones = proceso.actuaciones.slice(0, MAX_ARRAY_ITEMS);
+      result.proceso = proceso;
+      truncated = true;
+    }
+  }
+
+  // Final size check
+  const jsonStr = JSON.stringify(result);
+  if (jsonStr.length > MAX_RAW_SIZE) {
+    return {
+      data: {
+        _truncated: true,
+        _message: `Response too large (${jsonStr.length} bytes). Array limits applied but size still exceeds ${MAX_RAW_SIZE} bytes.`,
+        _limits: limits,
+      },
+      truncated: true,
+      limits,
+    };
+  }
+
+  return { data: result, truncated, limits };
+}
+
+// ============= SAFE LOGGING =============
+
+function safeLog(
+  level: 'info' | 'warn' | 'error',
+  message: string,
+  context: { 
+    provider?: string; 
+    status?: number; 
+    latencyMs?: number; 
+    org_id?: string; 
+    work_item_id?: string;
+    user_id?: string;
+    error_code?: string;
+  }
+) {
+  // Never log EXTERNAL_X_API_KEY or sensitive headers
+  const safeContext = {
+    provider: context.provider,
+    status: context.status,
+    latencyMs: context.latencyMs,
+    org_id: context.org_id?.slice(0, 8) + '...',
+    work_item_id: context.work_item_id?.slice(0, 8) + '...',
+    user_id: context.user_id?.slice(0, 8) + '...',
+    error_code: context.error_code,
+  };
+
+  const logMessage = `[debug-external-provider] ${message}`;
   
-  return { data: { message: 'Response too large', size: jsonStr.length }, truncated: true };
+  switch (level) {
+    case 'info':
+      console.log(logMessage, JSON.stringify(safeContext));
+      break;
+    case 'warn':
+      console.warn(logMessage, JSON.stringify(safeContext));
+      break;
+    case 'error':
+      console.error(logMessage, JSON.stringify(safeContext));
+      break;
+  }
 }
 
 // ============= PROVIDER CALLS =============
@@ -112,7 +208,7 @@ async function callProvider(
   provider: ProviderName,
   identifier: string,
   timeoutMs: number
-): Promise<{ status: number; data: unknown; error?: string }> {
+): Promise<{ status: number; data: unknown; error_code?: string; message?: string }> {
   const envMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_BASE_URL',
     samai: 'SAMAI_BASE_URL',
@@ -124,7 +220,12 @@ async function callProvider(
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
   if (!baseUrl) {
-    return { status: 0, data: null, error: `${envMap[provider]} not configured` };
+    return { 
+      status: 0, 
+      data: null, 
+      error_code: 'PROVIDER_NOT_CONFIGURED', 
+      message: `${envMap[provider]} not configured` 
+    };
   }
 
   try {
@@ -152,7 +253,8 @@ async function callProvider(
         break;
     }
 
-    console.log(`[debug-external-provider] Calling ${provider}: ${endpoint}`);
+    // Log without sensitive data
+    safeLog('info', `Calling provider`, { provider, status: 0, latencyMs: 0 });
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -170,7 +272,8 @@ async function callProvider(
       return {
         status: response.status,
         data: null,
-        error: errorText.slice(0, 500),
+        error_code: `HTTP_${response.status}`,
+        message: errorText.slice(0, 500),
       };
     }
 
@@ -179,12 +282,18 @@ async function callProvider(
 
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      return { status: 0, data: null, error: `Timeout after ${timeoutMs}ms` };
+      return { 
+        status: 0, 
+        data: null, 
+        error_code: 'TIMEOUT', 
+        message: `Request timed out after ${timeoutMs}ms` 
+      };
     }
     return {
       status: 0,
       data: null,
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error_code: 'NETWORK_ERROR',
+      message: err instanceof Error ? err.message : 'Unknown network error',
     };
   }
 }
@@ -247,6 +356,8 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -276,7 +387,7 @@ Deno.serve(async (req) => {
     // Check if user is platform admin or org admin
     const { data: platformAdmin } = await supabase
       .from('platform_admins')
-      .select('id')
+      .select('user_id')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -295,22 +406,29 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[debug-external-provider] Access granted: user=${userId}`);
+    safeLog('info', 'Access granted', { user_id: userId });
 
     // Parse request
     let payload: DebugRequest;
     try {
       payload = await req.json();
     } catch {
-      return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
+      return errorResponse('INVALID_JSON', 'Could not parse request body', 400, Date.now() - startTime);
     }
 
-    const { provider, identifier, mode = 'lookup', timeoutMs = 15000 } = payload;
+    const { provider, identifier, mode = 'lookup' } = payload;
+    // Enforce timeout limits
+    const timeoutMs = Math.min(Math.max(payload.timeoutMs || DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
 
     // Validate provider
     const validProviders: ProviderName[] = ['cpnu', 'samai', 'tutelas', 'publicaciones'];
     if (!validProviders.includes(provider)) {
-      return errorResponse('INVALID_PROVIDER', `Provider must be one of: ${validProviders.join(', ')}`, 400);
+      return errorResponse(
+        'INVALID_PROVIDER', 
+        `Provider must be one of: ${validProviders.join(', ')}`, 
+        400, 
+        Date.now() - startTime
+      );
     }
 
     // Validate identifier based on provider
@@ -322,50 +440,81 @@ Deno.serve(async (req) => {
       } else if (identifier.radicado && isValidRadicado(identifier.radicado)) {
         resolvedIdentifier = normalizeRadicado(identifier.radicado);
       } else {
-        return errorResponse('INVALID_IDENTIFIER', 'TUTELAS requires tutela_code (T + 6-10 digits) or valid 23-digit radicado', 400);
+        return errorResponse(
+          'INVALID_IDENTIFIER', 
+          'TUTELAS requires tutela_code (T + 6-10 digits) or valid 23-digit radicado', 
+          400,
+          Date.now() - startTime
+        );
       }
     } else {
       if (!identifier.radicado || !isValidRadicado(identifier.radicado)) {
-        return errorResponse('INVALID_RADICADO', `${provider.toUpperCase()} requires a valid 23-digit radicado`, 400);
+        return errorResponse(
+          'INVALID_RADICADO', 
+          `${provider.toUpperCase()} requires a valid 23-digit radicado`, 
+          400,
+          Date.now() - startTime
+        );
       }
       resolvedIdentifier = normalizeRadicado(identifier.radicado);
     }
 
-    console.log(`[debug-external-provider] Calling ${provider} with identifier=${resolvedIdentifier}`);
+    safeLog('info', `Calling ${provider}`, { provider, status: 0, latencyMs: 0 });
 
     // Call provider
-    const startTime = Date.now();
+    const callStartTime = Date.now();
     const result = await callProvider(provider, resolvedIdentifier, timeoutMs);
-    const latencyMs = Date.now() - startTime;
+    const latencyMs = Date.now() - callStartTime;
 
     // Build response
     const summary = result.data ? buildSummary(provider, result.data) : { found: false };
-    const { data: rawData, truncated } = result.data ? truncateRaw(result.data) : { data: null, truncated: false };
+    const { data: rawData, truncated, limits } = result.data 
+      ? truncateRaw(result.data) 
+      : { data: null, truncated: false, limits: {} };
 
     const debugResult: DebugResult = {
-      ok: result.status >= 200 && result.status < 300 && !result.error,
+      ok: result.status >= 200 && result.status < 300 && !result.error_code,
       provider_used: provider,
       status: result.status,
       latencyMs,
       summary,
       raw: rawData,
       truncated,
+      limits: Object.keys(limits).length > 0 ? limits : undefined,
+      retried: false,
     };
 
-    if (result.error) {
-      debugResult.error = result.error;
+    if (result.error_code) {
+      debugResult.error_code = result.error_code;
+      debugResult.message = result.message;
     }
 
-    console.log(`[debug-external-provider] Result: status=${result.status}, found=${summary.found}, latency=${latencyMs}ms`);
+    safeLog('info', 'Provider call completed', { 
+      provider, 
+      status: result.status, 
+      latencyMs,
+      error_code: result.error_code,
+    });
 
     return jsonResponse(debugResult);
 
   } catch (err) {
-    console.error('[debug-external-provider] Error:', err);
-    return errorResponse(
-      'INTERNAL_ERROR',
-      err instanceof Error ? err.message : 'An unexpected error occurred',
-      500
-    );
+    const latencyMs = Date.now() - startTime;
+    safeLog('error', 'Unhandled error', { latencyMs, error_code: 'INTERNAL_ERROR' });
+    
+    const result: DebugResult = {
+      ok: false,
+      provider_used: 'none',
+      status: 500,
+      latencyMs,
+      summary: { found: false },
+      raw: null,
+      error_code: 'INTERNAL_ERROR',
+      message: err instanceof Error ? err.message : 'An unexpected error occurred',
+      truncated: false,
+      retried: false,
+    };
+    
+    return jsonResponse(result, 500);
   }
 });

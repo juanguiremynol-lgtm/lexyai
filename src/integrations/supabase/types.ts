@@ -5850,6 +5850,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "work_item_publicaciones_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "work_item_publicaciones_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
