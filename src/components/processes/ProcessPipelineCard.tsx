@@ -90,7 +90,7 @@ export function ProcessPipelineCard({
               e.stopPropagation();
               e.preventDefault();
               // Navigate to canonical work-items detail view
-              navigate(`/work-items/${process.id}`);
+              navigate(`/app/work-items/${process.id}`);
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >

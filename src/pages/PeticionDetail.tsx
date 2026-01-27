@@ -506,7 +506,7 @@ export default function PeticionDetail() {
                   className="mt-3 w-full"
                   asChild
                 >
-                  <Link to={`/work-items/${peticion.tutela_filing_id}`}>
+                  <Link to={`/app/work-items/${peticion.tutela_filing_id}`}>
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Ver Tutela
                   </Link>

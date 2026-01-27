@@ -362,7 +362,7 @@ async function createNewActuacionesAlert(
       { 
         label: 'Ver Proceso', 
         action: 'navigate', 
-        params: { path: `/work-items/${workItemId}` } // Canonical route
+        params: { path: `/app/work-items/${workItemId}` } // Canonical route
       },
     ],
     fingerprintKeys: {

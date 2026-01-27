@@ -443,7 +443,7 @@ export default function ProcessStatusDetail() {
           );
           setReclassifyDialogOpen(false);
           if (!hasAutoAdmisorio && "newFilingId" in result && result.newFilingId) {
-            navigate(`/work-items/${result.newFilingId}`);
+            navigate(`/app/work-items/${result.newFilingId}`);
           }
         }}
       />

@@ -158,7 +158,7 @@ export function usePipelineKeyboard({
           const item = getFocusedItem();
           if (item) {
             // All items go to canonical work-items detail view
-            navigate(`/work-items/${item.id}`);
+            navigate(`/app/work-items/${item.id}`);
             stopNavigation();
           }
           break;

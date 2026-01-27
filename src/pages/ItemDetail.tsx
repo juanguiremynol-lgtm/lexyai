@@ -94,7 +94,7 @@ export default function ItemDetail() {
 
   // If found, redirect to canonical work-items detail
   if (itemExists) {
-    return <Navigate to={`/work-items/${itemExists.id}`} replace />;
+    return <Navigate to={`/app/work-items/${itemExists.id}`} replace />;
   }
 
   // Not found

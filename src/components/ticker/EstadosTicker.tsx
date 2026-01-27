@@ -106,7 +106,7 @@ export function EstadosTicker() {
   }
 
   const handleItemClick = (workItemId: string) => {
-    navigate(`/work-items/${workItemId}`);
+    navigate(`/app/work-items/${workItemId}`);
   };
 
   return (

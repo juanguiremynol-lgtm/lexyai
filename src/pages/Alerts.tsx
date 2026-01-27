@@ -534,7 +534,7 @@ export default function Alerts() {
               asChild
               title="Ver asunto"
             >
-              <Link to={`/work-items/${workItem.id}?tab=overview`}>
+              <Link to={`/app/work-items/${workItem.id}?tab=overview`}>
                 <ExternalLink className="h-4 w-4" />
               </Link>
             </Button>

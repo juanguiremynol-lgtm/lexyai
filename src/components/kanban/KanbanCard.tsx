@@ -43,7 +43,7 @@ export function KanbanCard({ filing, isDragging = false }: KanbanCardProps) {
   const handleClick = (e: React.MouseEvent) => {
     // Only navigate if not dragging - use canonical work-items route
     if (!transform) {
-      navigate(`/work-items/${filing.id}`);
+      navigate(`/app/work-items/${filing.id}`);
     }
   };
 

@@ -337,7 +337,7 @@ export async function saveCpacaDeadlinesWithAlerts(
               business_days_remaining: businessDaysRemaining,
             },
             actions: [
-              { label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${workItemId}?tab=deadlines` } },
+              { label: 'Ver Proceso', action: 'navigate', params: { path: `/app/work-items/${workItemId}?tab=deadlines` } },
             ],
             fingerprintKeys: {
               eventType: deadline.deadline_type,

@@ -271,7 +271,7 @@ export default function Filings() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/work-items/${filing.id}`}>
+                            <Link to={`/app/work-items/${filing.id}`}>
                               <ExternalLink className="h-4 w-4 mr-1" />
                               Ver
                             </Link>

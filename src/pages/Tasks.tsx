@@ -314,7 +314,7 @@ export default function Tasks() {
                           )}
                           {filing && (
                             <Button variant="ghost" size="sm" asChild>
-                              <Link to={`/work-items/${filing.id}`}>
+                              <Link to={`/app/work-items/${filing.id}`}>
                                 <ExternalLink className="h-4 w-4" />
                               </Link>
                             </Button>
