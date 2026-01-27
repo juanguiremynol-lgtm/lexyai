@@ -29,6 +29,14 @@ const REQUIRED_SECRETS = [
   'EXTERNAL_X_API_KEY',
 ];
 
+// Optional provider-specific API keys (take precedence over EXTERNAL_X_API_KEY)
+const OPTIONAL_API_KEYS = [
+  'CPNU_X_API_KEY',
+  'SAMAI_X_API_KEY',
+  'TUTELAS_X_API_KEY',
+  'PUBLICACIONES_X_API_KEY',
+];
+
 // Email gateway secrets (Cloud Run Option B)
 const EMAIL_GATEWAY_SECRETS = [
   'EMAIL_GATEWAY_BASE_URL',
@@ -36,9 +44,65 @@ const EMAIL_GATEWAY_SECRETS = [
   'EMAIL_FROM_ADDRESS',
 ];
 
+// Safe fingerprint generation (first 8 chars of sha256)
+async function hashFingerprint(value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(value);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex.slice(0, 8);
+}
+
+// Get API key for a provider with safe diagnostics
+async function getApiKeyInfo(provider: string): Promise<{ source: string; present: boolean; fingerprint: string | null }> {
+  const providerKeyMap: Record<string, string> = {
+    cpnu: 'CPNU_X_API_KEY',
+    samai: 'SAMAI_X_API_KEY',
+    tutelas: 'TUTELAS_X_API_KEY',
+    publicaciones: 'PUBLICACIONES_X_API_KEY',
+  };
+
+  // Try provider-specific key first
+  const providerKeyName = providerKeyMap[provider];
+  if (providerKeyName) {
+    const providerKey = Deno.env.get(providerKeyName);
+    if (providerKey && providerKey.length > 0) {
+      return {
+        source: providerKeyName,
+        present: true,
+        fingerprint: await hashFingerprint(providerKey),
+      };
+    }
+  }
+
+  // Fall back to shared key
+  const sharedKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  if (sharedKey && sharedKey.length > 0) {
+    return {
+      source: 'EXTERNAL_X_API_KEY',
+      present: true,
+      fingerprint: await hashFingerprint(sharedKey),
+    };
+  }
+
+  return { source: 'MISSING', present: false, fingerprint: null };
+}
+
+interface ProviderAuthCheck {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  error?: string;
+  api_key_source: string;
+  api_key_present: boolean;
+  api_key_fingerprint: string | null;
+}
+
 interface HealthResult {
   ok: boolean;
   env: Record<string, boolean>;
+  optional_keys: Record<string, boolean>;
   email_gateway: {
     configured: boolean;
     base_url_set: boolean;
@@ -46,6 +110,7 @@ interface HealthResult {
     from_address_set: boolean;
   };
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
+  auth_checks?: Record<string, ProviderAuthCheck>;
   timestamp: string;
   user_role?: string;
 }
@@ -192,12 +257,20 @@ Deno.serve(async (req) => {
     // Check if reachability tests are requested
     const url = new URL(req.url);
     const checkReach = url.searchParams.get('reachability') === 'true';
+    const checkAuth = url.searchParams.get('auth_check') === 'true';
 
     // Build env presence report (never expose values!)
     const envReport: Record<string, boolean> = {};
     for (const secretName of REQUIRED_SECRETS) {
       const value = Deno.env.get(secretName);
       envReport[secretName] = !!value && value.length > 0;
+    }
+
+    // Build optional keys presence report
+    const optionalKeysReport: Record<string, boolean> = {};
+    for (const keyName of OPTIONAL_API_KEYS) {
+      const value = Deno.env.get(keyName);
+      optionalKeysReport[keyName] = !!value && value.length > 0;
     }
 
     // Build email gateway health report
@@ -215,21 +288,22 @@ Deno.serve(async (req) => {
     const result: HealthResult = {
       ok: Object.values(envReport).every(Boolean) && emailGatewayReport.configured,
       env: envReport,
+      optional_keys: optionalKeysReport,
       email_gateway: emailGatewayReport,
       timestamp: new Date().toISOString(),
       user_role: isPlatformAdmin ? 'platform_admin' : 'org_admin',
     };
 
-    // Optional reachability checks
+    // Optional reachability checks (basic connectivity)
     if (checkReach) {
-      const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+      const providers = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
+      result.reachability = {};
       
-      result.reachability = {
-        cpnu: await checkReachability('cpnu', Deno.env.get('CPNU_BASE_URL'), apiKey),
-        samai: await checkReachability('samai', Deno.env.get('SAMAI_BASE_URL'), apiKey),
-        tutelas: await checkReachability('tutelas', Deno.env.get('TUTELAS_BASE_URL'), apiKey),
-        publicaciones: await checkReachability('publicaciones', Deno.env.get('PUBLICACIONES_BASE_URL'), apiKey),
-      };
+      for (const provider of providers) {
+        const apiKeyInfo = await getApiKeyInfo(provider);
+        const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
+        result.reachability[provider] = await checkReachability(provider, baseUrl, apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined);
+      }
 
       // Also check email gateway if configured
       if (emailGatewayBaseUrl) {
@@ -238,6 +312,68 @@ Deno.serve(async (req) => {
           emailGatewayBaseUrl, 
           emailGatewayApiKey
         );
+      }
+    }
+
+    // Optional auth checks (verify API key is accepted)
+    if (checkAuth) {
+      const providers = ['cpnu', 'samai', 'tutelas', 'publicaciones'] as const;
+      result.auth_checks = {};
+      
+      for (const provider of providers) {
+        const apiKeyInfo = await getApiKeyInfo(provider);
+        const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
+        
+        if (!baseUrl) {
+          result.auth_checks[provider] = {
+            ok: false,
+            error: 'URL not configured',
+            api_key_source: apiKeyInfo.source,
+            api_key_present: apiKeyInfo.present,
+            api_key_fingerprint: apiKeyInfo.fingerprint,
+          };
+          continue;
+        }
+        
+        // Call /health with the selected API key
+        const start = Date.now();
+        try {
+          const headers: Record<string, string> = { 'Accept': 'application/json' };
+          if (apiKeyInfo.present) {
+            const keyValue = Deno.env.get(apiKeyInfo.source);
+            if (keyValue) headers['X-API-Key'] = keyValue;
+          }
+          
+          const healthUrl = new URL('/health', baseUrl).toString();
+          const response = await fetch(healthUrl, { 
+            method: 'GET', 
+            headers,
+            signal: AbortSignal.timeout(10000),
+          });
+          
+          const latencyMs = Date.now() - start;
+          
+          result.auth_checks[provider] = {
+            ok: response.ok,
+            status: response.status,
+            latencyMs,
+            error: response.ok ? undefined : (response.status === 401 || response.status === 403 
+              ? `Auth failed (${response.status}). Check ${apiKeyInfo.source} or Cloud Run API_KEYS.`
+              : `HTTP ${response.status}`),
+            api_key_source: apiKeyInfo.source,
+            api_key_present: apiKeyInfo.present,
+            api_key_fingerprint: apiKeyInfo.fingerprint,
+          };
+        } catch (err) {
+          result.auth_checks[provider] = {
+            ok: false,
+            latencyMs: Date.now() - start,
+            error: err instanceof Error ? err.message : 'Connection failed',
+            api_key_source: apiKeyInfo.source,
+            api_key_present: apiKeyInfo.present,
+            api_key_fingerprint: apiKeyInfo.fingerprint,
+          };
+        }
       }
     }
 

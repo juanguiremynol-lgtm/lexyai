@@ -56,11 +56,20 @@ interface EmailGatewayHealth {
   from_address_set: boolean;
 }
 
+interface AuthDiagnostics {
+  auth_header_used: string;
+  api_key_source: string;
+  api_key_present: boolean;
+  api_key_fingerprint: string | null;
+}
+
 interface IntegrationHealthResult {
   ok: boolean;
   env: Record<string, boolean>;
+  optional_keys?: Record<string, boolean>;
   email_gateway?: EmailGatewayHealth;
   reachability?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>;
+  auth_checks?: Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string; api_key_source: string; api_key_present: boolean; api_key_fingerprint: string | null }>;
   timestamp: string;
   user_role?: string;
 }
@@ -98,6 +107,7 @@ interface DebugResult {
   provider_used: string;
   status: number;
   latencyMs: number;
+  auth?: AuthDiagnostics;
   summary: DebugSummary;
   raw: unknown;
   error?: string;

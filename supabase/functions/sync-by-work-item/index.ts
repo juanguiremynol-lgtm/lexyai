@@ -279,6 +279,58 @@ function isHtmlCannotGet(body: string): boolean {
   );
 }
 
+// ============= API KEY SELECTION =============
+// Provider-specific keys take precedence over the shared EXTERNAL_X_API_KEY
+
+interface ApiKeyInfo {
+  source: string;
+  value: string | null;
+  fingerprint: string | null;
+}
+
+async function hashFingerprint(value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(value);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex.slice(0, 8);
+}
+
+async function getApiKeyForProvider(provider: string): Promise<ApiKeyInfo> {
+  const providerKeyMap: Record<string, string> = {
+    cpnu: 'CPNU_X_API_KEY',
+    samai: 'SAMAI_X_API_KEY',
+    tutelas: 'TUTELAS_X_API_KEY',
+    publicaciones: 'PUBLICACIONES_X_API_KEY',
+  };
+
+  // Try provider-specific key first
+  const providerKeyName = providerKeyMap[provider];
+  if (providerKeyName) {
+    const providerKey = Deno.env.get(providerKeyName);
+    if (providerKey && providerKey.length > 0) {
+      return {
+        source: providerKeyName,
+        value: providerKey,
+        fingerprint: await hashFingerprint(providerKey),
+      };
+    }
+  }
+
+  // Fall back to shared key
+  const sharedKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  if (sharedKey && sharedKey.length > 0) {
+    return {
+      source: 'EXTERNAL_X_API_KEY',
+      value: sharedKey,
+      fingerprint: await hashFingerprint(sharedKey),
+    };
+  }
+
+  return { source: 'MISSING', value: null, fingerprint: null };
+}
+
 // ============= PROVIDER: CPNU =============
 // CPNU Cloud Run service (cpnu-https-jobs) exposes routes at ROOT:
 // - GET /health - health check
@@ -290,7 +342,9 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('CPNU_BASE_URL');
   const pathPrefix = Deno.env.get('CPNU_PATH_PREFIX') || ''; // Default empty for root-exposed service
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  
+  // Get API key with provider-specific selection
+  const apiKeyInfo = await getApiKeyForProvider('cpnu');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] CPNU_BASE_URL not configured');
@@ -308,9 +362,13 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     'Accept': 'application/json',
   };
   
-  if (apiKey) {
-    headers['X-API-Key'] = apiKey;
+  // Only add auth header if key is present
+  if (apiKeyInfo.value) {
+    headers['X-API-Key'] = apiKeyInfo.value;
   }
+
+  // Log auth context safely (no secrets)
+  console.log(`[sync-by-work-item] CPNU auth: source=${apiKeyInfo.source}, present=${!!apiKeyInfo.value}, fingerprint=${apiKeyInfo.fingerprint || 'none'}`);
 
   // STEP 1: Try /snapshot (synchronous lookup - preferred)
   const snapshotPath = `/snapshot?numero_radicacion=${radicado}`;
