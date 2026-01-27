@@ -13,3 +13,4 @@ export { default as PlatformUsersPage } from "./PlatformUsersPage";
 export { default as PlatformAuditPage } from "./PlatformAuditPage";
 export { default as PlatformEmailOpsPage } from "./PlatformEmailOpsPage";
 export { default as PlatformSystemPage } from "./PlatformSystemPage";
+export { default as PlatformApiDebugPage } from "./PlatformApiDebugPage";

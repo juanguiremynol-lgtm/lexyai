@@ -17,6 +17,7 @@ import {
   LogOut,
   ArrowLeft,
   BarChart3,
+  Bug,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -50,6 +51,7 @@ const platformNavItems = [
   { title: "Auditoría", url: "/platform/audit", icon: History },
   { title: "Email Ops", url: "/platform/email-ops", icon: Mail },
   { title: "Sistema", url: "/platform/system", icon: Activity },
+  { title: "API Debug", url: "/platform/api-debug", icon: Bug },
 ];
 
 export function PlatformSidebar() {
