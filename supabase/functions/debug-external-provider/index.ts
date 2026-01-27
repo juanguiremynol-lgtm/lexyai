@@ -63,6 +63,9 @@ interface TruncationLimits {
 interface DebugResult {
   ok: boolean;
   provider_used: string;
+  // Enhanced diagnostics (no secrets exposed)
+  request_url?: string; // Masked URL: base path only, no host/secrets
+  request_method?: string;
   status: number;
   latencyMs: number;
   summary: DebugSummary;
@@ -208,7 +211,14 @@ async function callProvider(
   provider: ProviderName,
   identifier: string,
   timeoutMs: number
-): Promise<{ status: number; data: unknown; error_code?: string; message?: string }> {
+): Promise<{ 
+  status: number; 
+  data: unknown; 
+  error_code?: string; 
+  message?: string;
+  request_path?: string; // Path only, no host/secrets
+  body_snippet?: string; // First ~2KB of response for debugging
+}> {
   const envMap: Record<ProviderName, string> = {
     cpnu: 'CPNU_BASE_URL',
     samai: 'SAMAI_BASE_URL',
@@ -219,12 +229,28 @@ async function callProvider(
   const baseUrl = Deno.env.get(envMap[provider]);
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
+  // Build path based on provider (for diagnostics, no host exposed)
+  let requestPath: string;
+  switch (provider) {
+    case 'cpnu':
+    case 'samai':
+      requestPath = `/proceso/${identifier}`;
+      break;
+    case 'tutelas':
+      requestPath = `/expediente/${identifier}`;
+      break;
+    case 'publicaciones':
+      requestPath = `/publicaciones/${identifier}`;
+      break;
+  }
+
   if (!baseUrl) {
     return { 
       status: 0, 
       data: null, 
       error_code: 'PROVIDER_NOT_CONFIGURED', 
-      message: `${envMap[provider]} not configured` 
+      message: `${envMap[provider]} not configured`,
+      request_path: requestPath,
     };
   }
 
@@ -238,20 +264,8 @@ async function callProvider(
       headers['X-API-Key'] = apiKey;
     }
 
-    // Build endpoint URL based on provider
-    let endpoint: string;
-    switch (provider) {
-      case 'cpnu':
-      case 'samai':
-        endpoint = new URL(`/proceso/${identifier}`, baseUrl).toString();
-        break;
-      case 'tutelas':
-        endpoint = new URL(`/expediente/${identifier}`, baseUrl).toString();
-        break;
-      case 'publicaciones':
-        endpoint = new URL(`/publicaciones/${identifier}`, baseUrl).toString();
-        break;
-    }
+    // Build full endpoint URL
+    const endpoint = new URL(requestPath, baseUrl).toString();
 
     // Log without sensitive data
     safeLog('info', `Calling provider`, { provider, status: 0, latencyMs: 0 });
@@ -274,11 +288,17 @@ async function callProvider(
         data: null,
         error_code: `HTTP_${response.status}`,
         message: errorText.slice(0, 500),
+        request_path: requestPath,
+        body_snippet: errorText.slice(0, 2000), // Truncated response body for debugging
       };
     }
 
     const data = await response.json();
-    return { status: response.status, data };
+    return { 
+      status: response.status, 
+      data,
+      request_path: requestPath,
+    };
 
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -286,7 +306,8 @@ async function callProvider(
         status: 0, 
         data: null, 
         error_code: 'TIMEOUT', 
-        message: `Request timed out after ${timeoutMs}ms` 
+        message: `Request timed out after ${timeoutMs}ms`,
+        request_path: requestPath,
       };
     }
     return {
@@ -294,6 +315,7 @@ async function callProvider(
       data: null,
       error_code: 'NETWORK_ERROR',
       message: err instanceof Error ? err.message : 'Unknown network error',
+      request_path: requestPath,
     };
   }
 }
@@ -482,11 +504,21 @@ Deno.serve(async (req) => {
       truncated,
       limits: Object.keys(limits).length > 0 ? limits : undefined,
       retried: false,
+      // Enhanced diagnostics - request_url shows path only (no host/secrets)
+      request_url: result.request_path || undefined,
+      request_method: 'GET',
     };
 
     if (result.error_code) {
       debugResult.error_code = result.error_code;
       debugResult.message = result.message;
+      // Include body snippet for 404/error debugging
+      if (result.body_snippet && !summary.found) {
+        debugResult.raw = { 
+          _debug_body_snippet: result.body_snippet.slice(0, 2000),
+          _note: 'Upstream response body (first 2KB, sanitized)'
+        };
+      }
     }
 
     safeLog('info', 'Provider call completed', { 

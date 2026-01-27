@@ -92,8 +92,13 @@ interface DebugResult {
   summary: DebugSummary;
   raw: unknown;
   error?: string;
+  error_code?: string;
+  message?: string;
   truncated?: boolean;
-  // New workflow-aware fields
+  // Enhanced diagnostics
+  request_url?: string; // Request path (no host/secrets)
+  request_method?: string;
+  // Workflow-aware fields
   workflow_type?: string;
   provider_attempts?: ProviderAttempt[];
   provider_order_reason?: string;
@@ -251,6 +256,15 @@ function JsonViewer({ data, title }: { data: unknown; title?: string }) {
 
 // ============== Main Component ==============
 
+// Map workflow → primary provider for auto-selection
+const WORKFLOW_TO_PRIMARY_PROVIDER: Record<WorkflowType, ProviderName> = {
+  CGP: 'cpnu',
+  LABORAL: 'cpnu',
+  CPACA: 'samai',
+  TUTELA: 'tutelas',
+  PENAL_906: 'publicaciones',
+};
+
 export default function ApiDebugPage() {
   const { isPlatformAdmin, isLoading: platformLoading } = usePlatformAdmin();
   const [provider, setProvider] = useState<ProviderName>("cpnu");
@@ -259,6 +273,15 @@ export default function ApiDebugPage() {
   const [tutelaCode, setTutelaCode] = useState("");
   const [debugResult, setDebugResult] = useState<DebugResult | null>(null);
   const [workItemIdForSuggestion, setWorkItemIdForSuggestion] = useState("");
+
+  // Auto-select provider when workflow changes
+  useEffect(() => {
+    const primaryProvider = WORKFLOW_TO_PRIMARY_PROVIDER[workflowType];
+    if (primaryProvider && primaryProvider !== provider) {
+      setProvider(primaryProvider);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowType]);
 
   // Fetch pending stage suggestions for a work item
   const { 
@@ -906,10 +929,28 @@ export default function ApiDebugPage() {
               </div>
             )}
 
-            {/* Error display */}
-            {debugResult.error && (
-              <div className="p-4 bg-destructive/10 rounded-lg">
-                <p className="text-sm text-destructive">{debugResult.error}</p>
+            {/* Request details for debugging */}
+            {debugResult.request_url && (
+              <div className="p-3 bg-muted/50 rounded-lg border">
+                <p className="text-xs text-muted-foreground mb-1">Request Path (sin host/secrets)</p>
+                <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                  {debugResult.request_method || 'GET'} {debugResult.request_url}
+                </code>
+              </div>
+            )}
+
+            {/* Error display - enhanced with error_code */}
+            {(debugResult.error || debugResult.error_code || debugResult.message) && (
+              <div className="p-4 bg-destructive/10 rounded-lg space-y-2">
+                {debugResult.error_code && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="destructive" className="text-xs">{debugResult.error_code}</Badge>
+                    <span className="text-xs text-muted-foreground">HTTP {debugResult.status}</span>
+                  </div>
+                )}
+                <p className="text-sm text-destructive">
+                  {debugResult.message || debugResult.error}
+                </p>
               </div>
             )}
 
