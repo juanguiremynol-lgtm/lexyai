@@ -444,6 +444,279 @@ async function triggerCpnuScrapingJob(
   }
 }
 
+// ============= TRIGGER SCRAPING JOB: SAMAI =============
+// Calls /buscar to initiate async scraping when SAMAI returns 404
+
+async function triggerSamaiScrapingJob(
+  radicado: string,
+  baseUrl: string,
+  apiKeyInfo: ApiKeyInfo
+): Promise<ScrapingJobResult> {
+  const startTime = Date.now();
+  const buscarPath = `/buscar?numero_radicacion=${radicado}`;
+  const buscarUrl = `${baseUrl.replace(/\/+$/, '')}${buscarPath}`;
+  
+  console.log(`[sync-by-work-item] SCRAPING_INITIATED: SAMAI /buscar, url=${buscarUrl}`);
+  
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
+    }
+    
+    const response = await fetch(buscarUrl, {
+      method: 'GET',
+      headers,
+    });
+    
+    const body = await response.text();
+    const latencyMs = Date.now() - startTime;
+    
+    console.log(`[sync-by-work-item] SCRAPING_RESPONSE: SAMAI /buscar, status=${response.status}, latencyMs=${latencyMs}`);
+    
+    if (!response.ok) {
+      console.warn(`[sync-by-work-item] SAMAI /buscar failed: HTTP ${response.status}`);
+      return {
+        ok: false,
+        error: `Scraping job creation failed: HTTP ${response.status}`,
+        latencyMs,
+      };
+    }
+    
+    // Parse response
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      console.warn(`[sync-by-work-item] SAMAI /buscar returned non-JSON: ${body.slice(0, 200)}`);
+      return {
+        ok: false,
+        error: 'Scraping service returned invalid response',
+        latencyMs,
+      };
+    }
+    
+    // Extract job info - SAMAI returns { jobId, status, poll_url } or similar
+    const jobId = String(data.jobId || data.job_id || data.id || '');
+    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const status = String(data.status || 'PENDING');
+    
+    if (!jobId) {
+      console.warn(`[sync-by-work-item] SAMAI /buscar response missing jobId:`, data);
+      return {
+        ok: false,
+        error: 'Scraping service did not return job ID',
+        latencyMs,
+      };
+    }
+    
+    console.log(`[sync-by-work-item] SAMAI Scraping job created: jobId=${jobId}, status=${status}`);
+    
+    return {
+      ok: true,
+      jobId,
+      pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+      status,
+      latencyMs,
+    };
+    
+  } catch (err) {
+    console.error('[sync-by-work-item] SAMAI /buscar fetch error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Scraping job creation failed',
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
+// ============= TRIGGER SCRAPING JOB: PUBLICACIONES =============
+// Calls /buscar to initiate async scraping when Publicaciones returns 404
+// IMPORTANT: Uses "radicado" parameter (not "numero_radicacion")
+
+async function triggerPublicacionesScrapingJob(
+  radicado: string,
+  baseUrl: string,
+  apiKeyInfo: ApiKeyInfo
+): Promise<ScrapingJobResult> {
+  const startTime = Date.now();
+  // IMPORTANT: Publicaciones uses "radicado" parameter, not "numero_radicacion"
+  const buscarPath = `/buscar?radicado=${radicado}`;
+  const buscarUrl = `${baseUrl.replace(/\/+$/, '')}${buscarPath}`;
+  
+  console.log(`[sync-by-work-item] SCRAPING_INITIATED: PUBLICACIONES /buscar, url=${buscarUrl}`);
+  
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
+    }
+    
+    const response = await fetch(buscarUrl, {
+      method: 'GET',
+      headers,
+    });
+    
+    const body = await response.text();
+    const latencyMs = Date.now() - startTime;
+    
+    console.log(`[sync-by-work-item] SCRAPING_RESPONSE: PUBLICACIONES /buscar, status=${response.status}, latencyMs=${latencyMs}`);
+    
+    if (!response.ok) {
+      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar failed: HTTP ${response.status}`);
+      return {
+        ok: false,
+        error: `Scraping job creation failed: HTTP ${response.status}`,
+        latencyMs,
+      };
+    }
+    
+    // Parse response
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar returned non-JSON: ${body.slice(0, 200)}`);
+      return {
+        ok: false,
+        error: 'Scraping service returned invalid response',
+        latencyMs,
+      };
+    }
+    
+    // Extract job info
+    const jobId = String(data.jobId || data.job_id || data.id || '');
+    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const status = String(data.status || 'PENDING');
+    
+    if (!jobId) {
+      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar response missing jobId:`, data);
+      return {
+        ok: false,
+        error: 'Scraping service did not return job ID',
+        latencyMs,
+      };
+    }
+    
+    console.log(`[sync-by-work-item] PUBLICACIONES Scraping job created: jobId=${jobId}, status=${status}`);
+    
+    return {
+      ok: true,
+      jobId,
+      pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+      status,
+      latencyMs,
+    };
+    
+  } catch (err) {
+    console.error('[sync-by-work-item] PUBLICACIONES /buscar fetch error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Scraping job creation failed',
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
+// ============= TRIGGER SCRAPING JOB: TUTELAS =============
+// IMPORTANT: Tutelas uses POST with JSON body to /search endpoint
+
+async function triggerTutelasScrapingJob(
+  tutelaCode: string,
+  baseUrl: string,
+  apiKeyInfo: ApiKeyInfo
+): Promise<ScrapingJobResult> {
+  const startTime = Date.now();
+  const searchUrl = `${baseUrl.replace(/\/+$/, '')}/search`;
+  
+  console.log(`[sync-by-work-item] SCRAPING_INITIATED: TUTELAS /search (POST), url=${searchUrl}`);
+  
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
+    }
+    
+    // TUTELAS uses POST with JSON body
+    const response = await fetch(searchUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ radicado: tutelaCode }),
+    });
+    
+    const body = await response.text();
+    const latencyMs = Date.now() - startTime;
+    
+    console.log(`[sync-by-work-item] SCRAPING_RESPONSE: TUTELAS /search, status=${response.status}, latencyMs=${latencyMs}`);
+    
+    if (!response.ok) {
+      console.warn(`[sync-by-work-item] TUTELAS /search failed: HTTP ${response.status}`);
+      return {
+        ok: false,
+        error: `Scraping job creation failed: HTTP ${response.status}`,
+        latencyMs,
+      };
+    }
+    
+    // Parse response
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      console.warn(`[sync-by-work-item] TUTELAS /search returned non-JSON: ${body.slice(0, 200)}`);
+      return {
+        ok: false,
+        error: 'Scraping service returned invalid response',
+        latencyMs,
+      };
+    }
+    
+    // TUTELAS returns { job_id, status: "pending", message: "Use GET /job/{job_id}" }
+    const jobId = String(data.job_id || data.jobId || data.id || '');
+    const status = String(data.status || 'pending');
+    const message = String(data.message || '');
+    
+    if (!jobId) {
+      console.warn(`[sync-by-work-item] TUTELAS /search response missing job_id:`, data);
+      return {
+        ok: false,
+        error: 'Scraping service did not return job ID',
+        latencyMs,
+      };
+    }
+    
+    console.log(`[sync-by-work-item] TUTELAS Scraping job created: jobId=${jobId}, status=${status}`);
+    
+    return {
+      ok: true,
+      jobId,
+      pollUrl: `${baseUrl}/job/${jobId}`,
+      status,
+      latencyMs,
+    };
+    
+  } catch (err) {
+    console.error('[sync-by-work-item] TUTELAS /search fetch error:', err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Scraping job creation failed',
+      latencyMs: Date.now() - startTime,
+    };
+  }
+}
+
 // ============= PROVIDER: CPNU =============
 // CPNU Cloud Run service (cpnu-https-jobs) exposes routes at ROOT:
 // - GET /health - health check
@@ -675,7 +948,9 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
 async function fetchFromSamai(radicado: string): Promise<FetchResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('SAMAI_BASE_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  
+  // Get API key with provider-specific selection
+  const apiKeyInfo = await getApiKeyForProvider('samai');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] SAMAI_BASE_URL not configured');
@@ -694,8 +969,8 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       'Accept': 'application/json',
     };
     
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
     }
 
     console.log(`[sync-by-work-item] Calling SAMAI: ${baseUrl}/proceso/${radicado}`);
@@ -707,15 +982,38 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
 
     if (!response.ok) {
       if (response.status === 404) {
-        return { 
-          ok: false, 
-          actuaciones: [], 
-          error: 'Not found in SAMAI', 
-          provider: 'samai',
-          isEmpty: true,
-          latencyMs: Date.now() - startTime,
-          httpStatus: 404,
-        };
+        console.log(`[sync-by-work-item] SAMAI: Record not found (404) for ${radicado}. Auto-triggering scraping...`);
+        
+        // Attempt to trigger scraping job via /buscar
+        const scrapingResult = await triggerSamaiScrapingJob(radicado, baseUrl, apiKeyInfo);
+        
+        if (scrapingResult.ok && scrapingResult.jobId) {
+          console.log(`[sync-by-work-item] SAMAI: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+          return { 
+            ok: false, 
+            actuaciones: [], 
+            error: 'RECORD_NOT_FOUND', 
+            provider: 'samai',
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            httpStatus: 404,
+            scrapingInitiated: true,
+            scrapingJobId: scrapingResult.jobId,
+            scrapingPollUrl: scrapingResult.pollUrl,
+            scrapingMessage: `Record not found in SAMAI cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+          };
+        } else {
+          console.log(`[sync-by-work-item] SAMAI: Scraping trigger failed: ${scrapingResult.error}`);
+          return { 
+            ok: false, 
+            actuaciones: [], 
+            error: 'Not found in SAMAI', 
+            provider: 'samai',
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            httpStatus: 404,
+          };
+        }
       }
       return { 
         ok: false, 
@@ -780,7 +1078,9 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
 async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  
+  // Get API key with provider-specific selection
+  const apiKeyInfo = await getApiKeyForProvider('tutelas');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] TUTELAS_BASE_URL not configured');
@@ -799,8 +1099,8 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       'Accept': 'application/json',
     };
     
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
     }
 
     console.log(`[sync-by-work-item] Calling TUTELAS: ${baseUrl}/expediente/${tutelaCode}`);
@@ -812,14 +1112,38 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
 
     if (!response.ok) {
       if (response.status === 404) {
-        return { 
-          ok: false, 
-          actuaciones: [], 
-          error: 'Tutela not found', 
-          provider: 'tutelas-api',
-          isEmpty: true,
-          latencyMs: Date.now() - startTime,
-        };
+        console.log(`[sync-by-work-item] TUTELAS: Record not found (404) for ${tutelaCode}. Auto-triggering scraping...`);
+        
+        // Attempt to trigger scraping job via /search (POST)
+        const scrapingResult = await triggerTutelasScrapingJob(tutelaCode, baseUrl, apiKeyInfo);
+        
+        if (scrapingResult.ok && scrapingResult.jobId) {
+          console.log(`[sync-by-work-item] TUTELAS: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+          return { 
+            ok: false, 
+            actuaciones: [], 
+            error: 'RECORD_NOT_FOUND', 
+            provider: 'tutelas-api',
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            httpStatus: 404,
+            scrapingInitiated: true,
+            scrapingJobId: scrapingResult.jobId,
+            scrapingPollUrl: scrapingResult.pollUrl,
+            scrapingMessage: `Tutela not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+          };
+        } else {
+          console.log(`[sync-by-work-item] TUTELAS: Scraping trigger failed: ${scrapingResult.error}`);
+          return { 
+            ok: false, 
+            actuaciones: [], 
+            error: 'Tutela not found', 
+            provider: 'tutelas-api',
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            httpStatus: 404,
+          };
+        }
       }
       return { 
         ok: false, 
@@ -827,6 +1151,7 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
         error: `HTTP ${response.status}`, 
         provider: 'tutelas-api',
         latencyMs: Date.now() - startTime,
+        httpStatus: response.status,
       };
     }
 
@@ -852,6 +1177,7 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       },
       provider: 'tutelas-api',
       latencyMs: Date.now() - startTime,
+      httpStatus: 200,
     };
   } catch (err) {
     console.error('[sync-by-work-item] TUTELAS fetch error:', err);
@@ -875,6 +1201,11 @@ interface PublicacionesResult {
   isEmpty?: boolean;
   error?: string;
   latencyMs?: number;
+  // Auto-scraping fields
+  scrapingInitiated?: boolean;
+  scrapingJobId?: string;
+  scrapingPollUrl?: string;
+  scrapingMessage?: string;
 }
 
 function generatePublicacionFingerprint(
@@ -902,7 +1233,9 @@ async function fetchFromPublicaciones(
 ): Promise<PublicacionesResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  
+  // Get API key with provider-specific selection
+  const apiKeyInfo = await getApiKeyForProvider('publicaciones');
 
   if (!baseUrl) {
     console.log('[sync-by-work-item] PUBLICACIONES_BASE_URL not configured');
@@ -922,8 +1255,8 @@ async function fetchFromPublicaciones(
       'Accept': 'application/json',
     };
     
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
+    if (apiKeyInfo.value) {
+      headers['x-api-key'] = apiKeyInfo.value;
     }
 
     console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${baseUrl}/publicaciones/${radicado}`);
@@ -935,16 +1268,38 @@ async function fetchFromPublicaciones(
 
     if (!response.ok) {
       if (response.status === 404) {
-        console.log(`[sync-by-work-item] PUBLICACIONES: No publications found for ${radicado}`);
-        return { 
-          ok: true, // 404 is ok - just no data
-          publicacionesCount: 0,
-          insertedCount: 0,
-          skippedCount: 0,
-          error: 'No publications found', 
-          isEmpty: true,
-          latencyMs: Date.now() - startTime,
-        };
+        console.log(`[sync-by-work-item] PUBLICACIONES: No publications found (404) for ${radicado}. Auto-triggering scraping...`);
+        
+        // Attempt to trigger scraping job via /buscar
+        const scrapingResult = await triggerPublicacionesScrapingJob(radicado, baseUrl, apiKeyInfo);
+        
+        if (scrapingResult.ok && scrapingResult.jobId) {
+          console.log(`[sync-by-work-item] PUBLICACIONES: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+          return { 
+            ok: false, // Still failed to get data, but scraping initiated
+            publicacionesCount: 0,
+            insertedCount: 0,
+            skippedCount: 0,
+            error: 'RECORD_NOT_FOUND', 
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            scrapingInitiated: true,
+            scrapingJobId: scrapingResult.jobId,
+            scrapingPollUrl: scrapingResult.pollUrl,
+            scrapingMessage: `No publications found. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+          };
+        } else {
+          console.log(`[sync-by-work-item] PUBLICACIONES: Scraping trigger failed: ${scrapingResult.error}`);
+          return { 
+            ok: true, // 404 is ok - just no data
+            publicacionesCount: 0,
+            insertedCount: 0,
+            skippedCount: 0,
+            error: 'No publications found', 
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+          };
+        }
       }
       const errorText = await response.text();
       console.log(`[sync-by-work-item] PUBLICACIONES HTTP ${response.status}: ${errorText.slice(0, 200)}`);
@@ -1303,6 +1658,52 @@ Deno.serve(async (req) => {
       });
       
       result.provider_order_reason = 'penal_906_publicaciones_primary';
+      
+      // For PENAL_906, check if scraping was auto-initiated
+      if (publicacionesResult.scrapingInitiated && publicacionesResult.scrapingJobId) {
+        console.log(`[sync-by-work-item] PUBLICACIONES: Auto-scraping initiated: jobId=${publicacionesResult.scrapingJobId}`);
+        
+        result.ok = false;
+        result.provider_used = 'publicaciones';
+        result.scraping_initiated = true;
+        result.scraping_job_id = publicacionesResult.scrapingJobId;
+        result.scraping_poll_url = publicacionesResult.scrapingPollUrl;
+        result.scraping_provider = 'publicaciones';
+        result.scraping_message = publicacionesResult.scrapingMessage || 
+          `No publications found. Scraping initiated (job ${publicacionesResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+        
+        // Log SCRAPING_INITIATED trace step
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'SCRAPING_INITIATED',
+          provider: 'publicaciones',
+          http_status: null,
+          latency_ms: null,
+          success: true,
+          error_code: null,
+          message: `Scraping job created: ${publicacionesResult.scrapingJobId}`,
+          meta: {
+            job_id: publicacionesResult.scrapingJobId,
+            poll_url: publicacionesResult.scrapingPollUrl,
+            radicado_preview: workItem.radicado?.slice(0, 10) + '...',
+          },
+        });
+        
+        // Update work_item with SCRAPING status (not FAILED)
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'IN_PROGRESS',
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', work_item_id);
+        
+        result.trace_id = traceId;
+        return jsonResponse(result, 202);
+      }
       
       // For PENAL_906, Publicaciones is the primary source
       // We report success based on Publicaciones, not CPNU/SAMAI
