@@ -1734,9 +1734,11 @@ async function fetchFromPublicaciones(
       headers['x-api-key'] = apiKeyInfo.value;
     }
 
-    console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${baseUrl}/publicaciones/${radicado}`);
+    // FIXED: Use query-param format (not path-based)
+    const url = `${baseUrl.replace(/\/+$/, '')}/publicaciones?radicado=${radicado}`;
+    console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${url}`);
     
-    const response = await fetch(`${baseUrl}/publicaciones/${radicado}`, {
+    const response = await fetch(url, {
       method: 'GET',
       headers,
     });
@@ -2998,6 +3000,40 @@ Deno.serve(async (req) => {
       .from('work_items')
       .update(updatePayload)
       .eq('id', work_item_id);
+
+    // ============= CGP/LABORAL: ALSO FETCH PUBLICACIONES (ESTADOS) =============
+    // For CGP and LABORAL workflows, Publicaciones (court notifications) are ADDITIONAL 
+    // to actuaciones from CPNU. They provide critical deadline trigger information.
+    // This is a NON-BLOCKING call - failures don't break the main sync.
+    if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
+      console.log(`[sync-by-work-item] ${workItem.workflow_type}: Also fetching Publicaciones (estados) for deadline tracking`);
+      
+      try {
+        const normalizedRadicado = normalizeRadicado(workItem.radicado);
+        const publicacionesResult = await fetchFromPublicaciones(
+          normalizedRadicado,
+          work_item_id,
+          workItem.owner_id,
+          workItem.organization_id,
+          supabase
+        );
+        
+        if (publicacionesResult.ok && publicacionesResult.insertedCount > 0) {
+          result.warnings.push(`${publicacionesResult.insertedCount} nuevos estados/publicaciones encontrados`);
+          console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync: ${publicacionesResult.insertedCount} inserted, ${publicacionesResult.skippedCount} skipped`);
+        } else if (publicacionesResult.scrapingInitiated) {
+          result.warnings.push(`Publicaciones scraping iniciado (job ${publicacionesResult.scrapingJobId}). Reintente en 30-60 segundos.`);
+          console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones scraping initiated: jobId=${publicacionesResult.scrapingJobId}`);
+        } else if (!publicacionesResult.ok && publicacionesResult.error) {
+          console.warn(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones fetch failed (non-blocking):`, publicacionesResult.error);
+          result.warnings.push(`Publicaciones: ${publicacionesResult.error}`);
+        }
+      } catch (pubError) {
+        // Non-blocking: log but don't fail the main sync
+        console.warn('[sync-by-work-item] Publicaciones fetch failed (non-blocking):', pubError);
+        result.warnings.push('Publicaciones fetch failed: ' + (pubError as Error).message);
+      }
+    }
 
     result.ok = true;
     console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);

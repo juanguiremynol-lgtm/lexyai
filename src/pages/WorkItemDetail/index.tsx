@@ -104,15 +104,15 @@ const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: str
     { value: "notes", label: "Notas", icon: <StickyNote className="h-4 w-4" /> },
   ];
   
-  // Estados tab only for CGP, CPACA, TUTELA (judicial workflows)
+  // CONSOLIDATED: Single "Estados" tab for judicial workflows
+  // This tab now shows BOTH work_item_acts AND work_item_publicaciones data
+  // Estados = Court notifications (publicaciones procesales) from Rama Judicial
   if (ESTADOS_WORKFLOWS.includes(workflowType)) {
     baseTabs.push({ value: "estados", label: "Estados", icon: <Activity className="h-4 w-4" /> });
   }
   
-  // Publicaciones tab for judicial workflows (requires radicado)
-  if (ESTADOS_WORKFLOWS.includes(workflowType)) {
-    baseTabs.push({ value: "publicaciones", label: "Publicaciones", icon: <Newspaper className="h-4 w-4" /> });
-  }
+  // REMOVED: Separate Publicaciones tab - consolidated into Estados tab above
+  // The EstadosTab component now fetches from both tables
   
   // Timeline tab for all judicial workflows - shows placeholder when no data
   if (ESTADOS_WORKFLOWS.includes(workflowType)) {

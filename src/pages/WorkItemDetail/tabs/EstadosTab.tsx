@@ -1,10 +1,13 @@
 /**
- * Estados Tab - Shows imported estados/actuaciones with Stage Inference UI
+ * Estados Tab - UNIFIED view for court notifications and actuaciones
  * 
- * ONLY for CGP, CPACA, and TUTELA workflows
+ * ONLY for CGP, CPACA, TUTELA, and LABORAL workflows
  * 
  * Features:
- * - Display imported estados from ICARUS/scrapers
+ * - Display imported estados from ICARUS/scrapers (work_item_acts table)
+ * - Display publicaciones from Rama Judicial API (work_item_publicaciones table)
+ * - MERGED view with source badges (ICARUS, CPNU, Rama Judicial, etc.)
+ * - Single sync button that triggers Publicaciones sync
  * - Show suggested stage with confidence indicator
  * - Allow user to apply/override suggested stage
  * - Track milestone detection
@@ -13,7 +16,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -33,6 +36,8 @@ import {
   X,
   Loader2,
   Lightbulb,
+  Newspaper,
+  FileWarning,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -48,14 +53,17 @@ interface EstadosTabProps {
   workItem: WorkItem & { _source?: string };
 }
 
-interface Estado {
+// Unified item type for merged display
+interface UnifiedEstado {
   id: string;
-  act_date: string | null;
-  act_date_raw: string | null;
+  date: string | null;
+  date_raw: string | null;
   description: string;
-  act_type: string | null;
+  type: string | null;
   source: string;
   source_reference: string | null;
+  pdf_url?: string | null;
+  is_publicacion: boolean; // true if from work_item_publicaciones
   milestone_type: string | null;
   triggers_phase_change: boolean;
   created_at: string;
@@ -68,11 +76,15 @@ interface Estado {
       reasoning: string;
       auto_applied: boolean;
     };
+    fecha_fijacion?: string;
+    fecha_desfijacion?: string;
+    tipo_publicacion?: string;
+    despacho?: string;
     [key: string]: unknown;
   } | null;
 }
 
-// Source labels and styling
+// Source labels and styling - ENHANCED with Publicaciones sources
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: typeof Database }> = {
   ICARUS_ESTADOS: { label: "ICARUS", color: "text-blue-600 bg-blue-500/10", icon: FileText },
   ICARUS_ESTADOS_EXCEL: { label: "ICARUS", color: "text-blue-600 bg-blue-500/10", icon: FileText },
@@ -80,6 +92,10 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: typeof
   CPNU: { label: "CPNU", color: "text-purple-600 bg-purple-500/10", icon: Database },
   MANUAL: { label: "Manual", color: "text-amber-600 bg-amber-500/10", icon: FileText },
   DEFAULT: { label: "Sistema", color: "text-muted-foreground bg-muted/50", icon: Database },
+  // Publicaciones sources
+  PUBLICACIONES_API: { label: "Rama Judicial", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
+  "publicaciones-procesales": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
+  "publicaciones-api": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
 };
 
 // Milestone type styling
@@ -123,74 +139,159 @@ const CONFIDENCE_CONFIG: Record<StageConfidence, { label: string; color: string;
 export function EstadosTab({ workItem }: EstadosTabProps) {
   const queryClient = useQueryClient();
   const [applyingStageFor, setApplyingStageFor] = useState<string | null>(null);
+  const [isSyncingPublicaciones, setIsSyncingPublicaciones] = useState(false);
   
-  // Fetch estados from work_item_acts table
+  // Check if radicado is valid for Publicaciones sync
+  const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
+  
+  // UNIFIED QUERY: Fetch from BOTH work_item_acts AND work_item_publicaciones
   const { data: estados, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["work-item-estados", workItem.id],
+    queryKey: ["work-item-estados-unified", workItem.id],
     queryFn: async () => {
-      // Fetch from work_item_acts table
-      const { data: acts, error } = await supabase
-        .from("work_item_acts")
-        .select("*")
-        .eq("work_item_id", workItem.id)
-        .order("act_date", { ascending: false });
-      
-      if (error) throw error;
-      
-      if (acts && acts.length > 0) {
-        return acts.map((act: any) => ({
-          id: act.id,
-          act_date: act.act_date,
-          act_date_raw: act.act_date_raw,
-          description: act.description,
-          act_type: act.act_type,
-          source: act.source || "DEFAULT",
-          source_reference: act.source_reference,
-          milestone_type: act.act_type || null,
-          triggers_phase_change: false,
-          created_at: act.created_at,
-          raw_data: act.raw_data,
-        })) as Estado[];
-      }
-      
-      // Fallback to legacy actuaciones table if no work_item_acts
-      const legacyFilingId = workItem.legacy_filing_id;
-      const legacyProcessId = workItem.legacy_process_id;
-      
-      if (legacyFilingId || legacyProcessId) {
-        let query = supabase
-          .from("actuaciones")
+      // Fetch from BOTH sources in parallel
+      const [actsResult, pubsResult] = await Promise.all([
+        supabase
+          .from("work_item_acts")
           .select("*")
-          .order("act_date", { ascending: false });
+          .eq("work_item_id", workItem.id)
+          .order("act_date", { ascending: false }),
+        supabase
+          .from("work_item_publicaciones")
+          .select("*")
+          .eq("work_item_id", workItem.id)
+          .order("published_at", { ascending: false }),
+      ]);
+      
+      const acts = actsResult.data || [];
+      const pubs = pubsResult.data || [];
+      
+      // Map work_item_acts to unified format
+      const unifiedActs: UnifiedEstado[] = acts.map((act: any) => ({
+        id: act.id,
+        date: act.act_date,
+        date_raw: act.act_date_raw,
+        description: act.description,
+        type: act.act_type,
+        source: act.source || "DEFAULT",
+        source_reference: act.source_reference,
+        pdf_url: null,
+        is_publicacion: false,
+        milestone_type: act.act_type || null,
+        triggers_phase_change: false,
+        created_at: act.created_at,
+        raw_data: act.raw_data,
+      }));
+      
+      // Map work_item_publicaciones to unified format
+      const unifiedPubs: UnifiedEstado[] = pubs.map((pub: any) => ({
+        id: pub.id,
+        date: pub.published_at,
+        date_raw: pub.published_at,
+        description: pub.title + (pub.annotation ? ` - ${pub.annotation}` : ''),
+        type: pub.raw_data?.tipo_publicacion || 'ESTADO',
+        source: pub.source || "PUBLICACIONES_API",
+        source_reference: null,
+        pdf_url: pub.pdf_url,
+        is_publicacion: true,
+        milestone_type: null,
+        triggers_phase_change: false,
+        created_at: pub.created_at,
+        raw_data: {
+          fecha_fijacion: pub.raw_data?.fecha_fijacion,
+          fecha_desfijacion: pub.raw_data?.fecha_desfijacion,
+          tipo_publicacion: pub.raw_data?.tipo_publicacion,
+          despacho: pub.raw_data?.despacho,
+          ...(pub.raw_data || {}),
+        },
+      }));
+      
+      // Merge and sort by date descending
+      const unified = [...unifiedActs, ...unifiedPubs];
+      unified.sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      // If no data from new tables, try legacy fallback
+      if (unified.length === 0) {
+        const legacyFilingId = workItem.legacy_filing_id;
+        const legacyProcessId = workItem.legacy_process_id;
         
-        if (legacyFilingId) {
-          query = query.eq("filing_id", legacyFilingId);
-        } else if (legacyProcessId) {
-          query = query.eq("monitored_process_id", legacyProcessId);
-        }
-        
-        const { data: legacyActs } = await query;
-        
-        if (legacyActs) {
-          return legacyActs.map((act: any) => ({
-            id: act.id,
-            act_date: act.act_date,
-            act_date_raw: act.act_date_raw,
-            description: act.normalized_text || act.raw_text,
-            act_type: act.act_type_guess,
-            source: act.adapter_name || "LEGACY",
-            source_reference: act.source_url,
-            milestone_type: null,
-            triggers_phase_change: false,
-            created_at: act.created_at,
-            raw_data: null,
-          })) as Estado[];
+        if (legacyFilingId || legacyProcessId) {
+          let query = supabase
+            .from("actuaciones")
+            .select("*")
+            .order("act_date", { ascending: false });
+          
+          if (legacyFilingId) {
+            query = query.eq("filing_id", legacyFilingId);
+          } else if (legacyProcessId) {
+            query = query.eq("monitored_process_id", legacyProcessId);
+          }
+          
+          const { data: legacyActs } = await query;
+          
+          if (legacyActs) {
+            return legacyActs.map((act: any) => ({
+              id: act.id,
+              date: act.act_date,
+              date_raw: act.act_date_raw,
+              description: act.normalized_text || act.raw_text,
+              type: act.act_type_guess,
+              source: act.adapter_name || "LEGACY",
+              source_reference: act.source_url,
+              pdf_url: null,
+              is_publicacion: false,
+              milestone_type: null,
+              triggers_phase_change: false,
+              created_at: act.created_at,
+              raw_data: null,
+            })) as UnifiedEstado[];
+          }
         }
       }
       
-      return [];
+      return unified;
     },
     enabled: !!workItem.id,
+  });
+  
+  // Sync Publicaciones mutation
+  const syncPublicacionesMutation = useMutation({
+    mutationFn: async () => {
+      setIsSyncingPublicaciones(true);
+      const { data, error } = await supabase.functions.invoke("sync-publicaciones-by-work-item", {
+        body: { work_item_id: workItem.id },
+      });
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (result) => {
+      setIsSyncingPublicaciones(false);
+      queryClient.invalidateQueries({ queryKey: ["work-item-estados-unified", workItem.id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones", workItem.id] });
+      
+      if (result.ok) {
+        if (result.inserted_count > 0) {
+          toast.success(`${result.inserted_count} nuevos estados encontrados`);
+        } else {
+          toast.info("No hay nuevos estados");
+        }
+      } else if (result.scraping_initiated) {
+        toast.info("Búsqueda iniciada. Reintente en 30-60 segundos.", {
+          description: `Job ID: ${result.scraping_job_id}`,
+        });
+      } else {
+        toast.error(result.errors?.[0] || "Error al sincronizar");
+      }
+    },
+    onError: (err) => {
+      setIsSyncingPublicaciones(false);
+      console.error("Publicaciones sync error:", err);
+      toast.error(err instanceof Error ? err.message : "Error al sincronizar");
+    },
   });
 
   // Mutation for applying stage
@@ -244,7 +345,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     },
   });
 
-  const handleApplyStage = (estado: Estado) => {
+  const handleApplyStage = (estado: UnifiedEstado) => {
     const inference = estado.raw_data?.inference_result;
     if (!inference?.suggestedStage) return;
     
@@ -289,28 +390,51 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Scale className="h-5 w-5" />
-              Estados y Actuaciones
-              <Badge variant="secondary" className="ml-2">
-                {estados?.length || 0} registros
-              </Badge>
-            </CardTitle>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => refetch()}
-              disabled={isFetching}
-            >
-              <RefreshCw className={cn("h-4 w-4 mr-2", isFetching && "animate-spin")} />
-              Actualizar
-            </Button>
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Scale className="h-5 w-5" />
+                Estados y Publicaciones
+                <Badge variant="secondary" className="ml-2">
+                  {estados?.length || 0} registros
+                </Badge>
+              </CardTitle>
+              <CardDescription className="mt-1">
+                Estados electrónicos y publicaciones procesales de la Rama Judicial
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {!hasValidRadicado && (
+                <Badge variant="outline" className="text-amber-600 border-amber-300">
+                  <FileWarning className="h-3 w-3 mr-1" />
+                  Requiere radicado
+                </Badge>
+              )}
+              
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => syncPublicacionesMutation.mutate()}
+                disabled={!hasValidRadicado || isSyncingPublicaciones}
+              >
+                <Newspaper className={cn("h-4 w-4 mr-2", isSyncingPublicaciones && "animate-spin")} />
+                {isSyncingPublicaciones ? "Sincronizando..." : "Buscar Estados"}
+              </Button>
+              
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
           <p className="text-sm text-muted-foreground">
-            Historial de actuaciones importadas desde ICARUS o sincronizadas desde la Rama Judicial.
-            El sistema sugiere automáticamente la etapa del proceso basándose en el contenido.
+            Historial de actuaciones importadas desde ICARUS, sincronizadas desde CPNU, o estados electrónicos de la Rama Judicial.
+            Los estados marcan el inicio de términos procesales (el día siguiente a la fecha de desfijación).
           </p>
         </CardContent>
       </Card>
@@ -319,13 +443,27 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       {!estados || estados.length === 0 ? (
         <Card>
           <CardContent className="py-12">
-            <div className="text-center">
-              <Scale className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-semibold mb-2">Sin estados registrados</h3>
-              <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                Los estados aparecerán aquí cuando importes un archivo de Estados de ICARUS
-                o cuando se sincronicen automáticamente desde la Rama Judicial.
-              </p>
+            <div className="text-center space-y-3">
+              <Scale className="h-12 w-12 mx-auto text-muted-foreground/50" />
+              <div>
+                <h3 className="font-semibold mb-2">Sin estados registrados</h3>
+                <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                  {hasValidRadicado
+                    ? "No se han encontrado estados para este proceso. Haz clic en \"Buscar Estados\" para sincronizar desde la Rama Judicial."
+                    : "Este proceso necesita un radicado válido (23 dígitos) para buscar estados. También puedes importar estados desde un archivo Excel de ICARUS."
+                  }
+                </p>
+              </div>
+              {hasValidRadicado && (
+                <Button 
+                  onClick={() => syncPublicacionesMutation.mutate()}
+                  disabled={isSyncingPublicaciones}
+                  size="sm"
+                >
+                  <Newspaper className={cn("h-4 w-4 mr-2", isSyncingPublicaciones && "animate-spin")} />
+                  {isSyncingPublicaciones ? "Buscando..." : "Buscar Estados"}
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -394,10 +532,23 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                         )}
 
                         {/* Act type (if no milestone) */}
-                        {estado.act_type && !milestoneConfig && estado.act_type !== 'ESTADO' && (
+                        {estado.type && !milestoneConfig && estado.type !== 'ESTADO' && (
                           <Badge variant="secondary" className="text-xs">
-                            {estado.act_type}
+                            {estado.type}
                           </Badge>
+                        )}
+                        
+                        {/* PDF link for publicaciones */}
+                        {estado.is_publicacion && estado.pdf_url && (
+                          <a 
+                            href={estado.pdf_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Ver PDF
+                          </a>
                         )}
                       </div>
 
@@ -454,23 +605,31 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                       )}
 
                       {/* Raw date if different */}
-                      {estado.act_date_raw && estado.act_date_raw !== estado.act_date && (
+                      {estado.date_raw && estado.date_raw !== estado.date && (
                         <p className="text-xs text-muted-foreground italic">
-                          Fecha original: {estado.act_date_raw}
+                          Fecha original: {estado.date_raw}
+                        </p>
+                      )}
+                      
+                      {/* Publicacion-specific: fecha fijacion/desfijacion */}
+                      {estado.is_publicacion && estado.raw_data?.fecha_desfijacion && (
+                        <p className="text-xs text-muted-foreground">
+                          <span className="font-medium">Términos inician:</span>{" "}
+                          {estado.raw_data.fecha_desfijacion} (día siguiente a desfijación)
                         </p>
                       )}
                     </div>
 
                     {/* Right side: Date and actions */}
                     <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      {estado.act_date ? (
+                      {estado.date ? (
                         <>
                           <div className="flex items-center gap-1.5 text-sm font-medium">
                             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                            {format(new Date(estado.act_date), "d MMM yyyy", { locale: es })}
+                            {format(new Date(estado.date), "d MMM yyyy", { locale: es })}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(estado.act_date), { addSuffix: true, locale: es })}
+                            {formatDistanceToNow(new Date(estado.date), { addSuffix: true, locale: es })}
                           </p>
                         </>
                       ) : (
