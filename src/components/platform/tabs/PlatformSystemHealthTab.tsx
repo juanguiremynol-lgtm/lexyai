@@ -6,8 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Activity, Server, Clock, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import { format, subHours } from "date-fns";
+import { Activity, Server, Clock, CheckCircle2, XCircle, AlertTriangle, RefreshCw, CalendarClock } from "lucide-react";
+import { format, subHours, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
 interface JobRun {
@@ -62,6 +62,10 @@ export function PlatformSystemHealthTab() {
     },
   });
 
+  // Get scheduled-daily-sync specific data
+  const lastDailySync = jobRuns?.find(j => j.job_name === 'scheduled-daily-sync');
+  const dailySyncRuns = jobRuns?.filter(j => j.job_name === 'scheduled-daily-sync') || [];
+
   const getStatusIcon = (status: string) => {
     switch (status.toUpperCase()) {
       case "OK":
@@ -72,6 +76,8 @@ export function PlatformSystemHealthTab() {
         return <XCircle className="h-4 w-4 text-red-500" />;
       case "RUNNING":
         return <Clock className="h-4 w-4 text-blue-500 animate-pulse" />;
+      case "PARTIAL":
+        return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       default:
         return <AlertTriangle className="h-4 w-4 text-amber-500" />;
     }
@@ -87,6 +93,8 @@ export function PlatformSystemHealthTab() {
         return <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">{status}</Badge>;
       case "RUNNING":
         return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">{status}</Badge>;
+      case "PARTIAL":
+        return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">{status}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -167,6 +175,115 @@ export function PlatformSystemHealthTab() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Scheduled Daily Sync Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-primary" />
+            Sincronización Diaria Automática
+          </CardTitle>
+          <CardDescription>
+            Ejecuta a las 7:00 AM COT (12:00 UTC) - Sincroniza todos los work items con monitoreo activo
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {lastDailySync ? (
+            <div className="space-y-4">
+              {/* Last run summary */}
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+                <div className="flex items-center gap-3">
+                  {getStatusIcon(lastDailySync.status)}
+                  <div>
+                    <div className="font-medium">Última ejecución</div>
+                    <div className="text-sm text-muted-foreground">
+                      {format(new Date(lastDailySync.started_at), "dd MMM yyyy HH:mm", { locale: es })}
+                      {" · "}
+                      {formatDistanceToNow(new Date(lastDailySync.started_at), { addSuffix: true, locale: es })}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  {getStatusBadge(lastDailySync.status)}
+                </div>
+              </div>
+
+              {/* Stats from metadata */}
+              {lastDailySync.metadata && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 border rounded-lg text-center">
+                    <div className="text-2xl font-bold text-primary">
+                      {(lastDailySync.metadata as any).success_count ?? lastDailySync.processed_count ?? 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Exitosos</div>
+                  </div>
+                  <div className="p-3 border rounded-lg text-center">
+                    <div className="text-2xl font-bold text-amber-500">
+                      {(lastDailySync.metadata as any).scraping_initiated ?? 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Scraping Iniciado</div>
+                  </div>
+                  <div className="p-3 border rounded-lg text-center">
+                    <div className="text-2xl font-bold text-red-500">
+                      {(lastDailySync.metadata as any).error_count ?? 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Errores</div>
+                  </div>
+                  <div className="p-3 border rounded-lg text-center">
+                    <div className="text-2xl font-bold">
+                      {lastDailySync.duration_ms ? `${Math.round(lastDailySync.duration_ms / 1000)}s` : '-'}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Duración</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Error details if any */}
+              {(lastDailySync.metadata as any)?.errors?.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2 text-red-500">Errores recientes:</h4>
+                  <div className="max-h-32 overflow-y-auto space-y-1 text-xs">
+                    {((lastDailySync.metadata as any).errors as any[]).slice(0, 5).map((err: any, i: number) => (
+                      <div key={i} className="p-2 bg-red-50 dark:bg-red-900/20 rounded">
+                        <span className="font-mono">{err.radicado || err.work_item_id}</span>: {err.error}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent runs history */}
+              {dailySyncRuns.length > 1 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Historial reciente:</h4>
+                  <div className="space-y-1">
+                    {dailySyncRuns.slice(0, 5).map((run) => (
+                      <div key={run.id} className="flex items-center justify-between p-2 border rounded text-sm">
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(run.status)}
+                          <span>{format(new Date(run.started_at), "dd MMM HH:mm", { locale: es })}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">
+                            {run.processed_count ?? 0} procesados
+                          </span>
+                          {getStatusBadge(run.status)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <RefreshCw className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No hay ejecuciones registradas de la sincronización diaria</p>
+              <p className="text-xs mt-1">El cron job ejecuta a las 7:00 AM COT</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Job Runs */}
       <Card>

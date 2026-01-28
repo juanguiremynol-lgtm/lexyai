@@ -210,13 +210,14 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
       // SAMAI is primary for CPACA (administrative litigation)
       return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
     case 'TUTELA':
-      // TUTELAS API primary, CPNU fallback if TUTELAS empty/failed
-      return { primary: 'tutelas-api', fallback: 'cpnu', fallbackEnabled: true };
+      // TUTELA: CPNU primary (more reliable), Tutelas API as fallback
+      // CPNU often has more complete data; Tutelas API is supplement
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
     case 'PENAL_906':
-      // PENAL_906: PUBLICACIONES is the PRIMARY sync source
-      // Publicaciones must be called FIRST because penal updates frequently surface via published PDFs
-      // CPNU/SAMAI are optional enrichment providers (disabled by default)
-      return { primary: 'publicaciones', fallback: 'cpnu', fallbackEnabled: false, usePublicacionesAsPrimary: true };
+      // PENAL_906: CPNU primary for actuaciones, SAMAI as fallback
+      // Publicaciones (estados) is fetched ADDITIONALLY via alsoFetchPublicaciones flag
+      // This ensures criminal cases get proper actuaciones data
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
     case 'CGP':
     case 'LABORAL':
       // CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI

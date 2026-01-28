@@ -4,6 +4,18 @@ import { toast } from "sonner";
 import type { WorkflowType, CGPPhase, ItemSource } from "@/lib/workflow-constants";
 import { getDefaultStage } from "@/lib/workflow-constants";
 import { createRemindersForWorkItem, isEligibleForReminders } from "@/lib/reminders/reminder-service";
+
+// Interface for initial actuaciones from lookup
+interface InitialActuacion {
+  fecha: string;
+  actuacion: string;
+  anotacion?: string;
+  fecha_registro?: string;
+  estado?: string;
+  anexos?: number;
+  indice?: string;
+}
+
 export interface CreateWorkItemData {
   // Core classification
   workflow_type: WorkflowType;
@@ -45,6 +57,10 @@ export interface CreateWorkItemData {
   notes?: string;
   description?: string;
   source?: ItemSource;
+  
+  // Initial actuaciones from lookup (to persist on creation)
+  initial_actuaciones?: InitialActuacion[];
+  lookup_source?: string; // e.g., 'CPNU', 'SAMAI'
 }
 
 export function useCreateWorkItem() {
@@ -120,6 +136,55 @@ export function useCreateWorkItem() {
       if (error) {
         console.error("Error creating work item:", error);
         throw new Error(error.message);
+      }
+
+      // Save initial actuaciones if provided (from lookup preview)
+      if (data.initial_actuaciones && data.initial_actuaciones.length > 0 && workItem) {
+        console.log(`[use-create-work-item] Saving ${data.initial_actuaciones.length} initial actuaciones`);
+        
+        const actuacionesToInsert = data.initial_actuaciones.map((act) => {
+          // Generate fingerprint for deduplication
+          const normalized = `${workItem.id}|${act.fecha || ''}|${(act.actuacion || '').toLowerCase().trim().slice(0, 200)}`;
+          let hash = 0;
+          for (let i = 0; i < normalized.length; i++) {
+            const char = normalized.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+          }
+          const fingerprint = `wi_${workItem.id.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
+          
+          return {
+            work_item_id: workItem.id,
+            owner_id: workItem.owner_id,
+            organization_id: workItem.organization_id || null,
+            act_date: act.fecha || null,
+            act_date_raw: act.fecha || null,
+            raw_text: act.actuacion || '',
+            normalized_text: act.anotacion || act.actuacion || '',
+            source: data.lookup_source || 'CPNU',
+            hash_fingerprint: fingerprint,
+            raw_data: act,
+            // SAMAI-specific fields
+            fecha_registro: act.fecha_registro || null,
+            estado: act.estado || null,
+            anexos_count: act.anexos || null,
+            indice: act.indice || null,
+          };
+        });
+
+        const { error: actsError } = await supabase
+          .from("actuaciones")
+          .upsert(actuacionesToInsert as any, { 
+            onConflict: 'hash_fingerprint',
+            ignoreDuplicates: true 
+          });
+
+        if (actsError) {
+          console.warn("[use-create-work-item] Failed to save initial actuaciones:", actsError);
+          // Non-blocking - work item was created successfully
+        } else {
+          console.log(`[use-create-work-item] Successfully saved ${actuacionesToInsert.length} actuaciones`);
+        }
       }
 
       return workItem;
