@@ -115,6 +115,7 @@ export function SyncWorkItemButton({ workItem, onTraceIdGenerated }: SyncWorkIte
     queryClient.invalidateQueries({ queryKey: ["work-item-acts", workItem.id] });
     queryClient.invalidateQueries({ queryKey: ["work-item-alerts", workItem.id] });
     queryClient.invalidateQueries({ queryKey: ["work-item-process-events", workItem.id] });
+    queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones", workItem.id] });
   };
 
   // Execute sync call
