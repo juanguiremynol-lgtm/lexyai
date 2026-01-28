@@ -10,7 +10,7 @@
  * 6. Field population check
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -32,8 +32,12 @@ import {
   FileText,
   RefreshCw,
   Newspaper,
+  Copy,
+  ExternalLink,
+  Clock,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface DebugStep {
   step: string;
@@ -59,13 +63,62 @@ interface ScrapingInfo {
 }
 
 export function EstadosDebugPanel() {
-  const [radicado, setRadicado] = useState('');
+  // Pre-fill with known ICARUS radicado for testing
+  const [radicado, setRadicado] = useState('05001400302020250187800');
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState<DebugStep[]>([]);
   const [apiRawResponse, setApiRawResponse] = useState<unknown>(null);
   const [dbRecords, setDbRecords] = useState<unknown[]>([]);
   const [workItem, setWorkItem] = useState<WorkItemInfo | null>(null);
   const [scrapingInfo, setScrapingInfo] = useState<ScrapingInfo | null>(null);
+  const [previousJobId, setPreviousJobId] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [countdown, setCountdown] = useState(0);
+
+  // Countdown timer for auto-retry
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    } else if (countdown === 0 && scrapingInfo && retryCount < 3) {
+      // Auto-retry when countdown reaches 0
+      // runFullDebug(); // Uncomment to enable auto-retry
+    }
+  }, [countdown, scrapingInfo, retryCount]);
+
+  // Track if same job ID is returned (Cloud Run not processing)
+  const checkSameJobId = (newJobId: string) => {
+    if (previousJobId === newJobId) {
+      setRetryCount(prev => prev + 1);
+      return true;
+    }
+    setPreviousJobId(newJobId);
+    setRetryCount(0);
+    return false;
+  };
+
+  const copyDiagnosticReport = () => {
+    const report = {
+      timestamp: new Date().toISOString(),
+      radicado,
+      workItem: workItem ? { id: workItem.id, workflow_type: workItem.workflow_type } : null,
+      scrapingInfo: scrapingInfo ? { jobId: scrapingInfo.jobId, initiatedAt: scrapingInfo.initiatedAt } : null,
+      retryCount,
+      steps: steps.map(s => ({ step: s.step, status: s.status, message: s.message })),
+      apiResponse: apiRawResponse,
+      dbRecordsCount: dbRecords.length,
+      diagnosis: retryCount >= 2 
+        ? 'CLOUD_RUN_ISSUE: Scraping job returns same ID repeatedly, data not appearing'
+        : scrapingInfo 
+        ? 'WAITING_FOR_SCRAPING: Job initiated, waiting for completion'
+        : dbRecords.length > 0 
+        ? 'SUCCESS: Data found in database'
+        : 'NO_DATA: No records found'
+    };
+    
+    navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+    toast.success('Diagnóstico copiado al portapapeles');
+  };
 
   const updateStep = (stepName: string, update: Partial<DebugStep>) => {
     setSteps(prev => prev.map(s => 
@@ -295,12 +348,26 @@ export function EstadosDebugPanel() {
           
           // Save scraping info for retry UI
           if (scrapingInitiated && syncResult?.scrapingJobId) {
+            const isSameJob = checkSameJobId(syncResult.scrapingJobId);
+            
             setScrapingInfo({
               jobId: syncResult.scrapingJobId,
               pollUrl: syncResult.scrapingPollUrl,
-              message: syncResult.scrapingMessage || 'Reintente en 30-60 segundos',
-              initiatedAt: new Date(),
+              message: isSameJob 
+                ? `⚠️ Mismo Job ID devuelto (${retryCount + 1}x) - Cloud Run puede tener problemas`
+                : syncResult.scrapingMessage || 'Reintente en 30-60 segundos',
+              initiatedAt: scrapingInfo?.initiatedAt || new Date(),
             });
+            
+            // Set countdown for auto-retry
+            if (!isSameJob) {
+              setCountdown(45);
+            }
+          } else if (isOk) {
+            // Clear scraping info on success
+            setScrapingInfo(null);
+            setPreviousJobId(null);
+            setRetryCount(0);
           }
           
           updateStep('SYNC_FUNCTION', {
@@ -308,7 +375,7 @@ export function EstadosDebugPanel() {
             message: isOk 
               ? `✅ Insertados: ${syncResult.inserted_count || 0}, Omitidos: ${syncResult.skipped_count || 0}, Alertas: ${syncResult.alerts_created || 0}`
               : scrapingInitiated 
-              ? `⚠️ Scraping iniciado (Job: ${syncResult.scrapingJobId?.slice(0, 20)}...)`
+              ? `⚠️ Scraping iniciado (Job: ${syncResult.scrapingJobId?.slice(0, 20)}...)${retryCount > 0 ? ` [Retry #${retryCount}]` : ''}`
               : `❌ ${syncResult?.errors?.[0] || syncResult?.code || 'Error desconocido'}`,
             data: syncResult,
             duration: Date.now() - startSync
@@ -583,18 +650,45 @@ export function EstadosDebugPanel() {
 
         {/* Scraping Status Banner */}
         {scrapingInfo && (
-          <Alert className="mt-4 border-blue-200 bg-blue-50 dark:bg-blue-950/30">
-            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-            <AlertTitle>Scraping en Progreso</AlertTitle>
+          <Alert className={`mt-4 ${retryCount >= 2 ? 'border-red-200 bg-red-50 dark:bg-red-950/30' : 'border-blue-200 bg-blue-50 dark:bg-blue-950/30'}`}>
+            {retryCount >= 2 ? (
+              <XCircle className="h-4 w-4 text-red-500" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            )}
+            <AlertTitle>
+              {retryCount >= 2 
+                ? '⚠️ Problema con Cloud Run Publicaciones' 
+                : 'Scraping en Progreso'}
+            </AlertTitle>
             <AlertDescription className="space-y-2">
-              <p>{scrapingInfo.message}</p>
+              {retryCount >= 2 ? (
+                <div className="space-y-2">
+                  <p className="text-red-700 dark:text-red-300">
+                    El servicio Cloud Run devuelve el mismo Job ID repetidamente sin procesar datos.
+                    Esto indica un problema en el servicio de scraping externo.
+                  </p>
+                  <p className="text-sm">
+                    <strong>Diagnóstico:</strong> El endpoint <code>/buscar</code> responde pero el job no se ejecuta o falla silenciosamente.
+                  </p>
+                </div>
+              ) : (
+                <p>{scrapingInfo.message}</p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Job ID: <code className="font-mono">{scrapingInfo.jobId}</code>
               </p>
               <p className="text-xs text-muted-foreground">
                 Iniciado: {scrapingInfo.initiatedAt.toLocaleTimeString()}
+                {retryCount > 0 && ` • Reintentos: ${retryCount}`}
               </p>
-              <div className="flex gap-2 mt-3">
+              {countdown > 0 && (
+                <p className="text-xs flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Auto-reintento en {countdown}s
+                </p>
+              )}
+              <div className="flex gap-2 mt-3 flex-wrap">
                 <Button 
                   size="sm" 
                   onClick={runFullDebug}
@@ -603,6 +697,24 @@ export function EstadosDebugPanel() {
                   <RefreshCw className="h-4 w-4 mr-1" />
                   Reintentar Ahora
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={copyDiagnosticReport}
+                >
+                  <Copy className="h-4 w-4 mr-1" />
+                  Copiar Diagnóstico
+                </Button>
+                {retryCount >= 2 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.open('https://console.cloud.google.com/run', '_blank')}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    Ver Cloud Run Logs
+                  </Button>
+                )}
               </div>
             </AlertDescription>
           </Alert>
