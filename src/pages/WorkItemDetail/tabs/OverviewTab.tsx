@@ -32,6 +32,11 @@ import {
   Target,
   Circle,
   Eye,
+  Scale,
+  FolderOpen,
+  UserCircle,
+  Layers,
+  Info,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -43,8 +48,53 @@ import { EntityClientLink } from "@/components/shared";
 import { MilestonesChecklist, ElectronicFileCard } from "@/components/work-items";
 import { cn } from "@/lib/utils";
 
+// Extended WorkItem type with SAMAI fields
+interface ExtendedWorkItem extends WorkItem {
+  origen?: string | null;
+  ponente?: string | null;
+  clase_proceso?: string | null;
+  etapa?: string | null;
+  ubicacion_expediente?: string | null;
+  formato_expediente?: string | null;
+  tipo_proceso?: string | null;
+  subclase_proceso?: string | null;
+  tipo_recurso?: string | null;
+  naturaleza_proceso?: string | null;
+  asunto?: string | null;
+  medida_cautelar?: string | null;
+  ministerio_publico?: string | null;
+  fecha_radicado?: string | null;
+  fecha_presenta_demanda?: string | null;
+  fecha_para_sentencia?: string | null;
+  fecha_sentencia?: string | null;
+  total_sujetos_procesales?: number | null;
+}
+
 interface OverviewTabProps {
-  workItem: WorkItem & { _source?: string };
+  workItem: ExtendedWorkItem & { _source?: string };
+}
+
+// Helper to check if CPACA metadata exists
+function hasCpacaMetadata(workItem: ExtendedWorkItem): boolean {
+  return !!(
+    workItem.ponente ||
+    workItem.origen ||
+    workItem.clase_proceso ||
+    workItem.etapa ||
+    workItem.ubicacion_expediente ||
+    workItem.formato_expediente ||
+    workItem.tipo_proceso ||
+    workItem.subclase_proceso ||
+    workItem.tipo_recurso ||
+    workItem.naturaleza_proceso ||
+    workItem.asunto ||
+    workItem.medida_cautelar ||
+    workItem.ministerio_publico ||
+    workItem.fecha_radicado ||
+    workItem.fecha_presenta_demanda ||
+    workItem.fecha_para_sentencia ||
+    workItem.fecha_sentencia
+  );
 }
 
 export function OverviewTab({ workItem }: OverviewTabProps) {
@@ -126,6 +176,197 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
         {showElectronicFile && (
           <ElectronicFileCard workItem={workItem} />
         )}
+
+        {/* CPACA Process Metadata Card (from SAMAI) */}
+        {workItem.workflow_type === "CPACA" && hasCpacaMetadata(workItem) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Scale className="h-5 w-5" />
+                Información del Proceso (SAMAI)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Row 1: Ponente & Origen */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {workItem.ponente && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <UserCircle className="h-4 w-4" />
+                      <span>Ponente</span>
+                    </div>
+                    <p className="font-medium text-sm">{workItem.ponente}</p>
+                  </div>
+                )}
+                {workItem.origen && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Building2 className="h-4 w-4" />
+                      <span>Origen</span>
+                    </div>
+                    <p className="font-medium text-sm">{workItem.origen}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Row 2: Clasificación del Proceso */}
+              {(workItem.clase_proceso || workItem.tipo_proceso || workItem.subclase_proceso) && (
+                <>
+                  <Separator />
+                  <div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+                      <Layers className="h-4 w-4" />
+                      <span>Clasificación del Proceso</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {workItem.tipo_proceso && (
+                        <Badge variant="outline" className="bg-primary/10">
+                          {workItem.tipo_proceso}
+                        </Badge>
+                      )}
+                      {workItem.clase_proceso && (
+                        <Badge variant="secondary">
+                          {workItem.clase_proceso}
+                        </Badge>
+                      )}
+                      {workItem.subclase_proceso && workItem.subclase_proceso !== "SIN SUBCLASE DE PROCESO" && (
+                        <Badge variant="outline">
+                          {workItem.subclase_proceso}
+                        </Badge>
+                      )}
+                      {workItem.tipo_recurso && workItem.tipo_recurso !== "SIN TIPO DE RECURSO" && (
+                        <Badge variant="outline">
+                          Recurso: {workItem.tipo_recurso}
+                        </Badge>
+                      )}
+                      {workItem.naturaleza_proceso && workItem.naturaleza_proceso !== "SIN NATURALEZA" && (
+                        <Badge variant="outline">
+                          {workItem.naturaleza_proceso}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Row 3: Etapa, Ubicación, Formato */}
+              {(workItem.etapa || workItem.ubicacion_expediente || workItem.formato_expediente) && (
+                <>
+                  <Separator />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {workItem.etapa && (
+                      <div className="space-y-1">
+                        <p className="text-sm text-muted-foreground">Etapa Procesal</p>
+                        <Badge variant="default">{workItem.etapa}</Badge>
+                      </div>
+                    )}
+                    {workItem.ubicacion_expediente && (
+                      <div className="space-y-1">
+                        <p className="text-sm text-muted-foreground">Ubicación</p>
+                        <div className="flex items-center gap-2">
+                          <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{workItem.ubicacion_expediente}</span>
+                        </div>
+                      </div>
+                    )}
+                    {workItem.formato_expediente && (
+                      <div className="space-y-1">
+                        <p className="text-sm text-muted-foreground">Formato Expediente</p>
+                        <span className="text-sm font-medium">{workItem.formato_expediente}</span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Row 4: Asunto */}
+              {workItem.asunto && (
+                <>
+                  <Separator />
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Asunto</p>
+                    <p className="text-sm">{workItem.asunto}</p>
+                  </div>
+                </>
+              )}
+
+              {/* Row 5: Medida Cautelar */}
+              {workItem.medida_cautelar && (
+                <>
+                  <Separator />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Info className="h-4 w-4 text-amber-500" />
+                      <p className="text-sm text-muted-foreground">Medida Cautelar</p>
+                    </div>
+                    <p className="text-sm font-medium">{workItem.medida_cautelar}</p>
+                  </div>
+                </>
+              )}
+
+              {/* Row 6: Ministerio Público */}
+              {workItem.ministerio_publico && (
+                <>
+                  <Separator />
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Ministerio Público</p>
+                    <p className="text-sm font-medium">{workItem.ministerio_publico}</p>
+                  </div>
+                </>
+              )}
+
+              {/* Row 7: Fechas Importantes */}
+              {(workItem.fecha_radicado || workItem.fecha_presenta_demanda || workItem.fecha_para_sentencia || workItem.fecha_sentencia) && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-2">Fechas del Proceso</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {workItem.fecha_radicado && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Radicado</p>
+                          <p className="text-sm font-medium">{formatDate(workItem.fecha_radicado)}</p>
+                        </div>
+                      )}
+                      {workItem.fecha_presenta_demanda && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Presenta Demanda</p>
+                          <p className="text-sm font-medium">{formatDate(workItem.fecha_presenta_demanda)}</p>
+                        </div>
+                      )}
+                      {workItem.fecha_para_sentencia && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Para Sentencia</p>
+                          <p className="text-sm font-medium">{formatDate(workItem.fecha_para_sentencia)}</p>
+                        </div>
+                      )}
+                      {workItem.fecha_sentencia && workItem.fecha_sentencia !== "SIN SENTENCIA" && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Sentencia</p>
+                          <p className="text-sm font-medium">{workItem.fecha_sentencia}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Total Sujetos Procesales */}
+              {workItem.total_sujetos_procesales != null && workItem.total_sujetos_procesales > 0 && (
+                <>
+                  <Separator />
+                  <div className="flex items-center gap-2 text-sm">
+                    <Users className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Total Sujetos Procesales:</span>
+                    <Badge variant="secondary">{workItem.total_sujetos_procesales}</Badge>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+
         {/* Authority Card */}
         <Card>
           <CardHeader>
