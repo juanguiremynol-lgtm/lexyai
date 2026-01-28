@@ -119,8 +119,17 @@ function parseDate(dateStr: string | undefined | null): string | null {
 }
 
 // ============= PUBLICACIONES API PROVIDER =============
+// CRITICAL FIX: Use query-param format /publicaciones?radicado={radicado}
+// NOT path-based format /publicaciones/{radicado}
 
-async function fetchPublicaciones(radicado: string): Promise<FetchResult> {
+interface FetchPublicacionesResult extends FetchResult {
+  scrapingInitiated?: boolean;
+  scrapingJobId?: string;
+  scrapingPollUrl?: string;
+  scrapingMessage?: string;
+}
+
+async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult> {
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
   const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
 
@@ -143,16 +152,52 @@ async function fetchPublicaciones(radicado: string): Promise<FetchResult> {
       headers['x-api-key'] = apiKey;
     }
 
-    console.log(`[sync-publicaciones] Calling: ${baseUrl}/publicaciones/${radicado}`);
+    // FIXED: Use query-param format (not path-based)
+    const url = `${baseUrl.replace(/\/+$/, '')}/publicaciones?radicado=${radicado}`;
+    console.log(`[sync-publicaciones] Calling: ${url}`);
     
-    const response = await fetch(`${baseUrl}/publicaciones/${radicado}`, {
+    const response = await fetch(url, {
       method: 'GET',
       headers,
     });
 
     if (!response.ok) {
       if (response.status === 404) {
-        console.log(`[sync-publicaciones] No publications found for ${radicado}`);
+        console.log(`[sync-publicaciones] No publications found (404) for ${radicado}. Auto-triggering scraping...`);
+        
+        // AUTO-SCRAPING: Try /buscar endpoint to initiate async scraping
+        const buscarUrl = `${baseUrl.replace(/\/+$/, '')}/buscar?radicado=${radicado}`;
+        console.log(`[sync-publicaciones] Triggering scraping: ${buscarUrl}`);
+        
+        try {
+          const buscarResponse = await fetch(buscarUrl, {
+            method: 'GET',
+            headers,
+          });
+          
+          if (buscarResponse.ok) {
+            const buscarData = await buscarResponse.json();
+            const jobId = String(buscarData.jobId || buscarData.job_id || buscarData.id || '');
+            const pollUrl = String(buscarData.poll_url || buscarData.pollUrl || '');
+            
+            if (jobId) {
+              console.log(`[sync-publicaciones] Scraping job created: jobId=${jobId}`);
+              return { 
+                ok: false, 
+                publicaciones: [], 
+                error: 'RECORD_NOT_FOUND',
+                scrapingInitiated: true,
+                scrapingJobId: jobId,
+                scrapingPollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+                scrapingMessage: `No publications found. Scraping initiated (job ${jobId}). Retry in 30-60 seconds.`,
+              };
+            }
+          }
+        } catch (buscarErr) {
+          console.warn('[sync-publicaciones] Scraping trigger failed:', buscarErr);
+        }
+        
+        // If scraping failed or no jobId, return empty result
         return { ok: true, publicaciones: [] };
       }
       const errorText = await response.text();
@@ -166,7 +211,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchResult> {
 
     const data = await response.json();
     
-    // Extract publications array
+    // Extract publications array - support multiple response formats
     const publicaciones = data.publicaciones || data.estados || data.documents || [];
     
     console.log(`[sync-publicaciones] Found ${publicaciones.length} publications for ${radicado}`);
@@ -174,7 +219,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchResult> {
     return {
       ok: true,
       publicaciones: publicaciones.map((pub: Record<string, unknown>) => ({
-        title: String(pub.titulo || pub.title || pub.descripcion || 'Sin título'),
+        title: String(pub.titulo || pub.title || pub.tipo_publicacion || pub.descripcion || 'Sin título'),
         annotation: pub.anotacion || pub.annotation || pub.detalle ? String(pub.anotacion || pub.annotation || pub.detalle) : undefined,
         pdf_url: pub.pdf_url || pub.url || pub.documento_url ? String(pub.pdf_url || pub.url || pub.documento_url) : undefined,
         published_at: pub.fecha_publicacion || pub.published_at || pub.fecha ? String(pub.fecha_publicacion || pub.published_at || pub.fecha) : undefined,
