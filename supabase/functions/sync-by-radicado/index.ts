@@ -1,12 +1,11 @@
 /**
  * sync-by-radicado Edge Function
  * 
- * REFACTORED: This is now a thin wrapper that:
- * 1. Validates and normalizes the radicado
- * 2. Resolves or creates the work_item
- * 3. Delegates actual sync to sync-by-work-item
- * 
- * NO external API URLs are hardcoded here.
+ * REFACTORED: Multi-provider lookup based on workflow_type:
+ * - CGP/LABORAL: CPNU only (no fallback - civil/labor processes only exist in CPNU)
+ * - CPACA: SAMAI primary (administrative litigation)
+ * - TUTELA: CPNU primary, TUTELAS API fallback
+ * - PENAL_906: CPNU primary
  * 
  * Modes:
  * - LOOKUP: Preview data without persisting (resolves via server-side adapters)
@@ -39,6 +38,7 @@ interface SyncResponse {
   updated: boolean;
   found_in_source: boolean;
   source_used: string | null;
+  sources_checked: string[];
   new_events_count: number;
   milestones_triggered: number;
   cgp_phase?: 'FILING' | 'PROCESS';
@@ -75,6 +75,43 @@ interface AttemptLog {
   latency_ms: number;
   error?: string;
   events_found?: number;
+}
+
+interface ProviderResult {
+  ok: boolean;
+  found: boolean;
+  source: string;
+  processData: ProcessData;
+  latency_ms: number;
+  error?: string;
+  eventsFound?: number;
+}
+
+type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
+
+interface ProviderConfig {
+  primary: 'CPNU' | 'SAMAI' | 'TUTELAS';
+  fallback?: 'CPNU' | 'SAMAI' | 'TUTELAS';
+  fallbackEnabled: boolean;
+}
+
+// ============= PROVIDER CONFIGURATION =============
+
+function getProviderOrder(workflowType: string): ProviderConfig {
+  switch (workflowType) {
+    case 'CPACA':
+      // Administrative litigation - SAMAI primary, no fallback to CPNU
+      return { primary: 'SAMAI', fallbackEnabled: false };
+    case 'TUTELA':
+      // Tutela - CPNU primary, TUTELAS API fallback
+      return { primary: 'CPNU', fallback: 'TUTELAS', fallbackEnabled: true };
+    case 'CGP':
+    case 'LABORAL':
+    case 'PENAL_906':
+    default:
+      // Civil/Labor/Penal - CPNU only, no fallback (SAMAI doesn't have these)
+      return { primary: 'CPNU', fallbackEnabled: false };
+  }
 }
 
 // ============= HELPERS =============
@@ -210,6 +247,355 @@ function parseColombianDate(dateStr: string | undefined): string | null {
   return null;
 }
 
+// ============= PROVIDER FETCH FUNCTIONS =============
+
+/**
+ * Fetch from CPNU via adapter-cpnu Edge Function
+ */
+async function fetchFromCpnu(
+  radicado: string, 
+  supabaseUrl: string, 
+  authHeader: string
+): Promise<ProviderResult> {
+  const startTime = Date.now();
+  
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/functions/v1/adapter-cpnu`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          radicado,
+          action: 'search',
+        }),
+      }
+    );
+
+    const result = await response.json();
+    const latency = Date.now() - startTime;
+
+    if (result.ok && result.proceso) {
+      const proceso = result.proceso;
+      
+      // Extract parties from sujetos_procesales
+      let demandantes = '';
+      let demandados = '';
+      
+      if (proceso.sujetos_procesales?.length > 0) {
+        const demandantesList = proceso.sujetos_procesales
+          .filter((s: { tipo: string }) => 
+            s.tipo?.toLowerCase().includes('demandante') || 
+            s.tipo?.toLowerCase().includes('actor') ||
+            s.tipo?.toLowerCase().includes('accionante')
+          )
+          .map((s: { nombre: string }) => s.nombre);
+        const demandadosList = proceso.sujetos_procesales
+          .filter((s: { tipo: string }) => 
+            s.tipo?.toLowerCase().includes('demandado') ||
+            s.tipo?.toLowerCase().includes('accionado')
+          )
+          .map((s: { nombre: string }) => s.nombre);
+        
+        if (demandantesList.length) demandantes = demandantesList.join(', ');
+        if (demandadosList.length) demandados = demandadosList.join(', ');
+      }
+
+      const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
+        fecha: (act.fecha_actuacion || act.fecha || '') as string,
+        actuacion: (act.actuacion || '') as string,
+        anotacion: (act.anotacion || '') as string,
+      }));
+
+      return {
+        ok: true,
+        found: true,
+        source: 'CPNU',
+        processData: {
+          despacho: proceso.despacho,
+          ciudad: proceso.ciudad,
+          departamento: proceso.departamento,
+          demandante: demandantes || proceso.demandante,
+          demandado: demandados || proceso.demandado,
+          tipo_proceso: proceso.tipo,
+          clase_proceso: proceso.clase,
+          fecha_radicacion: proceso.fecha_radicacion,
+          sujetos_procesales: proceso.sujetos_procesales,
+          actuaciones,
+          total_actuaciones: actuaciones.length,
+        },
+        latency_ms: latency,
+        eventsFound: actuaciones.length,
+      };
+    }
+
+    return {
+      ok: true,
+      found: false,
+      source: 'CPNU',
+      processData: {},
+      latency_ms: latency,
+      error: result.error || result.why_empty || 'No results',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      found: false,
+      source: 'CPNU',
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: err instanceof Error ? err.message : 'CPNU fetch failed',
+    };
+  }
+}
+
+/**
+ * Fetch from SAMAI Cloud Run service
+ */
+async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
+  const startTime = Date.now();
+  const samaiBaseUrl = Deno.env.get('SAMAI_BASE_URL');
+  const apiKey = Deno.env.get('SAMAI_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!samaiBaseUrl || !apiKey) {
+    return {
+      ok: false,
+      found: false,
+      source: 'SAMAI',
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: 'SAMAI not configured (missing BASE_URL or API_KEY)',
+    };
+  }
+
+  try {
+    console.log(`[sync-by-radicado] Calling SAMAI: ${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`);
+    
+    const response = await fetch(
+      `${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`,
+      {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const latency = Date.now() - startTime;
+
+    if (!response.ok) {
+      // Check if it's a 404 (not found) vs other errors
+      if (response.status === 404) {
+        return {
+          ok: true,
+          found: false,
+          source: 'SAMAI',
+          processData: {},
+          latency_ms: latency,
+          error: 'Record not found in SAMAI',
+        };
+      }
+      return {
+        ok: false,
+        found: false,
+        source: 'SAMAI',
+        processData: {},
+        latency_ms: latency,
+        error: `SAMAI returned ${response.status}`,
+      };
+    }
+
+    const result = await response.json();
+    
+    // Check if SAMAI returned data
+    if (!result.data && !result.proceso) {
+      return {
+        ok: true,
+        found: false,
+        source: 'SAMAI',
+        processData: {},
+        latency_ms: latency,
+        error: 'No data in SAMAI response',
+      };
+    }
+
+    const proceso = result.data || result.proceso || result;
+
+    // Extract parties from sujetos_procesales
+    let demandantes = '';
+    let demandados = '';
+    
+    if (proceso.sujetos_procesales?.length > 0) {
+      const demandantesList = proceso.sujetos_procesales
+        .filter((s: { tipo: string }) => 
+          s.tipo?.toLowerCase().includes('demandante') || 
+          s.tipo?.toLowerCase().includes('actor') ||
+          s.tipo?.toLowerCase().includes('accionante')
+        )
+        .map((s: { nombre: string }) => s.nombre);
+      const demandadosList = proceso.sujetos_procesales
+        .filter((s: { tipo: string }) => 
+          s.tipo?.toLowerCase().includes('demandado') ||
+          s.tipo?.toLowerCase().includes('accionado')
+        )
+        .map((s: { nombre: string }) => s.nombre);
+      
+      if (demandantesList.length) demandantes = demandantesList.join(', ');
+      if (demandadosList.length) demandados = demandadosList.join(', ');
+    }
+
+    // Normalize actuaciones from SAMAI format
+    const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
+      fecha: (act.fecha_actuacion || act.fecha || act.fecha_registro || '') as string,
+      actuacion: (act.actuacion || act.anotacion || act.tipo_actuacion || '') as string,
+      anotacion: (act.anotacion || act.descripcion || '') as string,
+    }));
+
+    return {
+      ok: true,
+      found: true,
+      source: 'SAMAI',
+      processData: {
+        despacho: proceso.despacho || proceso.corporacion || proceso.despacho_actual,
+        ciudad: proceso.ciudad || proceso.sede,
+        departamento: proceso.departamento,
+        demandante: demandantes || proceso.demandante,
+        demandado: demandados || proceso.demandado,
+        tipo_proceso: proceso.tipo_proceso || proceso.tipo,
+        clase_proceso: proceso.clase_proceso || proceso.clase || proceso.subclase_proceso,
+        fecha_radicacion: proceso.fecha_radicado || proceso.fecha_radicacion,
+        sujetos_procesales: proceso.sujetos_procesales,
+        actuaciones,
+        total_actuaciones: proceso.total_actuaciones || actuaciones.length,
+      },
+      latency_ms: latency,
+      eventsFound: actuaciones.length,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      found: false,
+      source: 'SAMAI',
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: err instanceof Error ? err.message : 'SAMAI fetch failed',
+    };
+  }
+}
+
+/**
+ * Fetch from TUTELAS Cloud Run service
+ */
+async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
+  const startTime = Date.now();
+  const tutelasBaseUrl = Deno.env.get('TUTELAS_BASE_URL');
+  const apiKey = Deno.env.get('TUTELAS_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
+
+  if (!tutelasBaseUrl || !apiKey) {
+    return {
+      ok: false,
+      found: false,
+      source: 'TUTELAS',
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: 'TUTELAS not configured (missing BASE_URL or API_KEY)',
+    };
+  }
+
+  try {
+    console.log(`[sync-by-radicado] Calling TUTELAS: POST ${tutelasBaseUrl}/search`);
+    
+    const response = await fetch(
+      `${tutelasBaseUrl}/search`,
+      {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ radicado }),
+      }
+    );
+
+    const latency = Date.now() - startTime;
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return {
+          ok: true,
+          found: false,
+          source: 'TUTELAS',
+          processData: {},
+          latency_ms: latency,
+          error: 'Record not found in TUTELAS',
+        };
+      }
+      return {
+        ok: false,
+        found: false,
+        source: 'TUTELAS',
+        processData: {},
+        latency_ms: latency,
+        error: `TUTELAS returned ${response.status}`,
+      };
+    }
+
+    const result = await response.json();
+    
+    if (!result.data && !result.proceso && !result.tutela) {
+      return {
+        ok: true,
+        found: false,
+        source: 'TUTELAS',
+        processData: {},
+        latency_ms: latency,
+        error: 'No data in TUTELAS response',
+      };
+    }
+
+    const proceso = result.data || result.proceso || result.tutela || result;
+
+    // Normalize actuaciones from TUTELAS format
+    const actuaciones = (proceso.actuaciones || proceso.eventos || []).map((act: Record<string, unknown>) => ({
+      fecha: (act.fecha_actuacion || act.fecha || '') as string,
+      actuacion: (act.actuacion || act.descripcion || act.tipo || '') as string,
+      anotacion: (act.anotacion || act.detalle || '') as string,
+    }));
+
+    return {
+      ok: true,
+      found: true,
+      source: 'TUTELAS',
+      processData: {
+        despacho: proceso.despacho || proceso.juzgado,
+        ciudad: proceso.ciudad,
+        departamento: proceso.departamento,
+        demandante: proceso.accionante || proceso.demandante,
+        demandado: proceso.accionado || proceso.demandado,
+        tipo_proceso: 'TUTELA',
+        fecha_radicacion: proceso.fecha_radicacion,
+        actuaciones,
+        total_actuaciones: actuaciones.length,
+      },
+      latency_ms: latency,
+      eventsFound: actuaciones.length,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      found: false,
+      source: 'TUTELAS',
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
+    };
+  }
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -265,7 +651,7 @@ Deno.serve(async (req) => {
     const radicado = validation.normalized;
     const mode = payload.mode || 'SYNC_AND_APPLY';
     const createIfMissing = payload.create_if_missing !== false;
-    const workflowType = payload.workflow_type || 'CGP';
+    const workflowType = (payload.workflow_type || 'CGP') as WorkflowType;
     
     console.log(`[sync-by-radicado] Mode: ${mode}, Radicado: ${radicado}, Workflow: ${workflowType}, User: ${userId}`);
 
@@ -347,6 +733,7 @@ Deno.serve(async (req) => {
           updated: true,
           found_in_source: true,
           source_used: syncResult.source_used,
+          sources_checked: syncResult.sources_checked || [syncResult.source_used],
           new_events_count: syncResult.inserted_count || 0,
           milestones_triggered: 0,
           cgp_phase: updatedWorkItem?.cgp_phase,
@@ -361,6 +748,7 @@ Deno.serve(async (req) => {
           updated: false,
           found_in_source: false,
           source_used: null,
+          sources_checked: [],
           new_events_count: 0,
           milestones_triggered: 0,
           error: syncResult.errors?.[0] || syncResult.message || 'Sync failed',
@@ -371,99 +759,71 @@ Deno.serve(async (req) => {
 
     // ============= LOOKUP OR CREATE NEW WORK_ITEM =============
     
-    // For LOOKUP mode or new work items, call CPNU adapter for preview data
-    const cpnuStartTime = Date.now();
+    // Get provider order based on workflow type
+    const providerConfig = getProviderOrder(workflowType);
     const attempts: AttemptLog[] = [];
+    const sourcesChecked: string[] = [];
     let processData: ProcessData = {};
     let foundInSource = false;
+    let sourceUsed: string | null = null;
 
-    try {
-      const cpnuResponse = await fetch(
-        `${supabaseUrl}/functions/v1/adapter-cpnu`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            radicado,
-            action: 'search',
-          }),
-        }
-      );
+    console.log(`[sync-by-radicado] Provider config for ${workflowType}:`, providerConfig);
 
-      const cpnuResult = await cpnuResponse.json();
-      const latency = Date.now() - cpnuStartTime;
+    // Try primary provider
+    let primaryResult: ProviderResult;
+    
+    if (providerConfig.primary === 'SAMAI') {
+      primaryResult = await fetchFromSamai(radicado);
+    } else if (providerConfig.primary === 'TUTELAS') {
+      primaryResult = await fetchFromTutelas(radicado);
+    } else {
+      primaryResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+    }
+
+    sourcesChecked.push(primaryResult.source);
+    attempts.push({
+      source: primaryResult.source,
+      success: primaryResult.found,
+      latency_ms: primaryResult.latency_ms,
+      error: primaryResult.error,
+      events_found: primaryResult.eventsFound,
+    });
+
+    if (primaryResult.found) {
+      processData = primaryResult.processData;
+      foundInSource = true;
+      sourceUsed = primaryResult.source;
+      console.log(`[sync-by-radicado] Found in ${primaryResult.source} with ${primaryResult.eventsFound} events`);
+    } 
+    // Try fallback if primary didn't find data and fallback is enabled
+    else if (providerConfig.fallbackEnabled && providerConfig.fallback) {
+      console.log(`[sync-by-radicado] Primary ${primaryResult.source} not found, trying fallback ${providerConfig.fallback}`);
       
-      if (cpnuResult.ok && cpnuResult.proceso) {
-        const proceso = cpnuResult.proceso;
-        
-        // Extract parties from sujetos_procesales
-        let demandantes = '';
-        let demandados = '';
-        
-        if (proceso.sujetos_procesales?.length > 0) {
-          const demandantesList = proceso.sujetos_procesales
-            .filter((s: { tipo: string }) => 
-              s.tipo?.toLowerCase().includes('demandante') || 
-              s.tipo?.toLowerCase().includes('actor') ||
-              s.tipo?.toLowerCase().includes('accionante')
-            )
-            .map((s: { nombre: string }) => s.nombre);
-          const demandadosList = proceso.sujetos_procesales
-            .filter((s: { tipo: string }) => 
-              s.tipo?.toLowerCase().includes('demandado') ||
-              s.tipo?.toLowerCase().includes('accionado')
-            )
-            .map((s: { nombre: string }) => s.nombre);
-          
-          if (demandantesList.length) demandantes = demandantesList.join(', ');
-          if (demandadosList.length) demandados = demandadosList.join(', ');
-        }
-
-        const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
-          fecha: act.fecha_actuacion || act.fecha || '',
-          actuacion: act.actuacion || '',
-          anotacion: act.anotacion || '',
-        }));
-
-        processData = {
-          despacho: proceso.despacho,
-          ciudad: proceso.ciudad,
-          departamento: proceso.departamento,
-          demandante: demandantes || proceso.demandante,
-          demandado: demandados || proceso.demandado,
-          tipo_proceso: proceso.tipo,
-          clase_proceso: proceso.clase,
-          fecha_radicacion: proceso.fecha_radicacion,
-          sujetos_procesales: proceso.sujetos_procesales,
-          actuaciones,
-          total_actuaciones: actuaciones.length,
-        };
-        
-        foundInSource = true;
-        attempts.push({
-          source: 'CPNU',
-          success: true,
-          latency_ms: latency,
-          events_found: actuaciones.length,
-        });
+      let fallbackResult: ProviderResult;
+      
+      if (providerConfig.fallback === 'SAMAI') {
+        fallbackResult = await fetchFromSamai(radicado);
+      } else if (providerConfig.fallback === 'TUTELAS') {
+        fallbackResult = await fetchFromTutelas(radicado);
       } else {
-        attempts.push({
-          source: 'CPNU',
-          success: false,
-          latency_ms: latency,
-          error: cpnuResult.error || cpnuResult.why_empty || 'No results',
-        });
+        fallbackResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
       }
-    } catch (err) {
+
+      sourcesChecked.push(fallbackResult.source);
       attempts.push({
-        source: 'CPNU',
-        success: false,
-        latency_ms: Date.now() - cpnuStartTime,
-        error: err instanceof Error ? err.message : 'CPNU fetch failed',
+        source: fallbackResult.source,
+        success: fallbackResult.found,
+        latency_ms: fallbackResult.latency_ms,
+        error: fallbackResult.error,
+        events_found: fallbackResult.eventsFound,
       });
+
+      if (fallbackResult.found) {
+        processData = fallbackResult.processData;
+        foundInSource = true;
+        sourceUsed = fallbackResult.source;
+        console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
+      }
     }
 
     // Classify FILING vs PROCESS
@@ -481,7 +841,8 @@ Deno.serve(async (req) => {
         created: false,
         updated: false,
         found_in_source: foundInSource,
-        source_used: foundInSource ? 'CPNU' : null,
+        source_used: sourceUsed,
+        sources_checked: sourcesChecked,
         new_events_count: processData.total_actuaciones || 0,
         milestones_triggered: 0,
         cgp_phase: cgpPhase,
@@ -490,7 +851,7 @@ Deno.serve(async (req) => {
         attempts,
       };
       
-      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms`);
+      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
       return jsonResponse(response);
     }
 
@@ -503,6 +864,7 @@ Deno.serve(async (req) => {
         updated: false,
         found_in_source: false,
         source_used: null,
+        sources_checked: sourcesChecked,
         new_events_count: 0,
         milestones_triggered: 0,
         error: 'No se encontró el proceso y create_if_missing está desactivado',
@@ -592,7 +954,8 @@ Deno.serve(async (req) => {
       created: true,
       updated: false,
       found_in_source: foundInSource,
-      source_used: foundInSource ? 'CPNU' : null,
+      source_used: sourceUsed,
+      sources_checked: sourcesChecked,
       new_events_count: processData.total_actuaciones || 0,
       milestones_triggered: 0,
       cgp_phase: cgpPhase,
