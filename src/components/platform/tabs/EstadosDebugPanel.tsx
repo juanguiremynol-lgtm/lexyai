@@ -51,6 +51,13 @@ interface WorkItemInfo {
   owner_id: string;
 }
 
+interface ScrapingInfo {
+  jobId: string;
+  pollUrl?: string;
+  message: string;
+  initiatedAt: Date;
+}
+
 export function EstadosDebugPanel() {
   const [radicado, setRadicado] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -58,6 +65,7 @@ export function EstadosDebugPanel() {
   const [apiRawResponse, setApiRawResponse] = useState<unknown>(null);
   const [dbRecords, setDbRecords] = useState<unknown[]>([]);
   const [workItem, setWorkItem] = useState<WorkItemInfo | null>(null);
+  const [scrapingInfo, setScrapingInfo] = useState<ScrapingInfo | null>(null);
 
   const updateStep = (stepName: string, update: Partial<DebugStep>) => {
     setSteps(prev => prev.map(s => 
@@ -81,6 +89,7 @@ export function EstadosDebugPanel() {
     setApiRawResponse(null);
     setDbRecords([]);
     setWorkItem(null);
+    setScrapingInfo(null);
 
     try {
       // ============================================
@@ -174,13 +183,14 @@ export function EstadosDebugPanel() {
       const startApi = Date.now();
 
       try {
+        // FIX: Use correct request format - identifier is an object with radicado
         const { data: apiResult, error: apiError } = await supabase.functions.invoke(
           'debug-external-provider',
           {
             body: {
               provider: 'publicaciones',
-              action: 'snapshot',
-              identifier: normalizedRadicado
+              identifier: { radicado: normalizedRadicado },
+              mode: 'lookup',
             }
           }
         );
@@ -197,26 +207,27 @@ export function EstadosDebugPanel() {
         } else if (apiResult?.status === 404 || apiResult?.error_code === 'RECORD_NOT_FOUND') {
           updateStep('API_TEST', {
             status: 'warning',
-            message: '⚠️ 404 - Radicado no en caché. Puede necesitar scraping.',
+            message: '⚠️ 404 - Radicado no en caché. Se iniciará scraping automáticamente.',
             data: apiResult,
             duration: Date.now() - startApi
           });
-        } else if (apiResult?.summary?.total_items > 0) {
+        } else if (apiResult?.ok && apiResult?.summary?.publicacionesCount > 0) {
           updateStep('API_TEST', {
             status: 'success',
-            message: `✅ API retornó ${apiResult.summary.total_items} publicaciones`,
+            message: `✅ API retornó ${apiResult.summary.publicacionesCount} publicaciones`,
             data: apiResult,
             duration: Date.now() - startApi
           });
 
-          // Check what fields the API returns
-          if (apiResult.items?.length > 0) {
-            const samplePub = apiResult.items[0];
+          // Check what fields the API returns from raw data
+          const rawPublications = apiResult.raw?.publicaciones || apiResult.raw?.estados || [];
+          if (rawPublications.length > 0) {
+            const samplePub = rawPublications[0];
             const apiFields = Object.keys(samplePub);
             addStep({
               step: 'API_FIELDS',
               status: 'success',
-              message: `Campos en respuesta: ${apiFields.slice(0, 10).join(', ')}${apiFields.length > 10 ? '...' : ''}`,
+              message: `Campos en respuesta: ${apiFields.slice(0, 12).join(', ')}${apiFields.length > 12 ? '...' : ''}`,
               data: { fields: apiFields, sample: samplePub }
             });
 
@@ -226,15 +237,26 @@ export function EstadosDebugPanel() {
               addStep({
                 step: 'API_FIELDS_WARNING',
                 status: 'warning',
-                message: '⚠️ API puede no incluir fecha_fijacion/fecha_desfijacion',
+                message: '⚠️ API NO incluye fecha_fijacion/fecha_desfijacion - Términos no calculables',
                 data: { expectedFields: ['fecha_fijacion', 'fecha_desfijacion', 'despacho'], actualFields: apiFields }
+              });
+            } else {
+              addStep({
+                step: 'API_FIELDS_OK',
+                status: 'success',
+                message: '✅ API incluye campos de deadline requeridos',
+                data: { 
+                  fecha_fijacion: samplePub.fecha_fijacion,
+                  fecha_desfijacion: samplePub.fecha_desfijacion,
+                  despacho: samplePub.despacho
+                }
               });
             }
           }
         } else {
           updateStep('API_TEST', {
             status: 'warning',
-            message: `⚠️ API retornó sin datos`,
+            message: `⚠️ Respuesta inesperada: ${apiResult?.error_code || 'sin datos'}`,
             data: apiResult,
             duration: Date.now() - startApi
           });
@@ -271,12 +293,22 @@ export function EstadosDebugPanel() {
           const isOk = syncResult?.ok === true;
           const scrapingInitiated = syncResult?.scrapingInitiated === true;
           
+          // Save scraping info for retry UI
+          if (scrapingInitiated && syncResult?.scrapingJobId) {
+            setScrapingInfo({
+              jobId: syncResult.scrapingJobId,
+              pollUrl: syncResult.scrapingPollUrl,
+              message: syncResult.scrapingMessage || 'Reintente en 30-60 segundos',
+              initiatedAt: new Date(),
+            });
+          }
+          
           updateStep('SYNC_FUNCTION', {
             status: isOk ? 'success' : scrapingInitiated ? 'warning' : 'error',
             message: isOk 
               ? `✅ Insertados: ${syncResult.inserted_count || 0}, Omitidos: ${syncResult.skipped_count || 0}, Alertas: ${syncResult.alerts_created || 0}`
               : scrapingInitiated 
-              ? `⚠️ Scraping iniciado: ${syncResult.scrapingMessage || 'Reintente en 30-60s'}`
+              ? `⚠️ Scraping iniciado (Job: ${syncResult.scrapingJobId?.slice(0, 20)}...)`
               : `❌ ${syncResult?.errors?.[0] || syncResult?.code || 'Error desconocido'}`,
             data: syncResult,
             duration: Date.now() - startSync
@@ -547,6 +579,33 @@ export function EstadosDebugPanel() {
               </table>
             </div>
           </div>
+        )}
+
+        {/* Scraping Status Banner */}
+        {scrapingInfo && (
+          <Alert className="mt-4 border-blue-200 bg-blue-50 dark:bg-blue-950/30">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            <AlertTitle>Scraping en Progreso</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>{scrapingInfo.message}</p>
+              <p className="text-xs text-muted-foreground">
+                Job ID: <code className="font-mono">{scrapingInfo.jobId}</code>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Iniciado: {scrapingInfo.initiatedAt.toLocaleTimeString()}
+              </p>
+              <div className="flex gap-2 mt-3">
+                <Button 
+                  size="sm" 
+                  onClick={runFullDebug}
+                  disabled={isRunning}
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Reintentar Ahora
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
         )}
 
         {/* Quick Actions */}
