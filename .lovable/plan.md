@@ -1,304 +1,304 @@
 
-# Plan de Desmantelamiento Legacy: Migración work_item_id ✅ COMPLETADO
+# Fix Estados/Publicaciones Procesales Feature
 
-## Resumen Ejecutivo
+## Executive Summary
 
-Este plan completó la migración canónica a `work_items`, eliminando dependencias de tablas legacy (`filings`, `monitored_processes`) en Edge Functions y frontend. Se preserva la funcionalidad polimórfica para resolución de IDs legacy existentes.
+The Estados/Publicaciones feature is broken due to three issues:
+1. **API route mismatch**: The code uses path-based URL (`/publicaciones/{radicado}`) but the Cloud Run API expects query-param based URL (`/publicaciones?radicado={radicado}`)
+2. **UI duplication**: Two tabs exist ("Estados" and "Publicaciones") for the same concept
+3. **Missing integration**: CGP/LABORAL workflows don't call Publicaciones - it's only used for PENAL_906
 
-**Estado: COMPLETADO** - Todas las fases implementadas.
+## Root Cause Analysis
 
----
-
-## Estado Actual del Sistema
-
-### Columnas work_item_id (Ya Implementadas)
-- `actuaciones.work_item_id` ✅
-- `process_events.work_item_id` ✅  
-- `cgp_milestones.work_item_id` ✅
-- `work_item_acts.work_item_id` ✅ (ya es NOT NULL)
-
-### Datos Operacionales
-Las tablas de eventos están vacías (0 registros en actuaciones, process_events, cgp_milestones), por lo que no hay migración de datos pendiente.
-
-### Dependencias Legacy Identificadas
-
-| Componente | Referencias Legacy | Estado |
-|------------|-------------------|--------|
-| `normalize-actuaciones` | filing_id, monitored_process_id | ❌ Crítico |
-| `scheduled-crawler` | filing_id, monitored_process_id | ❌ Crítico |
-| `crawl-rama-judicial` | filing_id | ❌ Legacy |
-| `sync-by-radicado` | Ya usa work_item_id | ✅ OK |
-| `sync-penal906-by-radicado` | Ya es work_item-native | ✅ OK |
-| Frontend (~40 archivos) | Queries a filings/monitored_processes | 🔶 Parcial |
-
----
-
-## Parte 1: Edge Functions — Refactor a work_item-native
-
-### 1.1 `normalize-actuaciones` (Prioridad Alta)
-
-**Problema actual:**
-- Requiere `filing_id` o `monitored_process_id` como entrada
-- Crea registros en `filings` cuando no existe (líneas 340-405)
-- No soporta `work_item_id` como entrada primaria
-
-**Cambios:**
-```text
-1. Aceptar work_item_id como parámetro primario
-2. Fallback: resolver work_item_id desde legacy IDs si se proveen
-3. Escribir actuaciones normalizadas con work_item_id
-4. Eliminar creación automática de filings placeholder
-5. Deduplicar por UNIQUE(work_item_id, hash_fingerprint)
+### Issue 1: API Route Mismatch
+The `debug-external-provider` function (lines 55-58) correctly defines:
+```typescript
+const PUBLICACIONES_ROUTE_CANDIDATES = [
+  '/publicaciones?radicado={id}',  // ← QUERY PARAM format
+  '/api/publicaciones?radicado={id}',
+];
 ```
 
-### 1.2 `scheduled-crawler` (Prioridad Alta)
+But `sync-publicaciones-by-work-item` (line 148) and `sync-by-work-item` (line 1739) use:
+```typescript
+// WRONG: Path-based
+await fetch(`${baseUrl}/publicaciones/${radicado}`)
 
-**Problema actual:**
-- Itera tablas `filings` y `monitored_processes` directamente
-- Escribe actuaciones con `filing_id`/`monitored_process_id`
-- Genera alertas con rutas legacy (`/filings/:id`, `/processes/:id`)
-
-**Cambios:**
-```text
-1. Reemplazar fetch de filings/monitored_processes por:
-   SELECT * FROM work_items 
-   WHERE monitoring_enabled = true 
-   AND workflow_type IN ('CGP', 'CPACA', 'TUTELA', 'LABORAL')
-   AND radicado IS NOT NULL
-
-2. Escribir actuaciones con work_item_id
-3. Actualizar alertas para usar rutas /work-items/:id
-4. Actualizar last_checked_at en work_items directamente
+// CORRECT: Query-param based
+await fetch(`${baseUrl}/publicaciones?radicado=${radicado}`)
 ```
 
-### 1.3 `crawl-rama-judicial` (Deprecar o Migrar)
+This explains the 404 errors - the API endpoint exists but expects a different format.
 
-Este Edge Function usa `filing_id` explícitamente. Dado que su funcionalidad se superpone con `sync-by-radicado`, se puede:
-- **Opción A**: Refactorizar para aceptar `work_item_id`
-- **Opción B**: Deprecar y redirigir llamadas a `sync-by-radicado`
+### Issue 2: UI Duplication
+Two separate tabs exist in WorkItemDetail:
+- **EstadosTab**: Reads from `work_item_acts` table, shows imported estados from ICARUS/scrapers
+- **PublicacionesTab**: Reads from `work_item_publicaciones` table, syncs with Publicaciones API
 
-**Recomendación**: Opción A (mantener separación de responsabilidades)
+These are conceptually THE SAME THING (court notifications) but split into two different tabs and tables.
 
-### 1.4 Otros Edge Functions a Revisar
-
-| Function | Cambios Necesarios |
-|----------|-------------------|
-| `adapter-publicaciones` | Cambiar `monitored_process_id` → `work_item_id` |
-| `adapter-historico` | Cambiar `monitored_process_id` → `work_item_id` |
-| `icarus-sync` | Cambiar `filing_id` → `work_item_id` |
-| `hearing-reminders` | Ya parcialmente migrado, completar |
-| `delete-work-items` | Ya usa work_item_id ✅ |
-| `purge-organization-data` | Agregar limpieza por work_item_id |
-
----
-
-## Parte 2: Frontend — Consolidar a work_items
-
-### 2.1 Hook `useWorkItemDetail` (Archivo: `src/hooks/use-work-item-detail.ts`)
-
-**Estado actual**: Usa resolución polimórfica (work_items → cgp_items → peticiones → monitored_processes → cpaca_processes)
-
-**Cambios:**
-```text
-1. Mantener resolución polimórfica para IDs legacy (compatibilidad hacia atrás)
-2. Priorizar work_items como fuente primaria
-3. Actualizar fetchActuaciones para usar work_item_id primero:
-   - Intentar: .eq("work_item_id", id)
-   - Fallback legacy: .eq("filing_id", legacyFilingId) o .eq("monitored_process_id", legacyProcessId)
-4. Mismo patrón para fetchProcessEvents, fetchHearings, etc.
+### Issue 3: Missing Workflow Integration
+The `sync-by-work-item` function only calls Publicaciones API for PENAL_906 workflow:
+```typescript
+case 'PENAL_906':
+  return { primary: 'publicaciones', ... };
+case 'CGP':
+case 'LABORAL':
+  return { primary: 'cpnu', fallback: null, ... };
+  // ← NO PUBLICACIONES CALL
 ```
 
-### 2.2 Componentes con Referencias Legacy Directas
+CGP and LABORAL need publicaciones (estados) ADDITIONALLY to actuaciones from CPNU.
 
-Los siguientes archivos requieren cambios:
+## Implementation Plan
 
-**Alta prioridad (pipelines/kanban):**
-- `src/pages/Filings.tsx` — Usar work_items con filtro workflow_type
-- `src/pages/CGPDetail.tsx` — Mantener fallback polimórfico
-- `src/pages/WorkItemDetail/*` — Actualizar tabs para usar work_item_id
+### Phase 1: Fix the API Endpoint (Edge Functions)
 
-**Media prioridad (settings/admin):**
-- `src/components/settings/MasterDeleteSection.tsx` — Usar delete-work-items
-- `src/components/settings/PurgeLegacyDataSection.tsx` — Mantener para purga explícita
+#### Task 1.1: Fix sync-publicaciones-by-work-item endpoint URL
 
-**Baja prioridad (features específicas):**
-- `src/components/filings/NewFilingDialog.tsx` — Crear en work_items directamente
-- `src/components/email/EmailLinkDialog.tsx` — Filtrar desde work_items
-- `src/components/tutelas/*` — Migrar a work_items
+**File**: `supabase/functions/sync-publicaciones-by-work-item/index.ts`
 
-### 2.3 Rutas y Redirects
+Change line 148:
+```typescript
+// FROM:
+const response = await fetch(`${baseUrl}/publicaciones/${radicado}`, {
 
-**Estado actual**: `ItemRedirect.tsx` y `CGPRedirect.tsx` ya redirigen a `/work-items/:id`
-
-**Sin cambios necesarios** — La resolución de IDs legacy ya está implementada.
-
----
-
-## Parte 3: Limpieza de Código Muerto
-
-### 3.1 Código a Eliminar
-
-```text
-Archivos potencialmente obsoletos:
-- src/components/filings/ProcessTimeline.tsx (si usa filing_id exclusivamente)
-- src/pages/ProcessStatus.tsx (si es wrapper legacy)
-- Hooks que solo consultan tablas legacy sin fallback
-
-Verificación necesaria:
-- Buscar imports no utilizados
-- Identificar componentes sin referencias
+// TO:
+const response = await fetch(`${baseUrl}/publicaciones?radicado=${radicado}`, {
 ```
 
-### 3.2 Tipos TypeScript a Consolidar
-
-```text
-- Actualizar src/types/work-item.ts si faltan campos
-- Eliminar tipos duplicados para Filing/MonitoredProcess si no se usan
-- Agregar tipos para work_item_id en interfaces de Edge Functions
-```
-
----
-
-## Parte 4: Base de Datos — Constraints y Cleanup
-
-### 4.1 Agregar Índices Únicos (Si no existen)
-
-```sql
--- Deduplicación canónica por work_item
-CREATE UNIQUE INDEX IF NOT EXISTS idx_actuaciones_work_item_fingerprint_unique 
-ON actuaciones(work_item_id, hash_fingerprint) 
-WHERE work_item_id IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_process_events_work_item_fingerprint_unique 
-ON process_events(work_item_id, hash_fingerprint) 
-WHERE work_item_id IS NOT NULL;
-```
-
-### 4.2 Mantener Columnas Legacy (Fase Transicional)
-
-**NO eliminar** `filing_id`, `monitored_process_id` todavía — se necesitan para:
-1. Resolución polimórfica de IDs legacy
-2. Datos históricos que puedan existir en producción de otros tenants
-
-### 4.3 Helper Function para Resolución
-
-Verificar que existe:
-```sql
-public.resolve_work_item_id(p_radicado text, p_owner_id uuid) → uuid
-```
-
----
-
-## Parte 5: Email Provider Abstraction
-
-### 5.1 Crear Interface de Proveedor
-
-```text
-Archivo: src/lib/email/provider-interface.ts
-
-interface EmailProvider {
-  name: string;
-  send(params: EmailParams): Promise<EmailResult>;
-  getStatus(messageId: string): Promise<EmailStatus>;
-  handleWebhook(payload: unknown): Promise<WebhookResult>;
+Also add auto-scraping when 404 is received (similar to CPNU pattern):
+```typescript
+if (response.status === 404) {
+  // Try /buscar endpoint for async scraping
+  const buscarUrl = `${baseUrl}/buscar?radicado=${radicado}`;
+  const buscarResponse = await fetch(buscarUrl, { method: 'GET', headers });
+  
+  if (buscarResponse.ok) {
+    const jobData = await buscarResponse.json();
+    return { 
+      ok: true, 
+      publicaciones: [],
+      scraping_initiated: true,
+      job_id: jobData.jobId 
+    };
+  }
 }
 ```
 
-### 5.2 Implementación Resend (Ya Configurada)
+#### Task 1.2: Fix sync-by-work-item Publicaciones endpoint (for PENAL_906)
 
-```text
-Archivo: src/lib/email/providers/resend-provider.ts
+**File**: `supabase/functions/sync-by-work-item/index.ts`
 
-Usar RESEND_API_KEY existente
-Mapear a la interface común
+Change line 1739:
+```typescript
+// FROM:
+const response = await fetch(`${baseUrl}/publicaciones/${radicado}`, {
+
+// TO:
+const response = await fetch(`${baseUrl}/publicaciones?radicado=${radicado}`, {
 ```
 
-### 5.3 Outbox Processing
+### Phase 2: Add Publicaciones Call for CGP/LABORAL
 
-```text
-Edge Function: process-email-outbox (ya existe)
-- Verificar que use la abstracción de proveedor
-- Agregar idempotency keys
-- Implementar retry con backoff exponencial
+#### Task 2.1: Modify sync-by-work-item to also fetch Publicaciones for CGP/LABORAL
+
+**File**: `supabase/functions/sync-by-work-item/index.ts`
+
+After the main CPNU/SAMAI sync completes for CGP/LABORAL workflows, add an **additional** call to Publicaciones API:
+
+```typescript
+// After actuaciones sync for CGP/LABORAL (around line 2500)
+if (['CGP', 'LABORAL'].includes(workItem.workflow_type)) {
+  console.log(`[sync-by-work-item] CGP/LABORAL: Also fetching Publicaciones (estados)`);
+  
+  try {
+    const publicacionesResult = await fetchFromPublicaciones(
+      normalizedRadicado,
+      workItem.id,
+      workItem.owner_id,
+      workItem.organization_id,
+      supabase
+    );
+    
+    if (publicacionesResult.insertedCount > 0) {
+      result.warnings.push(
+        `${publicacionesResult.insertedCount} nuevos estados/publicaciones encontrados`
+      );
+    }
+  } catch (pubError) {
+    // Non-blocking: log but don't fail the main sync
+    console.warn('[sync-by-work-item] Publicaciones fetch failed (non-blocking):', pubError);
+    result.warnings.push('Publicaciones fetch failed: ' + (pubError as Error).message);
+  }
+}
 ```
 
----
+This ensures:
+- CPNU/SAMAI fetch happens first (for actuaciones)
+- Publicaciones fetch happens additionally (for estados)
+- Publicaciones errors don't break the main sync
 
-## Orden de Implementación
+### Phase 3: Consolidate UI Tabs
 
-### Fase 1: Schema & Indexes (Si es necesario)
-1. Verificar índices únicos existen
-2. Verificar helper function `resolve_work_item_id`
+#### Task 3.1: Rename and clarify tab purposes
 
-### Fase 2: Edge Functions (Crítico)
-1. Refactorizar `normalize-actuaciones`
-2. Refactorizar `scheduled-crawler`
-3. Actualizar `adapter-publicaciones`, `adapter-historico`
-4. Deprecar o refactorizar `crawl-rama-judicial`
+**File**: `src/pages/WorkItemDetail/index.tsx`
 
-### Fase 3: Frontend Hooks
-1. Actualizar `useWorkItemDetail` para priorizar work_item_id
-2. Actualizar `useNormalizeActuaciones` para pasar work_item_id
+Update the tab configuration (around line 108-115):
+```typescript
+// Estados tab stays (from work_item_acts - ICARUS/Excel imports)
+if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+  baseTabs.push({ 
+    value: "estados", 
+    label: "Estados", 
+    icon: <Activity className="h-4 w-4" /> 
+  });
+}
 
-### Fase 4: Componentes UI
-1. Actualizar pipelines/kanbans
-2. Actualizar dialogs de creación
-3. Limpiar imports no usados
+// Publicaciones tab (from work_item_publicaciones - Rama Judicial API)
+if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+  baseTabs.push({ 
+    value: "publicaciones", 
+    label: "Publicaciones Rama", 
+    icon: <Newspaper className="h-4 w-4" /> 
+  });
+}
+```
 
-### Fase 5: Email Abstraction
-1. Crear interface de proveedor
-2. Implementar ResendProvider
-3. Actualizar process-email-outbox
+Actually, the better approach is to **CONSOLIDATE** them into one tab that shows BOTH sources. 
 
-### Fase 6: Cleanup
-1. Identificar código muerto
-2. Eliminar imports no usados
-3. Actualizar documentación
+#### Task 3.2: Create unified EstadosPublicacionesTab
 
----
+**File**: `src/pages/WorkItemDetail/tabs/EstadosPublicacionesTab.tsx` (new file)
 
-## Riesgos y Mitigaciones
+Create a consolidated component that:
+1. Queries BOTH `work_item_acts` AND `work_item_publicaciones`
+2. Merges and sorts by date
+3. Displays with source badges (ICARUS, CPNU, Rama Judicial, etc.)
+4. Single sync button that calls both syncs
 
-| Riesgo | Mitigación |
-|--------|------------|
-| Romper flujo de crawling | Mantener dual-write durante transición |
-| IDs legacy no resuelven | Mantener resolución polimórfica |
-| Datos huérfanos | No eliminar columnas legacy todavía |
-| Email delivery falla | Abstracción permite cambiar proveedor |
+```typescript
+const { data: estados } = useQuery({
+  queryKey: ["work-item-estados", workItem.id],
+  queryFn: async () => {
+    // Fetch from both sources
+    const [actsResult, pubsResult] = await Promise.all([
+      supabase.from("work_item_acts").select("*").eq("work_item_id", workItem.id),
+      supabase.from("work_item_publicaciones").select("*").eq("work_item_id", workItem.id),
+    ]);
+    
+    // Map to unified format and merge
+    const unified = [
+      ...mapActsToUnified(actsResult.data || []),
+      ...mapPublicacionesToUnified(pubsResult.data || []),
+    ];
+    
+    // Sort by date descending
+    return unified.sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  },
+});
+```
 
----
+#### Task 3.3: Update WorkItemDetail to use consolidated tab
 
-## Criterios de Aceptación
+**File**: `src/pages/WorkItemDetail/index.tsx`
 
-1. ✅ `normalize-actuaciones` acepta `work_item_id` como entrada primaria
-2. ✅ `scheduled-crawler` itera `work_items` en lugar de tablas legacy
-3. ✅ Frontend prioriza `work_item_id` en queries
-4. ✅ Resolución polimórfica de IDs legacy sigue funcionando
-5. ✅ Alertas y rutas usan `/work-items/:id`
-6. ✅ Email outbox funciona con provider abstraction
-7. ✅ Cero regresiones en Kanban/pipelines existentes
+Replace separate tabs with single consolidated tab:
+```typescript
+// Single consolidated tab for estados + publicaciones
+if (ESTADOS_WORKFLOWS.includes(workflowType)) {
+  baseTabs.push({ 
+    value: "estados", 
+    label: "Estados", 
+    icon: <Activity className="h-4 w-4" /> 
+  });
+}
+// REMOVE: separate publicaciones tab
+```
 
----
+### Phase 4: Improve Empty State and Sync UX
 
-## Archivos a Modificar
+#### Task 4.1: Update SyncWorkItemButton to also trigger Publicaciones
 
-### Edge Functions
-- `supabase/functions/normalize-actuaciones/index.ts`
-- `supabase/functions/scheduled-crawler/index.ts`
-- `supabase/functions/crawl-rama-judicial/index.ts`
-- `supabase/functions/adapter-publicaciones/index.ts`
-- `supabase/functions/adapter-historico/index.ts`
-- `supabase/functions/icarus-sync/index.ts`
+**File**: `src/components/work-items/SyncWorkItemButton.tsx`
 
-### Frontend Hooks
-- `src/hooks/use-work-item-detail.ts`
-- `src/hooks/use-normalize-actuaciones.ts`
+After the main sync call, also call publicaciones sync for CGP/LABORAL:
+```typescript
+// In handleSync after main sync success
+if (['CGP', 'LABORAL'].includes(workItem.workflow_type)) {
+  // Also trigger publicaciones sync
+  await supabase.functions.invoke('sync-publicaciones-by-work-item', {
+    body: { work_item_id: workItem.id }
+  });
+}
+```
 
-### Componentes
-- `src/pages/CGPDetail.tsx`
-- `src/pages/Filings.tsx`
-- `src/components/filings/NewFilingDialog.tsx`
+OR (better approach): Let the edge function handle this internally (Task 2.1).
 
-### Email (Nuevos)
-- `src/lib/email/provider-interface.ts`
-- `src/lib/email/providers/resend-provider.ts`
+#### Task 4.2: Update invalidateQueries to include publicaciones
+
+**File**: `src/components/work-items/SyncWorkItemButton.tsx` (line 118)
+
+Already includes `work-item-publicaciones` - verified this is correct.
+
+## Technical Details
+
+### Database Tables Used
+- `work_item_acts`: Stores imported estados from ICARUS/Excel and CPNU/SAMAI actuaciones
+- `work_item_publicaciones`: Stores estados from Publicaciones Rama Judicial API
+- Both have `work_item_id` FK and `hash_fingerprint` for deduplication
+
+### API Contracts
+
+**Cloud Run Publicaciones API:**
+- `GET /publicaciones?radicado={23-digit-radicado}` - Sync lookup
+- `GET /buscar?radicado={23-digit-radicado}` - Async scraping job
+- Auth: `x-api-key` header (lowercase, from EXTERNAL_X_API_KEY)
+
+**Response format (expected):**
+```json
+{
+  "radicado": "05001333300320250013300",
+  "publicaciones": [
+    {
+      "fecha_publicacion": "2025-01-15",
+      "fecha_fijacion": "2025-01-15",
+      "fecha_desfijacion": "2025-01-16",
+      "tipo_publicacion": "Estado",
+      "anotacion": "Auto admite demanda",
+      "despacho": "Juzgado 001 Civil Municipal"
+    }
+  ]
+}
+```
+
+### Files to Modify
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `supabase/functions/sync-publicaciones-by-work-item/index.ts` | Modify | Fix endpoint URL, add auto-scraping |
+| `supabase/functions/sync-by-work-item/index.ts` | Modify | Fix PENAL_906 endpoint, add Publicaciones call for CGP/LABORAL |
+| `src/pages/WorkItemDetail/index.tsx` | Modify | Consolidate tabs |
+| `src/pages/WorkItemDetail/tabs/EstadosTab.tsx` | Modify | Add publicaciones data source |
+| `src/pages/WorkItemDetail/tabs/PublicacionesTab.tsx` | Delete or keep | Decide on consolidation approach |
+
+## Success Criteria
+
+1. ✅ Clicking "Actualizar ahora" on CGP/LABORAL work items fetches BOTH actuaciones AND estados
+2. ✅ Estados data appears in `work_item_publicaciones` table
+3. ✅ UI shows ONE consolidated section or clearly labeled separate tabs
+4. ✅ 404 responses trigger auto-scraping with user-friendly feedback
+5. ✅ No regression in CPNU/SAMAI functionality
+6. ✅ Edge function logs show successful API calls
+
+## Testing Plan
+
+1. Test API endpoint fix with debug-external-provider
+2. Test sync-publicaciones-by-work-item manually
+3. Test sync-by-work-item for CGP work item
+4. Verify data appears in database
+5. Verify UI displays the data
+6. Test auto-scraping flow for new radicados
