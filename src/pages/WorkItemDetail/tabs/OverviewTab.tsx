@@ -446,33 +446,58 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
         </Card>
 
         {/* Parties Card - for CGP, CPACA, Tutela */}
-        {(workItem.demandantes || workItem.demandados) && (
+        {(workItem.demandantes || workItem.demandados || workItem.ministerio_publico) && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Partes del Proceso
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Partes del Proceso
+                </div>
+                {workItem.total_sujetos_procesales != null && workItem.total_sujetos_procesales > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    {workItem.total_sujetos_procesales} sujetos
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Demandante / Accionante */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300">
+                    <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
                       {workItem.workflow_type === "TUTELA" ? "Accionante" : "Demandante"}
                     </Badge>
                   </div>
                   <p className="text-sm">{workItem.demandantes || "Sin especificar"}</p>
                 </div>
+                
+                {/* Demandado / Accionado */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-300">
+                    <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/20">
                       {workItem.workflow_type === "TUTELA" ? "Accionado" : "Demandado"}
                     </Badge>
                   </div>
                   <p className="text-sm">{workItem.demandados || "Sin especificar"}</p>
                 </div>
               </div>
+              
+              {/* Ministerio Público - shown for CPACA */}
+              {workItem.ministerio_publico && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="bg-amber-500/10 text-amber-700 border-amber-500/20 dark:text-amber-400">
+                        Ministerio Público
+                      </Badge>
+                    </div>
+                    <p className="text-sm">{workItem.ministerio_publico}</p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         )}
