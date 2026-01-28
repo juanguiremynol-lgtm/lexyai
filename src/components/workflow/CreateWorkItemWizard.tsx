@@ -379,6 +379,12 @@ export function CreateWorkItemWizard({
       data.filing_date = tutelaFilingDate || undefined;
     }
     
+    // Pass initial actuaciones from lookup if available (persist on creation)
+    if (lookupResult?.process_data?.actuaciones && lookupResult.process_data.actuaciones.length > 0) {
+      data.initial_actuaciones = lookupResult.process_data.actuaciones;
+      data.lookup_source = lookupResult.source_used || 'CPNU';
+    }
+    
     createWorkItem.mutate(data, {
       onSuccess: () => {
         // Invalidate queries to refresh pipelines
