@@ -682,6 +682,12 @@ interface SamaiScrapingResult extends ScrapingJobResult {
   // If cached data is available, return it directly
   cachedData?: {
     actuaciones: ActuacionRaw[];
+    sujetos?: Array<{
+      registro?: string;
+      tipo: string;
+      nombre: string;
+      accesoWebActivado?: boolean;
+    }>;
     caseMetadata?: {
       despacho?: string;
       demandante?: string;
@@ -691,6 +697,8 @@ interface SamaiScrapingResult extends ScrapingJobResult {
       ponente?: string;
       etapa?: string;
       origen?: string;
+      ministerio_publico?: string;
+      total_sujetos?: number;
     };
   };
 }
@@ -758,7 +766,7 @@ async function triggerSamaiScrapingJob(
       const sujetos = (resultData.sujetos || []) as Array<Record<string, unknown>>;
       
       if (actuaciones.length > 0) {
-        console.log(`[sync-by-work-item] SAMAI /buscar: Found ${actuaciones.length} cached actuaciones`);
+        console.log(`[sync-by-work-item] SAMAI /buscar: Found ${actuaciones.length} cached actuaciones, ${sujetos.length} sujetos`);
         
         // Extract demandantes/demandados from sujetos
         const demandantes = sujetos
@@ -779,6 +787,12 @@ async function triggerSamaiScrapingJob(
           .filter(Boolean)
           .join(' | ');
         
+        const ministerioPublico = sujetos
+          .filter(s => String(s.tipo || '').toLowerCase().includes('ministerio'))
+          .map(s => String(s.nombre || ''))
+          .filter(Boolean)
+          .join(' | ');
+        
         return {
           ok: true,
           latencyMs,
@@ -794,6 +808,13 @@ async function triggerSamaiScrapingJob(
               anexos: Number(act.anexos || 0),
               indice: String(act.indice || ''),
             })),
+            // ✅ FIX: Include sujetos for demandantes/demandados extraction
+            sujetos: sujetos.map(s => ({
+              registro: String(s.registro || ''),
+              tipo: String(s.tipo || ''),
+              nombre: String(s.nombre || ''),
+              accesoWebActivado: Boolean(s.accesoWebActivado),
+            })),
             caseMetadata: {
               despacho: resultData.corporacionNombre as string || resultData.corporacion as string,
               demandante: demandantes || undefined,
@@ -804,6 +825,8 @@ async function triggerSamaiScrapingJob(
               ponente: resultData.ponente as string,
               etapa: resultData.etapa as string,
               origen: resultData.origen as string,
+              ministerio_publico: ministerioPublico || undefined,
+              total_sujetos: (resultData.totalSujetos as number) || sujetos.length,
             },
           },
         };
@@ -1305,10 +1328,12 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
         
         // Case 1: /buscar returned CACHED data directly - use it!
         if (scrapingResult.ok && scrapingResult.cachedData) {
-          console.log(`[sync-by-work-item] SAMAI: /buscar returned ${scrapingResult.cachedData.actuaciones.length} cached actuaciones`);
+          console.log(`[sync-by-work-item] SAMAI: /buscar returned ${scrapingResult.cachedData.actuaciones.length} cached actuaciones, ${scrapingResult.cachedData.sujetos?.length || 0} sujetos`);
           return { 
             ok: scrapingResult.cachedData.actuaciones.length > 0, 
             actuaciones: scrapingResult.cachedData.actuaciones, 
+            // ✅ FIX: Include sujetos from cached data for total_sujetos_procesales update
+            sujetos: scrapingResult.cachedData.sujetos,
             caseMetadata: scrapingResult.cachedData.caseMetadata,
             provider: 'samai',
             latencyMs: Date.now() - startTime,
@@ -2853,6 +2878,12 @@ Deno.serve(async (req) => {
       if (demandados) updatePayload.demandados = demandados;
       if (ministerioPublico) updatePayload.ministerio_publico = ministerioPublico;
       updatePayload.total_sujetos_procesales = fetchResult.sujetos.length;
+      
+      console.log(`[sync-by-work-item] Extracted ${fetchResult.sujetos.length} sujetos procesales from response`);
+    } else if (fetchResult.caseMetadata?.total_sujetos && fetchResult.caseMetadata.total_sujetos > 0) {
+      // Fallback: use total_sujetos from caseMetadata if sujetos array not available
+      updatePayload.total_sujetos_procesales = fetchResult.caseMetadata.total_sujetos;
+      console.log(`[sync-by-work-item] Using total_sujetos from caseMetadata: ${fetchResult.caseMetadata.total_sujetos}`);
     }
 
     // ============= UPDATE ALL CASE METADATA FROM PROVIDER =============
