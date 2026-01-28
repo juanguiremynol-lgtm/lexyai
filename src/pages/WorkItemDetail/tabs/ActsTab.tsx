@@ -1,5 +1,5 @@
 /**
- * Acts Tab - Shows work_item_acts (actuaciones) for the work item
+ * Acts Tab - Shows actuaciones for the work item with all SAMAI fields
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -10,14 +10,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Scale, 
   Calendar,
+  Clock,
   FileText,
   ExternalLink,
+  Paperclip,
+  Hash,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
-import type { WorkItem, WorkItemAct } from "@/types/work-item";
+import type { WorkItem } from "@/types/work-item";
 
 interface ActsTabProps {
   workItem: WorkItem & { _source?: string };
@@ -30,21 +35,50 @@ const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
   FALLO: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
   SENTENCIA: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
   NOTIFICACION: { color: "text-amber-600", bgColor: "bg-amber-500/10" },
+  FIJACION: { color: "text-amber-600", bgColor: "bg-amber-500/10" },
   AUDIENCIA: { color: "text-purple-600", bgColor: "bg-purple-500/10" },
   MEMORIAL: { color: "text-indigo-600", bgColor: "bg-indigo-500/10" },
   TRASLADO: { color: "text-cyan-600", bgColor: "bg-cyan-500/10" },
   RECURSO: { color: "text-orange-600", bgColor: "bg-orange-500/10" },
+  REPARTO: { color: "text-pink-600", bgColor: "bg-pink-500/10" },
+  EXPEDIENTE: { color: "text-slate-600", bgColor: "bg-slate-500/10" },
   DEFAULT: { color: "text-muted-foreground", bgColor: "bg-muted/50" },
 };
 
+// Estado badge styling
+const ESTADO_CONFIG: Record<string, { variant: "default" | "secondary" | "outline"; icon: typeof CheckCircle2 }> = {
+  REGISTRADA: { variant: "secondary", icon: CheckCircle2 },
+  CLASIFICADA: { variant: "default", icon: CheckCircle2 },
+  PENDIENTE: { variant: "outline", icon: AlertCircle },
+};
+
+interface Actuacion {
+  id: string;
+  owner_id: string;
+  work_item_id: string | null;
+  act_date: string | null;
+  act_date_raw: string | null;
+  raw_text: string;
+  normalized_text: string;
+  act_type_guess: string | null;
+  source: string;
+  source_url: string | null;
+  adapter_name: string | null;
+  hash_fingerprint: string;
+  created_at: string;
+  // New SAMAI fields
+  fecha_registro: string | null;
+  estado: string | null;
+  anexos_count: number | null;
+  indice: string | null;
+}
+
 export function ActsTab({ workItem }: ActsTabProps) {
-  // Fetch acts from actuaciones table using work_item_id (canonical source)
   const { data: acts, isLoading } = useQuery({
     queryKey: ["work-item-actuaciones", workItem.id],
     queryFn: async () => {
       console.log("[ActsTab] Fetching actuaciones for work_item:", workItem.id);
       
-      // Query actuaciones directly using work_item_id (canonical approach)
       const { data: actuaciones, error } = await supabase
         .from("actuaciones")
         .select("*")
@@ -57,40 +91,24 @@ export function ActsTab({ workItem }: ActsTabProps) {
       }
       
       console.log("[ActsTab] Fetched actuaciones:", actuaciones?.length);
-      
-      if (actuaciones && actuaciones.length > 0) {
-        // Map actuaciones to WorkItemAct structure
-        return actuaciones.map((act: any) => ({
-          id: act.id,
-          owner_id: act.owner_id,
-          work_item_id: act.work_item_id,
-          act_date: act.act_date,
-          act_date_raw: act.act_date_raw,
-          description: act.normalized_text || act.raw_text,
-          act_type: act.act_type_guess,
-          source: act.adapter_name || act.source || "sync",
-          source_reference: act.source_url,
-          raw_data: act.raw_data,
-          hash_fingerprint: act.hash_fingerprint,
-          created_at: act.created_at,
-        })) as WorkItemAct[];
-      }
-      
-      return [];
+      return (actuaciones || []) as Actuacion[];
     },
     enabled: !!workItem.id,
-    staleTime: 30000, // 30 seconds
+    staleTime: 30000,
     refetchOnWindowFocus: true,
   });
 
-  const getActTypeConfig = (actType: string | null) => {
-    if (!actType) return ACT_TYPE_CONFIG.DEFAULT;
-    
-    const upperType = actType.toUpperCase();
+  const getActTypeConfig = (actType: string | null, rawText: string) => {
+    const searchText = (actType || rawText || '').toUpperCase();
     for (const [key, config] of Object.entries(ACT_TYPE_CONFIG)) {
-      if (upperType.includes(key)) return config;
+      if (key !== 'DEFAULT' && searchText.includes(key)) return config;
     }
     return ACT_TYPE_CONFIG.DEFAULT;
+  };
+
+  const getEstadoConfig = (estado: string | null) => {
+    if (!estado) return null;
+    return ESTADO_CONFIG[estado.toUpperCase()] || ESTADO_CONFIG.PENDIENTE;
   };
 
   if (isLoading) {
@@ -131,12 +149,12 @@ export function ActsTab({ workItem }: ActsTabProps) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
             <Scale className="h-5 w-5" />
             Actuaciones
             <Badge variant="secondary" className="ml-auto">
-              {acts.length} actuaciones
+              {acts.length} {acts.length === 1 ? 'actuación' : 'actuaciones'}
             </Badge>
           </CardTitle>
         </CardHeader>
@@ -144,41 +162,78 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
       <div className="space-y-3">
         {acts.map((act) => {
-          const config = getActTypeConfig(act.act_type);
+          const config = getActTypeConfig(act.act_type_guess, act.raw_text);
+          const estadoConfig = getEstadoConfig(act.estado);
+          const EstadoIcon = estadoConfig?.icon || CheckCircle2;
 
           return (
             <Card key={act.id} className={cn("transition-colors hover:shadow-md", config.bgColor)}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    {/* Header */}
-                    <div className="flex items-center gap-2 mb-2">
-                      {act.act_type && (
-                        <Badge variant="outline" className={cn("text-xs font-medium", config.color)}>
-                          {act.act_type}
+                    {/* Header with badges */}
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      {/* Índice */}
+                      {act.indice && (
+                        <Badge variant="outline" className="text-xs font-mono gap-1">
+                          <Hash className="h-3 w-3" />
+                          {act.indice}
                         </Badge>
                       )}
-                      {act.source && (
-                        <Badge variant="secondary" className="text-xs">
-                          {act.source}
+                      
+                      {/* Act type */}
+                      {act.act_type_guess && (
+                        <Badge variant="outline" className={cn("text-xs font-medium", config.color)}>
+                          {act.act_type_guess}
+                        </Badge>
+                      )}
+                      
+                      {/* Estado */}
+                      {act.estado && estadoConfig && (
+                        <Badge variant={estadoConfig.variant} className="text-xs gap-1">
+                          <EstadoIcon className="h-3 w-3" />
+                          {act.estado}
+                        </Badge>
+                      )}
+                      
+                      {/* Anexos count */}
+                      {act.anexos_count !== null && act.anexos_count > 0 && (
+                        <Badge variant="secondary" className="text-xs gap-1">
+                          <Paperclip className="h-3 w-3" />
+                          {act.anexos_count} {act.anexos_count === 1 ? 'anexo' : 'anexos'}
+                        </Badge>
+                      )}
+                      
+                      {/* Source */}
+                      {act.adapter_name && (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">
+                          {act.adapter_name.toUpperCase()}
                         </Badge>
                       )}
                     </div>
 
-                    {/* Description */}
-                    <p className="text-sm">
-                      {act.description}
+                    {/* Main text - raw_text is the actuacion title */}
+                    <p className="font-medium text-sm mb-1">
+                      {act.raw_text}
                     </p>
 
-                    {/* Raw date if different */}
-                    {act.act_date_raw && (
-                      <p className="text-xs text-muted-foreground mt-1 italic">
-                        Fecha original: {act.act_date_raw}
+                    {/* Anotación - normalized_text contains the full text */}
+                    {act.normalized_text && act.normalized_text !== act.raw_text && (
+                      <p className="text-sm text-muted-foreground line-clamp-3">
+                        {act.normalized_text.replace(act.raw_text + ' - ', '')}
                       </p>
+                    )}
+
+                    {/* Fecha de registro (when it was registered in system) */}
+                    {act.fecha_registro && (
+                      <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        <span>Registrado: {format(new Date(act.fecha_registro), "d MMM yyyy, HH:mm", { locale: es })}</span>
+                      </div>
                     )}
                   </div>
 
-                  {/* Date */}
+                  {/* Date column */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
                     {act.act_date && (
                       <>
@@ -192,9 +247,16 @@ export function ActsTab({ workItem }: ActsTabProps) {
                       </>
                     )}
 
-                    {act.source_reference && (
+                    {/* Raw date if different */}
+                    {act.act_date_raw && act.act_date_raw !== act.act_date && (
+                      <p className="text-xs text-muted-foreground italic">
+                        Original: {act.act_date_raw}
+                      </p>
+                    )}
+
+                    {act.source_url && (
                       <a
-                        href={act.source_reference}
+                        href={act.source_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline text-xs flex items-center gap-1 mt-1"
