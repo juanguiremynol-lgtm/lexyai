@@ -68,6 +68,13 @@ interface ExtendedWorkItem extends WorkItem {
   fecha_para_sentencia?: string | null;
   fecha_sentencia?: string | null;
   total_sujetos_procesales?: number | null;
+  // New SAMAI metadata fields
+  samai_guid?: string | null;
+  samai_consultado_en?: string | null;
+  samai_veces_en_corporacion?: number | null;
+  samai_sala_conoce?: string | null;
+  samai_sala_decide?: string | null;
+  samai_fuente?: string | null;
 }
 
 interface OverviewTabProps {
@@ -351,6 +358,36 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                 </>
               )}
 
+              {/* Salas Information */}
+              {(workItem.samai_sala_conoce || workItem.samai_sala_decide || workItem.samai_veces_en_corporacion) && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-2">Información de Salas</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {workItem.samai_sala_conoce && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Sala que Conoce</p>
+                          <p className="text-sm font-medium">{workItem.samai_sala_conoce}</p>
+                        </div>
+                      )}
+                      {workItem.samai_sala_decide && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Estado Sala</p>
+                          <Badge variant="outline">{workItem.samai_sala_decide}</Badge>
+                        </div>
+                      )}
+                      {workItem.samai_veces_en_corporacion != null && workItem.samai_veces_en_corporacion > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Veces en Corporación</p>
+                          <Badge variant="secondary">{workItem.samai_veces_en_corporacion}</Badge>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
               {/* Total Sujetos Procesales */}
               {workItem.total_sujetos_procesales != null && workItem.total_sujetos_procesales > 0 && (
                 <>
@@ -359,6 +396,28 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
                     <Users className="h-4 w-4 text-muted-foreground" />
                     <span className="text-muted-foreground">Total Sujetos Procesales:</span>
                     <Badge variant="secondary">{workItem.total_sujetos_procesales}</Badge>
+                  </div>
+                </>
+              )}
+
+              {/* SAMAI Meta Information (guid, consultado_en, fuente) */}
+              {(workItem.samai_guid || workItem.samai_consultado_en || workItem.samai_fuente) && (
+                <>
+                  <Separator />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div className="flex flex-wrap gap-4">
+                      {workItem.samai_fuente && (
+                        <span>Fuente: <Badge variant="outline" className="text-xs">{workItem.samai_fuente}</Badge></span>
+                      )}
+                      {workItem.samai_consultado_en && (
+                        <span>
+                          Consultado: {format(new Date(workItem.samai_consultado_en), "d MMM yyyy, HH:mm", { locale: es })}
+                        </span>
+                      )}
+                    </div>
+                    {workItem.samai_guid && (
+                      <p className="font-mono text-xs opacity-60">GUID: {workItem.samai_guid}</p>
+                    )}
                   </div>
                 </>
               )}

@@ -6160,6 +6160,12 @@ export type Database = {
           ponente: string | null
           radicado: string | null
           radicado_verified: boolean | null
+          samai_consultado_en: string | null
+          samai_fuente: string | null
+          samai_guid: string | null
+          samai_sala_conoce: string | null
+          samai_sala_decide: string | null
+          samai_veces_en_corporacion: number | null
           scrape_job_id: string | null
           scrape_poll_url: string | null
           scrape_provider: string | null
@@ -6252,6 +6258,12 @@ export type Database = {
           ponente?: string | null
           radicado?: string | null
           radicado_verified?: boolean | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
           scrape_job_id?: string | null
           scrape_poll_url?: string | null
           scrape_provider?: string | null
@@ -6344,6 +6356,12 @@ export type Database = {
           ponente?: string | null
           radicado?: string | null
           radicado_verified?: boolean | null
+          samai_consultado_en?: string | null
+          samai_fuente?: string | null
+          samai_guid?: string | null
+          samai_sala_conoce?: string | null
+          samai_sala_decide?: string | null
+          samai_veces_en_corporacion?: number | null
           scrape_job_id?: string | null
           scrape_poll_url?: string | null
           scrape_provider?: string | null
