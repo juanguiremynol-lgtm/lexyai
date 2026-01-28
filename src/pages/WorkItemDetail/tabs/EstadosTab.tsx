@@ -298,43 +298,78 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     enabled: !!workItem.id,
   });
   
-  // Sync Publicaciones mutation
+  // UNIFIED SYNC: Calls BOTH sync-by-work-item (CPNU/SAMAI actuaciones) AND sync-publicaciones (estados)
+  // This ensures CGP, LABORAL, CPACA, TUTELA all get complete data from all relevant providers
   const syncPublicacionesMutation = useMutation({
     mutationFn: async () => {
       setIsSyncingPublicaciones(true);
-      const { data, error } = await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-        body: { work_item_id: workItem.id },
-      });
       
-      if (error) throw error;
-      return data;
+      // Call BOTH edge functions in parallel for comprehensive sync
+      const [actuacionesResult, publicacionesResult] = await Promise.allSettled([
+        // 1. Sync actuaciones from CPNU/SAMAI (workflow-aware provider selection)
+        supabase.functions.invoke("sync-by-work-item", {
+          body: { work_item_id: workItem.id },
+        }),
+        // 2. Sync publicaciones/estados from Rama Judicial
+        supabase.functions.invoke("sync-publicaciones-by-work-item", {
+          body: { work_item_id: workItem.id },
+        }),
+      ]);
+      
+      // Extract results
+      const actuacionesData = actuacionesResult.status === 'fulfilled' 
+        ? actuacionesResult.value.data 
+        : null;
+      const publicacionesData = publicacionesResult.status === 'fulfilled' 
+        ? publicacionesResult.value.data 
+        : null;
+      
+      // Consolidate results
+      return {
+        actuaciones: actuacionesData,
+        publicaciones: publicacionesData,
+        // Aggregate counts
+        totalInserted: (actuacionesData?.inserted_count || 0) + (publicacionesData?.inserted_count || 0),
+        alertsCreated: (actuacionesData?.alerts_created || 0) + (publicacionesData?.alerts_created || 0),
+        // Track which providers were used
+        providersUsed: [
+          actuacionesData?.provider_used,
+          publicacionesData?.ok ? 'PUBLICACIONES' : null,
+        ].filter(Boolean),
+        // Check for errors
+        hasErrors: !actuacionesData?.ok && !publicacionesData?.ok,
+        scrapingInitiated: actuacionesData?.scraping_initiated || publicacionesData?.scrapingInitiated,
+      };
     },
     onSuccess: (result) => {
       setIsSyncingPublicaciones(false);
       queryClient.invalidateQueries({ queryKey: ["work-item-estados-unified", workItem.id] });
       queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones", workItem.id] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-acts", workItem.id] });
       queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
+      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
       
-      if (result.ok) {
-        if (result.inserted_count > 0) {
-          const alertsMsg = result.alerts_created > 0 
-            ? ` (${result.alerts_created} alertas creadas)` 
-            : '';
-          toast.success(`${result.inserted_count} nuevos estados encontrados${alertsMsg}`);
-        } else {
-          toast.info("No hay nuevos estados");
-        }
+      if (result.totalInserted > 0) {
+        const alertsMsg = result.alertsCreated > 0 
+          ? ` (${result.alertsCreated} alertas creadas)` 
+          : '';
+        const providersMsg = result.providersUsed.length > 0
+          ? ` vía ${result.providersUsed.join(', ')}`
+          : '';
+        toast.success(`${result.totalInserted} nuevos registros encontrados${alertsMsg}${providersMsg}`);
       } else if (result.scrapingInitiated) {
         toast.info("Búsqueda iniciada automáticamente", {
           description: "Por favor, reintente en 30-60 segundos.",
         });
+      } else if (result.hasErrors) {
+        toast.error("Error al sincronizar con proveedores externos");
       } else {
-        toast.error(result.errors?.[0] || "Error al sincronizar");
+        toast.info("No hay nuevos estados o actuaciones");
       }
     },
     onError: (err) => {
       setIsSyncingPublicaciones(false);
-      console.error("Publicaciones sync error:", err);
+      console.error("Unified sync error:", err);
       toast.error(err instanceof Error ? err.message : "Error al sincronizar");
     },
   });
