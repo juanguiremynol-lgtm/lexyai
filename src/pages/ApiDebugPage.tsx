@@ -1367,6 +1367,9 @@ export default function ApiDebugPage() {
         </CardContent>
       </Card>
 
+      {/* Publicaciones Debug Card - Full Data Flow Verification */}
+      <PublicacionesDebugCard />
+
       {/* Documentation link */}
       <Card>
         <CardContent className="pt-6">
@@ -1387,5 +1390,332 @@ export default function ApiDebugPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============== Publicaciones Debug Card ==============
+
+interface PublicacionesDebugStep {
+  step: string;
+  status: 'pending' | 'success' | 'error' | 'warning' | 'info';
+  message: string;
+  data?: unknown;
+  timestamp?: string;
+}
+
+function PublicacionesDebugCard() {
+  const [radicado, setRadicado] = useState('');
+  const [workItemId, setWorkItemId] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [steps, setSteps] = useState<PublicacionesDebugStep[]>([]);
+
+  const addStep = (step: Omit<PublicacionesDebugStep, 'timestamp'>) => {
+    setSteps(prev => [...prev, { ...step, timestamp: new Date().toISOString() }]);
+  };
+
+  const updateLastStep = (updates: Partial<PublicacionesDebugStep>) => {
+    setSteps(prev => {
+      const newSteps = [...prev];
+      if (newSteps.length > 0) {
+        newSteps[newSteps.length - 1] = { ...newSteps[newSteps.length - 1], ...updates };
+      }
+      return newSteps;
+    });
+  };
+
+  const runFullDebug = async () => {
+    const normalizedRadicado = radicado.replace(/\D/g, '');
+    if (!normalizedRadicado || normalizedRadicado.length !== 23) {
+      toast.error('Ingrese un radicado válido de 23 dígitos');
+      return;
+    }
+
+    setIsRunning(true);
+    setSteps([]);
+
+    try {
+      // Step 1: Test Publicaciones API via debug-external-provider
+      addStep({ step: '1️⃣ API Test', status: 'pending', message: 'Llamando debug-external-provider (publicaciones)...' });
+      
+      const { data: apiData, error: apiError } = await supabase.functions.invoke(
+        'debug-external-provider',
+        {
+          body: {
+            provider: 'publicaciones',
+            identifier: { radicado: normalizedRadicado },
+            mode: 'lookup',
+            timeoutMs: 15000,
+          },
+        }
+      );
+
+      if (apiError) {
+        updateLastStep({ 
+          status: 'error', 
+          message: `Error Edge Function: ${apiError.message}`,
+          data: apiError
+        });
+      } else if (apiData?.ok && apiData.summary?.found) {
+        updateLastStep({ 
+          status: 'success', 
+          message: `API respondió OK. Publicaciones: ${apiData.summary?.publicacionesCount || 'N/A'}`,
+          data: apiData
+        });
+      } else if (apiData?.error_code === 'RECORD_NOT_FOUND') {
+        updateLastStep({ 
+          status: 'warning', 
+          message: 'RECORD_NOT_FOUND - Radicado no está en caché. Auto-scraping debería iniciarse.',
+          data: apiData
+        });
+      } else {
+        updateLastStep({ 
+          status: 'warning', 
+          message: `API respondió pero sin datos: ${apiData?.error_code || apiData?.message || 'Unknown'}`,
+          data: apiData
+        });
+      }
+
+      // Step 2: Check work_item_publicaciones table
+      addStep({ step: '2️⃣ BD: work_item_publicaciones', status: 'pending', message: 'Buscando en tabla work_item_publicaciones...' });
+      
+      // First find work_item with this radicado
+      const { data: workItems } = await supabase
+        .from('work_items')
+        .select('id, radicado, workflow_type, authority_name')
+        .eq('radicado', normalizedRadicado)
+        .limit(5);
+
+      if (!workItems || workItems.length === 0) {
+        updateLastStep({ 
+          status: 'info', 
+          message: 'No hay work_item con este radicado. Cree uno primero para sincronizar.',
+          data: { radicado: normalizedRadicado }
+        });
+      } else {
+        const wiId = workItems[0].id;
+        setWorkItemId(wiId);
+        
+        const { data: pubData, error: pubError } = await supabase
+          .from('work_item_publicaciones')
+          .select('*')
+          .eq('work_item_id', wiId)
+          .order('published_at', { ascending: false })
+          .limit(10);
+
+        if (pubError) {
+          updateLastStep({ 
+            status: 'error', 
+            message: `Error consultando tabla: ${pubError.message}`,
+            data: pubError
+          });
+        } else if (pubData && pubData.length > 0) {
+          updateLastStep({ 
+            status: 'success', 
+            message: `✅ ${pubData.length} publicaciones en BD para este work_item`,
+            data: { work_item_id: wiId, publicaciones: pubData }
+          });
+        } else {
+          updateLastStep({ 
+            status: 'warning', 
+            message: `0 publicaciones en BD para work_item ${wiId.slice(0, 8)}...`,
+            data: { work_item_id: wiId, work_item: workItems[0] }
+          });
+        }
+
+        // Step 3: Try to sync if work_item exists
+        addStep({ step: '3️⃣ Sync: sync-publicaciones-by-work-item', status: 'pending', message: `Ejecutando sync para work_item ${wiId.slice(0, 8)}...` });
+        
+        const { data: syncData, error: syncError } = await supabase.functions.invoke(
+          'sync-publicaciones-by-work-item',
+          { body: { work_item_id: wiId } }
+        );
+
+        if (syncError) {
+          updateLastStep({ 
+            status: 'error', 
+            message: `Error sync: ${syncError.message}`,
+            data: syncError
+          });
+        } else if (syncData?.ok) {
+          updateLastStep({ 
+            status: 'success', 
+            message: `Sync OK. Insertados: ${syncData.inserted_count}, Omitidos: ${syncData.skipped_count}`,
+            data: syncData
+          });
+        } else {
+          updateLastStep({ 
+            status: 'warning', 
+            message: `Sync completó con errores: ${syncData?.errors?.join(', ') || syncData?.code || 'Unknown'}`,
+            data: syncData
+          });
+        }
+
+        // Step 4: Verify data after sync
+        addStep({ step: '4️⃣ Verificación post-sync', status: 'pending', message: 'Re-consultando work_item_publicaciones...' });
+        
+        const { data: postSyncData } = await supabase
+          .from('work_item_publicaciones')
+          .select('id, title, annotation, published_at, source')
+          .eq('work_item_id', wiId)
+          .order('published_at', { ascending: false })
+          .limit(10);
+
+        updateLastStep({ 
+          status: (postSyncData?.length || 0) > 0 ? 'success' : 'warning', 
+          message: `${postSyncData?.length || 0} publicaciones en BD después de sync`,
+          data: postSyncData
+        });
+      }
+
+      // Step 5: Check sync_traces if table exists
+      addStep({ step: '5️⃣ Sync Traces', status: 'pending', message: 'Buscando trazas de sync...' });
+      
+      const { data: traces, error: tracesError } = await supabase
+        .from('sync_traces')
+        .select('*')
+        .or(`metadata->>radicado.eq.${normalizedRadicado}`)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (tracesError) {
+        updateLastStep({ 
+          status: 'info', 
+          message: `No se pudo consultar sync_traces: ${tracesError.message}`,
+          data: tracesError
+        });
+      } else {
+        const pubTraces = traces?.filter((t: any) => 
+          t.step?.toLowerCase().includes('publicacion') || 
+          t.provider?.toLowerCase().includes('publicacion')
+        );
+        updateLastStep({ 
+          status: pubTraces && pubTraces.length > 0 ? 'success' : 'info', 
+          message: `${pubTraces?.length || 0} trazas de publicaciones encontradas`,
+          data: pubTraces || traces
+        });
+      }
+
+    } catch (err) {
+      addStep({ 
+        step: 'Error', 
+        status: 'error', 
+        message: `Error general: ${err instanceof Error ? err.message : String(err)}`,
+        data: err
+      });
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const getStepIcon = (status: PublicacionesDebugStep['status']) => {
+    switch (status) {
+      case 'pending': return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
+      case 'success': return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      case 'error': return <XCircle className="h-4 w-4 text-destructive" />;
+      case 'warning': return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+      case 'info': return <AlertTriangle className="h-4 w-4 text-blue-500" />;
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5" />
+          🔍 Debug: Publicaciones Procesales (Flujo Completo)
+        </CardTitle>
+        <CardDescription>
+          Verifica el flujo completo: API externa → Edge Function → Base de datos → UI
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <Label htmlFor="pub-radicado">Radicado (23 dígitos)</Label>
+            <Input
+              id="pub-radicado"
+              placeholder="05376311200120230029200"
+              value={radicado}
+              onChange={(e) => setRadicado(e.target.value.replace(/\D/g, '').slice(0, 23))}
+              maxLength={23}
+              inputMode="numeric"
+              className="font-mono"
+            />
+            {radicado && radicado.length !== 23 && (
+              <p className="text-xs text-destructive mt-1">{radicado.length}/23 dígitos</p>
+            )}
+          </div>
+          <Button 
+            onClick={runFullDebug} 
+            disabled={isRunning || radicado.length !== 23}
+            className="self-end"
+          >
+            {isRunning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Play className="h-4 w-4 mr-2" />}
+            Ejecutar Debug Completo
+          </Button>
+        </div>
+
+        {steps.length > 0 && (
+          <div className="space-y-3 mt-4">
+            {steps.map((step, idx) => (
+              <div 
+                key={idx} 
+                className={cn(
+                  "p-3 rounded-lg border",
+                  step.status === 'success' && "bg-emerald-500/10 border-emerald-500/30",
+                  step.status === 'error' && "bg-destructive/10 border-destructive/30",
+                  step.status === 'warning' && "bg-amber-500/10 border-amber-500/30",
+                  step.status === 'info' && "bg-blue-500/10 border-blue-500/30",
+                  step.status === 'pending' && "bg-muted/50"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  {getStepIcon(step.status)}
+                  <span className="font-medium text-sm">{step.step}</span>
+                  {step.timestamp && (
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {new Date(step.timestamp).toLocaleTimeString()}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">{step.message}</p>
+                
+                {step.data && (
+                  <Collapsible className="mt-2">
+                    <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
+                      <ChevronRight className="h-3 w-3" />
+                      Ver datos raw
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <ScrollArea className="h-40 mt-2 rounded border bg-muted/30 p-2">
+                        <pre className="text-[10px] font-mono whitespace-pre-wrap">
+                          {JSON.stringify(step.data, null, 2)}
+                        </pre>
+                      </ScrollArea>
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {workItemId && (
+          <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+            <p className="text-xs text-muted-foreground">Work Item ID detectado:</p>
+            <code className="text-xs font-mono">{workItemId}</code>
+            <Button 
+              variant="link" 
+              size="sm" 
+              className="ml-2 h-auto p-0"
+              onClick={() => window.open(`/app/work-items/${workItemId}?tab=acts`, '_blank')}
+            >
+              <ExternalLink className="h-3 w-3 mr-1" />
+              Ver en UI
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
