@@ -7,8 +7,9 @@
  * - Multi-tenant safe: validates user is member of work_item's organization
  * - Only for work items with a valid 23-digit radicado
  * - Fetches from PUBLICACIONES_BASE_URL using EXTERNAL_X_API_KEY
- * - Stores metadata + PDF URLs in work_item_publicaciones table
+ * - Stores metadata + PDF URLs + DEADLINE FIELDS in work_item_publicaciones table
  * - Idempotent: uses hash_fingerprint to prevent duplicates
+ * - Creates alert_instances for new estados with deadline tracking
  * 
  * Input: { work_item_id: string }
  * Output: { ok, inserted_count, skipped_count, newest_publication_date, warnings, errors }
@@ -32,9 +33,13 @@ interface SyncResult {
   work_item_id: string;
   inserted_count: number;
   skipped_count: number;
+  alerts_created: number;
   newest_publication_date: string | null;
   warnings: string[];
   errors: string[];
+  scrapingInitiated?: boolean;
+  scrapingJobId?: string;
+  scrapingMessage?: string;
 }
 
 interface PublicacionRaw {
@@ -42,6 +47,11 @@ interface PublicacionRaw {
   annotation?: string;
   pdf_url?: string;
   published_at?: string;
+  // CRITICAL DEADLINE FIELDS:
+  fecha_fijacion?: string;
+  fecha_desfijacion?: string;
+  despacho?: string;
+  tipo_publicacion?: string;
   source_id?: string;
   raw?: Record<string, unknown>;
 }
@@ -118,6 +128,26 @@ function parseDate(dateStr: string | undefined | null): string | null {
   return null;
 }
 
+/**
+ * Calculate the next business day after a given date
+ * In Colombian legal terms, términos begin the day AFTER fecha_desfijacion
+ * Skip weekends (Saturday = 6, Sunday = 0)
+ */
+function calculateNextBusinessDay(dateStr: string | undefined | null): string | null {
+  const parsed = parseDate(dateStr);
+  if (!parsed) return null;
+  
+  const d = new Date(parsed + 'T12:00:00Z');
+  d.setDate(d.getDate() + 1);
+  
+  // Skip weekends (0 = Sunday, 6 = Saturday)
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1);
+  }
+  
+  return d.toISOString().split('T')[0];
+}
+
 // ============= PUBLICACIONES API PROVIDER =============
 // CRITICAL FIX: Use query-param format /publicaciones?radicado={radicado}
 // NOT path-based format /publicaciones/{radicado}
@@ -189,7 +219,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
                 scrapingInitiated: true,
                 scrapingJobId: jobId,
                 scrapingPollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
-                scrapingMessage: `No publications found. Scraping initiated (job ${jobId}). Retry in 30-60 seconds.`,
+                scrapingMessage: 'No se encontraron publicaciones en caché. Búsqueda automática iniciada. Por favor, reintente en 30-60 segundos.',
               };
             }
           }
@@ -197,8 +227,14 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
           console.warn('[sync-publicaciones] Scraping trigger failed:', buscarErr);
         }
         
-        // If scraping failed or no jobId, return empty result
-        return { ok: true, publicaciones: [] };
+        // If scraping failed or no jobId, return clearer error
+        return { 
+          ok: false, 
+          publicaciones: [], 
+          error: 'RECORD_NOT_FOUND',
+          scrapingInitiated: false,
+          scrapingMessage: 'Registro no encontrado. La búsqueda automática no pudo iniciarse.'
+        };
       }
       const errorText = await response.text();
       console.log(`[sync-publicaciones] HTTP ${response.status}: ${errorText.slice(0, 200)}`);
@@ -218,11 +254,17 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
     
     return {
       ok: true,
+      // Map API response to our interface, including CRITICAL deadline fields
       publicaciones: publicaciones.map((pub: Record<string, unknown>) => ({
         title: String(pub.titulo || pub.title || pub.tipo_publicacion || pub.descripcion || 'Sin título'),
         annotation: pub.anotacion || pub.annotation || pub.detalle ? String(pub.anotacion || pub.annotation || pub.detalle) : undefined,
         pdf_url: pub.pdf_url || pub.url || pub.documento_url ? String(pub.pdf_url || pub.url || pub.documento_url) : undefined,
         published_at: pub.fecha_publicacion || pub.published_at || pub.fecha ? String(pub.fecha_publicacion || pub.published_at || pub.fecha) : undefined,
+        // CRITICAL DEADLINE FIELDS - capture from API response
+        fecha_fijacion: pub.fecha_fijacion ? String(pub.fecha_fijacion) : undefined,
+        fecha_desfijacion: pub.fecha_desfijacion ? String(pub.fecha_desfijacion) : undefined,
+        despacho: pub.despacho ? String(pub.despacho) : undefined,
+        tipo_publicacion: pub.tipo_publicacion ? String(pub.tipo_publicacion) : undefined,
         source_id: pub.id ? String(pub.id) : undefined,
         raw: pub as Record<string, unknown>,
       })),
@@ -333,6 +375,7 @@ Deno.serve(async (req) => {
       work_item_id,
       inserted_count: 0,
       skipped_count: 0,
+      alerts_created: 0,
       newest_publication_date: null,
       warnings: [],
       errors: [],
@@ -342,6 +385,18 @@ Deno.serve(async (req) => {
     const fetchResult = await fetchPublicaciones(normalizedRadicado);
 
     if (!fetchResult.ok) {
+      // If scraping was initiated, return 202 with scraping info
+      if (fetchResult.scrapingInitiated) {
+        return jsonResponse({
+          ...result,
+          ok: false,
+          scrapingInitiated: true,
+          scrapingJobId: fetchResult.scrapingJobId,
+          scrapingMessage: fetchResult.scrapingMessage,
+          errors: [fetchResult.scrapingMessage || 'Búsqueda iniciada'],
+        }, 202);
+      }
+      
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
       return jsonResponse(result);
     }
@@ -374,8 +429,13 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Parse deadline dates
+      const fechaFijacion = parseDate(pub.fecha_fijacion);
+      const fechaDesfijacion = parseDate(pub.fecha_desfijacion);
+
       // Insert new publication - ALWAYS use parent work_item's organization_id for integrity
-      const { error: insertError } = await supabase
+      // CRITICAL: Now includes fecha_fijacion, fecha_desfijacion, despacho, tipo_publicacion
+      const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
           work_item_id,
@@ -384,10 +444,17 @@ Deno.serve(async (req) => {
           title: pub.title,
           annotation: pub.annotation || null,
           pdf_url: pub.pdf_url || null,
-          published_at: publishedAt ? new Date(publishedAt).toISOString() : null,
+          published_at: publishedAt ? new Date(publishedAt + 'T12:00:00Z').toISOString() : null,
+          // CRITICAL DEADLINE FIELDS - now properly stored in DB columns
+          fecha_fijacion: fechaFijacion ? new Date(fechaFijacion + 'T12:00:00Z').toISOString() : null,
+          fecha_desfijacion: fechaDesfijacion ? new Date(fechaDesfijacion + 'T12:00:00Z').toISOString() : null,
+          despacho: pub.despacho || null,
+          tipo_publicacion: pub.tipo_publicacion || null,
           hash_fingerprint: fingerprint,
           raw_data: pub.raw || null,
-        });
+        })
+        .select('id')
+        .single();
 
       if (insertError) {
         // Check if it's a duplicate error (race condition)
@@ -402,13 +469,47 @@ Deno.serve(async (req) => {
         if (publishedAt && (!newestDate || publishedAt > newestDate)) {
           newestDate = publishedAt;
         }
+        
+        // ============= CREATE ALERT FOR NEW ESTADOS WITH DEADLINE =============
+        // This helps lawyers track when términos begin
+        if (fechaDesfijacion && insertedPub?.id) {
+          const terminosInician = calculateNextBusinessDay(pub.fecha_desfijacion);
+          
+          try {
+            await supabase.from('alert_instances').insert({
+              owner_id: workItem.owner_id,
+              organization_id: workItem.organization_id,
+              entity_id: workItem.id,
+              entity_type: 'WORK_ITEM',
+              severity: 'info',
+              title: `Nuevo Estado: ${pub.tipo_publicacion || 'Publicación'}`,
+              message: `${pub.title}${terminosInician ? ` — Términos inician: ${terminosInician}` : ''}`,
+              status: 'ACTIVE',
+              payload: {
+                publicacion_id: insertedPub.id,
+                fecha_publicacion: pub.published_at,
+                fecha_fijacion: pub.fecha_fijacion,
+                fecha_desfijacion: pub.fecha_desfijacion,
+                terminos_inician: terminosInician,
+                despacho: pub.despacho,
+                tipo_publicacion: pub.tipo_publicacion,
+                pdf_url: pub.pdf_url,
+              },
+            });
+            result.alerts_created++;
+            console.log(`[sync-publicaciones] Created alert for estado: ${pub.title}, términos inician: ${terminosInician}`);
+          } catch (alertErr) {
+            console.warn('[sync-publicaciones] Failed to create alert:', alertErr);
+            // Don't fail the whole sync if alert creation fails
+          }
+        }
       }
     }
 
     result.newest_publication_date = newestDate;
     result.ok = true;
 
-    console.log(`[sync-publicaciones] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}`);
+    console.log(`[sync-publicaciones] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
 
     return jsonResponse(result);
 

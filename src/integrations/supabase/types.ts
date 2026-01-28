@@ -5900,6 +5900,9 @@ export type Database = {
         Row: {
           annotation: string | null
           created_at: string
+          despacho: string | null
+          fecha_desfijacion: string | null
+          fecha_fijacion: string | null
           hash_fingerprint: string
           id: string
           organization_id: string
@@ -5907,12 +5910,16 @@ export type Database = {
           published_at: string | null
           raw_data: Json | null
           source: string
+          tipo_publicacion: string | null
           title: string
           work_item_id: string
         }
         Insert: {
           annotation?: string | null
           created_at?: string
+          despacho?: string | null
+          fecha_desfijacion?: string | null
+          fecha_fijacion?: string | null
           hash_fingerprint: string
           id?: string
           organization_id: string
@@ -5920,12 +5927,16 @@ export type Database = {
           published_at?: string | null
           raw_data?: Json | null
           source?: string
+          tipo_publicacion?: string | null
           title: string
           work_item_id: string
         }
         Update: {
           annotation?: string | null
           created_at?: string
+          despacho?: string | null
+          fecha_desfijacion?: string | null
+          fecha_fijacion?: string | null
           hash_fingerprint?: string
           id?: string
           organization_id?: string
@@ -5933,6 +5944,7 @@ export type Database = {
           published_at?: string | null
           raw_data?: Json | null
           source?: string
+          tipo_publicacion?: string | null
           title?: string
           work_item_id?: string
         }
