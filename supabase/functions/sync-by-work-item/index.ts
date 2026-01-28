@@ -112,6 +112,13 @@ interface FetchResult {
     medida_cautelar?: string;
     ministerio_publico?: string;
     total_sujetos?: number;
+    // Additional SAMAI metadata
+    sala_conoce?: string;
+    sala_decide?: string;
+    veces_en_corporacion?: number;
+    guid?: string;
+    consultado_en?: string;
+    fuente?: string;
   };
   // SAMAI sujetos for demandantes/demandados extraction
   sujetos?: Array<{
@@ -699,6 +706,27 @@ interface SamaiScrapingResult extends ScrapingJobResult {
       origen?: string;
       ministerio_publico?: string;
       total_sujetos?: number;
+      // Additional SAMAI fields
+      clase_proceso?: string;
+      subclase?: string;
+      recurso?: string;
+      naturaleza?: string;
+      ubicacion?: string;
+      formato_expediente?: string;
+      asunto?: string;
+      medida_cautelar?: string;
+      // Dates
+      fecha_radicado?: string;
+      fecha_presenta_demanda?: string;
+      fecha_para_sentencia?: string;
+      fecha_sentencia?: string;
+      // Salas info
+      sala_conoce?: string;
+      sala_decide?: string;
+      veces_en_corporacion?: number;
+      guid?: string;
+      consultado_en?: string;
+      fuente?: string;
     };
   };
 }
@@ -793,6 +821,11 @@ async function triggerSamaiScrapingJob(
           .filter(Boolean)
           .join(' | ');
         
+        // Extract nested objects from resultData
+        const clasificacion = resultData.clasificacion as Record<string, unknown> | undefined;
+        const fechas = resultData.fechas as Record<string, unknown> | undefined;
+        const salas = resultData.salas as Record<string, unknown> | undefined;
+        
         return {
           ok: true,
           latencyMs,
@@ -819,14 +852,35 @@ async function triggerSamaiScrapingJob(
               despacho: resultData.corporacionNombre as string || resultData.corporacion as string,
               demandante: demandantes || undefined,
               demandado: demandados || undefined,
-              tipo_proceso: resultData.clasificacion 
-                ? (resultData.clasificacion as Record<string, unknown>).tipoProceso as string 
-                : resultData.clase as string,
+              // Classification
+              tipo_proceso: clasificacion?.tipoProceso as string || resultData.clase as string,
+              clase_proceso: clasificacion?.clase as string || resultData.clase as string,
+              subclase: clasificacion?.subclase as string,
+              recurso: clasificacion?.recurso as string,
+              naturaleza: clasificacion?.naturaleza as string,
+              // Location & format
               ponente: resultData.ponente as string,
               etapa: resultData.etapa as string,
               origen: resultData.origen as string,
+              ubicacion: resultData.ubicacion as string,
+              formato_expediente: resultData.formatoExpediente as string,
+              // Legal context
+              asunto: resultData.asunto as string,
+              medida_cautelar: resultData.medidaCautelar as string,
               ministerio_publico: ministerioPublico || undefined,
               total_sujetos: (resultData.totalSujetos as number) || sujetos.length,
+              // Dates from fechas object
+              fecha_radicado: fechas?.radicado as string,
+              fecha_presenta_demanda: fechas?.presentaDemanda as string,
+              fecha_para_sentencia: fechas?.paraSentencia as string,
+              fecha_sentencia: fechas?.sentencia as string,
+              // Salas info
+              sala_conoce: salas?.conoce as string,
+              sala_decide: salas?.decide as string,
+              veces_en_corporacion: resultData.vecesEnCorporacion as number,
+              guid: resultData.guid as string,
+              consultado_en: resultData.consultadoEn as string,
+              fuente: resultData.fuente as string || 'SAMAI',
             },
           },
         };
@@ -2912,6 +2966,14 @@ Deno.serve(async (req) => {
       if (meta.ministerio_publico && !updatePayload.ministerio_publico) {
         updatePayload.ministerio_publico = meta.ministerio_publico;
       }
+      
+      // New SAMAI fields - Salas and tracking info
+      if (meta.sala_conoce) updatePayload.samai_sala_conoce = meta.sala_conoce;
+      if (meta.sala_decide) updatePayload.samai_sala_decide = meta.sala_decide;
+      if (meta.veces_en_corporacion) updatePayload.samai_veces_en_corporacion = meta.veces_en_corporacion;
+      if (meta.guid) updatePayload.samai_guid = meta.guid;
+      if (meta.consultado_en) updatePayload.samai_consultado_en = meta.consultado_en;
+      if (meta.fuente) updatePayload.samai_fuente = meta.fuente;
       
       // Parse and update important dates
       if (meta.fecha_radicado) {
