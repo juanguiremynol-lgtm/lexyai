@@ -252,6 +252,27 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
     
     console.log(`[sync-publicaciones] Found ${publicaciones.length} publications for ${radicado}`);
     
+    // ============= DETAILED FIELD LOGGING =============
+    if (publicaciones.length > 0) {
+      const sample = publicaciones[0];
+      console.log('[sync-publicaciones] ===== API RESPONSE FIELD ANALYSIS =====');
+      console.log('[sync-publicaciones] Sample record keys:', Object.keys(sample));
+      console.log('[sync-publicaciones] DEADLINE FIELDS CHECK:');
+      console.log('  - fecha_fijacion:', sample.fecha_fijacion || 'NOT FOUND');
+      console.log('  - fecha_desfijacion:', sample.fecha_desfijacion || 'NOT FOUND');
+      console.log('  - despacho:', sample.despacho || 'NOT FOUND');
+      console.log('  - tipo_publicacion:', sample.tipo_publicacion || 'NOT FOUND');
+      console.log('[sync-publicaciones] ALTERNATIVE FIELD NAMES:');
+      console.log('  - fijacion:', sample.fijacion || 'NOT FOUND');
+      console.log('  - desfijacion:', sample.desfijacion || 'NOT FOUND');
+      console.log('  - fecha_inicio:', sample.fecha_inicio || 'NOT FOUND');
+      console.log('  - fecha_fin:', sample.fecha_fin || 'NOT FOUND');
+      console.log('  - juzgado:', sample.juzgado || 'NOT FOUND');
+      console.log('  - court:', sample.court || 'NOT FOUND');
+      console.log('  - tipo:', sample.tipo || 'NOT FOUND');
+      console.log('[sync-publicaciones] Full sample record:', JSON.stringify(sample, null, 2));
+    }
+    
     return {
       ok: true,
       // Map API response to our interface, including CRITICAL deadline fields
@@ -260,11 +281,11 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
         annotation: pub.anotacion || pub.annotation || pub.detalle ? String(pub.anotacion || pub.annotation || pub.detalle) : undefined,
         pdf_url: pub.pdf_url || pub.url || pub.documento_url ? String(pub.pdf_url || pub.url || pub.documento_url) : undefined,
         published_at: pub.fecha_publicacion || pub.published_at || pub.fecha ? String(pub.fecha_publicacion || pub.published_at || pub.fecha) : undefined,
-        // CRITICAL DEADLINE FIELDS - capture from API response
-        fecha_fijacion: pub.fecha_fijacion ? String(pub.fecha_fijacion) : undefined,
-        fecha_desfijacion: pub.fecha_desfijacion ? String(pub.fecha_desfijacion) : undefined,
-        despacho: pub.despacho ? String(pub.despacho) : undefined,
-        tipo_publicacion: pub.tipo_publicacion ? String(pub.tipo_publicacion) : undefined,
+        // CRITICAL DEADLINE FIELDS - capture from API response with alternative field names
+        fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
+        fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
+        despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
+        tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
         source_id: pub.id ? String(pub.id) : undefined,
         raw: pub as Record<string, unknown>,
       })),
@@ -277,6 +298,26 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       error: err instanceof Error ? err.message : 'Publicaciones API failed' 
     };
   }
+}
+
+// Helper to extract date strings from multiple possible field names
+function extractDateString(obj: Record<string, unknown>, fieldNames: string[]): string | undefined {
+  for (const field of fieldNames) {
+    if (obj[field]) {
+      return String(obj[field]);
+    }
+  }
+  return undefined;
+}
+
+// Helper to extract string from multiple possible field names
+function extractString(obj: Record<string, unknown>, fieldNames: string[]): string | undefined {
+  for (const field of fieldNames) {
+    if (obj[field]) {
+      return String(obj[field]);
+    }
+  }
+  return undefined;
 }
 
 // ============= MAIN HANDLER =============
@@ -432,6 +473,18 @@ Deno.serve(async (req) => {
       // Parse deadline dates
       const fechaFijacion = parseDate(pub.fecha_fijacion);
       const fechaDesfijacion = parseDate(pub.fecha_desfijacion);
+
+      // LOG: What we're about to insert
+      console.log('[sync-publicaciones] Inserting record:', {
+        title: pub.title?.slice(0, 50),
+        published_at: pub.published_at,
+        fecha_fijacion_raw: pub.fecha_fijacion,
+        fecha_fijacion_parsed: fechaFijacion,
+        fecha_desfijacion_raw: pub.fecha_desfijacion,
+        fecha_desfijacion_parsed: fechaDesfijacion,
+        despacho: pub.despacho,
+        tipo_publicacion: pub.tipo_publicacion,
+      });
 
       // Insert new publication - ALWAYS use parent work_item's organization_id for integrity
       // CRITICAL: Now includes fecha_fijacion, fecha_desfijacion, despacho, tipo_publicacion
