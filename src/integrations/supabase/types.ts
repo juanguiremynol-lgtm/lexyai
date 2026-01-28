@@ -21,12 +21,16 @@ export type Database = {
           act_time: string | null
           act_type_guess: string | null
           adapter_name: string | null
+          anexos_count: number | null
           attachments: Json | null
           confidence: number | null
           created_at: string
+          estado: string | null
+          fecha_registro: string | null
           filing_id: string | null
           hash_fingerprint: string
           id: string
+          indice: string | null
           monitored_process_id: string | null
           normalized_text: string
           organization_id: string | null
@@ -43,12 +47,16 @@ export type Database = {
           act_time?: string | null
           act_type_guess?: string | null
           adapter_name?: string | null
+          anexos_count?: number | null
           attachments?: Json | null
           confidence?: number | null
           created_at?: string
+          estado?: string | null
+          fecha_registro?: string | null
           filing_id?: string | null
           hash_fingerprint: string
           id?: string
+          indice?: string | null
           monitored_process_id?: string | null
           normalized_text: string
           organization_id?: string | null
@@ -65,12 +73,16 @@ export type Database = {
           act_time?: string | null
           act_type_guess?: string | null
           adapter_name?: string | null
+          anexos_count?: number | null
           attachments?: Json | null
           confidence?: number | null
           created_at?: string
+          estado?: string | null
+          fecha_registro?: string | null
           filing_id?: string | null
           hash_fingerprint?: string
           id?: string
+          indice?: string | null
           monitored_process_id?: string | null
           normalized_text?: string
           organization_id?: string | null
@@ -6083,6 +6095,7 @@ export type Database = {
         Row: {
           acta_reparto_notes: string | null
           acta_reparto_received_at: string | null
+          asunto: string | null
           authority_city: string | null
           authority_department: string | null
           authority_email: string | null
@@ -6096,6 +6109,7 @@ export type Database = {
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
           cgp_variant: string | null
+          clase_proceso: string | null
           client_id: string | null
           created_at: string
           delete_reason: string | null
@@ -6105,8 +6119,14 @@ export type Database = {
           demandantes: string | null
           description: string | null
           email_linking_enabled: boolean | null
+          etapa: string | null
           expediente_url: string | null
+          fecha_para_sentencia: string | null
+          fecha_presenta_demanda: string | null
+          fecha_radicado: string | null
+          fecha_sentencia: string | null
           filing_date: string | null
+          formato_expediente: string | null
           id: string
           is_flagged: boolean | null
           last_action_date: string | null
@@ -6125,14 +6145,19 @@ export type Database = {
           legacy_peticion_id: string | null
           legacy_process_id: string | null
           matter_id: string | null
+          medida_cautelar: string | null
           migration_note: string | null
+          ministerio_publico: string | null
           monitoring_enabled: boolean | null
+          naturaleza_proceso: string | null
           notes: string | null
           notification_effective_date: string | null
           notification_substatus: string | null
           organization_id: string | null
+          origen: string | null
           owner_id: string
           pipeline_stage: number | null
+          ponente: string | null
           radicado: string | null
           radicado_verified: boolean | null
           scrape_job_id: string | null
@@ -6148,15 +6173,21 @@ export type Database = {
           source_reference: string | null
           stage: string
           status: Database["public"]["Enums"]["item_status"]
+          subclase_proceso: string | null
+          tipo_proceso: string | null
+          tipo_recurso: string | null
           title: string | null
           total_actuaciones: number | null
+          total_sujetos_procesales: number | null
           tutela_code: string | null
+          ubicacion_expediente: string | null
           updated_at: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Insert: {
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
+          asunto?: string | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -6170,6 +6201,7 @@ export type Database = {
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
           cgp_variant?: string | null
+          clase_proceso?: string | null
           client_id?: string | null
           created_at?: string
           delete_reason?: string | null
@@ -6179,8 +6211,14 @@ export type Database = {
           demandantes?: string | null
           description?: string | null
           email_linking_enabled?: boolean | null
+          etapa?: string | null
           expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
           filing_date?: string | null
+          formato_expediente?: string | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -6199,14 +6237,19 @@ export type Database = {
           legacy_peticion_id?: string | null
           legacy_process_id?: string | null
           matter_id?: string | null
+          medida_cautelar?: string | null
           migration_note?: string | null
+          ministerio_publico?: string | null
           monitoring_enabled?: boolean | null
+          naturaleza_proceso?: string | null
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
           organization_id?: string | null
+          origen?: string | null
           owner_id: string
           pipeline_stage?: number | null
+          ponente?: string | null
           radicado?: string | null
           radicado_verified?: boolean | null
           scrape_job_id?: string | null
@@ -6222,15 +6265,21 @@ export type Database = {
           source_reference?: string | null
           stage: string
           status?: Database["public"]["Enums"]["item_status"]
+          subclase_proceso?: string | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
           title?: string | null
           total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
           tutela_code?: string | null
+          ubicacion_expediente?: string | null
           updated_at?: string
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Update: {
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
+          asunto?: string | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -6244,6 +6293,7 @@ export type Database = {
             | Database["public"]["Enums"]["cgp_phase_source"]
             | null
           cgp_variant?: string | null
+          clase_proceso?: string | null
           client_id?: string | null
           created_at?: string
           delete_reason?: string | null
@@ -6253,8 +6303,14 @@ export type Database = {
           demandantes?: string | null
           description?: string | null
           email_linking_enabled?: boolean | null
+          etapa?: string | null
           expediente_url?: string | null
+          fecha_para_sentencia?: string | null
+          fecha_presenta_demanda?: string | null
+          fecha_radicado?: string | null
+          fecha_sentencia?: string | null
           filing_date?: string | null
+          formato_expediente?: string | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -6273,14 +6329,19 @@ export type Database = {
           legacy_peticion_id?: string | null
           legacy_process_id?: string | null
           matter_id?: string | null
+          medida_cautelar?: string | null
           migration_note?: string | null
+          ministerio_publico?: string | null
           monitoring_enabled?: boolean | null
+          naturaleza_proceso?: string | null
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
           organization_id?: string | null
+          origen?: string | null
           owner_id?: string
           pipeline_stage?: number | null
+          ponente?: string | null
           radicado?: string | null
           radicado_verified?: boolean | null
           scrape_job_id?: string | null
@@ -6296,9 +6357,14 @@ export type Database = {
           source_reference?: string | null
           stage?: string
           status?: Database["public"]["Enums"]["item_status"]
+          subclase_proceso?: string | null
+          tipo_proceso?: string | null
+          tipo_recurso?: string | null
           title?: string | null
           total_actuaciones?: number | null
+          total_sujetos_procesales?: number | null
           tutela_code?: string | null
+          ubicacion_expediente?: string | null
           updated_at?: string
           workflow_type?: Database["public"]["Enums"]["workflow_type"]
         }

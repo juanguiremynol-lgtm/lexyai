@@ -78,6 +78,11 @@ interface ActuacionRaw {
   anotacion?: string;
   fecha_inicia_termino?: string;
   fecha_finaliza_termino?: string;
+  // SAMAI-specific fields
+  fecha_registro?: string;
+  estado?: string;
+  anexos?: number;
+  indice?: string;
 }
 
 interface FetchResult {
@@ -89,7 +94,32 @@ interface FetchResult {
     demandante?: string;
     demandado?: string;
     tipo_proceso?: string;
+    // SAMAI-specific metadata fields
+    origen?: string;
+    ponente?: string;
+    clase_proceso?: string;
+    etapa?: string;
+    ubicacion?: string;
+    formato_expediente?: string;
+    subclase?: string;
+    recurso?: string;
+    naturaleza?: string;
+    fecha_radicado?: string;
+    fecha_presenta_demanda?: string;
+    fecha_para_sentencia?: string;
+    fecha_sentencia?: string;
+    asunto?: string;
+    medida_cautelar?: string;
+    ministerio_publico?: string;
+    total_sujetos?: number;
   };
+  // SAMAI sujetos for demandantes/demandados extraction
+  sujetos?: Array<{
+    registro?: string;
+    tipo: string;
+    nombre: string;
+    accesoWebActivado?: boolean;
+  }>;
   error?: string;
   provider: string;
   isEmpty?: boolean; // Indicates empty result (for fallback logic)
@@ -436,15 +466,22 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
     return dateStr.slice(0, 10);
   }
   
+  // Remove time portion if present (e.g., "07/06/2025 6:06:44" -> "07/06/2025")
+  // Also handles "09/06/2025" without time
+  const dateOnly = dateStr.split(' ')[0];
+  
   const patterns = [
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,
-    /^(\d{2})-(\d{2})-(\d{4})$/,
+    /^(\d{2})\/(\d{2})\/(\d{4})$/,  // DD/MM/YYYY (Colombian format)
+    /^(\d{2})-(\d{2})-(\d{4})$/,    // DD-MM-YYYY
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // D/M/YYYY or DD/M/YYYY
   ];
 
   for (const pattern of patterns) {
-    const match = dateStr.match(pattern);
+    const match = dateOnly.match(pattern);
     if (match) {
-      return `${match[3]}-${match[2]}-${match[1]}`;
+      const day = match[1].padStart(2, '0');
+      const month = match[2].padStart(2, '0');
+      return `${match[3]}-${month}-${day}`; // YYYY-MM-DD
     }
   }
   
@@ -650,6 +687,10 @@ interface SamaiScrapingResult extends ScrapingJobResult {
       demandante?: string;
       demandado?: string;
       tipo_proceso?: string;
+      // SAMAI-specific fields for cached data
+      ponente?: string;
+      etapa?: string;
+      origen?: string;
     };
   };
 }
@@ -714,24 +755,55 @@ async function triggerSamaiScrapingJob(
       
       const resultData = data.result as Record<string, unknown>;
       const actuaciones = (resultData.actuaciones || []) as Array<Record<string, unknown>>;
+      const sujetos = (resultData.sujetos || []) as Array<Record<string, unknown>>;
       
       if (actuaciones.length > 0) {
         console.log(`[sync-by-work-item] SAMAI /buscar: Found ${actuaciones.length} cached actuaciones`);
+        
+        // Extract demandantes/demandados from sujetos
+        const demandantes = sujetos
+          .filter(s => {
+            const tipo = String(s.tipo || '').toLowerCase();
+            return tipo.includes('demandante') || tipo.includes('accionante') || tipo.includes('ofendido');
+          })
+          .map(s => String(s.nombre || ''))
+          .filter(Boolean)
+          .join(' | ');
+        
+        const demandados = sujetos
+          .filter(s => {
+            const tipo = String(s.tipo || '').toLowerCase();
+            return tipo.includes('demandado') || tipo.includes('accionado') || tipo.includes('procesado');
+          })
+          .map(s => String(s.nombre || ''))
+          .filter(Boolean)
+          .join(' | ');
+        
         return {
           ok: true,
           latencyMs,
           status: 'cached',
           cachedData: {
+            // ✅ FIX: Use fechaActuacion (not fecha)
             actuaciones: actuaciones.map((act) => ({
               fecha: String(act.fechaActuacion || act.fecha || ''),
               actuacion: String(act.actuacion || ''),
               anotacion: String(act.anotacion || ''),
+              fecha_registro: String(act.fechaRegistro || ''),
+              estado: String(act.estado || ''),
+              anexos: Number(act.anexos || 0),
+              indice: String(act.indice || ''),
             })),
             caseMetadata: {
-              despacho: resultData.corporacionNombre as string || resultData.ponente as string,
-              demandante: (resultData.sujetos as Array<Record<string, unknown>>)?.find(s => s.tipo?.toString().includes('Demandante'))?.nombre as string,
-              demandado: (resultData.sujetos as Array<Record<string, unknown>>)?.find(s => s.tipo?.toString().includes('Demandado'))?.nombre as string,
-              tipo_proceso: resultData.clase as string,
+              despacho: resultData.corporacionNombre as string || resultData.corporacion as string,
+              demandante: demandantes || undefined,
+              demandado: demandados || undefined,
+              tipo_proceso: resultData.clasificacion 
+                ? (resultData.clasificacion as Record<string, unknown>).tipoProceso as string 
+                : resultData.clase as string,
+              ponente: resultData.ponente as string,
+              etapa: resultData.etapa as string,
+              origen: resultData.origen as string,
             },
           },
         };
@@ -1182,6 +1254,9 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
 }
 
 // ============= PROVIDER: SAMAI =============
+// IMPORTANT: SAMAI wraps response in "result" key
+// Actuaciones use "fechaActuacion" (NOT "fecha")
+// Endpoint: /snapshot?numero_radicacion={radicado} (preferred) or /resultado/{jobId}
 
 async function fetchFromSamai(radicado: string): Promise<FetchResult> {
   const startTime = Date.now();
@@ -1211,9 +1286,11 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
       headers['x-api-key'] = apiKeyInfo.value;
     }
 
-    console.log(`[sync-by-work-item] Calling SAMAI: ${baseUrl}/proceso/${radicado}`);
+    // Use /snapshot endpoint (synchronous lookup - preferred)
+    const snapshotUrl = `${baseUrl.replace(/\/+$/, '')}/snapshot?numero_radicacion=${radicado}`;
+    console.log(`[sync-by-work-item] Calling SAMAI: ${snapshotUrl}`);
     
-    const response = await fetch(`${baseUrl}/proceso/${radicado}`, {
+    const response = await fetch(snapshotUrl, {
       method: 'GET',
       headers,
     });
@@ -1281,7 +1358,10 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
 
     const data = await response.json();
     
-    const actuaciones = data.actuaciones || [];
+    // SAMAI wraps response in "result" key
+    const result = data.result || data;
+    
+    const actuaciones = result.actuaciones || [];
     
     if (actuaciones.length === 0) {
       return { 
@@ -1297,18 +1377,80 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
 
     console.log(`[sync-by-work-item] SAMAI: Found ${actuaciones.length} actuaciones for ${radicado}`);
     
+    // Extract sujetos procesales for demandantes/demandados
+    const sujetos = (result.sujetos || []) as Array<Record<string, unknown>>;
+    
+    // Map actuaciones with correct field names
+    // CRITICAL: Use fechaActuacion (NOT fecha which doesn't exist in SAMAI)
+    const mappedActuaciones = actuaciones.map((act: Record<string, unknown>) => ({
+      // ✅ FIX: Use fechaActuacion (SAMAI's actual field name)
+      fecha: String(act.fechaActuacion || act.fecha || ''),
+      actuacion: String(act.actuacion || ''),
+      anotacion: String(act.anotacion || ''),
+      // SAMAI-specific fields
+      fecha_registro: String(act.fechaRegistro || ''),
+      estado: String(act.estado || ''),
+      anexos: Number(act.anexos || 0),
+      indice: String(act.indice || ''),
+    }));
+    
+    // Extract demandantes and demandados from sujetos
+    const demandantes = sujetos
+      .filter((s) => {
+        const tipo = String(s.tipo || '').toLowerCase();
+        return tipo.includes('demandante') || tipo.includes('accionante') || tipo.includes('ofendido');
+      })
+      .map((s) => String(s.nombre || ''))
+      .filter(Boolean)
+      .join(' | ');
+    
+    const demandados = sujetos
+      .filter((s) => {
+        const tipo = String(s.tipo || '').toLowerCase();
+        return tipo.includes('demandado') || tipo.includes('accionado') || tipo.includes('procesado');
+      })
+      .map((s) => String(s.nombre || ''))
+      .filter(Boolean)
+      .join(' | ');
+    
+    const ministerioPublico = sujetos
+      .filter((s) => String(s.tipo || '').toLowerCase().includes('ministerio'))
+      .map((s) => String(s.nombre || ''))
+      .filter(Boolean)
+      .join(' | ');
+    
     return {
       ok: true,
-      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
-        fecha: String(act.fecha || ''),
-        actuacion: String(act.actuacion || ''),
-        anotacion: String(act.anotacion || ''),
+      actuaciones: mappedActuaciones,
+      sujetos: sujetos.map((s) => ({
+        registro: String(s.registro || ''),
+        tipo: String(s.tipo || ''),
+        nombre: String(s.nombre || ''),
+        accesoWebActivado: Boolean(s.accesoWebActivado),
       })),
       caseMetadata: {
-        despacho: data.despacho,
-        demandante: data.demandante,
-        demandado: data.demandado,
-        tipo_proceso: data.tipo_proceso,
+        despacho: result.corporacionNombre || result.corporacion || result.despacho,
+        demandante: demandantes || undefined,
+        demandado: demandados || undefined,
+        tipo_proceso: result.clasificacion?.tipoProceso || result.tipo_proceso,
+        // SAMAI-specific metadata
+        origen: result.origen,
+        ponente: result.ponente,
+        clase_proceso: result.clase,
+        etapa: result.etapa,
+        ubicacion: result.ubicacion,
+        formato_expediente: result.formatoExpediente,
+        subclase: result.clasificacion?.subclase,
+        recurso: result.clasificacion?.recurso,
+        naturaleza: result.clasificacion?.naturaleza,
+        fecha_radicado: result.fechas?.radicado,
+        fecha_presenta_demanda: result.fechas?.presentaDemanda,
+        fecha_para_sentencia: result.fechas?.paraSentencia,
+        fecha_sentencia: result.fechas?.sentencia,
+        asunto: result.asunto,
+        medida_cautelar: result.medidaCautelar,
+        ministerio_publico: ministerioPublico || undefined,
+        total_sujetos: result.totalSujetos || sujetos.length,
       },
       provider: 'samai',
       latencyMs: Date.now() - startTime,
@@ -2661,11 +2803,14 @@ Deno.serve(async (req) => {
     result.latest_event_date = latestDate;
 
     // ============= UPDATE WORK ITEM METADATA =============
+    // Strategy: ALWAYS UPDATE work_item with latest provider data (overwrite)
+    // This ensures metadata stays fresh on each sync
     const updatePayload: Record<string, unknown> = {
       scrape_status: result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       last_crawled_at: new Date().toISOString(),
       last_checked_at: new Date().toISOString(),
       total_actuaciones: fetchResult.actuaciones.length,
+      scrape_provider: fetchResult.provider, // Track which provider was used
     };
 
     if (latestDate) {
@@ -2677,16 +2822,82 @@ Deno.serve(async (req) => {
       updatePayload.expediente_url = fetchResult.expedienteUrl;
     }
 
-    // Update case metadata if available
+    // ============= EXTRACT SUJETOS PROCESALES (demandantes/demandados) =============
+    // This overrides caseMetadata.demandante/demandado with more complete data from sujetos
+    if (fetchResult.sujetos && fetchResult.sujetos.length > 0) {
+      const demandantes = fetchResult.sujetos
+        .filter(s => {
+          const tipo = s.tipo.toLowerCase();
+          return tipo.includes('demandante') || tipo.includes('accionante') || tipo.includes('ofendido');
+        })
+        .map(s => s.nombre)
+        .filter(Boolean)
+        .join(' | ');
+      
+      const demandados = fetchResult.sujetos
+        .filter(s => {
+          const tipo = s.tipo.toLowerCase();
+          return tipo.includes('demandado') || tipo.includes('accionado') || tipo.includes('procesado');
+        })
+        .map(s => s.nombre)
+        .filter(Boolean)
+        .join(' | ');
+      
+      const ministerioPublico = fetchResult.sujetos
+        .filter(s => s.tipo.toLowerCase().includes('ministerio'))
+        .map(s => s.nombre)
+        .filter(Boolean)
+        .join(' | ');
+
+      if (demandantes) updatePayload.demandantes = demandantes;
+      if (demandados) updatePayload.demandados = demandados;
+      if (ministerioPublico) updatePayload.ministerio_publico = ministerioPublico;
+      updatePayload.total_sujetos_procesales = fetchResult.sujetos.length;
+    }
+
+    // ============= UPDATE ALL CASE METADATA FROM PROVIDER =============
     if (fetchResult.caseMetadata) {
-      if (fetchResult.caseMetadata.despacho) {
-        updatePayload.authority_name = fetchResult.caseMetadata.despacho;
+      const meta = fetchResult.caseMetadata;
+      
+      // Basic metadata (always update)
+      if (meta.despacho) updatePayload.authority_name = meta.despacho;
+      // Only set demandantes/demandados from caseMetadata if not already set from sujetos
+      if (meta.demandante && !updatePayload.demandantes) updatePayload.demandantes = meta.demandante;
+      if (meta.demandado && !updatePayload.demandados) updatePayload.demandados = meta.demandado;
+      
+      // SAMAI-specific metadata (update if present)
+      if (meta.origen) updatePayload.origen = meta.origen;
+      if (meta.ponente) updatePayload.ponente = meta.ponente;
+      if (meta.clase_proceso) updatePayload.clase_proceso = meta.clase_proceso;
+      if (meta.etapa) updatePayload.etapa = meta.etapa;
+      if (meta.ubicacion) updatePayload.ubicacion_expediente = meta.ubicacion;
+      if (meta.formato_expediente) updatePayload.formato_expediente = meta.formato_expediente;
+      if (meta.tipo_proceso) updatePayload.tipo_proceso = meta.tipo_proceso;
+      if (meta.subclase) updatePayload.subclase_proceso = meta.subclase;
+      if (meta.recurso) updatePayload.tipo_recurso = meta.recurso;
+      if (meta.naturaleza) updatePayload.naturaleza_proceso = meta.naturaleza;
+      if (meta.asunto) updatePayload.asunto = meta.asunto;
+      if (meta.medida_cautelar) updatePayload.medida_cautelar = meta.medida_cautelar;
+      if (meta.ministerio_publico && !updatePayload.ministerio_publico) {
+        updatePayload.ministerio_publico = meta.ministerio_publico;
       }
-      if (fetchResult.caseMetadata.demandante) {
-        updatePayload.demandantes = fetchResult.caseMetadata.demandante;
+      
+      // Parse and update important dates
+      if (meta.fecha_radicado) {
+        const parsedDate = parseColombianDate(meta.fecha_radicado);
+        if (parsedDate) updatePayload.fecha_radicado = parsedDate;
       }
-      if (fetchResult.caseMetadata.demandado) {
-        updatePayload.demandados = fetchResult.caseMetadata.demandado;
+      if (meta.fecha_presenta_demanda) {
+        const parsedDate = parseColombianDate(meta.fecha_presenta_demanda);
+        if (parsedDate) updatePayload.fecha_presenta_demanda = parsedDate;
+      }
+      if (meta.fecha_para_sentencia) {
+        const parsedDate = parseColombianDate(meta.fecha_para_sentencia);
+        if (parsedDate) updatePayload.fecha_para_sentencia = parsedDate;
+      }
+      // fecha_sentencia can be text like "SIN SENTENCIA" or a date
+      if (meta.fecha_sentencia) {
+        updatePayload.fecha_sentencia = meta.fecha_sentencia;
       }
     }
 
