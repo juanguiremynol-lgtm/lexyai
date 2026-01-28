@@ -578,7 +578,7 @@ export function CreateWorkItemWizard({
                     {lookupStatus === 'loading' ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Consultando CPNU + API externa...
+                        Consultando APIs externas...
                       </>
                     ) : (
                       <>
@@ -604,8 +604,13 @@ export function CreateWorkItemWizard({
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>Proceso no encontrado</AlertTitle>
                       <AlertDescription>
-                        No se encontró información en CPNU ni en la API externa.
-                        Puedes continuar e ingresar los datos manualmente.
+                        No se encontró información en las fuentes consultadas
+                        {lookupResult?.sources_checked && lookupResult.sources_checked.length > 0 && (
+                          <span className="block text-xs mt-1">
+                            (Consultados: {lookupResult.sources_checked.join(', ')})
+                          </span>
+                        )}
+                        . Puedes continuar e ingresar los datos manualmente.
                       </AlertDescription>
                     </Alert>
                   )}

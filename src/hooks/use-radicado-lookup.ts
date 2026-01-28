@@ -27,6 +27,7 @@ export interface LookupResult {
   ok: boolean;
   found_in_source: boolean;
   source_used: string | null;
+  sources_checked: string[];
   new_events_count: number;
   cgp_phase: 'FILING' | 'PROCESS';
   classification_reason: string;
@@ -187,6 +188,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         ok: data.ok,
         found_in_source: data.found_in_source,
         source_used: data.source_used,
+        sources_checked: data.sources_checked || [],
         new_events_count: data.new_events_count,
         cgp_phase: data.cgp_phase || 'FILING',
         classification_reason: data.classification_reason || '',
@@ -260,6 +262,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         updated: data.updated,
         found_in_source: data.found_in_source,
         source_used: data.source_used,
+        sources_checked: data.sources_checked || [],
         new_events_count: data.new_events_count,
         cgp_phase: data.cgp_phase || 'FILING',
         classification_reason: data.classification_reason || '',
