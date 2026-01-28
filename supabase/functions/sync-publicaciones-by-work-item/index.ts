@@ -157,10 +157,10 @@ function calculateNextBusinessDay(dateStr: string | undefined | null): string | 
 }
 
 // ============= PUBLICACIONES API PROVIDER =============
-// CORRECT ENDPOINTS:
-// - GET /snapshot?radicado={radicado} - Check if data is cached
-// - GET /buscar?radicado={radicado} - Trigger async scraping
-// - GET /resultado/{job_id} - Get scraping results
+// WORKING ENDPOINTS (Polling Strategy):
+// - GET /buscar?radicado={radicado} - Trigger async scraping, returns job_id
+// - GET /resultado/{job_id} - Poll for scraping results
+// NOTE: /snapshot does NOT exist - always returns 404
 
 interface FetchPublicacionesResult extends FetchResult {
   scrapingInitiated?: boolean;
@@ -189,6 +189,19 @@ function extractDateFromTitle(title: string): string | undefined {
   return undefined;
 }
 
+/**
+ * POLLING-BASED STRATEGY for Publicaciones API
+ * 
+ * The /snapshot endpoint does NOT exist - every call returns 404.
+ * This caused infinite scraping loops where each sync created new jobs.
+ * 
+ * NEW FLOW:
+ * 1. Call /buscar to trigger scraping job
+ * 2. Poll /resultado/{job_id} every 5s for up to 60s
+ * 3. Return results when job completes
+ * 
+ * This eliminates infinite loops and returns results immediately.
+ */
 async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
@@ -196,9 +209,9 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
 
   if (!baseUrl) {
     console.log('[sync-publicaciones] PUBLICACIONES_BASE_URL not configured');
-    return { 
-      ok: false, 
-      publicaciones: [], 
+    return {
+      ok: false,
+      publicaciones: [],
       error: 'Publicaciones API not configured (missing PUBLICACIONES_BASE_URL)',
       latencyMs: Date.now() - startTime,
     };
@@ -206,9 +219,9 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
 
   if (!apiKey) {
     console.log('[sync-publicaciones] EXTERNAL_X_API_KEY not configured');
-    return { 
-      ok: false, 
-      publicaciones: [], 
+    return {
+      ok: false,
+      publicaciones: [],
       error: 'API key not configured',
       latencyMs: Date.now() - startTime,
     };
@@ -221,139 +234,164 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
   };
 
   try {
-    // Step 1: Try /snapshot endpoint first (checks if data is cached)
-    const snapshotUrl = `${baseUrl.replace(/\/+$/, '')}/snapshot?radicado=${radicado}`;
-    console.log(`[sync-publicaciones] Trying snapshot: ${snapshotUrl}`);
-    
-    let response = await fetch(snapshotUrl, {
+    // Step 1: Trigger scraping job via /buscar
+    const buscarUrl = `${baseUrl.replace(/\/+$/, '')}/buscar?radicado=${radicado}`;
+    console.log(`[sync-publicaciones] Triggering scraping: ${buscarUrl}`);
+
+    const buscarResponse = await fetch(buscarUrl, {
       method: 'GET',
       headers,
     });
 
-    // Step 2: If 404, trigger async scraping via /buscar
-    if (response.status === 404) {
-      console.log('[sync-publicaciones] No snapshot found (404), triggering scraping...');
-      
-      const buscarUrl = `${baseUrl.replace(/\/+$/, '')}/buscar?radicado=${radicado}`;
-      console.log(`[sync-publicaciones] Calling buscar: ${buscarUrl}`);
-      
-      const buscarResponse = await fetch(buscarUrl, {
+    if (!buscarResponse.ok) {
+      const errorText = await buscarResponse.text();
+      console.error(`[sync-publicaciones] Scraping trigger failed: HTTP ${buscarResponse.status}`, errorText);
+      return {
+        ok: false,
+        publicaciones: [],
+        error: `Scraping trigger failed: HTTP ${buscarResponse.status}`,
+        latencyMs: Date.now() - startTime,
+        httpStatus: buscarResponse.status,
+      };
+    }
+
+    const buscarData = await buscarResponse.json();
+    const jobId = buscarData.job_id || buscarData.jobId;
+
+    if (!jobId) {
+      console.error('[sync-publicaciones] No job_id in response:', buscarData);
+      return {
+        ok: false,
+        publicaciones: [],
+        error: 'No job_id returned from scraping API',
+        latencyMs: Date.now() - startTime,
+      };
+    }
+
+    console.log(`[sync-publicaciones] Scraping job created: ${jobId}, polling for results...`);
+
+    // Step 2: Poll /resultado/{job_id} for completion
+    const resultadoUrl = `${baseUrl.replace(/\/+$/, '')}/resultado/${jobId}`;
+    const maxAttempts = 12; // 12 attempts x 5 seconds = 60 seconds max
+    const pollIntervalMs = 5000; // 5 seconds between polls
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Wait before polling (except first attempt)
+      if (attempt > 1) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      }
+
+      console.log(`[sync-publicaciones] Polling attempt ${attempt}/${maxAttempts}: ${resultadoUrl}`);
+
+      const resultResponse = await fetch(resultadoUrl, {
         method: 'GET',
         headers,
       });
 
-      if (!buscarResponse.ok) {
-        const errorText = await buscarResponse.text();
-        console.error(`[sync-publicaciones] Scraping trigger failed: HTTP ${buscarResponse.status}`, errorText);
+      if (!resultResponse.ok) {
+        console.log(`[sync-publicaciones] Poll ${attempt}: HTTP ${resultResponse.status}`);
+        // Continue polling even on error - job might still be processing
+        continue;
+      }
+
+      const data = await resultResponse.json();
+      const status = data.status;
+
+      console.log(`[sync-publicaciones] Poll ${attempt}: Job status = ${status}`);
+
+      // Job still processing
+      if (status === 'queued' || status === 'processing' || status === 'running') {
+        console.log(`[sync-publicaciones] Job still ${status}, waiting...`);
+        continue;
+      }
+
+      // Job completed successfully
+      if (status === 'done' || status === 'completed') {
+        console.log('[sync-publicaciones] Job completed! Extracting results...');
+        console.log(`[sync-publicaciones] Raw response:`, JSON.stringify(data).substring(0, 500));
+
+        const result = data.result || data;
+        const publicaciones = result.results || result.publicaciones || result.estados || [];
+
+        if (publicaciones.length === 0) {
+          console.log('[sync-publicaciones] No publications found in completed job');
+          return {
+            ok: false,
+            publicaciones: [],
+            error: 'No publications found',
+            isEmpty: true,
+            latencyMs: Date.now() - startTime,
+            httpStatus: 200,
+          };
+        }
+
+        console.log(`[sync-publicaciones] Found ${publicaciones.length} publications`);
+
+        // Log sample for debugging
+        if (publicaciones.length > 0) {
+          const sample = publicaciones[0];
+          console.log('[sync-publicaciones] Sample publication:', JSON.stringify(sample, null, 2));
+        }
+
+        // Map to internal structure
         return {
-          ok: false,
-          publicaciones: [],
-          error: `Scraping trigger failed: HTTP ${buscarResponse.status}`,
+          ok: true,
+          publicaciones: publicaciones.map((pub: Record<string, unknown>) => {
+            // Extract date from title if not provided
+            let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
+            if (!publishedAt && pub.title) {
+              publishedAt = extractDateFromTitle(String(pub.title));
+            }
+
+            return {
+              title: String(pub.title || pub.titulo || 'Sin título'),
+              annotation: pub.annotation || pub.anotacion || pub.detalle
+                ? String(pub.annotation || pub.anotacion || pub.detalle)
+                : undefined,
+              pdf_url: pub.pdf_url ? String(pub.pdf_url) : undefined,
+              entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
+              pdf_available: Boolean(pub.pdf_available ?? true),
+              published_at: publishedAt ? String(publishedAt) : undefined,
+              fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
+              fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
+              despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
+              tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
+              source_id: pub.id ? String(pub.id) : undefined,
+              raw: pub as Record<string, unknown>,
+            };
+          }),
           latencyMs: Date.now() - startTime,
-          httpStatus: buscarResponse.status,
+          httpStatus: 200,
         };
       }
 
-      const buscarData = await buscarResponse.json();
-      const jobId = buscarData.job_id || buscarData.jobId || '';
-      const pollUrl = buscarData.poll_url || buscarData.pollUrl || '';
-      
-      console.log(`[sync-publicaciones] Scraping initiated: jobId=${jobId}, pollUrl=${pollUrl}`);
-
-      return {
-        ok: false,
-        publicaciones: [],
-        error: 'SCRAPING_INITIATED',
-        scrapingInitiated: true,
-        scrapingJobId: jobId,
-        scrapingPollUrl: pollUrl || `/resultado/${jobId}`,
-        message: 'Publicaciones scraping initiated. Please retry in 30-60 seconds.',
-        latencyMs: Date.now() - startTime,
-        httpStatus: 202,
-      };
-    }
-
-    // Step 3: Handle other HTTP errors
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[sync-publicaciones] HTTP ${response.status}: ${errorText.slice(0, 200)}`);
-      return {
-        ok: false,
-        publicaciones: [],
-        error: `HTTP ${response.status}`,
-        latencyMs: Date.now() - startTime,
-        httpStatus: response.status,
-      };
-    }
-
-    // Step 4: Parse successful response
-    const data = await response.json();
-    console.log(`[sync-publicaciones] Raw response:`, JSON.stringify(data).substring(0, 500));
-
-    // Step 5: Extract publications from CORRECT location
-    // API structure: { success: true, result: { radicado, count, results: [...] } }
-    const result = data.result || data;
-    const publicaciones = result.results || result.publicaciones || result.estados || [];
-
-    if (publicaciones.length === 0) {
-      console.log('[sync-publicaciones] No publications found in response');
-      return {
-        ok: false,
-        publicaciones: [],
-        error: 'No publications found',
-        isEmpty: true,
-        latencyMs: Date.now() - startTime,
-        httpStatus: 200,
-      };
-    }
-
-    console.log(`[sync-publicaciones] Found ${publicaciones.length} publications`);
-
-    // Step 6: Log sample record for debugging
-    if (publicaciones.length > 0) {
-      const sample = publicaciones[0];
-      console.log('[sync-publicaciones] ===== API RESPONSE FIELD ANALYSIS =====');
-      console.log('[sync-publicaciones] Sample record keys:', Object.keys(sample));
-      console.log('[sync-publicaciones] Sample data:', JSON.stringify(sample, null, 2));
-    }
-
-    // Step 7: Map to internal structure with correct field names
-    return {
-      ok: true,
-      publicaciones: publicaciones.map((pub: Record<string, unknown>) => {
-        // Extract date from title if not provided directly
-        let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
-        if (!publishedAt && pub.title) {
-          publishedAt = extractDateFromTitle(String(pub.title));
-        }
-
+      // Job failed
+      if (status === 'failed' || status === 'error') {
+        const errorMsg = data.error || data.message || 'Unknown error';
+        console.error(`[sync-publicaciones] Job failed: ${errorMsg}`);
         return {
-          // CORRECT: API uses "title" not "titulo"
-          title: String(pub.title || pub.titulo || 'Sin título'),
-          annotation: pub.annotation || pub.anotacion || pub.detalle ? 
-            String(pub.annotation || pub.anotacion || pub.detalle) : undefined,
-          pdf_url: pub.pdf_url ? String(pub.pdf_url) : undefined,
-          entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
-          pdf_available: Boolean(pub.pdf_available ?? true),
-          published_at: publishedAt ? String(publishedAt) : undefined,
-          // Deadline fields with alternative names
-          fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
-          fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
-          despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
-          tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
-          source_id: pub.id ? String(pub.id) : undefined,
-          raw: pub as Record<string, unknown>,
+          ok: false,
+          publicaciones: [],
+          error: `Scraping job failed: ${errorMsg}`,
+          latencyMs: Date.now() - startTime,
         };
-      }),
+      }
+    }
+
+    // Polling timeout
+    console.error(`[sync-publicaciones] Polling timeout after ${maxAttempts * pollIntervalMs / 1000} seconds`);
+    return {
+      ok: false,
+      publicaciones: [],
+      error: `Scraping timeout - job did not complete within ${maxAttempts * pollIntervalMs / 1000} seconds`,
       latencyMs: Date.now() - startTime,
-      httpStatus: 200,
     };
 
   } catch (err) {
     console.error('[sync-publicaciones] Fetch error:', err);
-    return { 
-      ok: false, 
-      publicaciones: [], 
+    return {
+      ok: false,
+      publicaciones: [],
       error: err instanceof Error ? err.message : 'Fetch failed',
       latencyMs: Date.now() - startTime,
       httpStatus: 0,
