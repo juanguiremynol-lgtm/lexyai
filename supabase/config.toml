@@ -110,3 +110,6 @@ verify_jwt = false
 
 [functions.debug-external-provider]
 verify_jwt = false
+
+[functions.log-audit]
+verify_jwt = false

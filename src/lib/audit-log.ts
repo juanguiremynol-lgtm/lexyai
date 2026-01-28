@@ -129,9 +129,13 @@ export interface AuditLogParams {
 }
 
 /**
- * Logs an audit event to the database.
+ * Logs an audit event via the secure edge function.
  * 
- * This function is designed to be non-blocking and fail-safe:
+ * This function routes audit logs through an edge function that uses
+ * the service role to insert into audit_logs. This prevents users
+ * from directly manipulating the audit trail.
+ * 
+ * The function is designed to be non-blocking and fail-safe:
  * - Errors are logged to console but do not throw
  * - The main user action should never fail due to audit logging
  * 
@@ -145,33 +149,32 @@ export async function logAudit(params: AuditLogParams): Promise<boolean> {
     entityType,
     entityId,
     metadata = {},
-    actorUserId,
     actorType = "USER",
   } = params;
 
   try {
-    // Get current user if not provided
-    let userId = actorUserId;
-    if (!userId && actorType === "USER") {
-      const { data: { user } } = await supabase.auth.getUser();
-      userId = user?.id;
-    }
-
-    const { error } = await supabase.from("audit_logs").insert({
-      organization_id: organizationId,
-      actor_user_id: userId || null,
-      actor_type: actorType,
-      action,
-      entity_type: entityType,
-      entity_id: entityId || null,
-      metadata: {
-        ...metadata,
-        timestamp: new Date().toISOString(),
+    const { data, error } = await supabase.functions.invoke("log-audit", {
+      body: {
+        organizationId,
+        action,
+        entityType,
+        entityId: entityId || null,
+        metadata,
+        actorType,
       },
     });
 
     if (error) {
-      console.warn("[AuditLog] Failed to log audit event:", error.message, {
+      console.warn("[AuditLog] Edge function error:", error.message, {
+        action,
+        entityType,
+        entityId,
+      });
+      return false;
+    }
+
+    if (!data?.success) {
+      console.warn("[AuditLog] Failed to log audit event:", data?.error, {
         action,
         entityType,
         entityId,
