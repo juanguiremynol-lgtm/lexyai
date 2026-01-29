@@ -659,6 +659,94 @@ Deno.serve(async (req) => {
     }
 
     result.newest_publication_date = newestDate;
+    
+    // ============= LATEST ESTADO DETECTION =============
+    // After all inserts, compute the "latest" publicación and check if it changed
+    // This triggers a "NEW_LATEST_ESTADO" alert if the latest is different from baseline
+    if (result.inserted_count > 0) {
+      try {
+        // Fetch all publicaciones for this work item to find the latest
+        const { data: allPubs } = await supabase
+          .from('work_item_publicaciones')
+          .select('id, title, published_at, fecha_desfijacion, created_at, pdf_url, tipo_publicacion')
+          .eq('work_item_id', work_item_id)
+          .order('published_at', { ascending: false, nullsFirst: false })
+          .limit(10);
+        
+        if (allPubs && allPubs.length > 0) {
+          // The latest is the first one (most recent published_at)
+          const latestPub = allPubs[0];
+          
+          // Generate fingerprint for the latest
+          const latestFingerprint = generatePublicacionFingerprint(
+            latestPub.pdf_url || null,
+            latestPub.title,
+            latestPub.published_at
+          );
+          
+          // Fetch current baseline from work_item
+          const { data: currentWorkItem } = await supabase
+            .from('work_items')
+            .select('latest_estado_fingerprint')
+            .eq('id', work_item_id)
+            .maybeSingle();
+          
+          const storedFingerprint = currentWorkItem?.latest_estado_fingerprint;
+          
+          // Check if latest has changed
+          if (latestFingerprint !== storedFingerprint) {
+            console.log(`[sync-publicaciones] NEW LATEST ESTADO detected!`, {
+              work_item_id,
+              old_fingerprint: storedFingerprint,
+              new_fingerprint: latestFingerprint,
+              latest_title: latestPub.title?.slice(0, 50),
+            });
+            
+            // Update work_item baseline
+            await supabase
+              .from('work_items')
+              .update({
+                latest_estado_fingerprint: latestFingerprint,
+                latest_estado_at: new Date().toISOString(),
+              })
+              .eq('id', work_item_id);
+            
+            // Create NEW_LATEST_ESTADO alert (different from per-item deadline alerts)
+            const terminosInician = calculateNextBusinessDay(latestPub.fecha_desfijacion);
+            
+            await supabase.from('alert_instances').insert({
+              owner_id: workItem.owner_id,
+              organization_id: workItem.organization_id,
+              entity_id: workItem.id,
+              entity_type: 'WORK_ITEM',
+              severity: 'info',
+              title: `Nuevo Estado Detectado`,
+              message: `${latestPub.tipo_publicacion || 'Estado'}: ${latestPub.title?.slice(0, 100)}${terminosInician ? ` — Términos inician: ${terminosInician}` : ''}`,
+              status: 'ACTIVE',
+              payload: {
+                alert_type: 'NEW_LATEST_ESTADO',
+                publicacion_id: latestPub.id,
+                fingerprint: latestFingerprint,
+                fecha_publicacion: latestPub.published_at,
+                fecha_desfijacion: latestPub.fecha_desfijacion,
+                terminos_inician: terminosInician,
+                pdf_url: latestPub.pdf_url,
+                radicado: workItem.radicado,
+              },
+            });
+            
+            result.alerts_created++;
+            console.log(`[sync-publicaciones] Created NEW_LATEST_ESTADO alert`);
+          } else {
+            console.log(`[sync-publicaciones] Latest estado unchanged (fingerprint: ${latestFingerprint})`);
+          }
+        }
+      } catch (latestErr) {
+        console.warn('[sync-publicaciones] Failed to process latest estado detection:', latestErr);
+        // Don't fail the sync
+      }
+    }
+    
     result.ok = true;
 
     console.log(`[sync-publicaciones] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
