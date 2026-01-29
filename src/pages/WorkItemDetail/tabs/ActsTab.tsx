@@ -60,22 +60,30 @@ const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
   DEFAULT: { color: "text-muted-foreground", bgColor: "bg-muted/50" },
 };
 
+interface Attachment {
+  nombre?: string;
+  url?: string;
+  label?: string;
+  name?: string;
+}
+
 interface Actuacion {
   id: string;
   owner_id: string;
   work_item_id: string | null;
   // Core actuación data - display ALL exactly as received
-  act_date: string | null;           // fechaActuacion from SAMAI
+  act_date: string | null;           // fechaActuacion from CPNU/SAMAI
   act_date_raw: string | null;       // Original date string
   act_time: string | null;           // Time component if available
   raw_text: string;                  // "actuacion" field - the main title
   normalized_text: string;           // "anotacion" field - detailed notes
   act_type_guess: string | null;     // Classified type
-  // SAMAI-specific fields
-  fecha_registro: string | null;     // fechaRegistro from SAMAI
-  estado: string | null;             // Estado from SAMAI (REGISTRADA, CLASIFICADA, etc)
+  // CPNU/SAMAI-specific fields
+  fecha_registro: string | null;     // fechaRegistro 
+  estado: string | null;             // Estado (REGISTRADA, CLASIFICADA, etc)
   anexos_count: number | null;       // Number of attachments
-  indice: string | null;             // Index number from SAMAI
+  indice: string | null;             // Index number
+  attachments: Attachment[] | null;  // Document attachments (CPNU documentos / SAMAI anexos)
   // Source tracking
   source: string;
   source_url: string | null;
@@ -122,12 +130,12 @@ export function ActsTab({ workItem }: ActsTabProps) {
     return ESTADO_CONFIG[estado.toUpperCase()] || ESTADO_CONFIG.PENDIENTE;
   };
 
-  // Parse SAMAI date format: "06/05/2025 15:11:01" or "06/05/2025"
+  // Parse CPNU/SAMAI date format: "06/05/2025 15:11:01" or "06/05/2025" or "2025-01-21"
   const parseAndFormatDate = (dateStr: string | null, includeTime = false) => {
     if (!dateStr) return null;
     
     try {
-      // Handle SAMAI format: DD/MM/YYYY HH:mm:ss
+      // Handle DD/MM/YYYY format
       const parts = dateStr.split(' ');
       const dateParts = parts[0].split('/');
       
@@ -145,7 +153,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
         }
         
         const date = new Date(year, month, day, hours, minutes, seconds);
-        if (isNaN(date.getTime())) return dateStr; // Return original if invalid
+        if (isNaN(date.getTime())) return dateStr;
         
         if (includeTime && parts[1]) {
           return format(date, "d MMM yyyy, HH:mm:ss", { locale: es });
@@ -160,6 +168,26 @@ export function ActsTab({ workItem }: ActsTabProps) {
     } catch {
       return dateStr;
     }
+  };
+
+  // Extract date from normalized_text if act_date is null (legacy data)
+  // Pattern: "Registrada el DD/MM/YYYY" or "el DD/MM/YYYY a las HH:MM:SS"
+  const extractDateFromText = (text: string | null): string | null => {
+    if (!text) return null;
+    
+    // Match patterns like "18/11/2025" or "21/01/2026"
+    const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (dateMatch) {
+      return dateMatch[1];
+    }
+    
+    // Match ISO date patterns like "2025-01-21"
+    const isoMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
+    if (isoMatch) {
+      return isoMatch[1];
+    }
+    
+    return null;
   };
 
   if (isLoading) {
@@ -293,7 +321,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
                   {/* Right side: Dates */}
                   <div className="space-y-3">
                     {/* Fecha Actuación (main date) */}
-                    {act.act_date && (
+                    {act.act_date ? (
                       <div>
                         <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -306,6 +334,26 @@ export function ActsTab({ workItem }: ActsTabProps) {
                           {formatDistanceToNow(new Date(act.act_date), { addSuffix: true, locale: es })}
                         </p>
                       </div>
+                    ) : (
+                      // Fallback: try extracting date from normalized_text for legacy data
+                      (() => {
+                        const extractedDate = extractDateFromText(act.normalized_text);
+                        if (extractedDate) {
+                          const formattedDate = parseAndFormatDate(extractedDate);
+                          return (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                Fecha (extraída)
+                              </p>
+                              <p className="text-sm text-muted-foreground italic">
+                                {formattedDate}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()
                     )}
 
                     {/* Fecha Registro (when registered in system) */}
@@ -331,7 +379,42 @@ export function ActsTab({ workItem }: ActsTabProps) {
                   </div>
                 </div>
 
-                {/* Row 3: Source URL if available */}
+                {/* Row 3: Attachments (CPNU documentos / SAMAI anexos) */}
+                {act.attachments && Array.isArray(act.attachments) && act.attachments.length > 0 && (
+                  <>
+                    <Separator className="my-3" />
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <FileText className="h-3 w-3" />
+                        Documentos adjuntos
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {act.attachments.map((doc, idx) => {
+                          const docUrl = doc.url || '';
+                          const docName = doc.nombre || doc.name || doc.label || `Documento ${idx + 1}`;
+                          return docUrl ? (
+                            <a
+                              key={idx}
+                              href={docUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              {docName}
+                            </a>
+                          ) : (
+                            <span key={idx} className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                              {docName}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Row 4: Source URL if available */}
                 {act.source_url && (
                   <>
                     <Separator className="my-3" />
