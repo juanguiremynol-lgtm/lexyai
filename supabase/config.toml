@@ -113,3 +113,6 @@ verify_jwt = false
 
 [functions.log-audit]
 verify_jwt = false
+
+[functions.fallback-sync-check]
+verify_jwt = false

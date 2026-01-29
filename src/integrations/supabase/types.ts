@@ -6150,6 +6150,7 @@ export type Database = {
           last_phase_change_at: string | null
           last_scrape_at: string | null
           last_scrape_initiated_at: string | null
+          last_synced_at: string | null
           legacy_admin_process_id: string | null
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
@@ -6248,6 +6249,7 @@ export type Database = {
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
+          last_synced_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -6346,6 +6348,7 @@ export type Database = {
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
+          last_synced_at?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
