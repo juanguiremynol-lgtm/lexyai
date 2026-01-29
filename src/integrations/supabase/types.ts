@@ -468,6 +468,115 @@ export type Database = {
           },
         ]
       }
+      auto_sync_daily_ledger: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          items_failed: number | null
+          items_succeeded: number | null
+          items_targeted: number | null
+          last_error: string | null
+          last_heartbeat_at: string | null
+          metadata: Json | null
+          organization_id: string
+          retry_count: number | null
+          run_date: string
+          run_id: string | null
+          scheduled_for: string
+          started_at: string | null
+          status: Database["public"]["Enums"]["daily_sync_status"]
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          items_failed?: number | null
+          items_succeeded?: number | null
+          items_targeted?: number | null
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          metadata?: Json | null
+          organization_id: string
+          retry_count?: number | null
+          run_date: string
+          run_id?: string | null
+          scheduled_for: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["daily_sync_status"]
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          items_failed?: number | null
+          items_succeeded?: number | null
+          items_targeted?: number | null
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          metadata?: Json | null
+          organization_id?: string
+          retry_count?: number | null
+          run_date?: string
+          run_id?: string | null
+          scheduled_for?: string
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["daily_sync_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_sync_daily_ledger_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      auto_sync_login_runs: {
+        Row: {
+          created_at: string
+          id: string
+          last_run_at: string | null
+          organization_id: string
+          run_count: number
+          run_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_run_at?: string | null
+          organization_id: string
+          run_count?: number
+          run_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_run_at?: string | null
+          organization_id?: string
+          run_count?: number
+          run_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_sync_login_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_checkout_sessions: {
         Row: {
           amount_cop_incl_iva: number | null
@@ -6458,6 +6567,10 @@ export type Database = {
       }
     }
     Functions: {
+      acquire_daily_sync_lock: {
+        Args: { p_organization_id: string; p_run_id?: string }
+        Returns: Json
+      }
       backfill_work_item_ids: {
         Args: never
         Returns: {
@@ -6467,6 +6580,32 @@ export type Database = {
           table_name: string
           total_rows: number
           unmapped: number
+        }[]
+      }
+      check_and_increment_login_sync: {
+        Args: {
+          p_max_per_day?: number
+          p_organization_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_login_sync_status: {
+        Args: {
+          p_max_per_day?: number
+          p_organization_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_pending_daily_syncs: {
+        Args: { p_cutoff_hour?: number; p_max_retries?: number }
+        Returns: {
+          last_error: string
+          ledger_id: string
+          organization_id: string
+          retry_count: number
+          status: Database["public"]["Enums"]["daily_sync_status"]
         }[]
       }
       get_user_org_id: { Args: never; Returns: string }
@@ -6516,6 +6655,18 @@ export type Database = {
           p_radicado?: string
         }
         Returns: string
+      }
+      update_daily_sync_ledger: {
+        Args: {
+          p_error?: string
+          p_items_failed?: number
+          p_items_succeeded?: number
+          p_items_targeted?: number
+          p_ledger_id: string
+          p_metadata?: Json
+          p_status: Database["public"]["Enums"]["daily_sync_status"]
+        }
+        Returns: undefined
       }
     }
     Enums: {
@@ -6614,6 +6765,12 @@ export type Database = {
         | "RECURSOS"
         | "EJECUCION_CUMPLIMIENTO"
         | "ARCHIVADO"
+      daily_sync_status:
+        | "PENDING"
+        | "RUNNING"
+        | "SUCCESS"
+        | "PARTIAL"
+        | "FAILED"
       data_source: "CPNU" | "PUBLICACIONES" | "HISTORICO"
       document_kind:
         | "DEMANDA"
@@ -6944,6 +7101,7 @@ export const Constants = {
         "EJECUCION_CUMPLIMIENTO",
         "ARCHIVADO",
       ],
+      daily_sync_status: ["PENDING", "RUNNING", "SUCCESS", "PARTIAL", "FAILED"],
       data_source: ["CPNU", "PUBLICACIONES", "HISTORICO"],
       document_kind: [
         "DEMANDA",

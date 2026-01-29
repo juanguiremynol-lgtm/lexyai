@@ -19,10 +19,13 @@ const TERMINAL_STAGES = [
   'FINALIZADO_CONDENADO'
 ];
 
+// Success threshold for PARTIAL vs SUCCESS
+const SUCCESS_THRESHOLD = 0.9; // 90%
+
 /**
  * Scheduled function that runs daily at 7 AM COT (12 PM UTC)
  * Syncs all active work items with monitoring enabled
- * Enhanced to sync BOTH actuaciones (CPNU/SAMAI) AND publicaciones
+ * Enhanced with per-org ledger tracking and idempotency
  */
 serve(async (req) => {
   // Handle CORS preflight
@@ -31,7 +34,8 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
-  console.log("[scheduled-daily-sync] Starting daily sync...");
+  const runId = crypto.randomUUID();
+  console.log(`[scheduled-daily-sync] Starting daily sync (run_id: ${runId})`);
   console.log("[scheduled-daily-sync] Time:", new Date().toISOString());
 
   try {
@@ -45,158 +49,84 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get all active work items that need sync
-    // Sync all eligible items (monitoring_enabled, valid radicado, not terminal)
-    const { data: workItems, error: fetchError } = await supabase
+    // Get all organizations that have active work items needing sync
+    const { data: orgsWithItems, error: orgsError } = await supabase
       .from("work_items")
-      .select("id, radicado, workflow_type, stage, last_synced_at, organization_id, owner_id")
+      .select("organization_id")
       .eq("monitoring_enabled", true)
       .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
       .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
       .not("radicado", "is", null)
-      .order("last_synced_at", { ascending: true, nullsFirst: true })
-      .limit(200); // Safety limit
+      .not("organization_id", "is", null);
 
-    if (fetchError) {
-      console.error("[scheduled-daily-sync] Error fetching work items:", fetchError);
-      throw fetchError;
+    if (orgsError) {
+      console.error("[scheduled-daily-sync] Error fetching orgs:", orgsError);
+      throw orgsError;
     }
 
-    // Filter to valid 23-digit radicados
-    const eligibleItems = (workItems || []).filter(item =>
-      item.radicado && item.radicado.replace(/\D/g, '').length === 23
-    );
+    // Get unique organization IDs
+    const orgIds = [...new Set((orgsWithItems || []).map(item => item.organization_id).filter(Boolean))];
+    console.log(`[scheduled-daily-sync] Found ${orgIds.length} organizations with eligible items`);
 
-    console.log(`[scheduled-daily-sync] Found ${eligibleItems.length} eligible work items to sync`);
+    const allResults: Array<{
+      org_id: string;
+      status: string;
+      synced: number;
+      errors: number;
+      ledger_id?: string;
+    }> = [];
 
-    if (eligibleItems.length === 0) {
-      // Log successful completion even with no items
-      await logJobRun(supabase, startTime, {
-        status: "OK",
-        total: 0,
-        synced: 0,
-        scraping_initiated: 0,
-        errors: 0,
-        message: "No work items to sync"
-      });
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          message: "No work items to sync",
-          synced: 0,
-          duration_ms: Date.now() - startTime,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Sync each work item with rate limiting
-    let successCount = 0;
-    let errorCount = 0;
-    let scrapingInitiatedCount = 0;
-    let publicacionesSynced = 0;
-    const errors: Array<{ work_item_id: string; radicado: string | null; error: string }> = [];
-
-    for (const workItem of eligibleItems) {
+    // Process each organization with ledger tracking
+    for (const orgId of orgIds) {
       try {
-        console.log(`[scheduled-daily-sync] Syncing: ${workItem.id} (${workItem.radicado})`);
-
-        // Call sync-by-work-item function (CPNU/SAMAI actuaciones)
-        const { data: syncResult, error: syncError } = await supabase.functions.invoke(
-          "sync-by-work-item",
-          {
-            body: { work_item_id: workItem.id },
-          }
-        );
-
-        if (syncError) {
-          throw syncError;
-        }
-
-        // If scraping was initiated, count separately
-        if (syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED') {
-          console.log(`[scheduled-daily-sync] Scraping initiated for ${workItem.radicado}`);
-          scrapingInitiatedCount++;
-        } else if (syncResult?.ok) {
-          console.log(
-            `[scheduled-daily-sync] ✅ Synced ${workItem.radicado}: ${syncResult.inserted_count || 0} new actuaciones`
-          );
-          successCount++;
-        }
-
-        // Also sync publicaciones for eligible workflows
-        if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workItem.workflow_type)) {
-          try {
-            const { data: pubResult } = await supabase.functions.invoke(
-              "sync-publicaciones-by-work-item",
-              {
-                body: { work_item_id: workItem.id },
-              }
-            );
-            if (pubResult?.ok) {
-              publicacionesSynced++;
-              console.log(
-                `[scheduled-daily-sync] ✅ Publicaciones synced for ${workItem.radicado}: ${pubResult.inserted_count || 0} new`
-              );
-            }
-          } catch (pubError) {
-            console.warn(`[scheduled-daily-sync] Publicaciones sync failed for ${workItem.radicado}:`, pubError);
-          }
-        }
-
-        // Update last_synced_at
-        await supabase
-          .from("work_items")
-          .update({ last_synced_at: new Date().toISOString() })
-          .eq("id", workItem.id);
-
-      } catch (error: any) {
-        console.error(`[scheduled-daily-sync] ❌ Error syncing ${workItem.radicado}:`, error);
-        errorCount++;
-        errors.push({
-          work_item_id: workItem.id,
-          radicado: workItem.radicado,
-          error: error.message || String(error),
+        const orgResult = await syncOrganization(supabase, orgId, runId, startTime);
+        allResults.push(orgResult);
+      } catch (orgError: any) {
+        console.error(`[scheduled-daily-sync] Org ${orgId} failed:`, orgError);
+        allResults.push({
+          org_id: orgId,
+          status: 'FAILED',
+          synced: 0,
+          errors: 1
         });
       }
 
-      // Rate limit: wait 1 second between syncs to avoid overloading external APIs
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Check for timeout (55 seconds to be safe)
-      if (Date.now() - startTime > 55000) {
-        console.log("[scheduled-daily-sync] Approaching timeout, stopping early");
+      // Check for timeout (50 seconds to allow cleanup)
+      if (Date.now() - startTime > 50000) {
+        console.log("[scheduled-daily-sync] Approaching timeout, stopping org iteration");
         break;
       }
     }
 
     const durationMs = Date.now() - startTime;
+    const totalSynced = allResults.reduce((sum, r) => sum + r.synced, 0);
+    const totalErrors = allResults.reduce((sum, r) => sum + r.errors, 0);
+    const successfulOrgs = allResults.filter(r => r.status === 'SUCCESS').length;
+
     console.log(
-      `[scheduled-daily-sync] Completed in ${durationMs}ms: ${successCount} success, ${scrapingInitiatedCount} scraping, ${publicacionesSynced} publicaciones, ${errorCount} errors`
+      `[scheduled-daily-sync] Completed in ${durationMs}ms: ${successfulOrgs}/${orgIds.length} orgs successful, ${totalSynced} items synced, ${totalErrors} errors`
     );
 
-    // Log execution to job_runs table
+    // Log execution to job_runs table (legacy compatibility)
     await logJobRun(supabase, startTime, {
-      status: errorCount === 0 ? "OK" : "PARTIAL",
-      total: eligibleItems.length,
-      synced: successCount,
-      scraping_initiated: scrapingInitiatedCount,
-      publicaciones_synced: publicacionesSynced,
-      errors: errorCount,
-      error_details: errors.slice(0, 10)
+      status: totalErrors === 0 ? "OK" : "PARTIAL",
+      total_orgs: orgIds.length,
+      successful_orgs: successfulOrgs,
+      total_synced: totalSynced,
+      total_errors: totalErrors,
+      run_id: runId,
+      results: allResults.slice(0, 20)
     });
 
     return new Response(
       JSON.stringify({
         ok: true,
         message: "Daily sync completed",
-        total: eligibleItems.length,
-        synced: successCount,
-        scraping_initiated: scrapingInitiatedCount,
-        publicaciones_synced: publicacionesSynced,
-        errors: errorCount,
-        error_details: errors.length > 0 ? errors.slice(0, 10) : undefined,
+        run_id: runId,
+        organizations_processed: orgIds.length,
+        organizations_successful: successfulOrgs,
+        total_synced: totalSynced,
+        total_errors: totalErrors,
         duration_ms: durationMs,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -208,6 +138,7 @@ serve(async (req) => {
       JSON.stringify({
         ok: false,
         error: error.message || String(error),
+        run_id: runId,
         duration_ms: Date.now() - startTime,
       }),
       {
@@ -217,6 +148,198 @@ serve(async (req) => {
     );
   }
 });
+
+/**
+ * Sync a single organization with ledger tracking
+ */
+async function syncOrganization(
+  supabase: any,
+  orgId: string,
+  runId: string,
+  globalStartTime: number
+): Promise<{
+  org_id: string;
+  status: string;
+  synced: number;
+  errors: number;
+  ledger_id?: string;
+}> {
+  console.log(`[scheduled-daily-sync] Processing org: ${orgId}`);
+
+  // Try to acquire lock via ledger
+  const { data: lockResult, error: lockError } = await supabase.rpc('acquire_daily_sync_lock', {
+    p_organization_id: orgId,
+    p_run_id: runId
+  });
+
+  if (lockError) {
+    console.error(`[scheduled-daily-sync] Lock error for org ${orgId}:`, lockError);
+    throw lockError;
+  }
+
+  const lock = lockResult as { acquired: boolean; ledger_id: string; status: string; reason?: string };
+
+  if (!lock.acquired) {
+    console.log(`[scheduled-daily-sync] Skipping org ${orgId}: ${lock.reason}`);
+    return {
+      org_id: orgId,
+      status: lock.status,
+      synced: 0,
+      errors: 0,
+      ledger_id: lock.ledger_id
+    };
+  }
+
+  const ledgerId = lock.ledger_id;
+  let successCount = 0;
+  let errorCount = 0;
+  let publicacionesSynced = 0;
+  let scrapingInitiated = 0;
+
+  try {
+    // Get all active work items for this org
+    const { data: workItems, error: fetchError } = await supabase
+      .from("work_items")
+      .select("id, radicado, workflow_type, stage, last_synced_at")
+      .eq("organization_id", orgId)
+      .eq("monitoring_enabled", true)
+      .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
+      .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
+      .not("radicado", "is", null)
+      .order("last_synced_at", { ascending: true, nullsFirst: true })
+      .limit(100); // Per-org limit
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    // Filter to valid 23-digit radicados
+    const eligibleItems = (workItems || []).filter((item: any) =>
+      item.radicado && item.radicado.replace(/\D/g, '').length === 23
+    );
+
+    console.log(`[scheduled-daily-sync] Org ${orgId}: ${eligibleItems.length} eligible items`);
+
+    // Update ledger with targeted count
+    await supabase.rpc('update_daily_sync_ledger', {
+      p_ledger_id: ledgerId,
+      p_status: 'RUNNING',
+      p_items_targeted: eligibleItems.length
+    });
+
+    // Sync each work item
+    for (const workItem of eligibleItems) {
+      try {
+        // Call sync-by-work-item function (CPNU/SAMAI actuaciones)
+        const { data: syncResult, error: syncError } = await supabase.functions.invoke(
+          "sync-by-work-item",
+          { body: { work_item_id: workItem.id } }
+        );
+
+        if (syncError) {
+          throw syncError;
+        }
+
+        if (syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED') {
+          scrapingInitiated++;
+        } else if (syncResult?.ok) {
+          successCount++;
+        }
+
+        // Also sync publicaciones for eligible workflows
+        if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workItem.workflow_type)) {
+          try {
+            const { data: pubResult } = await supabase.functions.invoke(
+              "sync-publicaciones-by-work-item",
+              { body: { work_item_id: workItem.id } }
+            );
+            if (pubResult?.ok) {
+              publicacionesSynced++;
+            }
+          } catch {
+            // Publicaciones errors don't count as failures
+          }
+        }
+
+        // Update last_synced_at
+        await supabase
+          .from("work_items")
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq("id", workItem.id);
+
+        // Heartbeat every few items
+        if ((successCount + errorCount) % 10 === 0) {
+          await supabase.rpc('update_daily_sync_ledger', {
+            p_ledger_id: ledgerId,
+            p_status: 'RUNNING',
+            p_items_succeeded: successCount,
+            p_items_failed: errorCount
+          });
+        }
+
+      } catch (itemError: any) {
+        console.error(`[scheduled-daily-sync] Item ${workItem.id} error:`, itemError);
+        errorCount++;
+      }
+
+      // Rate limit: wait 1 second between syncs
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Check for global timeout
+      if (Date.now() - globalStartTime > 48000) {
+        console.log("[scheduled-daily-sync] Global timeout, breaking item loop");
+        break;
+      }
+    }
+
+    // Determine final status
+    const totalItems = eligibleItems.length;
+    const processedItems = successCount + scrapingInitiated;
+    const successRate = totalItems > 0 ? processedItems / totalItems : 1;
+    
+    let finalStatus: string;
+    if (errorCount === 0 && successRate >= SUCCESS_THRESHOLD) {
+      finalStatus = 'SUCCESS';
+    } else if (processedItems > 0) {
+      finalStatus = 'PARTIAL';
+    } else {
+      finalStatus = 'FAILED';
+    }
+
+    // Update ledger with final status
+    await supabase.rpc('update_daily_sync_ledger', {
+      p_ledger_id: ledgerId,
+      p_status: finalStatus,
+      p_items_succeeded: successCount + scrapingInitiated,
+      p_items_failed: errorCount,
+      p_metadata: {
+        publicaciones_synced: publicacionesSynced,
+        scraping_initiated: scrapingInitiated,
+        success_rate: successRate
+      }
+    });
+
+    return {
+      org_id: orgId,
+      status: finalStatus,
+      synced: successCount + scrapingInitiated,
+      errors: errorCount,
+      ledger_id: ledgerId
+    };
+
+  } catch (error: any) {
+    // Update ledger with error
+    await supabase.rpc('update_daily_sync_ledger', {
+      p_ledger_id: ledgerId,
+      p_status: 'FAILED',
+      p_items_succeeded: successCount,
+      p_items_failed: errorCount,
+      p_error: error.message || String(error)
+    });
+
+    throw error;
+  }
+}
 
 async function logJobRun(
   supabase: any,
@@ -230,13 +353,14 @@ async function logJobRun(
       started_at: new Date(startTime).toISOString(),
       finished_at: new Date().toISOString(),
       duration_ms: Date.now() - startTime,
-      processed_count: metadata.total || 0,
+      processed_count: metadata.total_synced || 0,
       metadata: {
-        success_count: metadata.synced || 0,
-        scraping_initiated: metadata.scraping_initiated || 0,
-        publicaciones_synced: metadata.publicaciones_synced || 0,
-        error_count: metadata.errors || 0,
-        errors: metadata.error_details || [],
+        run_id: metadata.run_id,
+        total_orgs: metadata.total_orgs,
+        successful_orgs: metadata.successful_orgs,
+        total_synced: metadata.total_synced,
+        total_errors: metadata.total_errors,
+        results: metadata.results
       },
     });
   } catch (logError) {
