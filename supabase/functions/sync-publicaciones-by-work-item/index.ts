@@ -26,6 +26,19 @@ const corsHeaders = {
 
 interface SyncRequest {
   work_item_id: string;
+  // Optional: bypass auth for scheduled jobs (service role only)
+  _scheduled?: boolean;
+}
+
+interface InsertedPublication {
+  id: string;
+  title: string;
+  pdf_url: string | null;
+  entry_url: string | null;
+  fecha_fijacion: string | null;
+  fecha_desfijacion: string | null;
+  tipo_publicacion: string | null;
+  terminos_inician: string | null;
 }
 
 interface SyncResult {
@@ -37,6 +50,8 @@ interface SyncResult {
   newest_publication_date: string | null;
   warnings: string[];
   errors: string[];
+  // Extended: Include inserted items for scheduled job alert generation
+  inserted: InsertedPublication[];
   scrapingInitiated?: boolean;
   scrapingJobId?: string;
   scrapingMessage?: string;
@@ -434,25 +449,19 @@ Deno.serve(async (req) => {
       return errorResponse('MISSING_ENV', 'Missing Supabase environment variables', 500);
     }
 
-    // Auth check
+    // Auth check - support both user tokens and service role (for scheduled jobs)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401);
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
-    
     const token = authHeader.replace('Bearer ', '');
-    const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
     
-    if (authError || !claims?.claims?.sub) {
-      return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
-    }
-
-    const userId = claims.claims.sub as string;
-
-    // Parse request
+    // Check if this is a service role call (scheduled job)
+    const isServiceRole = token === supabaseServiceKey;
+    
+    // Parse request first to check for _scheduled flag
     let payload: SyncRequest;
     try {
       payload = await req.json();
@@ -460,13 +469,29 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400);
     }
 
-    const { work_item_id } = payload;
+    const { work_item_id, _scheduled } = payload;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400);
     }
 
-    console.log(`[sync-publicaciones] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
+    let userId: string | null = null;
+    
+    // For scheduled jobs with service role, skip user auth and membership check
+    if (isServiceRole && _scheduled) {
+      console.log(`[sync-publicaciones] Scheduled job invocation for work_item_id=${work_item_id}`);
+    } else {
+      // Regular user auth check
+      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
+      const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
+      
+      if (authError || !claims?.claims?.sub) {
+        return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
+      }
+
+      userId = claims.claims.sub as string;
+      console.log(`[sync-publicaciones] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
+    }
 
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
@@ -481,23 +506,26 @@ Deno.serve(async (req) => {
     }
 
     // ============= MULTI-TENANT SECURITY: Verify user is member of org =============
-    const { data: membership, error: membershipError } = await supabase
-      .from('organization_memberships')
-      .select('id, role')
-      .eq('organization_id', workItem.organization_id)
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Skip for scheduled jobs (service role)
+    if (!isServiceRole || !_scheduled) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('organization_memberships')
+        .select('id, role')
+        .eq('organization_id', workItem.organization_id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (membershipError || !membership) {
-      console.log(`[sync-publicaciones] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
-      return errorResponse(
-        'ACCESS_DENIED', 
-        'You do not have permission to sync this work item. You must be a member of the organization.', 
-        403
-      );
+      if (membershipError || !membership) {
+        console.log(`[sync-publicaciones] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
+        return errorResponse(
+          'ACCESS_DENIED', 
+          'You do not have permission to sync this work item. You must be a member of the organization.', 
+          403
+        );
+      }
+
+      console.log(`[sync-publicaciones] Access verified: user ${userId} has role ${membership.role}`);
     }
-
-    console.log(`[sync-publicaciones] Access verified: user ${userId} has role ${membership.role}`);
 
     // ============= VALIDATE RADICADO =============
     if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
@@ -519,6 +547,7 @@ Deno.serve(async (req) => {
       newest_publication_date: null,
       warnings: [],
       errors: [],
+      inserted: [], // Track inserted items for scheduled job alert generation
     };
 
     // ============= FETCH PUBLICACIONES =============
@@ -622,11 +651,26 @@ Deno.serve(async (req) => {
           newestDate = publishedAt;
         }
         
+        // Calculate términos inician for response tracking
+        const terminosInician = calculateNextBusinessDay(pub.fecha_desfijacion);
+        
+        // Track inserted publication for scheduled job response
+        if (insertedPub?.id) {
+          result.inserted.push({
+            id: insertedPub.id,
+            title: pub.title,
+            pdf_url: pub.pdf_url || null,
+            entry_url: pub.entry_url || null,
+            fecha_fijacion: fechaFijacion,
+            fecha_desfijacion: fechaDesfijacion,
+            tipo_publicacion: pub.tipo_publicacion || null,
+            terminos_inician: terminosInician,
+          });
+        }
+        
         // ============= CREATE ALERT FOR NEW ESTADOS WITH DEADLINE =============
         // This helps lawyers track when términos begin
         if (fechaDesfijacion && insertedPub?.id) {
-          const terminosInician = calculateNextBusinessDay(pub.fecha_desfijacion);
-          
           try {
             await supabase.from('alert_instances').insert({
               owner_id: workItem.owner_id,

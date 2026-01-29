@@ -116,3 +116,6 @@ verify_jwt = false
 
 [functions.fallback-sync-check]
 verify_jwt = false
+
+[functions.scheduled-publicaciones-monitor]
+verify_jwt = false
