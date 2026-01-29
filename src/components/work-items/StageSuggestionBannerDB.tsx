@@ -3,12 +3,17 @@
  * 
  * Reads suggestions from work_item_stage_suggestions table
  * and provides Apply/Dismiss/Override actions.
+ * 
+ * All stage changes require user approval (no auto-apply).
+ * Users can disable inference per work item.
  */
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,9 +38,12 @@ import {
   ArrowRight,
   Sparkles,
   Loader2,
+  BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStageSuggestion, type StageSuggestionRecord } from "@/hooks/useStageSuggestion";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 
 interface StageSuggestionBannerDBProps {
@@ -97,7 +105,11 @@ export function StageSuggestionBannerDB({
   onRefresh,
 }: StageSuggestionBannerDBProps) {
   const [showOverrideDialog, setShowOverrideDialog] = useState(false);
+  const [showApplyConfirmDialog, setShowApplyConfirmDialog] = useState(false);
+  const [showDismissConfirmDialog, setShowDismissConfirmDialog] = useState(false);
+  const [disableInference, setDisableInference] = useState(false);
   const [selectedOverrideStage, setSelectedOverrideStage] = useState<string | null>(null);
+  const [isDisablingInference, setIsDisablingInference] = useState(false);
   
   const {
     suggestion,
@@ -131,7 +143,34 @@ export function StageSuggestionBannerDB({
     : confidenceLevel === 'medium' ? 'Media' 
     : 'Baja';
 
-  const handleApply = () => {
+  // Handle disabling inference for this work item
+  const handleDisableInference = async () => {
+    if (!disableInference) return;
+    
+    setIsDisablingInference(true);
+    try {
+      const { error } = await supabase
+        .from('work_items')
+        .update({ stage_inference_enabled: false })
+        .eq('id', workItemId);
+
+      if (error) throw error;
+      
+      toast.success('Sugerencias automáticas desactivadas para este asunto');
+    } catch (err) {
+      console.error('Error disabling inference:', err);
+      toast.error('Error al desactivar sugerencias automáticas');
+    } finally {
+      setIsDisablingInference(false);
+    }
+  };
+
+  const handleApplyConfirm = async () => {
+    // Disable inference if checkbox was checked
+    if (disableInference) {
+      await handleDisableInference();
+    }
+    
     apply({
       suggestionId: suggestion.id,
       workItemId: suggestion.work_item_id,
@@ -139,16 +178,30 @@ export function StageSuggestionBannerDB({
       suggestedCgpPhase: suggestion.suggested_cgp_phase,
       suggestedPipelineStage: suggestion.suggested_pipeline_stage,
     });
+    setShowApplyConfirmDialog(false);
+    setDisableInference(false);
     onRefresh?.();
   };
 
-  const handleDismiss = () => {
+  const handleDismissConfirm = async () => {
+    // Disable inference if checkbox was checked
+    if (disableInference) {
+      await handleDisableInference();
+    }
+    
     dismiss(suggestion.id);
+    setShowDismissConfirmDialog(false);
+    setDisableInference(false);
     onRefresh?.();
   };
 
-  const handleOverrideConfirm = () => {
+  const handleOverrideConfirm = async () => {
     if (!selectedOverrideStage) return;
+    
+    // Disable inference if checkbox was checked
+    if (disableInference) {
+      await handleDisableInference();
+    }
     
     // Determine CGP phase from stage if applicable
     const cgpPhase = workflowType === 'CGP' 
@@ -162,11 +215,12 @@ export function StageSuggestionBannerDB({
       suggestionId: suggestion.id,
     });
     setShowOverrideDialog(false);
+    setDisableInference(false);
     onRefresh?.();
   };
 
   const availableStages = STAGE_OPTIONS[workflowType] || STAGE_OPTIONS.CGP;
-  const isProcessing = isApplying || isDismissing || isOverriding;
+  const isProcessing = isApplying || isDismissing || isOverriding || isDisablingInference;
 
   return (
     <>
@@ -222,7 +276,7 @@ export function StageSuggestionBannerDB({
           <div className="flex items-center gap-2 pt-2">
             <Button 
               size="sm" 
-              onClick={handleApply}
+              onClick={() => setShowApplyConfirmDialog(true)}
               disabled={isProcessing}
             >
               {isApplying ? (
@@ -244,7 +298,7 @@ export function StageSuggestionBannerDB({
             <Button 
               size="sm" 
               variant="ghost"
-              onClick={handleDismiss}
+              onClick={() => setShowDismissConfirmDialog(true)}
               disabled={isProcessing}
             >
               {isDismissing ? (
@@ -258,6 +312,110 @@ export function StageSuggestionBannerDB({
         </CardContent>
       </Card>
       
+      {/* Apply Confirmation Dialog */}
+      <AlertDialog open={showApplyConfirmDialog} onOpenChange={setShowApplyConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar cambio de etapa</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Deseas aplicar la sugerencia de cambiar la etapa a <strong>{suggestion.suggested_stage || suggestion.suggested_pipeline_stage}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+              <div className="flex-1">
+                <span className="text-sm text-muted-foreground">Actual:</span>
+                <span className="ml-2 font-medium">{currentStage || 'Sin etapa'}</span>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              <div className="flex-1">
+                <span className="text-sm text-muted-foreground">Nueva:</span>
+                <span className="ml-2 font-medium text-primary">
+                  {suggestion.suggested_stage || suggestion.suggested_pipeline_stage}
+                </span>
+              </div>
+            </div>
+            
+            {/* Option to disable inference */}
+            <div className="flex items-start gap-3 p-3 border rounded-lg">
+              <Checkbox 
+                id="disable-inference-apply"
+                checked={disableInference}
+                onCheckedChange={(checked) => setDisableInference(checked === true)}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label 
+                  htmlFor="disable-inference-apply" 
+                  className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                >
+                  <BellOff className="h-4 w-4 text-muted-foreground" />
+                  Desactivar sugerencias automáticas
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  No volver a mostrar sugerencias de etapa para este asunto
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDisableInference(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleApplyConfirm}
+              disabled={isApplying || isDisablingInference}
+            >
+              {isApplying ? "Aplicando..." : "Confirmar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dismiss Confirmation Dialog */}
+      <AlertDialog open={showDismissConfirmDialog} onOpenChange={setShowDismissConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar sugerencia</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Deseas descartar esta sugerencia de etapa?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="py-4">
+            {/* Option to disable inference */}
+            <div className="flex items-start gap-3 p-3 border rounded-lg">
+              <Checkbox 
+                id="disable-inference-dismiss"
+                checked={disableInference}
+                onCheckedChange={(checked) => setDisableInference(checked === true)}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label 
+                  htmlFor="disable-inference-dismiss" 
+                  className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                >
+                  <BellOff className="h-4 w-4 text-muted-foreground" />
+                  Desactivar sugerencias automáticas
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  No volver a mostrar sugerencias de etapa para este asunto
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDisableInference(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDismissConfirm}
+              disabled={isDismissing || isDisablingInference}
+            >
+              {isDismissing ? "Descartando..." : "Descartar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Override Dialog */}
       <AlertDialog open={showOverrideDialog} onOpenChange={setShowOverrideDialog}>
         <AlertDialogContent>
@@ -268,7 +426,7 @@ export function StageSuggestionBannerDB({
             </AlertDialogDescription>
           </AlertDialogHeader>
           
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <Select
               value={selectedOverrideStage || undefined}
               onValueChange={setSelectedOverrideStage}
@@ -284,13 +442,34 @@ export function StageSuggestionBannerDB({
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Option to disable inference */}
+            <div className="flex items-start gap-3 p-3 border rounded-lg">
+              <Checkbox 
+                id="disable-inference-override"
+                checked={disableInference}
+                onCheckedChange={(checked) => setDisableInference(checked === true)}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <Label 
+                  htmlFor="disable-inference-override" 
+                  className="text-sm font-medium cursor-pointer flex items-center gap-2"
+                >
+                  <BellOff className="h-4 w-4 text-muted-foreground" />
+                  Desactivar sugerencias automáticas
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  No volver a mostrar sugerencias de etapa para este asunto
+                </p>
+              </div>
+            </div>
           </div>
           
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setDisableInference(false)}>Cancelar</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleOverrideConfirm}
-              disabled={!selectedOverrideStage || isOverriding}
+              disabled={!selectedOverrideStage || isOverriding || isDisablingInference}
             >
               {isOverriding ? "Aplicando..." : "Aplicar Selección"}
             </AlertDialogAction>
