@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Link2,
   ShieldAlert,
+  Newspaper,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -37,6 +38,7 @@ const navItems = [
   { title: "Dashboard", url: "/app/dashboard", icon: LayoutDashboard },
   { title: "Clientes", url: "/app/clients", icon: Briefcase },
   { title: "Procesos", url: "/app/processes", icon: Scale },
+  { title: "Estados de Hoy", url: "/app/estados-hoy", icon: Newspaper },
   { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
   { title: "Tareas", url: "/app/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/app/alerts", icon: Bell },
