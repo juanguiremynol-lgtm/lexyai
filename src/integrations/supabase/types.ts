@@ -6193,6 +6193,7 @@ export type Database = {
           source_platform: string | null
           source_reference: string | null
           stage: string
+          stage_inference_enabled: boolean | null
           status: Database["public"]["Enums"]["item_status"]
           subclase_proceso: string | null
           tipo_proceso: string | null
@@ -6294,6 +6295,7 @@ export type Database = {
           source_platform?: string | null
           source_reference?: string | null
           stage: string
+          stage_inference_enabled?: boolean | null
           status?: Database["public"]["Enums"]["item_status"]
           subclase_proceso?: string | null
           tipo_proceso?: string | null
@@ -6395,6 +6397,7 @@ export type Database = {
           source_platform?: string | null
           source_reference?: string | null
           stage?: string
+          stage_inference_enabled?: boolean | null
           status?: Database["public"]["Enums"]["item_status"]
           subclase_proceso?: string | null
           tipo_proceso?: string | null

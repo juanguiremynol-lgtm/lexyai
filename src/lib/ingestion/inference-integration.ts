@@ -22,8 +22,8 @@ import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
 const INFERENCE_DEBUG = import.meta.env.VITE_INFERENCE_DEBUG === 'true' || import.meta.env.DEV;
 const log = (...args: unknown[]) => INFERENCE_DEBUG && console.log(...args);
 
-// Confidence threshold for HIGH (auto-apply)
-const HIGH_CONFIDENCE_THRESHOLD = 0.8;
+// All inference results now require user approval (no auto-apply)
+// Stage changes are created as PENDING suggestions regardless of confidence
 
 interface WorkItemContext {
   id: string;
@@ -33,6 +33,7 @@ interface WorkItemContext {
   stage: string | null;
   cgp_phase: CGPPhase | null;
   pipeline_stage: number | null;
+  stage_inference_enabled: boolean | null;
 }
 
 // Narrow source type to only those valid for NormalizedInferenceInput
@@ -60,6 +61,26 @@ export async function processEventForInference(
   event: InferenceEvent
 ): Promise<ProcessInferenceResult> {
   try {
+    // Check if inference is disabled for this work item
+    if (workItem.stage_inference_enabled === false) {
+      log('[Inference] Stage inference disabled for work item:', workItem.id);
+      return {
+        inference: {
+          suggested_stage: null,
+          suggested_cgp_phase: null,
+          suggested_pipeline_stage: null,
+          confidence: 'LOW',
+          reasoning: 'Stage inference disabled for this work item',
+          category: 'DISABLED',
+          milestone_type: null,
+          triggers_milestone: false,
+          should_auto_apply: false,
+          source_type: event.source_type,
+        },
+        action: 'SKIPPED',
+      };
+    }
+
     log('[Inference] Processing event:', {
       work_item_id: workItem.id,
       source_type: event.source_type,
@@ -91,7 +112,6 @@ export async function processEventForInference(
       work_item_id: workItem.id,
       suggested_stage: inference.suggested_stage,
       confidence: inference.confidence,
-      should_auto_apply: inference.should_auto_apply,
       reasoning: inference.reasoning?.substring(0, 100),
     });
 
@@ -120,52 +140,11 @@ export async function processEventForInference(
       : inference.confidence === 'MEDIUM' ? 0.6 
       : 0.3;
 
-    // HIGH confidence + should_auto_apply = auto-apply
-    if (inference.should_auto_apply && confidenceNum >= HIGH_CONFIDENCE_THRESHOLD) {
-      const updates: Record<string, unknown> = {};
-      
-      if (inference.suggested_stage) {
-        updates.stage = inference.suggested_stage;
-      }
-      if (inference.suggested_cgp_phase) {
-        updates.cgp_phase = inference.suggested_cgp_phase;
-      }
-      if (inference.suggested_pipeline_stage !== null) {
-        updates.pipeline_stage = inference.suggested_pipeline_stage;
-      }
-
-      const { error } = await supabase
-        .from('work_items')
-        .update(updates)
-        .eq('id', workItem.id);
-
-      if (error) {
-        console.error('[processEventForInference] Auto-apply failed:', error);
-        return {
-          inference,
-          action: 'SKIPPED',
-          error: error.message,
-        };
-      }
-
-      log('[Inference] ✅ AUTO-APPLIED stage change:', {
-        workItemId: workItem.id,
-        from: workItem.stage,
-        to: inference.suggested_stage,
-        confidence: inference.confidence,
-        source_type: event.source_type,
-      });
-
-      return {
-        inference,
-        action: 'AUTO_APPLIED',
-      };
-    }
-
-    log('[Inference] Creating PENDING suggestion (confidence below threshold):', {
+    // ALL stage changes now require user approval - create PENDING suggestion
+    log('[Inference] Creating PENDING suggestion (user approval required):', {
       workItemId: workItem.id,
       confidence: inference.confidence,
-      threshold: HIGH_CONFIDENCE_THRESHOLD,
+      suggested_stage: inference.suggested_stage,
     });
 
     // Create pending suggestion for user review
@@ -301,10 +280,10 @@ export async function processEstadosForInference(
     fingerprint: string;
   }>
 ): Promise<ProcessInferenceResult[]> {
-  // Fetch work item context
+  // Fetch work item context including stage_inference_enabled
   const { data: workItem, error } = await supabase
     .from('work_items')
-    .select('id, organization_id, owner_id, workflow_type, stage, cgp_phase, pipeline_stage')
+    .select('id, organization_id, owner_id, workflow_type, stage, cgp_phase, pipeline_stage, stage_inference_enabled')
     .eq('id', workItemId)
     .single();
 
@@ -336,10 +315,10 @@ export async function processExternalSyncForInference(
     fingerprint: string;
   }>
 ): Promise<ProcessInferenceResult[]> {
-  // Fetch work item context
+  // Fetch work item context including stage_inference_enabled
   const { data: workItem, error } = await supabase
     .from('work_items')
-    .select('id, organization_id, owner_id, workflow_type, stage, cgp_phase, pipeline_stage')
+    .select('id, organization_id, owner_id, workflow_type, stage, cgp_phase, pipeline_stage, stage_inference_enabled')
     .eq('id', workItemId)
     .single();
 
