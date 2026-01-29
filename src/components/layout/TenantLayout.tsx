@@ -13,10 +13,14 @@ import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
+import { useLoginSync } from "@/hooks/useLoginSync";
 
 export function TenantLayout() {
   const { theme } = useTheme();
   const isAquaTheme = theme === "aqua";
+
+  // Trigger automatic sync on login
+  useLoginSync();
 
   // Ensure user has an organization on first load
   useEffect(() => {
