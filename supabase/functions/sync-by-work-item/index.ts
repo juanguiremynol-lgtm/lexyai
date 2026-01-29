@@ -83,6 +83,9 @@ interface ActuacionRaw {
   estado?: string;
   anexos?: number;
   indice?: string;
+  // CPNU-specific fields
+  nombre_despacho?: string;
+  documentos?: Array<{ nombre: string; url: string }>;
 }
 
 interface FetchResult {
@@ -1298,20 +1301,35 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
 
     console.log(`[sync-by-work-item] CPNU: Found ${actuaciones.length} actuaciones for ${radicado}`);
     
+    // ✅ FIX: Extract ALL CPNU fields for complete display (like SAMAI)
+    // CPNU returns: idActuacion, fechaActuacion, actuacion, anotacion, 
+    // nombreDespacho, fechaInicial, fechaFinal, documentos[]
     return {
       ok: true,
-      actuaciones: actuaciones.map((act) => ({
-        fecha: String(act.fecha_actuacion || act.fecha || ''),
+      actuaciones: actuaciones.map((act, idx) => ({
+        // Core date field - use fechaActuacion (CPNU's actual field name, like SAMAI)
+        fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || ''),
         actuacion: String(act.actuacion || ''),
         anotacion: String(act.anotacion || ''),
-        fecha_inicia_termino: act.fecha_inicia_termino ? String(act.fecha_inicia_termino) : undefined,
-        fecha_finaliza_termino: act.fecha_finaliza_termino ? String(act.fecha_finaliza_termino) : undefined,
+        // Term dates (when applicable)
+        fecha_inicia_termino: act.fechaInicial || act.fecha_inicia_termino 
+          ? String(act.fechaInicial || act.fecha_inicia_termino) : undefined,
+        fecha_finaliza_termino: act.fechaFinal || act.fecha_finaliza_termino
+          ? String(act.fechaFinal || act.fecha_finaliza_termino) : undefined,
+        // CPNU-specific: Court/despacho per actuación
+        nombre_despacho: act.nombreDespacho ? String(act.nombreDespacho) : undefined,
+        // CPNU-specific: Sequence/index
+        indice: act.idActuacion ? String(act.idActuacion) : String(idx + 1),
+        // CPNU-specific: Documents count (like SAMAI's anexos)
+        anexos: Array.isArray(act.documentos) ? act.documentos.length : 0,
+        // CPNU-specific: Document attachments
+        documentos: Array.isArray(act.documentos) ? act.documentos : undefined,
       })),
       caseMetadata: {
-        despacho: (snapshotData.despacho || proceso?.despacho) as string | undefined,
+        despacho: (snapshotData.despacho || proceso?.despacho || snapshotData.nombreDespacho) as string | undefined,
         demandante: (snapshotData.demandante || proceso?.demandante) as string | undefined,
         demandado: (snapshotData.demandado || proceso?.demandado) as string | undefined,
-        tipo_proceso: (snapshotData.tipo_proceso || proceso?.tipo) as string | undefined,
+        tipo_proceso: (snapshotData.tipo_proceso || proceso?.tipo || snapshotData.tipoProceso) as string | undefined,
       },
       expedienteUrl: snapshotData.expediente_url as string | undefined,
       provider: 'cpnu',
@@ -2758,7 +2776,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Insert new actuacion
+      // Insert new actuacion with ALL provider fields (CPNU + SAMAI parity)
       const { error: insertError } = await supabase
         .from('actuaciones')
         .insert({
@@ -2772,6 +2790,13 @@ Deno.serve(async (req) => {
           source: fetchResult.provider,
           adapter_name: fetchResult.provider,
           hash_fingerprint: fingerprint,
+          // SAMAI-specific fields (also populated by CPNU now)
+          fecha_registro: act.fecha_registro || null,
+          estado: act.estado || null,
+          anexos_count: act.anexos ?? null,
+          indice: act.indice || null,
+          // Store attachments as JSON (CPNU documentos / SAMAI anexos)
+          attachments: act.documentos ? act.documentos : null,
         });
 
       if (insertError) {

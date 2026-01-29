@@ -10,6 +10,7 @@ import { Activity, Server, Clock, CheckCircle2, XCircle, AlertTriangle, RefreshC
 import { format, subHours, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { EstadosDebugPanel } from "./EstadosDebugPanel";
+import { UnifiedDebugConsole } from "@/components/platform/UnifiedDebugConsole";
 
 interface JobRun {
   id: string;
@@ -129,6 +130,9 @@ export function PlatformSystemHealthTab() {
 
   return (
     <div className="space-y-6">
+      {/* Unified Debug Console - Full pipeline testing */}
+      <UnifiedDebugConsole />
+      
       {/* Estados Debug Panel */}
       <EstadosDebugPanel />
       
