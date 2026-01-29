@@ -5,12 +5,17 @@
  * Reuses existing ticker patterns, adds pagination + filters.
  * 
  * IMPORTANT: This uses existing data sources and does NOT create new tables.
+ * 
+ * LATEST ESTADO FILTER:
+ * - This page shows ONLY the most recent estado per work_item
+ * - Full history remains in WorkItemDetail → Estados tab
  */
 
 import { supabase } from '@/integrations/supabase/client';
 import { getNextBusinessDay, addBusinessDays } from '@/lib/colombian-holidays';
 import type { TickerItem, TickerItemSource, TickerItemSeverity } from './ticker-data-service';
 import { detectEstadoType, detectActuacionSeverity } from './ticker-data-service';
+import { filterToLatestEstadoHoyItems } from './latest-estado-selector';
 import type { Database } from '@/integrations/supabase/types';
 
 type WorkflowType = Database['public']['Enums']['workflow_type'];
@@ -353,9 +358,13 @@ export async function getEstadosHoy(
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
   
+  // CRITICAL: Filter to only the LATEST estado per work_item
+  // This ensures Estados de Hoy shows actionable items, not full history
+  const latestOnly = filterToLatestEstadoHoyItems(filtered);
+  
   // Paginate
-  const total = filtered.length;
-  const paged = filtered.slice(offset, offset + pageSize);
+  const total = latestOnly.length;
+  const paged = latestOnly.slice(offset, offset + pageSize);
   
   return {
     items: paged,

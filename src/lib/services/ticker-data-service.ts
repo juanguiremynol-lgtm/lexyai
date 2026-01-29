@@ -9,9 +9,14 @@
  * - Legal terms (términos) begin the NEXT BUSINESS DAY after fecha_desfijacion
  * - Most estados do NOT have fecha_desfijacion - warn users
  * - Use the TYPE of actuación/estado to determine which deadline applies
+ * 
+ * LATEST ESTADO FILTER:
+ * - The ticker shows ONLY the most recent estado per work_item
+ * - Full history remains in WorkItemDetail → Estados tab
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { filterToLatestTickerItems } from './latest-estado-selector';
 
 // ============= TYPES =============
 
@@ -352,10 +357,15 @@ export async function getTickerItems(
     }
   }
 
-  // Sort by created_at descending and limit
-  return tickerItems
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, limit);
+  // Sort by created_at descending
+  const sorted = tickerItems
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  
+  // CRITICAL: Filter to only the LATEST estado per work_item
+  // This ensures the ticker shows actionable items, not full history
+  const latestOnly = filterToLatestTickerItems(sorted);
+  
+  return latestOnly.slice(0, limit);
 }
 
 /**

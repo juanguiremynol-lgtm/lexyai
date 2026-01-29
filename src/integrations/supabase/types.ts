@@ -6151,6 +6151,8 @@ export type Database = {
           last_scrape_at: string | null
           last_scrape_initiated_at: string | null
           last_synced_at: string | null
+          latest_estado_at: string | null
+          latest_estado_fingerprint: string | null
           legacy_admin_process_id: string | null
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
@@ -6250,6 +6252,8 @@ export type Database = {
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
           last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
@@ -6349,6 +6353,8 @@ export type Database = {
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
           last_synced_at?: string | null
+          latest_estado_at?: string | null
+          latest_estado_fingerprint?: string | null
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
