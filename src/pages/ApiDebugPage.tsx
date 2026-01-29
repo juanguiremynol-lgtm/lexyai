@@ -82,6 +82,7 @@ interface ProviderAuthCheck {
   api_key_present: boolean;
   api_key_fingerprint: string | null;
   test_identifier_used?: string;
+  auth_endpoint_used?: string; // NEW: The actual endpoint used for auth test
   hint?: string;
   response_kind?: 'JSON' | 'HTML_CANNOT_GET' | 'HTML_OTHER' | 'EMPTY' | 'ERROR';
   response_headers_snippet?: Record<string, string>;
@@ -289,6 +290,17 @@ function ReachabilityStatus({ name, data }: { name: string; data?: { ok: boolean
   );
 }
 
+// Helper to get default auth endpoint label per provider
+function getDefaultAuthEndpoint(provider: string): string {
+  switch (provider.toLowerCase()) {
+    case 'cpnu': return '/snapshot';
+    case 'samai': return '/proceso/{id}';
+    case 'tutelas': return '/expediente/{id}';
+    case 'publicaciones': return '/publicaciones';
+    default: return '/auth';
+  }
+}
+
 // NEW: Provider Health Status (split connectivity + auth)
 function ProviderHealthStatus({ 
   name, 
@@ -353,7 +365,9 @@ function ProviderHealthStatus({
         </div>
         
         <div>
-          <span className="block font-medium text-foreground">Auth (/snapshot)</span>
+          <span className="block font-medium text-foreground">
+            Auth ({auth?.auth_endpoint_used || getDefaultAuthEndpoint(name)})
+          </span>
           {auth?.error_code === 'SKIPPED' ? (
             <span className="text-muted-foreground">Sin test radicado configurado</span>
           ) : auth?.ok ? (

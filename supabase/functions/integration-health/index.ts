@@ -101,6 +101,7 @@ interface ProviderAuthCheck {
   api_key_present: boolean;
   api_key_fingerprint: string | null;
   test_identifier_used?: string; // The test radicado used (masked)
+  auth_endpoint_used?: string; // The actual endpoint path used for auth test
   hint?: string; // Actionable hint for the user
   response_kind?: "JSON" | "HTML_CANNOT_GET" | "HTML_OTHER" | "EMPTY" | "ERROR";
   response_headers_snippet?: Record<string, string>; // Sanitized headers (e.g., WWW-Authenticate)
@@ -305,6 +306,7 @@ async function checkAuthWithSnapshot(
     result.latencyMs = latencyMs;
     result.response_kind = responseKind;
     result.test_identifier_used = `${testRadicado.slice(0, 6)}...${testRadicado.slice(-4)}`;
+    result.auth_endpoint_used = authPath; // Return the actual endpoint used for display
 
     // Extract useful response headers (sanitized)
     const wwwAuth = response.headers.get("WWW-Authenticate");
@@ -332,7 +334,7 @@ async function checkAuthWithSnapshot(
       result.error_code = "UPSTREAM_ROUTE_MISSING";
       result.error = "Route not found (HTML Cannot GET)";
       result.hint =
-        "The /snapshot endpoint may not exist on this service. Check BASE_URL and PATH_PREFIX configuration.";
+        `The ${authPath} endpoint may not exist on this service. Check BASE_URL and PATH_PREFIX configuration.`;
       return result;
     }
 
