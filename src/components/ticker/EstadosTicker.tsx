@@ -1,8 +1,17 @@
 import { useNavigate } from "react-router-dom";
 import { memo, useMemo } from "react";
-import { useTickerEstados, useTickerSettings, TickerItem } from "@/hooks/use-ticker-estados";
+import { useUnifiedTicker, type TickerItem } from "@/hooks/use-unified-ticker";
 import { cn } from "@/lib/utils";
-import { Scale, Gavel, Briefcase, FileText } from "lucide-react";
+import { 
+  Scale, 
+  Gavel, 
+  Briefcase, 
+  FileText, 
+  AlertTriangle, 
+  Calendar,
+  Bell 
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 // Workflow type icons
 const WORKFLOW_ICONS: Record<string, React.ElementType> = {
@@ -10,6 +19,7 @@ const WORKFLOW_ICONS: Record<string, React.ElementType> = {
   CPACA: Scale,
   TUTELA: Gavel,
   LABORAL: Briefcase,
+  PENAL_906: Gavel,
 };
 
 // Workflow type colors (using semantic tokens)
@@ -18,6 +28,15 @@ const WORKFLOW_COLORS: Record<string, string> = {
   CPACA: "text-indigo-500",
   TUTELA: "text-purple-500",
   LABORAL: "text-amber-600",
+  PENAL_906: "text-red-500",
+};
+
+// Severity colors
+const SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: "bg-red-500",
+  HIGH: "bg-orange-500",
+  MEDIUM: "bg-yellow-500",
+  LOW: "bg-blue-500",
 };
 
 interface TickerItemProps {
@@ -28,48 +47,84 @@ interface TickerItemProps {
 const TickerItemComponent = memo(function TickerItemComponent({ item, onClick }: TickerItemProps) {
   const Icon = WORKFLOW_ICONS[item.workflow_type] || FileText;
   const colorClass = WORKFLOW_COLORS[item.workflow_type] || "text-muted-foreground";
+  const severityColor = SEVERITY_COLORS[item.severity] || "bg-blue-500";
   
   // Build compact display
   const displayParts: string[] = [];
   
   if (item.radicado) {
-    displayParts.push(item.radicado);
+    const rad = item.radicado.length > 15 
+      ? item.radicado.slice(-15) 
+      : item.radicado;
+    displayParts.push(rad);
   }
   
   if (item.authority_name) {
-    const auth = item.authority_name.length > 35 
-      ? item.authority_name.slice(0, 32) + "..." 
+    const auth = item.authority_name.length > 30 
+      ? item.authority_name.slice(0, 27) + "..." 
       : item.authority_name;
     displayParts.push(auth);
   }
   
-  if (item.act_description) {
-    const desc = item.act_description.length > 40 
-      ? item.act_description.slice(0, 37) + "..." 
-      : item.act_description;
-    displayParts.push(desc);
-  }
+  // Content (shortened)
+  const contentShort = item.content.length > 35 
+    ? item.content.slice(0, 32) + "..." 
+    : item.content;
+  displayParts.push(contentShort);
 
   return (
     <button
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 px-4 py-1 mx-2",
+        "inline-flex items-center gap-2 px-4 py-1.5 mx-2",
         "text-sm font-medium whitespace-nowrap",
         "hover:bg-accent/50 rounded transition-colors cursor-pointer",
         "focus:outline-none focus:ring-1 focus:ring-ring"
       )}
     >
+      {/* Severity indicator dot */}
+      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", severityColor)} />
+      
+      {/* Type badge */}
+      <Badge 
+        variant={item.type === 'ESTADO' ? 'default' : 'secondary'} 
+        className="text-[10px] px-1.5 py-0 h-4"
+      >
+        {item.type === 'ESTADO' ? 'EST' : 'ACT'}
+      </Badge>
+      
+      {/* Workflow icon + type */}
       <span className={cn("flex items-center gap-1 font-bold", colorClass)}>
         <Icon className="h-3.5 w-3.5" />
-        <span>{item.workflow_type}</span>
+        <span className="text-xs">{item.workflow_type}</span>
       </span>
+      
       <span className="text-muted-foreground">|</span>
+      
+      {/* Main content */}
       <span className="text-foreground/90">{displayParts.join(" — ")}</span>
-      {item.act_date && (
+      
+      {/* Warning: Missing fecha_desfijacion for estados */}
+      {item.type === 'ESTADO' && item.missing_fecha_desfijacion && (
+        <span className="inline-flex items-center gap-1 text-amber-500 text-xs">
+          <AlertTriangle className="h-3 w-3" />
+          <span className="hidden sm:inline">Sin desfijación</span>
+        </span>
+      )}
+      
+      {/* Deadline info when available */}
+      {item.is_deadline_trigger && item.terminos_inician && (
+        <span className="inline-flex items-center gap-1 text-green-600 text-xs font-medium">
+          <Calendar className="h-3 w-3" />
+          <span>Términos: {item.terminos_inician}</span>
+        </span>
+      )}
+      
+      {/* Date */}
+      {item.date && (
         <>
           <span className="text-muted-foreground">|</span>
-          <span className="text-muted-foreground text-xs">{item.act_date}</span>
+          <span className="text-muted-foreground text-xs">{item.date.split('T')[0]}</span>
         </>
       )}
     </button>
@@ -78,8 +133,17 @@ const TickerItemComponent = memo(function TickerItemComponent({ item, onClick }:
 
 export function EstadosTicker() {
   const navigate = useNavigate();
-  const { showTicker, isLoading: settingsLoading } = useTickerSettings();
-  const { data: items, isLoading: itemsLoading } = useTickerEstados();
+  const { 
+    items, 
+    isLoading, 
+    showTicker, 
+    criticalCount, 
+    missingDesfijacionCount 
+  } = useUnifiedTicker({
+    limit: 50,
+    refetchIntervalSeconds: 60,
+    enableRealtime: true,
+  });
 
   // Duplicate items for seamless infinite scroll - memoized before any returns
   const duplicatedItems = useMemo(() => {
@@ -89,14 +153,13 @@ export function EstadosTicker() {
 
   // Calculate animation duration based on number of items
   // More items = longer duration for comfortable reading
-  // Speed increased by 75% total (multiplier reduced from 5 to 2.25)
   const animationDuration = useMemo(() => {
     if (!items) return 16;
-    return Math.max(items.length * 2.25, 16);
+    return Math.max(items.length * 2.5, 16);
   }, [items]);
 
   // Don't render if disabled or loading settings
-  if (settingsLoading || !showTicker) {
+  if (isLoading || !showTicker) {
     return null;
   }
 
@@ -115,9 +178,31 @@ export function EstadosTicker() {
       role="marquee"
       aria-label="Actualizaciones judiciales recientes"
     >
+      {/* Critical items indicator */}
+      {(criticalCount > 0 || missingDesfijacionCount > 0) && (
+        <div className="absolute left-0 top-0 bottom-0 flex items-center px-3 bg-card z-10 border-r border-border">
+          <div className="flex items-center gap-2">
+            <Bell className="h-4 w-4 text-muted-foreground" />
+            {criticalCount > 0 && (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
+                {criticalCount}
+              </Badge>
+            )}
+            {missingDesfijacionCount > 0 && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-amber-500 text-amber-500">
+                ⚠️ {missingDesfijacionCount}
+              </Badge>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Scrolling container */}
       <div 
-        className="flex items-center py-1.5 pl-4 ticker-scroll whitespace-nowrap"
+        className={cn(
+          "flex items-center py-1.5 ticker-scroll whitespace-nowrap",
+          (criticalCount > 0 || missingDesfijacionCount > 0) ? "pl-24" : "pl-4"
+        )}
         style={{
           animation: `ticker-scroll ${animationDuration}s linear infinite`,
         }}
