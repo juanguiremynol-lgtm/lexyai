@@ -1,6 +1,7 @@
 /**
  * ActuacionCard - Displays a single actuación with all available fields
  * Collapsible card showing full details from CPNU/SAMAI data
+ * Resilient to missing/partial data
  */
 
 import { useState } from "react";
@@ -26,6 +27,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Archive,
+  Building2,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -49,6 +51,7 @@ const ESTADO_CONFIG: Record<
 const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
   AUTO_ADMISORIO: { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
   "AUTO ADMISORIO": { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
+  "AUTO ADMITE": { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
   ADMITE: { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
   FALLO: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
   SENTENCIA: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
@@ -102,9 +105,10 @@ export interface Actuacion {
 
 interface ActuacionCardProps {
   actuacion: Actuacion;
+  despacho?: string | null;
 }
 
-export function ActuacionCard({ actuacion }: ActuacionCardProps) {
+export function ActuacionCard({ actuacion, despacho }: ActuacionCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const getActTypeConfig = (rawText: string) => {
@@ -120,12 +124,12 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
     return ESTADO_CONFIG[estado.toUpperCase()] || ESTADO_CONFIG.PENDIENTE;
   };
 
-  // Parse date format: "06/05/2025 15:11:01" or "06/05/2025" or "2025-01-21"
-  const parseAndFormatDate = (dateStr: string | null, includeTime = false) => {
+  // Parse various date formats safely
+  const parseDate = (dateStr: string | null): Date | null => {
     if (!dateStr) return null;
 
     try {
-      // Handle DD/MM/YYYY format
+      // Handle DD/MM/YYYY HH:mm:ss format
       const parts = dateStr.split(" ");
       const dateParts = parts[0].split("/");
 
@@ -134,9 +138,7 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
         const month = parseInt(dateParts[1], 10) - 1;
         const year = parseInt(dateParts[2], 10);
 
-        let hours = 0,
-          minutes = 0,
-          seconds = 0;
+        let hours = 0, minutes = 0, seconds = 0;
         if (parts[1]) {
           const timeParts = parts[1].split(":");
           hours = parseInt(timeParts[0] || "0", 10);
@@ -145,63 +147,104 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
         }
 
         const date = new Date(year, month, day, hours, minutes, seconds);
-        if (isNaN(date.getTime())) return dateStr;
-
-        if (includeTime && parts[1]) {
-          return format(date, "d MMM yyyy, HH:mm:ss", { locale: es });
-        }
-        return format(date, "d MMM yyyy", { locale: es });
+        if (!isNaN(date.getTime())) return date;
       }
 
       // Fallback: try parsing as ISO or standard date
       const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
-      return format(date, "d MMM yyyy", { locale: es });
+      if (!isNaN(date.getTime())) return date;
+      return null;
     } catch {
-      return dateStr;
+      return null;
     }
   };
 
-  // Extract date from normalized_text if act_date is null (legacy data)
-  const extractDateFromText = (text: string | null): string | null => {
-    if (!text) return null;
-
-    const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-    if (dateMatch) {
-      return dateMatch[1];
+  // Format date for display
+  const formatDisplayDate = (dateStr: string | null, includeTime = false): string | null => {
+    const date = parseDate(dateStr);
+    if (!date) return dateStr; // Return raw string as fallback
+    
+    if (includeTime) {
+      return format(date, "d MMM yyyy, HH:mm", { locale: es });
     }
+    return format(date, "d MMM yyyy", { locale: es });
+  };
 
-    const isoMatch = text.match(/(\d{4}-\d{2}-\d{2})/);
-    if (isoMatch) {
-      return isoMatch[1];
+  // Get relative time for date
+  const getRelativeTime = (dateStr: string | null): string | null => {
+    const date = parseDate(dateStr);
+    if (!date) return null;
+    return formatDistanceToNow(date, { addSuffix: true, locale: es });
+  };
+
+  // Get the best available date for display
+  const getBestDate = (): { date: string | null; label: string; isInferred: boolean } => {
+    if (actuacion.act_date) {
+      return { date: actuacion.act_date, label: "Fecha Actuación", isInferred: false };
     }
+    if (actuacion.fecha_registro) {
+      return { date: actuacion.fecha_registro, label: "Fecha Registro", isInferred: false };
+    }
+    if (actuacion.act_date_raw) {
+      return { date: actuacion.act_date_raw, label: "Fecha (original)", isInferred: true };
+    }
+    // Try extracting from normalized_text
+    const match = actuacion.normalized_text?.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (match) {
+      return { date: match[1], label: "Fecha (extraída)", isInferred: true };
+    }
+    return { date: null, label: "", isInferred: false };
+  };
 
+  // Get anotación content (detailed notes separate from raw_text)
+  const getAnotacion = (): string | null => {
+    const normalizedText = actuacion.normalized_text || "";
+    const rawText = actuacion.raw_text || "";
+    
+    // If normalized_text is different and longer than raw_text, it contains additional info
+    if (normalizedText && normalizedText !== rawText) {
+      // Check if normalized_text starts with raw_text
+      if (normalizedText.startsWith(rawText + " - ")) {
+        return normalizedText.replace(rawText + " - ", "");
+      }
+      if (normalizedText.startsWith(rawText)) {
+        const extra = normalizedText.slice(rawText.length).trim();
+        if (extra.startsWith("- ")) return extra.slice(2);
+        if (extra) return extra;
+      }
+      // If they're completely different, show the full normalized_text
+      return normalizedText;
+    }
     return null;
   };
 
   const typeConfig = getActTypeConfig(actuacion.raw_text);
   const estadoConfig = getEstadoConfig(actuacion.estado);
   const EstadoIcon = estadoConfig?.icon || CheckCircle2;
+  const bestDate = getBestDate();
+  const anotacion = getAnotacion();
 
   // Check if there's additional content to show in expanded view
   const hasDetailedContent =
-    (actuacion.normalized_text && actuacion.normalized_text !== actuacion.raw_text) ||
+    anotacion ||
     (actuacion.attachments && actuacion.attachments.length > 0) ||
     actuacion.fecha_registro ||
-    actuacion.source_url;
+    actuacion.source_url ||
+    despacho;
 
   return (
     <Card
       className={cn(
-        "transition-all duration-200 hover:shadow-md",
-        typeConfig.bgColor
+        "transition-all duration-200 hover:shadow-md border-l-4",
+        typeConfig.bgColor,
+        typeConfig.color.replace("text-", "border-l-")
       )}
     >
       <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
         <CardContent className="p-4">
           {/* Row 1: Badges - Index, Type, Estado, Anexos, Source */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            {/* Índice (order number) */}
+            {/* Índice (order number / consActuacion) */}
             {actuacion.indice && (
               <Badge
                 variant="outline"
@@ -247,9 +290,9 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
             {actuacion.adapter_name && (
               <Badge
                 variant="outline"
-                className="text-xs text-muted-foreground ml-auto"
+                className="text-xs text-muted-foreground ml-auto uppercase"
               >
-                {actuacion.adapter_name.toUpperCase()}
+                {actuacion.adapter_name}
               </Badge>
             )}
 
@@ -271,54 +314,47 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
 
           {/* Row 2: Main content grid */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Left side: Actuación title */}
-            <div className="lg:col-span-3">
-              <p className="text-xs text-muted-foreground mb-1">Actuación</p>
-              <p className="font-medium text-sm">{actuacion.raw_text}</p>
+            {/* Left side: Actuación title and despacho */}
+            <div className="lg:col-span-3 space-y-2">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Actuación</p>
+                <p className="font-medium text-sm">{actuacion.raw_text || "(Sin descripción)"}</p>
+              </div>
+              
+              {/* Despacho (court name) - shown in collapsed view for quick reference */}
+              {despacho && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Building2 className="h-3 w-3" />
+                  <span>{despacho}</span>
+                </div>
+              )}
             </div>
 
             {/* Right side: Date */}
             <div className="space-y-2">
-              {actuacion.act_date ? (
+              {bestDate.date ? (
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    Fecha Actuación
+                    {bestDate.label}
                   </p>
-                  <p className="text-sm font-medium">
-                    {format(new Date(actuacion.act_date), "d MMM yyyy", {
-                      locale: es,
-                    })}
+                  <p className={cn("text-sm font-medium", bestDate.isInferred && "italic text-muted-foreground")}>
+                    {formatDisplayDate(bestDate.date)}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(actuacion.act_date), {
-                      addSuffix: true,
-                      locale: es,
-                    })}
-                  </p>
+                  {!bestDate.isInferred && getRelativeTime(bestDate.date) && (
+                    <p className="text-xs text-muted-foreground">
+                      {getRelativeTime(bestDate.date)}
+                    </p>
+                  )}
                 </div>
               ) : (
-                // Fallback: try extracting date from normalized_text
-                (() => {
-                  const extractedDate = extractDateFromText(
-                    actuacion.normalized_text
-                  );
-                  if (extractedDate) {
-                    const formattedDate = parseAndFormatDate(extractedDate);
-                    return (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          Fecha (extraída)
-                        </p>
-                        <p className="text-sm text-muted-foreground italic">
-                          {formattedDate}
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Fecha
+                  </p>
+                  <p className="text-sm text-muted-foreground italic">(No disponible)</p>
+                </div>
               )}
 
               {/* Show time if available */}
@@ -338,43 +374,30 @@ export function ActuacionCard({ actuacion }: ActuacionCardProps) {
           <CollapsibleContent>
             <Separator className="my-3" />
 
-            {/* Anotación - detailed notes (show FULL text) */}
-            {actuacion.normalized_text &&
-              actuacion.normalized_text !== actuacion.raw_text && (
-                <div className="mb-4">
-                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                    <FileText className="h-3 w-3" />
-                    Anotación / Detalle
-                  </p>
-                  <div className="bg-muted/30 rounded-md p-3 text-sm text-muted-foreground whitespace-pre-wrap">
-                    {actuacion.normalized_text.startsWith(
-                      actuacion.raw_text + " - "
-                    )
-                      ? actuacion.normalized_text.replace(
-                          actuacion.raw_text + " - ",
-                          ""
-                        )
-                      : actuacion.normalized_text}
-                  </div>
+            {/* Anotación - detailed notes */}
+            {anotacion && (
+              <div className="mb-4">
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <FileText className="h-3 w-3" />
+                  Anotación / Detalle
+                </p>
+                <div className="bg-muted/30 rounded-md p-3 text-sm text-muted-foreground whitespace-pre-wrap">
+                  {anotacion}
                 </div>
-              )}
+              </div>
+            )}
 
             {/* Additional metadata grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {/* Fecha Registro */}
-              {actuacion.fecha_registro && (
+              {/* Fecha Registro (if different from main date) */}
+              {actuacion.fecha_registro && actuacion.act_date && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     Fecha Registro
                   </p>
                   <p className="text-sm">
-                    {parseAndFormatDate(actuacion.fecha_registro, true) ||
-                      format(
-                        new Date(actuacion.fecha_registro),
-                        "d MMM yyyy, HH:mm",
-                        { locale: es }
-                      )}
+                    {formatDisplayDate(actuacion.fecha_registro, true)}
                   </p>
                 </div>
               )}

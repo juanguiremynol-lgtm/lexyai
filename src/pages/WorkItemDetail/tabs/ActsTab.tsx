@@ -1,6 +1,7 @@
 /**
  * Acts Tab - Shows actuaciones for the work item with ALL available fields
- * Displays complete information as received from the external API without summarizing
+ * Displays complete information as received from CPNU/SAMAI APIs
+ * Includes parties info (demandantes/demandados) and sorting with fallbacks
  */
 
 import { useState } from "react";
@@ -17,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Scale, Search, Filter } from "lucide-react";
+import { Scale, Search, Filter, Users, Building2 } from "lucide-react";
 
 import type { WorkItem } from "@/types/work-item";
 import { ActuacionCard, type Actuacion } from "./ActuacionCard";
@@ -48,7 +49,35 @@ export function ActsTab({ workItem }: ActsTabProps) {
       }
 
       console.log("[ActsTab] Fetched actuaciones:", actuaciones?.length);
-      return (actuaciones || []) as Actuacion[];
+      
+      // Sort with fallback: act_date DESC, then fecha_registro DESC, then indice DESC, then created_at DESC
+      const sortedActuaciones = (actuaciones || []).sort((a, b) => {
+        // Try act_date first
+        if (a.act_date && b.act_date) {
+          return new Date(b.act_date).getTime() - new Date(a.act_date).getTime();
+        }
+        if (a.act_date && !b.act_date) return -1;
+        if (!a.act_date && b.act_date) return 1;
+        
+        // Fallback to fecha_registro
+        if (a.fecha_registro && b.fecha_registro) {
+          return new Date(b.fecha_registro).getTime() - new Date(a.fecha_registro).getTime();
+        }
+        if (a.fecha_registro && !b.fecha_registro) return -1;
+        if (!a.fecha_registro && b.fecha_registro) return 1;
+        
+        // Fallback to indice (consActuacion)
+        if (a.indice && b.indice) {
+          return parseInt(b.indice) - parseInt(a.indice);
+        }
+        if (a.indice && !b.indice) return -1;
+        if (!a.indice && b.indice) return 1;
+        
+        // Final fallback to created_at
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      
+      return sortedActuaciones as Actuacion[];
     },
     enabled: !!workItem.id,
     staleTime: 30000,
@@ -107,7 +136,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
         <CardContent className="py-12">
           <div className="text-center">
             <Scale className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="font-semibold mb-2">Sin actuaciones registradas</h3>
+            <h3 className="font-semibold mb-2">No se encontraron actuaciones para este proceso</h3>
             <p className="text-muted-foreground text-sm">
               Las actuaciones aparecerán aquí cuando se sincronicen desde la
               Rama Judicial o se registren manualmente.
@@ -120,6 +149,40 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   return (
     <div className="space-y-4">
+      {/* Parties Info Card - Demandantes/Demandados */}
+      {(workItem.demandantes || workItem.demandados) && (
+        <Card className="bg-muted/30">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-start gap-3">
+              <Users className="h-4 w-4 mt-0.5 text-muted-foreground" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 text-sm">
+                {workItem.demandantes && (
+                  <div>
+                    <span className="text-muted-foreground font-medium">Demandante(s): </span>
+                    <span>{workItem.demandantes}</span>
+                  </div>
+                )}
+                {workItem.demandados && (
+                  <div>
+                    <span className="text-muted-foreground font-medium">Demandado(s): </span>
+                    <span>{workItem.demandados}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            {workItem.authority_name && (
+              <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/50">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  {workItem.authority_name}
+                  {workItem.authority_department && ` - ${workItem.authority_department}`}
+                </span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header Card with count and filters */}
       <Card>
         <CardHeader className="pb-3">
@@ -194,7 +257,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
       {/* Actuaciones List */}
       <div className="space-y-3">
         {filteredActs?.map((act) => (
-          <ActuacionCard key={act.id} actuacion={act} />
+          <ActuacionCard 
+            key={act.id} 
+            actuacion={act} 
+            despacho={workItem.authority_name}
+          />
         ))}
       </div>
 
