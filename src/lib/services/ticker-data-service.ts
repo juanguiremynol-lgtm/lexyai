@@ -70,7 +70,7 @@ function calculateNextBusinessDay(dateStr: string | null | undefined): string | 
 /**
  * Detect severity based on actuación/estado content
  */
-function detectActuacionSeverity(text: string): TickerItemSeverity {
+export function detectActuacionSeverity(text: string): TickerItemSeverity {
   const lowerText = text.toLowerCase();
   
   // CRITICAL: Sentencias, fallos, vencimientos
