@@ -78,13 +78,17 @@ interface ActuacionRaw {
   anotacion?: string;
   fecha_inicia_termino?: string;
   fecha_finaliza_termino?: string;
-  // SAMAI-specific fields
+  // Registration date (CPNU fechaRegistro / SAMAI fecha_registro)
   fecha_registro?: string;
+  // Estado (SAMAI-specific)
   estado?: string;
+  // Anexos count (SAMAI) or conDocumentos flag (CPNU)
   anexos?: number;
+  // Sequence/index (CPNU consActuacion / SAMAI indice)
   indice?: string;
-  // CPNU-specific fields
+  // Court/despacho name per actuación (CPNU-specific)
   nombre_despacho?: string;
+  // Document attachments (CPNU documentos array)
   documentos?: Array<{ nombre: string; url: string }>;
 }
 
@@ -1282,9 +1286,35 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       }
     }
 
-    // Success - extract actuaciones
+    // ============= SUCCESS - EXTRACT ACTUACIONES =============
+    // CPNU Cloud Run returns nested structure: { success: true, data: { actuaciones: [...], sujetos: [...], ... } }
+    // Handle both nested (Cloud Run) and flat (legacy) response formats
+    
+    const nestedData = snapshotData.data as Record<string, unknown> | undefined;
     const proceso = snapshotData.proceso as Record<string, unknown> | undefined;
-    const actuaciones = (snapshotData.actuaciones || proceso?.actuaciones || []) as Record<string, unknown>[];
+    
+    // Extract actuaciones from nested or flat structure
+    const actuaciones = (
+      (nestedData?.actuaciones) ||     // Cloud Run: { data: { actuaciones: [...] } }
+      (snapshotData.actuaciones) ||    // Flat: { actuaciones: [...] }
+      (proceso?.actuaciones) ||        // Legacy: { proceso: { actuaciones: [...] } }
+      []
+    ) as Record<string, unknown>[];
+    
+    // Extract sujetos from nested or flat structure
+    const sujetos = (
+      (nestedData?.sujetos) ||         // Cloud Run: { data: { sujetos: [...] } }
+      (snapshotData.sujetos) ||        // Flat: { sujetos: [...] }
+      []
+    ) as Array<Record<string, unknown>>;
+    
+    // Extract metadata from resumenBusqueda or detalle (Cloud Run structure)
+    const resumenBusqueda = nestedData?.resumenBusqueda as Record<string, unknown> | undefined;
+    const detalle = nestedData?.detalle as Record<string, unknown> | undefined;
+    
+    // Get despacho and departamento from nested structure
+    const despacho = (resumenBusqueda?.despacho || detalle?.despacho || nestedData?.despacho || snapshotData.despacho || proceso?.despacho) as string | undefined;
+    const departamento = (resumenBusqueda?.departamento || detalle?.departamento || nestedData?.departamento) as string | undefined;
     
     if (actuaciones.length === 0) {
       console.log(`[sync-by-work-item] CPNU: No actuaciones for ${radicado}`);
@@ -1299,39 +1329,82 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       };
     }
 
-    console.log(`[sync-by-work-item] CPNU: Found ${actuaciones.length} actuaciones for ${radicado}`);
+    console.log(`[sync-by-work-item] CPNU: Found ${actuaciones.length} actuaciones, ${sujetos.length} sujetos for ${radicado}`);
     
-    // ✅ FIX: Extract ALL CPNU fields for complete display (like SAMAI)
-    // CPNU returns: idActuacion, fechaActuacion, actuacion, anotacion, 
-    // nombreDespacho, fechaInicial, fechaFinal, documentos[]
+    // ============= EXTRACT SUJETOS FOR DEMANDANTES/DEMANDADOS =============
+    const demandantes = sujetos
+      .filter(s => {
+        const tipoSujeto = String(s.tipoSujeto || s.tipo || '').toLowerCase();
+        return tipoSujeto.includes('demandante') || tipoSujeto.includes('accionante');
+      })
+      .map(s => String(s.nombreRazonSocial || s.nombre || ''))
+      .filter(Boolean)
+      .join(' | ');
+    
+    const demandados = sujetos
+      .filter(s => {
+        const tipoSujeto = String(s.tipoSujeto || s.tipo || '').toLowerCase();
+        return tipoSujeto.includes('demandado') || tipoSujeto.includes('accionado');
+      })
+      .map(s => String(s.nombreRazonSocial || s.nombre || ''))
+      .filter(Boolean)
+      .join(' | ');
+    
+    // Fallback: Extract from sujetosProcesalesResumen if sujetos array is empty
+    let demandanteFallback: string | undefined;
+    let demandadoFallback: string | undefined;
+    if (sujetos.length === 0 && resumenBusqueda?.sujetosProcesalesResumen) {
+      const resumen = String(resumenBusqueda.sujetosProcesalesResumen);
+      const demandanteMatch = resumen.match(/Demandante:\s*([^|]+)/i);
+      const demandadoMatch = resumen.match(/Demandado:\s*([^|]+)/i);
+      if (demandanteMatch) demandanteFallback = demandanteMatch[1].trim();
+      if (demandadoMatch) demandadoFallback = demandadoMatch[1].trim();
+    }
+    
+    // ============= MAP ACTUACIONES WITH ALL CPNU FIELDS =============
+    // CPNU Cloud Run returns: idRegActuacion, consActuacion, fechaActuacion, actuacion, anotacion,
+    // fechaInicial, fechaFinal, fechaRegistro, conDocumentos
     return {
       ok: true,
       actuaciones: actuaciones.map((act, idx) => ({
-        // Core date field - use fechaActuacion (CPNU's actual field name, like SAMAI)
+        // Core date field - CPNU uses fechaActuacion (ISO format like "2025-06-03T00:00:00")
         fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || ''),
+        // Main actuación type/title
         actuacion: String(act.actuacion || ''),
+        // Detailed annotation (anotation)
         anotacion: String(act.anotacion || ''),
         // Term dates (when applicable)
         fecha_inicia_termino: act.fechaInicial || act.fecha_inicia_termino 
           ? String(act.fechaInicial || act.fecha_inicia_termino) : undefined,
         fecha_finaliza_termino: act.fechaFinal || act.fecha_finaliza_termino
           ? String(act.fechaFinal || act.fecha_finaliza_termino) : undefined,
-        // CPNU-specific: Court/despacho per actuación
-        nombre_despacho: act.nombreDespacho ? String(act.nombreDespacho) : undefined,
-        // CPNU-specific: Sequence/index
-        indice: act.idActuacion ? String(act.idActuacion) : String(idx + 1),
-        // CPNU-specific: Documents count (like SAMAI's anexos)
-        anexos: Array.isArray(act.documentos) ? act.documentos.length : 0,
-        // CPNU-specific: Document attachments
+        // Registration date (fechaRegistro)
+        fecha_registro: act.fechaRegistro ? String(act.fechaRegistro) : undefined,
+        // CPNU-specific: Despacho per actuación (from parent response)
+        nombre_despacho: despacho,
+        // CPNU-specific: Sequence/index - use consActuacion (sequence) or idRegActuacion
+        indice: act.consActuacion ? String(act.consActuacion) : (act.idRegActuacion ? String(act.idRegActuacion) : String(idx + 1)),
+        // CPNU-specific: conDocumentos flag (boolean indicating if documents exist)
+        anexos: act.conDocumentos ? 1 : 0,
+        // CPNU-specific: Document attachments (if available)
         documentos: Array.isArray(act.documentos) ? act.documentos : undefined,
       })),
+      // Include sujetos for extraction in main handler
+      sujetos: sujetos.map(s => ({
+        registro: String(s.idRegSujeto || s.registro || ''),
+        tipo: String(s.tipoSujeto || s.tipo || ''),
+        nombre: String(s.nombreRazonSocial || s.nombre || ''),
+        accesoWebActivado: false,
+      })),
       caseMetadata: {
-        despacho: (snapshotData.despacho || proceso?.despacho || snapshotData.nombreDespacho) as string | undefined,
-        demandante: (snapshotData.demandante || proceso?.demandante) as string | undefined,
-        demandado: (snapshotData.demandado || proceso?.demandado) as string | undefined,
-        tipo_proceso: (snapshotData.tipo_proceso || proceso?.tipo || snapshotData.tipoProceso) as string | undefined,
+        despacho: despacho,
+        demandante: demandantes || demandanteFallback,
+        demandado: demandados || demandadoFallback,
+        tipo_proceso: (nestedData?.tipoProceso || snapshotData.tipo_proceso || proceso?.tipo) as string | undefined,
+        // Additional CPNU metadata
+        total_sujetos: sujetos.length,
       },
-      expedienteUrl: snapshotData.expediente_url as string | undefined,
+      expedienteUrl: (snapshotData.expediente_url || `https://consultaprocesos.ramajudicial.gov.co/Procesos/NumeroRadicacion?numero=${radicado}`) as string,
       provider: 'cpnu',
       latencyMs: Date.now() - startTime,
       httpStatus: snapshotResponse.status,
