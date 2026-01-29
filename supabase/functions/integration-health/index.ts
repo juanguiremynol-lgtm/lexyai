@@ -227,10 +227,10 @@ async function checkConnectivity(
 
 // Provider-specific auth test endpoints
 // Each provider has different API contracts for authenticated lookups
-// NOTE: SAMAI uses the same /snapshot endpoint structure as CPNU
+// NOTE: SAMAI only has /buscar (triggers scraping) and /resultado/{jobId} (poll results)
 const AUTH_TEST_ENDPOINTS: Record<string, (testId: string) => string> = {
   cpnu: (id) => `/snapshot?numero_radicacion=${id}`,
-  samai: (id) => `/snapshot?numero_radicacion=${id}`, // SAMAI uses same structure as CPNU
+  samai: (id) => `/buscar?numero_radicacion=${id}`, // SAMAI uses /buscar which returns 200 + jobId
   tutelas: (id) => `/expediente/${id}`, // Tutelas uses path-based
   publicaciones: (id) => `/publicaciones?radicado=${id}`, // Publicaciones uses query param
 };

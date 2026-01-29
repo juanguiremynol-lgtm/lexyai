@@ -294,7 +294,7 @@ function ReachabilityStatus({ name, data }: { name: string; data?: { ok: boolean
 function getDefaultAuthEndpoint(provider: string): string {
   switch (provider.toLowerCase()) {
     case 'cpnu': return '/snapshot';
-    case 'samai': return '/snapshot'; // SAMAI uses same structure as CPNU
+    case 'samai': return '/buscar'; // SAMAI only has /buscar (returns 200 + jobId)
     case 'tutelas': return '/expediente/{id}';
     case 'publicaciones': return '/publicaciones';
     default: return '/auth';
