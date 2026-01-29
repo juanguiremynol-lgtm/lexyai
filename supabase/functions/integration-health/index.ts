@@ -224,7 +224,16 @@ async function checkConnectivity(
   }
 }
 
-// Check auth by calling an authenticated endpoint (GET /snapshot?numero_radicacion=...)
+// Provider-specific auth test endpoints
+// Each provider has different API contracts for authenticated lookups
+const AUTH_TEST_ENDPOINTS: Record<string, (testId: string) => string> = {
+  cpnu: (id) => `/snapshot?numero_radicacion=${id}`,
+  samai: (id) => `/proceso/${id}`, // SAMAI uses path-based, not query-param
+  tutelas: (id) => `/expediente/${id}`, // Tutelas uses path-based
+  publicaciones: (id) => `/publicaciones?radicado=${id}`, // Publicaciones uses query param
+};
+
+// Check auth by calling an authenticated endpoint (provider-specific - requires valid API key)
 async function checkAuthWithSnapshot(
   provider: string,
   baseUrl: string | undefined,
@@ -261,15 +270,24 @@ async function checkAuthWithSnapshot(
     return result;
   }
 
+  // Get provider-specific endpoint builder
+  const getEndpoint = AUTH_TEST_ENDPOINTS[provider];
+  if (!getEndpoint) {
+    result.error_code = "UNKNOWN_PROVIDER";
+    result.error = `Unknown provider: ${provider}`;
+    result.hint = `Provider '${provider}' is not configured for auth testing.`;
+    return result;
+  }
+
   try {
     const start = Date.now();
-    const snapshotPath = `/snapshot?numero_radicacion=${testRadicado.trim()}`;
-    const snapshotUrl = joinUrl(baseUrl, pathPrefix, snapshotPath);
+    const authPath = getEndpoint(testRadicado.trim());
+    const authUrl = joinUrl(baseUrl, pathPrefix, authPath);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const response = await fetch(snapshotUrl, {
+    const response = await fetch(authUrl, {
       method: "GET",
       headers: {
         Accept: "application/json",
