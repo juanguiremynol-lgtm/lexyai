@@ -119,3 +119,6 @@ verify_jwt = false
 
 [functions.scheduled-publicaciones-monitor]
 verify_jwt = false
+
+[functions.scheduled-daily-welcome]
+verify_jwt = false
