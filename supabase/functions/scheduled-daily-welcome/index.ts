@@ -5,6 +5,7 @@
  * summarizing new activity (estados/actuaciones) on their work items.
  * 
  * Schedule: Daily at 07:00 America/Bogota (12:00 UTC) - runs after publicaciones monitor
+ * Can also be triggered on user login via POST with user_id
  * 
  * Features:
  * - Scans recent activity from past 24 hours per user
@@ -12,9 +13,11 @@
  * - Creates DAILY_WELCOME alerts with AI-generated content
  * - Multi-tenant safe: processes per organization/user
  * - Rate limited to avoid AI API throttling
+ * - ONLY runs on business days (excludes weekends, holidays, suspensions)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { parseISO, isWeekend, startOfDay, endOfDay, isWithinInterval } from 'https://esm.sh/date-fns@3.6.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,11 +26,96 @@ const corsHeaders = {
 
 // Lovable AI Gateway configuration
 const LOVABLE_AI_GATEWAY_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
-const AI_MODEL = 'google/gemini-3-flash-preview'; // Fast, recommended default for summaries
+const AI_MODEL = 'google/gemini-3-flash-preview';
 
 // Rate limiting
 const MAX_USERS_PER_RUN = 50;
 const DELAY_BETWEEN_USERS_MS = 1000;
+
+// ============= Business Day Validation =============
+
+interface JudicialSuspension {
+  id: string;
+  title?: string;
+  start_date: string;
+  end_date: string;
+  scope: string;
+  scope_value: string | null;
+  active: boolean;
+}
+
+/**
+ * Check if a date is a Colombian holiday
+ */
+async function checkColombianHoliday(supabase: any, date: Date): Promise<{ isHoliday: boolean; name?: string }> {
+  const dateStr = date.toISOString().split('T')[0];
+  
+  const { data } = await supabase
+    .from('colombian_holidays')
+    .select('name')
+    .eq('holiday_date', dateStr)
+    .maybeSingle();
+  
+  if (data) {
+    return { isHoliday: true, name: (data as { name: string }).name };
+  }
+  return { isHoliday: false };
+}
+
+/**
+ * Check if a date falls within any active judicial suspension
+ */
+async function checkJudicialSuspension(supabase: any, date: Date): Promise<{ isSuspended: boolean; suspensionTitle?: string }> {
+  const { data: suspensions } = await supabase
+    .from('judicial_term_suspensions')
+    .select('id, title, start_date, end_date, scope, scope_value, active')
+    .eq('active', true);
+  
+  if (!suspensions || suspensions.length === 0) {
+    return { isSuspended: false };
+  }
+  
+  const checkDate = startOfDay(date);
+  
+  for (const suspension of suspensions as JudicialSuspension[]) {
+    const suspStartDate = startOfDay(parseISO(suspension.start_date));
+    const suspEndDate = endOfDay(parseISO(suspension.end_date));
+    
+    if (isWithinInterval(checkDate, { start: suspStartDate, end: suspEndDate })) {
+      if (suspension.scope === 'GLOBAL_JUDICIAL') {
+        return { isSuspended: true, suspensionTitle: suspension.title };
+      }
+    }
+  }
+  
+  return { isSuspended: false };
+}
+
+/**
+ * Check if today is a valid business day for generating welcome messages
+ */
+async function isValidBusinessDay(supabase: any): Promise<{ isValid: boolean; reason?: string }> {
+  const today = new Date();
+  
+  if (isWeekend(today)) {
+    const dayName = today.getDay() === 0 ? 'domingo' : 'sábado';
+    return { isValid: false, reason: `Hoy es ${dayName} - los mensajes de bienvenida solo se generan en días hábiles` };
+  }
+  
+  const holiday = await checkColombianHoliday(supabase, today);
+  if (holiday.isHoliday) {
+    return { isValid: false, reason: `Hoy es festivo (${holiday.name}) - los mensajes de bienvenida solo se generan en días hábiles` };
+  }
+  
+  const suspension = await checkJudicialSuspension(supabase, today);
+  if (suspension.isSuspended) {
+    return { isValid: false, reason: `Términos judiciales suspendidos (${suspension.suspensionTitle}) - los mensajes de bienvenida no se generan durante suspensiones` };
+  }
+  
+  return { isValid: true };
+}
+
+// ============= Types =============
 
 interface UserActivitySummary {
   user_id: string;
@@ -65,6 +153,8 @@ interface ActuacionActivity {
   act_type: string | null;
 }
 
+// ============= AI Generation =============
+
 async function generateAIWelcomeMessage(
   summary: UserActivitySummary,
   lovableApiKey: string
@@ -76,9 +166,8 @@ async function generateAIWelcomeMessage(
     return `Buenos días, ${userName}. No hay nueva actividad en tus procesos judiciales en las últimas 24 horas.`;
   }
 
-  // Build context for AI
   const activityDetails = summary.work_items_with_activity
-    .slice(0, 10) // Limit to top 10 for context size
+    .slice(0, 10)
     .map(wi => {
       const parts: string[] = [];
       parts.push(`- Proceso: ${wi.radicado || wi.title || 'Sin identificar'} (${wi.workflow_type})`);
@@ -166,10 +255,11 @@ Instrucciones:
   } catch (err) {
     console.error('[daily-welcome] AI generation failed:', err);
     
-    // Fallback to static message
     return `Buenos días, ${userName}.\n\nEn las últimas 24 horas se registraron ${summary.new_estados_count} nuevos estados y ${summary.new_actuaciones_count} nuevas actuaciones en tus procesos judiciales.\n\nTe recomendamos revisar los detalles en la sección de alertas.\n\n¡Que tengas un día productivo!`;
   }
 }
+
+// ============= Main Handler =============
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -196,6 +286,38 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // ============= Check if single-user request (login trigger) =============
+    let singleUserId: string | null = null;
+    let skipBusinessDayCheck = false;
+    
+    if (req.method === 'POST') {
+      try {
+        const body = await req.json();
+        singleUserId = body.user_id || null;
+        skipBusinessDayCheck = body._skip_business_day_check === true;
+      } catch {
+        // No body or invalid JSON, continue with batch mode
+      }
+    }
+
+    // ============= Business Day Validation =============
+    if (!skipBusinessDayCheck) {
+      const businessDayCheck = await isValidBusinessDay(supabase);
+      if (!businessDayCheck.isValid) {
+        console.log(`[scheduled-daily-welcome] Skipping - not a business day: ${businessDayCheck.reason}`);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            run_id: runId,
+            skipped: true,
+            reason: businessDayCheck.reason,
+            duration_ms: Date.now() - startTime,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Calculate time window (last 24 hours)
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -204,10 +326,7 @@ Deno.serve(async (req) => {
     console.log(`[scheduled-daily-welcome] Scanning activity since ${yesterdayISO}`);
 
     // ============= GET USERS WITH RECENT ACTIVITY =============
-    // First, get unique users who have work items with new activity
-    
-    // Get new estados (publicaciones) from last 24 hours
-    const { data: recentEstados, error: estadosError } = await supabase
+    let estadosQuery = supabase
       .from('work_item_publicaciones')
       .select(`
         id,
@@ -234,12 +353,7 @@ Deno.serve(async (req) => {
       .order('created_at', { ascending: false })
       .limit(500);
 
-    if (estadosError) {
-      console.error('[scheduled-daily-welcome] Estados query error:', estadosError);
-    }
-
-    // Get new actuaciones from last 24 hours
-    const { data: recentActuaciones, error: actuacionesError } = await supabase
+    let actuacionesQuery = supabase
       .from('work_item_acts')
       .select(`
         id,
@@ -263,6 +377,21 @@ Deno.serve(async (req) => {
       .gte('created_at', yesterdayISO)
       .order('created_at', { ascending: false })
       .limit(500);
+
+    // Filter by single user if specified
+    if (singleUserId) {
+      estadosQuery = estadosQuery.eq('work_items.owner_id', singleUserId);
+      actuacionesQuery = actuacionesQuery.eq('work_items.owner_id', singleUserId);
+    }
+
+    const [{ data: recentEstados, error: estadosError }, { data: recentActuaciones, error: actuacionesError }] = await Promise.all([
+      estadosQuery,
+      actuacionesQuery
+    ]);
+
+    if (estadosError) {
+      console.error('[scheduled-daily-welcome] Estados query error:', estadosError);
+    }
 
     if (actuacionesError) {
       console.error('[scheduled-daily-welcome] Actuaciones query error:', actuacionesError);
@@ -293,7 +422,6 @@ Deno.serve(async (req) => {
       const userSummary = userActivityMap.get(userId)!;
       userSummary.new_estados_count++;
 
-      // Find or create work item entry
       let wiActivity = userSummary.work_items_with_activity.find(w => w.id === workItem.id);
       if (!wiActivity) {
         wiActivity = {
@@ -340,7 +468,6 @@ Deno.serve(async (req) => {
       const userSummary = userActivityMap.get(userId)!;
       userSummary.new_actuaciones_count++;
 
-      // Find or create work item entry
       let wiActivity = userSummary.work_items_with_activity.find(w => w.id === workItem.id);
       if (!wiActivity) {
         wiActivity = {
@@ -391,7 +518,6 @@ Deno.serve(async (req) => {
       perPage: 100,
     });
 
-    // Enrich user summaries
     for (const userId of userIds) {
       const summary = userActivityMap.get(userId);
       if (!summary) continue;
@@ -413,7 +539,6 @@ Deno.serve(async (req) => {
       const summary = userActivityMap.get(userId);
       if (!summary) continue;
 
-      // Rate limiting delay
       if (i > 0) {
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_USERS_MS));
       }
@@ -421,15 +546,13 @@ Deno.serve(async (req) => {
       try {
         console.log(`[scheduled-daily-welcome] Generating message for user ${userId} (${i + 1}/${userIds.length})`);
         
-        // Generate AI welcome message
         const welcomeMessage = await generateAIWelcomeMessage(summary, lovableApiKey);
         console.log(`[scheduled-daily-welcome] Generated message for ${userId}: ${welcomeMessage.slice(0, 100)}...`);
 
-        // Create alert
         const { error: alertError } = await supabase.from('alert_instances').insert({
           owner_id: summary.user_id,
           organization_id: summary.organization_id,
-          entity_id: summary.user_id, // User is the entity for daily summary
+          entity_id: summary.user_id,
           entity_type: 'USER',
           severity: 'INFO',
           title: '🌅 Resumen Diario de Actividad Judicial',
@@ -475,7 +598,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Check timeout (50 seconds to allow cleanup)
       if (Date.now() - startTime > 50000) {
         console.log('[scheduled-daily-welcome] Approaching timeout, stopping');
         break;
@@ -503,6 +625,7 @@ Deno.serve(async (req) => {
           total_estados_activity: (recentEstados || []).length,
           total_actuaciones_activity: (recentActuaciones || []).length,
           ai_model: AI_MODEL,
+          single_user: singleUserId || null,
         },
       });
     } catch (logErr) {
