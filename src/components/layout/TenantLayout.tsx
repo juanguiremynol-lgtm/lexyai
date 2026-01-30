@@ -9,6 +9,7 @@ import { TopBar } from "./TopBar";
 import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
 import { SubscriptionBanner } from "@/components/subscription/SubscriptionBanner";
+import { DailyWelcomeDialog } from "@/components/daily-welcome";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
@@ -55,6 +56,9 @@ export function TenantLayout() {
           </main>
         </SidebarInset>
       </div>
+      
+      {/* Daily Welcome Dialog - shows AI summary on business days */}
+      <DailyWelcomeDialog />
     </SidebarProvider>
   );
 }
