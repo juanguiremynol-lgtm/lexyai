@@ -21,9 +21,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Lovable AI configuration
-const LOVABLE_AI_BASE_URL = 'https://api.lovable.dev/v1';
-const AI_MODEL = 'google/gemini-2.5-flash'; // Fast, cost-effective for summaries
+// Lovable AI Gateway configuration
+const LOVABLE_AI_GATEWAY_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const AI_MODEL = 'google/gemini-3-flash-preview'; // Fast, recommended default for summaries
 
 // Rate limiting
 const MAX_USERS_PER_RUN = 50;
@@ -126,7 +126,7 @@ Instrucciones:
 8. NO uses markdown, solo texto plano con saltos de línea`;
 
   try {
-    const response = await fetch(`${LOVABLE_AI_BASE_URL}/chat/completions`, {
+    const response = await fetch(LOVABLE_AI_GATEWAY_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -423,6 +423,7 @@ Deno.serve(async (req) => {
         
         // Generate AI welcome message
         const welcomeMessage = await generateAIWelcomeMessage(summary, lovableApiKey);
+        console.log(`[scheduled-daily-welcome] Generated message for ${userId}: ${welcomeMessage.slice(0, 100)}...`);
 
         // Create alert
         const { error: alertError } = await supabase.from('alert_instances').insert({
@@ -430,7 +431,7 @@ Deno.serve(async (req) => {
           organization_id: summary.organization_id,
           entity_id: summary.user_id, // User is the entity for daily summary
           entity_type: 'USER',
-          severity: 'info',
+          severity: 'INFO',
           title: '🌅 Resumen Diario de Actividad Judicial',
           message: welcomeMessage,
           status: 'PENDING',
@@ -453,7 +454,8 @@ Deno.serve(async (req) => {
         });
 
         if (alertError) {
-          throw alertError;
+          console.error(`[scheduled-daily-welcome] Alert insert error for ${userId}:`, JSON.stringify(alertError));
+          throw new Error(`DB error: ${alertError.message || alertError.code || 'Unknown'}`);
         }
 
         successCount++;
@@ -461,12 +463,15 @@ Deno.serve(async (req) => {
         console.log(`[scheduled-daily-welcome] Created welcome alert for user ${userId}`);
 
       } catch (err) {
-        console.error(`[scheduled-daily-welcome] Error for user ${userId}:`, err);
+        const errorMsg = err instanceof Error 
+          ? err.message 
+          : (typeof err === 'object' && err !== null ? JSON.stringify(err) : 'Unknown error');
+        console.error(`[scheduled-daily-welcome] Error for user ${userId}:`, errorMsg);
         errorCount++;
         results.push({ 
           user_id: userId, 
           status: 'error', 
-          error: err instanceof Error ? err.message : 'Unknown error' 
+          error: errorMsg 
         });
       }
 
