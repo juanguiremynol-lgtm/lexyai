@@ -6139,8 +6139,90 @@ export type Database = {
           },
         ]
       }
+      work_item_stage_audit: {
+        Row: {
+          actor_user_id: string
+          change_source: string
+          created_at: string
+          id: string
+          ip_address: string | null
+          metadata: Json | null
+          new_cgp_phase: string | null
+          new_stage: string | null
+          organization_id: string
+          previous_cgp_phase: string | null
+          previous_stage: string | null
+          reason: string | null
+          suggestion_confidence: number | null
+          suggestion_id: string | null
+          user_agent: string | null
+          work_item_id: string
+        }
+        Insert: {
+          actor_user_id: string
+          change_source: string
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          new_cgp_phase?: string | null
+          new_stage?: string | null
+          organization_id: string
+          previous_cgp_phase?: string | null
+          previous_stage?: string | null
+          reason?: string | null
+          suggestion_confidence?: number | null
+          suggestion_id?: string | null
+          user_agent?: string | null
+          work_item_id: string
+        }
+        Update: {
+          actor_user_id?: string
+          change_source?: string
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json | null
+          new_cgp_phase?: string | null
+          new_stage?: string | null
+          organization_id?: string
+          previous_cgp_phase?: string | null
+          previous_stage?: string | null
+          reason?: string | null
+          suggestion_confidence?: number | null
+          suggestion_id?: string | null
+          user_agent?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_stage_audit_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_suggestion_id_fkey"
+            columns: ["suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_stage_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_stage_audit_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_stage_suggestions: {
         Row: {
+          applied_at: string | null
+          applied_by_user_id: string | null
+          audit_log_id: string | null
           confidence: number
           created_at: string
           event_fingerprint: string | null
@@ -6157,6 +6239,9 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          applied_at?: string | null
+          applied_by_user_id?: string | null
+          audit_log_id?: string | null
           confidence: number
           created_at?: string
           event_fingerprint?: string | null
@@ -6173,6 +6258,9 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          applied_at?: string | null
+          applied_by_user_id?: string | null
+          audit_log_id?: string | null
           confidence?: number
           created_at?: string
           event_fingerprint?: string | null
@@ -6256,9 +6344,14 @@ export type Database = {
           last_crawled_at: string | null
           last_event_at: string | null
           last_event_summary: string | null
+          last_inference_date: string | null
           last_phase_change_at: string | null
           last_scrape_at: string | null
           last_scrape_initiated_at: string | null
+          last_stage_change_at: string | null
+          last_stage_change_by_user_id: string | null
+          last_stage_change_source: string | null
+          last_stage_suggestion_id: string | null
           last_synced_at: string | null
           latest_estado_at: string | null
           latest_estado_fingerprint: string | null
@@ -6358,9 +6451,14 @@ export type Database = {
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_event_summary?: string | null
+          last_inference_date?: string | null
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_id?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -6460,9 +6558,14 @@ export type Database = {
           last_crawled_at?: string | null
           last_event_at?: string | null
           last_event_summary?: string | null
+          last_inference_date?: string | null
           last_phase_change_at?: string | null
           last_scrape_at?: string | null
           last_scrape_initiated_at?: string | null
+          last_stage_change_at?: string | null
+          last_stage_change_by_user_id?: string | null
+          last_stage_change_source?: string | null
+          last_stage_suggestion_id?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -6590,6 +6693,10 @@ export type Database = {
         }
         Returns: Json
       }
+      check_inference_rate_limit: {
+        Args: { p_timezone?: string; p_work_item_id: string }
+        Returns: Json
+      }
       get_login_sync_status: {
         Args: {
           p_max_per_day?: number
@@ -6646,6 +6753,10 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      record_inference_run: {
+        Args: { p_timezone?: string; p_work_item_id: string }
+        Returns: boolean
+      }
       resolve_work_item_id: {
         Args: {
           p_legacy_filing_id?: string
@@ -6853,6 +6964,11 @@ export type Database = {
         | "SUCCESS"
         | "FAILED"
         | "PARTIAL_SUCCESS"
+      stage_change_source:
+        | "MANUAL_USER"
+        | "SUGGESTION_APPLIED"
+        | "SUGGESTION_OVERRIDE"
+        | "IMPORT_INITIAL"
       task_status: "OPEN" | "DONE" | "SNOOZED"
       task_type:
         | "FOLLOW_UP_REPARTO"
@@ -7193,6 +7309,12 @@ export const Constants = {
         "SUCCESS",
         "FAILED",
         "PARTIAL_SUCCESS",
+      ],
+      stage_change_source: [
+        "MANUAL_USER",
+        "SUGGESTION_APPLIED",
+        "SUGGESTION_OVERRIDE",
+        "IMPORT_INITIAL",
       ],
       task_status: ["OPEN", "DONE", "SNOOZED"],
       task_type: [

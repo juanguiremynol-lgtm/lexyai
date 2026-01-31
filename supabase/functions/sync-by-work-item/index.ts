@@ -2055,7 +2055,7 @@ Deno.serve(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url')
+      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -2928,51 +2928,69 @@ Deno.serve(async (req) => {
           }
         }
         
-        // ============= STAGE INFERENCE =============
-        const stageSuggestion = inferStageFromActuacion(
-          workItem.workflow_type,
-          act.actuacion,
-          act.anotacion || ''
-        );
+        // ============= STAGE INFERENCE (with daily rate limiting) =============
+        // CRITICAL: Never auto-apply stages. All suggestions require explicit user approval.
         
-        if (stageSuggestion && stageSuggestion.confidence >= 0.7) {
-          const suggestionFingerprint = `stage_${work_item_id.slice(0, 8)}_${stageSuggestion.suggestedStage}`;
+        // Check if inference is enabled for this work item
+        if (workItem.stage_inference_enabled === false) {
+          console.log(`[sync-by-work-item] Stage inference disabled for work item ${work_item_id}`);
+        } else {
+          // Check daily rate limit (once per work item per day)
+          const { data: rateLimitCheck } = await supabase
+            .rpc('check_inference_rate_limit', { 
+              p_work_item_id: work_item_id,
+              p_timezone: 'America/Bogota'
+            });
           
-          // Check for existing pending suggestion
-          const { data: existingSuggestion } = await supabase
-            .from('work_item_stage_suggestions')
-            .select('id')
-            .eq('work_item_id', work_item_id)
-            .eq('status', 'PENDING')
-            .maybeSingle();
+          const canRunInference = rateLimitCheck?.can_run === true;
           
-          if (!existingSuggestion) {
-            const { error: suggestionError } = await supabase
-              .from('work_item_stage_suggestions')
-              .insert({
-                work_item_id,
-                owner_id: workItem.owner_id,
-                organization_id: workItem.organization_id,
-                suggested_stage: stageSuggestion.suggestedStage,
-                confidence: stageSuggestion.confidence,
-                reason: stageSuggestion.reason,
-                source_type: 'ACTUACION', // Must be: ESTADO, ACTUACION, PUBLICACION, TUTELA_EXPEDIENTE
-                event_fingerprint: suggestionFingerprint,
-                status: stageSuggestion.confidence >= 0.8 ? 'APPLIED' : 'PENDING', // Must be: PENDING, APPLIED, DISMISSED
-              });
+          if (!canRunInference) {
+            console.log(`[sync-by-work-item] Inference rate limit reached for work item ${work_item_id} (last run: ${rateLimitCheck?.last_run_date})`);
+          } else {
+            const stageSuggestion = inferStageFromActuacion(
+              workItem.workflow_type,
+              act.actuacion,
+              act.anotacion || ''
+            );
             
-            if (suggestionError) {
-              console.warn(`[sync-by-work-item] Failed to create stage suggestion:`, suggestionError.message);
-            } else {
-              console.log(`[sync-by-work-item] Created stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence})`);
+            if (stageSuggestion && stageSuggestion.confidence >= 0.7) {
+              const suggestionFingerprint = `stage_${work_item_id.slice(0, 8)}_${stageSuggestion.suggestedStage}_${new Date().toISOString().split('T')[0]}`;
               
-              // Auto-apply high confidence suggestions
-              if (stageSuggestion.confidence >= 0.8) {
-                await supabase
-                  .from('work_items')
-                  .update({ stage: stageSuggestion.suggestedStage })
-                  .eq('id', work_item_id);
-                console.log(`[sync-by-work-item] Auto-applied stage: ${stageSuggestion.suggestedStage}`);
+              // Check for existing pending suggestion
+              const { data: existingSuggestion } = await supabase
+                .from('work_item_stage_suggestions')
+                .select('id')
+                .eq('work_item_id', work_item_id)
+                .eq('status', 'PENDING')
+                .maybeSingle();
+              
+              if (!existingSuggestion) {
+                // ALL suggestions are created as PENDING - never auto-apply
+                const { error: suggestionError } = await supabase
+                  .from('work_item_stage_suggestions')
+                  .insert({
+                    work_item_id,
+                    owner_id: workItem.owner_id,
+                    organization_id: workItem.organization_id,
+                    suggested_stage: stageSuggestion.suggestedStage,
+                    confidence: stageSuggestion.confidence,
+                    reason: stageSuggestion.reason,
+                    source_type: 'ACTUACION',
+                    event_fingerprint: suggestionFingerprint,
+                    status: 'PENDING', // ALWAYS PENDING - requires explicit user approval
+                  });
+                
+                if (suggestionError) {
+                  console.warn(`[sync-by-work-item] Failed to create stage suggestion:`, suggestionError.message);
+                } else {
+                  console.log(`[sync-by-work-item] Created PENDING stage suggestion: ${stageSuggestion.suggestedStage} (confidence: ${stageSuggestion.confidence}) - requires user approval`);
+                  
+                  // Record inference run to enforce daily rate limit
+                  await supabase.rpc('record_inference_run', {
+                    p_work_item_id: work_item_id,
+                    p_timezone: 'America/Bogota'
+                  });
+                }
               }
             }
           }

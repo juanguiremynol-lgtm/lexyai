@@ -3,12 +3,19 @@
  * 
  * Fetches pending suggestions from work_item_stage_suggestions table
  * and provides actions to apply, dismiss, or override suggestions.
+ * 
+ * All stage changes are logged to work_item_stage_audit for compliance.
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { WorkflowType, CGPPhase } from "@/lib/workflow-constants";
+import { 
+  createStageChangeAudit, 
+  updateWorkItemWithAudit,
+  type StageChangeSource 
+} from "@/lib/stage-audit";
 
 export interface StageSuggestionRecord {
   id: string;
@@ -55,7 +62,23 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
     staleTime: 30_000, // 30 seconds
   });
 
-  // Apply suggestion mutation
+  // Fetch current work item for audit context
+  const fetchWorkItemContext = async (wiId: string) => {
+    const { data } = await supabase
+      .from("work_items")
+      .select("stage, cgp_phase, organization_id, owner_id")
+      .eq("id", wiId)
+      .single();
+    return data;
+  };
+
+  // Get current user
+  const getCurrentUserId = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user?.id;
+  };
+
+  // Apply suggestion mutation with audit logging
   const applyMutation = useMutation({
     mutationFn: async (params: {
       suggestionId: string;
@@ -64,6 +87,12 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
       suggestedCgpPhase: string | null;
       suggestedPipelineStage: string | null;
     }) => {
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error("Usuario no autenticado");
+
+      const workItemContext = await fetchWorkItemContext(params.workItemId);
+      if (!workItemContext) throw new Error("Work item no encontrado");
+
       // Start transaction-like operations
       const updates: Record<string, unknown> = {};
       
@@ -77,23 +106,51 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
         updates.pipeline_stage = parseInt(params.suggestedPipelineStage, 10);
       }
 
-      // Update work item
+      // Update work item with audit tracking
       if (Object.keys(updates).length > 0) {
-        const { error: workItemError } = await supabase
-          .from("work_items")
-          .update(updates)
-          .eq("id", params.workItemId);
+        const updateResult = await updateWorkItemWithAudit({
+          workItemId: params.workItemId,
+          newStage: params.suggestedStage || workItemContext.stage,
+          newCgpPhase: params.suggestedCgpPhase as CGPPhase | null,
+          changeSource: 'SUGGESTION_APPLIED',
+          suggestionId: params.suggestionId,
+          actorUserId: userId,
+        });
 
-        if (workItemError) throw workItemError;
+        if (!updateResult.success) throw new Error(updateResult.error);
       }
 
-      // Mark suggestion as applied
+      // Mark suggestion as applied with user info
       const { error: suggestionError } = await supabase
         .from("work_item_stage_suggestions")
-        .update({ status: "APPLIED", updated_at: new Date().toISOString() })
+        .update({ 
+          status: "APPLIED", 
+          updated_at: new Date().toISOString(),
+          applied_by_user_id: userId,
+          applied_at: new Date().toISOString(),
+        })
         .eq("id", params.suggestionId);
 
       if (suggestionError) throw suggestionError;
+
+      // Create compliance audit record
+      await createStageChangeAudit({
+        workItemId: params.workItemId,
+        organizationId: workItemContext.organization_id,
+        actorUserId: userId,
+        previousStage: workItemContext.stage,
+        previousCgpPhase: workItemContext.cgp_phase,
+        newStage: params.suggestedStage || workItemContext.stage,
+        newCgpPhase: params.suggestedCgpPhase,
+        changeSource: 'SUGGESTION_APPLIED',
+        suggestionId: params.suggestionId,
+        suggestionConfidence: suggestion?.confidence,
+        reason: `Sugerencia aceptada: ${suggestion?.reason || 'Sin razón especificada'}`,
+        metadata: {
+          source_type: suggestion?.source_type,
+          event_fingerprint: suggestion?.event_fingerprint,
+        },
+      });
 
       return params;
     },
@@ -108,7 +165,7 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
     },
   });
 
-  // Dismiss suggestion mutation
+  // Dismiss suggestion mutation (no stage change, just dismissal)
   const dismissMutation = useMutation({
     mutationFn: async (suggestionId: string) => {
       const { error } = await supabase
@@ -128,7 +185,7 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
     },
   });
 
-  // Manual override mutation
+  // Manual override mutation with audit logging
   const overrideMutation = useMutation({
     mutationFn: async (params: {
       workItemId: string;
@@ -136,17 +193,28 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
       newCgpPhase?: CGPPhase | null;
       suggestionId?: string;
     }) => {
-      const updates: Record<string, unknown> = { stage: params.newStage };
-      if (params.newCgpPhase) {
-        updates.cgp_phase = params.newCgpPhase;
-      }
+      const userId = await getCurrentUserId();
+      if (!userId) throw new Error("Usuario no autenticado");
 
-      const { error: workItemError } = await supabase
-        .from("work_items")
-        .update(updates)
-        .eq("id", params.workItemId);
+      const workItemContext = await fetchWorkItemContext(params.workItemId);
+      if (!workItemContext) throw new Error("Work item no encontrado");
 
-      if (workItemError) throw workItemError;
+      // Determine if this is a suggestion override or manual user action
+      const changeSource: StageChangeSource = params.suggestionId 
+        ? 'SUGGESTION_OVERRIDE' 
+        : 'MANUAL_USER';
+
+      // Update work item with audit tracking
+      const updateResult = await updateWorkItemWithAudit({
+        workItemId: params.workItemId,
+        newStage: params.newStage,
+        newCgpPhase: params.newCgpPhase || null,
+        changeSource,
+        suggestionId: params.suggestionId,
+        actorUserId: userId,
+      });
+
+      if (!updateResult.success) throw new Error(updateResult.error);
 
       // If there was a pending suggestion, dismiss it
       if (params.suggestionId) {
@@ -155,6 +223,27 @@ export function useStageSuggestion({ workItemId, enabled = true }: UseStageSugge
           .update({ status: "DISMISSED", updated_at: new Date().toISOString() })
           .eq("id", params.suggestionId);
       }
+
+      // Create compliance audit record
+      await createStageChangeAudit({
+        workItemId: params.workItemId,
+        organizationId: workItemContext.organization_id,
+        actorUserId: userId,
+        previousStage: workItemContext.stage,
+        previousCgpPhase: workItemContext.cgp_phase,
+        newStage: params.newStage,
+        newCgpPhase: params.newCgpPhase || null,
+        changeSource,
+        suggestionId: params.suggestionId,
+        suggestionConfidence: suggestion?.confidence,
+        reason: changeSource === 'SUGGESTION_OVERRIDE' 
+          ? `Usuario seleccionó etapa diferente a la sugerida (${suggestion?.suggested_stage})`
+          : 'Cambio manual por usuario',
+        metadata: {
+          suggested_stage: suggestion?.suggested_stage,
+          source_type: suggestion?.source_type,
+        },
+      });
 
       return params;
     },
