@@ -135,8 +135,8 @@ export function ActsTab({ workItem }: ActsTabProps) {
             <Scale className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="font-semibold mb-2">No se encontraron actuaciones para este proceso</h3>
             <p className="text-muted-foreground text-sm">
-              Las actuaciones aparecerán aquí cuando se sincronicen desde la
-              Rama Judicial (CPNU/SAMAI) usando el botón "Actualizar ahora".
+              Las actuaciones se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM
+              desde la Rama Judicial (CPNU/SAMAI).
             </p>
           </div>
         </CardContent>

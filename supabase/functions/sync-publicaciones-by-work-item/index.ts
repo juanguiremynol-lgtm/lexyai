@@ -213,14 +213,21 @@ function extractDateFromTitle(title: string): string | undefined {
  * NEW FLOW:
  * 1. Call /buscar to trigger scraping job
  * 2. Poll /resultado/{job_id} every 5s for up to 60s
- * 3. Return results when job completes
+ * 3. If polling times out, try fallback direct query: GET /publicaciones?radicado=XXX
+ * 4. Return results when job completes or fallback succeeds
  * 
  * This eliminates infinite loops and returns results immediately.
  */
 async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  const apiKey = Deno.env.get('EXTERNAL_X_API_KEY');
+  // Support provider-specific key with fallback
+  const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
+
+  console.log(`[sync-publicaciones] === STARTING FETCH ===`);
+  console.log(`[sync-publicaciones] Radicado: ${radicado}`);
+  console.log(`[sync-publicaciones] Base URL configured: ${!!baseUrl}`);
+  console.log(`[sync-publicaciones] API Key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
 
   if (!baseUrl) {
     console.log('[sync-publicaciones] PUBLICACIONES_BASE_URL not configured');
@@ -233,7 +240,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
   }
 
   if (!apiKey) {
-    console.log('[sync-publicaciones] EXTERNAL_X_API_KEY not configured');
+    console.log('[sync-publicaciones] API key not configured (PUBLICACIONES_X_API_KEY or EXTERNAL_X_API_KEY)');
     return {
       ok: false,
       publicaciones: [],
@@ -248,15 +255,21 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
     'x-api-key': apiKey,
   };
 
+  const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+  let lastResultData: Record<string, unknown> | null = null;
+
   try {
     // Step 1: Trigger scraping job via /buscar
-    const buscarUrl = `${baseUrl.replace(/\/+$/, '')}/buscar?radicado=${radicado}`;
-    console.log(`[sync-publicaciones] Triggering scraping: ${buscarUrl}`);
+    const buscarUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}`;
+    console.log(`[sync-publicaciones] Step 1: Triggering scraping job`);
+    console.log(`[sync-publicaciones] Calling: ${buscarUrl}`);
 
     const buscarResponse = await fetch(buscarUrl, {
       method: 'GET',
       headers,
     });
+
+    console.log(`[sync-publicaciones] /buscar response status: ${buscarResponse.status}`);
 
     if (!buscarResponse.ok) {
       const errorText = await buscarResponse.text();
@@ -271,6 +284,8 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
     }
 
     const buscarData = await buscarResponse.json();
+    console.log(`[sync-publicaciones] /buscar response body:`, JSON.stringify(buscarData).substring(0, 500));
+    
     const jobId = buscarData.job_id || buscarData.jobId;
 
     if (!jobId) {
@@ -283,10 +298,10 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       };
     }
 
-    console.log(`[sync-publicaciones] Scraping job created: ${jobId}, polling for results...`);
+    console.log(`[sync-publicaciones] Step 2: Scraping job created: ${jobId}, polling for results...`);
 
     // Step 2: Poll /resultado/{job_id} for completion
-    const resultadoUrl = `${baseUrl.replace(/\/+$/, '')}/resultado/${jobId}`;
+    const resultadoUrl = `${cleanBaseUrl}/resultado/${jobId}`;
     const maxAttempts = 12; // 12 attempts x 5 seconds = 60 seconds max
     const pollIntervalMs = 5000; // 5 seconds between polls
 
@@ -296,88 +311,36 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
         await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
       }
 
-      console.log(`[sync-publicaciones] Polling attempt ${attempt}/${maxAttempts}: ${resultadoUrl}`);
+      console.log(`[sync-publicaciones] Poll ${attempt}/${maxAttempts}: ${resultadoUrl}`);
 
       const resultResponse = await fetch(resultadoUrl, {
         method: 'GET',
         headers,
       });
 
+      console.log(`[sync-publicaciones] Poll ${attempt}: HTTP ${resultResponse.status}`);
+
       if (!resultResponse.ok) {
-        console.log(`[sync-publicaciones] Poll ${attempt}: HTTP ${resultResponse.status}`);
-        // Continue polling even on error - job might still be processing
+        console.log(`[sync-publicaciones] Poll ${attempt}: HTTP error ${resultResponse.status}, continuing...`);
         continue;
       }
 
       const data = await resultResponse.json();
+      lastResultData = data;
       const status = data.status;
 
-      console.log(`[sync-publicaciones] Poll ${attempt}: Job status = ${status}`);
+      console.log(`[sync-publicaciones] Poll ${attempt}: status="${status}", keys=${Object.keys(data).join(',')}`);
 
       // Job still processing
-      if (status === 'queued' || status === 'processing' || status === 'running') {
+      if (status === 'queued' || status === 'processing' || status === 'running' || status === 'pending') {
         console.log(`[sync-publicaciones] Job still ${status}, waiting...`);
         continue;
       }
 
-      // Job completed successfully
-      if (status === 'done' || status === 'completed') {
+      // Job completed successfully - accept multiple success status values
+      if (status === 'done' || status === 'completed' || status === 'success' || status === 'finished') {
         console.log('[sync-publicaciones] Job completed! Extracting results...');
-        console.log(`[sync-publicaciones] Raw response:`, JSON.stringify(data).substring(0, 500));
-
-        const result = data.result || data;
-        const publicaciones = result.results || result.publicaciones || result.estados || [];
-
-        if (publicaciones.length === 0) {
-          console.log('[sync-publicaciones] No publications found in completed job');
-          return {
-            ok: false,
-            publicaciones: [],
-            error: 'No publications found',
-            isEmpty: true,
-            latencyMs: Date.now() - startTime,
-            httpStatus: 200,
-          };
-        }
-
-        console.log(`[sync-publicaciones] Found ${publicaciones.length} publications`);
-
-        // Log sample for debugging
-        if (publicaciones.length > 0) {
-          const sample = publicaciones[0];
-          console.log('[sync-publicaciones] Sample publication:', JSON.stringify(sample, null, 2));
-        }
-
-        // Map to internal structure
-        return {
-          ok: true,
-          publicaciones: publicaciones.map((pub: Record<string, unknown>) => {
-            // Extract date from title if not provided
-            let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
-            if (!publishedAt && pub.title) {
-              publishedAt = extractDateFromTitle(String(pub.title));
-            }
-
-            return {
-              title: String(pub.title || pub.titulo || 'Sin título'),
-              annotation: pub.annotation || pub.anotacion || pub.detalle
-                ? String(pub.annotation || pub.anotacion || pub.detalle)
-                : undefined,
-              pdf_url: pub.pdf_url ? String(pub.pdf_url) : undefined,
-              entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
-              pdf_available: Boolean(pub.pdf_available ?? true),
-              published_at: publishedAt ? String(publishedAt) : undefined,
-              fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
-              fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
-              despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
-              tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
-              source_id: pub.id ? String(pub.id) : undefined,
-              raw: pub as Record<string, unknown>,
-            };
-          }),
-          latencyMs: Date.now() - startTime,
-          httpStatus: 200,
-        };
+        return extractPublicacionesFromResponse(data, startTime);
       }
 
       // Job failed
@@ -393,12 +356,27 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       }
     }
 
-    // Polling timeout
-    console.error(`[sync-publicaciones] Polling timeout after ${maxAttempts * pollIntervalMs / 1000} seconds`);
+    // Polling timeout - try FALLBACK DIRECT QUERY
+    console.log(`[sync-publicaciones] === POLLING TIMEOUT after ${maxAttempts * pollIntervalMs / 1000}s ===`);
+    console.log(`[sync-publicaciones] Last response was:`, JSON.stringify(lastResultData).substring(0, 500));
+    console.log(`[sync-publicaciones] Step 3: Trying fallback direct endpoint...`);
+
+    const fallbackResult = await fetchPublicacionesFallback(radicado, apiKey, cleanBaseUrl);
+    if (fallbackResult) {
+      console.log(`[sync-publicaciones] Fallback succeeded! Found ${fallbackResult.length} publications`);
+      return {
+        ok: true,
+        publicaciones: fallbackResult,
+        latencyMs: Date.now() - startTime,
+        httpStatus: 200,
+      };
+    }
+
+    console.error(`[sync-publicaciones] Fallback also failed. Returning timeout error.`);
     return {
       ok: false,
       publicaciones: [],
-      error: `Scraping timeout - job did not complete within ${maxAttempts * pollIntervalMs / 1000} seconds`,
+      error: `Scraping timeout - job did not complete within ${maxAttempts * pollIntervalMs / 1000} seconds and fallback failed`,
       latencyMs: Date.now() - startTime,
     };
 
@@ -412,6 +390,130 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       httpStatus: 0,
     };
   }
+}
+
+/**
+ * FALLBACK: Try direct /publicaciones?radicado=XXX endpoint
+ * Some Cloud Run services support a synchronous query endpoint
+ */
+async function fetchPublicacionesFallback(
+  radicado: string,
+  apiKey: string,
+  baseUrl: string
+): Promise<PublicacionRaw[] | null> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'x-api-key': apiKey,
+  };
+
+  try {
+    // Try GET /publicaciones?radicado=XXX (synchronous query, no job needed)
+    const directUrl = `${baseUrl}/publicaciones?radicado=${radicado}`;
+    console.log(`[sync-publicaciones] Fallback: Calling ${directUrl}`);
+
+    const response = await fetch(directUrl, {
+      method: 'GET',
+      headers,
+    });
+
+    console.log(`[sync-publicaciones] Fallback response: HTTP ${response.status}`);
+
+    if (!response.ok) {
+      console.log(`[sync-publicaciones] Fallback endpoint returned ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log(`[sync-publicaciones] Fallback response body:`, JSON.stringify(data).substring(0, 500));
+
+    // Check if this endpoint returns results directly
+    const results = data.results || data.publicaciones || data.estados || data.data;
+    if (results && Array.isArray(results) && results.length > 0) {
+      console.log(`[sync-publicaciones] Fallback found ${results.length} publications!`);
+      return mapRawPublicaciones(results);
+    }
+
+    // Maybe the response IS the array
+    if (Array.isArray(data) && data.length > 0) {
+      console.log(`[sync-publicaciones] Fallback response is array with ${data.length} items`);
+      return mapRawPublicaciones(data);
+    }
+
+    console.log(`[sync-publicaciones] Fallback: No publications in response`);
+    return null;
+
+  } catch (err) {
+    console.error('[sync-publicaciones] Fallback error:', err);
+    return null;
+  }
+}
+
+/**
+ * Map raw API response to PublicacionRaw format
+ */
+function mapRawPublicaciones(results: Record<string, unknown>[]): PublicacionRaw[] {
+  return results.map((pub: Record<string, unknown>) => {
+    // Extract date from title if not provided
+    let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
+    if (!publishedAt && pub.title) {
+      publishedAt = extractDateFromTitle(String(pub.title));
+    }
+
+    return {
+      title: String(pub.title || pub.titulo || 'Sin título'),
+      annotation: pub.annotation || pub.anotacion || pub.detalle
+        ? String(pub.annotation || pub.anotacion || pub.detalle)
+        : undefined,
+      pdf_url: pub.pdf_url ? String(pub.pdf_url) : undefined,
+      entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
+      pdf_available: Boolean(pub.pdf_available ?? true),
+      published_at: publishedAt ? String(publishedAt) : undefined,
+      fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
+      fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
+      despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
+      tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
+      source_id: pub.id ? String(pub.id) : undefined,
+      raw: pub as Record<string, unknown>,
+    };
+  });
+}
+
+/**
+ * Extract publications from polling response data
+ */
+function extractPublicacionesFromResponse(data: Record<string, unknown>, startTime: number): FetchPublicacionesResult {
+  console.log(`[sync-publicaciones] Raw response:`, JSON.stringify(data).substring(0, 500));
+
+  const result = (data.result || data) as Record<string, unknown>;
+  const publicaciones = (result.results || result.publicaciones || result.estados || []) as Record<string, unknown>[];
+
+  if (publicaciones.length === 0) {
+    console.log('[sync-publicaciones] No publications found in completed job');
+    return {
+      ok: false,
+      publicaciones: [],
+      error: 'No publications found',
+      isEmpty: true,
+      latencyMs: Date.now() - startTime,
+      httpStatus: 200,
+    };
+  }
+
+  console.log(`[sync-publicaciones] Found ${publicaciones.length} publications`);
+
+  // Log sample for debugging
+  if (publicaciones.length > 0) {
+    const sample = publicaciones[0];
+    console.log('[sync-publicaciones] Sample publication:', JSON.stringify(sample, null, 2));
+  }
+
+  return {
+    ok: true,
+    publicaciones: mapRawPublicaciones(publicaciones),
+    latencyMs: Date.now() - startTime,
+    httpStatus: 200,
+  };
 }
 
 // Helper to extract date strings from multiple possible field names

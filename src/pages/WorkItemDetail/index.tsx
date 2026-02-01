@@ -44,8 +44,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { ClientRequiredBadge } from "@/components/shared/ClientRequiredBadge";
-import { SyncWorkItemButton } from "@/components/work-items/SyncWorkItemButton";
-import { SyncDebugDrawer } from "@/components/work-items/SyncDebugDrawer";
+// REMOVED: SyncWorkItemButton - sync happens automatically on login and via daily cron
+// import { SyncWorkItemButton } from "@/components/work-items/SyncWorkItemButton";
+// REMOVED: SyncDebugDrawer - keeping for platform admin use only
+// import { SyncDebugDrawer } from "@/components/work-items/SyncDebugDrawer";
 import { StageSuggestionBannerDB } from "@/components/work-items/StageSuggestionBannerDB";
 import { ScrapingStatusBanner } from "@/components/work-items/ScrapingStatusBanner";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
@@ -135,7 +137,8 @@ export default function WorkItemDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [lastTraceId, setLastTraceId] = useState<string | null>(null);
+  // REMOVED: lastTraceId state no longer needed without SyncDebugDrawer
+  // const [lastTraceId, setLastTraceId] = useState<string | null>(null);
   
   // Get initial tab from URL or default to overview
   const initialTab = (searchParams.get("tab") as TabValue) || "overview";
@@ -582,13 +585,8 @@ export default function WorkItemDetail() {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Sync button - for judicial workflows */}
-          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
-            <>
-              <SyncWorkItemButton workItem={workItem} onTraceIdGenerated={setLastTraceId} />
-              <SyncDebugDrawer workItemId={workItem.id} lastTraceId={lastTraceId} />
-            </>
-          )}
+          {/* REMOVED: Manual sync button - syncing now happens automatically on login and via daily cron */}
+          {/* The useLoginSync hook triggers both sync-by-work-item and sync-publicaciones-by-work-item */}
           
           {workItem.expediente_url && (
             <Button variant="outline" size="sm" asChild>
