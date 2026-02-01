@@ -1,7 +1,10 @@
 /**
- * Acts Tab - Shows actuaciones for the work item with ALL available fields
+ * Acts Tab - Shows actuaciones for the work item from work_item_acts table
  * Displays complete information as received from CPNU/SAMAI APIs
  * Includes parties info (demandantes/demandados) and sorting with fallbacks
+ * 
+ * CRITICAL: This tab reads ONLY from work_item_acts table (canonical)
+ * NOT from legacy 'actuaciones' table
  */
 
 import { useState } from "react";
@@ -21,7 +24,7 @@ import {
 import { Scale, Search, Filter, Users, Building2 } from "lucide-react";
 
 import type { WorkItem } from "@/types/work-item";
-import { ActuacionCard, type Actuacion } from "./ActuacionCard";
+import { WorkItemActCard, type WorkItemAct } from "./WorkItemActCard";
 
 interface ActsTabProps {
   workItem: WorkItem & { _source?: string };
@@ -30,27 +33,28 @@ interface ActsTabProps {
 export function ActsTab({ workItem }: ActsTabProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
-  const [filterEstado, setFilterEstado] = useState<string>("all");
+  const [filterSource, setFilterSource] = useState<string>("all");
 
+  // CANONICAL QUERY: Fetch from work_item_acts table ONLY
   const { data: acts, isLoading } = useQuery({
     queryKey: ["work-item-actuaciones", workItem.id],
     queryFn: async () => {
-      console.log("[ActsTab] Fetching actuaciones for work_item:", workItem.id);
+      console.log("[ActsTab] Fetching actuaciones from work_item_acts for work_item:", workItem.id);
 
       const { data: actuaciones, error } = await supabase
-        .from("actuaciones")
+        .from("work_item_acts")
         .select("*")
         .eq("work_item_id", workItem.id)
         .order("act_date", { ascending: false, nullsFirst: false });
 
       if (error) {
-        console.error("[ActsTab] Error fetching actuaciones:", error);
+        console.error("[ActsTab] Error fetching work_item_acts:", error);
         throw error;
       }
 
       console.log("[ActsTab] Fetched actuaciones:", actuaciones?.length);
       
-      // Sort with fallback: act_date DESC, then fecha_registro DESC, then indice DESC, then created_at DESC
+      // Sort with fallback: act_date DESC, then event_date DESC, then created_at DESC
       const sortedActuaciones = (actuaciones || []).sort((a, b) => {
         // Try act_date first
         if (a.act_date && b.act_date) {
@@ -59,25 +63,18 @@ export function ActsTab({ workItem }: ActsTabProps) {
         if (a.act_date && !b.act_date) return -1;
         if (!a.act_date && b.act_date) return 1;
         
-        // Fallback to fecha_registro
-        if (a.fecha_registro && b.fecha_registro) {
-          return new Date(b.fecha_registro).getTime() - new Date(a.fecha_registro).getTime();
+        // Fallback to event_date
+        if (a.event_date && b.event_date) {
+          return new Date(b.event_date).getTime() - new Date(a.event_date).getTime();
         }
-        if (a.fecha_registro && !b.fecha_registro) return -1;
-        if (!a.fecha_registro && b.fecha_registro) return 1;
-        
-        // Fallback to indice (consActuacion)
-        if (a.indice && b.indice) {
-          return parseInt(b.indice) - parseInt(a.indice);
-        }
-        if (a.indice && !b.indice) return -1;
-        if (!a.indice && b.indice) return 1;
+        if (a.event_date && !b.event_date) return -1;
+        if (!a.event_date && b.event_date) return 1;
         
         // Final fallback to created_at
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
       
-      return sortedActuaciones as Actuacion[];
+      return sortedActuaciones as WorkItemAct[];
     },
     enabled: !!workItem.id,
     staleTime: 30000,
@@ -87,29 +84,29 @@ export function ActsTab({ workItem }: ActsTabProps) {
   // Get unique types for filter dropdown
   const uniqueTypes = [
     ...new Set(
-      acts?.map((a) => a.act_type_guess).filter(Boolean) as string[]
+      acts?.map((a) => a.act_type).filter(Boolean) as string[]
     ),
   ];
 
-  // Get unique estados for filter dropdown
-  const uniqueEstados = [
-    ...new Set(acts?.map((a) => a.estado).filter(Boolean) as string[]),
+  // Get unique sources for filter dropdown
+  const uniqueSources = [
+    ...new Set(acts?.map((a) => a.source_platform).filter(Boolean) as string[]),
   ];
 
   // Filter actuaciones
   const filteredActs = acts?.filter((act) => {
     const matchesSearch =
       !searchTerm ||
-      act.raw_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      act.normalized_text?.toLowerCase().includes(searchTerm.toLowerCase());
+      act.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      act.event_summary?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesType =
-      filterType === "all" || act.act_type_guess === filterType;
+      filterType === "all" || act.act_type === filterType;
 
-    const matchesEstado =
-      filterEstado === "all" || act.estado === filterEstado;
+    const matchesSource =
+      filterSource === "all" || act.source_platform === filterSource;
 
-    return matchesSearch && matchesType && matchesEstado;
+    return matchesSearch && matchesType && matchesSource;
   });
 
   if (isLoading) {
@@ -139,7 +136,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
             <h3 className="font-semibold mb-2">No se encontraron actuaciones para este proceso</h3>
             <p className="text-muted-foreground text-sm">
               Las actuaciones aparecerán aquí cuando se sincronicen desde la
-              Rama Judicial o se registren manualmente.
+              Rama Judicial (CPNU/SAMAI) usando el botón "Actualizar ahora".
             </p>
           </div>
         </CardContent>
@@ -226,17 +223,17 @@ export function ActsTab({ workItem }: ActsTabProps) {
                 </Select>
               )}
 
-              {/* Estado filter */}
-              {uniqueEstados.length > 0 && (
-                <Select value={filterEstado} onValueChange={setFilterEstado}>
+              {/* Source filter */}
+              {uniqueSources.length > 0 && (
+                <Select value={filterSource} onValueChange={setFilterSource}>
                   <SelectTrigger className="w-[140px] h-8 text-sm">
-                    <SelectValue placeholder="Estado" />
+                    <SelectValue placeholder="Fuente" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos los estados</SelectItem>
-                    {uniqueEstados.map((estado) => (
-                      <SelectItem key={estado} value={estado}>
-                        {estado}
+                    <SelectItem value="all">Todas las fuentes</SelectItem>
+                    {uniqueSources.map((source) => (
+                      <SelectItem key={source} value={source}>
+                        {source}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -248,7 +245,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
       </Card>
 
       {/* Filtered results count */}
-      {(searchTerm || filterType !== "all" || filterEstado !== "all") && (
+      {(searchTerm || filterType !== "all" || filterSource !== "all") && (
         <div className="text-sm text-muted-foreground">
           Mostrando {filteredActs?.length} de {acts.length} actuaciones
         </div>
@@ -257,9 +254,9 @@ export function ActsTab({ workItem }: ActsTabProps) {
       {/* Actuaciones List */}
       <div className="space-y-3">
         {filteredActs?.map((act) => (
-          <ActuacionCard 
+          <WorkItemActCard 
             key={act.id} 
-            actuacion={act} 
+            act={act} 
             despacho={workItem.authority_name}
           />
         ))}
