@@ -2,14 +2,14 @@
  * PublicacionesTab - Court Publications tab for WorkItemDetail
  * 
  * Displays court publications (estados electrónicos, edictos, PDFs) for a work item.
- * Allows manual sync via "Actualizar publicaciones" button.
+ * NOTE: Sync happens automatically on login and via daily cron - no manual sync button.
+ * Only a local refresh button is provided to re-query the database.
  */
 
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
@@ -18,10 +18,8 @@ import {
   ExternalLink, 
   Calendar, 
   AlertCircle,
-  CheckCircle2,
   FileWarning,
 } from "lucide-react";
-import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -42,21 +40,11 @@ interface Publicacion {
   created_at: string;
 }
 
-interface SyncResult {
-  ok: boolean;
-  inserted_count: number;
-  skipped_count: number;
-  newest_publication_date: string | null;
-  warnings: string[];
-  errors: string[];
-}
-
 export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
   const queryClient = useQueryClient();
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
 
   // Fetch publications
-  const { data: publicaciones, isLoading, error } = useQuery({
+  const { data: publicaciones, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["work-item-publicaciones", workItem.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -70,37 +58,7 @@ export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
     },
   });
 
-  // Sync mutation
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-        body: { work_item_id: workItem.id },
-      });
-      
-      if (error) throw error;
-      return data as SyncResult;
-    },
-    onSuccess: (result) => {
-      setSyncResult(result);
-      queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones", workItem.id] });
-      
-      if (result.ok) {
-        if (result.inserted_count > 0) {
-          toast.success(`${result.inserted_count} nuevas publicaciones encontradas`);
-        } else {
-          toast.info("No hay nuevas publicaciones");
-        }
-      } else {
-        toast.error(result.errors?.[0] || "Error al sincronizar publicaciones");
-      }
-    },
-    onError: (err) => {
-      console.error("Sync error:", err);
-      toast.error(err instanceof Error ? err.message : "Error al sincronizar");
-    },
-  });
-
-  // Check if radicado is valid for sync
+  // Check if radicado is valid
   const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
 
   if (isLoading) {
@@ -128,12 +86,13 @@ export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header with sync button */}
+      {/* Header with local refresh button only */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Publicaciones Procesales</h3>
           <p className="text-sm text-muted-foreground">
-            Estados electrónicos, edictos y documentos publicados por el despacho
+            Estados electrónicos, edictos y documentos publicados por el despacho.
+            Se sincronizan automáticamente al iniciar sesión.
           </p>
         </div>
         
@@ -145,50 +104,18 @@ export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
             </Badge>
           )}
           
+          {/* Local refresh button - only re-queries database, doesn't call edge function */}
           <Button
-            onClick={() => syncMutation.mutate()}
-            disabled={!hasValidRadicado || syncMutation.isPending}
-            size="sm"
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            title="Actualizar vista"
           >
-            <RefreshCw className={cn("h-4 w-4 mr-2", syncMutation.isPending && "animate-spin")} />
-            {syncMutation.isPending ? "Sincronizando..." : "Actualizar publicaciones"}
+            <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
           </Button>
         </div>
       </div>
-
-      {/* Sync result feedback */}
-      {syncResult && (
-        <Card className={cn(
-          "border",
-          syncResult.ok ? "border-emerald-500/30 bg-emerald-500/5" : "border-destructive/30 bg-destructive/5"
-        )}>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-2">
-              {syncResult.ok ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              ) : (
-                <AlertCircle className="h-5 w-5 text-destructive" />
-              )}
-              <div className="flex-1">
-                {syncResult.ok ? (
-                  <span className="text-sm">
-                    {syncResult.inserted_count > 0
-                      ? `${syncResult.inserted_count} nuevas, ${syncResult.skipped_count} existentes`
-                      : "Sin nuevas publicaciones"}
-                  </span>
-                ) : (
-                  <span className="text-sm text-destructive">
-                    {syncResult.errors?.[0] || "Error desconocido"}
-                  </span>
-                )}
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setSyncResult(null)}>
-                Cerrar
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Publications list */}
       {!publicaciones || publicaciones.length === 0 ? (

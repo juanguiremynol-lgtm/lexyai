@@ -458,12 +458,20 @@ function normalizeRadicado(radicado: string): string {
   return radicado.replace(/\D/g, '');
 }
 
+/**
+ * Generate fingerprint for deduplication
+ * CRITICAL: Includes indice (sequence number) to prevent collisions when
+ * multiple actuaciones from the same day have similar text
+ */
 function generateFingerprint(
   workItemId: string,
   date: string,
-  text: string
+  text: string,
+  indice?: string
 ): string {
-  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}`;
+  // Include indice in fingerprint to prevent collisions for same-day actuaciones
+  const indexPart = indice ? `|${indice}` : '';
+  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}`;
   let hash = 0;
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
@@ -1302,6 +1310,33 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
         httpStatus: snapshotResponse.status,
       };
     }
+    
+    // === DIAGNOSTIC LOGGING (TEMPORARY) ===
+    console.log(`[CPNU-DIAGNOSTIC] Full /snapshot response for ${radicado}:`);
+    console.log(`[CPNU-DIAGNOSTIC] HTTP status: ${snapshotResponse.status}`);
+    console.log(`[CPNU-DIAGNOSTIC] Response keys: ${Object.keys(snapshotData)}`);
+    console.log(`[CPNU-DIAGNOSTIC] Has .result: ${!!snapshotData.result}`);
+    console.log(`[CPNU-DIAGNOSTIC] Has .actuaciones: ${!!snapshotData.actuaciones}`);
+    console.log(`[CPNU-DIAGNOSTIC] Has .result.actuaciones: ${!!(snapshotData.result as any)?.actuaciones}`);
+    console.log(`[CPNU-DIAGNOSTIC] Has .data: ${!!snapshotData.data}`);
+    console.log(`[CPNU-DIAGNOSTIC] Has .data.actuaciones: ${!!(snapshotData.data as any)?.actuaciones}`);
+    const diagActuaciones = (snapshotData as any).actuaciones?.length ?? 
+      (snapshotData as any).result?.actuaciones?.length ?? 
+      (snapshotData as any).data?.actuaciones?.length ?? 'NONE FOUND';
+    console.log(`[CPNU-DIAGNOSTIC] actuaciones count: ${diagActuaciones}`);
+    console.log(`[CPNU-DIAGNOSTIC] totalActuaciones: ${
+      (snapshotData as any).totalActuaciones ?? 
+      (snapshotData as any).result?.totalActuaciones ?? 
+      (snapshotData as any).data?.totalActuaciones ?? 
+      'NOT PRESENT'
+    }`);
+    const diagPagination = (snapshotData as any).paginacionActuaciones ?? 
+      (snapshotData as any).result?.paginacionActuaciones ?? 
+      (snapshotData as any).data?.paginacionActuaciones ?? 
+      'NOT PRESENT';
+    console.log(`[CPNU-DIAGNOSTIC] paginacion: ${JSON.stringify(diagPagination)}`);
+    console.log(`[CPNU-DIAGNOSTIC] Full response (first 2000 chars): ${JSON.stringify(snapshotData).slice(0, 2000)}`);
+    // === END DIAGNOSTIC ===
 
     // JSON 404 = record not found - AUTO-TRIGGER SCRAPING WITH POLLING
     if (snapshotResponse.status === 404) {
@@ -1553,6 +1588,49 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
 
     console.log(`[sync-by-work-item] CPNU: Found ${actuaciones.length} actuaciones, ${sujetos.length} sujetos for ${radicado}`);
     
+    // === PAGINATION HANDLING ===
+    // CPNU returns pagination info - if there are more pages, fetch them all
+    const pagination = (nestedData?.paginacionActuaciones || snapshotData.paginacionActuaciones) as Record<string, unknown> | undefined;
+    const totalPages = pagination ? parseInt(String(pagination.totalPaginas || '1')) : 1;
+    const totalRecords = pagination ? parseInt(String(pagination.totalRegistros || actuaciones.length)) : actuaciones.length;
+    
+    console.log(`[sync-by-work-item] CPNU: Pagination info - totalPages=${totalPages}, totalRecords=${totalRecords}, currentPage=1`);
+    
+    let allActuaciones = [...actuaciones];
+    
+    if (totalPages > 1) {
+      console.log(`[sync-by-work-item] CPNU: Fetching remaining ${totalPages - 1} pages...`);
+      
+      for (let page = 2; page <= totalPages; page++) {
+        try {
+          const pageUrl = joinUrl(baseUrl, pathPrefix, `/snapshot?numero_radicacion=${radicado}&pagina=${page}`);
+          console.log(`[sync-by-work-item] CPNU: Fetching page ${page}/${totalPages}: ${pageUrl}`);
+          
+          const pageResponse = await fetch(pageUrl, { method: 'GET', headers });
+          
+          if (pageResponse.ok) {
+            const pageData = await pageResponse.json();
+            const pageNestedData = pageData.data as Record<string, unknown> | undefined;
+            const pageActuaciones = (
+              (pageNestedData?.actuaciones) ||
+              (pageData.actuaciones) ||
+              []
+            ) as Record<string, unknown>[];
+            
+            console.log(`[sync-by-work-item] CPNU: Page ${page}: ${pageActuaciones.length} actuaciones`);
+            allActuaciones = [...allActuaciones, ...pageActuaciones];
+          } else {
+            console.warn(`[sync-by-work-item] CPNU: Page ${page} failed: HTTP ${pageResponse.status}`);
+          }
+        } catch (pageErr) {
+          console.warn(`[sync-by-work-item] CPNU: Page ${page} error:`, pageErr);
+        }
+      }
+      
+      console.log(`[sync-by-work-item] CPNU: Total actuaciones across all pages: ${allActuaciones.length}`);
+    }
+    // === END PAGINATION ===
+    
     // ============= EXTRACT SUJETOS FOR DEMANDANTES/DEMANDADOS =============
     const demandantes = sujetos
       .filter(s => {
@@ -1586,9 +1664,10 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     // ============= MAP ACTUACIONES WITH ALL CPNU FIELDS =============
     // CPNU Cloud Run returns: idRegActuacion, consActuacion, fechaActuacion, actuacion, anotacion,
     // fechaInicial, fechaFinal, fechaRegistro, conDocumentos
+    // NOTE: Now uses allActuaciones (includes all pages if paginated)
     return {
       ok: true,
-      actuaciones: actuaciones.map((act, idx) => ({
+      actuaciones: allActuaciones.map((act, idx) => ({
         // Core date field - CPNU uses fechaActuacion (ISO format like "2025-06-03T00:00:00")
         fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || ''),
         // Main actuación type/title
@@ -3158,7 +3237,8 @@ Deno.serve(async (req) => {
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion);
+      // Include indice in fingerprint to prevent collisions for same-day actuaciones
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice);
 
       // Check for existing record using fingerprint
       // BUG FIX: Changed from 'actuaciones' to 'work_item_acts' - the canonical table
