@@ -198,6 +198,7 @@ async function syncOrganization(
 
   try {
     // Get all active work items for this org
+    // LIMIT reduced from 100 to account for longer polling times (up to 60s per item)
     const { data: workItems, error: fetchError } = await supabase
       .from("work_items")
       .select("id, radicado, workflow_type, stage, last_synced_at")
@@ -206,8 +207,8 @@ async function syncOrganization(
       .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
       .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
       .not("radicado", "is", null)
-      .order("last_synced_at", { ascending: true, nullsFirst: true })
-      .limit(100); // Per-org limit
+      .order("last_synced_at", { ascending: true, nullsFirst: true }) // Oldest sync first
+      .limit(30); // Reduced from 100 to 30 due to 60s polling per item
 
     if (fetchError) {
       throw fetchError;

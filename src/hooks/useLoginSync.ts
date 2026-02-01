@@ -122,6 +122,7 @@ export function useLoginSync(): UseLoginSyncResult {
         setIsRunning(true);
 
         // Get eligible work items for this organization
+        // Limit to 10 items and order by oldest sync to prioritize stale data
         const { data: workItems, error: fetchError } = await supabase
           .from('work_items')
           .select('id, workflow_type, radicado, stage')
@@ -129,7 +130,8 @@ export function useLoginSync(): UseLoginSyncResult {
           .eq('monitoring_enabled', true)
           .in('workflow_type', SYNC_ENABLED_WORKFLOWS)
           .not('radicado', 'is', null)
-          .limit(50); // Limit to avoid long delays on login
+          .order('last_synced_at', { ascending: true, nullsFirst: true }) // Oldest sync first
+          .limit(10); // Reduced from 50 to 10 due to 60s polling per item
 
         if (fetchError) {
           console.error('[useLoginSync] Error fetching work items:', fetchError);
