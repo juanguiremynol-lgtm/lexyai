@@ -9,13 +9,12 @@
  * 
  * Features:
  * - Display publicaciones from Rama Judicial API (work_item_publicaciones table ONLY)
- * - "Buscar Estados" button calls sync-publicaciones-by-work-item ONLY
+ * - Syncing happens AUTOMATICALLY via useLoginSync and daily cron (no manual buttons)
  * - PROMINENT DISPLAY of deadline dates (fecha_desfijacion → términos_inician)
  * - Source badges for Publicaciones API
  */
 
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +35,6 @@ import { format, formatDistanceToNow, addDays, isWeekend } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "sonner";
 import type { WorkItem } from "@/types/work-item";
 
 interface EstadosTabProps {
@@ -105,7 +103,6 @@ function getDaysUntil(targetDate: Date): { text: string; urgency: 'past' | 'toda
 
 export function EstadosTab({ workItem }: EstadosTabProps) {
   const queryClient = useQueryClient();
-  const [isSyncingPublicaciones, setIsSyncingPublicaciones] = useState(false);
   
   // Check if radicado is valid for Publicaciones sync
   const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
@@ -147,50 +144,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     enabled: !!workItem.id,
   });
 
-  // PUBLICACIONES SYNC ONLY: Calls sync-publicaciones-by-work-item ONLY
-  // This button is exclusively for fetching estados/publicaciones procesales
-  // Actuaciones sync is handled by the "Actualizar ahora" button in the Actuaciones tab
-  const syncPublicacionesMutation = useMutation({
-    mutationFn: async () => {
-      setIsSyncingPublicaciones(true);
-      
-      // Call ONLY sync-publicaciones - this tab is exclusively for estados/publicaciones
-      const { data, error } = await supabase.functions.invoke(
-        "sync-publicaciones-by-work-item",
-        { body: { work_item_id: workItem.id } }
-      );
-      
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (result) => {
-      setIsSyncingPublicaciones(false);
-      queryClient.invalidateQueries({ queryKey: ["work-item-publicaciones", workItem.id] });
-      queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
-      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      
-      const count = result?.inserted_count || 0;
-      const alertsCreated = result?.alerts_created || 0;
-      
-      if (count > 0) {
-        const alertsMsg = alertsCreated > 0 ? ` (${alertsCreated} alertas creadas)` : '';
-        toast.success(`${count} nuevos estados/publicaciones encontrados${alertsMsg}`);
-      } else if (result?.scrapingInitiated) {
-        toast.info("Búsqueda iniciada automáticamente", {
-          description: "Por favor, reintente en 30-60 segundos.",
-        });
-      } else if (!result?.ok) {
-        toast.error("Error al sincronizar con Publicaciones API");
-      } else {
-        toast.info("No hay nuevos estados/publicaciones");
-      }
-    },
-    onError: (err) => {
-      setIsSyncingPublicaciones(false);
-      console.error("Publicaciones sync error:", err);
-      toast.error(err instanceof Error ? err.message : "Error al sincronizar");
-    },
-  });
+  // NOTE: Manual sync buttons removed - syncing happens automatically via useLoginSync + daily cron
+  // The syncPublicacionesMutation was removed as part of the automatic-sync architecture
 
   const getSourceConfig = (source: string) => {
     return SOURCE_CONFIG[source] || SOURCE_CONFIG.DEFAULT;
