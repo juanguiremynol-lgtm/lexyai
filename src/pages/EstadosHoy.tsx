@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { 
@@ -101,7 +101,6 @@ export default function EstadosHoy() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showTutelas, setShowTutelas] = useState(true);
   const [showOnlyCritical, setShowOnlyCritical] = useState(false);
-  const [syncingItemId, setSyncingItemId] = useState<string | null>(null);
   
   // Debounce search
   const handleSearchChange = useCallback((value: string) => {
@@ -126,54 +125,6 @@ export default function EstadosHoy() {
     queryFn: () => getEstadosHoy(organization!.id, { page, pageSize: PAGE_SIZE, filters }),
     enabled: !!organization?.id,
     staleTime: 30000,
-  });
-  
-  // Sync mutation (per-row)
-  const syncMutation = useMutation({
-    mutationFn: async (workItemId: string) => {
-      setSyncingItemId(workItemId);
-      
-      // Call BOTH edge functions in parallel
-      const [actuacionesResult, publicacionesResult] = await Promise.allSettled([
-        supabase.functions.invoke("sync-by-work-item", {
-          body: { work_item_id: workItemId },
-        }),
-        supabase.functions.invoke("sync-publicaciones-by-work-item", {
-          body: { work_item_id: workItemId },
-        }),
-      ]);
-      
-      const actuacionesData = actuacionesResult.status === 'fulfilled' 
-        ? actuacionesResult.value.data 
-        : null;
-      const publicacionesData = publicacionesResult.status === 'fulfilled' 
-        ? publicacionesResult.value.data 
-        : null;
-      
-      return {
-        totalInserted: (actuacionesData?.inserted_count || 0) + (publicacionesData?.inserted_count || 0),
-        scrapingInitiated: actuacionesData?.scraping_initiated || publicacionesData?.scrapingInitiated,
-        hasErrors: !actuacionesData?.ok && !publicacionesData?.ok,
-      };
-    },
-    onSuccess: (result) => {
-      setSyncingItemId(null);
-      queryClient.invalidateQueries({ queryKey: ["estados-hoy"] });
-      
-      if (result.totalInserted > 0) {
-        toast.success(`${result.totalInserted} nuevos registros encontrados`);
-      } else if (result.scrapingInitiated) {
-        toast.info("Búsqueda iniciada. Reintente en 30-60 segundos.");
-      } else if (result.hasErrors) {
-        toast.error("Error al sincronizar");
-      } else {
-        toast.info("No hay nuevos estados");
-      }
-    },
-    onError: (err) => {
-      setSyncingItemId(null);
-      toast.error(err instanceof Error ? err.message : "Error al sincronizar");
-    },
   });
   
   // Export to Excel
@@ -474,7 +425,7 @@ export default function EstadosHoy() {
                       </TooltipProvider>
                     </TableCell>
                     
-                    {/* Actions */}
+                    {/* Actions - PDF link only, no sync button */}
                     <TableCell>
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         {item.pdf_url && (
@@ -489,18 +440,6 @@ export default function EstadosHoy() {
                             </a>
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => syncMutation.mutate(item.work_item_id)}
-                          disabled={syncingItemId === item.work_item_id}
-                        >
-                          <RefreshCw className={cn(
-                            "h-4 w-4",
-                            syncingItemId === item.work_item_id && "animate-spin"
-                          )} />
-                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
