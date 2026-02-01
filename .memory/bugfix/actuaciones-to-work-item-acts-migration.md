@@ -3,46 +3,71 @@ Updated: 2026-02-01
 
 ## Root Cause Analysis
 
-The data pipeline had 3 critical bugs causing data to be inserted into wrong tables:
+The data pipeline had 4 critical bugs:
 
-1. **Bug #1 - Wrong Target Table (ROOT CAUSE)**: 
+1. **Bug #1 — Wrong Target Table (ROOT CAUSE)**: 
    - `sync-by-work-item` was inserting actuaciones into legacy `actuaciones` table
    - The UI reads from `work_item_acts` table
    - Data was being fetched and stored correctly, just in the wrong place
 
-2. **Bug #2 - Publicaciones Infinite Loop**: 
+2. **Bug #2 — Publicaciones Infinite Loop**: 
    - Already fixed in `sync-publicaciones-by-work-item` with polling strategy
 
-3. **Bug #3 - Same issue for scheduled-crawler and scraping-service.ts**
+3. **Bug #3 — Same issue for scheduled-crawler and scraping-service.ts**
 
-## Fix Applied
+4. **Bug #4 — EstadosTab Mixing Data (FIXED 2026-02-01)**:
+   - `EstadosTab.tsx` had a unified query reading from BOTH `work_item_acts` AND `work_item_publicaciones`
+   - This caused actuaciones (CPNU/SAMAI) to appear in Estados tab
+   - "Buscar Estados" button was calling BOTH edge functions
 
-Changed all INSERT targets from legacy `actuaciones` table to canonical `work_item_acts` table:
+## Fixes Applied
 
-### Files Modified:
+### Phase 1: Edge Function Fixes (Previous)
 
-1. **`supabase/functions/sync-by-work-item/index.ts`** (lines 2839-2883):
-   - Changed `.from('actuaciones')` to `.from('work_item_acts')`
-   - Updated field mapping to match `work_item_acts` schema:
-     - `description` (not `raw_text`)
-     - `event_summary` (not `normalized_text`)
-     - `source_platform` (not `adapter_name`)
-     - `workflow_type` (new required field)
-     - `scrape_date` (new required field)
-     - `raw_data` JSON for legacy fields
+Changed all INSERT targets from legacy `actuaciones` table to canonical `work_item_acts` table.
 
-2. **`supabase/functions/scheduled-crawler/index.ts`** (lines 251-310, 345-440):
-   - Changed `ActuacionRow` interface to `WorkItemActRow`
-   - Updated INSERT to use `work_item_acts` table
-   - Updated alert payload to use new field names
+### Phase 2: Frontend Separation (2026-02-01)
 
-3. **`src/lib/scraping/scraping-service.ts`** (lines 257-301):
-   - Changed SELECT from `actuaciones` to `work_item_acts` for deduplication
-   - Changed INSERT to `work_item_acts` with correct schema mapping
+#### EstadosTab.tsx — Now queries ONLY `work_item_publicaciones`
+- Removed all `work_item_acts` references
+- Query key changed: `work-item-estados-unified` → `work-item-publicaciones`
+- "Buscar Estados" button now calls ONLY `sync-publicaciones-by-work-item`
+- Removed inference/stage suggestion logic (not applicable to publicaciones)
+
+#### ActsTab.tsx — Now queries ONLY `work_item_acts`
+- Changed from legacy `actuaciones` table to `work_item_acts`
+- Created new `WorkItemActCard.tsx` component matching new schema
+
+#### Files Modified:
+- `src/pages/WorkItemDetail/tabs/EstadosTab.tsx` — Complete rewrite
+- `src/pages/WorkItemDetail/tabs/ActsTab.tsx` — Schema migration
+- `src/pages/WorkItemDetail/tabs/WorkItemActCard.tsx` — New component
+- Deleted: `src/pages/WorkItemDetail/tabs/ActuacionCard.tsx`
+
+## Architecture (MUST FOLLOW)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   ACTUACIONES TAB                        │
+│  Data source: work_item_acts table ONLY                 │
+│  Button: "Actualizar ahora" → sync-by-work-item         │
+│  Edge function inserts into: work_item_acts              │
+│  External APIs: CPNU (CGP/LABORAL/PENAL/TUTELA)         │
+│                 SAMAI (CPACA)                            │
+│  Content: Court clerk registry entries (NOT obligations) │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│              ESTADOS / PUBLICACIONES TAB                  │
+│  Data source: work_item_publicaciones table ONLY         │
+│  Button: "Buscar Estados" → sync-publicaciones-by-work-item │
+│  Edge function inserts into: work_item_publicaciones     │
+│  External API: Publicaciones Procesales API (ALL types)  │
+│  Content: Legal notifications with deadlines (OBLIGATIONS)│
+└─────────────────────────────────────────────────────────┘
+```
 
 ## Canonical Tables
-
-The work_items system uses these canonical tables:
 
 | Purpose | Canonical Table | Legacy Table (DO NOT USE) |
 |---------|-----------------|---------------------------|
@@ -65,9 +90,12 @@ The work_items system uses these canonical tables:
 | - | `scrape_date` (NEW) |
 | - | `raw_data` (JSON for extras) |
 
-## Verification
+## Verification Checklist
 
-After deploying, verify data flows correctly:
-1. Trigger manual sync on a work item
-2. Check `work_item_acts` table for new records
-3. Verify UI "Estados" tab shows the data
+After deploying:
+1. ✅ EstadosTab query reads ONLY from `work_item_publicaciones`
+2. ✅ ActsTab query reads ONLY from `work_item_acts`
+3. ✅ "Buscar Estados" calls ONLY `sync-publicaciones-by-work-item`
+4. ✅ "Actualizar ahora" calls ONLY `sync-by-work-item`
+5. ✅ Edge functions write to correct tables
+6. Test with radicado: Estados tab shows only publicaciones, Actuaciones tab shows only actuaciones
