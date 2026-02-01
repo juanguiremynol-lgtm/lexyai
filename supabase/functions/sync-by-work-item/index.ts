@@ -597,6 +597,94 @@ interface ScrapingJobResult {
   latencyMs?: number;
 }
 
+// ============= POLLING CONFIGURATION =============
+// Used for all providers that need to poll for scraping results
+const POLLING_CONFIG = {
+  maxAttempts: 12,         // 12 attempts
+  pollIntervalMs: 5000,    // 5 seconds between polls
+  // Total max wait: 12 * 5 = 60 seconds
+};
+
+// ============= GENERIC POLLING FUNCTION =============
+// Polls /resultado/{jobId} endpoint until job completes or times out
+// Returns the result data if successful, null if failed/timeout
+
+interface PollResult {
+  ok: boolean;
+  data?: Record<string, unknown>;
+  status?: string;
+  error?: string;
+  lastResponse?: Record<string, unknown>;
+}
+
+async function pollForScrapingResult(
+  resultadoUrl: string,
+  headers: Record<string, string>,
+  providerName: string
+): Promise<PollResult> {
+  let lastResultData: Record<string, unknown> | null = null;
+  
+  console.log(`[sync-by-work-item] ${providerName}: Starting polling for ${resultadoUrl}`);
+  
+  for (let attempt = 1; attempt <= POLLING_CONFIG.maxAttempts; attempt++) {
+    // Wait before polling (except first attempt to give job time to start)
+    await new Promise(r => setTimeout(r, POLLING_CONFIG.pollIntervalMs));
+    
+    try {
+      console.log(`[sync-by-work-item] ${providerName}: Poll ${attempt}/${POLLING_CONFIG.maxAttempts}`);
+      
+      const response = await fetch(resultadoUrl, {
+        method: 'GET',
+        headers,
+      });
+      
+      if (!response.ok) {
+        console.log(`[sync-by-work-item] ${providerName}: Poll ${attempt} HTTP error ${response.status}, continuing...`);
+        continue;
+      }
+      
+      const data = await response.json();
+      lastResultData = data;
+      const status = String(data.status || '').toLowerCase();
+      
+      console.log(`[sync-by-work-item] ${providerName}: Poll ${attempt}: status="${status}", keys=${Object.keys(data).join(',')}`);
+      
+      // Job still processing - continue polling
+      if (['queued', 'processing', 'running', 'pending', 'started'].includes(status)) {
+        console.log(`[sync-by-work-item] ${providerName}: Job still ${status}, waiting...`);
+        continue;
+      }
+      
+      // Job completed successfully
+      if (['done', 'completed', 'success', 'finished'].includes(status)) {
+        console.log(`[sync-by-work-item] ${providerName}: Job completed successfully!`);
+        return { ok: true, data, status };
+      }
+      
+      // Job failed
+      if (['failed', 'error', 'cancelled'].includes(status)) {
+        const errorMsg = data.error || data.message || 'Unknown error';
+        console.log(`[sync-by-work-item] ${providerName}: Job failed: ${errorMsg}`);
+        return { ok: false, error: `Job failed: ${errorMsg}`, status, lastResponse: data };
+      }
+      
+      // Unknown status - log and continue
+      console.log(`[sync-by-work-item] ${providerName}: Unknown status "${status}", continuing...`);
+      
+    } catch (pollError) {
+      console.warn(`[sync-by-work-item] ${providerName}: Poll ${attempt} error:`, pollError);
+    }
+  }
+  
+  // Timeout - return last response for debugging
+  console.log(`[sync-by-work-item] ${providerName}: Polling TIMEOUT after ${POLLING_CONFIG.maxAttempts} attempts`);
+  return { 
+    ok: false, 
+    error: `Polling timeout after ${POLLING_CONFIG.maxAttempts * POLLING_CONFIG.pollIntervalMs / 1000} seconds`,
+    lastResponse: lastResultData || undefined,
+  };
+}
+
 // ============= TRIGGER SCRAPING JOB =============
 // Calls /buscar to initiate async scraping when /snapshot returns 404
 
@@ -1215,27 +1303,137 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       };
     }
 
-    // JSON 404 = record not found - AUTO-TRIGGER SCRAPING
+    // JSON 404 = record not found - AUTO-TRIGGER SCRAPING WITH POLLING
     if (snapshotResponse.status === 404) {
-      console.log(`[sync-by-work-item] CPNU: Record not found (JSON 404) for ${radicado}. Auto-triggering scraping...`);
+      console.log(`[sync-by-work-item] CPNU: Record not found (JSON 404) for ${radicado}. Auto-triggering scraping with polling...`);
       
       // Attempt to trigger scraping job via /buscar
       const scrapingResult = await triggerCpnuScrapingJob(radicado, baseUrl, pathPrefix, apiKeyInfo);
       
       if (scrapingResult.ok && scrapingResult.jobId) {
-        console.log(`[sync-by-work-item] CPNU: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+        console.log(`[sync-by-work-item] CPNU: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling for results...`);
+        
+        // CRITICAL: Poll for the scraping result instead of returning 202
+        const pollUrl = scrapingResult.pollUrl || joinUrl(baseUrl, pathPrefix, `/resultado/${scrapingResult.jobId}`);
+        const pollResult = await pollForScrapingResult(pollUrl, headers, 'CPNU');
+        
+        if (pollResult.ok && pollResult.data) {
+          console.log(`[sync-by-work-item] CPNU: Scraping completed! Extracting actuaciones...`);
+          
+          // Extract actuaciones from polling result
+          // CPNU resultado format: { status: "done", result: { actuaciones: [...] } } or { status: "done", actuaciones: [...] }
+          const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
+          const nestedResultData = (resultData.data || {}) as Record<string, unknown>;
+          const polledActuaciones = ((resultData.actuaciones || nestedResultData.actuaciones || []) as unknown) as Record<string, unknown>[];
+          const polledSujetos = ((resultData.sujetos || nestedResultData.sujetos || []) as unknown) as Array<Record<string, unknown>>;
+          
+          if (polledActuaciones.length === 0) {
+            console.log(`[sync-by-work-item] CPNU: Scraping completed but no actuaciones found`);
+            return { 
+              ok: false, 
+              actuaciones: [], 
+              error: 'Scraping completed but no actuaciones found', 
+              provider: 'cpnu',
+              isEmpty: true,
+              latencyMs: Date.now() - startTime,
+              httpStatus: 200,
+            };
+          }
+          
+          console.log(`[sync-by-work-item] CPNU: Scraping found ${polledActuaciones.length} actuaciones!`);
+          
+          // Extract demandantes/demandados from sujetos
+          const demandantes = polledSujetos
+            .filter(s => {
+              const tipo = String(s.tipoSujeto || s.tipo || '').toLowerCase();
+              return tipo.includes('demandante') || tipo.includes('accionante');
+            })
+            .map(s => String(s.nombreRazonSocial || s.nombre || ''))
+            .filter(Boolean)
+            .join(' | ');
+          
+          const demandados = polledSujetos
+            .filter(s => {
+              const tipo = String(s.tipoSujeto || s.tipo || '').toLowerCase();
+              return tipo.includes('demandado') || tipo.includes('accionado');
+            })
+            .map(s => String(s.nombreRazonSocial || s.nombre || ''))
+            .filter(Boolean)
+            .join(' | ');
+          
+          return {
+            ok: true,
+            actuaciones: polledActuaciones.map((act, idx) => ({
+              fecha: String(act.fechaActuacion || act.fecha || ''),
+              actuacion: String(act.actuacion || ''),
+              anotacion: String(act.anotacion || ''),
+              fecha_inicia_termino: act.fechaInicial ? String(act.fechaInicial) : undefined,
+              fecha_finaliza_termino: act.fechaFinal ? String(act.fechaFinal) : undefined,
+              fecha_registro: act.fechaRegistro ? String(act.fechaRegistro) : undefined,
+              indice: act.consActuacion ? String(act.consActuacion) : String(idx + 1),
+              anexos: act.conDocumentos ? 1 : 0,
+              documentos: Array.isArray(act.documentos) ? act.documentos : undefined,
+            })),
+            sujetos: polledSujetos.map(s => ({
+              registro: String(s.idRegSujeto || s.registro || ''),
+              tipo: String(s.tipoSujeto || s.tipo || ''),
+              nombre: String(s.nombreRazonSocial || s.nombre || ''),
+              accesoWebActivado: false,
+            })),
+            caseMetadata: {
+              despacho: resultData.despacho as string || undefined,
+              demandante: demandantes || undefined,
+              demandado: demandados || undefined,
+              tipo_proceso: resultData.tipoProceso as string || undefined,
+              total_sujetos: polledSujetos.length,
+            },
+            provider: 'cpnu',
+            latencyMs: Date.now() - startTime,
+            httpStatus: 200,
+          };
+        }
+        
+        // Polling failed or timed out - try /snapshot one last time
+        console.log(`[sync-by-work-item] CPNU: Polling failed/timed out. Trying /snapshot one last time...`);
+        try {
+          const retryResponse = await fetch(snapshotUrl, { method: 'GET', headers });
+          if (retryResponse.ok) {
+            const retryData = await retryResponse.json();
+            const retryActuaciones = (retryData.data?.actuaciones || retryData.actuaciones || []) as Record<string, unknown>[];
+            if (retryActuaciones.length > 0) {
+              console.log(`[sync-by-work-item] CPNU: Retry /snapshot succeeded with ${retryActuaciones.length} actuaciones!`);
+              // Return success - the actuaciones were there after all
+              return {
+                ok: true,
+                actuaciones: retryActuaciones.map((act, idx) => ({
+                  fecha: String(act.fechaActuacion || act.fecha || ''),
+                  actuacion: String(act.actuacion || ''),
+                  anotacion: String(act.anotacion || ''),
+                  indice: act.consActuacion ? String(act.consActuacion) : String(idx + 1),
+                })),
+                provider: 'cpnu',
+                latencyMs: Date.now() - startTime,
+                httpStatus: 200,
+              };
+            }
+          }
+        } catch (retryErr) {
+          console.warn(`[sync-by-work-item] CPNU: Retry /snapshot failed:`, retryErr);
+        }
+        
+        // Complete failure - return timeout error (not 202)
+        console.log(`[sync-by-work-item] CPNU: All attempts failed. Returning timeout error.`);
         return { 
           ok: false, 
           actuaciones: [], 
-          error: 'RECORD_NOT_FOUND', 
+          error: 'SCRAPING_TIMEOUT', 
           provider: 'cpnu',
           isEmpty: true,
           latencyMs: Date.now() - startTime,
-          httpStatus: 404,
+          httpStatus: 408,
           scrapingInitiated: true,
           scrapingJobId: scrapingResult.jobId,
-          scrapingPollUrl: scrapingResult.pollUrl,
-          scrapingMessage: `Record not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+          scrapingMessage: `Scraping job ${scrapingResult.jobId} did not complete within 60 seconds. Data may be available on next sync.`,
         };
       } else {
         // Scraping trigger failed - return normal 404
@@ -1252,26 +1450,50 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
       }
     }
 
-    // Check for "not found" indicators in JSON body - also trigger scraping
+    // Check for "not found" indicators in JSON body - also trigger scraping with polling
     if (snapshotData.expediente_encontrado === false || snapshotData.found === false) {
-      console.log(`[sync-by-work-item] CPNU: found=false for ${radicado}. Auto-triggering scraping...`);
+      console.log(`[sync-by-work-item] CPNU: found=false for ${radicado}. Auto-triggering scraping with polling...`);
       
       const scrapingResult = await triggerCpnuScrapingJob(radicado, baseUrl, pathPrefix, apiKeyInfo);
       
       if (scrapingResult.ok && scrapingResult.jobId) {
-        console.log(`[sync-by-work-item] CPNU: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+        console.log(`[sync-by-work-item] CPNU: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling...`);
+        
+        const pollUrl = scrapingResult.pollUrl || joinUrl(baseUrl, pathPrefix, `/resultado/${scrapingResult.jobId}`);
+        const pollResult = await pollForScrapingResult(pollUrl, headers, 'CPNU');
+        
+        if (pollResult.ok && pollResult.data) {
+          const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
+          const polledActuaciones = (resultData.actuaciones || []) as Record<string, unknown>[];
+          
+          if (polledActuaciones.length > 0) {
+            console.log(`[sync-by-work-item] CPNU: Scraping found ${polledActuaciones.length} actuaciones!`);
+            return {
+              ok: true,
+              actuaciones: polledActuaciones.map((act, idx) => ({
+                fecha: String(act.fechaActuacion || act.fecha || ''),
+                actuacion: String(act.actuacion || ''),
+                anotacion: String(act.anotacion || ''),
+                indice: act.consActuacion ? String(act.consActuacion) : String(idx + 1),
+              })),
+              provider: 'cpnu',
+              latencyMs: Date.now() - startTime,
+              httpStatus: 200,
+            };
+          }
+        }
+        
+        // Polling failed - return timeout
         return { 
           ok: false, 
           actuaciones: [], 
-          error: 'RECORD_NOT_FOUND', 
+          error: 'SCRAPING_TIMEOUT', 
           provider: 'cpnu',
           isEmpty: true,
           latencyMs: Date.now() - startTime,
-          httpStatus: snapshotResponse.status,
+          httpStatus: 408,
           scrapingInitiated: true,
           scrapingJobId: scrapingResult.jobId,
-          scrapingPollUrl: scrapingResult.pollUrl,
-          scrapingMessage: `Record not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
         };
       } else {
         return { 
@@ -1487,21 +1709,88 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
           };
         }
         
-        // Case 2: /buscar created an async scraping job
+        // Case 2: /buscar created an async scraping job - POLL FOR RESULT
         if (scrapingResult.ok && scrapingResult.jobId) {
-          console.log(`[sync-by-work-item] SAMAI: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+          console.log(`[sync-by-work-item] SAMAI: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling for results...`);
+          
+          // Poll for the scraping result
+          const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/resultado/${scrapingResult.jobId}`;
+          const pollResult = await pollForScrapingResult(pollUrl, headers, 'SAMAI');
+          
+          if (pollResult.ok && pollResult.data) {
+            console.log(`[sync-by-work-item] SAMAI: Scraping completed! Extracting actuaciones...`);
+            
+            // Extract data from polling result
+            const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
+            const polledActuaciones = ((resultData.actuaciones || []) as unknown) as Record<string, unknown>[];
+            const polledSujetos = ((resultData.sujetos || []) as unknown) as Array<Record<string, unknown>>;
+            
+            if (polledActuaciones.length > 0) {
+              console.log(`[sync-by-work-item] SAMAI: Scraping found ${polledActuaciones.length} actuaciones!`);
+              
+              // Extract demandantes/demandados
+              const demandantes = polledSujetos
+                .filter(s => {
+                  const tipo = String(s.tipo || '').toLowerCase();
+                  return tipo.includes('demandante') || tipo.includes('accionante');
+                })
+                .map(s => String(s.nombre || ''))
+                .filter(Boolean)
+                .join(' | ');
+              
+              const demandados = polledSujetos
+                .filter(s => {
+                  const tipo = String(s.tipo || '').toLowerCase();
+                  return tipo.includes('demandado') || tipo.includes('accionado');
+                })
+                .map(s => String(s.nombre || ''))
+                .filter(Boolean)
+                .join(' | ');
+              
+              return {
+                ok: true,
+                actuaciones: polledActuaciones.map((act) => ({
+                  fecha: String(act.fechaActuacion || act.fecha || ''),
+                  actuacion: String(act.actuacion || ''),
+                  anotacion: String(act.anotacion || ''),
+                  fecha_registro: String(act.fechaRegistro || ''),
+                  estado: String(act.estado || ''),
+                  anexos: Number(act.anexos || 0),
+                  indice: String(act.indice || ''),
+                })),
+                sujetos: polledSujetos.map(s => ({
+                  registro: String(s.registro || ''),
+                  tipo: String(s.tipo || ''),
+                  nombre: String(s.nombre || ''),
+                  accesoWebActivado: Boolean(s.accesoWebActivado),
+                })),
+                caseMetadata: {
+                  despacho: resultData.corporacionNombre as string || resultData.corporacion as string,
+                  demandante: demandantes || undefined,
+                  demandado: demandados || undefined,
+                  tipo_proceso: (resultData.clasificacion as Record<string, unknown>)?.tipoProceso as string,
+                  total_sujetos: polledSujetos.length,
+                },
+                provider: 'samai',
+                latencyMs: Date.now() - startTime,
+                httpStatus: 200,
+              };
+            }
+          }
+          
+          // Polling failed or timed out
+          console.log(`[sync-by-work-item] SAMAI: Polling failed/timed out. Returning timeout error.`);
           return { 
             ok: false, 
             actuaciones: [], 
-            error: 'RECORD_NOT_FOUND', 
+            error: 'SCRAPING_TIMEOUT', 
             provider: 'samai',
             isEmpty: true,
             latencyMs: Date.now() - startTime,
-            httpStatus: 404,
+            httpStatus: 408,
             scrapingInitiated: true,
             scrapingJobId: scrapingResult.jobId,
-            scrapingPollUrl: scrapingResult.pollUrl,
-            scrapingMessage: `Record not found in SAMAI cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+            scrapingMessage: `Scraping job ${scrapingResult.jobId} did not complete within 60 seconds.`,
           };
         }
         
@@ -1685,19 +1974,54 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
         const scrapingResult = await triggerTutelasScrapingJob(tutelaCode, baseUrl, apiKeyInfo);
         
         if (scrapingResult.ok && scrapingResult.jobId) {
-          console.log(`[sync-by-work-item] TUTELAS: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
+          console.log(`[sync-by-work-item] TUTELAS: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling for results...`);
+          
+          // Poll for the scraping result
+          const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/job/${scrapingResult.jobId}`;
+          const pollResult = await pollForScrapingResult(pollUrl, headers, 'TUTELAS');
+          
+          if (pollResult.ok && pollResult.data) {
+            console.log(`[sync-by-work-item] TUTELAS: Scraping completed! Extracting actuaciones...`);
+            
+            const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
+            const polledActuaciones = ((resultData.actuaciones || []) as unknown) as Record<string, unknown>[];
+            
+            if (polledActuaciones.length > 0) {
+              console.log(`[sync-by-work-item] TUTELAS: Scraping found ${polledActuaciones.length} actuaciones!`);
+              return {
+                ok: true,
+                actuaciones: polledActuaciones.map((act) => ({
+                  fecha: String(act.fecha || ''),
+                  actuacion: String(act.actuacion || act.descripcion || ''),
+                  anotacion: String(act.anotacion || ''),
+                })),
+                expedienteUrl: resultData.expediente_url as string,
+                caseMetadata: {
+                  despacho: resultData.despacho as string,
+                  demandante: resultData.accionante as string,
+                  demandado: resultData.accionado as string,
+                  tipo_proceso: 'TUTELA',
+                },
+                provider: 'tutelas-api',
+                latencyMs: Date.now() - startTime,
+                httpStatus: 200,
+              };
+            }
+          }
+          
+          // Polling failed or timed out
+          console.log(`[sync-by-work-item] TUTELAS: Polling failed/timed out. Returning timeout error.`);
           return { 
             ok: false, 
             actuaciones: [], 
-            error: 'RECORD_NOT_FOUND', 
+            error: 'SCRAPING_TIMEOUT', 
             provider: 'tutelas-api',
             isEmpty: true,
             latencyMs: Date.now() - startTime,
-            httpStatus: 404,
+            httpStatus: 408,
             scrapingInitiated: true,
             scrapingJobId: scrapingResult.jobId,
-            scrapingPollUrl: scrapingResult.pollUrl,
-            scrapingMessage: `Tutela not found in cache. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
+            scrapingMessage: `Scraping job ${scrapingResult.jobId} did not complete within 60 seconds.`,
           };
         } else {
           console.log(`[sync-by-work-item] TUTELAS: Scraping trigger failed: ${scrapingResult.error}`);
