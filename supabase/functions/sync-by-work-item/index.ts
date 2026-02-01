@@ -2837,8 +2837,9 @@ Deno.serve(async (req) => {
       const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion);
 
       // Check for existing record using fingerprint
+      // BUG FIX: Changed from 'actuaciones' to 'work_item_acts' - the canonical table
       const { data: existing } = await supabase
-        .from('actuaciones')
+        .from('work_item_acts')
         .select('id')
         .eq('work_item_id', work_item_id)
         .eq('hash_fingerprint', fingerprint)
@@ -2849,27 +2850,39 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Insert new actuacion with ALL provider fields (CPNU + SAMAI parity)
+      // Build description from actuacion + anotacion
+      const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;
+      const eventSummary = description.slice(0, 500);
+      
+      // BUG FIX: Insert into 'work_item_acts' (canonical table) instead of legacy 'actuaciones'
+      // The UI reads from work_item_acts, not actuaciones
       const { error: insertError } = await supabase
-        .from('actuaciones')
+        .from('work_item_acts')
         .insert({
           owner_id: workItem.owner_id,
           organization_id: workItem.organization_id,
           work_item_id,
-          raw_text: act.actuacion,
-          normalized_text: `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`,
+          workflow_type: workItem.workflow_type,
+          description: description,
           act_date: actDate,
           act_date_raw: act.fecha,
+          event_date: actDate,
+          event_summary: eventSummary,
           source: fetchResult.provider,
-          adapter_name: fetchResult.provider,
+          source_platform: fetchResult.provider === 'cpnu' ? 'CPNU' : (fetchResult.provider === 'samai' ? 'SAMAI' : fetchResult.provider),
           hash_fingerprint: fingerprint,
-          // SAMAI-specific fields (also populated by CPNU now)
-          fecha_registro: act.fecha_registro || null,
-          estado: act.estado || null,
-          anexos_count: act.anexos ?? null,
-          indice: act.indice || null,
-          // Store attachments as JSON (CPNU documentos / SAMAI anexos)
-          attachments: act.documentos ? act.documentos : null,
+          scrape_date: new Date().toISOString().split('T')[0],
+          despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
+          // Store raw data as JSON for debugging
+          raw_data: {
+            actuacion: act.actuacion,
+            anotacion: act.anotacion,
+            fecha_registro: act.fecha_registro,
+            estado: act.estado,
+            anexos: act.anexos,
+            indice: act.indice,
+            documentos: act.documentos,
+          },
         });
 
       if (insertError) {
