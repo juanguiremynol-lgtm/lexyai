@@ -216,7 +216,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header - REMOVED: "Buscar Estados" button - syncing happens automatically */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -231,6 +231,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
               <CardDescription className="mt-1">
                 Estados electrónicos y publicaciones procesales de la Rama Judicial.
                 <span className="font-medium text-foreground/80"> Los términos legales inician el día hábil siguiente a la fecha de desfijación.</span>
+                <span className="block text-xs mt-1 text-muted-foreground">
+                  Los estados se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
+                </span>
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -241,21 +244,13 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 </Badge>
               )}
               
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => syncPublicacionesMutation.mutate()}
-                disabled={!hasValidRadicado || isSyncingPublicaciones}
-              >
-                <Newspaper className={cn("h-4 w-4 mr-2", isSyncingPublicaciones && "animate-spin")} />
-                {isSyncingPublicaciones ? "Sincronizando..." : "Buscar Estados"}
-              </Button>
-              
+              {/* Local refresh button only - just re-queries the database */}
               <Button 
                 variant="ghost" 
-                size="sm" 
+                size="icon"
                 onClick={() => refetch()}
                 disabled={isFetching}
+                title="Refrescar datos locales"
               >
                 <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
               </Button>
@@ -264,7 +259,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         </CardHeader>
       </Card>
 
-      {/* Empty state */}
+      {/* Empty state - REMOVED: "Buscar Estados" button */}
       {!estados || estados.length === 0 ? (
         <Card>
           <CardContent className="py-12">
@@ -274,21 +269,11 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 <h3 className="font-semibold mb-2">Sin estados registrados</h3>
                 <p className="text-muted-foreground text-sm max-w-md mx-auto">
                   {hasValidRadicado
-                    ? "No se han encontrado estados para este proceso. Haz clic en \"Buscar Estados\" para sincronizar desde la Rama Judicial."
+                    ? "No se han encontrado estados para este proceso aún. Los estados se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM."
                     : "Este proceso necesita un radicado válido (23 dígitos) para buscar estados."
                   }
                 </p>
               </div>
-              {hasValidRadicado && (
-                <Button 
-                  onClick={() => syncPublicacionesMutation.mutate()}
-                  disabled={isSyncingPublicaciones}
-                  size="sm"
-                >
-                  <Newspaper className={cn("h-4 w-4 mr-2", isSyncingPublicaciones && "animate-spin")} />
-                  {isSyncingPublicaciones ? "Buscando..." : "Buscar Estados"}
-                </Button>
-              )}
             </div>
           </CardContent>
         </Card>

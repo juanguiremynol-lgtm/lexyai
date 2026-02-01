@@ -2,15 +2,17 @@
  * useLoginSync Hook
  * Triggers automatic sync when user logs in
  * Enforces max 3 login syncs per user per day (America/Bogota)
+ * 
+ * CRITICAL: This hook calls BOTH edge functions for each work item:
+ * 1. sync-by-work-item → fetches actuaciones from CPNU/SAMAI → writes to work_item_acts
+ * 2. sync-publicaciones-by-work-item → fetches estados from Publicaciones API → writes to work_item_publicaciones
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { getEligibleWorkItems, syncWorkItemBatch } from '@/lib/services/auto-sync-service';
 import { 
   checkAndIncrementLoginSync, 
   getLoginSyncStatus, 
-  formatSyncStatusMessage,
   type LoginSyncStatus 
 } from '@/lib/services/login-sync-service';
 import { toast } from '@/hooks/use-toast';
@@ -21,6 +23,20 @@ export interface UseLoginSyncResult {
   isRunning: boolean;
   lastRunAt: Date | null;
 }
+
+// Workflows that support external API sync
+// Workflows that support external API sync - typed to match Database enum
+const SYNC_ENABLED_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'] as const;
+
+// Terminal stages that don't need syncing
+const TERMINAL_STAGES = [
+  'ARCHIVADO',
+  'FINALIZADO',
+  'EJECUTORIADO',
+  'PRECLUIDO_ARCHIVADO',
+  'FINALIZADO_ABSUELTO',
+  'FINALIZADO_CONDENADO'
+];
 
 /**
  * Hook that triggers sync when user logs in
@@ -105,11 +121,29 @@ export function useLoginSync(): UseLoginSyncResult {
         console.log(`[useLoginSync] Sync allowed (${checkResult.count}/${checkResult.limit})`);
         setIsRunning(true);
 
-        // Get eligible work items (not synced in last hour)
-        const eligibleItems = await getEligibleWorkItems(organization.id, {
-          minHoursSinceLastSync: 1,
-          limit: 30 // Limit to avoid long delays on login
-        });
+        // Get eligible work items for this organization
+        const { data: workItems, error: fetchError } = await supabase
+          .from('work_items')
+          .select('id, workflow_type, radicado, stage')
+          .eq('organization_id', organization.id)
+          .eq('monitoring_enabled', true)
+          .in('workflow_type', SYNC_ENABLED_WORKFLOWS)
+          .not('radicado', 'is', null)
+          .limit(50); // Limit to avoid long delays on login
+
+        if (fetchError) {
+          console.error('[useLoginSync] Error fetching work items:', fetchError);
+          setIsRunning(false);
+          hasTriggeredRef.current = true;
+          return;
+        }
+
+        // Filter to valid 23-digit radicados and non-terminal stages
+        const eligibleItems = (workItems || []).filter(item =>
+          item.radicado && 
+          item.radicado.replace(/\D/g, '').length === 23 &&
+          !TERMINAL_STAGES.includes(item.stage)
+        );
 
         if (eligibleItems.length === 0) {
           console.log('[useLoginSync] No work items need syncing');
@@ -129,13 +163,47 @@ export function useLoginSync(): UseLoginSyncResult {
           description: `Actualizando ${eligibleItems.length} procesos en segundo plano. (${remainingSyncs} sincronizaciones restantes hoy)`,
         });
 
-        // Sync in background
-        const results = await syncWorkItemBatch(eligibleItems, {
-          delayBetweenMs: 300, // Faster for login sync
-          onProgress: (completed, total) => {
-            console.log(`[useLoginSync] Progress: ${completed}/${total}`);
+        // Sync in background - call BOTH edge functions for each work item
+        let successCount = 0;
+        let publicacionesCount = 0;
+        let errorCount = 0;
+
+        for (let i = 0; i < eligibleItems.length; i++) {
+          const workItem = eligibleItems[i];
+          
+          try {
+            // Call BOTH edge functions in parallel for each work item
+            const [actsResult, pubsResult] = await Promise.allSettled([
+              // 1. sync-by-work-item → fetches actuaciones from CPNU/SAMAI → work_item_acts
+              supabase.functions.invoke('sync-by-work-item', {
+                body: { work_item_id: workItem.id, _scheduled: true }
+              }),
+              // 2. sync-publicaciones-by-work-item → fetches estados → work_item_publicaciones
+              supabase.functions.invoke('sync-publicaciones-by-work-item', {
+                body: { work_item_id: workItem.id, _scheduled: true }
+              }),
+            ]);
+
+            // Track results
+            if (actsResult.status === 'fulfilled' && actsResult.value.data?.ok) {
+              successCount++;
+            }
+            if (pubsResult.status === 'fulfilled' && pubsResult.value.data?.ok) {
+              publicacionesCount++;
+            }
+
+            console.log(`[useLoginSync] Synced item ${i + 1}/${eligibleItems.length}: ${workItem.id}`);
+
+          } catch (err) {
+            console.error(`[useLoginSync] Error syncing item ${workItem.id}:`, err);
+            errorCount++;
           }
-        });
+
+          // Rate limiting delay between items (faster for login sync)
+          if (i < eligibleItems.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
 
         // Mark as completed
         sessionStorage.setItem(syncKey, 'true');
@@ -147,15 +215,14 @@ export function useLoginSync(): UseLoginSyncResult {
         await fetchSyncStatus(user.id, organization.id);
 
         // Show result
-        const totalUpdates = results.success + results.scraping_initiated;
-        if (totalUpdates > 0) {
+        if (successCount > 0 || publicacionesCount > 0) {
           toast({
             title: 'Sincronización completada',
-            description: `${results.success} procesos actualizados${results.scraping_initiated > 0 ? `, ${results.scraping_initiated} pendientes` : ''}`,
+            description: `${successCount} actuaciones, ${publicacionesCount} estados actualizados${errorCount > 0 ? `, ${errorCount} errores` : ''}`,
           });
         }
 
-        console.log('[useLoginSync] Completed:', results);
+        console.log('[useLoginSync] Completed:', { successCount, publicacionesCount, errorCount });
 
       } catch (err) {
         console.error('[useLoginSync] Error:', err);
