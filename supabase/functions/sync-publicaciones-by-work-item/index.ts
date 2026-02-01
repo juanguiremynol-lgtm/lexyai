@@ -531,11 +531,25 @@ async function fetchPublicacionesFallback(
  */
 function mapRawPublicaciones(results: Record<string, unknown>[]): PublicacionRaw[] {
   return results.map((pub: Record<string, unknown>) => {
-    // Extract date from title if not provided
+    // Extract date from title if not provided by API
     let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
-    if (!publishedAt && pub.title) {
-      publishedAt = extractDateFromTitle(String(pub.title));
+    let extractedDateFromTitle: string | undefined;
+    
+    if (pub.title) {
+      extractedDateFromTitle = extractDateFromTitle(String(pub.title));
     }
+    
+    if (!publishedAt && extractedDateFromTitle) {
+      publishedAt = extractedDateFromTitle;
+    }
+
+    // Try API fields first, fall back to extracted date from title
+    const apiFechaFijacion = extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']);
+    const apiFechaDesfijacion = extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']);
+    
+    // CRITICAL FIX: If API doesn't provide fecha_fijacion but we extracted a date from title,
+    // use that as fecha_fijacion (the publication date IS when it was posted)
+    const finalFechaFijacion = apiFechaFijacion || extractedDateFromTitle;
 
     return {
       title: String(pub.title || pub.titulo || 'Sin título'),
@@ -546,8 +560,8 @@ function mapRawPublicaciones(results: Record<string, unknown>[]): PublicacionRaw
       entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
       pdf_available: Boolean(pub.pdf_available ?? true),
       published_at: publishedAt ? String(publishedAt) : undefined,
-      fecha_fijacion: extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']),
-      fecha_desfijacion: extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']),
+      fecha_fijacion: finalFechaFijacion,
+      fecha_desfijacion: apiFechaDesfijacion,
       despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
       tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
       source_id: pub.id ? String(pub.id) : undefined,
