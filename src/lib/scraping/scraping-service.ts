@@ -260,9 +260,9 @@ async function storeActuaciones(
   actuaciones: NormalizedActuacion[],
   organizationId?: string
 ): Promise<StoreActuacionesResult> {
-  // Get existing hashes to avoid duplicates - use work_item_id (canonical)
+  // BUG FIX: Get existing hashes from work_item_acts (the canonical table) instead of actuaciones
   const { data: existingActs } = await supabase
-    .from('actuaciones')
+    .from('work_item_acts')
     .select('hash_fingerprint')
     .eq('work_item_id', workItemId);
 
@@ -270,30 +270,36 @@ async function storeActuaciones(
 
   const newActuaciones = actuaciones.filter(act => !existingHashes.has(act.hashFingerprint));
   
+  // BUG FIX: Insert into work_item_acts (canonical table) instead of legacy actuaciones table
   const newRows = newActuaciones.map(act => ({
     owner_id: ownerId,
     organization_id: organizationId || null,
-    work_item_id: workItemId, // Canonical key
-    source: 'RAMA_JUDICIAL',
-    source_url: act.sourceUrl,
-    raw_text: act.rawText,
-    normalized_text: act.normalizedText,
+    work_item_id: workItemId,
+    workflow_type: 'CGP', // Default workflow
+    description: act.rawText,
     act_date: act.actDate,
-    act_time: act.actTime,
     act_date_raw: act.actDateRaw,
-    act_type_guess: act.actTypeGuess,
-    confidence: act.confidence,
+    event_date: act.actDate,
+    event_summary: act.normalizedText?.slice(0, 500) || act.rawText.slice(0, 500),
+    source: 'RAMA_JUDICIAL',
+    source_platform: 'CPNU',
+    source_url: act.sourceUrl,
     hash_fingerprint: act.hashFingerprint,
-    attachments: act.attachments,
-    adapter_name: 'external-rama-judicial-api',
+    scrape_date: new Date().toISOString().split('T')[0],
+    raw_data: {
+      attachments: act.attachments,
+      act_type_guess: act.actTypeGuess,
+      confidence: act.confidence,
+      act_time: act.actTime,
+    },
   }));
 
   if (newRows.length === 0) return { count: 0, newActuaciones: [] };
 
-  const { error } = await supabase.from('actuaciones').insert(newRows);
+  const { error } = await supabase.from('work_item_acts').insert(newRows);
 
   if (error) {
-    console.error('Error storing actuaciones:', error);
+    console.error('Error storing work_item_acts:', error);
     return { count: 0, newActuaciones: [] };
   }
 

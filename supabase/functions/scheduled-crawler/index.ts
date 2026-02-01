@@ -47,20 +47,23 @@ interface WorkItemToCrawl {
   last_checked_at?: string | null;
 }
 
-interface ActuacionRow {
+// Work item act row (matches work_item_acts table schema)
+interface WorkItemActRow {
   owner_id: string;
   work_item_id: string;
-  source: string;
-  source_url: string;
-  raw_text: string;
-  normalized_text: string;
+  workflow_type: string;
+  description: string;
   act_date: string | null;
-  act_date_raw: string;
-  act_type_guess: string | null;
-  confidence: number;
+  act_date_raw: string | null;
+  event_date: string | null;
+  event_summary: string | null;
+  source: string;
+  source_platform: string;
+  source_url: string | null;
   hash_fingerprint: string;
-  attachments: unknown[];
-  adapter_name: string;
+  scrape_date: string;
+  despacho: string | null;
+  raw_data: Record<string, unknown> | null;
 }
 
 // Normalize text for comparison
@@ -248,9 +251,9 @@ async function crawlWorkItem(
 
   const sourceUrl = `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${workItem.radicado}`;
 
-  // Get existing actuaciones to detect new ones
+  // BUG FIX: Get existing acts from work_item_acts (not actuaciones)
   const { data: existingActs } = await supabase
-    .from('actuaciones')
+    .from('work_item_acts')
     .select('hash_fingerprint')
     .eq('work_item_id', workItem.id);
 
@@ -258,8 +261,9 @@ async function crawlWorkItem(
     ((existingActs as Array<{ hash_fingerprint: string }>) || []).map(a => a.hash_fingerprint)
   );
 
-  // Process new actuaciones
-  const newActuaciones: ActuacionRow[] = [];
+  // Process new actuaciones into work_item_acts
+  const newActs: WorkItemActRow[] = [];
+  const scrapeDate = new Date().toISOString().split('T')[0];
 
   for (const act of data.actuaciones || []) {
     const rawText = `${act['Actuación'] || ''}${act['Anotación'] ? ' - ' + act['Anotación'] : ''}`;
@@ -268,37 +272,43 @@ async function crawlWorkItem(
     const hashFingerprint = computeHash(workItem.id, actDate, normalizedText, sourceUrl);
 
     if (!existingHashes.has(hashFingerprint)) {
-      newActuaciones.push({
+      newActs.push({
         owner_id: workItem.owner_id,
         work_item_id: workItem.id,
-        source: 'RAMA_JUDICIAL',
-        source_url: sourceUrl,
-        raw_text: rawText,
-        normalized_text: normalizedText,
+        workflow_type: workItem.workflow_type || 'CGP',
+        description: rawText,
         act_date: actDate,
-        act_date_raw: act['Fecha de Actuación'] || '',
-        act_type_guess: guessActType(normalizedText),
-        confidence: 0.7,
+        act_date_raw: act['Fecha de Actuación'] || null,
+        event_date: actDate,
+        event_summary: rawText.slice(0, 500),
+        source: 'RAMA_JUDICIAL',
+        source_platform: 'CPNU',
+        source_url: sourceUrl,
         hash_fingerprint: hashFingerprint,
-        attachments: [],
-        adapter_name: 'external-rama-judicial-api',
+        scrape_date: scrapeDate,
+        despacho: data.proceso?.['Despacho'] || null,
+        raw_data: {
+          actuacion: act['Actuación'],
+          anotacion: act['Anotación'],
+          fecha_registro: act['Fecha de Registro'],
+        },
       });
     }
   }
 
-  // Insert new actuaciones
-  if (newActuaciones.length > 0) {
+  // BUG FIX: Insert into work_item_acts (not actuaciones)
+  if (newActs.length > 0) {
     const { error: insertError } = await supabase
-      .from('actuaciones')
-      .insert(newActuaciones as unknown as Record<string, unknown>[]);
+      .from('work_item_acts')
+      .insert(newActs as unknown as Record<string, unknown>[]);
 
     if (insertError) {
-      console.error('Error inserting actuaciones:', insertError);
+      console.error('Error inserting work_item_acts:', insertError);
     } else {
-      console.log(`Inserted ${newActuaciones.length} new actuaciones for ${workItem.id}`);
+      console.log(`Inserted ${newActs.length} new acts for ${workItem.id}`);
 
       // Create alerts for new actuaciones
-      await createActuacionAlerts(supabase, workItem, newActuaciones);
+      await createActuacionAlerts(supabase, workItem, newActs);
     }
   }
 
@@ -335,15 +345,15 @@ async function crawlWorkItem(
   return {
     work_item_id: workItem.id,
     success: true,
-    new_actuaciones: newActuaciones.length,
+    new_actuaciones: newActs.length,
   };
 }
 
-// Create alerts for new actuaciones
+// Create alerts for new work_item_acts
 async function createActuacionAlerts(
   supabase: SupabaseClient,
   workItem: WorkItemToCrawl,
-  newActuaciones: ActuacionRow[]
+  newActs: WorkItemActRow[]
 ) {
   // Get user email for notifications
   const { data: profile } = await supabase
@@ -354,18 +364,20 @@ async function createActuacionAlerts(
 
   const profileData = profile as { email?: string; full_name?: string } | null;
 
-  // Create a summary alert for all new actuaciones
-  const alertTitle = `${newActuaciones.length} nueva(s) actuación(es) detectada(s)`;
-  const recentActs = newActuaciones.slice(0, 3);
+  // Create a summary alert for all new acts
+  const alertTitle = `${newActs.length} nueva(s) actuación(es) detectada(s)`;
+  const recentActs = newActs.slice(0, 3);
   const alertMessage = `Radicado ${workItem.radicado}: ${recentActs.map(a => 
-    a.act_type_guess || 'Actuación'
-  ).join(', ')}${newActuaciones.length > 3 ? ` y ${newActuaciones.length - 3} más` : ''}`;
+    'Actuación'
+  ).join(', ')}${newActs.length > 3 ? ` y ${newActs.length - 3} más` : ''}`;
 
-  // Determine severity based on act types
+  // Determine severity based on description content
   let severity = 'INFO';
-  const hasImportant = newActuaciones.some(a => 
-    ['SENTENCIA', 'AUTO_ADMISORIO', 'AUDIENCIA', 'NOTIFICACION'].includes(a.act_type_guess || '')
-  );
+  const hasImportant = newActs.some(a => {
+    const desc = a.description.toLowerCase();
+    return desc.includes('sentencia') || desc.includes('auto admisorio') || 
+           desc.includes('audiencia') || desc.includes('notificacion');
+  });
   if (hasImportant) severity = 'WARNING';
 
   // Create alert instance using canonical /work-items/:id route
@@ -380,11 +392,11 @@ async function createActuacionAlerts(
     payload: {
       radicado: workItem.radicado,
       workflow_type: workItem.workflow_type,
-      new_count: newActuaciones.length,
-      actuaciones: newActuaciones.map(a => ({
-        text: a.raw_text.substring(0, 200),
+      new_count: newActs.length,
+      actuaciones: newActs.map((a: WorkItemActRow) => ({
+        text: a.description.substring(0, 200),
         date: a.act_date,
-        type: a.act_type_guess,
+        type: 'ACTUACION',
       })),
     },
     actions: [
@@ -416,9 +428,9 @@ async function createActuacionAlerts(
           recipientName: profileData.full_name || undefined,
           subject: alertTitle,
           radicado: workItem.radicado,
-          message: `Se detectaron ${newActuaciones.length} nueva(s) actuación(es) en el proceso ${workItem.radicado}:\n\n${
-            newActuaciones.slice(0, 5).map(a => `• ${a.act_date || 'Sin fecha'}: ${a.raw_text.substring(0, 100)}...`).join('\n')
-          }${newActuaciones.length > 5 ? `\n\n... y ${newActuaciones.length - 5} actuación(es) más.` : ''}`,
+          message: `Se detectaron ${newActs.length} nueva(s) actuación(es) en el proceso ${workItem.radicado}:\n\n${
+            newActs.slice(0, 5).map((a: WorkItemActRow) => `• ${a.act_date || 'Sin fecha'}: ${a.description.substring(0, 100)}...`).join('\n')
+          }${newActs.length > 5 ? `\n\n... y ${newActs.length - 5} actuación(es) más.` : ''}`,
         }),
       });
       console.log(`Email notification sent to ${profileData.email} for ${workItem.radicado}`);
