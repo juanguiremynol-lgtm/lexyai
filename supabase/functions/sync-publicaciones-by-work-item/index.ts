@@ -189,58 +189,82 @@ const SPANISH_MONTHS: Record<string, string> = {
   'SEPTIEMBRE': '09', 'OCTUBRE': '10', 'NOVIEMBRE': '11', 'DICIEMBRE': '12'
 };
 
-// Extract date from title like "REGISTRO 1 DE JULIO DE 2024.pdf"
+/**
+ * Extract date from title - handles multiple formats:
+ * - "003Estados20260122.pdf" → 2026-01-22 (YYYYMMDD in filename)
+ * - "REGISTRO 1 DE JULIO DE 2024.pdf" → 2024-07-01 (Spanish format)
+ * - "22/01/2026" → 2026-01-22 (DD/MM/YYYY)
+ */
 function extractDateFromTitle(title: string): string | undefined {
-  const dateMatch = title.match(/(\d{1,2})\s+DE\s+(\w+)\s+DE\s+(\d{4})/i);
-  if (dateMatch) {
-    const day = dateMatch[1].padStart(2, '0');
-    const monthName = dateMatch[2].toUpperCase();
-    const year = dateMatch[3];
-    const month = SPANISH_MONTHS[monthName];
-    if (month) {
-      return `${year}-${month}-${day}`;
+  if (!title) return undefined;
+
+  // Pattern 1: "XXXEstadosYYYYMMDD.pdf" (e.g., "003Estados20260122.pdf")
+  const yyyymmddMatch = title.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
+  if (yyyymmddMatch) {
+    const year = parseInt(yyyymmddMatch[1]);
+    const month = parseInt(yyyymmddMatch[2]);
+    const day = parseInt(yyyymmddMatch[3]);
+    if (year >= 2020 && year <= 2030 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${yyyymmddMatch[1]}-${yyyymmddMatch[2]}-${yyyymmddMatch[3]}`;
     }
   }
+
+  // Pattern 2: "YYYYMMDD" anywhere in string
+  const yyyymmddAnywhere = title.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  if (yyyymmddAnywhere) {
+    return `${yyyymmddAnywhere[1]}-${yyyymmddAnywhere[2]}-${yyyymmddAnywhere[3]}`;
+  }
+
+  // Pattern 3: "DD DE MONTH_NAME DE YYYY" (Spanish)
+  const spanishMatch = title.match(/(\d{1,2})\s+(?:DE\s+)?(\w+)\s+(?:DE\s+)?(\d{4})/i);
+  if (spanishMatch) {
+    const day = spanishMatch[1].padStart(2, '0');
+    const monthName = spanishMatch[2].toUpperCase();
+    const year = spanishMatch[3];
+    const month = SPANISH_MONTHS[monthName];
+    if (month) return `${year}-${month}-${day}`;
+  }
+
+  // Pattern 4: "DD/MM/YYYY" or "DD-MM-YYYY"
+  const slashMatch = title.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+  if (slashMatch) {
+    return `${slashMatch[3]}-${slashMatch[2]}-${slashMatch[1]}`;
+  }
+
   return undefined;
 }
 
 /**
  * POLLING-BASED STRATEGY for Publicaciones API
  * 
- * The /snapshot endpoint does NOT exist - every call returns 404.
- * This caused infinite scraping loops where each sync created new jobs.
- * 
- * NEW FLOW:
- * 1. Call /buscar to trigger scraping job
- * 2. Poll /resultado/{job_id} every 5s for up to 60s
- * 3. If polling times out, try fallback direct query: GET /publicaciones?radicado=XXX
- * 4. Return results when job completes or fallback succeeds
- * 
- * This eliminates infinite loops and returns results immediately.
+ * ENHANCED FLOW (handles slow Cloud Run worker):
+ * 1. Call /buscar to trigger scraping job (or get deduped/cached response)
+ * 2. Handle "deduped" responses by trying /snapshot
+ * 3. Poll /resultado/{job_id} every 5s for up to 120s (24 attempts)
+ * 4. Wait BEFORE first poll to give worker time to start
+ * 5. If polling times out, try fallback: GET /publicaciones?radicado=XXX
+ * 6. Final fallback: Try /snapshot one last time
  */
 async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  // Support provider-specific key with fallback
   const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
 
-  console.log(`[sync-publicaciones] === STARTING FETCH ===`);
-  console.log(`[sync-publicaciones] Radicado: ${radicado}`);
-  console.log(`[sync-publicaciones] Base URL configured: ${!!baseUrl}`);
-  console.log(`[sync-publicaciones] API Key present: ${!!apiKey}, length: ${apiKey?.length || 0}`);
+  console.log(`[sync-pub] === STARTING FETCH ===`);
+  console.log(`[sync-pub] Radicado: ${radicado}`);
+  console.log(`[sync-pub] Base URL: ${baseUrl ? 'configured' : 'MISSING'}`);
+  console.log(`[sync-pub] API Key: present=${!!apiKey}, length=${apiKey?.length || 0}`);
 
   if (!baseUrl) {
-    console.log('[sync-publicaciones] PUBLICACIONES_BASE_URL not configured');
     return {
       ok: false,
       publicaciones: [],
-      error: 'Publicaciones API not configured (missing PUBLICACIONES_BASE_URL)',
+      error: 'PUBLICACIONES_BASE_URL not configured',
       latencyMs: Date.now() - startTime,
     };
   }
 
   if (!apiKey) {
-    console.log('[sync-publicaciones] API key not configured (PUBLICACIONES_X_API_KEY or EXTERNAL_X_API_KEY)');
     return {
       ok: false,
       publicaciones: [],
@@ -259,111 +283,148 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
   let lastResultData: Record<string, unknown> | null = null;
 
   try {
-    // Step 1: Trigger scraping job via /buscar
+    // ========= STEP 1: Call /buscar (triggers scraping or returns deduped) =========
     const buscarUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}`;
-    console.log(`[sync-publicaciones] Step 1: Triggering scraping job`);
-    console.log(`[sync-publicaciones] Calling: ${buscarUrl}`);
+    console.log(`[sync-pub] Step 1: Calling /buscar: ${buscarUrl}`);
 
-    const buscarResponse = await fetch(buscarUrl, {
-      method: 'GET',
-      headers,
-    });
-
-    console.log(`[sync-publicaciones] /buscar response status: ${buscarResponse.status}`);
+    const buscarResponse = await fetch(buscarUrl, { method: 'GET', headers });
+    console.log(`[sync-pub] /buscar HTTP status: ${buscarResponse.status}`);
 
     if (!buscarResponse.ok) {
       const errorText = await buscarResponse.text();
-      console.error(`[sync-publicaciones] Scraping trigger failed: HTTP ${buscarResponse.status}`, errorText);
+      console.error(`[sync-pub] /buscar failed: ${buscarResponse.status}`, errorText.slice(0, 200));
       return {
         ok: false,
         publicaciones: [],
-        error: `Scraping trigger failed: HTTP ${buscarResponse.status}`,
+        error: `Buscar failed: HTTP ${buscarResponse.status}`,
         latencyMs: Date.now() - startTime,
         httpStatus: buscarResponse.status,
       };
     }
 
     const buscarData = await buscarResponse.json();
-    console.log(`[sync-publicaciones] /buscar response body:`, JSON.stringify(buscarData).substring(0, 500));
-    
-    const jobId = buscarData.job_id || buscarData.jobId;
+    console.log(`[sync-pub] /buscar response:`, JSON.stringify(buscarData).slice(0, 400));
 
-    if (!jobId) {
-      console.error('[sync-publicaciones] No job_id in response:', buscarData);
-      return {
-        ok: false,
-        publicaciones: [],
-        error: 'No job_id returned from scraping API',
-        latencyMs: Date.now() - startTime,
-      };
+    const jobId = buscarData.job_id || buscarData.jobId;
+    const isDeduped = buscarData.deduped === true;
+    const isDone = buscarData.status === 'done' || buscarData.status === 'completed';
+
+    // ========= CASE 1: Job already done (deduped with inline result) =========
+    if (isDone && buscarData.result) {
+      console.log(`[sync-pub] /buscar returned completed result directly!`);
+      return extractPublicacionesFromResponse(buscarData, startTime);
     }
 
-    console.log(`[sync-publicaciones] Step 2: Scraping job created: ${jobId}, polling for results...`);
-
-    // Step 2: Poll /resultado/{job_id} for completion
-    const resultadoUrl = `${cleanBaseUrl}/resultado/${jobId}`;
-    const maxAttempts = 12; // 12 attempts x 5 seconds = 60 seconds max
-    const pollIntervalMs = 5000; // 5 seconds between polls
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // Wait before polling (except first attempt)
-      if (attempt > 1) {
-        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    // ========= CASE 2: Deduped but no inline result — try /snapshot =========
+    if (isDeduped || jobId === 'cached') {
+      console.log(`[sync-pub] Job was deduped/cached. Trying /snapshot...`);
+      const snapshotUrl = `${cleanBaseUrl}/snapshot?radicado=${radicado}`;
+      
+      try {
+        const snapshotResponse = await fetch(snapshotUrl, { method: 'GET', headers });
+        console.log(`[sync-pub] /snapshot HTTP status: ${snapshotResponse.status}`);
+        
+        if (snapshotResponse.ok) {
+          const snapshotData = await snapshotResponse.json();
+          const result = snapshotData.result || snapshotData;
+          const publications = result.results || result.publicaciones || result.estados || [];
+          
+          if (publications.length > 0) {
+            console.log(`[sync-pub] /snapshot returned ${publications.length} publications`);
+            return extractPublicacionesFromResponse(snapshotData, startTime);
+          }
+        }
+      } catch (snapshotErr) {
+        console.log(`[sync-pub] /snapshot call failed:`, snapshotErr);
       }
-
-      console.log(`[sync-publicaciones] Poll ${attempt}/${maxAttempts}: ${resultadoUrl}`);
-
-      const resultResponse = await fetch(resultadoUrl, {
-        method: 'GET',
-        headers,
-      });
-
-      console.log(`[sync-publicaciones] Poll ${attempt}: HTTP ${resultResponse.status}`);
-
-      if (!resultResponse.ok) {
-        console.log(`[sync-publicaciones] Poll ${attempt}: HTTP error ${resultResponse.status}, continuing...`);
-        continue;
-      }
-
-      const data = await resultResponse.json();
-      lastResultData = data;
-      const status = data.status;
-
-      console.log(`[sync-publicaciones] Poll ${attempt}: status="${status}", keys=${Object.keys(data).join(',')}`);
-
-      // Job still processing
-      if (status === 'queued' || status === 'processing' || status === 'running' || status === 'pending') {
-        console.log(`[sync-publicaciones] Job still ${status}, waiting...`);
-        continue;
-      }
-
-      // Job completed successfully - accept multiple success status values
-      if (status === 'done' || status === 'completed' || status === 'success' || status === 'finished') {
-        console.log('[sync-publicaciones] Job completed! Extracting results...');
-        return extractPublicacionesFromResponse(data, startTime);
-      }
-
-      // Job failed
-      if (status === 'failed' || status === 'error') {
-        const errorMsg = data.error || data.message || 'Unknown error';
-        console.error(`[sync-publicaciones] Job failed: ${errorMsg}`);
+      
+      console.log(`[sync-pub] /snapshot had no data. Will continue with polling if we have a real jobId.`);
+      
+      // If no real jobId, we can't poll
+      if (!jobId || jobId === 'cached') {
         return {
           ok: false,
           publicaciones: [],
-          error: `Scraping job failed: ${errorMsg}`,
+          error: 'No publications found (deduped, no snapshot)',
+          isEmpty: true,
           latencyMs: Date.now() - startTime,
         };
       }
     }
 
-    // Polling timeout - try FALLBACK DIRECT QUERY
-    console.log(`[sync-publicaciones] === POLLING TIMEOUT after ${maxAttempts * pollIntervalMs / 1000}s ===`);
-    console.log(`[sync-publicaciones] Last response was:`, JSON.stringify(lastResultData).substring(0, 500));
-    console.log(`[sync-publicaciones] Step 3: Trying fallback direct endpoint...`);
+    // ========= CASE 3: New job created — poll for results =========
+    if (!jobId) {
+      console.log(`[sync-pub] No job_id in /buscar response`);
+      return {
+        ok: false,
+        publicaciones: [],
+        error: 'No job_id returned from API',
+        latencyMs: Date.now() - startTime,
+      };
+    }
 
+    console.log(`[sync-pub] Step 2: Polling /resultado/${jobId}...`);
+
+    const resultadoUrl = `${cleanBaseUrl}/resultado/${jobId}`;
+    const maxAttempts = 24;       // 24 attempts (120 seconds total)
+    const pollIntervalMs = 5000;  // 5 seconds between polls
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Wait BEFORE polling (including first attempt — give worker time to start)
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+
+      try {
+        const resultResponse = await fetch(resultadoUrl, { method: 'GET', headers });
+
+        if (!resultResponse.ok) {
+          console.log(`[sync-pub] Poll ${attempt}/${maxAttempts}: HTTP ${resultResponse.status}`);
+          continue;
+        }
+
+        const data = await resultResponse.json();
+        lastResultData = data;
+        const status = data.status;
+
+        console.log(`[sync-pub] Poll ${attempt}/${maxAttempts}: status=${status}`);
+
+        // Still processing
+        if (['queued', 'processing', 'running', 'pending'].includes(status)) {
+          continue;
+        }
+
+        // Completed successfully
+        if (['done', 'completed', 'success', 'finished'].includes(status)) {
+          console.log(`[sync-pub] Job completed! Extracting publications...`);
+          return extractPublicacionesFromResponse(data, startTime);
+        }
+
+        // Failed
+        if (['failed', 'error'].includes(status)) {
+          console.log(`[sync-pub] Job failed: ${data.error || 'unknown'}`);
+          return {
+            ok: false,
+            publicaciones: [],
+            error: `Job failed: ${data.error || 'unknown'}`,
+            latencyMs: Date.now() - startTime,
+          };
+        }
+
+        // Unknown status
+        console.log(`[sync-pub] Poll ${attempt}: unknown status "${status}"`);
+      } catch (pollErr) {
+        console.log(`[sync-pub] Poll ${attempt} error: ${pollErr instanceof Error ? pollErr.message : 'unknown'}`);
+      }
+    }
+
+    // ========= TIMEOUT: Try fallback endpoints =========
+    console.log(`[sync-pub] === POLLING TIMEOUT after ${maxAttempts * pollIntervalMs / 1000}s ===`);
+    console.log(`[sync-pub] Last response:`, JSON.stringify(lastResultData).slice(0, 400));
+
+    // Fallback 1: Try direct /publicaciones endpoint
+    console.log(`[sync-pub] Step 3: Trying fallback /publicaciones endpoint...`);
     const fallbackResult = await fetchPublicacionesFallback(radicado, apiKey, cleanBaseUrl);
-    if (fallbackResult) {
-      console.log(`[sync-publicaciones] Fallback succeeded! Found ${fallbackResult.length} publications`);
+    if (fallbackResult && fallbackResult.length > 0) {
+      console.log(`[sync-pub] Fallback succeeded! Found ${fallbackResult.length} publications`);
       return {
         ok: true,
         publicaciones: fallbackResult,
@@ -372,16 +433,32 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       };
     }
 
-    console.error(`[sync-publicaciones] Fallback also failed. Returning timeout error.`);
+    // Fallback 2: Try /snapshot one last time (job may have completed between last poll and now)
+    console.log(`[sync-pub] Step 4: Final fallback — trying /snapshot...`);
+    try {
+      const lastSnapshotResponse = await fetch(`${cleanBaseUrl}/snapshot?radicado=${radicado}`, { method: 'GET', headers });
+      if (lastSnapshotResponse.ok) {
+        const lastData = await lastSnapshotResponse.json();
+        const result = lastData.result || lastData;
+        const pubs = result.results || result.publicaciones || [];
+        if (pubs.length > 0) {
+          console.log(`[sync-pub] Final /snapshot found ${pubs.length} publications!`);
+          return extractPublicacionesFromResponse(lastData, startTime);
+        }
+      }
+    } catch (e) {
+      console.log(`[sync-pub] Final /snapshot failed`);
+    }
+
     return {
       ok: false,
       publicaciones: [],
-      error: `Scraping timeout - job did not complete within ${maxAttempts * pollIntervalMs / 1000} seconds and fallback failed`,
+      error: `Polling timeout (${maxAttempts * pollIntervalMs / 1000}s) — all fallbacks failed`,
       latencyMs: Date.now() - startTime,
     };
 
   } catch (err) {
-    console.error('[sync-publicaciones] Fetch error:', err);
+    console.error('[sync-pub] Fetch error:', err);
     return {
       ok: false,
       publicaciones: [],

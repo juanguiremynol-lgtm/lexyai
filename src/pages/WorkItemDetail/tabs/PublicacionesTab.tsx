@@ -127,7 +127,7 @@ export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
                 <h4 className="font-medium">Sin publicaciones</h4>
                 <p className="text-sm text-muted-foreground">
                   {hasValidRadicado
-                    ? "No se han encontrado publicaciones para este proceso. Haz clic en \"Actualizar publicaciones\" para buscar."
+                    ? "No se han encontrado publicaciones para este proceso. Las publicaciones se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM."
                     : "Este proceso necesita un radicado válido (23 dígitos) para buscar publicaciones."
                   }
                 </p>
