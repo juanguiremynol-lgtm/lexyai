@@ -752,7 +752,7 @@ async function triggerCpnuScrapingJob(
     
     // Extract job info - CPNU returns { jobId, status, poll_url } or similar
     const jobId = String(data.jobId || data.job_id || data.id || '');
-    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const rawPollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
     const status = String(data.status || 'PENDING');
     
     if (!jobId) {
@@ -764,12 +764,26 @@ async function triggerCpnuScrapingJob(
       };
     }
     
-    console.log(`[sync-by-work-item] Scraping job created: jobId=${jobId}, status=${status}`);
+    // CRITICAL FIX: Ensure pollUrl is an absolute URL, not a relative path
+    // The API may return "/resultado/job_xxx" which is relative and invalid for fetch()
+    let absolutePollUrl: string;
+    if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
+      // Already absolute
+      absolutePollUrl = rawPollUrl;
+    } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
+      // Relative path - prepend base URL (without pathPrefix since it's already included)
+      absolutePollUrl = `${baseUrl}${rawPollUrl}`;
+    } else {
+      // Empty or invalid - construct from scratch
+      absolutePollUrl = `${baseUrl}${pathPrefix}/resultado/${jobId}`;
+    }
+    
+    console.log(`[sync-by-work-item] Scraping job created: jobId=${jobId}, status=${status}, pollUrl=${absolutePollUrl}`);
     
     return {
       ok: true,
       jobId,
-      pollUrl: pollUrl || `${baseUrl}${pathPrefix}/resultado/${jobId}`,
+      pollUrl: absolutePollUrl,
       status,
       latencyMs,
     };
@@ -993,15 +1007,25 @@ async function triggerSamaiScrapingJob(
     
     // Check for queued scraping job (async case)
     const jobId = String(data.jobId || data.job_id || data.id || '');
-    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const rawPollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
     const status = String(data.status || 'PENDING');
     
     if (jobId) {
-      console.log(`[sync-by-work-item] SAMAI Scraping job created: jobId=${jobId}, status=${status}`);
+      // CRITICAL FIX: Ensure pollUrl is an absolute URL
+      let absolutePollUrl: string;
+      if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
+        absolutePollUrl = rawPollUrl;
+      } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
+        absolutePollUrl = `${baseUrl}${rawPollUrl}`;
+      } else {
+        absolutePollUrl = `${baseUrl}/resultado/${jobId}`;
+      }
+      
+      console.log(`[sync-by-work-item] SAMAI Scraping job created: jobId=${jobId}, status=${status}, pollUrl=${absolutePollUrl}`);
       return {
         ok: true,
         jobId,
-        pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+        pollUrl: absolutePollUrl,
         status,
         latencyMs,
       };
@@ -1085,7 +1109,7 @@ async function triggerPublicacionesScrapingJob(
     
     // Extract job info
     const jobId = String(data.jobId || data.job_id || data.id || '');
-    const pollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
+    const rawPollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
     const status = String(data.status || 'PENDING');
     
     if (!jobId) {
@@ -1097,12 +1121,22 @@ async function triggerPublicacionesScrapingJob(
       };
     }
     
-    console.log(`[sync-by-work-item] PUBLICACIONES Scraping job created: jobId=${jobId}, status=${status}`);
+    // CRITICAL FIX: Ensure pollUrl is an absolute URL
+    let absolutePollUrl: string;
+    if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
+      absolutePollUrl = rawPollUrl;
+    } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
+      absolutePollUrl = `${baseUrl}${rawPollUrl}`;
+    } else {
+      absolutePollUrl = `${baseUrl}/resultado/${jobId}`;
+    }
+    
+    console.log(`[sync-by-work-item] PUBLICACIONES Scraping job created: jobId=${jobId}, status=${status}, pollUrl=${absolutePollUrl}`);
     
     return {
       ok: true,
       jobId,
-      pollUrl: pollUrl || `${baseUrl}/resultado/${jobId}`,
+      pollUrl: absolutePollUrl,
       status,
       latencyMs,
     };
