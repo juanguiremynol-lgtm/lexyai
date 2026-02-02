@@ -194,7 +194,7 @@ Deno.serve(async (req) => {
       .from("work_items")
       .select("id, radicado, workflow_type, authority_name")
       .eq("organization_id", target_organization_id)
-      .eq("is_archived", false)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (wiError) {
