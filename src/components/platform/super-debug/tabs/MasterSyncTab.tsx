@@ -337,9 +337,9 @@ export function MasterSyncTab() {
             Organización
           </Label>
           <Select
-            value={selectedOrgId || ''}
+            value={selectedOrgId ?? undefined}
             onValueChange={(val) => {
-              setSelectedOrgId(val);
+              setSelectedOrgId(val === '__NONE__' ? null : val);
               setSelectedUserId(null);
             }}
           >
@@ -353,7 +353,7 @@ export function MasterSyncTab() {
                   Cargando...
                 </div>
               ) : (
-                organizations?.map((org) => (
+                organizations?.filter(org => org?.id && org.id.trim() !== '').map((org) => (
                   <SelectItem key={org.id} value={org.id}>
                     {org.name}
                   </SelectItem>
@@ -377,21 +377,21 @@ export function MasterSyncTab() {
               className="h-9"
             />
             <Select
-              value={selectedUserId || ''}
-              onValueChange={setSelectedUserId}
+              value={selectedUserId ?? undefined}
+              onValueChange={(val) => setSelectedUserId(val === '__NONE__' ? null : val)}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Seleccionar usuario..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Ninguno (solo org)</SelectItem>
+                <SelectItem value="__NONE__">Ninguno (solo org)</SelectItem>
                 {usersLoading ? (
                   <div className="p-2 text-center text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                     Cargando...
                   </div>
                 ) : (
-                  users?.map((user) => (
+                  users?.filter(user => user?.id && user.id.trim() !== '').map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       {user.full_name || 'Sin nombre'} 
                       {user.organization_id ? '' : ' (sin org)'}
