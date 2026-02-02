@@ -662,6 +662,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
         provider_attempts: attempts,
       };
     }
+  } // ← Close the for-loop here
 
   // ========= ALL ROUTES FAILED =========
   console.log(`[sync-pub] All ${attempts.length} route candidates failed.`);
