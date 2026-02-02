@@ -55,6 +55,9 @@ interface SyncResult {
   scrapingInitiated?: boolean;
   scrapingJobId?: string;
   scrapingMessage?: string;
+  // NEW: Scraping status for UI auto-retry
+  status?: 'SUCCESS' | 'SCRAPING_IN_PROGRESS' | 'SCRAPING_TIMEOUT' | 'ERROR' | 'EMPTY';
+  retryAfterSeconds?: number;
 }
 
 interface PublicacionRaw {
@@ -83,6 +86,9 @@ interface FetchResult {
   isEmpty?: boolean;
   latencyMs?: number;
   httpStatus?: number;
+  // NEW: Scraping in progress status (not a hard error)
+  status?: 'SUCCESS' | 'SCRAPING_IN_PROGRESS' | 'SCRAPING_TIMEOUT' | 'ERROR';
+  retryAfterSeconds?: number;
 }
 
 // ============= HELPERS =============
@@ -298,14 +304,24 @@ async function pollForResults(
     }
   }
 
-  // Polling timed out
+  // Polling timed out - this is NOT a hard error, scraping may still complete
   console.log(`[sync-pub] pollForResults: Polling timed out after ${maxAttempts * pollIntervalMs / 1000}s`);
   console.log(`[sync-pub] pollForResults: Last response:`, JSON.stringify(lastResultData).slice(0, 400));
+  
+  // Determine if still processing or truly timed out
+  const lastStatus = (lastResultData as any)?.status;
+  const isStillProcessing = ['queued', 'processing', 'running', 'pending'].includes(lastStatus);
 
   return {
     ok: false,
     publicaciones: [],
-    error: `Polling timeout (${maxAttempts * pollIntervalMs / 1000}s)`,
+    error: isStillProcessing 
+      ? `Scraping still in progress (job status: ${lastStatus})`
+      : `Polling timeout (${maxAttempts * pollIntervalMs / 1000}s)`,
+    status: isStillProcessing ? 'SCRAPING_IN_PROGRESS' : 'SCRAPING_TIMEOUT',
+    scrapingJobId: jobId,
+    scrapingPollUrl: resultadoUrl,
+    retryAfterSeconds: 60,
     latencyMs: Date.now() - startTime,
   };
 }
@@ -826,19 +842,39 @@ Deno.serve(async (req) => {
     const fetchResult = await fetchPublicaciones(normalizedRadicado);
 
     if (!fetchResult.ok) {
-      // If scraping was initiated, return 202 with scraping info
+      // ============= HANDLE SCRAPING IN PROGRESS (NOT A HARD ERROR) =============
+      // If polling timed out but scraping is still processing, return a retryable status
+      if (fetchResult.status === 'SCRAPING_IN_PROGRESS' || fetchResult.status === 'SCRAPING_TIMEOUT') {
+        console.log(`[sync-publicaciones] Scraping still in progress: ${fetchResult.status}, job_id=${fetchResult.scrapingJobId}`);
+        return jsonResponse({
+          ...result,
+          ok: false,
+          status: fetchResult.status,
+          scrapingInitiated: true,
+          scrapingJobId: fetchResult.scrapingJobId,
+          scrapingMessage: fetchResult.error || `Scraping en progreso (${fetchResult.status})`,
+          retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
+          errors: [fetchResult.error || 'Scraping en progreso, reintente en 60 segundos'],
+        }, 202); // 202 Accepted = operation started but not complete
+      }
+      
+      // If scraping was initiated (legacy path)
       if (fetchResult.scrapingInitiated) {
         return jsonResponse({
           ...result,
           ok: false,
+          status: 'SCRAPING_IN_PROGRESS',
           scrapingInitiated: true,
           scrapingJobId: fetchResult.scrapingJobId,
           scrapingMessage: fetchResult.scrapingMessage,
+          retryAfterSeconds: 60,
           errors: [fetchResult.scrapingMessage || 'Búsqueda iniciada'],
         }, 202);
       }
       
+      // Actual hard error
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
+      result.status = 'ERROR';
       return jsonResponse(result);
     }
 

@@ -22,6 +22,7 @@ export function usePlatformAdmin(): PlatformAdminInfo {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return null;
 
+      // Note: platform_admins table has columns: user_id, role, created_at, notes (no 'id' column)
       const { data: adminRecord, error } = await supabase
         .from("platform_admins")
         .select("user_id, role, created_at")

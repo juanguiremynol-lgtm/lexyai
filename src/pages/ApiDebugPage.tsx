@@ -234,6 +234,131 @@ function isValidTutelaCode(input: string): boolean {
   return /^T\d{6,10}$/i.test(input);
 }
 
+// ============== Publicaciones Sync Result Card with Auto-Retry ==============
+
+interface PublicacionesSyncResultProps {
+  result: { success: boolean; data?: any; error?: string };
+  onRetry: () => void;
+  isRetrying: boolean;
+}
+
+function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: PublicacionesSyncResultProps) {
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const maxRetries = 6;
+
+  const data = result.data;
+  const status = data?.status as string | undefined;
+  const isScrapingInProgress = status === 'SCRAPING_IN_PROGRESS' || status === 'SCRAPING_TIMEOUT';
+  const retryAfterSeconds = data?.retryAfterSeconds || 60;
+  const scrapingJobId = data?.scrapingJobId;
+
+  // Auto-retry logic
+  useEffect(() => {
+    if (isScrapingInProgress && retryAttempt < maxRetries && !isRetrying) {
+      setRetryCountdown(retryAfterSeconds);
+      
+      const countdownInterval = setInterval(() => {
+        setRetryCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(countdownInterval);
+            // Trigger retry
+            setRetryAttempt(a => a + 1);
+            onRetry();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(countdownInterval);
+    }
+  }, [isScrapingInProgress, retryAttempt, isRetrying, retryAfterSeconds, onRetry]);
+
+  // Reset retry attempt when result changes to success
+  useEffect(() => {
+    if (result.success) {
+      setRetryAttempt(0);
+      setRetryCountdown(null);
+    }
+  }, [result.success]);
+
+  const getStatusIcon = () => {
+    if (isRetrying) return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+    if (isScrapingInProgress) return <Clock className="h-4 w-4 text-amber-500" />;
+    if (result.success) return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+    return <XCircle className="h-4 w-4 text-destructive" />;
+  };
+
+  const getStatusBadge = () => {
+    if (isRetrying) return <Badge className="bg-blue-500/20 text-blue-700">⏳ Reintentando...</Badge>;
+    if (isScrapingInProgress) return <Badge className="bg-amber-500/20 text-amber-700">⏱️ Scraping en progreso</Badge>;
+    if (result.success) return <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700">✅ Success</Badge>;
+    return <Badge variant="destructive">❌ Error</Badge>;
+  };
+
+  const bgColor = isRetrying || isScrapingInProgress 
+    ? "bg-amber-500/10 border-amber-500/30" 
+    : result.success 
+      ? "bg-emerald-500/10 border-emerald-500/30" 
+      : "bg-destructive/10 border-destructive/30";
+
+  return (
+    <div className={cn("p-4 rounded-lg border", bgColor)}>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="font-medium flex items-center gap-2">
+          {getStatusIcon()}
+          Publicaciones (sync-publicaciones-by-work-item)
+        </h4>
+        {getStatusBadge()}
+      </div>
+
+      {/* Scraping in progress banner */}
+      {isScrapingInProgress && (
+        <div className="p-3 mb-3 rounded bg-amber-500/20 border border-amber-500/30">
+          <p className="text-sm text-amber-800 font-medium">
+            📡 Scraping en curso — el servidor externo está procesando la solicitud
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            Job ID: <code className="bg-amber-100 px-1 rounded">{scrapingJobId || 'N/A'}</code>
+          </p>
+          {retryCountdown !== null && (
+            <p className="text-xs text-amber-700 mt-2">
+              Reintentando automáticamente en <span className="font-mono font-bold">{retryCountdown}s</span>
+              {' '}(intento {retryAttempt + 1}/{maxRetries})
+            </p>
+          )}
+          <div className="flex gap-2 mt-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => {
+                setRetryCountdown(null);
+                setRetryAttempt(a => a + 1);
+                onRetry();
+              }}
+              disabled={isRetrying}
+            >
+              {isRetrying ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+              Reintentar ahora
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {result.error && !isScrapingInProgress && (
+        <p className="text-sm text-destructive mb-2">{result.error}</p>
+      )}
+      
+      {data && (
+        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
+          {JSON.stringify(data, null, 2).slice(0, 500)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============== Components ==============
 
 function SecretStatusBadge({ name, present }: { name: string; present: boolean }) {
@@ -1611,32 +1736,11 @@ export default function ApiDebugPage() {
 
             {/* Publicaciones sync result */}
             {syncResults?.publicaciones && (
-              <div className={cn(
-                "p-4 rounded-lg border",
-                syncResults.publicaciones.success ? "bg-emerald-500/10 border-emerald-500/30" : "bg-destructive/10 border-destructive/30"
-              )}>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium flex items-center gap-2">
-                    {syncResults.publicaciones.success ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-destructive" />
-                    )}
-                    Publicaciones (sync-publicaciones-by-work-item)
-                  </h4>
-                  <Badge variant={syncResults.publicaciones.success ? "secondary" : "destructive"}>
-                    {syncResults.publicaciones.success ? "✅ Success" : "❌ Error"}
-                  </Badge>
-                </div>
-                {syncResults.publicaciones.error && (
-                  <p className="text-sm text-destructive mb-2">{syncResults.publicaciones.error}</p>
-                )}
-                {syncResults.publicaciones.data && (
-                  <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
-                    {JSON.stringify(syncResults.publicaciones.data, null, 2).slice(0, 500)}
-                  </div>
-                )}
-              </div>
+              <PublicacionesSyncResultCard 
+                result={syncResults.publicaciones}
+                onRetry={() => runSyncMutation.mutate()}
+                isRetrying={runSyncMutation.isPending}
+              />
             )}
 
             {/* Database results */}
