@@ -383,13 +383,62 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
 
     if (!buscarResponse.ok) {
       const errorText = await buscarResponse.text();
-      console.error(`[sync-pub] /buscar failed: ${buscarResponse.status}`, errorText.slice(0, 200));
+      const httpStatus = buscarResponse.status;
+      console.error(`[sync-pub] /buscar failed: ${httpStatus}`, errorText.slice(0, 200));
+      
+      // ========= SPECIAL HANDLING: 404 means "not cached, needs scraping" =========
+      // This is NOT a hard error - the scraping job may be starting or we need to trigger it
+      if (httpStatus === 404) {
+        console.log(`[sync-pub] 404 from /buscar - treating as PENDING (scraping needed)`);
+        
+        // Try to trigger scraping by calling with force=true
+        try {
+          const forceUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}&force=true`;
+          console.log(`[sync-pub] Attempting force scrape: ${forceUrl}`);
+          const forceResponse = await fetch(forceUrl, { method: 'GET', headers });
+          
+          if (forceResponse.ok) {
+            const forceData = await forceResponse.json();
+            const forceJobId = forceData.job_id || forceData.jobId;
+            
+            if (forceJobId && forceJobId !== 'cached') {
+              console.log(`[sync-pub] Force scrape triggered! job_id=${forceJobId}`);
+              return {
+                ok: false,
+                publicaciones: [],
+                status: 'SCRAPING_IN_PROGRESS',
+                scrapingJobId: forceJobId,
+                scrapingMessage: 'Scraping job triggered successfully',
+                retryAfterSeconds: 60,
+                latencyMs: Date.now() - startTime,
+                httpStatus: 202,
+              };
+            }
+          }
+        } catch (forceErr) {
+          console.log(`[sync-pub] Force scrape attempt failed:`, forceErr);
+        }
+        
+        // Return PENDING status instead of error
+        return {
+          ok: false,
+          publicaciones: [],
+          status: 'SCRAPING_IN_PROGRESS',
+          scrapingMessage: 'Record not cached, scraping may be needed. Retry in 60 seconds.',
+          retryAfterSeconds: 60,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 202,
+        };
+      }
+      
+      // Other HTTP errors are real errors
       return {
         ok: false,
         publicaciones: [],
-        error: `Buscar failed: HTTP ${buscarResponse.status}`,
+        error: `Buscar failed: HTTP ${httpStatus}`,
+        status: 'ERROR',
         latencyMs: Date.now() - startTime,
-        httpStatus: buscarResponse.status,
+        httpStatus,
       };
     }
 

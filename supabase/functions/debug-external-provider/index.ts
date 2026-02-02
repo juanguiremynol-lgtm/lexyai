@@ -52,9 +52,14 @@ const TUTELAS_ROUTE_CANDIDATES = [
   '/api/expediente/{id}',
 ];
 
+// PUBLICACIONES: Multiple route variants to try
+// The Cloud Run service may expose different endpoints for different use cases
 const PUBLICACIONES_ROUTE_CANDIDATES = [
-  '/publicaciones?radicado={id}',
-  '/api/publicaciones?radicado={id}',
+  '/buscar?radicado={id}',                    // Primary: async job creation (returns job_id)
+  '/snapshot?radicado={id}',                  // Cached snapshot if available
+  '/publicaciones/{id}',                      // Path-based direct lookup
+  '/publicaciones?radicado={id}',             // Query-param direct lookup
+  '/publicaciones?numero_radicacion={id}',    // Alternative param name
 ];
 
 // ============= TYPES =============
