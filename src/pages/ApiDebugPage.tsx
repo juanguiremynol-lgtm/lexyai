@@ -460,6 +460,160 @@ function JsonViewer({ data, title }: { data: unknown; title?: string }) {
   );
 }
 
+// ============== Sync History Card ==============
+
+function SyncHistoryCard() {
+  const [isLoading, setIsLoading] = useState(false);
+  const [loginSyncRuns, setLoginSyncRuns] = useState<any[]>([]);
+  const [dailySyncLedger, setDailySyncLedger] = useState<any[]>([]);
+
+  const fetchHistory = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch recent login sync runs
+      const { data: loginRuns, error: loginError } = await supabase
+        .from('auto_sync_login_runs')
+        .select('id, user_id, organization_id, run_count, run_date, last_run_at, created_at, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(10);
+
+      if (!loginError && loginRuns) {
+        setLoginSyncRuns(loginRuns);
+      }
+
+      // Fetch recent daily sync ledger entries
+      const { data: dailyRuns, error: dailyError } = await supabase
+        .from('auto_sync_daily_ledger')
+        .select('id, organization_id, run_date, scheduled_for, status, items_targeted, items_succeeded, items_failed, started_at, completed_at, last_error')
+        .order('run_date', { ascending: false })
+        .limit(10);
+
+      if (!dailyError && dailyRuns) {
+        setDailySyncLedger(dailyRuns);
+      }
+    } catch (err) {
+      console.error('Error fetching sync history:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Clock className="h-5 w-5" />
+          Historial de Sincronización Automática
+        </CardTitle>
+        <CardDescription>
+          Registros de useLoginSync (on-login) y Daily Sync (scheduled cron)
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={fetchHistory}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          Cargar Historial
+        </Button>
+
+        {loginSyncRuns.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="font-medium text-sm flex items-center gap-2">
+              <Shield className="h-4 w-4" />
+              Login Sync Runs (auto_sync_login_runs)
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Límite: 3 syncs por usuario por día
+            </p>
+            <ScrollArea className="h-40">
+              <div className="space-y-1">
+                {loginSyncRuns.map((run) => (
+                  <div key={run.id} className="text-xs p-2 bg-muted/50 rounded flex justify-between items-center">
+                    <div>
+                      <span className="font-mono">{run.run_date}</span>
+                      <span className="text-muted-foreground ml-2">
+                        user: {run.user_id?.slice(0, 8)}...
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[10px]">
+                        {run.run_count}/3 runs
+                      </Badge>
+                      {run.last_run_at && (
+                        <span className="text-muted-foreground">
+                          {new Date(run.last_run_at).toLocaleTimeString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+
+        {dailySyncLedger.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="font-medium text-sm flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Daily Sync Ledger (auto_sync_daily_ledger)
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Scheduled 7:00 AM COT - exactamente una vez por día por org
+            </p>
+            <ScrollArea className="h-40">
+              <div className="space-y-1">
+                {dailySyncLedger.map((entry) => (
+                  <div key={entry.id} className="text-xs p-2 bg-muted/50 rounded flex justify-between items-center">
+                    <div>
+                      <span className="font-mono">{entry.run_date}</span>
+                      <span className="text-muted-foreground ml-2">
+                        org: {entry.organization_id?.slice(0, 8)}...
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant={
+                          entry.status === 'SUCCESS' ? 'secondary' : 
+                          entry.status === 'RUNNING' ? 'default' :
+                          entry.status === 'FAILED' ? 'destructive' : 
+                          'outline'
+                        }
+                        className="text-[10px]"
+                      >
+                        {entry.status}
+                      </Badge>
+                      {entry.items_targeted && (
+                        <span className="text-muted-foreground">
+                          {entry.items_succeeded}/{entry.items_targeted} items
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+
+        {loginSyncRuns.length === 0 && dailySyncLedger.length === 0 && !isLoading && (
+          <p className="text-sm text-muted-foreground">
+            Haga clic en "Cargar Historial" para ver los registros de sincronización automática.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ============== Main Component ==============
 
 // Map workflow → primary provider for auto-selection
@@ -677,17 +831,117 @@ export default function ApiDebugPage() {
     },
   });
 
+  // State for sync results
+  const [syncResults, setSyncResults] = useState<{
+    actuaciones?: { success: boolean; data?: any; error?: string };
+    publicaciones?: { success: boolean; data?: any; error?: string };
+  } | null>(null);
+  const [dbResults, setDbResults] = useState<{
+    actuaciones: any[];
+    publicaciones: any[];
+  } | null>(null);
+
   // Run sync mutation (calls actual sync functions)
   const runSyncMutation = useMutation({
     mutationFn: async () => {
-      // For now, just show a message - actual sync requires a work_item_id
-      throw new Error(
-        "Para ejecutar sync con escritura a DB, use el botón 'Actualizar' desde la vista del proceso. " +
-        "Esta página solo permite probar la conectividad con los proveedores."
-      );
+      const normalizedRadicado = normalizeRadicado(radicado);
+      
+      if (!isValidRadicado(radicado)) {
+        throw new Error("Ingrese un radicado válido de 23 dígitos para ejecutar sync");
+      }
+
+      // Step 1: Find work_item_id from radicado
+      const { data: workItem, error: lookupError } = await supabase
+        .from('work_items')
+        .select('id, radicado, workflow_type, organization_id')
+        .eq('radicado', normalizedRadicado)
+        .is('deleted_at', null)
+        .maybeSingle();
+
+      if (lookupError) {
+        throw new Error(`Error buscando work_item: ${lookupError.message}`);
+      }
+
+      if (!workItem) {
+        throw new Error(`No existe work_item con radicado ${normalizedRadicado}. Cree uno primero.`);
+      }
+
+      console.log(`[debug] Running full sync for work_item ${workItem.id} (${workItem.workflow_type})`);
+
+      // Step 2: Call BOTH edge functions in parallel
+      const [actsResult, pubsResult] = await Promise.allSettled([
+        supabase.functions.invoke('sync-by-work-item', {
+          body: { work_item_id: workItem.id }
+        }),
+        supabase.functions.invoke('sync-publicaciones-by-work-item', {
+          body: { work_item_id: workItem.id }
+        }),
+      ]);
+
+      // Step 3: Process results
+      const actsData = actsResult.status === 'fulfilled' ? actsResult.value.data : null;
+      const actsError = actsResult.status === 'rejected' 
+        ? actsResult.reason?.message 
+        : actsResult.value?.error?.message || actsResult.value?.error;
+      const pubsData = pubsResult.status === 'fulfilled' ? pubsResult.value.data : null;
+      const pubsError = pubsResult.status === 'rejected' 
+        ? pubsResult.reason?.message 
+        : pubsResult.value?.error?.message || pubsResult.value?.error;
+
+      setSyncResults({
+        actuaciones: {
+          success: !actsError && actsData?.ok !== false,
+          data: actsData,
+          error: actsError,
+        },
+        publicaciones: {
+          success: !pubsError && pubsData?.ok !== false,
+          data: pubsData,
+          error: pubsError,
+        },
+      });
+
+      // Step 4: Query database to show what was actually inserted
+      const { data: acts } = await supabase
+        .from('work_item_acts')
+        .select('id, act_date, description, source, created_at')
+        .eq('work_item_id', workItem.id)
+        .order('act_date', { ascending: false })
+        .limit(10);
+
+      const { data: pubs } = await supabase
+        .from('work_item_publicaciones')
+        .select('id, title, pdf_url, fecha_fijacion, source, created_at')
+        .eq('work_item_id', workItem.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      setDbResults({
+        actuaciones: acts || [],
+        publicaciones: pubs || [],
+      });
+
+      return {
+        workItemId: workItem.id,
+        workflowType: workItem.workflow_type,
+        actsCount: acts?.length || 0,
+        pubsCount: pubs?.length || 0,
+        actsError,
+        pubsError,
+      };
+    },
+    onSuccess: (data) => {
+      const hasErrors = data.actsError || data.pubsError;
+      if (hasErrors) {
+        toast.warning(`Sync completado con errores: ${data.actsCount} actuaciones, ${data.pubsCount} publicaciones`);
+      } else {
+        toast.success(`Sync completado: ${data.actsCount} actuaciones, ${data.pubsCount} publicaciones en DB`);
+      }
     },
     onError: (err) => {
-      toast.info(err instanceof Error ? err.message : "Info");
+      toast.error(err instanceof Error ? err.message : "Error desconocido");
+      setSyncResults(null);
+      setDbResults(null);
     },
   });
 
@@ -1032,13 +1286,33 @@ export default function ApiDebugPage() {
             <Button
               variant="outline"
               onClick={() => runSyncMutation.mutate()}
-              disabled
-              title="Use la vista del proceso para ejecutar sync con escritura a DB"
+              disabled={runSyncMutation.isPending || !isValidRadicado(radicado)}
+              title={!isValidRadicado(radicado) ? "Ingrese radicado de 23 dígitos" : "Ejecutar sync completo con escritura a DB"}
             >
-              <Database className="h-4 w-4 mr-2" />
-              Run Sync (DB write)
+              {runSyncMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4 mr-2" />
+              )}
+              {runSyncMutation.isPending ? "Sincronizando... (hasta 2 min)" : "Run Sync (DB write)"}
             </Button>
           </div>
+
+          {!allSecretsPresent && (
+            <p className="text-sm text-amber-600">
+              <AlertTriangle className="h-4 w-4 inline mr-1" />
+              Configure todos los secretos antes de probar proveedores.
+            </p>
+          )}
+          
+          {runSyncMutation.isPending && (
+            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <p className="text-sm text-blue-700 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Sincronizando... El proceso de polling puede tomar hasta 2 minutos mientras espera respuesta del servidor externo.
+              </p>
+            </div>
+          )}
 
           {!allSecretsPresent && (
             <p className="text-sm text-amber-600">
@@ -1291,6 +1565,138 @@ export default function ApiDebugPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Sync Results Card */}
+      {(syncResults || dbResults) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Database className="h-5 w-5" />
+              Resultados de Sync (DB Write)
+            </CardTitle>
+            <CardDescription>
+              Resultados de la sincronización con escritura a base de datos
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Actuaciones sync result */}
+            {syncResults?.actuaciones && (
+              <div className={cn(
+                "p-4 rounded-lg border",
+                syncResults.actuaciones.success ? "bg-emerald-500/10 border-emerald-500/30" : "bg-destructive/10 border-destructive/30"
+              )}>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    {syncResults.actuaciones.success ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    )}
+                    Actuaciones (sync-by-work-item)
+                  </h4>
+                  <Badge variant={syncResults.actuaciones.success ? "secondary" : "destructive"}>
+                    {syncResults.actuaciones.success ? "✅ Success" : "❌ Error"}
+                  </Badge>
+                </div>
+                {syncResults.actuaciones.error && (
+                  <p className="text-sm text-destructive mb-2">{syncResults.actuaciones.error}</p>
+                )}
+                {syncResults.actuaciones.data && (
+                  <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
+                    {JSON.stringify(syncResults.actuaciones.data, null, 2).slice(0, 500)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Publicaciones sync result */}
+            {syncResults?.publicaciones && (
+              <div className={cn(
+                "p-4 rounded-lg border",
+                syncResults.publicaciones.success ? "bg-emerald-500/10 border-emerald-500/30" : "bg-destructive/10 border-destructive/30"
+              )}>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    {syncResults.publicaciones.success ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    )}
+                    Publicaciones (sync-publicaciones-by-work-item)
+                  </h4>
+                  <Badge variant={syncResults.publicaciones.success ? "secondary" : "destructive"}>
+                    {syncResults.publicaciones.success ? "✅ Success" : "❌ Error"}
+                  </Badge>
+                </div>
+                {syncResults.publicaciones.error && (
+                  <p className="text-sm text-destructive mb-2">{syncResults.publicaciones.error}</p>
+                )}
+                {syncResults.publicaciones.data && (
+                  <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
+                    {JSON.stringify(syncResults.publicaciones.data, null, 2).slice(0, 500)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Database results */}
+            {dbResults && (
+              <>
+                <Separator />
+                <h4 className="font-medium flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Datos en Base de Datos
+                </h4>
+
+                {/* Actuaciones in DB */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    work_item_acts: {dbResults.actuaciones.length} registros
+                  </p>
+                  {dbResults.actuaciones.length > 0 ? (
+                    <div className="space-y-1">
+                      {dbResults.actuaciones.slice(0, 5).map((act: any) => (
+                        <div key={act.id} className="text-xs p-2 bg-muted/50 rounded flex justify-between">
+                          <span className="font-mono">{act.act_date || 'Sin fecha'}</span>
+                          <span className="truncate max-w-[300px]">{act.description?.slice(0, 50) || 'Sin descripción'}</span>
+                          <Badge variant="outline" className="text-[10px]">{act.source}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No hay actuaciones en DB para este work_item</p>
+                  )}
+                </div>
+
+                {/* Publicaciones in DB */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    work_item_publicaciones: {dbResults.publicaciones.length} registros
+                  </p>
+                  {dbResults.publicaciones.length > 0 ? (
+                    <div className="space-y-1">
+                      {dbResults.publicaciones.slice(0, 5).map((pub: any) => (
+                        <div key={pub.id} className="text-xs p-2 bg-muted/50 rounded flex justify-between items-center">
+                          <span className="truncate max-w-[250px]">{pub.title}</span>
+                          {pub.pdf_url && (
+                            <Badge variant="outline" className="text-[10px]">📄 PDF</Badge>
+                          )}
+                          <span className="font-mono text-muted-foreground">{pub.fecha_fijacion || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No hay publicaciones en DB para este work_item</p>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sync History Card */}
+      <SyncHistoryCard />
 
       {/* Stage Suggestions Debug Card */}
       <Card>
