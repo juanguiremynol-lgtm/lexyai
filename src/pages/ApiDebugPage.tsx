@@ -234,7 +234,7 @@ function isValidTutelaCode(input: string): boolean {
   return /^T\d{6,10}$/i.test(input);
 }
 
-// ============== Publicaciones Sync Result Card with Auto-Retry ==============
+// ============== Publicaciones Sync Result Card (v3 Synchronous API) ==============
 
 interface PublicacionesSyncResultProps {
   result: { success: boolean; data?: any; error?: string };
@@ -243,163 +243,115 @@ interface PublicacionesSyncResultProps {
 }
 
 function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: PublicacionesSyncResultProps) {
-  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
-  const [retryAttempt, setRetryAttempt] = useState(0);
-  const maxRetries = 6;
-
   const data = result.data;
   const status = data?.status as string | undefined;
-  const isScrapingInProgress = status === 'SCRAPING_IN_PROGRESS' || status === 'SCRAPING_TIMEOUT';
-  const isRouteNotFound = status === 'PROVIDER_ROUTE_NOT_FOUND' || status === 'ERROR';
-  const retryAfterSeconds = data?.retryAfterSeconds || 60;
-  const scrapingJobId = data?.scrapingJobId;
-  const providerAttempts = data?.provider_attempts as Array<{ path: string; httpStatus: number; responseKind: string; errorCode?: string }> | undefined;
-
-  // Auto-retry logic - ONLY for scraping in progress, NOT for route errors
-  useEffect(() => {
-    // Don't auto-retry if route is not found (config error, not transient)
-    if (isRouteNotFound) {
-      setRetryCountdown(null);
-      return;
-    }
-    
-    if (isScrapingInProgress && retryAttempt < maxRetries && !isRetrying) {
-      setRetryCountdown(retryAfterSeconds);
-      
-      const countdownInterval = setInterval(() => {
-        setRetryCountdown(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(countdownInterval);
-            // Trigger retry
-            setRetryAttempt(a => a + 1);
-            onRetry();
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-
-      return () => clearInterval(countdownInterval);
-    }
-  }, [isScrapingInProgress, isRouteNotFound, retryAttempt, isRetrying, retryAfterSeconds, onRetry]);
-
-  // Reset retry attempt when result changes to success
-  useEffect(() => {
-    if (result.success) {
-      setRetryAttempt(0);
-      setRetryCountdown(null);
-    }
-  }, [result.success]);
+  const insertedCount = data?.inserted_count || 0;
+  const skippedCount = data?.skipped_count || 0;
+  const latencyMs = data?.provider_latency_ms || 0;
 
   const getStatusIcon = () => {
     if (isRetrying) return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
-    if (isScrapingInProgress) return <Clock className="h-4 w-4 text-amber-500" />;
-    if (isRouteNotFound) return <WifiOff className="h-4 w-4 text-destructive" />;
+    if (status === 'SUCCESS') return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+    if (status === 'EMPTY') return <AlertTriangle className="h-4 w-4 text-amber-500" />;
     if (result.success) return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
     return <XCircle className="h-4 w-4 text-destructive" />;
   };
 
   const getStatusBadge = () => {
-    if (isRetrying) return <Badge className="bg-blue-500/20 text-blue-700">⏳ Reintentando...</Badge>;
-    if (isScrapingInProgress) return <Badge className="bg-amber-500/20 text-amber-700">⏱️ Scraping en progreso</Badge>;
-    if (status === 'PROVIDER_ROUTE_NOT_FOUND') return <Badge variant="destructive">❌ Route Missing</Badge>;
-    if (result.success) return <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700">✅ Success</Badge>;
+    if (isRetrying) return <Badge className="bg-blue-500/20 text-blue-700">⏳ Syncing...</Badge>;
+    if (status === 'SUCCESS') return <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700">✅ Success</Badge>;
+    if (status === 'EMPTY') return <Badge variant="secondary" className="bg-amber-500/20 text-amber-700">📭 No publications</Badge>;
+    if (result.success) return <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700">✅ OK</Badge>;
     return <Badge variant="destructive">❌ Error</Badge>;
   };
 
-  const bgColor = isRetrying || isScrapingInProgress 
-    ? "bg-amber-500/10 border-amber-500/30" 
-    : result.success 
-      ? "bg-emerald-500/10 border-emerald-500/30" 
-      : "bg-destructive/10 border-destructive/30";
+  const bgColor = result.success 
+    ? status === 'EMPTY' 
+      ? "bg-amber-500/10 border-amber-500/30" 
+      : "bg-emerald-500/10 border-emerald-500/30" 
+    : "bg-destructive/10 border-destructive/30";
 
   return (
     <div className={cn("p-4 rounded-lg border", bgColor)}>
       <div className="flex items-center justify-between mb-2">
         <h4 className="font-medium flex items-center gap-2">
           {getStatusIcon()}
-          Publicaciones (sync-publicaciones-by-work-item)
+          Publicaciones (v3 Sync API)
         </h4>
         {getStatusBadge()}
       </div>
 
-      {/* PROVIDER_ROUTE_NOT_FOUND banner - config error, not retryable */}
-      {status === 'PROVIDER_ROUTE_NOT_FOUND' && (
-        <div className="p-3 mb-3 rounded bg-destructive/20 border border-destructive/30">
-          <p className="text-sm text-destructive font-medium">
-            ❌ Todos los endpoints de PUBLICACIONES retornaron 404 (Route Missing)
-          </p>
-          <p className="text-xs text-destructive/80 mt-1">
-            Esto indica un problema de configuración, NO un error de datos.
-          </p>
-          <div className="text-xs mt-2 space-y-1 bg-muted rounded p-2">
-            <p className="font-medium">Posibles causas:</p>
-            <ul className="list-disc list-inside text-muted-foreground">
-              <li>PUBLICACIONES_BASE_URL apunta al servicio incorrecto</li>
-              <li>El servicio requiere un prefijo de ruta (ej: PUBLICACIONES_PATH_PREFIX=/api)</li>
-              <li>El servicio Cloud Run no tiene los endpoints esperados (/buscar, /publicaciones, etc.)</li>
-            </ul>
+      {/* Success with data */}
+      {result.success && status === 'SUCCESS' && (
+        <div className="space-y-2">
+          <div className="flex gap-4 text-sm">
+            <span className="text-emerald-600">✅ Inserted: {insertedCount}</span>
+            <span className="text-muted-foreground">Skipped: {skippedCount}</span>
+            {latencyMs > 0 && (
+              <span className="text-muted-foreground">
+                <Clock className="h-3 w-3 inline mr-1" />
+                {latencyMs}ms
+              </span>
+            )}
           </div>
-          {/* Show route probing attempts */}
-          {providerAttempts && providerAttempts.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Rutas probadas:</p>
-              <div className="space-y-1">
-                {providerAttempts.map((attempt, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-[10px] font-mono bg-muted/50 rounded px-2 py-1">
-                    <span>{attempt.path}</span>
-                    <Badge variant="outline" className="text-[9px]">
-                      HTTP {attempt.httpStatus} • {attempt.errorCode || attempt.responseKind}
-                    </Badge>
-                  </div>
+          {data?.inserted && data.inserted.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Inserted publications:</p>
+              <ul className="text-xs space-y-1">
+                {data.inserted.slice(0, 5).map((pub: any, idx: number) => (
+                  <li key={idx} className="flex items-center gap-2">
+                    <span className="truncate max-w-[300px]">{pub.title}</span>
+                    {pub.pdf_url && (
+                      <a 
+                        href={pub.pdf_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
         </div>
       )}
 
-      {/* Scraping in progress banner */}
-      {isScrapingInProgress && (
-        <div className="p-3 mb-3 rounded bg-amber-500/20 border border-amber-500/30">
-          <p className="text-sm text-amber-800 font-medium">
-            📡 Scraping en curso — el servidor externo está procesando la solicitud
-          </p>
-          <p className="text-xs text-amber-700 mt-1">
-            Job ID: <code className="bg-amber-100 px-1 rounded">{scrapingJobId || 'N/A'}</code>
-          </p>
-          {retryCountdown !== null && (
-            <p className="text-xs text-amber-700 mt-2">
-              Reintentando automáticamente en <span className="font-mono font-bold">{retryCountdown}s</span>
-              {' '}(intento {retryAttempt + 1}/{maxRetries})
-            </p>
-          )}
-          <div className="flex gap-2 mt-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                setRetryCountdown(null);
-                setRetryAttempt(a => a + 1);
-                onRetry();
-              }}
-              disabled={isRetrying}
-            >
-              {isRetrying ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-              Reintentar ahora
-            </Button>
-          </div>
-        </div>
+      {/* Empty result */}
+      {result.success && status === 'EMPTY' && (
+        <p className="text-sm text-amber-700">
+          No publications found for this radicado. The provider responded successfully but returned 0 results.
+        </p>
       )}
 
-      {result.error && !isScrapingInProgress && !isRouteNotFound && (
-        <p className="text-sm text-destructive mb-2">{result.error}</p>
+      {/* Error */}
+      {!result.success && (
+        <div className="space-y-2">
+          <p className="text-sm text-destructive">{result.error || data?.errors?.join(', ') || 'Sync failed'}</p>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={onRetry}
+            disabled={isRetrying}
+          >
+            {isRetrying ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+            Retry
+          </Button>
+        </div>
       )}
       
-      {data && !isRouteNotFound && (
-        <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
-          {JSON.stringify(data, null, 2).slice(0, 500)}
-        </div>
+      {/* Raw data for debugging */}
+      {data && (
+        <details className="mt-3">
+          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+            View raw response
+          </summary>
+          <pre className="text-[10px] text-muted-foreground bg-muted/50 rounded p-2 mt-1 font-mono overflow-auto max-h-48">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </details>
       )}
     </div>
   );

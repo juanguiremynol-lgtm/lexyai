@@ -1049,107 +1049,11 @@ async function triggerSamaiScrapingJob(
   }
 }
 
-// ============= TRIGGER SCRAPING JOB: PUBLICACIONES =============
-// Calls /buscar to initiate async scraping when Publicaciones returns 404
-// IMPORTANT: Uses "radicado" parameter (not "numero_radicacion")
-
-async function triggerPublicacionesScrapingJob(
-  radicado: string,
-  baseUrl: string,
-  apiKeyInfo: ApiKeyInfo
-): Promise<ScrapingJobResult> {
-  const startTime = Date.now();
-  // IMPORTANT: Publicaciones uses "radicado" parameter, not "numero_radicacion"
-  const buscarPath = `/buscar?radicado=${radicado}`;
-  const buscarUrl = `${baseUrl.replace(/\/+$/, '')}${buscarPath}`;
-  
-  console.log(`[sync-by-work-item] SCRAPING_INITIATED: PUBLICACIONES /buscar, url=${buscarUrl}`);
-  
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKeyInfo.value) {
-      headers['x-api-key'] = apiKeyInfo.value;
-    }
-    
-    const response = await fetch(buscarUrl, {
-      method: 'GET',
-      headers,
-    });
-    
-    const body = await response.text();
-    const latencyMs = Date.now() - startTime;
-    
-    console.log(`[sync-by-work-item] SCRAPING_RESPONSE: PUBLICACIONES /buscar, status=${response.status}, latencyMs=${latencyMs}`);
-    
-    if (!response.ok) {
-      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar failed: HTTP ${response.status}`);
-      return {
-        ok: false,
-        error: `Scraping job creation failed: HTTP ${response.status}`,
-        latencyMs,
-      };
-    }
-    
-    // Parse response
-    let data: Record<string, unknown>;
-    try {
-      data = JSON.parse(body);
-    } catch {
-      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar returned non-JSON: ${body.slice(0, 200)}`);
-      return {
-        ok: false,
-        error: 'Scraping service returned invalid response',
-        latencyMs,
-      };
-    }
-    
-    // Extract job info
-    const jobId = String(data.jobId || data.job_id || data.id || '');
-    const rawPollUrl = String(data.poll_url || data.pollUrl || data.resultado_url || '');
-    const status = String(data.status || 'PENDING');
-    
-    if (!jobId) {
-      console.warn(`[sync-by-work-item] PUBLICACIONES /buscar response missing jobId:`, data);
-      return {
-        ok: false,
-        error: 'Scraping service did not return job ID',
-        latencyMs,
-      };
-    }
-    
-    // CRITICAL FIX: Ensure pollUrl is an absolute URL
-    let absolutePollUrl: string;
-    if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
-      absolutePollUrl = rawPollUrl;
-    } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
-      absolutePollUrl = `${baseUrl}${rawPollUrl}`;
-    } else {
-      absolutePollUrl = `${baseUrl}/resultado/${jobId}`;
-    }
-    
-    console.log(`[sync-by-work-item] PUBLICACIONES Scraping job created: jobId=${jobId}, status=${status}, pollUrl=${absolutePollUrl}`);
-    
-    return {
-      ok: true,
-      jobId,
-      pollUrl: absolutePollUrl,
-      status,
-      latencyMs,
-    };
-    
-  } catch (err) {
-    console.error('[sync-by-work-item] PUBLICACIONES /buscar fetch error:', err);
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Scraping job creation failed',
-      latencyMs: Date.now() - startTime,
-    };
-  }
-}
+// ============= PUBLICACIONES =============
+// NOTE: Publicaciones sync is now handled by a separate edge function:
+// sync-publicaciones-by-work-item
+// The PUBLICACIONES API (v3) is synchronous and doesn't use job queues/polling.
+// This function (sync-by-work-item) should NOT call PUBLICACIONES directly.
 
 // ============= TRIGGER SCRAPING JOB: TUTELAS =============
 // IMPORTANT: Tutelas uses POST with JSON body to /search endpoint
@@ -2195,221 +2099,10 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
   }
 }
 
-// ============= PROVIDER: PUBLICACIONES (for PENAL_906) =============
-
-interface PublicacionesResult {
-  ok: boolean;
-  publicacionesCount: number;
-  insertedCount: number;
-  skippedCount: number;
-  isEmpty?: boolean;
-  error?: string;
-  latencyMs?: number;
-  // Auto-scraping fields
-  scrapingInitiated?: boolean;
-  scrapingJobId?: string;
-  scrapingPollUrl?: string;
-  scrapingMessage?: string;
-}
-
-function generatePublicacionFingerprint(
-  workItemId: string,
-  title: string,
-  publishedAt: string | null
-): string {
-  const normalized = `pub|${workItemId}|${title.toLowerCase().trim().slice(0, 100)}|${publishedAt || 'no-date'}`;
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    const char = normalized.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `pub_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
-}
-
-async function fetchFromPublicaciones(
-  radicado: string,
-  workItemId: string,
-  ownerId: string,
-  organizationId: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabaseClient: any
-): Promise<PublicacionesResult> {
-  const startTime = Date.now();
-  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  
-  // Get API key with provider-specific selection
-  const apiKeyInfo = await getApiKeyForProvider('publicaciones');
-
-  if (!baseUrl) {
-    console.log('[sync-by-work-item] PUBLICACIONES_BASE_URL not configured');
-    return { 
-      ok: false, 
-      publicacionesCount: 0,
-      insertedCount: 0,
-      skippedCount: 0,
-      error: 'PUBLICACIONES API not configured (missing PUBLICACIONES_BASE_URL).', 
-      latencyMs: Date.now() - startTime,
-    };
-  }
-
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-    
-    if (apiKeyInfo.value) {
-      headers['x-api-key'] = apiKeyInfo.value;
-    }
-
-    // FIXED: Use query-param format (not path-based)
-    const url = `${baseUrl.replace(/\/+$/, '')}/publicaciones?radicado=${radicado}`;
-    console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES: ${url}`);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log(`[sync-by-work-item] PUBLICACIONES: No publications found (404) for ${radicado}. Auto-triggering scraping...`);
-        
-        // Attempt to trigger scraping job via /buscar
-        const scrapingResult = await triggerPublicacionesScrapingJob(radicado, baseUrl, apiKeyInfo);
-        
-        if (scrapingResult.ok && scrapingResult.jobId) {
-          console.log(`[sync-by-work-item] PUBLICACIONES: Scraping job triggered successfully: jobId=${scrapingResult.jobId}`);
-          return { 
-            ok: false, // Still failed to get data, but scraping initiated
-            publicacionesCount: 0,
-            insertedCount: 0,
-            skippedCount: 0,
-            error: 'RECORD_NOT_FOUND', 
-            isEmpty: true,
-            latencyMs: Date.now() - startTime,
-            scrapingInitiated: true,
-            scrapingJobId: scrapingResult.jobId,
-            scrapingPollUrl: scrapingResult.pollUrl,
-            scrapingMessage: `No publications found. Scraping initiated (job ${scrapingResult.jobId}). Retry sync in 30-60 seconds.`,
-          };
-        } else {
-          console.log(`[sync-by-work-item] PUBLICACIONES: Scraping trigger failed: ${scrapingResult.error}`);
-          return { 
-            ok: true, // 404 is ok - just no data
-            publicacionesCount: 0,
-            insertedCount: 0,
-            skippedCount: 0,
-            error: 'No publications found', 
-            isEmpty: true,
-            latencyMs: Date.now() - startTime,
-          };
-        }
-      }
-      const errorText = await response.text();
-      console.log(`[sync-by-work-item] PUBLICACIONES HTTP ${response.status}: ${errorText.slice(0, 200)}`);
-      return { 
-        ok: false, 
-        publicacionesCount: 0,
-        insertedCount: 0,
-        skippedCount: 0,
-        error: `HTTP ${response.status}`, 
-        latencyMs: Date.now() - startTime,
-      };
-    }
-
-    const data = await response.json();
-    
-    // Extract publications array
-    const publications = data.publicaciones || data.publications || [];
-    
-    if (publications.length === 0) {
-      console.log(`[sync-by-work-item] PUBLICACIONES: No publications for ${radicado}`);
-      return { 
-        ok: true,
-        publicacionesCount: 0,
-        insertedCount: 0,
-        skippedCount: 0,
-        error: 'No publications found', 
-        isEmpty: true,
-        latencyMs: Date.now() - startTime,
-      };
-    }
-
-    console.log(`[sync-by-work-item] PUBLICACIONES: Found ${publications.length} publications for ${radicado}`);
-    
-    // Ingest publications with deduplication
-    let insertedCount = 0;
-    let skippedCount = 0;
-
-    for (const pub of publications) {
-      const title = String(pub.titulo || pub.title || '');
-      const annotation = String(pub.anotacion || pub.annotation || '');
-      const pdfUrl = pub.pdf_url || pub.url || null;
-      const publishedAt = pub.fecha_publicacion || pub.published_at || pub.fecha || null;
-      
-      const fingerprint = generatePublicacionFingerprint(workItemId, title, publishedAt);
-
-      // Check for existing record using fingerprint
-      const { data: existing } = await supabaseClient
-        .from('work_item_publicaciones')
-        .select('id')
-        .eq('work_item_id', workItemId)
-        .eq('hash_fingerprint', fingerprint)
-        .maybeSingle();
-
-      if (existing) {
-        skippedCount++;
-        continue;
-      }
-
-      // Insert new publication
-      const { error: insertError } = await supabaseClient
-        .from('work_item_publicaciones')
-        .insert({
-          work_item_id: workItemId,
-          owner_id: ownerId,
-          organization_id: organizationId,
-          title,
-          annotation,
-          pdf_url: pdfUrl,
-          published_at: publishedAt ? parseColombianDate(publishedAt) : null,
-          hash_fingerprint: fingerprint,
-          source: 'publicaciones-api',
-        });
-
-      if (insertError) {
-        // Check if it's a duplicate error (can happen in race conditions)
-        if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
-          skippedCount++;
-        } else {
-          console.error(`[sync-by-work-item] PUBLICACIONES insert error:`, insertError);
-        }
-      } else {
-        insertedCount++;
-      }
-    }
-
-    return {
-      ok: true,
-      publicacionesCount: publications.length,
-      insertedCount,
-      skippedCount,
-      latencyMs: Date.now() - startTime,
-    };
-  } catch (err) {
-    console.error('[sync-by-work-item] PUBLICACIONES fetch error:', err);
-    return { 
-      ok: false, 
-      publicacionesCount: 0,
-      insertedCount: 0,
-      skippedCount: 0,
-      error: err instanceof Error ? err.message : 'PUBLICACIONES API failed', 
-      latencyMs: Date.now() - startTime,
-    };
-  }
-}
+// ============= PROVIDER: PUBLICACIONES =============
+// NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
+// This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
+// The two sync functions are independent and should be called separately.
 
 // ============= MAIN HANDLER =============
 
@@ -2687,9 +2380,10 @@ Deno.serve(async (req) => {
       }
       
     } else if (workItem.workflow_type === 'PENAL_906') {
-      // ============= PENAL_906: PUBLICACIONES PRIMARY =============
-      // For PENAL_906, Publicaciones Procesales is the PRIMARY sync source
-      // because penal updates frequently surface via published PDFs/annotations
+      // ============= PENAL_906: Use CPNU (Publicaciones handled by separate function) =============
+      // NOTE: Publicaciones sync is now handled by sync-publicaciones-by-work-item.
+      // This function syncs actuaciones from CPNU.
+      // The UI should call both sync-by-work-item AND sync-publicaciones-by-work-item for PENAL_906.
       
       if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
         return errorResponse(
@@ -2700,133 +2394,22 @@ Deno.serve(async (req) => {
       }
       
       const normalizedRadicado = normalizeRadicado(workItem.radicado);
-      console.log(`[sync-by-work-item] PENAL_906: Calling PUBLICACIONES as PRIMARY provider (radicado=${normalizedRadicado})`);
+      console.log(`[sync-by-work-item] PENAL_906: Calling CPNU for actuaciones (radicado=${normalizedRadicado})`);
+      console.log(`[sync-by-work-item] Note: Publicaciones sync is handled by sync-publicaciones-by-work-item`);
       
-      // Call sync-publicaciones-by-work-item internally via the Publicaciones API
-      // For now, we attempt to fetch Publicaciones directly here
-      const publicacionesResult = await fetchFromPublicaciones(normalizedRadicado, workItem.id, workItem.owner_id, workItem.organization_id, supabase);
+      // Fetch from CPNU for actuaciones
+      fetchResult = await fetchFromCpnu(normalizedRadicado);
       
       result.provider_attempts.push({
-        provider: 'publicaciones',
-        status: publicacionesResult.ok ? 'success' : (publicacionesResult.isEmpty ? 'not_found' : 'error'),
-        latencyMs: publicacionesResult.latencyMs || 0,
-        message: publicacionesResult.error || (publicacionesResult.ok ? `Ingested ${publicacionesResult.insertedCount || 0} publications` : undefined),
-        actuacionesCount: publicacionesResult.publicacionesCount || 0,
+        provider: 'cpnu',
+        status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+        latencyMs: fetchResult.latencyMs || 0,
+        message: fetchResult.error,
+        actuacionesCount: fetchResult.actuaciones.length,
       });
       
-      result.provider_order_reason = 'penal_906_publicaciones_primary';
-      
-      // For PENAL_906, check if scraping was auto-initiated
-      if (publicacionesResult.scrapingInitiated && publicacionesResult.scrapingJobId) {
-        console.log(`[sync-by-work-item] PUBLICACIONES: Auto-scraping initiated: jobId=${publicacionesResult.scrapingJobId}`);
-        
-        result.ok = false;
-        result.provider_used = 'publicaciones';
-        result.scraping_initiated = true;
-        result.scraping_job_id = publicacionesResult.scrapingJobId;
-        result.scraping_poll_url = publicacionesResult.scrapingPollUrl;
-        result.scraping_provider = 'publicaciones';
-        result.scraping_message = publicacionesResult.scrapingMessage || 
-          `No publications found. Scraping initiated (job ${publicacionesResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
-        
-        // Log SCRAPING_INITIATED trace step
-        await logTrace(supabase, {
-          trace_id: traceId,
-          work_item_id,
-          organization_id: workItem.organization_id,
-          workflow_type: workItem.workflow_type,
-          step: 'SCRAPING_INITIATED',
-          provider: 'publicaciones',
-          http_status: null,
-          latency_ms: null,
-          success: true,
-          error_code: null,
-          message: `Scraping job created: ${publicacionesResult.scrapingJobId}`,
-          meta: {
-            job_id: publicacionesResult.scrapingJobId,
-            poll_url: publicacionesResult.scrapingPollUrl,
-            radicado_preview: workItem.radicado?.slice(0, 10) + '...',
-          },
-        });
-        
-        // Update work_item with SCRAPING status (not FAILED)
-        await supabase
-          .from('work_items')
-          .update({
-            scrape_status: 'IN_PROGRESS',
-            last_checked_at: new Date().toISOString(),
-          })
-          .eq('id', work_item_id);
-        
-        result.trace_id = traceId;
-        return jsonResponse(result, 202);
-      }
-      
-      // For PENAL_906, Publicaciones is the primary source
-      // We report success based on Publicaciones, not CPNU/SAMAI
-      if (publicacionesResult.ok) {
-        result.ok = true;
-        result.provider_used = 'publicaciones';
-        result.inserted_count = publicacionesResult.insertedCount || 0;
-        result.skipped_count = publicacionesResult.skippedCount || 0;
-        
-        // Update work_item metadata
-        await supabase
-          .from('work_items')
-          .update({
-            scrape_status: 'SUCCESS',
-            last_crawled_at: new Date().toISOString(),
-            last_checked_at: new Date().toISOString(),
-          })
-          .eq('id', work_item_id);
-        
-        return jsonResponse(result);
-      }
-      
-      // Publicaciones returned empty/error - optionally try CPNU if fallback enabled
-      if (providerOrder.fallbackEnabled && providerOrder.fallback === 'cpnu') {
-        console.log(`[sync-by-work-item] PENAL_906: Publicaciones empty, trying CPNU fallback`);
-        result.warnings.push(`Publicaciones (primary): ${publicacionesResult.error || 'No publications found'}`);
-        
-        fetchResult = await fetchFromCpnu(normalizedRadicado);
-        
-        result.provider_attempts.push({
-          provider: 'cpnu',
-          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
-          latencyMs: fetchResult.latencyMs || 0,
-          message: fetchResult.error,
-          actuacionesCount: fetchResult.actuaciones.length,
-        });
-        
-        if (!fetchResult.ok) {
-          result.warnings.push(`CPNU fallback: ${fetchResult.error}`);
-        } else {
-          result.provider_order_reason = 'penal_906_publicaciones_empty_cpnu_fallback';
-        }
-      } else {
-        // CPNU fallback disabled for PENAL_906 by default
-        result.provider_attempts.push({
-          provider: 'cpnu',
-          status: 'skipped',
-          latencyMs: 0,
-          message: 'CPNU enrichment disabled for PENAL_906 (Publicaciones is primary)',
-        });
-        
-        // Publicaciones was the only attempt and it failed/empty
-        result.ok = true; // Still "ok" because we successfully queried
-        result.provider_used = 'publicaciones';
-        result.warnings.push(publicacionesResult.error || 'No publications found');
-        
-        await supabase
-          .from('work_items')
-          .update({
-            scrape_status: publicacionesResult.isEmpty ? 'SUCCESS' : 'FAILED',
-            last_checked_at: new Date().toISOString(),
-          })
-          .eq('id', work_item_id);
-        
-        return jsonResponse(result);
-      }
+      result.provider_order_reason = 'penal_906_cpnu_actuaciones';
+      result.warnings.push('Para publicaciones, use sync-publicaciones-by-work-item');
       
     } else {
       // CGP/LABORAL/CPACA: require radicado (23 digits)
@@ -3577,38 +3160,12 @@ Deno.serve(async (req) => {
       .update(updatePayload)
       .eq('id', work_item_id);
 
-    // ============= CGP/LABORAL: ALSO FETCH PUBLICACIONES (ESTADOS) =============
-    // For CGP and LABORAL workflows, Publicaciones (court notifications) are ADDITIONAL 
-    // to actuaciones from CPNU. They provide critical deadline trigger information.
-    // This is a NON-BLOCKING call - failures don't break the main sync.
+    // ============= PUBLICACIONES SYNC =============
+    // NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
+    // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
+    // The UI should call sync-publicaciones-by-work-item separately for deadline tracking.
     if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
-      console.log(`[sync-by-work-item] ${workItem.workflow_type}: Also fetching Publicaciones (estados) for deadline tracking`);
-      
-      try {
-        const normalizedRadicado = normalizeRadicado(workItem.radicado);
-        const publicacionesResult = await fetchFromPublicaciones(
-          normalizedRadicado,
-          work_item_id,
-          workItem.owner_id,
-          workItem.organization_id,
-          supabase
-        );
-        
-        if (publicacionesResult.ok && publicacionesResult.insertedCount > 0) {
-          result.warnings.push(`${publicacionesResult.insertedCount} nuevos estados/publicaciones encontrados`);
-          console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync: ${publicacionesResult.insertedCount} inserted, ${publicacionesResult.skippedCount} skipped`);
-        } else if (publicacionesResult.scrapingInitiated) {
-          result.warnings.push(`Publicaciones scraping iniciado (job ${publicacionesResult.scrapingJobId}). Reintente en 30-60 segundos.`);
-          console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones scraping initiated: jobId=${publicacionesResult.scrapingJobId}`);
-        } else if (!publicacionesResult.ok && publicacionesResult.error) {
-          console.warn(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones fetch failed (non-blocking):`, publicacionesResult.error);
-          result.warnings.push(`Publicaciones: ${publicacionesResult.error}`);
-        }
-      } catch (pubError) {
-        // Non-blocking: log but don't fail the main sync
-        console.warn('[sync-by-work-item] Publicaciones fetch failed (non-blocking):', pubError);
-        result.warnings.push('Publicaciones fetch failed: ' + (pubError as Error).message);
-      }
+      console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync is handled by sync-publicaciones-by-work-item (call separately)`);
     }
 
     result.ok = true;
