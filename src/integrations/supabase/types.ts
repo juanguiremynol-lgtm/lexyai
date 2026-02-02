@@ -6167,6 +6167,7 @@ export type Database = {
           canonical_at: string | null
           created_at: string
           despacho: string | null
+          entry_url: string | null
           fecha_desfijacion: string | null
           fecha_fijacion: string | null
           hash_fingerprint: string
@@ -6189,6 +6190,7 @@ export type Database = {
           canonical_at?: string | null
           created_at?: string
           despacho?: string | null
+          entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
           hash_fingerprint: string
@@ -6211,6 +6213,7 @@ export type Database = {
           canonical_at?: string | null
           created_at?: string
           despacho?: string | null
+          entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
           hash_fingerprint?: string
