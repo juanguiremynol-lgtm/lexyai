@@ -57,7 +57,6 @@ import { WORKFLOW_TYPES, getStageLabel } from "@/lib/workflow-constants";
 
 // Tab components
 import { OverviewTab } from "./tabs/OverviewTab";
-import { TimelineTab } from "./tabs/TimelineTab";
 import { ActsTab } from "./tabs/ActsTab";
 import { DeadlinesTab } from "./tabs/DeadlinesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
@@ -92,7 +91,7 @@ const WORKFLOW_BG_COLORS = {
 
 import { StickyNote, Newspaper } from "lucide-react";
 
-type TabValue = "overview" | "notes" | "estados" | "publicaciones" | "timeline" | "acts" | "deadlines" | "hearings" | "alerts";
+type TabValue = "overview" | "notes" | "estados" | "publicaciones" | "acts" | "deadlines" | "hearings" | "alerts";
 
 // Workflows that support Estados tab (judicial tracking)
 const ESTADOS_WORKFLOWS = ["CGP", "CPACA", "TUTELA"];
@@ -115,11 +114,6 @@ const getTabsForWorkflow = (workflowType: string): { value: TabValue; label: str
   
   // REMOVED: Separate Publicaciones tab - consolidated into Estados tab above
   // The EstadosTab component now fetches from both tables
-  
-  // Timeline tab for all judicial workflows - shows placeholder when no data
-  if (ESTADOS_WORKFLOWS.includes(workflowType)) {
-    baseTabs.push({ value: "timeline", label: "Línea de Tiempo", icon: <Clock className="h-4 w-4" /> });
-  }
   
   baseTabs.push(
     { value: "acts", label: "Actuaciones", icon: <Scale className="h-4 w-4" /> },
@@ -687,13 +681,6 @@ export default function WorkItemDetail() {
           {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
             <TabsContent value="publicaciones" className="mt-0">
               <PublicacionesTab workItem={workItem} />
-            </TabsContent>
-          )}
-          
-          {/* Timeline tab - only for CGP, CPACA, TUTELA */}
-          {ESTADOS_WORKFLOWS.includes(workItem.workflow_type) && (
-            <TabsContent value="timeline" className="mt-0">
-              <TimelineTab workItem={workItem} />
             </TabsContent>
           )}
           
