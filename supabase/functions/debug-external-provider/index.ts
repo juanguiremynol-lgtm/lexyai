@@ -225,8 +225,68 @@ function isHtmlCannotGet(body: string): boolean {
     lower.includes('cannot get') ||
     lower.includes('<!doctype html') ||
     lower.includes('<html') ||
-    lower.includes('not found</pre>')
+    lower.includes('not found</pre>') ||
+    lower.includes('404 not found') ||
+    lower.includes('<title>404')
   );
+}
+
+/**
+ * CRITICAL: Detect if response is a FastAPI/Starlette generic "route not found" 404
+ * 
+ * FastAPI returns {"detail":"Not Found"} when the ROUTE doesn't exist.
+ * This is different from application-level "record not found" responses.
+ */
+function isFastApiRouteNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    
+    // FastAPI default 404: exactly {"detail":"Not Found"}
+    if (json.detail === "Not Found") return true;
+    
+    // FastAPI method not allowed
+    if (json.detail === "Method Not Allowed") return true;
+    
+    // Generic framework-style error with just "message" or "error" = "Not Found"
+    if (json.message === "Not Found" && Object.keys(json).length === 1) return true;
+    if (json.error === "Not Found" && Object.keys(json).length === 1) return true;
+    
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if response indicates a domain-specific "record not found" or "scraping needed"
+ * This means the ROUTE EXISTS but the record isn't available yet.
+ */
+function isDomainRecordNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    
+    // Domain-specific indicators that route exists but record doesn't
+    if (json.found === false) return true;
+    if (json.success === false && json.error) return true;
+    if (json.expediente_encontrado === false) return true;
+    if (json.status === "not_cached") return true;
+    if (json.status === "pending") return true;
+    if (json.job_id || json.jobId) return true; // Scraping job created
+    
+    // Check for scraping-related keywords in error messages
+    const errorMsg = String(json.error || json.message || json.detail || "").toLowerCase();
+    if (errorMsg.includes("not cached") || 
+        errorMsg.includes("scraping") ||
+        errorMsg.includes("processing") ||
+        errorMsg.includes("no snapshot") ||
+        errorMsg.includes("radicado not found")) {
+      return true;
+    }
+    
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // Classify response kind
@@ -245,10 +305,11 @@ function classifyResponseKind(body: string, status: number): RouteAttempt['respo
   }
 }
 
-// Classify error code based on response
+// Classify error code based on response with STRICT 404 handling
 function classifyErrorCode(
   httpStatus: number,
   responseKind: RouteAttempt['response_kind'],
+  bodyText?: string,
   jsonData?: unknown
 ): string {
   // Route missing (HTML 404 with "Cannot GET")
@@ -256,9 +317,19 @@ function classifyErrorCode(
     return 'UPSTREAM_ROUTE_MISSING';
   }
   
-  // Record not found (JSON 404 or JSON with found=false)
-  if (httpStatus === 404 && responseKind === 'JSON') {
+  // CRITICAL: FastAPI generic 404 {"detail":"Not Found"} = ROUTE missing, not record
+  if (httpStatus === 404 && responseKind === 'JSON' && bodyText && isFastApiRouteNotFound(bodyText)) {
+    return 'UPSTREAM_ROUTE_MISSING';
+  }
+  
+  // Domain-specific record not found (JSON 404 with application-level error)
+  if (httpStatus === 404 && responseKind === 'JSON' && bodyText && isDomainRecordNotFound(bodyText)) {
     return 'RECORD_NOT_FOUND';
+  }
+  
+  // Generic JSON 404 - default to route missing for safety
+  if (httpStatus === 404 && responseKind === 'JSON') {
+    return 'UPSTREAM_ROUTE_MISSING';
   }
   
   // Check JSON body for not-found indicators
@@ -562,14 +633,19 @@ async function callProviderWithProbing(
       };
       attempts.push(attempt);
 
-      // If we get HTML "Cannot GET" 404, try next route
-      if (response.status === 404 && responseKind === 'HTML_CANNOT_GET') {
+      // If we get a 404 that indicates route missing (HTML or FastAPI generic), try next route
+      const isRouteMissing = response.status === 404 && (
+        responseKind === 'HTML_CANNOT_GET' ||
+        isFastApiRouteNotFound(bodyText)
+      );
+      
+      if (isRouteMissing) {
         // Check if this might be a prefix mismatch
         const prefixHint = normalizedPrefix 
           ? `Path prefix "${normalizedPrefix}" may be incorrect for this service.`
-          : 'Service may require a path prefix (e.g., CPNU_PATH_PREFIX=/api).';
+          : 'Service may require a path prefix (e.g., PUBLICACIONES_PATH_PREFIX=/api).';
         
-        safeLog('warn', `Route missing (HTML Cannot GET), trying next. ${prefixHint}`, { 
+        safeLog('warn', `Route missing (${responseKind === 'HTML_CANNOT_GET' ? 'HTML' : 'FastAPI'} 404), trying next. ${prefixHint}`, { 
           provider, 
           status: 404, 
           request_path: requestPath,
@@ -580,9 +656,9 @@ async function callProviderWithProbing(
           continue; // Try next candidate
         }
         
-        // Last candidate also failed - determine if it's a prefix mismatch
+        // Last candidate also failed - all routes are missing
         const errorMessage = normalizedPrefix
-          ? `All route candidates returned 404. Prefix "${normalizedPrefix}" may be wrong for a root-exposed service. Try setting CPNU_PATH_PREFIX to empty.`
+          ? `All route candidates returned 404. Prefix "${normalizedPrefix}" may be wrong for a root-exposed service. Try setting ${envMap[provider].replace('_BASE_URL', '_PATH_PREFIX')} to empty.`
           : `All route candidates returned 404. Check ${envMap[provider]} configuration or set a path prefix if using a gateway.`;
         
         return {
@@ -601,7 +677,7 @@ async function callProviderWithProbing(
 
       // Non-404 error or JSON 404 (record not found)
       if (!response.ok) {
-        const errorCode = classifyErrorCode(response.status, responseKind, null);
+        const errorCode = classifyErrorCode(response.status, responseKind, bodyText, undefined);
         return {
           status: response.status,
           data: null,
