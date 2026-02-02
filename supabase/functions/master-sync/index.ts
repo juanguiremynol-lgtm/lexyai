@@ -15,8 +15,8 @@ const corsHeaders = {
 };
 
 interface MasterSyncRequest {
-  target_user_id: string;
-  target_organization_id: string;
+  target_organization_id: string;      // REQUIRED - org to sync
+  target_user_id?: string | null;      // OPTIONAL - filter by owner_id
   include_cpnu?: boolean;
   include_samai?: boolean;
   include_publicaciones?: boolean;
@@ -44,7 +44,7 @@ interface WorkItemResult {
 interface MasterSyncResult {
   ok: boolean;
   run_id: string;
-  target_user_id: string;
+  target_user_id: string | null;  // Can be null for org-wide sync
   target_organization_id: string;
   started_at: string;
   completed_at?: string;
@@ -141,34 +141,37 @@ Deno.serve(async (req) => {
     // Parse request body
     const body: MasterSyncRequest = await req.json();
     const {
-      target_user_id,
       target_organization_id,
+      target_user_id = null,  // OPTIONAL - can be null for org-wide sync
       include_cpnu = true,
       include_samai = true,
       include_publicaciones = true,
       include_tutelas = false,
     } = body;
 
-    if (!target_user_id || !target_organization_id) {
+    // REQUIRED: organization_id must be present
+    if (!target_organization_id) {
       return new Response(
-        JSON.stringify({ ok: false, error: "target_user_id and target_organization_id are required" }),
+        JSON.stringify({ ok: false, error: "target_organization_id is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`[master-sync] Starting for user ${target_user_id}, org ${target_organization_id}`);
+    // target_user_id is OPTIONAL - if null, sync all org work items
+    const syncMode = target_user_id ? "USER" : "ORG";
+    console.log(`[master-sync] Starting ${syncMode} mode for org ${target_organization_id}${target_user_id ? `, user ${target_user_id}` : ""}`);
     console.log(`[master-sync] Config: CPNU=${include_cpnu}, SAMAI=${include_samai}, Pubs=${include_publicaciones}, Tutelas=${include_tutelas}`);
 
     // Use service role for database operations
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
-    // Create audit record
+    // Create audit record (target_user_id can be null for org-wide sync)
     const { data: runRecord, error: runError } = await supabaseAdmin
       .from("master_sync_runs")
       .insert({
         triggered_by_user_id: requestingUserId,
-        target_user_id,
+        target_user_id: target_user_id || null,
         target_organization_id,
         include_cpnu,
         include_samai,
@@ -189,13 +192,19 @@ Deno.serve(async (req) => {
 
     const runId = runRecord.id;
 
-    // Get all work items for the user/org
-    const { data: workItems, error: wiError } = await supabaseAdmin
+    // Get work items - either all org items (ORG mode) or filtered by owner (USER mode)
+    let workItemsQuery = supabaseAdmin
       .from("work_items")
       .select("id, radicado, workflow_type, authority_name")
       .eq("organization_id", target_organization_id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false });
+      .is("deleted_at", null);
+    
+    // If user_id provided, filter to that owner only
+    if (target_user_id) {
+      workItemsQuery = workItemsQuery.eq("owner_id", target_user_id);
+    }
+    
+    const { data: workItems, error: wiError } = await workItemsQuery.order("created_at", { ascending: false });
 
     if (wiError) {
       await supabaseAdmin
