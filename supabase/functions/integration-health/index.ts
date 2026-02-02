@@ -228,11 +228,12 @@ async function checkConnectivity(
 // Provider-specific auth test endpoints
 // Each provider has different API contracts for authenticated lookups
 // NOTE: SAMAI only has /buscar (triggers scraping) and /resultado/{jobId} (poll results)
+// NOTE: PUBLICACIONES uses /buscar for async job creation or /publicaciones for direct lookup
 const AUTH_TEST_ENDPOINTS: Record<string, (testId: string) => string> = {
   cpnu: (id) => `/snapshot?numero_radicacion=${id}`,
   samai: (id) => `/buscar?numero_radicacion=${id}`, // SAMAI uses /buscar which returns 200 + jobId
   tutelas: (id) => `/expediente/${id}`, // Tutelas uses path-based
-  publicaciones: (id) => `/publicaciones?radicado=${id}`, // Publicaciones uses query param
+  publicaciones: (id) => `/buscar?radicado=${id}`, // Publicaciones uses /buscar for async jobs
 };
 
 // Check auth by calling an authenticated endpoint (provider-specific - requires valid API key)
@@ -567,20 +568,29 @@ Deno.serve(async (req) => {
     }
 
     // NEW: Combined provider health checks (connectivity + auth)
-    // Always run these for the main providers (CPNU, SAMAI)
-    const providers = ["cpnu", "samai"] as const;
+    // Now includes PUBLICACIONES alongside CPNU and SAMAI
+    const providers = ["cpnu", "samai", "publicaciones"] as const;
     result.provider_health = {};
+
+    // Get test radicados for all providers
+    const publicacionesTestRadicado = Deno.env.get("PUBLICACIONES_TEST_RADICADO") || cpnuTestRadicado;
 
     for (const provider of providers) {
       const baseUrl = Deno.env.get(`${provider.toUpperCase()}_BASE_URL`);
       const pathPrefix = Deno.env.get(`${provider.toUpperCase()}_PATH_PREFIX`) || "";
-      const testRadicado = provider === "cpnu" ? cpnuTestRadicado : samaiTestRadicado;
+      
+      // Use appropriate test radicado per provider
+      let testRadicado: string | undefined;
+      if (provider === "cpnu") testRadicado = cpnuTestRadicado;
+      else if (provider === "samai") testRadicado = samaiTestRadicado;
+      else if (provider === "publicaciones") testRadicado = publicacionesTestRadicado;
+      
       const apiKeyInfo = await getApiKeyInfo(provider);
 
       // A) Connectivity check (GET /health - no auth assumptions)
       const connectivity = await checkConnectivity(provider, baseUrl, pathPrefix);
 
-      // B) Auth check (GET /snapshot with test radicado - requires valid API key)
+      // B) Auth check (GET /snapshot or /buscar with test radicado - requires valid API key)
       const authCheck = await checkAuthWithSnapshot(provider, baseUrl, pathPrefix, testRadicado, {
         source: apiKeyInfo.source,
         present: apiKeyInfo.present,
@@ -593,6 +603,13 @@ Deno.serve(async (req) => {
         auth: authCheck,
       };
     }
+
+    // Add publicaciones test radicado to the report
+    result.test_identifiers = {
+      cpnu_test_radicado_set: !!cpnuTestRadicado && cpnuTestRadicado.length > 0,
+      samai_test_radicado_set: !!samaiTestRadicado && samaiTestRadicado.length > 0,
+      publicaciones_test_radicado_set: !!publicacionesTestRadicado && publicacionesTestRadicado.length > 0,
+    } as any;
 
     // Optional legacy auth checks (backward compatibility - calls /health with key)
     if (checkAuth) {

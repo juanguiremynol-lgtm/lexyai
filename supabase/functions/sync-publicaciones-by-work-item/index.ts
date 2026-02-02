@@ -337,12 +337,213 @@ async function pollForResults(
  * 5. If polling times out, try fallback: GET /publicaciones?radicado=XXX
  * 6. Final fallback: Try /snapshot one last time
  */
-async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult> {
+/**
+ * Route probe attempt result
+ */
+interface RouteProbeAttempt {
+  path: string;
+  httpStatus: number;
+  responseKind: 'JSON' | 'HTML_404' | 'EMPTY' | 'ERROR';
+  latencyMs: number;
+  errorCode?: string;
+}
+
+/**
+ * ROUTE PROBING STRATEGY for Publicaciones API
+ * 
+ * When the primary route fails (404 with generic "Not Found"), try alternate routes.
+ * This distinguishes between:
+ * - PROVIDER_ROUTE_NOT_FOUND: Wrong endpoint (HTML 404 / {"detail":"Not Found"})
+ * - RECORD_NOT_CACHED: Valid endpoint but record needs scraping (domain-specific JSON)
+ */
+const PUBLICACIONES_ROUTE_CANDIDATES = [
+  '/buscar?radicado={id}',                    // Primary: async job creation
+  '/snapshot?radicado={id}',                  // Cached snapshot if available
+  '/publicaciones/{id}',                      // Path-based direct lookup
+  '/publicaciones?radicado={id}',             // Query-param direct lookup
+  '/publicaciones?numero_radicacion={id}',    // Alternative param name
+  '/buscar?numero_radicacion={id}',           // Alternative param name for buscar
+];
+
+/**
+ * Detect if response body is a generic "route not found" (HTML 404, not JSON)
+ * 
+ * IMPORTANT: FastAPI's {"detail":"Not Found"} is NOT a route error - it's a valid
+ * JSON response indicating the record doesn't exist. Only HTML 404s are route errors.
+ */
+function isHtmlRouteNotFound(body: string): boolean {
+  const lower = body.toLowerCase();
+  
+  // HTML 404 pages (Express, Nginx, Apache, etc.) = route doesn't exist
+  if (lower.includes('cannot get') ||         // Express
+      lower.includes('<!doctype html') ||     // HTML response
+      lower.includes('<html') ||               // HTML response
+      lower.includes('not found</pre>') ||    // Express error page
+      lower.includes('404 not found') ||      // Generic HTML
+      lower.includes('<title>404')) return true;
+  
+  return false;
+}
+
+/**
+ * Detect if response is a valid JSON 404 (record not found, but route exists)
+ * 
+ * FastAPI: {"detail":"Not Found"}
+ * Custom: {"error":"not found"}, {"message":"Record not found"}, etc.
+ */
+function isJsonRecordNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    // FastAPI generic 404: {"detail":"Not Found"}
+    if (json.detail && typeof json.detail === 'string') return true;
+    // Other common patterns
+    if (json.error || json.message || json.status === 404) return true;
+    return true; // Any valid JSON 404 is a record-not-found
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if response indicates scraping is needed/in progress
+ */
+function isScrapingNeededResponse(body: string): boolean {
+  const lower = body.toLowerCase();
+  return lower.includes('scraping') || 
+         lower.includes('queued') || 
+         lower.includes('processing') ||
+         lower.includes('not cached') ||
+         lower.includes('job_id') ||
+         lower.includes('jobid');
+}
+
+/**
+ * Probe a single route and classify the response
+ */
+async function probeRoute(
+  baseUrl: string,
+  pathTemplate: string,
+  radicado: string,
+  headers: Record<string, string>,
+  startTime: number
+): Promise<{ attempt: RouteProbeAttempt; data?: any; isValidRoute: boolean; needsPolling?: boolean; jobId?: string }> {
+  const path = pathTemplate.replace('{id}', radicado);
+  const url = `${baseUrl}${path}`;
+  const probeStart = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const httpStatus = response.status;
+    const bodyText = await response.text();
+    const latencyMs = Date.now() - probeStart;
+
+    // Classify response
+    let responseKind: RouteProbeAttempt['responseKind'] = 'JSON';
+    try {
+      JSON.parse(bodyText);
+    } catch {
+      responseKind = bodyText.trim() === '' ? 'EMPTY' : 'HTML_404';
+    }
+
+    const attempt: RouteProbeAttempt = { path, httpStatus, responseKind, latencyMs };
+
+    // 200 OK = valid route with data
+    if (response.ok) {
+      try {
+        const jsonData = JSON.parse(bodyText);
+        
+        // Check if this is a job creation response (needs polling)
+        const jobId = jsonData.job_id || jsonData.jobId;
+        if (jobId) {
+          // If job is already done, extract results
+          if (jsonData.status === 'done' || jsonData.status === 'completed') {
+            return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
+          }
+          return { attempt, data: jsonData, isValidRoute: true, needsPolling: true, jobId };
+        }
+
+        // Direct data response
+        const results = jsonData.results || jsonData.publicaciones || jsonData.estados || jsonData.data;
+        if (results && Array.isArray(results)) {
+          return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
+        }
+
+        // Response is the array itself
+        if (Array.isArray(jsonData)) {
+          return { attempt, data: { results: jsonData }, isValidRoute: true, needsPolling: false };
+        }
+
+        // Valid route but empty result
+        return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
+      } catch {
+        attempt.errorCode = 'INVALID_JSON';
+        return { attempt, isValidRoute: false };
+      }
+    }
+
+    // 404 - classify it
+    if (httpStatus === 404) {
+      // HTML 404 = route doesn't exist (Express, Nginx, etc.)
+      if (isHtmlRouteNotFound(bodyText)) {
+        attempt.errorCode = 'ROUTE_NOT_FOUND';
+        return { attempt, isValidRoute: false };
+      }
+      
+      // JSON 404 = valid route, record not found (FastAPI, custom APIs)
+      // This is NOT a route error - the endpoint exists, record doesn't
+      if (isJsonRecordNotFound(bodyText)) {
+        // Check if scraping is needed/in progress
+        if (isScrapingNeededResponse(bodyText)) {
+          attempt.errorCode = 'SCRAPING_NEEDED';
+          return { attempt, isValidRoute: true, needsPolling: true };
+        }
+        // Valid route, record simply doesn't exist - trigger scraping
+        attempt.errorCode = 'RECORD_NOT_FOUND';
+        return { attempt, isValidRoute: true, needsPolling: false };
+      }
+      
+      // Unknown 404 format - assume route error
+      attempt.errorCode = 'ROUTE_NOT_FOUND';
+      return { attempt, isValidRoute: false };
+    }
+
+    // Other errors
+    attempt.errorCode = `HTTP_${httpStatus}`;
+    return { attempt, isValidRoute: false };
+
+  } catch (err) {
+    const latencyMs = Date.now() - probeStart;
+    const attempt: RouteProbeAttempt = {
+      path,
+      httpStatus: 0,
+      responseKind: 'ERROR',
+      latencyMs,
+      errorCode: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR',
+    };
+    return { attempt, isValidRoute: false };
+  }
+}
+
+/**
+ * POLLING-BASED STRATEGY with ROUTE PROBING for Publicaciones API
+ * 
+ * ENHANCED FLOW:
+ * 1. Probe route candidates until we find a valid one
+ * 2. If valid route returns job_id, poll /resultado/{job_id}
+ * 3. If all routes return generic 404, return PROVIDER_ROUTE_NOT_FOUND
+ * 4. If valid route indicates "not cached", return SCRAPING_IN_PROGRESS
+ */
+async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult & { provider_attempts?: RouteProbeAttempt[] }> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
   const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
 
-  console.log(`[sync-pub] === STARTING FETCH ===`);
+  console.log(`[sync-pub] === STARTING FETCH WITH ROUTE PROBING ===`);
   console.log(`[sync-pub] Radicado: ${radicado}`);
   console.log(`[sync-pub] Base URL: ${baseUrl ? 'configured' : 'MISSING'}`);
   console.log(`[sync-pub] API Key: present=${!!apiKey}, length=${apiKey?.length || 0}`);
@@ -352,6 +553,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       ok: false,
       publicaciones: [],
       error: 'PUBLICACIONES_BASE_URL not configured',
+      status: 'ERROR',
       latencyMs: Date.now() - startTime,
     };
   }
@@ -361,6 +563,7 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
       ok: false,
       publicaciones: [],
       error: 'API key not configured',
+      status: 'ERROR',
       latencyMs: Date.now() - startTime,
     };
   }
@@ -372,245 +575,123 @@ async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesR
   };
 
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
+  const attempts: RouteProbeAttempt[] = [];
 
-  try {
-    // ========= STEP 1: Call /buscar (triggers scraping or returns deduped) =========
-    const buscarUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}`;
-    console.log(`[sync-pub] Step 1: Calling /buscar: ${buscarUrl}`);
+  // ========= ROUTE PROBING: Try each candidate until we find a valid route =========
+  console.log(`[sync-pub] Starting route probing with ${PUBLICACIONES_ROUTE_CANDIDATES.length} candidates...`);
 
-    const buscarResponse = await fetch(buscarUrl, { method: 'GET', headers });
-    console.log(`[sync-pub] /buscar HTTP status: ${buscarResponse.status}`);
+  for (let i = 0; i < PUBLICACIONES_ROUTE_CANDIDATES.length; i++) {
+    const pathTemplate = PUBLICACIONES_ROUTE_CANDIDATES[i];
+    console.log(`[sync-pub] Probe ${i + 1}/${PUBLICACIONES_ROUTE_CANDIDATES.length}: ${pathTemplate.replace('{id}', radicado.slice(0, 8) + '...')}`);
 
-    if (!buscarResponse.ok) {
-      const errorText = await buscarResponse.text();
-      const httpStatus = buscarResponse.status;
-      console.error(`[sync-pub] /buscar failed: ${httpStatus}`, errorText.slice(0, 200));
-      
-      // ========= SPECIAL HANDLING: 404 means "not cached, needs scraping" =========
-      // This is NOT a hard error - the scraping job may be starting or we need to trigger it
-      if (httpStatus === 404) {
-        console.log(`[sync-pub] 404 from /buscar - treating as PENDING (scraping needed)`);
-        
-        // Try to trigger scraping by calling with force=true
-        try {
-          const forceUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}&force=true`;
-          console.log(`[sync-pub] Attempting force scrape: ${forceUrl}`);
-          const forceResponse = await fetch(forceUrl, { method: 'GET', headers });
-          
-          if (forceResponse.ok) {
-            const forceData = await forceResponse.json();
-            const forceJobId = forceData.job_id || forceData.jobId;
-            
-            if (forceJobId && forceJobId !== 'cached') {
-              console.log(`[sync-pub] Force scrape triggered! job_id=${forceJobId}`);
-              return {
-                ok: false,
-                publicaciones: [],
-                status: 'SCRAPING_IN_PROGRESS',
-                scrapingJobId: forceJobId,
-                scrapingMessage: 'Scraping job triggered successfully',
-                retryAfterSeconds: 60,
-                latencyMs: Date.now() - startTime,
-                httpStatus: 202,
-              };
-            }
-          }
-        } catch (forceErr) {
-          console.log(`[sync-pub] Force scrape attempt failed:`, forceErr);
-        }
-        
-        // Return PENDING status instead of error
-        return {
-          ok: false,
-          publicaciones: [],
-          status: 'SCRAPING_IN_PROGRESS',
-          scrapingMessage: 'Record not cached, scraping may be needed. Retry in 60 seconds.',
-          retryAfterSeconds: 60,
-          latencyMs: Date.now() - startTime,
-          httpStatus: 202,
-        };
+    const probeResult = await probeRoute(cleanBaseUrl, pathTemplate, radicado, headers, startTime);
+    attempts.push(probeResult.attempt);
+
+    console.log(`[sync-pub] Probe result: HTTP ${probeResult.attempt.httpStatus}, valid=${probeResult.isValidRoute}, errorCode=${probeResult.attempt.errorCode || 'none'}`);
+
+    if (!probeResult.isValidRoute) {
+      // Try next route
+      if (probeResult.attempt.errorCode === 'ROUTE_NOT_FOUND') {
+        console.log(`[sync-pub] Route ${pathTemplate} not found, trying next...`);
+        continue;
       }
+      // Other error (network, timeout) - might want to retry same route
+      continue;
+    }
+
+    // ========= VALID ROUTE FOUND =========
+    console.log(`[sync-pub] ✓ Valid route found: ${pathTemplate}`);
+
+    // Case A: Job ID returned - need to poll
+    if (probeResult.needsPolling && probeResult.jobId) {
+      const jobId = probeResult.jobId;
+      console.log(`[sync-pub] Job ID received: ${jobId}, starting polling...`);
+
+      // Handle "cached" job_id (can't poll)
+      if (jobId === 'cached') {
+        console.log(`[sync-pub] Job ID is 'cached', checking if inline result exists...`);
+        const data = probeResult.data;
+        if (data?.result || data?.results || data?.publicaciones) {
+          return { ...extractPublicacionesFromResponse(data, startTime), provider_attempts: attempts };
+        }
+        // No inline result with cached job - this means it was processed before but no data
+        // Try remaining fallback routes
+        continue;
+      }
+
+      // Poll for results
+      const pollResult = await pollForResults(cleanBaseUrl, jobId, headers, radicado, startTime);
+      return { ...pollResult, provider_attempts: attempts };
+    }
+
+    // Case B: Direct data returned
+    if (probeResult.data) {
+      const results = probeResult.data.results || probeResult.data.publicaciones || 
+                      probeResult.data.estados || probeResult.data.data || probeResult.data;
       
-      // Other HTTP errors are real errors
+      if (Array.isArray(results) && results.length > 0) {
+        console.log(`[sync-pub] Direct data received: ${results.length} publications`);
+        return { ...extractPublicacionesFromResponse(probeResult.data, startTime), provider_attempts: attempts };
+      }
+    }
+
+    // Case C: Valid route but record not found (needs scraping)
+    if (probeResult.attempt.errorCode === 'RECORD_NOT_FOUND') {
+      console.log(`[sync-pub] ✓ Valid route, but record not found. Returning SCRAPING_IN_PROGRESS.`);
       return {
-        ok: false,
+        ok: true, // Not a hard error - valid route, just needs scraping
         publicaciones: [],
-        error: `Buscar failed: HTTP ${httpStatus}`,
-        status: 'ERROR',
+        status: 'SCRAPING_IN_PROGRESS',
+        scrapingMessage: 'Record not yet cached. Provider may need to scrape this radicado.',
+        retryAfterSeconds: 60,
         latencyMs: Date.now() - startTime,
-        httpStatus,
+        provider_attempts: attempts,
       };
     }
 
-    const buscarData = await buscarResponse.json();
-    // CRITICAL: Log FULL /buscar response to see ALL fields
-    console.log(`[sync-pub] FULL /buscar response:`, JSON.stringify(buscarData));
-
-    const jobId = buscarData.job_id || buscarData.jobId;
-    const isDeduped = buscarData.deduped === true;
-    const isDone = buscarData.status === 'done' || buscarData.status === 'completed';
-
-    // ========= CASE 1: Job already done (deduped with inline result) =========
-    if (isDone && buscarData.result) {
-      console.log(`[sync-pub] /buscar returned completed result directly!`);
-      return extractPublicacionesFromResponse(buscarData, startTime);
-    }
-
-    // ========= CASE 2: "cached" job_id with no inline result — try fallbacks first, then poll if real job_id =========
-    // IMPORTANT: Only skip to fallbacks if job_id === 'cached' (can't poll) 
-    // If we have a real job_id, we can poll it even if deduped=true
-    if (jobId === 'cached') {
-      console.log(`[sync-pub] Job was cached (job_id=cached). Trying fallbacks first...`);
-      
-      // Fallback A: Try /snapshot?radicado=XXX
-      console.log(`[sync-pub] Fallback A: /snapshot?radicado=${radicado}`);
-      try {
-        const snapshotUrl = `${cleanBaseUrl}/snapshot?radicado=${radicado}`;
-        const snapshotResponse = await fetch(snapshotUrl, { method: 'GET', headers });
-        console.log(`[sync-pub] /snapshot HTTP ${snapshotResponse.status}`);
-        
-        if (snapshotResponse.ok) {
-          const snapshotData = await snapshotResponse.json();
-          console.log(`[sync-pub] /snapshot response:`, JSON.stringify(snapshotData).slice(0, 500));
-          const result = snapshotData.result || snapshotData;
-          const publications = result.results || result.publicaciones || result.estados || [];
-          
-          if (publications.length > 0) {
-            console.log(`[sync-pub] Fallback A SUCCESS: /snapshot returned ${publications.length} publications`);
-            return extractPublicacionesFromResponse(snapshotData, startTime);
-          }
-        }
-        console.log(`[sync-pub] Fallback A: /snapshot returned no data`);
-      } catch (snapshotErr) {
-        console.log(`[sync-pub] Fallback A: /snapshot failed:`, snapshotErr);
-      }
-
-      // Fallback B: Try /publicaciones/{radicado} (path-based direct lookup)
-      console.log(`[sync-pub] Fallback B: /publicaciones/${radicado} (path-based)`);
-      try {
-        const directPathUrl = `${cleanBaseUrl}/publicaciones/${radicado}`;
-        const directPathResponse = await fetch(directPathUrl, { method: 'GET', headers });
-        console.log(`[sync-pub] /publicaciones/{radicado} HTTP ${directPathResponse.status}`);
-        
-        if (directPathResponse.ok) {
-          const directPathData = await directPathResponse.json();
-          console.log(`[sync-pub] /publicaciones/{radicado} response:`, JSON.stringify(directPathData).slice(0, 500));
-          
-          // Try to extract publications
-          const result = directPathData.result || directPathData;
-          const publications = result.results || result.publicaciones || result.data || result.estados || [];
-          
-          if (Array.isArray(publications) && publications.length > 0) {
-            console.log(`[sync-pub] Fallback B SUCCESS: /publicaciones/{radicado} returned ${publications.length} publications!`);
-            return extractPublicacionesFromResponse(directPathData, startTime);
-          }
-          
-          // Maybe the response IS the array directly
-          if (Array.isArray(directPathData) && directPathData.length > 0) {
-            console.log(`[sync-pub] Fallback B SUCCESS: Response is array with ${directPathData.length} items`);
-            return extractPublicacionesFromResponse({ result: { results: directPathData } }, startTime);
-          }
-        }
-        console.log(`[sync-pub] Fallback B: /publicaciones/{radicado} returned no usable data`);
-      } catch (directPathErr) {
-        console.log(`[sync-pub] Fallback B: /publicaciones/{radicado} failed:`, directPathErr);
-      }
-
-      // Fallback C: Try /publicaciones?radicado=XXX (query-param variant)
-      console.log(`[sync-pub] Fallback C: /publicaciones?radicado=${radicado} (query-param)`);
-      try {
-        const directQueryUrl = `${cleanBaseUrl}/publicaciones?radicado=${radicado}`;
-        const directQueryResponse = await fetch(directQueryUrl, { method: 'GET', headers });
-        console.log(`[sync-pub] /publicaciones?radicado HTTP ${directQueryResponse.status}`);
-        
-        if (directQueryResponse.ok) {
-          const directQueryData = await directQueryResponse.json();
-          console.log(`[sync-pub] /publicaciones?radicado response:`, JSON.stringify(directQueryData).slice(0, 500));
-          
-          const result = directQueryData.result || directQueryData;
-          const publications = result.results || result.publicaciones || result.data || [];
-          
-          if (Array.isArray(publications) && publications.length > 0) {
-            console.log(`[sync-pub] Fallback C SUCCESS: /publicaciones?radicado returned ${publications.length} publications!`);
-            return extractPublicacionesFromResponse(directQueryData, startTime);
-          }
-          
-          if (Array.isArray(directQueryData) && directQueryData.length > 0) {
-            console.log(`[sync-pub] Fallback C SUCCESS: Response is array with ${directQueryData.length} items`);
-            return extractPublicacionesFromResponse({ result: { results: directQueryData } }, startTime);
-          }
-        }
-        console.log(`[sync-pub] Fallback C: /publicaciones?radicado returned no usable data`);
-      } catch (directQueryErr) {
-        console.log(`[sync-pub] Fallback C: /publicaciones?radicado failed:`, directQueryErr);
-      }
-
-      // Fallback D: Try /buscar?radicado=XXX&force=true to bypass dedup
-      console.log(`[sync-pub] Fallback D: /buscar?force=true to bypass dedup`);
-      try {
-        const forceUrl = `${cleanBaseUrl}/buscar?radicado=${radicado}&force=true`;
-        const forceResponse = await fetch(forceUrl, { method: 'GET', headers });
-        console.log(`[sync-pub] /buscar?force=true HTTP ${forceResponse.status}`);
-        
-        if (forceResponse.ok) {
-          const forceData = await forceResponse.json();
-          console.log(`[sync-pub] /buscar?force=true response:`, JSON.stringify(forceData).slice(0, 500));
-          
-          const forceJobId = forceData.job_id || forceData.jobId;
-          
-          // If force returned inline result
-          if ((forceData.status === 'done' || forceData.status === 'completed') && forceData.result) {
-            console.log(`[sync-pub] Fallback D SUCCESS: /buscar?force returned inline result`);
-            return extractPublicacionesFromResponse(forceData, startTime);
-          }
-          
-          // If we got a REAL job_id (not "cached"), poll for it - even if deduped=true
-          // The job might still be processing and could complete with data
-          if (forceJobId && forceJobId !== 'cached') {
-            console.log(`[sync-pub] Fallback D: Got job_id=${forceJobId} (deduped=${forceData.deduped}), polling...`);
-            return await pollForResults(cleanBaseUrl, forceJobId, headers, radicado, startTime);
-          }
-        }
-        console.log(`[sync-pub] Fallback D: /buscar?force=true did not help`);
-      } catch (forceErr) {
-        console.log(`[sync-pub] Fallback D: /buscar?force=true failed:`, forceErr);
-      }
-
-      // All fallbacks failed
-      console.log(`[sync-pub] All dedup fallbacks exhausted. This radicado may not have publicaciones.`);
+    // Case D: Valid route with scraping needed flag
+    if (probeResult.attempt.errorCode === 'SCRAPING_NEEDED') {
+      console.log(`[sync-pub] ✓ Valid route, scraping in progress.`);
       return {
-        ok: false,
+        ok: true,
         publicaciones: [],
-        error: 'No publications found (deduped, all fallbacks exhausted)',
-        isEmpty: true,
+        status: 'SCRAPING_IN_PROGRESS',
+        scrapingMessage: 'Scraping job detected. Retry later.',
+        retryAfterSeconds: 60,
         latencyMs: Date.now() - startTime,
+        provider_attempts: attempts,
       };
     }
 
-    // ========= CASE 3: New job created — use pollForResults helper =========
-    if (!jobId) {
-      console.log(`[sync-pub] No job_id in /buscar response`);
-      return {
-        ok: false,
-        publicaciones: [],
-        error: 'No job_id returned from API',
-        latencyMs: Date.now() - startTime,
-      };
-    }
-
-    console.log(`[sync-pub] Step 2: Got real job_id=${jobId}, using pollForResults helper...`);
-    return await pollForResults(cleanBaseUrl, jobId, headers, radicado, startTime);
-
-  } catch (err) {
-    console.error('[sync-pub] Fetch error:', err);
+  // ========= ALL ROUTES FAILED =========
+  console.log(`[sync-pub] All ${attempts.length} route candidates failed.`);
+  
+  // Check if all failures were generic 404s (route not found)
+  const allRoutesNotFound = attempts.every(a => a.errorCode === 'ROUTE_NOT_FOUND' || a.httpStatus === 404);
+  
+  if (allRoutesNotFound) {
+    console.log(`[sync-pub] ❌ PROVIDER_ROUTE_NOT_FOUND - All routes returned generic 404.`);
     return {
       ok: false,
       publicaciones: [],
-      error: err instanceof Error ? err.message : 'Fetch failed',
+      error: 'PROVIDER_ROUTE_NOT_FOUND: All route candidates returned 404. Check PUBLICACIONES_BASE_URL configuration.',
+      status: 'ERROR',
+      httpStatus: 502, // Bad Gateway - upstream configuration issue
       latencyMs: Date.now() - startTime,
-      httpStatus: 0,
+      provider_attempts: attempts,
     };
   }
+
+  // Mixed failures
+  console.log(`[sync-pub] ❌ Mixed failures across routes.`);
+  return {
+    ok: false,
+    publicaciones: [],
+    error: `Failed to find valid route. Attempts: ${attempts.map(a => `${a.path}:${a.httpStatus}`).join(', ')}`,
+    status: 'ERROR',
+    latencyMs: Date.now() - startTime,
+    provider_attempts: attempts,
+  };
 }
 
 /**
@@ -890,47 +971,78 @@ Deno.serve(async (req) => {
     // ============= FETCH PUBLICACIONES =============
     const fetchResult = await fetchPublicaciones(normalizedRadicado);
 
-    if (!fetchResult.ok) {
-      // ============= HANDLE SCRAPING IN PROGRESS (NOT A HARD ERROR) =============
-      // If polling timed out but scraping is still processing, return a retryable status
-      if (fetchResult.status === 'SCRAPING_IN_PROGRESS' || fetchResult.status === 'SCRAPING_TIMEOUT') {
-        console.log(`[sync-publicaciones] Scraping still in progress: ${fetchResult.status}, job_id=${fetchResult.scrapingJobId}`);
+    // ============= CLASSIFY RESULT AND RETURN APPROPRIATE RESPONSE =============
+    
+    // Case 1: SCRAPING_IN_PROGRESS (valid route, but record not cached yet)
+    // This is ok:true because the route works, we just need to wait for data
+    if (fetchResult.status === 'SCRAPING_IN_PROGRESS') {
+      console.log(`[sync-publicaciones] Scraping in progress: ${fetchResult.scrapingMessage || 'awaiting data'}`);
+      return jsonResponse({
+        ...result,
+        ok: true, // ← NOT an error, this is expected behavior
+        status: 'SCRAPING_IN_PROGRESS',
+        scrapingInitiated: true,
+        scrapingJobId: fetchResult.scrapingJobId,
+        scrapingMessage: fetchResult.scrapingMessage || 'Provider is processing request',
+        retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
+        provider_attempts: (fetchResult as any).provider_attempts || [],
+        warnings: ['Scraping en progreso, reintente en 60 segundos'],
+        errors: [], // No errors, this is expected
+      }, 202); // 202 Accepted = operation started but not complete
+    }
+    
+    // Case 2: SCRAPING_TIMEOUT (polling timed out but job may still complete)
+    if (fetchResult.status === 'SCRAPING_TIMEOUT') {
+      console.log(`[sync-publicaciones] Scraping timeout: ${fetchResult.error}`);
+      return jsonResponse({
+        ...result,
+        ok: false, // Timeout is a soft failure
+        status: 'SCRAPING_TIMEOUT',
+        scrapingInitiated: true,
+        scrapingJobId: fetchResult.scrapingJobId,
+        scrapingMessage: fetchResult.error || 'Polling timed out, job may still complete',
+        retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
+        provider_attempts: (fetchResult as any).provider_attempts || [],
+        warnings: [],
+        errors: [fetchResult.error || 'Polling timed out after 120s, retry recommended'],
+      }, 202);
+    }
+
+    // Case 3: Hard error (provider misconfiguration, network failure, etc.)
+    if (!fetchResult.ok && fetchResult.status === 'ERROR') {
+      console.error(`[sync-publicaciones] Hard error: ${fetchResult.error}`);
+      const httpStatus = fetchResult.httpStatus || 500;
+      
+      // Special handling for PROVIDER_ROUTE_NOT_FOUND
+      if (fetchResult.error?.includes('PROVIDER_ROUTE_NOT_FOUND')) {
         return jsonResponse({
           ...result,
           ok: false,
-          status: fetchResult.status,
-          scrapingInitiated: true,
-          scrapingJobId: fetchResult.scrapingJobId,
-          scrapingMessage: fetchResult.error || `Scraping en progreso (${fetchResult.status})`,
-          retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
-          errors: [fetchResult.error || 'Scraping en progreso, reintente en 60 segundos'],
-        }, 202); // 202 Accepted = operation started but not complete
+          status: 'PROVIDER_ROUTE_NOT_FOUND',
+          errors: [fetchResult.error],
+          provider_attempts: (fetchResult as any).provider_attempts || [],
+          message: 'All provider route candidates returned 404. Check PUBLICACIONES_BASE_URL configuration.',
+        }, 502); // 502 Bad Gateway = upstream configuration issue
       }
       
-      // If scraping was initiated (legacy path)
-      if (fetchResult.scrapingInitiated) {
-        return jsonResponse({
-          ...result,
-          ok: false,
-          status: 'SCRAPING_IN_PROGRESS',
-          scrapingInitiated: true,
-          scrapingJobId: fetchResult.scrapingJobId,
-          scrapingMessage: fetchResult.scrapingMessage,
-          retryAfterSeconds: 60,
-          errors: [fetchResult.scrapingMessage || 'Búsqueda iniciada'],
-        }, 202);
-      }
-      
-      // Actual hard error
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
       result.status = 'ERROR';
-      return jsonResponse(result);
+      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] }, httpStatus);
+    }
+
+    // Case 4: Empty result (valid response but no publications for this radicado)
+    if (!fetchResult.ok && fetchResult.isEmpty) {
+      result.ok = true;
+      result.status = 'EMPTY';
+      result.warnings.push('No publications found for this radicado');
+      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] });
     }
 
     if (fetchResult.publicaciones.length === 0) {
       result.ok = true;
+      result.status = 'EMPTY';
       result.warnings.push('No publications found for this radicado');
-      return jsonResponse(result);
+      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] });
     }
 
     console.log(`[sync-publicaciones] Processing ${fetchResult.publicaciones.length} publications`);

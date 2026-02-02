@@ -1183,7 +1183,11 @@ export default function ApiDebugPage() {
                         testRadicadoConfigured={
                           name === 'cpnu' 
                             ? healthData.test_identifiers?.cpnu_test_radicado_set || false
-                            : healthData.test_identifiers?.samai_test_radicado_set || false
+                            : name === 'samai'
+                              ? healthData.test_identifiers?.samai_test_radicado_set || false
+                              : name === 'publicaciones'
+                                ? (healthData.test_identifiers as any)?.publicaciones_test_radicado_set || false
+                                : false
                         }
                       />
                     ))}
