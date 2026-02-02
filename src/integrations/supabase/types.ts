@@ -5462,6 +5462,92 @@ export type Database = {
           },
         ]
       }
+      sync_audit_log: {
+        Row: {
+          acts_count_after: number
+          acts_count_before: number
+          acts_inserted: number
+          acts_skipped: number
+          anomaly_details: string | null
+          count_decreased: boolean | null
+          created_at: string | null
+          edge_function: string | null
+          error_message: string | null
+          id: string
+          organization_id: string | null
+          provider_latency_ms: number | null
+          provider_used: string | null
+          publicaciones_count_after: number
+          publicaciones_count_before: number
+          publicaciones_inserted: number
+          publicaciones_skipped: number
+          radicado: string | null
+          status: string
+          sync_type: string
+          triggered_by: string | null
+          work_item_id: string
+          workflow_type: string | null
+        }
+        Insert: {
+          acts_count_after?: number
+          acts_count_before?: number
+          acts_inserted?: number
+          acts_skipped?: number
+          anomaly_details?: string | null
+          count_decreased?: boolean | null
+          created_at?: string | null
+          edge_function?: string | null
+          error_message?: string | null
+          id?: string
+          organization_id?: string | null
+          provider_latency_ms?: number | null
+          provider_used?: string | null
+          publicaciones_count_after?: number
+          publicaciones_count_before?: number
+          publicaciones_inserted?: number
+          publicaciones_skipped?: number
+          radicado?: string | null
+          status: string
+          sync_type: string
+          triggered_by?: string | null
+          work_item_id: string
+          workflow_type?: string | null
+        }
+        Update: {
+          acts_count_after?: number
+          acts_count_before?: number
+          acts_inserted?: number
+          acts_skipped?: number
+          anomaly_details?: string | null
+          count_decreased?: boolean | null
+          created_at?: string | null
+          edge_function?: string | null
+          error_message?: string | null
+          id?: string
+          organization_id?: string | null
+          provider_latency_ms?: number | null
+          provider_used?: string | null
+          publicaciones_count_after?: number
+          publicaciones_count_before?: number
+          publicaciones_inserted?: number
+          publicaciones_skipped?: number
+          radicado?: string | null
+          status?: string
+          sync_type?: string
+          triggered_by?: string | null
+          work_item_id?: string
+          workflow_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_audit_log_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_traces: {
         Row: {
           created_at: string | null
@@ -5876,6 +5962,9 @@ export type Database = {
           act_date: string | null
           act_date_raw: string | null
           act_type: string | null
+          archived_at: string | null
+          archived_reason: string | null
+          canonical_at: string | null
           confidence_level: string | null
           created_at: string
           description: string
@@ -5886,6 +5975,8 @@ export type Database = {
           event_type_normalized: string | null
           hash_fingerprint: string
           id: string
+          is_archived: boolean | null
+          is_canonical: boolean | null
           is_retroactive: boolean | null
           keywords_matched: string[] | null
           organization_id: string | null
@@ -5905,6 +5996,9 @@ export type Database = {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          archived_at?: string | null
+          archived_reason?: string | null
+          canonical_at?: string | null
           confidence_level?: string | null
           created_at?: string
           description: string
@@ -5915,6 +6009,8 @@ export type Database = {
           event_type_normalized?: string | null
           hash_fingerprint: string
           id?: string
+          is_archived?: boolean | null
+          is_canonical?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
           organization_id?: string | null
@@ -5934,6 +6030,9 @@ export type Database = {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          archived_at?: string | null
+          archived_reason?: string | null
+          canonical_at?: string | null
           confidence_level?: string | null
           created_at?: string
           description?: string
@@ -5944,6 +6043,8 @@ export type Database = {
           event_type_normalized?: string | null
           hash_fingerprint?: string
           id?: string
+          is_archived?: boolean | null
+          is_canonical?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
           organization_id?: string | null
@@ -6061,12 +6162,17 @@ export type Database = {
       work_item_publicaciones: {
         Row: {
           annotation: string | null
+          archived_at: string | null
+          archived_reason: string | null
+          canonical_at: string | null
           created_at: string
           despacho: string | null
           fecha_desfijacion: string | null
           fecha_fijacion: string | null
           hash_fingerprint: string
           id: string
+          is_archived: boolean | null
+          is_canonical: boolean | null
           organization_id: string
           pdf_url: string | null
           published_at: string | null
@@ -6078,12 +6184,17 @@ export type Database = {
         }
         Insert: {
           annotation?: string | null
+          archived_at?: string | null
+          archived_reason?: string | null
+          canonical_at?: string | null
           created_at?: string
           despacho?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
           hash_fingerprint: string
           id?: string
+          is_archived?: boolean | null
+          is_canonical?: boolean | null
           organization_id: string
           pdf_url?: string | null
           published_at?: string | null
@@ -6095,12 +6206,17 @@ export type Database = {
         }
         Update: {
           annotation?: string | null
+          archived_at?: string | null
+          archived_reason?: string | null
+          canonical_at?: string | null
           created_at?: string
           despacho?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
           hash_fingerprint?: string
           id?: string
+          is_archived?: boolean | null
+          is_canonical?: boolean | null
           organization_id?: string
           pdf_url?: string | null
           published_at?: string | null
@@ -6726,6 +6842,10 @@ export type Database = {
       acquire_daily_sync_lock: {
         Args: { p_organization_id: string; p_run_id?: string }
         Returns: Json
+      }
+      admin_archive_record: {
+        Args: { p_reason?: string; p_record_id: string; p_table: string }
+        Returns: undefined
       }
       backfill_work_item_ids: {
         Args: never

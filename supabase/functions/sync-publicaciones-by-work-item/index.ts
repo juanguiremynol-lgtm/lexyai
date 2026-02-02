@@ -474,6 +474,15 @@ Deno.serve(async (req) => {
       inserted: [],
     };
 
+    // ============= AUDIT: COUNT BEFORE SYNC =============
+    const { count: pubsCountBefore } = await supabase
+      .from('work_item_publicaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_item_id', work_item_id)
+      .eq('is_archived', false);
+    
+    console.log(`[sync-pub] Count before sync: ${pubsCountBefore || 0} publicaciones`);
+
     // ============= FETCH PUBLICACIONES (v3 SYNCHRONOUS API) =============
     const fetchResult = await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey);
     result.provider_latency_ms = fetchResult.latencyMs;
@@ -492,6 +501,25 @@ Deno.serve(async (req) => {
       result.status = 'EMPTY';
       result.warnings.push('No publications found for this radicado');
       console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
+      
+      // Audit log for empty result
+      await supabase.from('sync_audit_log').insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        radicado: workItem.radicado,
+        workflow_type: workItem.workflow_type,
+        sync_type: 'publicaciones',
+        publicaciones_count_before: pubsCountBefore || 0,
+        publicaciones_count_after: pubsCountBefore || 0,
+        publicaciones_inserted: 0,
+        publicaciones_skipped: 0,
+        provider_used: 'publicaciones',
+        provider_latency_ms: fetchResult.latencyMs,
+        status: 'success',
+        triggered_by: 'manual',
+        edge_function: 'sync-publicaciones-by-work-item',
+      });
+      
       return jsonResponse(result);
     }
 
@@ -652,6 +680,42 @@ Deno.serve(async (req) => {
       }
     }
     
+    // ============= AUDIT: COUNT AFTER SYNC & LOG =============
+    const { count: pubsCountAfter } = await supabase
+      .from('work_item_publicaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_item_id', work_item_id)
+      .eq('is_archived', false);
+    
+    // ANOMALY CHECK: count should never decrease
+    const countDecreased = (pubsCountAfter || 0) < (pubsCountBefore || 0);
+    if (countDecreased) {
+      console.error(`[ANOMALY] work_item_publicaciones count DECREASED for ${work_item_id}: ${pubsCountBefore} → ${pubsCountAfter}`);
+    }
+
+    // Log the audit record
+    await supabase.from('sync_audit_log').insert({
+      work_item_id,
+      organization_id: workItem.organization_id,
+      radicado: workItem.radicado,
+      workflow_type: workItem.workflow_type,
+      sync_type: 'publicaciones',
+      publicaciones_count_before: pubsCountBefore || 0,
+      publicaciones_count_after: pubsCountAfter || 0,
+      publicaciones_inserted: result.inserted_count,
+      publicaciones_skipped: result.skipped_count,
+      acts_count_before: 0,
+      acts_count_after: 0,
+      provider_used: 'publicaciones',
+      provider_latency_ms: fetchResult.latencyMs,
+      status: countDecreased ? 'anomaly' : (result.errors.length > 0 ? 'partial' : 'success'),
+      error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
+      count_decreased: countDecreased,
+      anomaly_details: countDecreased ? `Count decreased from ${pubsCountBefore} to ${pubsCountAfter}` : null,
+      triggered_by: 'manual',
+      edge_function: 'sync-publicaciones-by-work-item',
+    });
+
     result.ok = true;
     result.status = 'SUCCESS';
 

@@ -95,6 +95,7 @@ export async function getActuacionesHoy(
   
   // Fetch actuaciones with act_date in last 3 days
   // CRITICAL: We filter by act_date, NOT created_at
+  // Also filter out archived records
   const { data, error } = await supabase
     .from('work_item_acts')
     .select(`
@@ -121,6 +122,7 @@ export async function getActuacionesHoy(
       )
     `)
     .eq('work_items.organization_id', organizationId)
+    .eq('is_archived', false)
     .not('act_date', 'is', null)
     .gte('act_date', threeDaysAgoStr)
     .lte('act_date', todayStr)

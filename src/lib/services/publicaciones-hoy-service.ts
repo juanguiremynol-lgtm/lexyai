@@ -123,6 +123,7 @@ export async function getPublicacionesHoy(
   const threeDaysAgoStr = threeDaysAgo.toISOString().split('T')[0];
   
   // Fetch publicaciones with fecha_fijacion in last 3 days
+  // Filter out archived records
   const { data: withDateData, error: withDateError } = await supabase
     .from('work_item_publicaciones')
     .select(`
@@ -152,6 +153,7 @@ export async function getPublicacionesHoy(
       )
     `)
     .eq('work_items.organization_id', organizationId)
+    .eq('is_archived', false)
     .gte('fecha_fijacion', threeDaysAgoStr)
     .lte('fecha_fijacion', todayStr)
     .order('fecha_fijacion', { ascending: false })
@@ -162,6 +164,7 @@ export async function getPublicacionesHoy(
   }
 
   // Fetch publicaciones with NULL fecha_fijacion, synced in last 24 hours
+  // Filter out archived records
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   
   const { data: withoutDateData, error: withoutDateError } = await supabase
@@ -193,6 +196,7 @@ export async function getPublicacionesHoy(
       )
     `)
     .eq('work_items.organization_id', organizationId)
+    .eq('is_archived', false)
     .is('fecha_fijacion', null)
     .gte('created_at', twentyFourHoursAgo)
     .order('created_at', { ascending: false });
