@@ -6175,9 +6175,11 @@ export type Database = {
           is_archived: boolean | null
           is_canonical: boolean | null
           organization_id: string
+          pdf_available: boolean | null
           pdf_url: string | null
           published_at: string | null
           raw_data: Json | null
+          raw_json: Json | null
           source: string
           tipo_publicacion: string | null
           title: string
@@ -6198,9 +6200,11 @@ export type Database = {
           is_archived?: boolean | null
           is_canonical?: boolean | null
           organization_id: string
+          pdf_available?: boolean | null
           pdf_url?: string | null
           published_at?: string | null
           raw_data?: Json | null
+          raw_json?: Json | null
           source?: string
           tipo_publicacion?: string | null
           title: string
@@ -6221,9 +6225,11 @@ export type Database = {
           is_archived?: boolean | null
           is_canonical?: boolean | null
           organization_id?: string
+          pdf_available?: boolean | null
           pdf_url?: string | null
           published_at?: string | null
           raw_data?: Json | null
+          raw_json?: Json | null
           source?: string
           tipo_publicacion?: string | null
           title?: string
