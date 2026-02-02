@@ -2092,14 +2092,29 @@ function PublicacionesDebugCard() {
       }
 
       // Step 5: Check sync_traces if table exists
+      // NOTE: sync_traces table has 'meta' column (JSONB), NOT 'metadata'
       addStep({ step: '5️⃣ Sync Traces', status: 'pending', message: 'Buscando trazas de sync...' });
       
-      const { data: traces, error: tracesError } = await supabase
-        .from('sync_traces')
-        .select('*')
-        .or(`metadata->>radicado.eq.${normalizedRadicado}`)
-        .order('created_at', { ascending: false })
-        .limit(10);
+      // Query sync_traces by work_item_id (more reliable than radicado search)
+      let tracesQuery;
+      if (workItemId) {
+        // Primary: filter by work_item_id directly
+        tracesQuery = supabase
+          .from('sync_traces')
+          .select('*')
+          .eq('work_item_id', workItemId)
+          .order('created_at', { ascending: false })
+          .limit(20);
+      } else {
+        // Fallback: just get recent traces (we don't have metadata to search)
+        tracesQuery = supabase
+          .from('sync_traces')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+      }
+
+      const { data: traces, error: tracesError } = await tracesQuery;
 
       if (tracesError) {
         updateLastStep({ 
@@ -2108,13 +2123,19 @@ function PublicacionesDebugCard() {
           data: tracesError
         });
       } else {
+        // Filter for publicaciones-related traces
         const pubTraces = traces?.filter((t: any) => 
           t.step?.toLowerCase().includes('publicacion') || 
-          t.provider?.toLowerCase().includes('publicacion')
+          t.provider?.toLowerCase().includes('publicacion') ||
+          t.step === 'SYNC_START' || 
+          t.step === 'SYNC_SUCCESS' ||
+          t.step === 'SYNC_FAILED'
         );
         updateLastStep({ 
           status: pubTraces && pubTraces.length > 0 ? 'success' : 'info', 
-          message: `${pubTraces?.length || 0} trazas de publicaciones encontradas`,
+          message: workItemId 
+            ? `${pubTraces?.length || 0} trazas encontradas para work_item` 
+            : `${pubTraces?.length || 0} trazas recientes (sin work_item_id para filtrar)`,
           data: pubTraces || traces
         });
       }
