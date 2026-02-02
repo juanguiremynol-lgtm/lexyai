@@ -3679,6 +3679,92 @@ export type Database = {
           },
         ]
       }
+      master_sync_runs: {
+        Row: {
+          actuaciones_found: number | null
+          actuaciones_inserted: number | null
+          alerts_created: number | null
+          completed_at: string | null
+          created_at: string | null
+          duration_ms: number | null
+          id: string
+          include_cpnu: boolean | null
+          include_publicaciones: boolean | null
+          include_samai: boolean | null
+          include_tutelas: boolean | null
+          publicaciones_found: number | null
+          publicaciones_inserted: number | null
+          results_json: Json | null
+          started_at: string | null
+          status: string | null
+          target_organization_id: string
+          target_user_id: string
+          triggered_by_user_id: string
+          work_items_error: number | null
+          work_items_processed: number | null
+          work_items_success: number | null
+          work_items_total: number | null
+        }
+        Insert: {
+          actuaciones_found?: number | null
+          actuaciones_inserted?: number | null
+          alerts_created?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          include_cpnu?: boolean | null
+          include_publicaciones?: boolean | null
+          include_samai?: boolean | null
+          include_tutelas?: boolean | null
+          publicaciones_found?: number | null
+          publicaciones_inserted?: number | null
+          results_json?: Json | null
+          started_at?: string | null
+          status?: string | null
+          target_organization_id: string
+          target_user_id: string
+          triggered_by_user_id: string
+          work_items_error?: number | null
+          work_items_processed?: number | null
+          work_items_success?: number | null
+          work_items_total?: number | null
+        }
+        Update: {
+          actuaciones_found?: number | null
+          actuaciones_inserted?: number | null
+          alerts_created?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          duration_ms?: number | null
+          id?: string
+          include_cpnu?: boolean | null
+          include_publicaciones?: boolean | null
+          include_samai?: boolean | null
+          include_tutelas?: boolean | null
+          publicaciones_found?: number | null
+          publicaciones_inserted?: number | null
+          results_json?: Json | null
+          started_at?: string | null
+          status?: string | null
+          target_organization_id?: string
+          target_user_id?: string
+          triggered_by_user_id?: string
+          work_items_error?: number | null
+          work_items_processed?: number | null
+          work_items_success?: number | null
+          work_items_total?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "master_sync_runs_target_organization_id_fkey"
+            columns: ["target_organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matter_files: {
         Row: {
           created_at: string
