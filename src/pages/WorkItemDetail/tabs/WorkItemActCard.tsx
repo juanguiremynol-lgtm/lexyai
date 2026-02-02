@@ -52,11 +52,26 @@ const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
 };
 
 // Source platform styling
+// Maps source/source_platform values to display labels
 const SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
+  // Primary judicial API providers
   CPNU: { label: "CPNU", color: "text-purple-600" },
+  cpnu: { label: "CPNU", color: "text-purple-600" },
   SAMAI: { label: "SAMAI", color: "text-blue-600" },
+  samai: { label: "SAMAI", color: "text-blue-600" },
   TUTELAS: { label: "Tutelas", color: "text-emerald-600" },
-  DEFAULT: { label: "Sistema", color: "text-muted-foreground" },
+  tutelas: { label: "Tutelas", color: "text-emerald-600" },
+  // Publicaciones source
+  publicaciones: { label: "Publicaciones", color: "text-indigo-600" },
+  "publicaciones-procesales": { label: "Publicaciones", color: "text-indigo-600" },
+  // Legacy/Import sources  
+  icarus_import: { label: "ICARUS", color: "text-orange-600" },
+  ICARUS_ESTADOS: { label: "ICARUS", color: "text-orange-600" },
+  legacy_import: { label: "Importación", color: "text-gray-600" },
+  manual: { label: "Manual", color: "text-cyan-600" },
+  MANUAL: { label: "Manual", color: "text-cyan-600" },
+  // Default fallback
+  DEFAULT: { label: "Desconocido", color: "text-muted-foreground" },
 };
 
 // Interface matching work_item_acts table schema
