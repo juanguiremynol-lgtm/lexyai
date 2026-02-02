@@ -247,25 +247,25 @@ export function MasterSyncTab() {
     },
   });
 
-  // Master sync mutation
+  // Master sync mutation - supports ORG-ONLY mode (user is optional)
   const syncMutation = useMutation({
     mutationFn: async () => {
-      if (!tenantSnapshot) throw new Error('No snapshot loaded');
+      // ORG-only mode: only org_id is required
+      const orgId = selectedOrgId || tenantSnapshot?.resolved_organization?.id;
       
-      // Determine principal user for sync (first admin from org or selected user)
-      const principalUserId = selectedUserId || tenantSnapshot.resolved_user?.id;
-      const orgId = selectedOrgId || tenantSnapshot.resolved_organization?.id;
-      
-      if (!principalUserId || !orgId) {
-        throw new Error('Cannot determine sync target - select org and user');
+      if (!orgId) {
+        throw new Error('Selecciona una organización para ejecutar Master Sync');
       }
+
+      // User is OPTIONAL - convert "__NONE__" sentinel to null
+      const userId = selectedUserId === '__NONE__' ? null : selectedUserId;
 
       const { data, error } = await supabase.functions.invoke<MasterSyncResult>(
         'master-sync',
         {
           body: {
-            target_user_id: principalUserId,
             target_organization_id: orgId,
+            target_user_id: userId, // Can be null for org-wide sync
             include_cpnu: includeCpnu,
             include_samai: includeSamai,
             include_publicaciones: includePublicaciones,
