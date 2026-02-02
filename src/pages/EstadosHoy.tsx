@@ -55,13 +55,31 @@ import * as XLSX from "xlsx";
 
 // ============= CONSTANTS =============
 
+/**
+ * Source field semantics:
+ * - cpnu, samai, tutelas: Data from external judicial APIs
+ * - publicaciones: Data from Publicaciones Procesales API
+ * - icarus_import: Legacy data imported from ICARUS system
+ * - legacy_import: Historical data with unknown original source
+ * - manual: Manually entered by user (rare)
+ */
 const SOURCE_LABELS: Record<string, string> = {
+  // Publicaciones
   publicaciones: "Publicaciones",
-  PUBLICACIONES_API: "Publicaciones",
+  "publicaciones-procesales": "Publicaciones",
+  // Actuaciones providers
   cpnu: "CPNU",
   CPNU: "CPNU",
   samai: "SAMAI",
   SAMAI: "SAMAI",
+  tutelas: "Tutelas",
+  TUTELAS: "Tutelas",
+  // Legacy/Import sources
+  icarus_import: "ICARUS",
+  ICARUS_ESTADOS: "ICARUS",
+  legacy_import: "Importación",
+  manual: "Manual",
+  MANUAL: "Manual",
 };
 
 // ============= HELPER FUNCTIONS =============
