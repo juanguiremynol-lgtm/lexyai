@@ -675,14 +675,22 @@ async function callProviderWithProbing(
         };
       }
 
-      // Non-404 error or JSON 404 (record not found)
+      // Non-404 error or JSON 404 (record not found / cache miss)
       if (!response.ok) {
         const errorCode = classifyErrorCode(response.status, responseKind, bodyText, undefined);
+        
+        // ENHANCED: Provide better message for RECORD_NOT_FOUND (cache miss)
+        // This indicates auth worked but record is not cached
+        let message = bodyText.slice(0, 500);
+        if (errorCode === 'RECORD_NOT_FOUND') {
+          message = 'Auth OK — Record not in cache. Provider may need to scrape this radicado. Use /buscar to trigger scraping.';
+        }
+        
         return {
           status: response.status,
           data: null,
           error_code: errorCode,
-          message: bodyText.slice(0, 500),
+          message,
           request_path: requestPath,
           path_prefix_used: normalizedPrefix,
           body_snippet: bodyText.slice(0, 2000),

@@ -3267,10 +3267,19 @@ Deno.serve(async (req) => {
     }
 
     // ============= INGEST ACTUACIONES WITH DEDUPLICATION =============
+    // FIX: Calculate latestDate from ALL fetched data, not just inserted rows
+    // This ensures latest_event_date reflects the provider's actual newest event
     let latestDate: string | null = null;
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
+      
+      // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
+      // This happens BEFORE deduplication so we report the true latest event date
+      if (actDate && (!latestDate || actDate > latestDate)) {
+        latestDate = actDate;
+      }
+      
       // Include indice in fingerprint to prevent collisions for same-day actuaciones
       const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice);
 
@@ -3333,9 +3342,8 @@ Deno.serve(async (req) => {
         }
       } else {
         result.inserted_count++;
-        if (actDate && (!latestDate || actDate > latestDate)) {
-          latestDate = actDate;
-        }
+        // Note: latestDate is now calculated from ALL fetched actuaciones (before insert loop)
+        // to ensure we report the true latest event even for deduped records
         
         // ============= DETECT SIGNIFICANT EVENTS & CREATE ALERTS =============
         const significantEvent = detectSignificantEvent(act.actuacion, act.anotacion || '');
