@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   BarChart3,
   Bug,
+  Bot,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -46,6 +47,7 @@ const platformNavItems = [
   { title: "Suscripciones", url: "/platform/subscriptions", icon: Crown },
   { title: "Vouchers", url: "/platform/vouchers", icon: Ticket },
   { title: "Límites", url: "/platform/limits", icon: Gauge },
+  { title: "Configuración AI", url: "/platform/ai-settings", icon: Bot },
   { title: "Soporte", url: "/platform/support", icon: Eye },
   { title: "Usuarios", url: "/platform/users", icon: Users },
   { title: "Auditoría", url: "/platform/audit", icon: History },

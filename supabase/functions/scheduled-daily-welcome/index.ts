@@ -14,6 +14,11 @@
  * - Multi-tenant safe: processes per organization/user
  * - Rate limited to avoid AI API throttling
  * - ONLY runs on business days (excludes weekends, holidays, suspensions)
+ * 
+ * SAFEGUARDS (v2):
+ * - Global kill switch: platform_settings.daily_welcome_enabled must be true
+ * - Per-user once-per-day: atomic claim via try_claim_daily_welcome() function
+ * - All events logged to daily_welcome_log for observability
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -31,6 +36,16 @@ const AI_MODEL = 'google/gemini-3-flash-preview';
 // Rate limiting
 const MAX_USERS_PER_RUN = 50;
 const DELAY_BETWEEN_USERS_MS = 1000;
+
+// ============= Observability Counters =============
+interface ObservabilityMetrics {
+  gemini_calls: number;
+  suppressed_already_sent: number;
+  suppressed_kill_switch: number;
+  suppressed_non_business_day: number;
+  generated_count: number;
+  error_count: number;
+}
 
 // ============= Business Day Validation =============
 
@@ -115,6 +130,90 @@ async function isValidBusinessDay(supabase: any): Promise<{ isValid: boolean; re
   return { isValid: true };
 }
 
+// ============= Kill Switch & Per-User Gating =============
+
+/**
+ * Check global kill switch in platform_settings
+ */
+async function isWelcomeEnabled(supabase: any): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('daily_welcome_enabled')
+    .eq('id', 'singleton')
+    .maybeSingle();
+  
+  if (error) {
+    console.error('[daily-welcome] Error checking kill switch:', error);
+    // Default to OFF (safe) if we can't read settings
+    return false;
+  }
+  
+  return data?.daily_welcome_enabled === true;
+}
+
+/**
+ * Atomically claim today's welcome slot for a user
+ * Returns whether the claim was successful
+ */
+async function tryClaimDailyWelcome(supabase: any, userId: string): Promise<{
+  claimed: boolean;
+  reason: string;
+  today: string;
+}> {
+  const { data, error } = await supabase.rpc('try_claim_daily_welcome', {
+    p_user_id: userId,
+  });
+  
+  if (error) {
+    console.error('[daily-welcome] Error claiming welcome slot:', error);
+    return { claimed: false, reason: 'RPC_ERROR', today: '' };
+  }
+  
+  return {
+    claimed: data?.claimed === true,
+    reason: data?.reason || 'UNKNOWN',
+    today: data?.today || '',
+  };
+}
+
+/**
+ * Log a welcome event for observability
+ */
+async function logWelcomeEvent(
+  supabase: any,
+  userId: string,
+  organizationId: string | null,
+  eventType: 'GENERATED' | 'SUPPRESSED_ALREADY_SENT' | 'SUPPRESSED_KILL_SWITCH' | 'SUPPRESSED_NON_BUSINESS_DAY',
+  metadata: {
+    aiModelUsed?: string;
+    activityCount?: number;
+    latencyMs?: number;
+    reason?: string;
+    runId?: string;
+  }
+): Promise<void> {
+  // Get today in America/Bogota
+  const todayBogota = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  
+  try {
+    await supabase.from('daily_welcome_log').insert({
+      user_id: userId,
+      organization_id: organizationId,
+      event_type: eventType,
+      event_date: todayBogota,
+      ai_model_used: metadata.aiModelUsed || null,
+      activity_count: metadata.activityCount || null,
+      latency_ms: metadata.latencyMs || null,
+      metadata: {
+        reason: metadata.reason,
+        run_id: metadata.runId,
+      },
+    });
+  } catch (err) {
+    console.warn('[daily-welcome] Failed to log event:', err);
+  }
+}
+
 // ============= Types =============
 
 interface UserActivitySummary {
@@ -157,7 +256,8 @@ interface ActuacionActivity {
 
 async function generateAIWelcomeMessage(
   summary: UserActivitySummary,
-  lovableApiKey: string
+  lovableApiKey: string,
+  metrics: ObservabilityMetrics
 ): Promise<string> {
   const userName = summary.full_name || 'Usuario';
   const totalActivity = summary.new_estados_count + summary.new_actuaciones_count;
@@ -215,6 +315,9 @@ Instrucciones:
 8. NO uses markdown, solo texto plano con saltos de línea`;
 
   try {
+    // Increment Gemini call counter BEFORE making the call
+    metrics.gemini_calls++;
+    
     const response = await fetch(LOVABLE_AI_GATEWAY_URL, {
       method: 'POST',
       headers: {
@@ -271,6 +374,16 @@ Deno.serve(async (req) => {
   console.log(`[scheduled-daily-welcome] Starting run (run_id: ${runId})`);
   console.log(`[scheduled-daily-welcome] Time: ${new Date().toISOString()}`);
 
+  // Initialize observability metrics
+  const metrics: ObservabilityMetrics = {
+    gemini_calls: 0,
+    suppressed_already_sent: 0,
+    suppressed_kill_switch: 0,
+    suppressed_non_business_day: 0,
+    generated_count: 0,
+    error_count: 0,
+  };
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -300,22 +413,92 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============= SAFEGUARD #1: Global Kill Switch =============
+    const welcomeEnabled = await isWelcomeEnabled(supabase);
+    if (!welcomeEnabled) {
+      console.log('[scheduled-daily-welcome] Kill switch is OFF - skipping all AI generation');
+      metrics.suppressed_kill_switch++;
+      
+      // Log suppression if single user request
+      if (singleUserId) {
+        await logWelcomeEvent(supabase, singleUserId, null, 'SUPPRESSED_KILL_SWITCH', {
+          reason: 'Global daily_welcome_enabled = false',
+          runId,
+        });
+      }
+      
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          run_id: runId,
+          skipped: true,
+          suppression_reason: 'KILL_SWITCH_OFF',
+          message: 'El mensaje de bienvenida diario está deshabilitado por el administrador.',
+          metrics,
+          duration_ms: Date.now() - startTime,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // ============= Business Day Validation =============
     if (!skipBusinessDayCheck) {
       const businessDayCheck = await isValidBusinessDay(supabase);
       if (!businessDayCheck.isValid) {
         console.log(`[scheduled-daily-welcome] Skipping - not a business day: ${businessDayCheck.reason}`);
+        metrics.suppressed_non_business_day++;
+        
+        if (singleUserId) {
+          await logWelcomeEvent(supabase, singleUserId, null, 'SUPPRESSED_NON_BUSINESS_DAY', {
+            reason: businessDayCheck.reason,
+            runId,
+          });
+        }
+        
         return new Response(
           JSON.stringify({
             ok: true,
             run_id: runId,
             skipped: true,
+            suppression_reason: 'NON_BUSINESS_DAY',
             reason: businessDayCheck.reason,
+            metrics,
             duration_ms: Date.now() - startTime,
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+    }
+
+    // ============= SAFEGUARD #2: Per-User Once-Per-Day (Single User Mode) =============
+    if (singleUserId) {
+      const claimResult = await tryClaimDailyWelcome(supabase, singleUserId);
+      
+      if (!claimResult.claimed) {
+        console.log(`[scheduled-daily-welcome] User ${singleUserId} already received today's welcome (${claimResult.reason})`);
+        metrics.suppressed_already_sent++;
+        
+        await logWelcomeEvent(supabase, singleUserId, null, 'SUPPRESSED_ALREADY_SENT', {
+          reason: claimResult.reason,
+          runId,
+        });
+        
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            run_id: runId,
+            skipped: true,
+            suppression_reason: 'ALREADY_SENT_TODAY',
+            message: 'Ya recibiste tu mensaje de bienvenida de hoy.',
+            claim_result: claimResult,
+            metrics,
+            duration_ms: Date.now() - startTime,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`[scheduled-daily-welcome] Claimed welcome slot for user ${singleUserId}`);
     }
 
     // Calculate time window (last 24 hours)
@@ -493,13 +676,14 @@ Deno.serve(async (req) => {
     console.log(`[scheduled-daily-welcome] Found ${userActivityMap.size} users with activity`);
 
     if (userActivityMap.size === 0) {
-      console.log('[scheduled-daily-welcome] No users with activity, skipping');
+      console.log('[scheduled-daily-welcome] No users with recent activity, skipping');
       return new Response(
         JSON.stringify({
           ok: true,
           run_id: runId,
           message: 'No users with recent activity',
           users_processed: 0,
+          metrics,
           duration_ms: Date.now() - startTime,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -539,6 +723,21 @@ Deno.serve(async (req) => {
       const summary = userActivityMap.get(userId);
       if (!summary) continue;
 
+      // For batch mode, check per-user claim (single-user mode already checked above)
+      if (!singleUserId) {
+        const claimResult = await tryClaimDailyWelcome(supabase, userId);
+        if (!claimResult.claimed) {
+          console.log(`[scheduled-daily-welcome] User ${userId} already received today - skipping`);
+          metrics.suppressed_already_sent++;
+          await logWelcomeEvent(supabase, userId, summary.organization_id, 'SUPPRESSED_ALREADY_SENT', {
+            reason: claimResult.reason,
+            runId,
+          });
+          results.push({ user_id: userId, status: 'skipped_already_sent' });
+          continue;
+        }
+      }
+
       if (i > 0) {
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_USERS_MS));
       }
@@ -546,7 +745,10 @@ Deno.serve(async (req) => {
       try {
         console.log(`[scheduled-daily-welcome] Generating message for user ${userId} (${i + 1}/${userIds.length})`);
         
-        const welcomeMessage = await generateAIWelcomeMessage(summary, lovableApiKey);
+        const aiStartTime = Date.now();
+        const welcomeMessage = await generateAIWelcomeMessage(summary, lovableApiKey, metrics);
+        const aiLatencyMs = Date.now() - aiStartTime;
+        
         console.log(`[scheduled-daily-welcome] Generated message for ${userId}: ${welcomeMessage.slice(0, 100)}...`);
 
         const { error: alertError } = await supabase.from('alert_instances').insert({
@@ -573,6 +775,7 @@ Deno.serve(async (req) => {
               actuaciones_count: wi.new_actuaciones.length,
             })),
             source: 'scheduled-daily-welcome',
+            ai_model: AI_MODEL,
           },
         });
 
@@ -581,7 +784,16 @@ Deno.serve(async (req) => {
           throw new Error(`DB error: ${alertError.message || alertError.code || 'Unknown'}`);
         }
 
+        // Log successful generation
+        await logWelcomeEvent(supabase, userId, summary.organization_id, 'GENERATED', {
+          aiModelUsed: AI_MODEL,
+          activityCount: summary.new_estados_count + summary.new_actuaciones_count,
+          latencyMs: aiLatencyMs,
+          runId,
+        });
+
         successCount++;
+        metrics.generated_count++;
         results.push({ user_id: userId, status: 'success' });
         console.log(`[scheduled-daily-welcome] Created welcome alert for user ${userId}`);
 
@@ -591,6 +803,7 @@ Deno.serve(async (req) => {
           : (typeof err === 'object' && err !== null ? JSON.stringify(err) : 'Unknown error');
         console.error(`[scheduled-daily-welcome] Error for user ${userId}:`, errorMsg);
         errorCount++;
+        metrics.error_count++;
         results.push({ 
           user_id: userId, 
           status: 'error', 
@@ -607,6 +820,7 @@ Deno.serve(async (req) => {
     const durationMs = Date.now() - startTime;
 
     console.log(`[scheduled-daily-welcome] Completed in ${durationMs}ms: ${successCount} success, ${errorCount} errors`);
+    console.log(`[scheduled-daily-welcome] Metrics:`, JSON.stringify(metrics));
 
     // ============= LOG JOB RUN =============
     try {
@@ -626,6 +840,7 @@ Deno.serve(async (req) => {
           total_actuaciones_activity: (recentActuaciones || []).length,
           ai_model: AI_MODEL,
           single_user: singleUserId || null,
+          metrics,
         },
       });
     } catch (logErr) {
@@ -639,6 +854,7 @@ Deno.serve(async (req) => {
         users_processed: results.length,
         success_count: successCount,
         error_count: errorCount,
+        metrics,
         duration_ms: durationMs,
         results: results.slice(0, 20),
       }),
@@ -647,12 +863,14 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error('[scheduled-daily-welcome] Fatal error:', err);
+    metrics.error_count++;
     
     return new Response(
       JSON.stringify({
         ok: false,
         error: err instanceof Error ? err.message : 'Unknown error',
         run_id: runId,
+        metrics,
         duration_ms: Date.now() - startTime,
       }),
       { 

@@ -16,6 +16,7 @@ const routeTitles: Record<string, string> = {
   "/platform/subscriptions": "Suscripciones",
   "/platform/vouchers": "Vouchers de Cortesía",
   "/platform/limits": "Límites de Planes",
+  "/platform/ai-settings": "Configuración de IA",
   "/platform/support": "Modo Soporte",
   "/platform/users": "Usuarios",
   "/platform/audit": "Auditoría",

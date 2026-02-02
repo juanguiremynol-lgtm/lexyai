@@ -2205,6 +2205,53 @@ export type Database = {
           },
         ]
       }
+      daily_welcome_log: {
+        Row: {
+          activity_count: number | null
+          ai_model_used: string | null
+          created_at: string
+          event_date: string
+          event_type: string
+          id: string
+          latency_ms: number | null
+          metadata: Json | null
+          organization_id: string | null
+          user_id: string
+        }
+        Insert: {
+          activity_count?: number | null
+          ai_model_used?: string | null
+          created_at?: string
+          event_date: string
+          event_type: string
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json | null
+          organization_id?: string | null
+          user_id: string
+        }
+        Update: {
+          activity_count?: number | null
+          ai_model_used?: string | null
+          created_at?: string
+          event_date?: string
+          event_type?: string
+          id?: string
+          latency_ms?: number | null
+          metadata?: Json | null
+          organization_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_welcome_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       desacato_incidents: {
         Row: {
           apertura_date: string | null
@@ -4746,6 +4793,7 @@ export type Database = {
       platform_settings: {
         Row: {
           created_at: string
+          daily_welcome_enabled: boolean
           email_enabled: boolean
           email_pause_reason: string | null
           email_paused_at: string | null
@@ -4761,6 +4809,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          daily_welcome_enabled?: boolean
           email_enabled?: boolean
           email_pause_reason?: string | null
           email_paused_at?: string | null
@@ -4776,6 +4825,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          daily_welcome_enabled?: boolean
           email_enabled?: boolean
           email_pause_reason?: string | null
           email_paused_at?: string | null
@@ -5084,6 +5134,7 @@ export type Database = {
           hearing_reminder_days: Json | null
           id: string
           last_estados_import_at: string | null
+          last_welcome_date: string | null
           organization_id: string | null
           reminder_email: string | null
           reparto_directory: Json | null
@@ -5108,6 +5159,7 @@ export type Database = {
           hearing_reminder_days?: Json | null
           id: string
           last_estados_import_at?: string | null
+          last_welcome_date?: string | null
           organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
@@ -5132,6 +5184,7 @@ export type Database = {
           hearing_reminder_days?: Json | null
           id?: string
           last_estados_import_at?: string | null
+          last_welcome_date?: string | null
           organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
@@ -6767,6 +6820,7 @@ export type Database = {
         }
         Returns: string
       }
+      try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
         Args: {
           p_error?: string
