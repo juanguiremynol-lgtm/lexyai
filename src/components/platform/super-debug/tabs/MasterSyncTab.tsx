@@ -1,5 +1,5 @@
 /**
- * Master Sync Tab - Super Admin only, sync all work items for a user
+ * Master Sync Tab - Super Admin only, sync all work items for an organization
  */
 
 import { useState } from 'react';
@@ -27,10 +27,8 @@ import {
   Zap, 
   Loader2, 
   CheckCircle2, 
-  XCircle, 
   AlertTriangle,
   Search,
-  User,
   Building,
   Clock,
   Download,
@@ -39,13 +37,12 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-interface UserInfo {
+interface OrgDebugSubject {
   id: string;
-  email: string;
-  full_name?: string;
-  organization_id: string;
-  organization_name?: string;
+  name: string;
   work_item_count: number;
+  // We still need a user_id for the edge function - use the org creator or first admin
+  principal_user_id: string;
 }
 
 interface MasterSyncResult {
@@ -77,7 +74,7 @@ interface MasterSyncResult {
 
 export function MasterSyncTab() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedUser, setSelectedUser] = useState<UserInfo | null>(null);
+  const [selectedOrg, setSelectedOrg] = useState<OrgDebugSubject | null>(null);
   const [includeCpnu, setIncludeCpnu] = useState(true);
   const [includeSamai, setIncludeSamai] = useState(true);
   const [includePublicaciones, setIncludePublicaciones] = useState(true);
@@ -85,57 +82,68 @@ export function MasterSyncTab() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [syncResult, setSyncResult] = useState<MasterSyncResult | null>(null);
 
-  // Fetch users for selection
-  const { data: users, isLoading: usersLoading } = useQuery({
-    queryKey: ['super-debug-users', searchQuery],
+  // Fetch organizations for selection (not users)
+  const { data: organizations, isLoading: orgsLoading } = useQuery({
+    queryKey: ['super-debug-organizations', searchQuery],
     queryFn: async () => {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, organization_id')
-        .not('organization_id', 'is', null)
-        .limit(20);
+      // Fetch all organizations
+      const { data: orgs, error } = await supabase
+        .from('organizations')
+        .select('id, name, created_by')
+        .order('name');
 
       if (error) throw error;
 
-      const userInfos: UserInfo[] = [];
-      for (const profile of profiles || []) {
-        const { data: org } = await supabase
-          .from('organizations')
-          .select('name')
-          .eq('id', profile.organization_id!)
-          .single();
-
-        // Cast to any to avoid TypeScript deep instantiation issues with Supabase types
+      const orgSubjects: OrgDebugSubject[] = [];
+      for (const org of orgs || []) {
+        // Count work items by organization_id
         const { count } = await (supabase.from('work_items') as any)
           .select('*', { count: 'exact', head: true })
-          .eq('organization_id', profile.organization_id!)
+          .eq('organization_id', org.id)
           .eq('is_archived', false);
 
-        userInfos.push({
-          id: profile.id,
-          email: profile.full_name || profile.id.slice(0, 8),
-          full_name: profile.full_name || undefined,
-          organization_id: profile.organization_id!,
-          organization_name: org?.name,
+        // Get a principal user for the org (creator or first owner/admin)
+        let principalUserId = org.created_by;
+        if (!principalUserId) {
+          const { data: membership } = await supabase
+            .from('organization_memberships')
+            .select('user_id')
+            .eq('organization_id', org.id)
+            .in('role', ['OWNER', 'ADMIN'])
+            .limit(1)
+            .single();
+          principalUserId = membership?.user_id;
+        }
+
+        // Filter by search query if provided
+        if (searchQuery && !org.name.toLowerCase().includes(searchQuery.toLowerCase())) {
+          continue;
+        }
+
+        orgSubjects.push({
+          id: org.id,
+          name: org.name,
           work_item_count: count || 0,
+          principal_user_id: principalUserId || '',
         });
       }
 
-      return userInfos;
+      return orgSubjects;
     },
   });
+
 
   // Master sync mutation
   const syncMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedUser) throw new Error('No user selected');
+      if (!selectedOrg) throw new Error('No organization selected');
 
       const { data, error } = await supabase.functions.invoke<MasterSyncResult>(
         'master-sync',
         {
           body: {
-            target_user_id: selectedUser.id,
-            target_organization_id: selectedUser.organization_id,
+            target_user_id: selectedOrg.principal_user_id,
+            target_organization_id: selectedOrg.id,
             include_cpnu: includeCpnu,
             include_samai: includeSamai,
             include_publicaciones: includePublicaciones,
@@ -177,8 +185,8 @@ export function MasterSyncTab() {
     }
   };
 
-  const estimatedTime = selectedUser 
-    ? Math.ceil((selectedUser.work_item_count * 3 * 5) / 60) // ~5 seconds per API call, 3 APIs per item
+  const estimatedTime = selectedOrg 
+    ? Math.ceil((selectedOrg.work_item_count * 3 * 5) / 60) // ~5 seconds per API call, 3 APIs per item
     : 0;
 
   return (
@@ -193,12 +201,12 @@ export function MasterSyncTab() {
         </AlertDescription>
       </Alert>
 
-      {/* User Selection */}
+      {/* Organization Selection */}
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Search className="h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar usuario por email o nombre..."
+            placeholder="Buscar organización..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="max-w-md"
@@ -206,23 +214,23 @@ export function MasterSyncTab() {
         </div>
 
         <ScrollArea className="h-48 border rounded-lg">
-          {usersLoading ? (
+          {orgsLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : users?.length === 0 ? (
+          ) : organizations?.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              No se encontraron usuarios
+              No se encontraron organizaciones
             </p>
           ) : (
             <div className="p-2 space-y-1">
-              {users?.map((user) => (
+              {organizations?.map((org) => (
                 <div
-                  key={user.id}
-                  onClick={() => setSelectedUser(user)}
+                  key={org.id}
+                  onClick={() => setSelectedOrg(org)}
                   className={cn(
                     "p-3 rounded-lg cursor-pointer transition-colors",
-                    selectedUser?.id === user.id
+                    selectedOrg?.id === org.id
                       ? "bg-primary/10 border border-primary/30"
                       : "bg-muted/50 hover:bg-muted"
                   )}
@@ -231,22 +239,23 @@ export function MasterSyncTab() {
                     <div className="flex items-center gap-3">
                       <div className={cn(
                         "w-4 h-4 rounded-full border-2",
-                        selectedUser?.id === user.id
+                        selectedOrg?.id === org.id
                           ? "border-primary bg-primary"
                           : "border-muted-foreground"
                       )} />
                       <div>
                         <div className="flex items-center gap-2">
-                          <User className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-medium">
-                            {user.full_name || user.email}
-                          </span>
+                          <Building className="h-3 w-3 text-muted-foreground" />
+                          <span className="font-medium">{org.name}</span>
+                          <Badge variant="outline" className="text-xs">Organización</Badge>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Building className="h-3 w-3" />
-                          <span>{user.organization_name || 'Sin organización'}</span>
-                          <span>•</span>
-                          <span>{user.work_item_count} work items</span>
+                          <span className={cn(
+                            "font-medium",
+                            org.work_item_count > 0 ? "text-emerald-600" : "text-muted-foreground"
+                          )}>
+                            {org.work_item_count} work items
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -258,25 +267,25 @@ export function MasterSyncTab() {
         </ScrollArea>
       </div>
 
-      {/* Selected User Info */}
-      {selectedUser && (
+      {/* Selected Organization Info */}
+      {selectedOrg && (
         <div className="p-4 rounded-lg border bg-muted/30 space-y-4">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <Label className="text-muted-foreground">Usuario seleccionado</Label>
-              <p className="font-medium">{selectedUser.full_name || selectedUser.email}</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Organización</Label>
-              <p className="font-medium">{selectedUser.organization_name}</p>
+              <Label className="text-muted-foreground">Organización seleccionada</Label>
+              <p className="font-medium">{selectedOrg.name}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Work Items</Label>
-              <p className="font-medium">{selectedUser.work_item_count}</p>
+              <p className="font-medium text-emerald-600">{selectedOrg.work_item_count}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Tiempo estimado</Label>
               <p className="font-medium">{estimatedTime}-{estimatedTime * 2} minutos</p>
+            </div>
+            <div>
+              <Label className="text-muted-foreground">Alcance</Label>
+              <p className="font-medium text-blue-600">Todos los work items de la org</p>
             </div>
           </div>
 
@@ -323,7 +332,7 @@ export function MasterSyncTab() {
 
           <Button
             onClick={() => setShowConfirmDialog(true)}
-            disabled={syncMutation.isPending || selectedUser.work_item_count === 0}
+            disabled={syncMutation.isPending || selectedOrg.work_item_count === 0}
             className="w-full"
           >
             {syncMutation.isPending ? (
@@ -342,9 +351,9 @@ export function MasterSyncTab() {
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
             <div>
-              <p className="font-medium">Master Sync en Progreso</p>
+            <p className="font-medium">Master Sync en Progreso</p>
               <p className="text-sm text-muted-foreground">
-                Sincronizando {selectedUser?.work_item_count} work items...
+                Sincronizando {selectedOrg?.work_item_count} work items de {selectedOrg?.name}...
               </p>
             </div>
           </div>
@@ -450,7 +459,7 @@ export function MasterSyncTab() {
             variant="outline" 
             onClick={() => {
               setSyncResult(null);
-              setSelectedUser(null);
+              setSelectedOrg(null);
             }}
           >
             <RefreshCw className="h-4 w-4 mr-1" />
@@ -467,8 +476,8 @@ export function MasterSyncTab() {
             <AlertDialogDescription className="space-y-2">
               <p>Está a punto de sincronizar:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li><strong>Usuario:</strong> {selectedUser?.full_name || selectedUser?.email}</li>
-                <li><strong>Work Items:</strong> {selectedUser?.work_item_count}</li>
+                <li><strong>Organización:</strong> {selectedOrg?.name}</li>
+                <li><strong>Work Items:</strong> {selectedOrg?.work_item_count}</li>
                 <li><strong>APIs:</strong> {[
                   includeCpnu && 'CPNU',
                   includeSamai && 'SAMAI',
@@ -477,7 +486,7 @@ export function MasterSyncTab() {
                 ].filter(Boolean).join(', ')}</li>
               </ul>
               <p className="text-sm text-muted-foreground mt-4">
-                Esto ejecutará hasta {selectedUser?.work_item_count ? selectedUser.work_item_count * 3 : 0} llamadas a APIs externas.
+                Esto ejecutará hasta {selectedOrg?.work_item_count ? selectedOrg.work_item_count * 3 : 0} llamadas a APIs externas.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
