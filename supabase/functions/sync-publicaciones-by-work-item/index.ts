@@ -3,6 +3,13 @@
  * 
  * Syncs court publications (estados electrónicos, edictos, PDFs) for registered work items.
  * 
+ * ============================================================
+ * v3 SYNCHRONOUS API — NO JOB QUEUES, NO POLLING
+ * ============================================================
+ * The publicaciones API (v3.0.0-simple) is now fully synchronous:
+ *   GET /snapshot/{radicado} → returns publications directly (may take 10-30s)
+ *   GET /search/{radicado}   → legacy compatibility endpoint
+ * 
  * Features:
  * - Multi-tenant safe: validates user is member of work_item's organization
  * - Only for work items with a valid 23-digit radicado
@@ -52,43 +59,38 @@ interface SyncResult {
   errors: string[];
   // Extended: Include inserted items for scheduled job alert generation
   inserted: InsertedPublication[];
-  scrapingInitiated?: boolean;
-  scrapingJobId?: string;
-  scrapingMessage?: string;
-  // NEW: Scraping status for UI auto-retry
-  status?: 'SUCCESS' | 'SCRAPING_IN_PROGRESS' | 'SCRAPING_TIMEOUT' | 'ERROR' | 'EMPTY';
-  retryAfterSeconds?: number;
+  // Status for UI
+  status?: 'SUCCESS' | 'EMPTY' | 'ERROR';
+  // Provider diagnostics
+  provider_latency_ms?: number;
 }
 
-interface PublicacionRaw {
-  title: string;
-  annotation?: string;
+// v3 API response structure
+interface PublicacionV3 {
+  key: string;
+  tipo: string;
+  asset_id?: string;
+  url?: string;
+  titulo?: string;
+  fecha_publicacion?: string | null;
+  fecha_hora_inicio?: string | null;
+  tipo_evento?: string | null;
   pdf_url?: string;
-  entry_url?: string;        // Portal entry URL
-  pdf_available?: boolean;   // Whether PDF is available
-  published_at?: string;
-  // CRITICAL DEADLINE FIELDS:
-  fecha_fijacion?: string;
-  fecha_desfijacion?: string;
-  despacho?: string;
-  tipo_publicacion?: string;
-  source_id?: string;
-  raw?: Record<string, unknown>;
+  clasificacion?: {
+    categoria?: string;
+    descripcion?: string;
+    prioridad?: number;
+    es_descargable?: boolean;
+  };
 }
 
-interface FetchResult {
+interface FetchResultV3 {
   ok: boolean;
-  publicaciones: PublicacionRaw[];
+  publicaciones: PublicacionV3[];
   error?: string;
-  message?: string;
-  scrapingJobId?: string;
-  scrapingPollUrl?: string;
-  isEmpty?: boolean;
-  latencyMs?: number;
+  latencyMs: number;
   httpStatus?: number;
-  // NEW: Scraping in progress status (not a hard error)
-  status?: 'SUCCESS' | 'SCRAPING_IN_PROGRESS' | 'SCRAPING_TIMEOUT' | 'ERROR';
-  retryAfterSeconds?: number;
+  found?: boolean;
 }
 
 // ============= HELPERS =============
@@ -116,22 +118,6 @@ function isValidRadicado(radicado: string): boolean {
 
 function normalizeRadicado(radicado: string): string {
   return radicado.replace(/\D/g, '');
-}
-
-function generatePublicacionFingerprint(
-  pdfUrl: string | null | undefined,
-  title: string,
-  publishedAt: string | null | undefined
-): string {
-  // Use pdf_url as primary key if available, otherwise title + date
-  const key = pdfUrl || `${title}|${publishedAt || ''}`;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    const char = key.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `pub_${Math.abs(hash).toString(16)}`;
 }
 
 function parseDate(dateStr: string | undefined | null): string | null {
@@ -175,17 +161,6 @@ function calculateNextBusinessDay(dateStr: string | undefined | null): string | 
   }
   
   return d.toISOString().split('T')[0];
-}
-
-// ============= PUBLICACIONES API PROVIDER =============
-// WORKING ENDPOINTS (Polling Strategy):
-// - GET /buscar?radicado={radicado} - Trigger async scraping, returns job_id
-// - GET /resultado/{job_id} - Poll for scraping results
-// NOTE: /snapshot does NOT exist - always returns 404
-
-interface FetchPublicacionesResult extends FetchResult {
-  scrapingInitiated?: boolean;
-  scrapingMessage?: string;
 }
 
 // Spanish month names for date extraction from titles
@@ -240,667 +215,135 @@ function extractDateFromTitle(title: string): string | undefined {
   return undefined;
 }
 
+// ============= v3 SYNCHRONOUS API FETCH =============
+
 /**
- * Reusable polling function for /resultado/{job_id}
+ * Fetch publications using v3 synchronous API
+ * 
+ * Strategy: Call /snapshot/{radicado} directly (synchronous scraping)
+ * This may take 10-30 seconds as it scrapes Rama Judicial live
+ * If /snapshot fails, try /search/{radicado} as fallback
  */
-async function pollForResults(
-  baseUrl: string,
-  jobId: string,
-  headers: Record<string, string>,
+async function fetchPublicaciones(
   radicado: string,
-  startTime: number
-): Promise<FetchPublicacionesResult> {
-  const resultadoUrl = `${baseUrl}/resultado/${jobId}`;
-  const maxAttempts = 24;       // 24 attempts (120 seconds total)
-  const pollIntervalMs = 5000;  // 5 seconds between polls
-  let lastResultData: Record<string, unknown> | null = null;
-
-  console.log(`[sync-pub] pollForResults: Starting polling for ${resultadoUrl}`);
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    // Wait BEFORE polling (including first attempt — give worker time to start)
-    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-
-    try {
-      const resultResponse = await fetch(resultadoUrl, { method: 'GET', headers });
-
-      if (!resultResponse.ok) {
-        console.log(`[sync-pub] pollForResults: Poll ${attempt}/${maxAttempts}: HTTP ${resultResponse.status}`);
-        continue;
-      }
-
-      const data = await resultResponse.json();
-      lastResultData = data;
-      const status = data.status;
-
-      console.log(`[sync-pub] pollForResults: Poll ${attempt}/${maxAttempts}: status=${status}`);
-
-      // Still processing
-      if (['queued', 'processing', 'running', 'pending'].includes(status)) {
-        continue;
-      }
-
-      // Completed successfully
-      if (['done', 'completed', 'success', 'finished'].includes(status)) {
-        console.log(`[sync-pub] pollForResults: Job completed!`);
-        return extractPublicacionesFromResponse(data, startTime);
-      }
-
-      // Failed
-      if (['failed', 'error'].includes(status)) {
-        console.log(`[sync-pub] pollForResults: Job failed: ${data.error || 'unknown'}`);
-        return {
-          ok: false,
-          publicaciones: [],
-          error: `Job failed: ${data.error || 'unknown'}`,
-          latencyMs: Date.now() - startTime,
-        };
-      }
-
-      // Unknown status
-      console.log(`[sync-pub] pollForResults: Poll ${attempt}: unknown status "${status}"`);
-    } catch (pollErr) {
-      console.log(`[sync-pub] pollForResults: Poll ${attempt} error: ${pollErr instanceof Error ? pollErr.message : 'unknown'}`);
-    }
-  }
-
-  // Polling timed out - this is NOT a hard error, scraping may still complete
-  console.log(`[sync-pub] pollForResults: Polling timed out after ${maxAttempts * pollIntervalMs / 1000}s`);
-  console.log(`[sync-pub] pollForResults: Last response:`, JSON.stringify(lastResultData).slice(0, 400));
-  
-  // Determine if still processing or truly timed out
-  const lastStatus = (lastResultData as any)?.status;
-  const isStillProcessing = ['queued', 'processing', 'running', 'pending'].includes(lastStatus);
-
-  return {
-    ok: false,
-    publicaciones: [],
-    error: isStillProcessing 
-      ? `Scraping still in progress (job status: ${lastStatus})`
-      : `Polling timeout (${maxAttempts * pollIntervalMs / 1000}s)`,
-    status: isStillProcessing ? 'SCRAPING_IN_PROGRESS' : 'SCRAPING_TIMEOUT',
-    scrapingJobId: jobId,
-    scrapingPollUrl: resultadoUrl,
-    retryAfterSeconds: 60,
-    latencyMs: Date.now() - startTime,
-  };
-}
-
-/**
- * POLLING-BASED STRATEGY for Publicaciones API
- * 
- * ENHANCED FLOW (handles slow Cloud Run worker):
- * 1. Call /buscar to trigger scraping job (or get deduped/cached response)
- * 2. Handle "deduped" responses by trying multiple fallback endpoints
- * 3. Poll /resultado/{job_id} every 5s for up to 120s (24 attempts)
- * 4. Wait BEFORE first poll to give worker time to start
- * 5. If polling times out, try fallback: GET /publicaciones?radicado=XXX
- * 6. Final fallback: Try /snapshot one last time
- */
-/**
- * Route probe attempt result
- */
-interface RouteProbeAttempt {
-  path: string;
-  httpStatus: number;
-  responseKind: 'JSON' | 'HTML_404' | 'EMPTY' | 'ERROR';
-  latencyMs: number;
-  errorCode?: string;
-}
-
-/**
- * ROUTE PROBING STRATEGY for Publicaciones API
- * 
- * When the primary route fails (404 with generic "Not Found"), try alternate routes.
- * This distinguishes between:
- * - PROVIDER_ROUTE_NOT_FOUND: Wrong endpoint (HTML 404 / {"detail":"Not Found"})
- * - RECORD_NOT_CACHED: Valid endpoint but record needs scraping (domain-specific JSON)
- */
-const PUBLICACIONES_ROUTE_CANDIDATES = [
-  '/buscar?radicado={id}',                    // Primary: async job creation
-  '/snapshot?radicado={id}',                  // Cached snapshot if available
-  '/publicaciones/{id}',                      // Path-based direct lookup
-  '/publicaciones?radicado={id}',             // Query-param direct lookup
-  '/publicaciones?numero_radicacion={id}',    // Alternative param name
-  '/buscar?numero_radicacion={id}',           // Alternative param name for buscar
-];
-
-/**
- * Detect if response body is a generic "route not found" (HTML 404)
- */
-function isHtmlRouteNotFound(body: string): boolean {
-  const lower = body.toLowerCase();
-  
-  // HTML 404 pages (Express, Nginx, Apache, etc.) = route doesn't exist
-  if (lower.includes('cannot get') ||         // Express
-      lower.includes('<!doctype html') ||     // HTML response
-      lower.includes('<html') ||               // HTML response
-      lower.includes('not found</pre>') ||    // Express error page
-      lower.includes('404 not found') ||      // Generic HTML
-      lower.includes('<title>404')) return true;
-  
-  return false;
-}
-
-/**
- * CRITICAL: Detect if response is a FastAPI/Starlette generic "route not found" 404
- * 
- * FastAPI returns {"detail":"Not Found"} when the ROUTE doesn't exist.
- * This is different from application-level "record not found" responses.
- * 
- * ⚠️ Previously this was misclassified as RECORD_NOT_FOUND, causing infinite retries!
- */
-function isFastApiRouteNotFound(body: string): boolean {
-  try {
-    const json = JSON.parse(body);
-    
-    // FastAPI default 404: exactly {"detail":"Not Found"}
-    if (json.detail === "Not Found") return true;
-    
-    // FastAPI method not allowed
-    if (json.detail === "Method Not Allowed") return true;
-    
-    // Generic framework-style error with just "message" or "error" = "Not Found"
-    if (json.message === "Not Found" && Object.keys(json).length === 1) return true;
-    if (json.error === "Not Found" && Object.keys(json).length === 1) return true;
-    
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect if response indicates a domain-specific "record not found" or "scraping needed"
- * This means the ROUTE EXISTS but the record isn't available yet.
- */
-function isDomainRecordNotFound(body: string): boolean {
-  try {
-    const json = JSON.parse(body);
-    
-    // Domain-specific indicators that route exists but record doesn't
-    if (json.found === false) return true;
-    if (json.success === false && json.error) return true;
-    if (json.expediente_encontrado === false) return true;
-    if (json.status === "not_cached") return true;
-    if (json.status === "pending") return true;
-    if (json.job_id || json.jobId) return true; // Scraping job created
-    
-    // Check for scraping-related keywords in error messages
-    const errorMsg = String(json.error || json.message || json.detail || "").toLowerCase();
-    if (errorMsg.includes("not cached") || 
-        errorMsg.includes("scraping") ||
-        errorMsg.includes("processing") ||
-        errorMsg.includes("no snapshot") ||
-        errorMsg.includes("radicado not found")) { // Domain-specific "not found"
-      return true;
-    }
-    
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Detect if response indicates scraping is needed/in progress
- */
-function isScrapingNeededResponse(body: string): boolean {
-  const lower = body.toLowerCase();
-  return lower.includes('scraping') || 
-         lower.includes('queued') || 
-         lower.includes('processing') ||
-         lower.includes('not cached') ||
-         lower.includes('job_id') ||
-         lower.includes('jobid');
-}
-
-/**
- * Probe a single route and classify the response
- */
-async function probeRoute(
   baseUrl: string,
-  pathTemplate: string,
-  radicado: string,
-  headers: Record<string, string>,
-  startTime: number
-): Promise<{ attempt: RouteProbeAttempt; data?: any; isValidRoute: boolean; needsPolling?: boolean; jobId?: string }> {
-  const path = pathTemplate.replace('{id}', radicado);
-  const url = `${baseUrl}${path}`;
-  const probeStart = Date.now();
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, { method: 'GET', headers, signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    const httpStatus = response.status;
-    const bodyText = await response.text();
-    const latencyMs = Date.now() - probeStart;
-
-    // Classify response
-    let responseKind: RouteProbeAttempt['responseKind'] = 'JSON';
-    try {
-      JSON.parse(bodyText);
-    } catch {
-      responseKind = bodyText.trim() === '' ? 'EMPTY' : 'HTML_404';
-    }
-
-    const attempt: RouteProbeAttempt = { path, httpStatus, responseKind, latencyMs };
-
-    // 200 OK = valid route with data
-    if (response.ok) {
-      try {
-        const jsonData = JSON.parse(bodyText);
-        
-        // Check if this is a job creation response (needs polling)
-        const jobId = jsonData.job_id || jsonData.jobId;
-        if (jobId) {
-          // If job is already done, extract results
-          if (jsonData.status === 'done' || jsonData.status === 'completed') {
-            return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
-          }
-          return { attempt, data: jsonData, isValidRoute: true, needsPolling: true, jobId };
-        }
-
-        // Direct data response
-        const results = jsonData.results || jsonData.publicaciones || jsonData.estados || jsonData.data;
-        if (results && Array.isArray(results)) {
-          return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
-        }
-
-        // Response is the array itself
-        if (Array.isArray(jsonData)) {
-          return { attempt, data: { results: jsonData }, isValidRoute: true, needsPolling: false };
-        }
-
-        // Valid route but empty result
-        return { attempt, data: jsonData, isValidRoute: true, needsPolling: false };
-      } catch {
-        attempt.errorCode = 'INVALID_JSON';
-        return { attempt, isValidRoute: false };
-      }
-    }
-
-    // 404 - classify it with STRICT logic to avoid false positives
-    if (httpStatus === 404) {
-      // HTML 404 = route doesn't exist (Express, Nginx, etc.)
-      if (isHtmlRouteNotFound(bodyText)) {
-        attempt.errorCode = 'ROUTE_NOT_FOUND';
-        console.log(`[sync-pub] Route probe: HTML 404 detected (route missing)`);
-        return { attempt, isValidRoute: false };
-      }
-      
-      // CRITICAL: FastAPI generic 404 {"detail":"Not Found"} = ROUTE doesn't exist
-      // This is NOT a record-not-found - it means the endpoint path is wrong!
-      if (isFastApiRouteNotFound(bodyText)) {
-        attempt.errorCode = 'ROUTE_NOT_FOUND';
-        console.log(`[sync-pub] Route probe: FastAPI 404 detected (route missing, not record)`);
-        return { attempt, isValidRoute: false };
-      }
-      
-      // Domain-specific "record not found" - route EXISTS, record doesn't
-      if (isDomainRecordNotFound(bodyText)) {
-        // Check if scraping is needed/in progress
-        if (isScrapingNeededResponse(bodyText)) {
-          attempt.errorCode = 'SCRAPING_NEEDED';
-          console.log(`[sync-pub] Route probe: Domain 404 with scraping indicators`);
-          return { attempt, isValidRoute: true, needsPolling: true };
-        }
-        // Valid route, record simply doesn't exist - can trigger scraping
-        attempt.errorCode = 'RECORD_NOT_FOUND';
-        console.log(`[sync-pub] Route probe: Domain 404 (record not found, route valid)`);
-        return { attempt, isValidRoute: true, needsPolling: false };
-      }
-      
-      // Unknown JSON 404 format - default to ROUTE_NOT_FOUND for safety
-      // This prevents infinite retry loops on misconfigured endpoints
-      attempt.errorCode = 'ROUTE_NOT_FOUND';
-      console.log(`[sync-pub] Route probe: Unknown 404 format, defaulting to route error. Body: ${bodyText.slice(0, 200)}`);
-      return { attempt, isValidRoute: false };
-    }
-
-    // Other errors
-    attempt.errorCode = `HTTP_${httpStatus}`;
-    return { attempt, isValidRoute: false };
-
-  } catch (err) {
-    const latencyMs = Date.now() - probeStart;
-    const attempt: RouteProbeAttempt = {
-      path,
-      httpStatus: 0,
-      responseKind: 'ERROR',
-      latencyMs,
-      errorCode: err instanceof Error && err.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK_ERROR',
-    };
-    return { attempt, isValidRoute: false };
-  }
-}
-
-/**
- * POLLING-BASED STRATEGY with ROUTE PROBING for Publicaciones API
- * 
- * ENHANCED FLOW:
- * 1. Probe route candidates until we find a valid one
- * 2. If valid route returns job_id, poll /resultado/{job_id}
- * 3. If all routes return generic 404, return PROVIDER_ROUTE_NOT_FOUND
- * 4. If valid route indicates "not cached", return SCRAPING_IN_PROGRESS
- */
-async function fetchPublicaciones(radicado: string): Promise<FetchPublicacionesResult & { provider_attempts?: RouteProbeAttempt[] }> {
+  apiKey: string
+): Promise<FetchResultV3> {
   const startTime = Date.now();
-  const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
-  const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-
-  console.log(`[sync-pub] === STARTING FETCH WITH ROUTE PROBING ===`);
-  console.log(`[sync-pub] Radicado: ${radicado}`);
-  console.log(`[sync-pub] Base URL: ${baseUrl ? 'configured' : 'MISSING'}`);
-  console.log(`[sync-pub] API Key: present=${!!apiKey}, length=${apiKey?.length || 0}`);
-
-  if (!baseUrl) {
-    return {
-      ok: false,
-      publicaciones: [],
-      error: 'PUBLICACIONES_BASE_URL not configured',
-      status: 'ERROR',
-      latencyMs: Date.now() - startTime,
-    };
-  }
-
-  if (!apiKey) {
-    return {
-      ok: false,
-      publicaciones: [],
-      error: 'API key not configured',
-      status: 'ERROR',
-      latencyMs: Date.now() - startTime,
-    };
-  }
-
   const headers: Record<string, string> = {
+    'x-api-key': apiKey,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    'x-api-key': apiKey,
   };
 
+  // Clean base URL
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
-  const attempts: RouteProbeAttempt[] = [];
 
-  // ========= ROUTE PROBING: Try each candidate until we find a valid route =========
-  console.log(`[sync-pub] Starting route probing with ${PUBLICACIONES_ROUTE_CANDIDATES.length} candidates...`);
-
-  for (let i = 0; i < PUBLICACIONES_ROUTE_CANDIDATES.length; i++) {
-    const pathTemplate = PUBLICACIONES_ROUTE_CANDIDATES[i];
-    console.log(`[sync-pub] Probe ${i + 1}/${PUBLICACIONES_ROUTE_CANDIDATES.length}: ${pathTemplate.replace('{id}', radicado.slice(0, 8) + '...')}`);
-
-    const probeResult = await probeRoute(cleanBaseUrl, pathTemplate, radicado, headers, startTime);
-    attempts.push(probeResult.attempt);
-
-    console.log(`[sync-pub] Probe result: HTTP ${probeResult.attempt.httpStatus}, valid=${probeResult.isValidRoute}, errorCode=${probeResult.attempt.errorCode || 'none'}`);
-
-    if (!probeResult.isValidRoute) {
-      // Try next route
-      if (probeResult.attempt.errorCode === 'ROUTE_NOT_FOUND') {
-        console.log(`[sync-pub] Route ${pathTemplate} not found, trying next...`);
-        continue;
-      }
-      // Other error (network, timeout) - might want to retry same route
-      continue;
-    }
-
-    // ========= VALID ROUTE FOUND =========
-    console.log(`[sync-pub] ✓ Valid route found: ${pathTemplate}`);
-
-    // Case A: Job ID returned - need to poll
-    if (probeResult.needsPolling && probeResult.jobId) {
-      const jobId = probeResult.jobId;
-      console.log(`[sync-pub] Job ID received: ${jobId}, starting polling...`);
-
-      // Handle "cached" job_id (can't poll)
-      if (jobId === 'cached') {
-        console.log(`[sync-pub] Job ID is 'cached', checking if inline result exists...`);
-        const data = probeResult.data;
-        if (data?.result || data?.results || data?.publicaciones) {
-          return { ...extractPublicacionesFromResponse(data, startTime), provider_attempts: attempts };
-        }
-        // No inline result with cached job - this means it was processed before but no data
-        // Try remaining fallback routes
-        continue;
-      }
-
-      // Poll for results
-      const pollResult = await pollForResults(cleanBaseUrl, jobId, headers, radicado, startTime);
-      return { ...pollResult, provider_attempts: attempts };
-    }
-
-    // Case B: Direct data returned
-    if (probeResult.data) {
-      const results = probeResult.data.results || probeResult.data.publicaciones || 
-                      probeResult.data.estados || probeResult.data.data || probeResult.data;
-      
-      if (Array.isArray(results) && results.length > 0) {
-        console.log(`[sync-pub] Direct data received: ${results.length} publications`);
-        return { ...extractPublicacionesFromResponse(probeResult.data, startTime), provider_attempts: attempts };
-      }
-    }
-
-    // Case C: Valid route but record not found (needs scraping)
-    if (probeResult.attempt.errorCode === 'RECORD_NOT_FOUND') {
-      console.log(`[sync-pub] ✓ Valid route, but record not found. Returning SCRAPING_IN_PROGRESS.`);
-      return {
-        ok: true, // Not a hard error - valid route, just needs scraping
-        publicaciones: [],
-        status: 'SCRAPING_IN_PROGRESS',
-        scrapingMessage: 'Record not yet cached. Provider may need to scrape this radicado.',
-        retryAfterSeconds: 60,
-        latencyMs: Date.now() - startTime,
-        provider_attempts: attempts,
-      };
-    }
-
-    // Case D: Valid route with scraping needed flag
-    if (probeResult.attempt.errorCode === 'SCRAPING_NEEDED') {
-      console.log(`[sync-pub] ✓ Valid route, scraping in progress.`);
-      return {
-        ok: true,
-        publicaciones: [],
-        status: 'SCRAPING_IN_PROGRESS',
-        scrapingMessage: 'Scraping job detected. Retry later.',
-        retryAfterSeconds: 60,
-        latencyMs: Date.now() - startTime,
-        provider_attempts: attempts,
-      };
-    }
-  } // ← Close the for-loop here
-
-  // ========= ALL ROUTES FAILED =========
-  console.log(`[sync-pub] All ${attempts.length} route candidates failed.`);
-  
-  // Check if all failures were generic 404s (route not found)
-  const allRoutesNotFound = attempts.every(a => a.errorCode === 'ROUTE_NOT_FOUND' || a.httpStatus === 404);
-  
-  if (allRoutesNotFound) {
-    console.log(`[sync-pub] ❌ PROVIDER_ROUTE_NOT_FOUND - All routes returned generic 404.`);
-    return {
-      ok: false,
-      publicaciones: [],
-      error: 'PROVIDER_ROUTE_NOT_FOUND: All route candidates returned 404. Check PUBLICACIONES_BASE_URL configuration.',
-      status: 'ERROR',
-      httpStatus: 502, // Bad Gateway - upstream configuration issue
-      latencyMs: Date.now() - startTime,
-      provider_attempts: attempts,
-    };
-  }
-
-  // Mixed failures
-  console.log(`[sync-pub] ❌ Mixed failures across routes.`);
-  return {
-    ok: false,
-    publicaciones: [],
-    error: `Failed to find valid route. Attempts: ${attempts.map(a => `${a.path}:${a.httpStatus}`).join(', ')}`,
-    status: 'ERROR',
-    latencyMs: Date.now() - startTime,
-    provider_attempts: attempts,
-  };
-}
-
-/**
- * FALLBACK: Try direct /publicaciones?radicado=XXX endpoint
- * Some Cloud Run services support a synchronous query endpoint
- */
-async function fetchPublicacionesFallback(
-  radicado: string,
-  apiKey: string,
-  baseUrl: string
-): Promise<PublicacionRaw[] | null> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'x-api-key': apiKey,
-  };
+  // Primary: GET /snapshot/{radicado} (synchronous scraping)
+  const snapshotUrl = `${cleanBaseUrl}/snapshot/${radicado}`;
+  console.log(`[sync-pub] Calling ${snapshotUrl}`);
 
   try {
-    // Try GET /publicaciones?radicado=XXX (synchronous query, no job needed)
-    const directUrl = `${baseUrl}/publicaciones?radicado=${radicado}`;
-    console.log(`[sync-publicaciones] Fallback: Calling ${directUrl}`);
-
-    const response = await fetch(directUrl, {
+    const response = await fetch(snapshotUrl, {
       method: 'GET',
       headers,
+      // Note: Deno's fetch doesn't have a timeout option, but Cloud Run has its own timeout
     });
 
-    console.log(`[sync-publicaciones] Fallback response: HTTP ${response.status}`);
+    const latencyMs = Date.now() - startTime;
+    console.log(`[sync-pub] /snapshot/${radicado} → HTTP ${response.status} (${latencyMs}ms)`);
 
     if (!response.ok) {
-      console.log(`[sync-publicaciones] Fallback endpoint returned ${response.status}`);
-      return null;
+      const errorText = await response.text();
+      console.log(`[sync-pub] Error response: ${errorText.slice(0, 500)}`);
+      
+      // Try legacy /search/{radicado} as fallback
+      console.log(`[sync-pub] Trying fallback: /search/${radicado}`);
+      const searchUrl = `${cleanBaseUrl}/search/${radicado}`;
+      const searchResponse = await fetch(searchUrl, { method: 'GET', headers });
+      const searchLatency = Date.now() - startTime;
+      
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        console.log(`[sync-pub] /search fallback returned data`);
+        return extractPublicacionesFromResponse(searchData, searchLatency);
+      }
+      
+      return { 
+        ok: false, 
+        publicaciones: [], 
+        error: `HTTP ${response.status}: ${errorText.slice(0, 200)}`, 
+        latencyMs,
+        httpStatus: response.status,
+      };
     }
 
     const data = await response.json();
-    console.log(`[sync-publicaciones] Fallback response body:`, JSON.stringify(data).substring(0, 500));
-
-    // Check if this endpoint returns results directly
-    const results = data.results || data.publicaciones || data.estados || data.data;
-    if (results && Array.isArray(results) && results.length > 0) {
-      console.log(`[sync-publicaciones] Fallback found ${results.length} publications!`);
-      return mapRawPublicaciones(results);
-    }
-
-    // Maybe the response IS the array
-    if (Array.isArray(data) && data.length > 0) {
-      console.log(`[sync-publicaciones] Fallback response is array with ${data.length} items`);
-      return mapRawPublicaciones(data);
-    }
-
-    console.log(`[sync-publicaciones] Fallback: No publications in response`);
-    return null;
-
+    console.log(`[sync-pub] Response: found=${data.found}, totalResultados=${data.totalResultados}`);
+    
+    return extractPublicacionesFromResponse(data, latencyMs);
+    
   } catch (err) {
-    console.error('[sync-publicaciones] Fallback error:', err);
-    return null;
+    const latencyMs = Date.now() - startTime;
+    console.log(`[sync-pub] Fetch error: ${err}`);
+    return { 
+      ok: false, 
+      publicaciones: [], 
+      error: `Fetch error: ${err instanceof Error ? err.message : String(err)}`, 
+      latencyMs,
+    };
   }
 }
 
 /**
- * Map raw API response to PublicacionRaw format
+ * Extract publications from v3 API response
  */
-function mapRawPublicaciones(results: Record<string, unknown>[]): PublicacionRaw[] {
-  return results.map((pub: Record<string, unknown>) => {
-    // Extract date from title if not provided by API
-    let publishedAt = pub.published_at || pub.fecha_publicacion || pub.fecha;
-    let extractedDateFromTitle: string | undefined;
-    
-    if (pub.title) {
-      extractedDateFromTitle = extractDateFromTitle(String(pub.title));
-    }
-    
-    if (!publishedAt && extractedDateFromTitle) {
-      publishedAt = extractedDateFromTitle;
-    }
-
-    // Try API fields first, fall back to extracted date from title
-    const apiFechaFijacion = extractDateString(pub, ['fecha_fijacion', 'fijacion', 'fecha_inicio', 'start_date']);
-    const apiFechaDesfijacion = extractDateString(pub, ['fecha_desfijacion', 'desfijacion', 'fecha_fin', 'end_date', 'fecha_retiro']);
-    
-    // CRITICAL FIX: If API doesn't provide fecha_fijacion but we extracted a date from title,
-    // use that as fecha_fijacion (the publication date IS when it was posted)
-    const finalFechaFijacion = apiFechaFijacion || extractedDateFromTitle;
-
-    return {
-      title: String(pub.title || pub.titulo || 'Sin título'),
-      annotation: pub.annotation || pub.anotacion || pub.detalle
-        ? String(pub.annotation || pub.anotacion || pub.detalle)
-        : undefined,
-      pdf_url: pub.pdf_url ? String(pub.pdf_url) : undefined,
-      entry_url: pub.entry_url ? String(pub.entry_url) : undefined,
-      pdf_available: Boolean(pub.pdf_available ?? true),
-      published_at: publishedAt ? String(publishedAt) : undefined,
-      fecha_fijacion: finalFechaFijacion,
-      fecha_desfijacion: apiFechaDesfijacion,
-      despacho: extractString(pub, ['despacho', 'juzgado', 'court', 'oficina', 'dependencia']),
-      tipo_publicacion: extractString(pub, ['tipo_publicacion', 'tipo', 'type', 'categoria']),
-      source_id: pub.id ? String(pub.id) : undefined,
-      raw: pub as Record<string, unknown>,
+function extractPublicacionesFromResponse(
+  data: any,
+  latencyMs: number
+): FetchResultV3 {
+  // v3 API returns: { found: boolean, publicaciones: [], totalResultados: number }
+  if (!data.found || !data.publicaciones || data.publicaciones.length === 0) {
+    console.log(`[sync-pub] No publications found for this radicado`);
+    return { 
+      ok: true, 
+      publicaciones: [], 
+      latencyMs,
+      found: false,
     };
-  });
-}
-
-/**
- * Extract publications from polling response data
- */
-function extractPublicacionesFromResponse(data: Record<string, unknown>, startTime: number): FetchPublicacionesResult {
-  console.log(`[sync-publicaciones] Raw response:`, JSON.stringify(data).substring(0, 500));
-
-  const result = (data.result || data) as Record<string, unknown>;
-  const publicaciones = (result.results || result.publicaciones || result.estados || []) as Record<string, unknown>[];
-
-  if (publicaciones.length === 0) {
-    console.log('[sync-publicaciones] No publications found in completed job');
-    return {
-      ok: false,
-      publicaciones: [],
-      error: 'No publications found',
-      isEmpty: true,
-      latencyMs: Date.now() - startTime,
-      httpStatus: 200,
-    };
+    // NOTE: ok=true because the API responded correctly, there are just no publications
   }
 
-  console.log(`[sync-publicaciones] Found ${publicaciones.length} publications`);
-
-  // Log sample for debugging
-  if (publicaciones.length > 0) {
-    const sample = publicaciones[0];
-    console.log('[sync-publicaciones] Sample publication:', JSON.stringify(sample, null, 2));
-  }
-
-  return {
-    ok: true,
-    publicaciones: mapRawPublicaciones(publicaciones),
-    latencyMs: Date.now() - startTime,
+  console.log(`[sync-pub] Found ${data.publicaciones.length} publications`);
+  return { 
+    ok: true, 
+    publicaciones: data.publicaciones as PublicacionV3[], 
+    latencyMs,
+    found: true,
     httpStatus: 200,
   };
 }
 
-// Helper to extract date strings from multiple possible field names
-function extractDateString(obj: Record<string, unknown>, fieldNames: string[]): string | undefined {
-  for (const field of fieldNames) {
-    if (obj[field]) {
-      return String(obj[field]);
-    }
+/**
+ * Generate unique fingerprint for publication deduplication
+ * Uses asset_id (guaranteed unique per publication) or falls back to key/title
+ */
+function generatePublicacionFingerprint(
+  workItemId: string,
+  assetId: string | undefined,
+  key: string | undefined,
+  title: string
+): string {
+  // Use asset_id as primary (guaranteed unique)
+  const uniqueId = assetId || key || title;
+  const data = `${workItemId}|${uniqueId}`;
+  let hash = 0;
+  for (let i = 0; i < data.length; i++) {
+    const char = data.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
   }
-  return undefined;
-}
-
-// Helper to extract string from multiple possible field names
-function extractString(obj: Record<string, unknown>, fieldNames: string[]): string | undefined {
-  for (const field of fieldNames) {
-    if (obj[field]) {
-      return String(obj[field]);
-    }
-  }
-  return undefined;
+  return `pub_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
 }
 
 // ============= MAIN HANDLER =============
@@ -948,7 +391,7 @@ Deno.serve(async (req) => {
     
     // For scheduled jobs with service role, skip user auth and membership check
     if (isServiceRole && _scheduled) {
-      console.log(`[sync-publicaciones] Scheduled job invocation for work_item_id=${work_item_id}`);
+      console.log(`[sync-pub] Scheduled job invocation for work_item_id=${work_item_id}`);
     } else {
       // Regular user auth check
       const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
@@ -959,7 +402,7 @@ Deno.serve(async (req) => {
       }
 
       userId = claims.claims.sub as string;
-      console.log(`[sync-publicaciones] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
+      console.log(`[sync-pub] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
     }
 
     // Fetch work item
@@ -970,7 +413,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (workItemError || !workItem) {
-      console.log(`[sync-publicaciones] Work item not found: ${work_item_id}`);
+      console.log(`[sync-pub] Work item not found: ${work_item_id}`);
       return errorResponse('WORK_ITEM_NOT_FOUND', 'Work item not found or access denied', 404);
     }
 
@@ -985,7 +428,7 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (membershipError || !membership) {
-        console.log(`[sync-publicaciones] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
+        console.log(`[sync-pub] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
         return errorResponse(
           'ACCESS_DENIED', 
           'You do not have permission to sync this work item. You must be a member of the organization.', 
@@ -993,7 +436,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log(`[sync-publicaciones] Access verified: user ${userId} has role ${membership.role}`);
+      console.log(`[sync-pub] Access verified: user ${userId} has role ${membership.role}`);
     }
 
     // ============= VALIDATE RADICADO =============
@@ -1007,6 +450,18 @@ Deno.serve(async (req) => {
 
     const normalizedRadicado = normalizeRadicado(workItem.radicado);
 
+    // ============= CHECK API CONFIGURATION =============
+    const baseUrl = Deno.env.get('PUBLICACIONES_BASE_URL');
+    const apiKey = Deno.env.get('PUBLICACIONES_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
+
+    if (!baseUrl) {
+      return errorResponse('PROVIDER_NOT_CONFIGURED', 'PUBLICACIONES_BASE_URL not configured', 500);
+    }
+
+    if (!apiKey) {
+      return errorResponse('PROVIDER_NOT_CONFIGURED', 'API key not configured', 500);
+    }
+
     const result: SyncResult = {
       ok: false,
       work_item_id,
@@ -1016,94 +471,48 @@ Deno.serve(async (req) => {
       newest_publication_date: null,
       warnings: [],
       errors: [],
-      inserted: [], // Track inserted items for scheduled job alert generation
+      inserted: [],
     };
 
-    // ============= FETCH PUBLICACIONES =============
-    const fetchResult = await fetchPublicaciones(normalizedRadicado);
+    // ============= FETCH PUBLICACIONES (v3 SYNCHRONOUS API) =============
+    const fetchResult = await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey);
+    result.provider_latency_ms = fetchResult.latencyMs;
 
-    // ============= CLASSIFY RESULT AND RETURN APPROPRIATE RESPONSE =============
-    
-    // Case 1: SCRAPING_IN_PROGRESS (valid route, but record not cached yet)
-    // This is ok:true because the route works, we just need to wait for data
-    if (fetchResult.status === 'SCRAPING_IN_PROGRESS') {
-      console.log(`[sync-publicaciones] Scraping in progress: ${fetchResult.scrapingMessage || 'awaiting data'}`);
-      return jsonResponse({
-        ...result,
-        ok: true, // ← NOT an error, this is expected behavior
-        status: 'SCRAPING_IN_PROGRESS',
-        scrapingInitiated: true,
-        scrapingJobId: fetchResult.scrapingJobId,
-        scrapingMessage: fetchResult.scrapingMessage || 'Provider is processing request',
-        retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
-        provider_attempts: (fetchResult as any).provider_attempts || [],
-        warnings: ['Scraping en progreso, reintente en 60 segundos'],
-        errors: [], // No errors, this is expected
-      }, 202); // 202 Accepted = operation started but not complete
-    }
-    
-    // Case 2: SCRAPING_TIMEOUT (polling timed out but job may still complete)
-    if (fetchResult.status === 'SCRAPING_TIMEOUT') {
-      console.log(`[sync-publicaciones] Scraping timeout: ${fetchResult.error}`);
-      return jsonResponse({
-        ...result,
-        ok: false, // Timeout is a soft failure
-        status: 'SCRAPING_TIMEOUT',
-        scrapingInitiated: true,
-        scrapingJobId: fetchResult.scrapingJobId,
-        scrapingMessage: fetchResult.error || 'Polling timed out, job may still complete',
-        retryAfterSeconds: fetchResult.retryAfterSeconds || 60,
-        provider_attempts: (fetchResult as any).provider_attempts || [],
-        warnings: [],
-        errors: [fetchResult.error || 'Polling timed out after 120s, retry recommended'],
-      }, 202);
-    }
-
-    // Case 3: Hard error (provider misconfiguration, network failure, etc.)
-    if (!fetchResult.ok && fetchResult.status === 'ERROR') {
-      console.error(`[sync-publicaciones] Hard error: ${fetchResult.error}`);
-      const httpStatus = fetchResult.httpStatus || 500;
-      
-      // Special handling for PROVIDER_ROUTE_NOT_FOUND
-      if (fetchResult.error?.includes('PROVIDER_ROUTE_NOT_FOUND')) {
-        return jsonResponse({
-          ...result,
-          ok: false,
-          status: 'PROVIDER_ROUTE_NOT_FOUND',
-          errors: [fetchResult.error],
-          provider_attempts: (fetchResult as any).provider_attempts || [],
-          message: 'All provider route candidates returned 404. Check PUBLICACIONES_BASE_URL configuration.',
-        }, 502); // 502 Bad Gateway = upstream configuration issue
-      }
-      
+    // Handle error response
+    if (!fetchResult.ok) {
+      console.error(`[sync-pub] Fetch error: ${fetchResult.error}`);
       result.errors.push(fetchResult.error || 'Failed to fetch publications');
       result.status = 'ERROR';
-      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] }, httpStatus);
+      return jsonResponse(result, fetchResult.httpStatus || 500);
     }
 
-    // Case 4: Empty result (valid response but no publications for this radicado)
-    if (!fetchResult.ok && fetchResult.isEmpty) {
-      result.ok = true;
-      result.status = 'EMPTY';
-      result.warnings.push('No publications found for this radicado');
-      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] });
-    }
-
+    // Handle empty result (valid response but no publications)
     if (fetchResult.publicaciones.length === 0) {
       result.ok = true;
       result.status = 'EMPTY';
       result.warnings.push('No publications found for this radicado');
-      return jsonResponse({ ...result, provider_attempts: (fetchResult as any).provider_attempts || [] });
+      console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
+      return jsonResponse(result);
     }
 
-    console.log(`[sync-publicaciones] Processing ${fetchResult.publicaciones.length} publications`);
+    console.log(`[sync-pub] Processing ${fetchResult.publicaciones.length} publications`);
 
     // ============= INGEST PUBLICATIONS WITH DEDUPLICATION =============
     let newestDate: string | null = null;
 
     for (const pub of fetchResult.publicaciones) {
-      const publishedAt = parseDate(pub.published_at);
-      const fingerprint = generatePublicacionFingerprint(pub.pdf_url, pub.title, pub.published_at);
+      // Extract date from title if fecha_publicacion is null
+      const fechaFromTitle = extractDateFromTitle(pub.titulo || '');
+      const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
+      const parsedFecha = parseDate(fechaPublicacion);
+
+      // Generate unique fingerprint using asset_id (guaranteed unique per publication)
+      const fingerprint = generatePublicacionFingerprint(
+        work_item_id,
+        pub.asset_id,
+        pub.key,
+        pub.titulo || 'untitled'
+      );
 
       // Check for existing record using fingerprint
       const { data: existing } = await supabase
@@ -1114,45 +523,36 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (existing) {
+        console.log(`[sync-pub] Skipping duplicate: ${pub.titulo}`);
         result.skipped_count++;
         continue;
       }
 
-      // Parse deadline dates
-      const fechaFijacion = parseDate(pub.fecha_fijacion);
-      const fechaDesfijacion = parseDate(pub.fecha_desfijacion);
-
       // LOG: What we're about to insert
-      console.log('[sync-publicaciones] Inserting record:', {
-        title: pub.title?.slice(0, 50),
-        published_at: pub.published_at,
-        fecha_fijacion_raw: pub.fecha_fijacion,
-        fecha_fijacion_parsed: fechaFijacion,
-        fecha_desfijacion_raw: pub.fecha_desfijacion,
-        fecha_desfijacion_parsed: fechaDesfijacion,
-        despacho: pub.despacho,
-        tipo_publicacion: pub.tipo_publicacion,
+      console.log('[sync-pub] Inserting record:', {
+        title: pub.titulo?.slice(0, 50),
+        asset_id: pub.asset_id,
+        fecha_publicacion: fechaPublicacion,
+        pdf_url: pub.pdf_url?.slice(0, 80),
       });
 
-      // Insert new publication - ALWAYS use parent work_item's organization_id for integrity
-      // CRITICAL: Now includes fecha_fijacion, fecha_desfijacion, despacho, tipo_publicacion
+      // Insert new publication
       const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
           work_item_id,
-          organization_id: workItem.organization_id, // CRITICAL: Always from parent work_item
-          source: 'publicaciones-procesales',
-          title: pub.title,
-          annotation: pub.annotation || null,
+          organization_id: workItem.organization_id,
+          source: 'publicaciones',
+          title: pub.titulo || pub.key || 'Sin título',
+          annotation: pub.clasificacion?.descripcion || null,
           pdf_url: pub.pdf_url || null,
-          published_at: publishedAt ? new Date(publishedAt + 'T12:00:00Z').toISOString() : null,
-          // CRITICAL DEADLINE FIELDS - now properly stored in DB columns
-          fecha_fijacion: fechaFijacion ? new Date(fechaFijacion + 'T12:00:00Z').toISOString() : null,
-          fecha_desfijacion: fechaDesfijacion ? new Date(fechaDesfijacion + 'T12:00:00Z').toISOString() : null,
-          despacho: pub.despacho || null,
-          tipo_publicacion: pub.tipo_publicacion || null,
+          entry_url: pub.url || null,
+          pdf_available: pub.clasificacion?.es_descargable === true || !!pub.pdf_url,
+          published_at: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
+          fecha_fijacion: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
+          tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
-          raw_data: pub.raw || null,
+          raw_data: pub,
         })
         .select('id')
         .single();
@@ -1162,35 +562,33 @@ Deno.serve(async (req) => {
         if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
           result.skipped_count++;
         } else {
-          console.error(`[sync-publicaciones] Insert error:`, insertError);
-          result.errors.push(`Failed to insert publication: ${insertError.message}`);
+          console.error(`[sync-pub] INSERT error: ${JSON.stringify(insertError)}`);
+          result.errors.push(`Insert failed for ${pub.titulo}: ${insertError.message}`);
         }
       } else {
+        console.log(`[sync-pub] ✅ Inserted: ${pub.titulo} (fecha: ${fechaPublicacion})`);
         result.inserted_count++;
-        if (publishedAt && (!newestDate || publishedAt > newestDate)) {
-          newestDate = publishedAt;
+        
+        if (parsedFecha && (!newestDate || parsedFecha > newestDate)) {
+          newestDate = parsedFecha;
         }
-        
-        // Calculate términos inician for response tracking
-        const terminosInician = calculateNextBusinessDay(pub.fecha_desfijacion);
-        
-        // Track inserted publication for scheduled job response
+
+        // Track inserted publication for response
         if (insertedPub?.id) {
           result.inserted.push({
             id: insertedPub.id,
-            title: pub.title,
+            title: pub.titulo || pub.key || 'Sin título',
             pdf_url: pub.pdf_url || null,
-            entry_url: pub.entry_url || null,
-            fecha_fijacion: fechaFijacion,
-            fecha_desfijacion: fechaDesfijacion,
-            tipo_publicacion: pub.tipo_publicacion || null,
-            terminos_inician: terminosInician,
+            entry_url: pub.url || null,
+            fecha_fijacion: parsedFecha,
+            fecha_desfijacion: null, // v3 API doesn't provide this field yet
+            tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
+            terminos_inician: null,
           });
         }
-        
-        // ============= CREATE ALERT FOR NEW ESTADOS WITH DEADLINE =============
-        // This helps lawyers track when términos begin
-        if (fechaDesfijacion && insertedPub?.id) {
+
+        // ============= CREATE ALERT FOR NEW ESTADOS =============
+        if (insertedPub?.id) {
           try {
             await supabase.from('alert_instances').insert({
               owner_id: workItem.owner_id,
@@ -1198,24 +596,20 @@ Deno.serve(async (req) => {
               entity_id: workItem.id,
               entity_type: 'WORK_ITEM',
               severity: 'info',
-              title: `Nuevo Estado: ${pub.tipo_publicacion || 'Publicación'}`,
-              message: `${pub.title}${terminosInician ? ` — Términos inician: ${terminosInician}` : ''}`,
+              title: `Nuevo Estado: ${pub.tipo || pub.clasificacion?.categoria || 'Publicación'}`,
+              message: `${pub.titulo || pub.key}`,
               status: 'ACTIVE',
               payload: {
                 publicacion_id: insertedPub.id,
-                fecha_publicacion: pub.published_at,
-                fecha_fijacion: pub.fecha_fijacion,
-                fecha_desfijacion: pub.fecha_desfijacion,
-                terminos_inician: terminosInician,
-                despacho: pub.despacho,
-                tipo_publicacion: pub.tipo_publicacion,
+                fecha_publicacion: fechaPublicacion,
+                asset_id: pub.asset_id,
                 pdf_url: pub.pdf_url,
               },
             });
             result.alerts_created++;
-            console.log(`[sync-publicaciones] Created alert for estado: ${pub.title}, términos inician: ${terminosInician}`);
+            console.log(`[sync-pub] Created alert for: ${pub.titulo}`);
           } catch (alertErr) {
-            console.warn('[sync-publicaciones] Failed to create alert:', alertErr);
+            console.warn('[sync-pub] Failed to create alert:', alertErr);
             // Don't fail the whole sync if alert creation fails
           }
         }
@@ -1224,101 +618,49 @@ Deno.serve(async (req) => {
 
     result.newest_publication_date = newestDate;
     
-    // ============= LATEST ESTADO DETECTION =============
-    // After all inserts, compute the "latest" publicación and check if it changed
-    // This triggers a "NEW_LATEST_ESTADO" alert if the latest is different from baseline
+    // ============= UPDATE WORK_ITEM BASELINE =============
     if (result.inserted_count > 0) {
       try {
-        // Fetch all publicaciones for this work item to find the latest
         const { data: allPubs } = await supabase
           .from('work_item_publicaciones')
-          .select('id, title, published_at, fecha_desfijacion, created_at, pdf_url, tipo_publicacion')
+          .select('id, title, published_at, pdf_url, tipo_publicacion')
           .eq('work_item_id', work_item_id)
           .order('published_at', { ascending: false, nullsFirst: false })
-          .limit(10);
+          .limit(1);
         
         if (allPubs && allPubs.length > 0) {
-          // The latest is the first one (most recent published_at)
           const latestPub = allPubs[0];
-          
-          // Generate fingerprint for the latest
           const latestFingerprint = generatePublicacionFingerprint(
-            latestPub.pdf_url || null,
-            latestPub.title,
-            latestPub.published_at
+            work_item_id,
+            undefined,
+            undefined,
+            latestPub.title
           );
           
-          // Fetch current baseline from work_item
-          const { data: currentWorkItem } = await supabase
+          await supabase
             .from('work_items')
-            .select('latest_estado_fingerprint')
-            .eq('id', work_item_id)
-            .maybeSingle();
-          
-          const storedFingerprint = currentWorkItem?.latest_estado_fingerprint;
-          
-          // Check if latest has changed
-          if (latestFingerprint !== storedFingerprint) {
-            console.log(`[sync-publicaciones] NEW LATEST ESTADO detected!`, {
-              work_item_id,
-              old_fingerprint: storedFingerprint,
-              new_fingerprint: latestFingerprint,
-              latest_title: latestPub.title?.slice(0, 50),
-            });
+            .update({
+              latest_estado_fingerprint: latestFingerprint,
+              latest_estado_at: new Date().toISOString(),
+            })
+            .eq('id', work_item_id);
             
-            // Update work_item baseline
-            await supabase
-              .from('work_items')
-              .update({
-                latest_estado_fingerprint: latestFingerprint,
-                latest_estado_at: new Date().toISOString(),
-              })
-              .eq('id', work_item_id);
-            
-            // Create NEW_LATEST_ESTADO alert (different from per-item deadline alerts)
-            const terminosInician = calculateNextBusinessDay(latestPub.fecha_desfijacion);
-            
-            await supabase.from('alert_instances').insert({
-              owner_id: workItem.owner_id,
-              organization_id: workItem.organization_id,
-              entity_id: workItem.id,
-              entity_type: 'WORK_ITEM',
-              severity: 'info',
-              title: `Nuevo Estado Detectado`,
-              message: `${latestPub.tipo_publicacion || 'Estado'}: ${latestPub.title?.slice(0, 100)}${terminosInician ? ` — Términos inician: ${terminosInician}` : ''}`,
-              status: 'ACTIVE',
-              payload: {
-                alert_type: 'NEW_LATEST_ESTADO',
-                publicacion_id: latestPub.id,
-                fingerprint: latestFingerprint,
-                fecha_publicacion: latestPub.published_at,
-                fecha_desfijacion: latestPub.fecha_desfijacion,
-                terminos_inician: terminosInician,
-                pdf_url: latestPub.pdf_url,
-                radicado: workItem.radicado,
-              },
-            });
-            
-            result.alerts_created++;
-            console.log(`[sync-publicaciones] Created NEW_LATEST_ESTADO alert`);
-          } else {
-            console.log(`[sync-publicaciones] Latest estado unchanged (fingerprint: ${latestFingerprint})`);
-          }
+          console.log(`[sync-pub] Updated work_item baseline`);
         }
-      } catch (latestErr) {
-        console.warn('[sync-publicaciones] Failed to process latest estado detection:', latestErr);
-        // Don't fail the sync
+      } catch (err) {
+        console.warn('[sync-pub] Failed to update baseline:', err);
       }
     }
     
     result.ok = true;
+    result.status = 'SUCCESS';
 
-    console.log(`[sync-publicaciones] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
+    console.log(`[sync-pub] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
 
     return jsonResponse(result);
 
   } catch (err) {
-    console.error('[sync-publicaciones] Unhandled error:', err);
+    console.error('[sync-pub] Unhandled error:', err);
     return errorResponse(
       'INTERNAL_ERROR',
       err instanceof Error ? err.message : 'An unexpected error occurred',
