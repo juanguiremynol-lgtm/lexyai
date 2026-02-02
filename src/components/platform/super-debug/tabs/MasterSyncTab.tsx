@@ -105,12 +105,11 @@ export function MasterSyncTab() {
           .eq('id', profile.organization_id!)
           .single();
 
-        const { count } = await supabase
-          .from('work_items')
-          .select('id', { count: 'exact', head: true })
+        // Cast to any to avoid TypeScript deep instantiation issues with Supabase types
+        const { count } = await (supabase.from('work_items') as any)
+          .select('*', { count: 'exact', head: true })
           .eq('organization_id', profile.organization_id!)
           .eq('is_archived', false);
-          .single();
 
         userInfos.push({
           id: profile.id,
