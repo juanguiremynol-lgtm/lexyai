@@ -78,9 +78,9 @@ export function PlatformSidebar() {
   return (
     <Sidebar 
       collapsible="icon" 
-      className="border-r border-slate-800 bg-slate-950"
+      className="border-r border-[hsl(220_10%_18%)] bg-[hsl(220_15%_6%)]"
     >
-      <SidebarHeader className="border-b border-slate-800 bg-slate-950">
+      <SidebarHeader className="border-b border-[hsl(220_10%_18%)] bg-[hsl(220_15%_6%)]">
         <div className={cn(
           "flex items-center gap-3 px-3 py-4",
           collapsed && "justify-center"
@@ -96,16 +96,16 @@ export function PlatformSidebar() {
             />
           </div>
           {!collapsed && (
-            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30">
+            <Badge className="bg-[hsl(210_100%_50%/0.15)] text-[hsl(210_100%_60%)] border-[hsl(210_100%_50%/0.3)] hover:bg-[hsl(210_100%_50%/0.25)]">
               Platform
             </Badge>
           )}
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 bg-slate-950">
+      <SidebarContent className="px-2 bg-[hsl(220_15%_6%)]">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-amber-500/70 text-xs uppercase tracking-widest font-semibold px-3 py-2">
+          <SidebarGroupLabel className="text-[hsl(210_100%_55%/0.7)] text-xs uppercase tracking-widest font-semibold px-3 py-2">
             Consola de Plataforma
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -121,18 +121,18 @@ export function PlatformSidebar() {
                       className={cn(
                         "transition-all duration-200 rounded-lg my-0.5",
                         active 
-                          ? "bg-amber-500/15 text-amber-400 border-l-2 border-amber-500" 
-                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                          ? "bg-[hsl(210_100%_50%/0.12)] text-[hsl(210_100%_60%)] border-l-2 border-[hsl(210_100%_50%)]" 
+                          : "text-[hsl(220_8%_55%)] hover:text-[hsl(220_5%_85%)] hover:bg-[hsl(220_10%_14%)]"
                       )}
                     >
                       <NavLink to={item.url} className="flex items-center gap-3 px-3 py-2">
                         <item.icon className={cn(
                           "h-4 w-4 transition-colors shrink-0",
-                          active ? "text-amber-400" : "text-slate-500"
+                          active ? "text-[hsl(210_100%_55%)]" : "text-[hsl(220_8%_45%)]"
                         )} />
                         <span className={cn(
                           "transition-colors",
-                          active ? "text-amber-400 font-medium" : "text-slate-300"
+                          active ? "text-[hsl(210_100%_60%)] font-medium" : "text-[hsl(220_5%_75%)]"
                         )}>
                           {item.title}
                         </span>
@@ -146,13 +146,13 @@ export function PlatformSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-slate-800 px-2 bg-slate-950">
+      <SidebarFooter className="border-t border-[hsl(220_10%_18%)] px-2 bg-[hsl(220_15%_6%)]">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={() => navigate("/app/dashboard")}
               tooltip="Volver a App"
-              className="text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all duration-200 rounded-lg"
+              className="text-[hsl(220_8%_55%)] hover:text-[hsl(140_75%_55%)] hover:bg-[hsl(140_75%_45%/0.1)] transition-all duration-200 rounded-lg"
             >
               <ArrowLeft className="h-4 w-4" />
               <span>Volver a App</span>
@@ -162,7 +162,7 @@ export function PlatformSidebar() {
             <SidebarMenuButton
               onClick={handleLogout}
               tooltip="Cerrar sesión"
-              className="text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 rounded-lg"
+              className="text-[hsl(220_8%_55%)] hover:text-[hsl(0_85%_60%)] hover:bg-[hsl(0_85%_55%/0.1)] transition-all duration-200 rounded-lg"
             >
               <LogOut className="h-4 w-4" />
               <span>Cerrar sesión</span>
