@@ -137,6 +137,15 @@ interface BackfillResult {
   error?: string;
 }
 
+// Error details interface for debugging
+interface SyncErrorDetails {
+  status: number | null;
+  code: string | null;
+  message: string;
+  body: unknown;
+  requestPayload: unknown;
+}
+
 export function MasterSyncTab() {
   const queryClient = useQueryClient();
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
@@ -149,6 +158,7 @@ export function MasterSyncTab() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showBackfillDialog, setShowBackfillDialog] = useState(false);
   const [syncResult, setSyncResult] = useState<MasterSyncResult | null>(null);
+  const [syncError, setSyncError] = useState<SyncErrorDetails | null>(null);
 
   // Fetch all organizations
   const { data: organizations, isLoading: orgsLoading } = useQuery({
@@ -250,6 +260,9 @@ export function MasterSyncTab() {
   // Master sync mutation - supports ORG-ONLY mode (user is optional)
   const syncMutation = useMutation({
     mutationFn: async () => {
+      // Clear previous error
+      setSyncError(null);
+      
       // ORG-only mode: only org_id is required
       const orgId = selectedOrgId || tenantSnapshot?.resolved_organization?.id;
       
@@ -260,25 +273,67 @@ export function MasterSyncTab() {
       // User is OPTIONAL - convert "__NONE__" sentinel to null
       const userId = selectedUserId === '__NONE__' ? null : selectedUserId;
 
+      // Build request payload for logging
+      const requestPayload = {
+        target_organization_id: orgId,
+        target_user_id: userId,
+        include_cpnu: includeCpnu,
+        include_samai: includeSamai,
+        include_publicaciones: includePublicaciones,
+        include_tutelas: includeTutelas,
+      };
+
+      console.log('[MasterSync] Request payload:', requestPayload);
+
       const { data, error } = await supabase.functions.invoke<MasterSyncResult>(
         'master-sync',
-        {
-          body: {
-            target_organization_id: orgId,
-            target_user_id: userId, // Can be null for org-wide sync
-            include_cpnu: includeCpnu,
-            include_samai: includeSamai,
-            include_publicaciones: includePublicaciones,
-            include_tutelas: includeTutelas,
-          },
-        }
+        { body: requestPayload }
       );
 
-      if (error) throw error;
+      // Handle edge function errors with full details
+      if (error) {
+        console.error('[MasterSync] Edge function error:', error);
+        
+        // Try to extract detailed error info
+        const errorDetails: SyncErrorDetails = {
+          status: null,
+          code: null,
+          message: error.message || 'Unknown error',
+          body: null,
+          requestPayload,
+        };
+
+        // If error contains context/details, extract them
+        if (typeof error === 'object' && error !== null) {
+          const errObj = error as Record<string, unknown>;
+          if ('status' in errObj) errorDetails.status = errObj.status as number;
+          if ('code' in errObj) errorDetails.code = errObj.code as string;
+          if ('context' in errObj) errorDetails.body = errObj.context;
+        }
+
+        setSyncError(errorDetails);
+        throw new Error(errorDetails.message);
+      }
+
+      // Check for ok:false in response body
+      if (data && !data.ok) {
+        const errData = data as unknown as { ok: boolean; error?: string; code?: string };
+        const errorDetails: SyncErrorDetails = {
+          status: 200,
+          code: errData.code || 'UNKNOWN',
+          message: errData.error || 'Unknown error from edge function',
+          body: data,
+          requestPayload,
+        };
+        setSyncError(errorDetails);
+        throw new Error(errorDetails.message);
+      }
+
       return data;
     },
     onSuccess: (data) => {
       setSyncResult(data);
+      setSyncError(null);
       setShowConfirmDialog(false);
       if (data?.work_items_error === 0) {
         toast.success(`Master Sync completado: ${data.work_items_success} work items sincronizados`);
@@ -327,6 +382,55 @@ export function MasterSyncTab() {
           Los conteos usan funciones administrativas que bypasean RLS para diagnóstico preciso.
         </AlertDescription>
       </Alert>
+
+      {/* Error Details Panel */}
+      {syncError && (
+        <Alert className="border-destructive/50 bg-destructive/10">
+          <AlertTriangle className="h-4 w-4 text-destructive" />
+          <AlertTitle className="text-destructive">Error en Master Sync</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {syncError.status && (
+                <div>
+                  <span className="font-medium">HTTP Status:</span> {syncError.status}
+                </div>
+              )}
+              {syncError.code && (
+                <div>
+                  <span className="font-medium">Código:</span> {syncError.code}
+                </div>
+              )}
+            </div>
+            <div className="text-sm">
+              <span className="font-medium">Mensaje:</span> {syncError.message}
+            </div>
+            {syncError.body && (
+              <details className="text-xs">
+                <summary className="cursor-pointer font-medium">Ver respuesta completa</summary>
+                <pre className="mt-2 p-2 bg-muted rounded overflow-auto max-h-40">
+                  {JSON.stringify(syncError.body, null, 2)}
+                </pre>
+              </details>
+            )}
+            {syncError.requestPayload && (
+              <details className="text-xs">
+                <summary className="cursor-pointer font-medium">Ver payload enviado</summary>
+                <pre className="mt-2 p-2 bg-muted rounded overflow-auto max-h-40">
+                  {JSON.stringify(syncError.requestPayload, null, 2)}
+                </pre>
+              </details>
+            )}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setSyncError(null)}
+              className="mt-2"
+            >
+              Cerrar
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Selectors Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

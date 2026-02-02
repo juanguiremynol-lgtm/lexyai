@@ -3698,7 +3698,7 @@ export type Database = {
           started_at: string | null
           status: string | null
           target_organization_id: string
-          target_user_id: string
+          target_user_id: string | null
           triggered_by_user_id: string
           work_items_error: number | null
           work_items_processed: number | null
@@ -3723,7 +3723,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           target_organization_id: string
-          target_user_id: string
+          target_user_id?: string | null
           triggered_by_user_id: string
           work_items_error?: number | null
           work_items_processed?: number | null
@@ -3748,7 +3748,7 @@ export type Database = {
           started_at?: string | null
           status?: string | null
           target_organization_id?: string
-          target_user_id?: string
+          target_user_id?: string | null
           triggered_by_user_id?: string
           work_items_error?: number | null
           work_items_processed?: number | null
