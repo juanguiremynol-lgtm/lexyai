@@ -1,9 +1,11 @@
 /**
  * Master Sync Tab - Super Admin only, sync all work items for an organization
+ * 
+ * Uses admin edge functions that bypass RLS for accurate diagnostics.
  */
 
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +25,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { 
   Zap, 
   Loader2, 
@@ -33,16 +50,53 @@ import {
   Clock,
   Download,
   RefreshCw,
+  User,
+  Database,
+  Wrench,
+  Info,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-interface OrgDebugSubject {
-  id: string;
-  name: string;
-  work_item_count: number;
-  // We still need a user_id for the edge function - use the org creator or first admin
-  principal_user_id: string;
+interface TenantSnapshot {
+  resolved_user: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    organization_id: string | null;
+  } | null;
+  user_memberships: Array<{
+    organization_id: string;
+    role: string;
+    organization_name: string | null;
+  }>;
+  resolved_organization: {
+    id: string;
+    name: string;
+    metadata: Record<string, unknown> | null;
+  } | null;
+  counts: {
+    work_items_by_owner: number;
+    work_items_by_org: number;
+    orphaned_work_items: number;
+    work_items_distinct_orgs: string[];
+  };
+  work_items_sample: Array<{
+    id: string;
+    title: string | null;
+    radicado: string | null;
+    workflow_type: string | null;
+    status: string | null;
+    owner_id: string;
+    organization_id: string | null;
+    created_at: string;
+  }>;
+  system_hints: string[];
+  debug_info: {
+    query_user_id: string | null;
+    query_org_id: string | null;
+    timestamp: string;
+  };
 }
 
 interface MasterSyncResult {
@@ -72,78 +126,146 @@ interface MasterSyncResult {
   }>;
 }
 
+interface BackfillResult {
+  ok: boolean;
+  dry_run: boolean;
+  target_user_id: string | null;
+  target_org_id: string | null;
+  rows_matched: number;
+  rows_updated: number;
+  sample_updated_ids: string[];
+  error?: string;
+}
+
 export function MasterSyncTab() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedOrg, setSelectedOrg] = useState<OrgDebugSubject | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
   const [includeCpnu, setIncludeCpnu] = useState(true);
   const [includeSamai, setIncludeSamai] = useState(true);
   const [includePublicaciones, setIncludePublicaciones] = useState(true);
   const [includeTutelas, setIncludeTutelas] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showBackfillDialog, setShowBackfillDialog] = useState(false);
   const [syncResult, setSyncResult] = useState<MasterSyncResult | null>(null);
 
-  // Fetch organizations for selection (not users)
+  // Fetch all organizations
   const { data: organizations, isLoading: orgsLoading } = useQuery({
-    queryKey: ['super-debug-organizations', searchQuery],
+    queryKey: ['super-debug-organizations'],
     queryFn: async () => {
-      // Fetch all organizations
-      const { data: orgs, error } = await supabase
+      const { data, error } = await supabase
         .from('organizations')
         .select('id, name, created_by')
         .order('name');
-
       if (error) throw error;
-
-      const orgSubjects: OrgDebugSubject[] = [];
-      for (const org of orgs || []) {
-        // Count work items by organization_id
-        const { count } = await (supabase.from('work_items') as any)
-          .select('*', { count: 'exact', head: true })
-          .eq('organization_id', org.id)
-          .eq('is_archived', false);
-
-        // Get a principal user for the org (creator or first owner/admin)
-        let principalUserId = org.created_by;
-        if (!principalUserId) {
-          const { data: membership } = await supabase
-            .from('organization_memberships')
-            .select('user_id')
-            .eq('organization_id', org.id)
-            .in('role', ['OWNER', 'ADMIN'])
-            .limit(1)
-            .single();
-          principalUserId = membership?.user_id;
-        }
-
-        // Filter by search query if provided
-        if (searchQuery && !org.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-          continue;
-        }
-
-        orgSubjects.push({
-          id: org.id,
-          name: org.name,
-          work_item_count: count || 0,
-          principal_user_id: principalUserId || '',
-        });
-      }
-
-      return orgSubjects;
+      return data || [];
     },
   });
 
+  // Fetch users for selector
+  const { data: users, isLoading: usersLoading } = useQuery({
+    queryKey: ['super-debug-users', userSearchQuery],
+    queryFn: async () => {
+      let query = supabase
+        .from('profiles')
+        .select('id, full_name, organization_id')
+        .order('full_name');
+      
+      if (userSearchQuery) {
+        query = query.ilike('full_name', `%${userSearchQuery}%`);
+      }
+      
+      const { data, error } = await query.limit(50);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Fetch tenant snapshot using admin edge function
+  const { 
+    data: tenantSnapshot, 
+    isLoading: snapshotLoading,
+    refetch: refetchSnapshot,
+  } = useQuery({
+    queryKey: ['tenant-snapshot', selectedOrgId, selectedUserId],
+    queryFn: async () => {
+      if (!selectedOrgId && !selectedUserId) return null;
+
+      const { data, error } = await supabase.functions.invoke<TenantSnapshot>(
+        'debug-tenant-snapshot',
+        {
+          body: {
+            org_id: selectedOrgId,
+            user_id: selectedUserId,
+          },
+        }
+      );
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!(selectedOrgId || selectedUserId),
+  });
+
+  // Backfill mutation (dry run first)
+  const backfillMutation = useMutation({
+    mutationFn: async (dryRun: boolean) => {
+      if (!selectedUserId && !selectedOrgId) {
+        throw new Error('Select a user or organization first');
+      }
+
+      const { data, error } = await supabase.functions.invoke<BackfillResult>(
+        'admin-backfill-work-items-org',
+        {
+          body: {
+            user_id: selectedUserId,
+            org_id: selectedOrgId,
+            dry_run: dryRun,
+          },
+        }
+      );
+
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data, dryRun) => {
+      if (dryRun) {
+        if (data?.rows_matched === 0) {
+          toast.info('No orphaned work items found to backfill');
+          setShowBackfillDialog(false);
+        }
+        // If rows found, dialog stays open for confirmation
+      } else {
+        toast.success(`Backfilled ${data?.rows_updated} work items`);
+        setShowBackfillDialog(false);
+        refetchSnapshot();
+      }
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Backfill failed');
+    },
+  });
 
   // Master sync mutation
   const syncMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedOrg) throw new Error('No organization selected');
+      if (!tenantSnapshot) throw new Error('No snapshot loaded');
+      
+      // Determine principal user for sync (first admin from org or selected user)
+      const principalUserId = selectedUserId || tenantSnapshot.resolved_user?.id;
+      const orgId = selectedOrgId || tenantSnapshot.resolved_organization?.id;
+      
+      if (!principalUserId || !orgId) {
+        throw new Error('Cannot determine sync target - select org and user');
+      }
 
       const { data, error } = await supabase.functions.invoke<MasterSyncResult>(
         'master-sync',
         {
           body: {
-            target_user_id: selectedOrg.principal_user_id,
-            target_organization_id: selectedOrg.id,
+            target_user_id: principalUserId,
+            target_organization_id: orgId,
             include_cpnu: includeCpnu,
             include_samai: includeSamai,
             include_publicaciones: includePublicaciones,
@@ -170,9 +292,12 @@ export function MasterSyncTab() {
     },
   });
 
-  const handleConfirmSync = () => {
-    syncMutation.mutate();
-  };
+  // Auto-select first org if none selected
+  useEffect(() => {
+    if (organizations?.length && !selectedOrgId) {
+      setSelectedOrgId(organizations[0].id);
+    }
+  }, [organizations, selectedOrgId]);
 
   const downloadReport = () => {
     if (syncResult) {
@@ -185,8 +310,10 @@ export function MasterSyncTab() {
     }
   };
 
-  const estimatedTime = selectedOrg 
-    ? Math.ceil((selectedOrg.work_item_count * 3 * 5) / 60) // ~5 seconds per API call, 3 APIs per item
+  const workItemCount = tenantSnapshot?.counts.work_items_by_org || 0;
+  const orphanedCount = tenantSnapshot?.counts.orphaned_work_items || 0;
+  const estimatedTime = workItemCount 
+    ? Math.ceil((workItemCount * 3 * 5) / 60) 
     : 0;
 
   return (
@@ -196,154 +323,327 @@ export function MasterSyncTab() {
         <AlertTriangle className="h-4 w-4 text-amber-600" />
         <AlertTitle className="text-amber-700">Solo Super Administradores</AlertTitle>
         <AlertDescription className="text-amber-600">
-          Esta función sincroniza TODOS los work items de un usuario contra TODAS las APIs externas.
-          Úsela con precaución.
+          Esta función sincroniza TODOS los work items de una organización contra TODAS las APIs externas.
+          Los conteos usan funciones administrativas que bypasean RLS para diagnóstico preciso.
         </AlertDescription>
       </Alert>
 
-      {/* Organization Selection */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar organización..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="max-w-md"
-          />
+      {/* Selectors Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Organization Selector */}
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2">
+            <Building className="h-4 w-4" />
+            Organización
+          </Label>
+          <Select
+            value={selectedOrgId || ''}
+            onValueChange={(val) => {
+              setSelectedOrgId(val);
+              setSelectedUserId(null);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Seleccionar organización..." />
+            </SelectTrigger>
+            <SelectContent>
+              {orgsLoading ? (
+                <div className="p-2 text-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                  Cargando...
+                </div>
+              ) : (
+                organizations?.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
         </div>
 
-        <ScrollArea className="h-48 border rounded-lg">
-          {orgsLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : organizations?.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              No se encontraron organizaciones
-            </p>
-          ) : (
-            <div className="p-2 space-y-1">
-              {organizations?.map((org) => (
-                <div
-                  key={org.id}
-                  onClick={() => setSelectedOrg(org)}
-                  className={cn(
-                    "p-3 rounded-lg cursor-pointer transition-colors",
-                    selectedOrg?.id === org.id
-                      ? "bg-primary/10 border border-primary/30"
-                      : "bg-muted/50 hover:bg-muted"
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "w-4 h-4 rounded-full border-2",
-                        selectedOrg?.id === org.id
-                          ? "border-primary bg-primary"
-                          : "border-muted-foreground"
-                      )} />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Building className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-medium">{org.name}</span>
-                          <Badge variant="outline" className="text-xs">Organización</Badge>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className={cn(
-                            "font-medium",
-                            org.work_item_count > 0 ? "text-emerald-600" : "text-muted-foreground"
-                          )}>
-                            {org.work_item_count} work items
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+        {/* User Selector */}
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2">
+            <User className="h-4 w-4" />
+            Usuario (opcional)
+          </Label>
+          <div className="space-y-2">
+            <Input
+              placeholder="Buscar usuario..."
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              className="h-9"
+            />
+            <Select
+              value={selectedUserId || ''}
+              onValueChange={setSelectedUserId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar usuario..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Ninguno (solo org)</SelectItem>
+                {usersLoading ? (
+                  <div className="p-2 text-center text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                    Cargando...
                   </div>
-                </div>
+                ) : (
+                  users?.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.full_name || 'Sin nombre'} 
+                      {user.organization_id ? '' : ' (sin org)'}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      {/* Tenant Snapshot Panel */}
+      {snapshotLoading ? (
+        <div className="p-6 border rounded-lg bg-muted/30 flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin mr-3" />
+          <span>Cargando diagnóstico...</span>
+        </div>
+      ) : tenantSnapshot ? (
+        <div className="space-y-4">
+          {/* System Hints (Warnings) */}
+          {tenantSnapshot.system_hints.length > 0 && (
+            <div className="space-y-2">
+              {tenantSnapshot.system_hints.map((hint, i) => (
+                <Alert key={i} className="border-amber-500/50 bg-amber-500/10">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-700">{hint}</AlertDescription>
+                </Alert>
               ))}
             </div>
           )}
-        </ScrollArea>
-      </div>
 
-      {/* Selected Organization Info */}
-      {selectedOrg && (
-        <div className="p-4 rounded-lg border bg-muted/30 space-y-4">
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <Label className="text-muted-foreground">Organización seleccionada</Label>
-              <p className="font-medium">{selectedOrg.name}</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Work Items</Label>
-              <p className="font-medium text-emerald-600">{selectedOrg.work_item_count}</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Tiempo estimado</Label>
-              <p className="font-medium">{estimatedTime}-{estimatedTime * 2} minutos</p>
-            </div>
-            <div>
-              <Label className="text-muted-foreground">Alcance</Label>
-              <p className="font-medium text-blue-600">Todos los work items de la org</p>
-            </div>
-          </div>
-
-          {/* API Selection */}
-          <div className="space-y-2">
-            <Label>APIs a sincronizar</Label>
-            <div className="flex flex-wrap gap-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="cpnu" 
-                  checked={includeCpnu} 
-                  onCheckedChange={(c) => setIncludeCpnu(!!c)} 
-                />
-                <label htmlFor="cpnu" className="text-sm">CPNU (CGP, Penal, Laboral, Tutela)</label>
+          {/* Counts Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-4 rounded-lg border bg-muted/30 text-center">
+              <div className="text-2xl font-bold text-primary">
+                {tenantSnapshot.counts.work_items_by_org}
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="samai" 
-                  checked={includeSamai} 
-                  onCheckedChange={(c) => setIncludeSamai(!!c)} 
-                />
-                <label htmlFor="samai" className="text-sm">SAMAI (CPACA)</label>
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <Building className="h-3 w-3" />
+                Work Items (por Org)
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="publicaciones" 
-                  checked={includePublicaciones} 
-                  onCheckedChange={(c) => setIncludePublicaciones(!!c)} 
-                />
-                <label htmlFor="publicaciones" className="text-sm">Publicaciones Procesales</label>
+            </div>
+            <div className="p-4 rounded-lg border bg-muted/30 text-center">
+              <div className="text-2xl font-bold text-blue-600">
+                {tenantSnapshot.counts.work_items_by_owner}
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="tutelas" 
-                  checked={includeTutelas} 
-                  onCheckedChange={(c) => setIncludeTutelas(!!c)} 
-                />
-                <label htmlFor="tutelas" className="text-sm text-muted-foreground">
-                  Tutelas (opcional - muy lento)
-                </label>
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <User className="h-3 w-3" />
+                Work Items (por Owner)
+              </div>
+            </div>
+            <div className={cn(
+              "p-4 rounded-lg border text-center",
+              orphanedCount > 0 ? "bg-red-500/10 border-red-500/50" : "bg-muted/30"
+            )}>
+              <div className={cn(
+                "text-2xl font-bold",
+                orphanedCount > 0 ? "text-red-600" : "text-muted-foreground"
+              )}>
+                {orphanedCount}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Huérfanos (NULL org)
+              </div>
+            </div>
+            <div className="p-4 rounded-lg border bg-muted/30 text-center">
+              <div className="text-2xl font-bold text-muted-foreground">
+                {tenantSnapshot.counts.work_items_distinct_orgs.length}
+              </div>
+              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                <Database className="h-3 w-3" />
+                Orgs Distintas
               </div>
             </div>
           </div>
 
-          <Button
-            onClick={() => setShowConfirmDialog(true)}
-            disabled={syncMutation.isPending || selectedOrg.work_item_count === 0}
-            className="w-full"
-          >
-            {syncMutation.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Zap className="h-4 w-4 mr-2" />
-            )}
-            Ejecutar Master Sync
-          </Button>
+          {/* Info Panel */}
+          <div className="p-4 rounded-lg border bg-muted/30 space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {tenantSnapshot.resolved_organization && (
+                <div>
+                  <Label className="text-muted-foreground">Organización</Label>
+                  <p className="font-medium flex items-center gap-2">
+                    <Building className="h-4 w-4" />
+                    {tenantSnapshot.resolved_organization.name}
+                  </p>
+                </div>
+              )}
+              {tenantSnapshot.resolved_user && (
+                <div>
+                  <Label className="text-muted-foreground">Usuario</Label>
+                  <p className="font-medium flex items-center gap-2">
+                    <User className="h-4 w-4" />
+                    {tenantSnapshot.resolved_user.full_name || tenantSnapshot.resolved_user.email || 'N/A'}
+                  </p>
+                </div>
+              )}
+              <div>
+                <Label className="text-muted-foreground">Tiempo estimado sync</Label>
+                <p className="font-medium">{estimatedTime}-{estimatedTime * 2} minutos</p>
+              </div>
+              {tenantSnapshot.user_memberships.length > 0 && (
+                <div>
+                  <Label className="text-muted-foreground">Membresías</Label>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {tenantSnapshot.user_memberships.map((m, i) => (
+                      <Badge key={i} variant="outline" className="text-xs">
+                        {m.organization_name || m.organization_id.slice(0, 8)} ({m.role})
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* API Selection */}
+            <div className="space-y-2 pt-2 border-t">
+              <Label>APIs a sincronizar</Label>
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="cpnu" 
+                    checked={includeCpnu} 
+                    onCheckedChange={(c) => setIncludeCpnu(!!c)} 
+                  />
+                  <label htmlFor="cpnu" className="text-sm">CPNU</label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="samai" 
+                    checked={includeSamai} 
+                    onCheckedChange={(c) => setIncludeSamai(!!c)} 
+                  />
+                  <label htmlFor="samai" className="text-sm">SAMAI</label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="publicaciones" 
+                    checked={includePublicaciones} 
+                    onCheckedChange={(c) => setIncludePublicaciones(!!c)} 
+                  />
+                  <label htmlFor="publicaciones" className="text-sm">Publicaciones</label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="tutelas" 
+                    checked={includeTutelas} 
+                    onCheckedChange={(c) => setIncludeTutelas(!!c)} 
+                  />
+                  <label htmlFor="tutelas" className="text-sm text-muted-foreground">
+                    Tutelas (lento)
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                onClick={() => setShowConfirmDialog(true)}
+                disabled={syncMutation.isPending || workItemCount === 0}
+                className="flex-1"
+              >
+                {syncMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4 mr-2" />
+                )}
+                Ejecutar Master Sync ({workItemCount} items)
+              </Button>
+              
+              {orphanedCount > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    backfillMutation.mutate(true); // Start with dry run
+                    setShowBackfillDialog(true);
+                  }}
+                  disabled={backfillMutation.isPending}
+                  className="border-amber-500/50 text-amber-700 hover:bg-amber-500/10"
+                >
+                  <Wrench className="h-4 w-4 mr-2" />
+                  Backfill Org ID ({orphanedCount})
+                </Button>
+              )}
+              
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => refetchSnapshot()}
+                disabled={snapshotLoading}
+              >
+                <RefreshCw className={cn("h-4 w-4", snapshotLoading && "animate-spin")} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Sample Work Items Table */}
+          {tenantSnapshot.work_items_sample.length > 0 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Muestra de Work Items (últimos 20)
+              </Label>
+              <div className="border rounded-lg overflow-hidden">
+                <ScrollArea className="h-64">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[120px]">Radicado</TableHead>
+                        <TableHead>Título</TableHead>
+                        <TableHead className="w-[100px]">Org ID</TableHead>
+                        <TableHead className="w-[80px]">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tenantSnapshot.work_items_sample.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-mono text-xs">
+                            {item.radicado?.slice(-10) || 'N/A'}
+                          </TableCell>
+                          <TableCell className="text-sm truncate max-w-[200px]">
+                            {item.title || 'Sin título'}
+                          </TableCell>
+                          <TableCell className={cn(
+                            "font-mono text-xs",
+                            !item.organization_id && "text-red-600"
+                          )}>
+                            {item.organization_id?.slice(0, 8) || 'NULL'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {item.status || 'N/A'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      ) : (selectedOrgId || selectedUserId) ? (
+        <div className="p-6 border rounded-lg bg-muted/30 text-center text-muted-foreground">
+          <Info className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p>Selecciona una organización o usuario para ver diagnósticos</p>
+        </div>
+      ) : null}
 
       {/* Progress/Results */}
       {syncMutation.isPending && (
@@ -351,9 +651,9 @@ export function MasterSyncTab() {
           <div className="flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
             <div>
-            <p className="font-medium">Master Sync en Progreso</p>
+              <p className="font-medium">Master Sync en Progreso</p>
               <p className="text-sm text-muted-foreground">
-                Sincronizando {selectedOrg?.work_item_count} work items de {selectedOrg?.name}...
+                Sincronizando {workItemCount} work items...
               </p>
             </div>
           </div>
@@ -418,19 +718,19 @@ export function MasterSyncTab() {
           {/* Actuaciones/Publicaciones breakdown */}
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="p-3 rounded-lg bg-muted/30">
-              <h4 className="font-medium mb-2">Actuaciones (CPNU + SAMAI)</h4>
+              <h4 className="font-medium mb-2">Actuaciones</h4>
               <div className="space-y-1 text-muted-foreground">
-                <p>Total encontradas: {syncResult.actuaciones_found}</p>
+                <p>Encontradas: {syncResult.actuaciones_found}</p>
                 <p className="text-emerald-600">Nuevas: {syncResult.actuaciones_inserted}</p>
-                <p>Ya existentes: {syncResult.actuaciones_skipped}</p>
+                <p>Existentes: {syncResult.actuaciones_skipped}</p>
               </div>
             </div>
             <div className="p-3 rounded-lg bg-muted/30">
               <h4 className="font-medium mb-2">Publicaciones</h4>
               <div className="space-y-1 text-muted-foreground">
-                <p>Total encontradas: {syncResult.publicaciones_found}</p>
+                <p>Encontradas: {syncResult.publicaciones_found}</p>
                 <p className="text-emerald-600">Nuevas: {syncResult.publicaciones_inserted}</p>
-                <p>Ya existentes: {syncResult.publicaciones_skipped}</p>
+                <p>Existentes: {syncResult.publicaciones_skipped}</p>
               </div>
             </div>
           </div>
@@ -459,16 +759,16 @@ export function MasterSyncTab() {
             variant="outline" 
             onClick={() => {
               setSyncResult(null);
-              setSelectedOrg(null);
+              refetchSnapshot();
             }}
           >
             <RefreshCw className="h-4 w-4 mr-1" />
-            Ejecutar Otro Master Sync
+            Ejecutar Otro Sync
           </Button>
         </div>
       )}
 
-      {/* Confirmation Dialog */}
+      {/* Sync Confirmation Dialog */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -476,8 +776,8 @@ export function MasterSyncTab() {
             <AlertDialogDescription className="space-y-2">
               <p>Está a punto de sincronizar:</p>
               <ul className="list-disc list-inside space-y-1">
-                <li><strong>Organización:</strong> {selectedOrg?.name}</li>
-                <li><strong>Work Items:</strong> {selectedOrg?.work_item_count}</li>
+                <li><strong>Organización:</strong> {tenantSnapshot?.resolved_organization?.name || selectedOrgId}</li>
+                <li><strong>Work Items:</strong> {workItemCount}</li>
                 <li><strong>APIs:</strong> {[
                   includeCpnu && 'CPNU',
                   includeSamai && 'SAMAI',
@@ -486,15 +786,60 @@ export function MasterSyncTab() {
                 ].filter(Boolean).join(', ')}</li>
               </ul>
               <p className="text-sm text-muted-foreground mt-4">
-                Esto ejecutará hasta {selectedOrg?.work_item_count ? selectedOrg.work_item_count * 3 : 0} llamadas a APIs externas.
+                Esto ejecutará hasta {workItemCount * 3} llamadas a APIs externas.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmSync}>
-              <CheckCircle2 className="h-4 w-4 mr-1" />
+            <AlertDialogAction onClick={() => syncMutation.mutate()}>
+              <Zap className="h-4 w-4 mr-1" />
               Confirmar y Ejecutar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Backfill Confirmation Dialog */}
+      <AlertDialog open={showBackfillDialog} onOpenChange={setShowBackfillDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Backfill Organization ID</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              {backfillMutation.isPending ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Analizando...</span>
+                </div>
+              ) : backfillMutation.data ? (
+                <>
+                  <p>
+                    Se encontraron <strong>{backfillMutation.data.rows_matched}</strong> work items 
+                    con organization_id = NULL.
+                  </p>
+                  <p>
+                    Se actualizarán para usar organization_id = <code className="text-xs bg-muted px-1 py-0.5 rounded">
+                      {backfillMutation.data.target_org_id?.slice(0, 8)}...
+                    </code>
+                  </p>
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      Esta es una operación de migración de datos. Proceda con cuidado.
+                    </AlertDescription>
+                  </Alert>
+                </>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => backfillMutation.mutate(false)}
+              disabled={!backfillMutation.data?.rows_matched || backfillMutation.isPending}
+            >
+              <Wrench className="h-4 w-4 mr-1" />
+              Ejecutar Backfill ({backfillMutation.data?.rows_matched || 0} rows)
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
