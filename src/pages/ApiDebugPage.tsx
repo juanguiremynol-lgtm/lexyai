@@ -250,11 +250,19 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
   const data = result.data;
   const status = data?.status as string | undefined;
   const isScrapingInProgress = status === 'SCRAPING_IN_PROGRESS' || status === 'SCRAPING_TIMEOUT';
+  const isRouteNotFound = status === 'PROVIDER_ROUTE_NOT_FOUND' || status === 'ERROR';
   const retryAfterSeconds = data?.retryAfterSeconds || 60;
   const scrapingJobId = data?.scrapingJobId;
+  const providerAttempts = data?.provider_attempts as Array<{ path: string; httpStatus: number; responseKind: string; errorCode?: string }> | undefined;
 
-  // Auto-retry logic
+  // Auto-retry logic - ONLY for scraping in progress, NOT for route errors
   useEffect(() => {
+    // Don't auto-retry if route is not found (config error, not transient)
+    if (isRouteNotFound) {
+      setRetryCountdown(null);
+      return;
+    }
+    
     if (isScrapingInProgress && retryAttempt < maxRetries && !isRetrying) {
       setRetryCountdown(retryAfterSeconds);
       
@@ -273,7 +281,7 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
 
       return () => clearInterval(countdownInterval);
     }
-  }, [isScrapingInProgress, retryAttempt, isRetrying, retryAfterSeconds, onRetry]);
+  }, [isScrapingInProgress, isRouteNotFound, retryAttempt, isRetrying, retryAfterSeconds, onRetry]);
 
   // Reset retry attempt when result changes to success
   useEffect(() => {
@@ -286,6 +294,7 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
   const getStatusIcon = () => {
     if (isRetrying) return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
     if (isScrapingInProgress) return <Clock className="h-4 w-4 text-amber-500" />;
+    if (isRouteNotFound) return <WifiOff className="h-4 w-4 text-destructive" />;
     if (result.success) return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
     return <XCircle className="h-4 w-4 text-destructive" />;
   };
@@ -293,6 +302,7 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
   const getStatusBadge = () => {
     if (isRetrying) return <Badge className="bg-blue-500/20 text-blue-700">⏳ Reintentando...</Badge>;
     if (isScrapingInProgress) return <Badge className="bg-amber-500/20 text-amber-700">⏱️ Scraping en progreso</Badge>;
+    if (status === 'PROVIDER_ROUTE_NOT_FOUND') return <Badge variant="destructive">❌ Route Missing</Badge>;
     if (result.success) return <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700">✅ Success</Badge>;
     return <Badge variant="destructive">❌ Error</Badge>;
   };
@@ -312,6 +322,42 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
         </h4>
         {getStatusBadge()}
       </div>
+
+      {/* PROVIDER_ROUTE_NOT_FOUND banner - config error, not retryable */}
+      {status === 'PROVIDER_ROUTE_NOT_FOUND' && (
+        <div className="p-3 mb-3 rounded bg-destructive/20 border border-destructive/30">
+          <p className="text-sm text-destructive font-medium">
+            ❌ Todos los endpoints de PUBLICACIONES retornaron 404 (Route Missing)
+          </p>
+          <p className="text-xs text-destructive/80 mt-1">
+            Esto indica un problema de configuración, NO un error de datos.
+          </p>
+          <div className="text-xs mt-2 space-y-1 bg-muted rounded p-2">
+            <p className="font-medium">Posibles causas:</p>
+            <ul className="list-disc list-inside text-muted-foreground">
+              <li>PUBLICACIONES_BASE_URL apunta al servicio incorrecto</li>
+              <li>El servicio requiere un prefijo de ruta (ej: PUBLICACIONES_PATH_PREFIX=/api)</li>
+              <li>El servicio Cloud Run no tiene los endpoints esperados (/buscar, /publicaciones, etc.)</li>
+            </ul>
+          </div>
+          {/* Show route probing attempts */}
+          {providerAttempts && providerAttempts.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Rutas probadas:</p>
+              <div className="space-y-1">
+                {providerAttempts.map((attempt, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-[10px] font-mono bg-muted/50 rounded px-2 py-1">
+                    <span>{attempt.path}</span>
+                    <Badge variant="outline" className="text-[9px]">
+                      HTTP {attempt.httpStatus} • {attempt.errorCode || attempt.responseKind}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Scraping in progress banner */}
       {isScrapingInProgress && (
@@ -346,11 +392,11 @@ function PublicacionesSyncResultCard({ result, onRetry, isRetrying }: Publicacio
         </div>
       )}
 
-      {result.error && !isScrapingInProgress && (
+      {result.error && !isScrapingInProgress && !isRouteNotFound && (
         <p className="text-sm text-destructive mb-2">{result.error}</p>
       )}
       
-      {data && (
+      {data && !isRouteNotFound && (
         <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 font-mono">
           {JSON.stringify(data, null, 2).slice(0, 500)}
         </div>
@@ -1547,12 +1593,31 @@ export default function ApiDebugPage() {
               </div>
             )}
 
-            {/* Summary */}
+            {/* Summary - ENHANCED to distinguish cache miss vs route missing vs not found */}
             {debugResult.summary && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
-                  <p className="text-xs text-muted-foreground">Encontrado</p>
-                  <p className="font-medium">{debugResult.summary.found ? "Sí" : "No"}</p>
+                  <p className="text-xs text-muted-foreground">Estado</p>
+                  <p className="font-medium">
+                    {debugResult.summary.found 
+                      ? "✅ Encontrado" 
+                      : debugResult.error_code === 'RECORD_NOT_FOUND' 
+                        ? "🔄 Cache miss (auth OK)" 
+                        : debugResult.error_code === 'UPSTREAM_ROUTE_MISSING' 
+                          ? "❌ Route Missing"
+                          : "❌ No encontrado"}
+                  </p>
+                  {/* CPNU-specific: explain cache miss is not an error */}
+                  {debugResult.error_code === 'RECORD_NOT_FOUND' && (
+                    <p className="text-[10px] text-emerald-600 mt-1">
+                      ✓ Auth OK — snapshot no cacheado (trigger /buscar para scraping)
+                    </p>
+                  )}
+                  {debugResult.error_code === 'UPSTREAM_ROUTE_MISSING' && (
+                    <p className="text-[10px] text-destructive mt-1">
+                      Endpoint no existe en host configurado
+                    </p>
+                  )}
                 </div>
                 {debugResult.summary.actuacionesCount !== undefined && (
                   <div>
