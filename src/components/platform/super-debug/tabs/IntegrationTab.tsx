@@ -82,22 +82,19 @@ export function IntegrationTab() {
   const { data: statsData } = useQuery({
     queryKey: ['super-debug-quick-stats'],
     queryFn: async () => {
-      const workItemsRes = await supabase.from('work_items').select('id', { count: 'exact', head: true }).eq('is_archived', false);
-      const actuacionesRes = await supabase.from('work_item_acts').select('id', { count: 'exact', head: true }).eq('is_archived', false);
-      const publicacionesRes = await supabase.from('work_item_publicaciones').select('id', { count: 'exact', head: true }).eq('is_archived', false);
+      // Cast to any to avoid TypeScript deep instantiation issues with Supabase types
+      const workItemsRes = await (supabase.from('work_items') as any).select('*', { count: 'exact', head: true }).eq('is_archived', false);
+      const actuacionesRes = await (supabase.from('work_item_acts') as any).select('*', { count: 'exact', head: true }).eq('is_archived', false);
+      const publicacionesRes = await (supabase.from('work_item_publicaciones') as any).select('*', { count: 'exact', head: true }).eq('is_archived', false);
       
-      const failedRes = await supabase
-        .from('sync_audit_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'ERROR');
+      const syncAuditRes = await (supabase.from('sync_audit_log') as any)
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
-      return {
-        workItems: workItemsRes.count || 0,
-        actuaciones: actuacionesRes.count || 0,
-        publicaciones: publicacionesRes.count || 0,
-        syncsToday: 0,
-        failedToday: failedRes.count || 0,
-      };
+      const failedRes = await (supabase.from('sync_audit_log') as any)
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'ERROR')
+        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
 
       return {
         workItems: workItemsRes.count || 0,
