@@ -458,16 +458,21 @@ function ProviderHealthStatus({
             </Badge>
           )}
           
-          {/* Auth badge */}
-          {auth?.ok ? (
+          {/* Auth badge - CRITICAL: ROUTE_NOT_FOUND is NOT "Auth OK" */}
+          {auth?.ok && auth?.error_code !== 'UPSTREAM_ROUTE_MISSING' ? (
             <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-700 text-xs">
               <Shield className="h-3 w-3 mr-1" />
-              Auth OK
+              Auth OK{auth?.error_code === 'RECORD_NOT_FOUND' && ' (record 404)'}
             </Badge>
           ) : auth?.error_code === 'SKIPPED' ? (
             <Badge variant="outline" className="text-xs text-muted-foreground">
               <AlertTriangle className="h-3 w-3 mr-1" />
               Auth skipped
+            </Badge>
+          ) : auth?.error_code === 'UPSTREAM_ROUTE_MISSING' ? (
+            <Badge variant="destructive" className="text-xs">
+              <WifiOff className="h-3 w-3 mr-1" />
+              Route Missing
             </Badge>
           ) : auth ? (
             <Badge variant="destructive" className="text-xs">
@@ -495,6 +500,10 @@ function ProviderHealthStatus({
           </span>
           {auth?.error_code === 'SKIPPED' ? (
             <span className="text-muted-foreground">Sin test radicado configurado</span>
+          ) : auth?.error_code === 'UPSTREAM_ROUTE_MISSING' ? (
+            <span className="text-destructive">
+              HTTP {auth.status} • Route Missing (endpoint no existe)
+            </span>
           ) : auth?.ok ? (
             <span className="text-emerald-600">
               HTTP {auth.status} • {auth.latencyMs}ms

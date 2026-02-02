@@ -366,10 +366,7 @@ const PUBLICACIONES_ROUTE_CANDIDATES = [
 ];
 
 /**
- * Detect if response body is a generic "route not found" (HTML 404, not JSON)
- * 
- * IMPORTANT: FastAPI's {"detail":"Not Found"} is NOT a route error - it's a valid
- * JSON response indicating the record doesn't exist. Only HTML 404s are route errors.
+ * Detect if response body is a generic "route not found" (HTML 404)
  */
 function isHtmlRouteNotFound(body: string): boolean {
   const lower = body.toLowerCase();
@@ -386,19 +383,60 @@ function isHtmlRouteNotFound(body: string): boolean {
 }
 
 /**
- * Detect if response is a valid JSON 404 (record not found, but route exists)
+ * CRITICAL: Detect if response is a FastAPI/Starlette generic "route not found" 404
  * 
- * FastAPI: {"detail":"Not Found"}
- * Custom: {"error":"not found"}, {"message":"Record not found"}, etc.
+ * FastAPI returns {"detail":"Not Found"} when the ROUTE doesn't exist.
+ * This is different from application-level "record not found" responses.
+ * 
+ * ⚠️ Previously this was misclassified as RECORD_NOT_FOUND, causing infinite retries!
  */
-function isJsonRecordNotFound(body: string): boolean {
+function isFastApiRouteNotFound(body: string): boolean {
   try {
     const json = JSON.parse(body);
-    // FastAPI generic 404: {"detail":"Not Found"}
-    if (json.detail && typeof json.detail === 'string') return true;
-    // Other common patterns
-    if (json.error || json.message || json.status === 404) return true;
-    return true; // Any valid JSON 404 is a record-not-found
+    
+    // FastAPI default 404: exactly {"detail":"Not Found"}
+    if (json.detail === "Not Found") return true;
+    
+    // FastAPI method not allowed
+    if (json.detail === "Method Not Allowed") return true;
+    
+    // Generic framework-style error with just "message" or "error" = "Not Found"
+    if (json.message === "Not Found" && Object.keys(json).length === 1) return true;
+    if (json.error === "Not Found" && Object.keys(json).length === 1) return true;
+    
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if response indicates a domain-specific "record not found" or "scraping needed"
+ * This means the ROUTE EXISTS but the record isn't available yet.
+ */
+function isDomainRecordNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    
+    // Domain-specific indicators that route exists but record doesn't
+    if (json.found === false) return true;
+    if (json.success === false && json.error) return true;
+    if (json.expediente_encontrado === false) return true;
+    if (json.status === "not_cached") return true;
+    if (json.status === "pending") return true;
+    if (json.job_id || json.jobId) return true; // Scraping job created
+    
+    // Check for scraping-related keywords in error messages
+    const errorMsg = String(json.error || json.message || json.detail || "").toLowerCase();
+    if (errorMsg.includes("not cached") || 
+        errorMsg.includes("scraping") ||
+        errorMsg.includes("processing") ||
+        errorMsg.includes("no snapshot") ||
+        errorMsg.includes("radicado not found")) { // Domain-specific "not found"
+      return true;
+    }
+    
+    return false;
   } catch {
     return false;
   }
@@ -486,29 +524,41 @@ async function probeRoute(
       }
     }
 
-    // 404 - classify it
+    // 404 - classify it with STRICT logic to avoid false positives
     if (httpStatus === 404) {
       // HTML 404 = route doesn't exist (Express, Nginx, etc.)
       if (isHtmlRouteNotFound(bodyText)) {
         attempt.errorCode = 'ROUTE_NOT_FOUND';
+        console.log(`[sync-pub] Route probe: HTML 404 detected (route missing)`);
         return { attempt, isValidRoute: false };
       }
       
-      // JSON 404 = valid route, record not found (FastAPI, custom APIs)
-      // This is NOT a route error - the endpoint exists, record doesn't
-      if (isJsonRecordNotFound(bodyText)) {
+      // CRITICAL: FastAPI generic 404 {"detail":"Not Found"} = ROUTE doesn't exist
+      // This is NOT a record-not-found - it means the endpoint path is wrong!
+      if (isFastApiRouteNotFound(bodyText)) {
+        attempt.errorCode = 'ROUTE_NOT_FOUND';
+        console.log(`[sync-pub] Route probe: FastAPI 404 detected (route missing, not record)`);
+        return { attempt, isValidRoute: false };
+      }
+      
+      // Domain-specific "record not found" - route EXISTS, record doesn't
+      if (isDomainRecordNotFound(bodyText)) {
         // Check if scraping is needed/in progress
         if (isScrapingNeededResponse(bodyText)) {
           attempt.errorCode = 'SCRAPING_NEEDED';
+          console.log(`[sync-pub] Route probe: Domain 404 with scraping indicators`);
           return { attempt, isValidRoute: true, needsPolling: true };
         }
-        // Valid route, record simply doesn't exist - trigger scraping
+        // Valid route, record simply doesn't exist - can trigger scraping
         attempt.errorCode = 'RECORD_NOT_FOUND';
+        console.log(`[sync-pub] Route probe: Domain 404 (record not found, route valid)`);
         return { attempt, isValidRoute: true, needsPolling: false };
       }
       
-      // Unknown 404 format - assume route error
+      // Unknown JSON 404 format - default to ROUTE_NOT_FOUND for safety
+      // This prevents infinite retry loops on misconfigured endpoints
       attempt.errorCode = 'ROUTE_NOT_FOUND';
+      console.log(`[sync-pub] Route probe: Unknown 404 format, defaulting to route error. Body: ${bodyText.slice(0, 200)}`);
       return { attempt, isValidRoute: false };
     }
 

@@ -154,11 +154,81 @@ function isHtmlCannotGet(body: string): boolean {
     lower.includes("cannot get") ||
     lower.includes("<!doctype html") ||
     lower.includes("<html") ||
-    lower.includes("not found</pre>")
+    lower.includes("not found</pre>") ||
+    lower.includes("404 not found") ||
+    lower.includes("<title>404")
   );
 }
 
-// Classify response kind
+/**
+ * CRITICAL: Detect if response is a FastAPI/Starlette generic "route not found" 404
+ * 
+ * FastAPI returns {"detail":"Not Found"} when the ROUTE doesn't exist.
+ * This is different from application-level "record not found" responses which
+ * typically have more specific error messages or fields.
+ * 
+ * Examples of ROUTE_NOT_FOUND (framework-level 404):
+ * - {"detail":"Not Found"}  (FastAPI/Starlette default)
+ * - {"detail":"Method Not Allowed"} (FastAPI)
+ * - {"message":"Not Found"} (Express JSON)
+ * 
+ * Examples of RECORD_NOT_FOUND (application-level 404):
+ * - {"success":false,"error":"Radicado not found in cache"}
+ * - {"found":false,"message":"No records for this radicado"}
+ * - {"status":"not_cached","job_id":"..."}
+ */
+function isFastApiRouteNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    
+    // FastAPI default 404: exactly {"detail":"Not Found"}
+    if (json.detail === "Not Found") return true;
+    
+    // FastAPI method not allowed
+    if (json.detail === "Method Not Allowed") return true;
+    
+    // Generic framework-style error with just "message" or "error" = "Not Found"
+    if (json.message === "Not Found" && Object.keys(json).length === 1) return true;
+    if (json.error === "Not Found" && Object.keys(json).length === 1) return true;
+    
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if response indicates a domain-specific "record not found" or "scraping needed"
+ * This means the ROUTE EXISTS but the record isn't available yet.
+ */
+function isDomainRecordNotFound(body: string): boolean {
+  try {
+    const json = JSON.parse(body);
+    
+    // Domain-specific indicators that route exists but record doesn't
+    if (json.found === false) return true;
+    if (json.success === false && json.error) return true;
+    if (json.expediente_encontrado === false) return true;
+    if (json.status === "not_cached") return true;
+    if (json.status === "pending") return true;
+    if (json.job_id || json.jobId) return true; // Scraping job created
+    
+    // Check for scraping-related keywords in error messages
+    const errorMsg = String(json.error || json.message || json.detail || "").toLowerCase();
+    if (errorMsg.includes("not cached") || 
+        errorMsg.includes("scraping") ||
+        errorMsg.includes("processing") ||
+        errorMsg.includes("no snapshot")) {
+      return true;
+    }
+    
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Classify response kind with enhanced logic
 function classifyResponseKind(body: string): ProviderAuthCheck["response_kind"] {
   if (!body || body.trim() === "") return "EMPTY";
 
@@ -340,13 +410,35 @@ async function checkAuthWithSnapshot(
       return result;
     }
 
-    // Record not found (JSON 404 - this is actually success from auth perspective)
-    if (response.status === 404 && responseKind === "JSON") {
-      result.ok = true; // Auth worked, record just doesn't exist
+    // CRITICAL: FastAPI generic 404 {"detail":"Not Found"} means ROUTE doesn't exist
+    // This is NOT the same as "record not found" - the endpoint itself is missing
+    if (response.status === 404 && responseKind === "JSON" && isFastApiRouteNotFound(bodyText)) {
+      result.error_code = "UPSTREAM_ROUTE_MISSING";
+      result.error = "Route not found (FastAPI 404)";
+      result.hint =
+        `The ${authPath} endpoint returned {"detail":"Not Found"} which indicates the route does not exist. ` +
+        `Check PUBLICACIONES_BASE_URL and ensure the correct path prefix is set.`;
+      return result;
+    }
+
+    // Domain-specific record not found (JSON 404 with application-level error)
+    // This IS a valid route - auth worked, record just doesn't exist
+    if (response.status === 404 && responseKind === "JSON" && isDomainRecordNotFound(bodyText)) {
+      result.ok = true; // Auth worked, route exists, record just doesn't exist
       result.error_code = "RECORD_NOT_FOUND";
       result.error = "Test radicado not found (auth succeeded)";
       result.hint =
-        "Auth check passed. The test radicado returned 404 JSON, which means auth is working but record does not exist.";
+        "Auth check passed. The endpoint exists and auth is working, but the test radicado is not in the system.";
+      return result;
+    }
+
+    // Generic JSON 404 - could be either, default to route missing for safety
+    if (response.status === 404 && responseKind === "JSON") {
+      result.error_code = "UPSTREAM_ROUTE_MISSING";
+      result.error = "Route possibly not found (ambiguous JSON 404)";
+      result.hint =
+        `The ${authPath} endpoint returned a JSON 404 that doesn't match expected patterns. ` +
+        `Verify the endpoint path exists on this service.`;
       return result;
     }
 
