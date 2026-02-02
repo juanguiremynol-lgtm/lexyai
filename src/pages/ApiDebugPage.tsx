@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { SyncAuditPanel } from "@/components/platform/SyncAuditPanel";
 
 // ============== Types ==============
 
@@ -1038,6 +1039,7 @@ export default function ApiDebugPage() {
         .from('work_item_acts')
         .select('id, act_date, description, source, created_at')
         .eq('work_item_id', workItem.id)
+        .eq('is_archived', false)
         .order('act_date', { ascending: false })
         .limit(10);
 
@@ -1045,6 +1047,7 @@ export default function ApiDebugPage() {
         .from('work_item_publicaciones')
         .select('id, title, pdf_url, fecha_fijacion, source, created_at')
         .eq('work_item_id', workItem.id)
+        .eq('is_archived', false)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -1920,6 +1923,9 @@ export default function ApiDebugPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Sync Audit Panel - Data Integrity Monitoring */}
+      <SyncAuditPanel />
 
       {/* Publicaciones Debug Card - Full Data Flow Verification */}
       <PublicacionesDebugCard />

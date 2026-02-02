@@ -2832,10 +2832,37 @@ Deno.serve(async (req) => {
     result.provider_used = fetchResult.provider;
     console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
+    // ============= AUDIT: COUNT BEFORE SYNC =============
+    const { count: actsCountBefore } = await supabase
+      .from('work_item_acts')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_item_id', work_item_id)
+      .eq('is_archived', false);
+    
+    console.log(`[sync-by-work-item] Count before sync: ${actsCountBefore || 0} actuaciones`);
+
     // Handle empty actuaciones (success but no data)
     if (fetchResult.actuaciones.length === 0) {
       result.ok = true;
       result.warnings.push('No actuaciones found in external source');
+      
+      // Audit log for empty result
+      await supabase.from('sync_audit_log').insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        radicado: workItem.radicado,
+        workflow_type: workItem.workflow_type,
+        sync_type: 'actuaciones',
+        acts_count_before: actsCountBefore || 0,
+        acts_count_after: actsCountBefore || 0,
+        acts_inserted: 0,
+        acts_skipped: 0,
+        provider_used: fetchResult.provider,
+        provider_latency_ms: fetchResult.latencyMs,
+        status: 'success',
+        triggered_by: 'manual',
+        edge_function: 'sync-by-work-item',
+      });
       
       await supabase
         .from('work_items')
@@ -3167,6 +3194,40 @@ Deno.serve(async (req) => {
     if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
       console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync is handled by sync-publicaciones-by-work-item (call separately)`);
     }
+
+    // ============= AUDIT: COUNT AFTER SYNC & LOG =============
+    const { count: actsCountAfter } = await supabase
+      .from('work_item_acts')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_item_id', work_item_id)
+      .eq('is_archived', false);
+    
+    // ANOMALY CHECK: count should never decrease
+    const countDecreased = (actsCountAfter || 0) < (actsCountBefore || 0);
+    if (countDecreased) {
+      console.error(`[ANOMALY] work_item_acts count DECREASED for ${work_item_id}: ${actsCountBefore} → ${actsCountAfter}`);
+    }
+
+    // Log the audit record
+    await supabase.from('sync_audit_log').insert({
+      work_item_id,
+      organization_id: workItem.organization_id,
+      radicado: workItem.radicado,
+      workflow_type: workItem.workflow_type,
+      sync_type: 'actuaciones',
+      acts_count_before: actsCountBefore || 0,
+      acts_count_after: actsCountAfter || 0,
+      acts_inserted: result.inserted_count,
+      acts_skipped: result.skipped_count,
+      provider_used: result.provider_used,
+      provider_latency_ms: fetchResult.latencyMs,
+      status: countDecreased ? 'anomaly' : (result.errors.length > 0 ? 'partial' : 'success'),
+      error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
+      count_decreased: countDecreased,
+      anomaly_details: countDecreased ? `Count decreased from ${actsCountBefore} to ${actsCountAfter}` : null,
+      triggered_by: 'manual',
+      edge_function: 'sync-by-work-item',
+    });
 
     result.ok = true;
     console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);
