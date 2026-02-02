@@ -1,30 +1,23 @@
 /**
- * Estados de Hoy - Global View
+ * Estados de Hoy - Panel de Novedades
  * 
- * ICARUS-style "Estados electrónicos / Estados de hoy" page
- * Shows unified view of all work_item_acts + work_item_publicaciones
- * with 3-business-day ejecutoria highlight.
+ * CRITICAL ARCHITECTURE:
+ * - Estados tab: ONLY work_item_publicaciones data
+ * - Actuaciones tab: ONLY work_item_acts data
+ * - "New" detection uses fecha_fijacion (estados) and act_date (actuaciones), NOT created_at
  */
 
-import { useState, useMemo, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useOrganization } from "@/contexts/OrganizationContext";
-import { 
-  getEstadosHoy, 
-  type EstadoHoyItem, 
-  type EstadosHoyFilters 
-} from "@/lib/services/estados-hoy-service";
-import { supabase } from "@/integrations/supabase/client";
+import { usePublicacionesHoy, type PublicacionHoyItem } from "@/hooks/use-publicaciones-hoy";
+import { useActuacionesHoy, type ActuacionHoyItem } from "@/hooks/use-actuaciones-hoy";
 
 // UI Components
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -39,29 +32,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 
 // Icons
 import {
-  Search,
   Download,
   RefreshCw,
   ExternalLink,
   FileText,
   AlertTriangle,
-  Info,
   Newspaper,
   Scale,
   Clock,
   CheckCircle,
-  Filter,
+  FileWarning,
+  Gavel,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -71,119 +55,408 @@ import * as XLSX from "xlsx";
 
 // ============= CONSTANTS =============
 
-const PAGE_SIZE = 20;
-
-const SEVERITY_CONFIG = {
-  CRITICAL: { label: "Crítico", color: "bg-red-500", textColor: "text-red-600" },
-  HIGH: { label: "Alto", color: "bg-orange-500", textColor: "text-orange-600" },
-  MEDIUM: { label: "Medio", color: "bg-yellow-500", textColor: "text-yellow-600" },
-  LOW: { label: "Bajo", color: "bg-blue-500", textColor: "text-blue-600" },
-};
-
 const SOURCE_LABELS: Record<string, string> = {
-  PUBLICACIONES_API: "Rama Judicial",
+  publicaciones: "Publicaciones",
+  PUBLICACIONES_API: "Publicaciones",
+  cpnu: "CPNU",
   CPNU: "CPNU",
+  samai: "SAMAI",
   SAMAI: "SAMAI",
-  ICARUS: "ICARUS",
-  MANUAL: "Manual",
 };
 
-// ============= COMPONENT =============
+// ============= HELPER FUNCTIONS =============
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    return format(new Date(dateStr), "dd/MM/yyyy", { locale: es });
+  } catch {
+    return dateStr;
+  }
+}
+
+// ============= PUBLICACIONES TABLE COMPONENT =============
+
+function PublicacionesTable({ 
+  items, 
+  isLoading, 
+  title,
+  showNoDateWarning = false,
+  onRowClick,
+}: { 
+  items: PublicacionHoyItem[];
+  isLoading: boolean;
+  title: string;
+  showNoDateWarning?: boolean;
+  onRowClick: (item: PublicacionHoyItem) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {showNoDateWarning && items.length > 0 && (
+        <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
+          <FileWarning className="h-4 w-4 flex-shrink-0" />
+          <span>
+            Estos estados no tienen fecha de fijación en el PDF. Se muestran porque fueron sincronizados en las últimas 24 horas.
+          </span>
+        </div>
+      )}
+      
+      {title && items.length > 0 && (
+        <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
+      )}
+      
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[60px]">PDF</TableHead>
+              <TableHead>Título</TableHead>
+              <TableHead className="w-[180px]">Radicado</TableHead>
+              <TableHead>Juzgado</TableHead>
+              <TableHead className="w-[120px]">Fecha fijación</TableHead>
+              <TableHead className="w-[120px]">Inicia término</TableHead>
+              <TableHead className="w-[80px]">Fuente</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <TableRow key={i}>
+                  {Array.from({ length: 7 }).map((_, j) => (
+                    <TableCell key={j}>
+                      <Skeleton className="h-4 w-full" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <Newspaper className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No hay estados nuevos en los últimos 3 días</p>
+                </TableCell>
+              </TableRow>
+            ) : (
+              items.map((item) => (
+                <TableRow
+                  key={item.id}
+                  className={cn(
+                    "cursor-pointer hover:bg-muted/50 transition-colors",
+                    item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/50"
+                  )}
+                  onClick={() => onRowClick(item)}
+                >
+                  {/* PDF Link */}
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    {item.pdf_url || item.entry_url ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        asChild
+                      >
+                        <a href={item.pdf_url || item.entry_url || ''} target="_blank" rel="noopener noreferrer">
+                          <FileText className="h-4 w-4 text-primary" />
+                        </a>
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                  
+                  {/* Title */}
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate max-w-[200px]">{item.title}</span>
+                      {item.is_in_ejecutoria_window && (
+                        <Badge variant="outline" className="text-green-600 border-green-300 text-xs">
+                          En ejecutoria
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  
+                  {/* Radicado */}
+                  <TableCell className="font-mono text-xs">
+                    {item.radicado || "—"}
+                  </TableCell>
+                  
+                  {/* Authority/Court */}
+                  <TableCell className="text-sm max-w-[200px] truncate">
+                    {item.authority_name || item.despacho || "—"}
+                  </TableCell>
+                  
+                  {/* Fecha fijación */}
+                  <TableCell>
+                    {item.fecha_fijacion ? (
+                      <span className="text-sm">{formatDate(item.fecha_fijacion)}</span>
+                    ) : (
+                      <span className="text-xs text-amber-600 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        Sin fecha
+                      </span>
+                    )}
+                  </TableCell>
+                  
+                  {/* Inicia término */}
+                  <TableCell>
+                    {item.terminos_inician ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-muted-foreground" />
+                              <span className={cn(
+                                "text-sm",
+                                item.is_in_ejecutoria_window && "font-medium text-green-700 dark:text-green-400"
+                              )}>
+                                {formatDate(item.terminos_inician)}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Día hábil siguiente a la desfijación</p>
+                            {item.ejecutoria_ends_at && (
+                              <p className="text-green-600">
+                                Ejecutoria hasta: {formatDate(item.ejecutoria_ends_at)}
+                              </p>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                  
+                  {/* Source */}
+                  <TableCell>
+                    <Badge variant="secondary" className="text-xs">
+                      {SOURCE_LABELS[item.source] || item.source}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+// ============= ACTUACIONES TABLE COMPONENT =============
+
+function ActuacionesTable({ 
+  items, 
+  isLoading,
+  onRowClick,
+}: { 
+  items: ActuacionHoyItem[];
+  isLoading: boolean;
+  onRowClick: (item: ActuacionHoyItem) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Actuación</TableHead>
+            <TableHead className="w-[180px]">Radicado</TableHead>
+            <TableHead>Juzgado</TableHead>
+            <TableHead className="w-[120px]">Fecha</TableHead>
+            <TableHead className="w-[80px]">Fuente</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <TableRow key={i}>
+                {Array.from({ length: 5 }).map((_, j) => (
+                  <TableCell key={j}>
+                    <Skeleton className="h-4 w-full" />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          ) : items.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <Scale className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No hay actuaciones nuevas en los últimos 3 días</p>
+                <p className="text-xs mt-1">Las actuaciones se muestran según su fecha de registro en el juzgado (act_date), no la fecha de sincronización.</p>
+              </TableCell>
+            </TableRow>
+          ) : (
+            items.map((item) => (
+              <TableRow
+                key={item.id}
+                className={cn(
+                  "cursor-pointer hover:bg-muted/50 transition-colors",
+                  item.is_important && "bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/40"
+                )}
+                onClick={() => onRowClick(item)}
+              >
+                {/* Description */}
+                <TableCell>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      {item.is_important && (
+                        <Gavel className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                      )}
+                      <span className={cn(
+                        "font-medium truncate max-w-[300px]",
+                        item.is_important && "text-amber-900 dark:text-amber-200"
+                      )}>
+                        {item.act_type || item.description?.split('.')[0] || 'Actuación'}
+                      </span>
+                      {item.importance_reason && (
+                        <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
+                          {item.importance_reason}
+                        </Badge>
+                      )}
+                    </div>
+                    {item.description && item.description !== item.act_type && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <p className="text-xs text-muted-foreground truncate max-w-[400px] italic">
+                              "{item.description.substring(0, 80)}{item.description.length > 80 ? '...' : ''}"
+                            </p>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-md">
+                            <p className="text-sm">{item.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                </TableCell>
+                
+                {/* Radicado */}
+                <TableCell className="font-mono text-xs">
+                  {item.radicado || "—"}
+                </TableCell>
+                
+                {/* Authority/Court */}
+                <TableCell className="text-sm max-w-[200px] truncate">
+                  {item.authority_name || item.despacho || "—"}
+                </TableCell>
+                
+                {/* Date */}
+                <TableCell className="text-sm">
+                  {formatDate(item.act_date)}
+                </TableCell>
+                
+                {/* Source */}
+                <TableCell>
+                  <Badge variant="secondary" className="text-xs uppercase">
+                    {SOURCE_LABELS[item.source] || item.source}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ============= MAIN COMPONENT =============
 
 export default function EstadosHoy() {
-  const { organization } = useOrganization();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'estados' | 'actuaciones'>('estados');
   
-  // State
-  const [page, setPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [showTutelas, setShowTutelas] = useState(true);
-  const [showOnlyCritical, setShowOnlyCritical] = useState(false);
+  // Separate data hooks
+  const publicaciones = usePublicacionesHoy();
+  const actuaciones = useActuacionesHoy();
   
-  // Debounce search
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchTerm(value);
-    const timeout = setTimeout(() => {
-      setDebouncedSearch(value);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, []);
+  // Navigation handlers
+  const handlePublicacionClick = useCallback((item: PublicacionHoyItem) => {
+    navigate(`/app/work-items/${item.work_item_id}`);
+  }, [navigate]);
   
-  // Build filters
-  const filters: EstadosHoyFilters = useMemo(() => ({
-    search: debouncedSearch,
-    showTutelas,
-    showOnlyCritical,
-  }), [debouncedSearch, showTutelas, showOnlyCritical]);
+  const handleActuacionClick = useCallback((item: ActuacionHoyItem) => {
+    navigate(`/app/work-items/${item.work_item_id}`);
+  }, [navigate]);
   
-  // Main query
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy", organization?.id, page, filters],
-    queryFn: () => getEstadosHoy(organization!.id, { page, pageSize: PAGE_SIZE, filters }),
-    enabled: !!organization?.id,
-    staleTime: 30000,
-  });
+  // Refresh handler
+  const handleRefresh = useCallback(() => {
+    publicaciones.refetch();
+    actuaciones.refetch();
+    toast.success("Actualizando datos...");
+  }, [publicaciones, actuaciones]);
   
-  // Export to Excel
+  // Export handler
   const handleExport = useCallback(() => {
-    if (!data?.items?.length) {
-      toast.error("No hay datos para exportar");
-      return;
+    const allPublicaciones = [
+      ...(publicaciones.data?.withDate || []),
+      ...(publicaciones.data?.withoutDate || []),
+    ];
+    
+    if (activeTab === 'estados') {
+      if (!allPublicaciones.length) {
+        toast.error("No hay estados para exportar");
+        return;
+      }
+      
+      const exportData = allPublicaciones.map(item => ({
+        "Título": item.title,
+        "Radicado": item.radicado || "",
+        "Juzgado": item.authority_name || item.despacho || "",
+        "Demandante(s)": item.demandantes || "",
+        "Demandado(s)": item.demandados || "",
+        "Fecha fijación": item.fecha_fijacion || "Sin fecha",
+        "Inicia término": item.terminos_inician || "—",
+        "En ejecutoria": item.is_in_ejecutoria_window ? "Sí" : "No",
+        "PDF URL": item.pdf_url || "",
+        "Fuente": SOURCE_LABELS[item.source] || item.source,
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Estados");
+      XLSX.writeFile(wb, `estados_hoy_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
+    } else {
+      const items = actuaciones.data?.items || [];
+      if (!items.length) {
+        toast.error("No hay actuaciones para exportar");
+        return;
+      }
+      
+      const exportData = items.map(item => ({
+        "Actuación": item.description,
+        "Radicado": item.radicado || "",
+        "Juzgado": item.authority_name || item.despacho || "",
+        "Demandante(s)": item.demandantes || "",
+        "Demandado(s)": item.demandados || "",
+        "Fecha": item.act_date || "",
+        "Importante": item.is_important ? "Sí" : "No",
+        "Motivo importancia": item.importance_reason || "",
+        "Fuente": SOURCE_LABELS[item.source] || item.source,
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(exportData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Actuaciones");
+      XLSX.writeFile(wb, `actuaciones_hoy_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
     }
-    
-    const exportData = data.items.map(item => ({
-      "Número del proceso": item.radicado || "",
-      "Despacho": item.despacho || item.authority_name || "",
-      "Demandante(s)": item.demandantes || "",
-      "Demandado(s)": item.demandados || "",
-      "Actuación": item.actuacion_type || item.type,
-      "Anotación": item.content || "",
-      "Inicia término": item.inicia_termino || "—",
-      "Fuente término": item.inicia_termino_source === 'fecha_desfijacion' ? 'Fecha desfijación' 
-        : item.inicia_termino_source === 'fecha_inicial_raw' ? 'Fecha inicial (ICARUS)'
-        : item.inicia_termino_source === 'fecha_publicacion' ? 'Fecha publicación (fallback)'
-        : 'Sin datos',
-      "Tipo": item.type === 'ESTADO' ? 'Estado' : 'Actuación',
-      "Severidad": SEVERITY_CONFIG[item.severity]?.label || item.severity,
-      "Fuente": SOURCE_LABELS[item.source] || item.source,
-      "Fecha": item.date || "",
-      "En ejecutoria": item.is_in_ejecutoria_window ? 'Sí' : 'No',
-    }));
-    
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Estados de Hoy");
-    XLSX.writeFile(wb, `estados_hoy_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
     
     toast.success("Archivo exportado exitosamente");
-  }, [data?.items]);
+  }, [activeTab, publicaciones.data, actuaciones.data]);
   
-  // Navigate to work item detail
-  const handleRowClick = (item: EstadoHoyItem) => {
-    navigate(`/app/work-items/${item.work_item_id}`);
-  };
-  
-  // Format date for display
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "—";
-    try {
-      return format(new Date(dateStr), "dd/MM/yyyy", { locale: es });
-    } catch {
-      return dateStr;
-    }
-  };
+  const isFetching = publicaciones.isFetching || actuaciones.isFetching;
   
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Estados de Hoy</h1>
+          <h1 className="text-2xl font-bold text-foreground">Panel de Novedades</h1>
           <p className="text-muted-foreground">
-            Vista global de estados y actuaciones judiciales
+            Estados y actuaciones judiciales de los últimos 3 días
           </p>
         </div>
         
@@ -191,7 +464,7 @@ export default function EstadosHoy() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={handleRefresh}
             disabled={isFetching}
           >
             <RefreshCw className={cn("h-4 w-4 mr-2", isFetching && "animate-spin")} />
@@ -201,7 +474,6 @@ export default function EstadosHoy() {
             variant="outline"
             size="sm"
             onClick={handleExport}
-            disabled={!data?.items?.length}
           >
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
@@ -216,275 +488,112 @@ export default function EstadosHoy() {
             <CheckCircle className="h-4 w-4 text-green-600" />
           </div>
           <p className="text-sm text-green-800 dark:text-green-200">
-            Los estados permanecerán sombreados con <strong>verde</strong> durante <strong>3 días hábiles</strong>, en virtud de los términos de ejecutoria.
+            Los estados permanecerán sombreados con <strong>verde</strong> durante <strong>3 días hábiles</strong> después de iniciar el término, en virtud de los términos de ejecutoria.
           </p>
         </CardContent>
       </Card>
       
-      {/* Filters */}
+      {/* Tabs */}
       <Card>
-        <CardContent className="py-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end">
-            {/* Search */}
-            <div className="flex-1">
-              <Label htmlFor="search" className="text-sm mb-1.5 block">Buscar</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="search"
-                  placeholder="Radicado, despacho, partes, anotación..."
-                  value={searchTerm}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            
-            {/* Toggles */}
-            <div className="flex items-center gap-6">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="tutelas"
-                  checked={showTutelas}
-                  onCheckedChange={(checked) => {
-                    setShowTutelas(checked);
-                    setPage(1);
-                  }}
-                />
-                <Label htmlFor="tutelas" className="text-sm cursor-pointer">
-                  Mostrar tutelas
-                </Label>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'estados' | 'actuaciones')}>
+          <CardHeader className="pb-0">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="estados" className="gap-2">
+                <Newspaper className="h-4 w-4" />
+                Estados
+                <Badge variant={activeTab === 'estados' ? 'default' : 'secondary'} className="ml-1">
+                  {publicaciones.totalCount}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="actuaciones" className="gap-2">
+                <Scale className="h-4 w-4" />
+                Actuaciones
+                <Badge variant={activeTab === 'actuaciones' ? 'default' : 'secondary'} className="ml-1">
+                  {actuaciones.totalCount}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
+          </CardHeader>
+          
+          <CardContent className="pt-6">
+            {/* Estados Tab */}
+            <TabsContent value="estados" className="mt-0 space-y-6">
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <Newspaper className="h-4 w-4" />
+                <span>
+                  Publicaciones procesales de la Rama Judicial (últimos 3 días por fecha de fijación)
+                </span>
               </div>
               
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="critical"
-                  checked={showOnlyCritical}
-                  onCheckedChange={(checked) => {
-                    setShowOnlyCritical(checked);
-                    setPage(1);
-                  }}
+              {/* With date */}
+              {(publicaciones.data?.withDate?.length || 0) > 0 && (
+                <PublicacionesTable
+                  items={publicaciones.data?.withDate || []}
+                  isLoading={publicaciones.isLoading}
+                  title="Con fecha de fijación"
+                  onRowClick={handlePublicacionClick}
                 />
-                <Label htmlFor="critical" className="text-sm cursor-pointer">
-                  Solo críticos
-                </Label>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-      
-      {/* Results count */}
-      {data && (
-        <div className="text-sm text-muted-foreground">
-          Mostrando {data.items.length} de {data.total} resultados
-          {debouncedSearch && ` para "${debouncedSearch}"`}
-        </div>
-      )}
-      
-      {/* Table */}
-      <Card>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[180px]">Número del proceso</TableHead>
-                <TableHead>Despacho</TableHead>
-                <TableHead>Demandante(s)</TableHead>
-                <TableHead>Demandado(s)</TableHead>
-                <TableHead>Actuación</TableHead>
-                <TableHead className="max-w-[200px]">Anotación</TableHead>
-                <TableHead>Inicia término</TableHead>
-                <TableHead className="w-[50px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
-                      <TableCell key={j}>
-                        <Skeleton className="h-4 w-full" />
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : data?.items?.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
-                    No se encontraron estados o actuaciones
-                  </TableCell>
-                </TableRow>
-              ) : (
-                data?.items?.map((item) => (
-                  <TableRow
-                    key={item.id}
-                    className={cn(
-                      "cursor-pointer hover:bg-muted/50 transition-colors",
-                      item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/50"
-                    )}
-                    onClick={() => handleRowClick(item)}
-                  >
-                    {/* Radicado */}
-                    <TableCell className="font-mono text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className={cn(
-                          "h-2 w-2 rounded-full",
-                          SEVERITY_CONFIG[item.severity]?.color
-                        )} />
-                        <span>{item.radicado || "—"}</span>
-                      </div>
-                    </TableCell>
-                    
-                    {/* Despacho */}
-                    <TableCell className="text-sm max-w-[200px] truncate">
-                      {item.despacho || item.authority_name || "—"}
-                    </TableCell>
-                    
-                    {/* Demandantes */}
-                    <TableCell className="text-sm max-w-[150px] truncate">
-                      {item.demandantes || item.client_name || "—"}
-                    </TableCell>
-                    
-                    {/* Demandados */}
-                    <TableCell className="text-sm max-w-[150px] truncate">
-                      {item.demandados || "—"}
-                    </TableCell>
-                    
-                    {/* Actuación */}
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                          {item.type === 'ESTADO' ? 'EST' : 'ACT'}
-                        </Badge>
-                        <span className="text-sm">{item.actuacion_type || "—"}</span>
-                      </div>
-                    </TableCell>
-                    
-                    {/* Anotación */}
-                    <TableCell className="max-w-[200px]">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="text-sm truncate block">
-                              {item.content?.substring(0, 50) || "—"}
-                              {item.content && item.content.length > 50 && "..."}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-sm">
-                            <p className="text-sm">{item.content}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableCell>
-                    
-                    {/* Inicia término */}
-                    <TableCell>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1">
-                              {item.inicia_termino ? (
-                                <>
-                                  <Clock className="h-3 w-3 text-muted-foreground" />
-                                  <span className={cn(
-                                    "text-sm",
-                                    item.is_in_ejecutoria_window && "font-medium text-green-700 dark:text-green-400"
-                                  )}>
-                                    {formatDate(item.inicia_termino)}
-                                  </span>
-                                </>
-                              ) : (
-                                <div className="flex items-center gap-1 text-amber-600">
-                                  <AlertTriangle className="h-3 w-3" />
-                                  <span className="text-xs">Sin datos</span>
-                                </div>
-                              )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {item.inicia_termino_source === 'fecha_desfijacion' && (
-                              <p>Desde fecha_desfijacion (Publicaciones)</p>
-                            )}
-                            {item.inicia_termino_source === 'fecha_inicial_raw' && (
-                              <p>Desde fechaInicial (ICARUS/Actuaciones)</p>
-                            )}
-                            {item.inicia_termino_source === 'fecha_publicacion' && (
-                              <p>Calculado desde fecha publicación (fallback)</p>
-                            )}
-                            {item.inicia_termino_source === 'none' && (
-                              <p>Sin datos de término disponibles</p>
-                            )}
-                            {item.is_in_ejecutoria_window && item.ejecutoria_ends_at && (
-                              <p className="text-green-600 mt-1">
-                                Ejecutoria hasta: {formatDate(item.ejecutoria_ends_at)}
-                              </p>
-                            )}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </TableCell>
-                    
-                    {/* Actions - PDF link only, no sync button */}
-                    <TableCell>
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        {item.pdf_url && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            asChild
-                          >
-                            <a href={item.pdf_url} target="_blank" rel="noopener noreferrer">
-                              <FileText className="h-4 w-4" />
-                            </a>
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
               )}
-            </TableBody>
-          </Table>
-        </div>
+              
+              {/* Without date */}
+              {(publicaciones.data?.withoutDate?.length || 0) > 0 && (
+                <PublicacionesTable
+                  items={publicaciones.data?.withoutDate || []}
+                  isLoading={publicaciones.isLoading}
+                  title="Sin fecha de fijación (sincronizados hoy)"
+                  showNoDateWarning={true}
+                  onRowClick={handlePublicacionClick}
+                />
+              )}
+              
+              {/* Empty state */}
+              {!publicaciones.isLoading && publicaciones.totalCount === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Newspaper className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium">No hay estados nuevos en los últimos 3 días</p>
+                  <p className="text-sm mt-1">
+                    Los estados se muestran según su fecha de fijación, no la fecha de sincronización.
+                  </p>
+                </div>
+              )}
+            </TabsContent>
+            
+            {/* Actuaciones Tab */}
+            <TabsContent value="actuaciones" className="mt-0 space-y-4">
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <Scale className="h-4 w-4" />
+                <span>
+                  Actuaciones del libro del juzgado (últimos 3 días por fecha de actuación)
+                </span>
+              </div>
+              
+              <ActuacionesTable
+                items={actuaciones.data?.items || []}
+                isLoading={actuaciones.isLoading}
+                onRowClick={handleActuacionClick}
+              />
+              
+              {actuaciones.importantCount > 0 && (
+                <div className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                  <Gavel className="h-4 w-4" />
+                  <span>{actuaciones.importantCount} actuaciones importantes destacadas</span>
+                </div>
+              )}
+            </TabsContent>
+          </CardContent>
+        </Tabs>
       </Card>
       
-      {/* Pagination */}
-      {data && data.totalPages > 1 && (
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                className={page === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
-            
-            {Array.from({ length: Math.min(5, data.totalPages) }, (_, i) => {
-              const pageNum = i + 1;
-              return (
-                <PaginationItem key={pageNum}>
-                  <PaginationLink
-                    onClick={() => setPage(pageNum)}
-                    isActive={page === pageNum}
-                    className="cursor-pointer"
-                  >
-                    {pageNum}
-                  </PaginationLink>
-                </PaginationItem>
-              );
-            })}
-            
-            <PaginationItem>
-              <PaginationNext
-                onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}
-                className={page === data.totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
-      )}
+      {/* Footer info */}
+      <div className="text-xs text-muted-foreground text-center space-y-1">
+        <p>
+          Los datos se actualizan automáticamente al iniciar sesión y diariamente a las 7:00 AM.
+        </p>
+        <p>
+          <strong>Estados:</strong> Filtrados por fecha de fijación (fecha_fijacion) • 
+          <strong> Actuaciones:</strong> Filtradas por fecha de actuación (act_date)
+        </p>
+      </div>
     </div>
   );
 }
