@@ -122,3 +122,9 @@ verify_jwt = false
 
 [functions.scheduled-daily-welcome]
 verify_jwt = false
+
+[functions.debug-tenant-snapshot]
+verify_jwt = false
+
+[functions.admin-backfill-work-items-org]
+verify_jwt = false
