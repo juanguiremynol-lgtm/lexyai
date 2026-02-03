@@ -6079,6 +6079,7 @@ export type Database = {
           source_platform: string | null
           source_reference: string | null
           source_url: string | null
+          sources: string[] | null
           work_item_id: string
           workflow_type: string | null
         }
@@ -6117,6 +6118,7 @@ export type Database = {
           source_platform?: string | null
           source_reference?: string | null
           source_url?: string | null
+          sources?: string[] | null
           work_item_id: string
           workflow_type?: string | null
         }
@@ -6155,6 +6157,7 @@ export type Database = {
           source_platform?: string | null
           source_reference?: string | null
           source_url?: string | null
+          sources?: string[] | null
           work_item_id?: string
           workflow_type?: string | null
         }
@@ -6283,6 +6286,7 @@ export type Database = {
           raw_data: Json | null
           raw_json: Json | null
           source: string
+          sources: string[] | null
           tipo_publicacion: string | null
           title: string
           work_item_id: string
@@ -6312,6 +6316,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           source?: string
+          sources?: string[] | null
           tipo_publicacion?: string | null
           title: string
           work_item_id: string
@@ -6341,6 +6346,7 @@ export type Database = {
           raw_data?: Json | null
           raw_json?: Json | null
           source?: string
+          sources?: string[] | null
           tipo_publicacion?: string | null
           title?: string
           work_item_id?: string
