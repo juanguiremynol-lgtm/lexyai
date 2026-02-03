@@ -24,7 +24,8 @@ const corsHeaders = {
 };
 
 // Workflows that support publicaciones monitoring
-const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
+// TUTELA is included because Publicaciones Procesales can contain important notifications
+const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'];
 
 // Terminal stages that don't need monitoring
 const TERMINAL_STAGES = [
