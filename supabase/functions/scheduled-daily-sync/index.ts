@@ -247,8 +247,8 @@ async function syncOrganization(
           successCount++;
         }
 
-        // Also sync publicaciones for eligible workflows
-        if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workItem.workflow_type)) {
+        // Also sync publicaciones for eligible workflows (TUTELA included)
+        if (['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'].includes(workItem.workflow_type)) {
           try {
             const { data: pubResult } = await supabase.functions.invoke(
               "sync-publicaciones-by-work-item",
