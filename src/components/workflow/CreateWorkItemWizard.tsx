@@ -199,43 +199,58 @@ export function CreateWorkItemWizard({
   
   // Apply lookup data to form fields - EXPANDED
   useEffect(() => {
+    console.log('[CreateWorkItemWizard] Lookup effect triggered:', {
+      hasProcessData: !!lookupResult?.process_data,
+      lookupStatus,
+      processData: lookupResult?.process_data,
+    });
+    
     if (lookupResult?.process_data && lookupStatus === 'success') {
       const data = lookupResult.process_data;
       const newAutoFields = new Set<string>();
+      
+      console.log('[CreateWorkItemWizard] Applying lookup data:', data);
       
       // Authority information
       if (data.despacho) {
         setAuthorityName(data.despacho);
         newAutoFields.add('authorityName');
+        console.log('[CreateWorkItemWizard] Set authorityName:', data.despacho);
       }
       if (data.ciudad) {
         setAuthorityCity(data.ciudad);
         newAutoFields.add('authorityCity');
+        console.log('[CreateWorkItemWizard] Set authorityCity:', data.ciudad);
       }
       if (data.departamento) {
         setAuthorityDepartment(data.departamento);
         newAutoFields.add('authorityDepartment');
+        console.log('[CreateWorkItemWizard] Set authorityDepartment:', data.departamento);
       }
       
       // Parties (general)
       if (data.demandante) {
         setDemandantes(data.demandante);
         newAutoFields.add('demandantes');
+        console.log('[CreateWorkItemWizard] Set demandantes:', data.demandante);
       }
       if (data.demandado) {
         setDemandados(data.demandado);
         newAutoFields.add('demandados');
+        console.log('[CreateWorkItemWizard] Set demandados:', data.demandado);
       }
       
       // Tutela-specific: accionado = demandado (legally equivalent)
       if (workflowType === 'TUTELA' && data.demandado) {
         setAccionado(data.demandado);
         newAutoFields.add('accionado');
+        console.log('[CreateWorkItemWizard] Set accionado:', data.demandado);
       }
       
       // Filing date (workflow-specific)
       if (data.fecha_radicacion) {
         const parsedDate = parseApiDate(data.fecha_radicacion);
+        console.log('[CreateWorkItemWizard] Parsing fecha_radicacion:', data.fecha_radicacion, '→', parsedDate);
         if (parsedDate) {
           if (workflowType === 'TUTELA') {
             setTutelaFilingDate(parsedDate);
@@ -255,6 +270,7 @@ export function CreateWorkItemWizard({
           data.demandante,
           data.demandado
         );
+        console.log('[CreateWorkItemWizard] Generated title:', smartTitle);
         if (smartTitle) {
           setTitle(smartTitle);
           newAutoFields.add('title');
@@ -268,6 +284,7 @@ export function CreateWorkItemWizard({
       }
       
       // Update auto-populated fields tracking
+      console.log('[CreateWorkItemWizard] Auto-populated fields:', Array.from(newAutoFields));
       setAutoPopulatedFields(newAutoFields);
     }
   }, [lookupResult, lookupStatus, workflowType, title]);

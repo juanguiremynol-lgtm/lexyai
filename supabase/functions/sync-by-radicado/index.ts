@@ -165,6 +165,78 @@ function errorResponse(code: string, message: string, status: number = 400): Res
 }
 
 /**
+ * Extract city from despacho string (e.g., "JUZGADO 002 CIVIL MUNICIPAL DE MEDELLÍN" -> "MEDELLÍN")
+ */
+function extractCityFromDespacho(despacho: string): string {
+  if (!despacho) return '';
+  
+  // Common patterns: "... DE [CITY]" or "... - [CITY]"
+  const deMatch = despacho.match(/(?:\sDE\s+|\s-\s+)([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]+)$/i);
+  if (deMatch) {
+    return deMatch[1].trim();
+  }
+  
+  // List of major Colombian cities to detect
+  const majorCities = [
+    'BOGOTÁ', 'BOGOTA', 'MEDELLÍN', 'MEDELLIN', 'CALI', 'BARRANQUILLA', 
+    'CARTAGENA', 'BUCARAMANGA', 'CÚCUTA', 'CUCUTA', 'PEREIRA', 'MANIZALES',
+    'IBAGUÉ', 'IBAGUE', 'SANTA MARTA', 'VILLAVICENCIO', 'PASTO', 'MONTERÍA',
+    'NEIVA', 'VALLEDUPAR', 'ARMENIA', 'SINCELEJO', 'POPAYÁN', 'TUNJA',
+    'FLORENCIA', 'QUIBDÓ', 'RIOHACHA', 'MOCOA', 'YOPAL', 'LETICIA', 'ARAUCA',
+    'MITÚ', 'SAN JOSÉ DEL GUAVIARE', 'PUERTO CARREÑO', 'INÍRIDA',
+  ];
+  
+  const upper = despacho.toUpperCase();
+  for (const city of majorCities) {
+    if (upper.includes(city)) {
+      return city;
+    }
+  }
+  
+  return '';
+}
+
+/**
+ * Extract department from despacho or infer from city
+ */
+function extractDepartmentFromDespacho(despacho: string): string {
+  const city = extractCityFromDespacho(despacho);
+  
+  // City to department mapping
+  const cityToDept: Record<string, string> = {
+    'BOGOTÁ': 'CUNDINAMARCA', 'BOGOTA': 'CUNDINAMARCA',
+    'MEDELLÍN': 'ANTIOQUIA', 'MEDELLIN': 'ANTIOQUIA',
+    'CALI': 'VALLE DEL CAUCA',
+    'BARRANQUILLA': 'ATLÁNTICO',
+    'CARTAGENA': 'BOLÍVAR',
+    'BUCARAMANGA': 'SANTANDER',
+    'CÚCUTA': 'NORTE DE SANTANDER', 'CUCUTA': 'NORTE DE SANTANDER',
+    'PEREIRA': 'RISARALDA',
+    'MANIZALES': 'CALDAS',
+    'IBAGUÉ': 'TOLIMA', 'IBAGUE': 'TOLIMA',
+    'SANTA MARTA': 'MAGDALENA',
+    'VILLAVICENCIO': 'META',
+    'PASTO': 'NARIÑO',
+    'MONTERÍA': 'CÓRDOBA',
+    'NEIVA': 'HUILA',
+    'VALLEDUPAR': 'CESAR',
+    'ARMENIA': 'QUINDÍO',
+    'SINCELEJO': 'SUCRE',
+    'POPAYÁN': 'CAUCA',
+    'TUNJA': 'BOYACÁ',
+    'FLORENCIA': 'CAQUETÁ',
+    'QUIBDÓ': 'CHOCÓ',
+    'RIOHACHA': 'LA GUAJIRA',
+  };
+  
+  if (city && cityToDept[city.toUpperCase()]) {
+    return cityToDept[city.toUpperCase()];
+  }
+  
+  return '';
+}
+
+/**
  * Validate and normalize radicado input
  */
 function validateRadicado(radicado: string, workflowType?: string): { 
@@ -310,22 +382,29 @@ async function fetchFromCpnu(
     const result = await response.json();
     const latency = Date.now() - startTime;
 
-    if (result.ok && result.proceso) {
-      const proceso = result.proceso;
+    console.log(`[CPNU] Response: ok=${result.ok}, has_proceso=${!!result.proceso}, has_results=${!!result.results?.length}`);
+
+    if (result.ok && (result.proceso || result.results?.length > 0)) {
+      const proceso = result.proceso || {};
+      const firstResult = result.results?.[0] || {};
       
-      // Extract parties from sujetos_procesales
+      // Extract parties from sujetos_procesales (prefer proceso, fallback to firstResult)
       let demandantes = '';
       let demandados = '';
       
-      if (proceso.sujetos_procesales?.length > 0) {
-        const demandantesList = proceso.sujetos_procesales
+      const sujetosSource = proceso.sujetos_procesales?.length > 0 
+        ? proceso.sujetos_procesales 
+        : (firstResult.sujetos_procesales || []);
+      
+      if (sujetosSource.length > 0) {
+        const demandantesList = sujetosSource
           .filter((s: { tipo: string }) => 
             s.tipo?.toLowerCase().includes('demandante') || 
             s.tipo?.toLowerCase().includes('actor') ||
             s.tipo?.toLowerCase().includes('accionante')
           )
           .map((s: { nombre: string }) => s.nombre);
-        const demandadosList = proceso.sujetos_procesales
+        const demandadosList = sujetosSource
           .filter((s: { tipo: string }) => 
             s.tipo?.toLowerCase().includes('demandado') ||
             s.tipo?.toLowerCase().includes('accionado')
@@ -335,27 +414,50 @@ async function fetchFromCpnu(
         if (demandantesList.length) demandantes = demandantesList.join(', ');
         if (demandadosList.length) demandados = demandadosList.join(', ');
       }
+      
+      // Fallback: Check firstResult for demandante/demandado direct fields
+      if (!demandantes && firstResult.demandante) {
+        demandantes = firstResult.demandante;
+      }
+      if (!demandados && firstResult.demandado) {
+        demandados = firstResult.demandado;
+      }
+      
+      // Also check proceso for direct fields
+      if (!demandantes && proceso.demandante) {
+        demandantes = proceso.demandante;
+      }
+      if (!demandados && proceso.demandado) {
+        demandados = proceso.demandado;
+      }
 
       const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
         fecha: (act.fecha_actuacion || act.fecha || '') as string,
         actuacion: (act.actuacion || '') as string,
         anotacion: (act.anotacion || '') as string,
       }));
+      
+      // Extract location info from multiple sources
+      const despacho = proceso.despacho || firstResult.despacho || '';
+      const ciudad = proceso.ciudad || firstResult.ciudad || extractCityFromDespacho(despacho);
+      const departamento = proceso.departamento || firstResult.departamento || extractDepartmentFromDespacho(despacho);
+      
+      console.log(`[CPNU] Extracted: despacho="${despacho}", ciudad="${ciudad}", demandantes="${demandantes}", demandados="${demandados}"`);
 
       return {
         ok: true,
         found: true,
         source: 'CPNU',
         processData: {
-          despacho: proceso.despacho,
-          ciudad: proceso.ciudad,
-          departamento: proceso.departamento,
-          demandante: demandantes || proceso.demandante,
-          demandado: demandados || proceso.demandado,
-          tipo_proceso: proceso.tipo,
-          clase_proceso: proceso.clase,
-          fecha_radicacion: proceso.fecha_radicacion,
-          sujetos_procesales: proceso.sujetos_procesales,
+          despacho,
+          ciudad,
+          departamento,
+          demandante: demandantes,
+          demandado: demandados,
+          tipo_proceso: proceso.tipo || firstResult.tipo_proceso,
+          clase_proceso: proceso.clase || firstResult.clase_proceso,
+          fecha_radicacion: proceso.fecha_radicacion || firstResult.fecha_radicacion,
+          sujetos_procesales: sujetosSource,
           actuaciones,
           total_actuaciones: actuaciones.length,
         },
