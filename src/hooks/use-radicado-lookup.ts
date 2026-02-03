@@ -41,6 +41,13 @@ export interface LookupResult {
   }>;
   error?: string;
   code?: string;
+  // Parallel sync metadata
+  sync_strategy?: 'fallback' | 'parallel';
+  consolidation_stats?: {
+    total_from_sources: number;
+    after_dedup: number;
+    duplicates_removed: number;
+  };
 }
 
 export interface SyncResult extends LookupResult {
@@ -194,6 +201,9 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
         classification_reason: data.classification_reason || '',
         process_data: data.process_data,
         attempts: data.attempts,
+        // Parallel sync metadata
+        sync_strategy: data.sync_strategy,
+        consolidation_stats: data.consolidation_stats,
       };
 
       setResult(lookupResult);

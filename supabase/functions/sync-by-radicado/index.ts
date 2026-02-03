@@ -47,6 +47,13 @@ interface SyncResponse {
   error?: string;
   code?: string;
   attempts?: AttemptLog[];
+  // Parallel sync stats
+  sync_strategy?: 'fallback' | 'parallel';
+  consolidation_stats?: {
+    total_from_sources: number;
+    after_dedup: number;
+    duplicates_removed: number;
+  };
 }
 
 interface ProcessData {
@@ -93,6 +100,25 @@ interface ProviderConfig {
   primary: 'CPNU' | 'SAMAI' | 'TUTELAS';
   fallback?: 'CPNU' | 'SAMAI' | 'TUTELAS';
   fallbackEnabled: boolean;
+  useParallelSync: boolean;  // NEW: Enable parallel multi-source sync
+  parallelProviders?: ('CPNU' | 'SAMAI' | 'TUTELAS')[];  // Providers to query in parallel
+}
+
+interface ParallelProviderResult {
+  provider: string;
+  status: 'success' | 'error' | 'empty' | 'timeout';
+  processData: ProcessData;
+  actuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; provider?: string }>;
+  latencyMs: number;
+  error?: string;
+}
+
+interface ConsolidatedLookupResult {
+  processData: ProcessData;
+  actuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; sources: string[]; primarySource: string }>;
+  providerResults: ParallelProviderResult[];
+  totalFromSources: number;
+  afterDedup: number;
 }
 
 // ============= PROVIDER CONFIGURATION =============
@@ -101,16 +127,22 @@ function getProviderOrder(workflowType: string): ProviderConfig {
   switch (workflowType) {
     case 'CPACA':
       // Administrative litigation - SAMAI primary, no fallback to CPNU
-      return { primary: 'SAMAI', fallbackEnabled: false };
+      return { primary: 'SAMAI', fallbackEnabled: false, useParallelSync: false };
     case 'TUTELA':
-      // Tutela - CPNU primary, TUTELAS API fallback
-      return { primary: 'CPNU', fallback: 'TUTELAS', fallbackEnabled: true };
+      // Tutela - PARALLEL SYNC: Query all sources simultaneously
+      return { 
+        primary: 'CPNU', 
+        fallback: 'TUTELAS', 
+        fallbackEnabled: true,
+        useParallelSync: true,  // Enable parallel sync for Tutelas
+        parallelProviders: ['CPNU', 'SAMAI', 'TUTELAS']  // Query all sources
+      };
     case 'CGP':
     case 'LABORAL':
     case 'PENAL_906':
     default:
       // Civil/Labor/Penal - CPNU only, no fallback (SAMAI doesn't have these)
-      return { primary: 'CPNU', fallbackEnabled: false };
+      return { primary: 'CPNU', fallbackEnabled: false, useParallelSync: false };
   }
 }
 
@@ -596,6 +628,238 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
   }
 }
 
+// ============= PARALLEL SYNC FUNCTIONS =============
+
+/**
+ * Normalize actuacion for deduplication
+ */
+function normalizeActuacionForDedup(act: { fecha?: string; actuacion?: string; anotacion?: string }): string {
+  const date = act.fecha || 'nodate';
+  const desc = (act.actuacion || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 50);
+  return `${date}|${desc}`;
+}
+
+/**
+ * Execute parallel sync for TUTELA workflow - query all sources simultaneously
+ */
+async function executeParallelLookup(
+  radicado: string,
+  providers: string[],
+  supabaseUrl: string,
+  authHeader: string
+): Promise<ConsolidatedLookupResult> {
+  console.log(`[sync-by-radicado] Starting PARALLEL lookup for ${radicado} with ${providers.length} sources: ${providers.join(', ')}`);
+  
+  // Execute all providers simultaneously using Promise.allSettled
+  const promises = providers.map(async (provider): Promise<ParallelProviderResult> => {
+    const startTime = Date.now();
+    try {
+      let result: ProviderResult;
+      
+      switch (provider) {
+        case 'CPNU':
+          result = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+          break;
+        case 'SAMAI':
+          result = await fetchFromSamai(radicado);
+          break;
+        case 'TUTELAS':
+          result = await fetchFromTutelas(radicado);
+          break;
+        default:
+          throw new Error(`Unknown provider: ${provider}`);
+      }
+      
+      const actuaciones = result.processData.actuaciones || [];
+      return {
+        provider,
+        status: result.found ? 'success' : (result.ok ? 'empty' : 'error'),
+        processData: result.processData,
+        actuaciones: actuaciones.map(a => ({ ...a, provider })),
+        latencyMs: result.latency_ms,
+        error: result.error,
+      };
+    } catch (err) {
+      return {
+        provider,
+        status: 'error',
+        processData: {},
+        actuaciones: [],
+        latencyMs: Date.now() - startTime,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  });
+  
+  const results = await Promise.all(promises);
+  
+  console.log(`[sync-by-radicado] Parallel results:`, results.map(r => 
+    `${r.provider}: ${r.status}, ${r.actuaciones.length} actuaciones, ${r.latencyMs}ms`
+  ));
+  
+  // Consolidate results
+  return consolidateParallelResults(results);
+}
+
+/**
+ * Consolidate results from multiple providers - deduplicate and merge actuaciones
+ */
+function consolidateParallelResults(results: ParallelProviderResult[]): ConsolidatedLookupResult {
+  // Find the best process data (prefer successful result with most complete data)
+  const successfulResults = results
+    .filter(r => r.status === 'success')
+    .sort((a, b) => {
+      // Prioritize by completeness of data
+      const scoreA = (a.processData.despacho ? 1 : 0) + 
+                     (a.processData.demandante ? 1 : 0) + 
+                     (a.processData.demandado ? 1 : 0) +
+                     (a.actuaciones.length > 0 ? 2 : 0);
+      const scoreB = (b.processData.despacho ? 1 : 0) + 
+                     (b.processData.demandante ? 1 : 0) + 
+                     (b.processData.demandado ? 1 : 0) +
+                     (b.actuaciones.length > 0 ? 2 : 0);
+      return scoreB - scoreA;
+    });
+  
+  // Pick best process data (merge from multiple sources if beneficial)
+  let consolidatedProcessData: ProcessData = {};
+  let primarySource = '';
+  
+  if (successfulResults.length > 0) {
+    const primary = successfulResults[0];
+    primarySource = primary.provider;
+    consolidatedProcessData = { ...primary.processData };
+    
+    // Merge missing fields from other sources
+    for (const result of successfulResults.slice(1)) {
+      if (!consolidatedProcessData.despacho && result.processData.despacho) {
+        consolidatedProcessData.despacho = result.processData.despacho;
+      }
+      if (!consolidatedProcessData.demandante && result.processData.demandante) {
+        consolidatedProcessData.demandante = result.processData.demandante;
+      }
+      if (!consolidatedProcessData.demandado && result.processData.demandado) {
+        consolidatedProcessData.demandado = result.processData.demandado;
+      }
+      if (!consolidatedProcessData.ciudad && result.processData.ciudad) {
+        consolidatedProcessData.ciudad = result.processData.ciudad;
+      }
+      if (!consolidatedProcessData.departamento && result.processData.departamento) {
+        consolidatedProcessData.departamento = result.processData.departamento;
+      }
+    }
+  }
+  
+  // Collect all actuaciones from all sources
+  const allActuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; provider: string }> = [];
+  for (const result of results) {
+    if (result.status === 'success' || result.status === 'empty') {
+      for (const act of result.actuaciones) {
+        allActuaciones.push({
+          fecha: act.fecha || '',
+          actuacion: act.actuacion || '',
+          anotacion: act.anotacion,
+          provider: result.provider,
+        });
+      }
+    }
+  }
+  
+  const totalFromSources = allActuaciones.length;
+  
+  // Deduplicate actuaciones by similarity key
+  const dedupMap = new Map<string, { 
+    act: { fecha: string; actuacion: string; anotacion?: string }; 
+    sources: string[]; 
+    primarySource: string;
+    bestScore: number;
+  }>();
+  
+  for (const act of allActuaciones) {
+    const key = normalizeActuacionForDedup(act);
+    const existing = dedupMap.get(key);
+    
+    // Calculate completeness score
+    const score = (act.fecha ? 2 : 0) + 
+                  (act.actuacion ? 1 : 0) + 
+                  (act.anotacion && act.anotacion.length > 10 ? 2 : 0);
+    
+    if (!existing) {
+      dedupMap.set(key, {
+        act: { fecha: act.fecha, actuacion: act.actuacion, anotacion: act.anotacion },
+        sources: [act.provider],
+        primarySource: act.provider,
+        bestScore: score,
+      });
+    } else {
+      // Add source if not already present
+      if (!existing.sources.includes(act.provider)) {
+        existing.sources.push(act.provider);
+      }
+      // Use the more complete version
+      if (score > existing.bestScore) {
+        existing.act = { fecha: act.fecha, actuacion: act.actuacion, anotacion: act.anotacion };
+        existing.bestScore = score;
+      }
+      // Merge annotations (take longer one)
+      if (act.anotacion && (!existing.act.anotacion || act.anotacion.length > existing.act.anotacion.length)) {
+        existing.act.anotacion = act.anotacion;
+      }
+    }
+  }
+  
+  // Convert to consolidated array
+  const consolidatedActuaciones: Array<{ 
+    fecha: string; 
+    actuacion: string; 
+    anotacion?: string; 
+    sources: string[]; 
+    primarySource: string 
+  }> = [];
+  
+  for (const [, value] of dedupMap) {
+    consolidatedActuaciones.push({
+      ...value.act,
+      sources: value.sources,
+      primarySource: value.primarySource,
+    });
+  }
+  
+  // Sort by date descending
+  consolidatedActuaciones.sort((a, b) => {
+    if (!a.fecha && !b.fecha) return 0;
+    if (!a.fecha) return 1;
+    if (!b.fecha) return -1;
+    return b.fecha.localeCompare(a.fecha);
+  });
+  
+  const afterDedup = consolidatedActuaciones.length;
+  
+  console.log(`[sync-by-radicado] Consolidation: ${totalFromSources} total → ${afterDedup} unique (${totalFromSources - afterDedup} duplicates removed)`);
+  
+  // Update process data with consolidated actuaciones
+  consolidatedProcessData.actuaciones = consolidatedActuaciones.map(a => ({
+    fecha: a.fecha,
+    actuacion: a.actuacion,
+    anotacion: a.anotacion,
+  }));
+  consolidatedProcessData.total_actuaciones = afterDedup;
+  
+  return {
+    processData: consolidatedProcessData,
+    actuaciones: consolidatedActuaciones,
+    providerResults: results,
+    totalFromSources,
+    afterDedup,
+  };
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -766,63 +1030,112 @@ Deno.serve(async (req) => {
     let processData: ProcessData = {};
     let foundInSource = false;
     let sourceUsed: string | null = null;
+    let consolidationStats: { totalFromSources: number; afterDedup: number } | null = null;
 
     console.log(`[sync-by-radicado] Provider config for ${workflowType}:`, providerConfig);
 
-    // Try primary provider
-    let primaryResult: ProviderResult;
-    
-    if (providerConfig.primary === 'SAMAI') {
-      primaryResult = await fetchFromSamai(radicado);
-    } else if (providerConfig.primary === 'TUTELAS') {
-      primaryResult = await fetchFromTutelas(radicado);
+    // ============= PARALLEL SYNC FOR TUTELA =============
+    if (providerConfig.useParallelSync && providerConfig.parallelProviders) {
+      console.log(`[sync-by-radicado] Using PARALLEL sync for ${workflowType}`);
+      
+      const parallelResult = await executeParallelLookup(
+        radicado,
+        providerConfig.parallelProviders,
+        supabaseUrl,
+        authHeader
+      );
+      
+      // Populate attempts and sourcesChecked from parallel results
+      for (const pr of parallelResult.providerResults) {
+        sourcesChecked.push(pr.provider);
+        attempts.push({
+          source: pr.provider,
+          success: pr.status === 'success',
+          latency_ms: pr.latencyMs,
+          error: pr.error,
+          events_found: pr.actuaciones.length,
+        });
+        
+        if (pr.status === 'success' && !foundInSource) {
+          foundInSource = true;
+          sourceUsed = pr.provider;
+        }
+      }
+      
+      // Use consolidated data
+      processData = parallelResult.processData;
+      foundInSource = parallelResult.providerResults.some(r => r.status === 'success');
+      
+      // Store consolidation stats for response
+      consolidationStats = {
+        totalFromSources: parallelResult.totalFromSources,
+        afterDedup: parallelResult.afterDedup,
+      };
+      
+      // Pick the first successful provider as the "primary" source
+      const successfulProvider = parallelResult.providerResults.find(r => r.status === 'success');
+      if (successfulProvider) {
+        sourceUsed = successfulProvider.provider;
+      }
+      
     } else {
-      primaryResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
-    }
-
-    sourcesChecked.push(primaryResult.source);
-    attempts.push({
-      source: primaryResult.source,
-      success: primaryResult.found,
-      latency_ms: primaryResult.latency_ms,
-      error: primaryResult.error,
-      events_found: primaryResult.eventsFound,
-    });
-
-    if (primaryResult.found) {
-      processData = primaryResult.processData;
-      foundInSource = true;
-      sourceUsed = primaryResult.source;
-      console.log(`[sync-by-radicado] Found in ${primaryResult.source} with ${primaryResult.eventsFound} events`);
-    } 
-    // Try fallback if primary didn't find data and fallback is enabled
-    else if (providerConfig.fallbackEnabled && providerConfig.fallback) {
-      console.log(`[sync-by-radicado] Primary ${primaryResult.source} not found, trying fallback ${providerConfig.fallback}`);
+      // ============= FALLBACK PATTERN FOR OTHER WORKFLOWS =============
       
-      let fallbackResult: ProviderResult;
+      // Try primary provider
+      let primaryResult: ProviderResult;
       
-      if (providerConfig.fallback === 'SAMAI') {
-        fallbackResult = await fetchFromSamai(radicado);
-      } else if (providerConfig.fallback === 'TUTELAS') {
-        fallbackResult = await fetchFromTutelas(radicado);
+      if (providerConfig.primary === 'SAMAI') {
+        primaryResult = await fetchFromSamai(radicado);
+      } else if (providerConfig.primary === 'TUTELAS') {
+        primaryResult = await fetchFromTutelas(radicado);
       } else {
-        fallbackResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+        primaryResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
       }
 
-      sourcesChecked.push(fallbackResult.source);
+      sourcesChecked.push(primaryResult.source);
       attempts.push({
-        source: fallbackResult.source,
-        success: fallbackResult.found,
-        latency_ms: fallbackResult.latency_ms,
-        error: fallbackResult.error,
-        events_found: fallbackResult.eventsFound,
+        source: primaryResult.source,
+        success: primaryResult.found,
+        latency_ms: primaryResult.latency_ms,
+        error: primaryResult.error,
+        events_found: primaryResult.eventsFound,
       });
 
-      if (fallbackResult.found) {
-        processData = fallbackResult.processData;
+      if (primaryResult.found) {
+        processData = primaryResult.processData;
         foundInSource = true;
-        sourceUsed = fallbackResult.source;
-        console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
+        sourceUsed = primaryResult.source;
+        console.log(`[sync-by-radicado] Found in ${primaryResult.source} with ${primaryResult.eventsFound} events`);
+      } 
+      // Try fallback if primary didn't find data and fallback is enabled
+      else if (providerConfig.fallbackEnabled && providerConfig.fallback) {
+        console.log(`[sync-by-radicado] Primary ${primaryResult.source} not found, trying fallback ${providerConfig.fallback}`);
+        
+        let fallbackResult: ProviderResult;
+        
+        if (providerConfig.fallback === 'SAMAI') {
+          fallbackResult = await fetchFromSamai(radicado);
+        } else if (providerConfig.fallback === 'TUTELAS') {
+          fallbackResult = await fetchFromTutelas(radicado);
+        } else {
+          fallbackResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+        }
+
+        sourcesChecked.push(fallbackResult.source);
+        attempts.push({
+          source: fallbackResult.source,
+          success: fallbackResult.found,
+          latency_ms: fallbackResult.latency_ms,
+          error: fallbackResult.error,
+          events_found: fallbackResult.eventsFound,
+        });
+
+        if (fallbackResult.found) {
+          processData = fallbackResult.processData;
+          foundInSource = true;
+          sourceUsed = fallbackResult.source;
+          console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
+        }
       }
     }
 
@@ -849,9 +1162,16 @@ Deno.serve(async (req) => {
         classification_reason: classificationReason,
         process_data: processData,
         attempts,
+        // Add parallel sync metadata
+        sync_strategy: providerConfig.useParallelSync ? 'parallel' : 'fallback',
+        consolidation_stats: consolidationStats ? {
+          total_from_sources: consolidationStats.totalFromSources,
+          after_dedup: consolidationStats.afterDedup,
+          duplicates_removed: consolidationStats.totalFromSources - consolidationStats.afterDedup,
+        } : undefined,
       };
       
-      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
+      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}${consolidationStats ? `, consolidated: ${consolidationStats.totalFromSources} → ${consolidationStats.afterDedup}` : ''}`);
       return jsonResponse(response);
     }
 

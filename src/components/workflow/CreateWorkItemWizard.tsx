@@ -596,6 +596,9 @@ export function CreateWorkItemWizard({
                       classificationReason={lookupResult.classification_reason}
                       sourceUsed={lookupResult.source_used}
                       eventsCount={lookupResult.new_events_count}
+                      syncStrategy={lookupResult.sync_strategy}
+                      consolidationStats={lookupResult.consolidation_stats}
+                      sourcesChecked={lookupResult.sources_checked}
                     />
                   )}
                   
@@ -1133,14 +1136,27 @@ function ProcessPreview({
   classificationReason,
   sourceUsed,
   eventsCount,
+  syncStrategy,
+  consolidationStats,
+  sourcesChecked,
 }: {
   data?: ProcessData;
   cgpPhase: 'FILING' | 'PROCESS';
   classificationReason?: string;
   sourceUsed?: string | null;
   eventsCount: number;
+  syncStrategy?: 'fallback' | 'parallel';
+  consolidationStats?: {
+    total_from_sources: number;
+    after_dedup: number;
+    duplicates_removed: number;
+  };
+  sourcesChecked?: string[];
 }) {
   if (!data) return null;
+  
+  const isParallel = syncStrategy === 'parallel';
+  const successfulSources = sourcesChecked?.length || 0;
   
   return (
     <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
@@ -1148,18 +1164,58 @@ function ProcessPreview({
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-primary" />
           <span className="font-medium">Proceso encontrado</span>
+          {isParallel && successfulSources > 1 && (
+            <Badge variant="default" className="text-xs">
+              ✓ {successfulSources} fuentes
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={cgpPhase === 'PROCESS' ? 'default' : 'secondary'}>
             {cgpPhase === 'PROCESS' ? 'Proceso (Admitido)' : 'Radicación (Pendiente)'}
           </Badge>
-          {sourceUsed && (
+          {sourceUsed && !isParallel && (
             <Badge variant="outline" className="text-xs">
               {sourceUsed}
             </Badge>
           )}
         </div>
       </div>
+      
+      {/* Parallel sync consolidation stats */}
+      {isParallel && consolidationStats && (
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Shield className="h-4 w-4 text-primary" />
+            <span className="font-medium text-sm text-primary">
+              Sincronización Multi-Fuente
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-xs">
+            <div>
+              <p className="text-muted-foreground">Total encontradas</p>
+              <p className="text-lg font-bold">{consolidationStats.total_from_sources}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Duplicados removidos</p>
+              <p className="text-lg font-bold text-warning">
+                -{consolidationStats.duplicates_removed}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Únicos a guardar</p>
+              <p className="text-lg font-bold text-primary">
+                {consolidationStats.after_dedup}
+              </p>
+            </div>
+          </div>
+          {sourcesChecked && sourcesChecked.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Fuentes: {sourcesChecked.join(', ')}
+            </p>
+          )}
+        </div>
+      )}
       
       <Separator />
       
