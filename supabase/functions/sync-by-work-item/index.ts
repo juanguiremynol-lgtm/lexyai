@@ -44,6 +44,7 @@ interface SyncResult {
   workflow_type: string;
   inserted_count: number;
   skipped_count: number;
+  updated_count?: number; // For parallel sync: records updated with new sources
   latest_event_date: string | null;
   provider_used: string | null;
   provider_attempts: ProviderAttempt[];
@@ -58,6 +59,21 @@ interface SyncResult {
   scraping_poll_url?: string;
   scraping_provider?: string;
   scraping_message?: string;
+  // Parallel sync fields (TUTELA)
+  sync_strategy?: 'fallback' | 'parallel';
+  parallel_results?: {
+    provider: string;
+    status: string;
+    actuaciones_found: number;
+    latencyMs: number;
+    error?: string;
+  }[];
+  consolidation?: {
+    total_from_sources: number;
+    after_dedup: number;
+    duplicates_removed: number;
+    multi_source_confirmed: number;
+  };
 }
 
 interface WorkItem {
@@ -197,7 +213,7 @@ async function logTrace(
 // - CGP/LABORAL: ESTADOS are primary notification source (for legal terms)
 //   - CPNU primary for enrichment actuaciones, SAMAI fallback
 // - CPACA: SAMAI primary (administrative litigation), CPNU optional fallback (disabled)
-// - TUTELA: TUTELAS API primary (tutela_code), CPNU fallback if TUTELAS empty/failed
+// - TUTELA: PARALLEL sync - query CPNU, SAMAI, and TUTELAS simultaneously, then consolidate
 // - PENAL_906: PUBLICACIONES are PRIMARY sync source (called FIRST); CPNU/SAMAI are optional enrichment
 // 
 // The Estados ingestion pipeline remains canonical for CGP/LABORAL.
@@ -209,31 +225,40 @@ interface ProviderOrderConfig {
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
   usePublicacionesAsPrimary?: boolean; // For PENAL_906: Publicaciones is the PRIMARY sync source
+  // NEW: Parallel sync strategy for TUTELA
+  syncStrategy?: 'fallback' | 'parallel';
+  parallelSources?: ('cpnu' | 'samai' | 'tutelas-api')[];
 }
 
 function getProviderOrder(workflowType: string): ProviderOrderConfig {
   switch (workflowType) {
     case 'CPACA':
       // SAMAI is primary for CPACA (administrative litigation)
-      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
+      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false, syncStrategy: 'fallback' };
     case 'TUTELA':
-      // TUTELA: CPNU primary (more reliable), Tutelas API as fallback
-      // CPNU often has more complete data; Tutelas API is supplement
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
+      // TUTELA: PARALLEL strategy - query ALL sources simultaneously
+      // This ensures complete data from Corte Constitucional, CPNU, and SAMAI
+      return { 
+        primary: 'cpnu', 
+        fallback: 'samai', 
+        fallbackEnabled: true, 
+        syncStrategy: 'parallel',
+        parallelSources: ['cpnu', 'samai', 'tutelas-api']
+      };
     case 'PENAL_906':
       // PENAL_906: CPNU primary for actuaciones, SAMAI as fallback
       // Publicaciones (estados) is fetched ADDITIONALLY via alsoFetchPublicaciones flag
       // This ensures criminal cases get proper actuaciones data
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, syncStrategy: 'fallback' };
     case 'CGP':
     case 'LABORAL':
       // CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI
       // Civil/labor/family processes in CPNU are NOT in SAMAI, so fallback is technically useless
       // Note: Estados remain the canonical notification source (via estados ingestion pipeline)
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false, syncStrategy: 'fallback' };
     default:
       // Unknown workflows: CPNU primary, no fallback
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false, syncStrategy: 'fallback' };
   }
 }
 
@@ -2155,6 +2180,285 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
 // ============= PROVIDER: PUBLICACIONES =============
 // NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
 // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
+// The two sync functions are independent and should be called separately.
+
+// ============= PARALLEL SYNC FOR TUTELA =============
+// Query multiple sources simultaneously and consolidate results
+
+interface ParallelProviderResult {
+  provider: string;
+  status: 'success' | 'error' | 'empty' | 'timeout' | 'not_found';
+  actuaciones: ActuacionRaw[];
+  latencyMs: number;
+  error?: string;
+  httpStatus?: number;
+}
+
+interface NormalizedActuacion {
+  normalized_date: string | null;
+  normalized_type: string;
+  normalized_description: string;
+  original: {
+    provider: string;
+    raw_data: ActuacionRaw;
+    act_date: string | null;
+    description: string;
+    annotation: string | null;
+  };
+  similarity_key: string;
+  completeness_score: number;
+}
+
+interface ConsolidatedActuacion {
+  act_date: string | null;
+  description: string;
+  annotation: string | null;
+  act_date_raw: string | null;
+  sources: string[];
+  primary_source: string;
+  date_source: 'api_explicit' | 'parsed_annotation' | 'parsed_title' | 'api_metadata' | 'inferred_sync';
+  date_confidence: 'high' | 'medium' | 'low';
+  completeness_score: number;
+  source_data: Record<string, ActuacionRaw>;
+  indice: string | null;
+}
+
+// Type normalization patterns
+const ACTUACION_TYPE_MAP: Record<string, string[]> = {
+  auto_admite: ['auto admite', 'admite demanda', 'auto admisorio', 'admite tutela'],
+  auto_inadmite: ['auto inadmite', 'inadmite demanda', 'inadmite tutela'],
+  auto_requiere: ['auto requiere', 'requiere', 'requerimiento'],
+  sentencia: ['sentencia', 'fallo', 'decision', 'decisión'],
+  fijacion_estado: ['fijacion estado', 'fijación estado', 'estado'],
+  recepcion_memorial: ['recepcion memorial', 'recepción memorial', 'memorial'],
+  audiencia: ['audiencia', 'diligencia'],
+  notificacion: ['notificacion', 'notificación', 'notifica'],
+  medida_cautelar: ['medida cautelar', 'cautelar', 'medida provisional'],
+  radicacion: ['radicacion', 'radicación', 'reparto'],
+  impugnacion: ['impugnacion', 'impugnación', 'recurso'],
+  revision: ['revision', 'revisión', 'corte constitucional'],
+};
+
+function normalizeActuacionType(description: string): string {
+  if (!description) return 'unknown';
+  const lower = description.toLowerCase();
+  for (const [standard, variations] of Object.entries(ACTUACION_TYPE_MAP)) {
+    if (variations.some(v => lower.includes(v))) {
+      return standard;
+    }
+  }
+  return 'other';
+}
+
+function normalizeForDedup(act: ActuacionRaw, provider: string): NormalizedActuacion {
+  const date = act.fecha || '';
+  const description = act.actuacion || '';
+  const annotation = act.anotacion || '';
+
+  const normalizedDate = parseColombianDate(date);
+  const normalizedType = normalizeActuacionType(description);
+
+  const cleanDescription = description
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const descPrefix = cleanDescription.replace(/[^a-z0-9]/g, '').slice(0, 20);
+  const similarityKey = `${normalizedDate || 'nodate'}|${normalizedType}|${descPrefix}`;
+
+  let completeness = 0;
+  if (date) completeness += 30;
+  if (description) completeness += 20;
+  if (annotation && annotation.length > 10) completeness += 20;
+  if (act.fecha_inicia_termino) completeness += 10;
+  if (act.fecha_finaliza_termino) completeness += 10;
+  if (act.documentos && act.documentos.length > 0) completeness += 10;
+
+  return {
+    normalized_date: normalizedDate,
+    normalized_type: normalizedType,
+    normalized_description: cleanDescription,
+    original: {
+      provider,
+      raw_data: act,
+      act_date: normalizedDate,
+      description,
+      annotation: annotation || null,
+    },
+    similarity_key: similarityKey,
+    completeness_score: completeness,
+  };
+}
+
+function consolidateParallelResults(results: ParallelProviderResult[]): {
+  consolidated: ConsolidatedActuacion[];
+  stats: { totalFromSources: number; afterDedup: number; duplicatesRemoved: number; multiSourceCount: number };
+} {
+  const normalized: NormalizedActuacion[] = [];
+
+  for (const result of results) {
+    if (result.status === 'success' || (result.actuaciones && result.actuaciones.length > 0)) {
+      for (const act of result.actuaciones) {
+        normalized.push(normalizeForDedup(act, result.provider));
+      }
+    }
+  }
+
+  const totalFromSources = normalized.length;
+  console.log(`[parallel-sync] Total actuaciones from all sources: ${totalFromSources}`);
+
+  const groups = new Map<string, NormalizedActuacion[]>();
+  for (const act of normalized) {
+    const existing = groups.get(act.similarity_key) || [];
+    existing.push(act);
+    groups.set(act.similarity_key, existing);
+  }
+
+  console.log(`[parallel-sync] Unique actuaciones after grouping: ${groups.size}`);
+
+  const consolidated: ConsolidatedActuacion[] = [];
+  let multiSourceCount = 0;
+
+  for (const [_key, group] of groups) {
+    group.sort((a, b) => b.completeness_score - a.completeness_score);
+
+    const best = group[0];
+    const allSources = [...new Set(group.map(g => g.original.provider))];
+
+    if (allSources.length > 1) {
+      multiSourceCount++;
+    }
+
+    let mergedAnnotation = best.original.annotation;
+    for (const alt of group.slice(1)) {
+      if (alt.original.annotation && alt.original.annotation.length > (mergedAnnotation?.length || 0)) {
+        mergedAnnotation = alt.original.annotation;
+      }
+    }
+
+    let dateConfidence: 'high' | 'medium' | 'low' = 'low';
+    let dateSource: ConsolidatedActuacion['date_source'] = 'inferred_sync';
+
+    const datesFromSources = group.map(g => g.normalized_date).filter((d): d is string => d !== null);
+    if (datesFromSources.length > 0) {
+      const allSameDate = datesFromSources.every(d => d === datesFromSources[0]);
+      if (allSameDate && allSources.length >= 2) {
+        dateConfidence = 'high';
+        dateSource = 'api_explicit';
+      } else if (allSameDate) {
+        dateConfidence = 'medium';
+        dateSource = 'api_explicit';
+      } else {
+        dateConfidence = 'medium';
+        dateSource = 'api_explicit';
+      }
+    }
+
+    const sourceData: Record<string, ActuacionRaw> = {};
+    for (const g of group) {
+      sourceData[g.original.provider] = g.original.raw_data;
+    }
+
+    consolidated.push({
+      act_date: best.normalized_date,
+      description: best.original.description,
+      annotation: mergedAnnotation,
+      act_date_raw: best.original.raw_data.fecha || null,
+      sources: allSources,
+      primary_source: best.original.provider,
+      date_source: dateSource,
+      date_confidence: dateConfidence,
+      completeness_score: best.completeness_score,
+      source_data: sourceData,
+      indice: best.original.raw_data.indice || null,
+    });
+  }
+
+  console.log(`[parallel-sync] Final consolidated count: ${consolidated.length}`);
+  console.log(`[parallel-sync] Multi-source confirmed: ${multiSourceCount}`);
+
+  return {
+    consolidated,
+    stats: {
+      totalFromSources,
+      afterDedup: consolidated.length,
+      duplicatesRemoved: totalFromSources - consolidated.length,
+      multiSourceCount,
+    },
+  };
+}
+
+async function executeParallelSync(
+  radicado: string,
+  tutelaCode: string | null,
+  sources: string[]
+): Promise<ParallelProviderResult[]> {
+  console.log(`[parallel-sync] Executing parallel sync for radicado=${radicado}, tutela_code=${tutelaCode}, sources=${sources.join(',')}`);
+
+  const promises = sources.map(async (source): Promise<ParallelProviderResult> => {
+    const startTime = Date.now();
+    try {
+      let result: FetchResult;
+      
+      switch (source) {
+        case 'cpnu':
+          result = await fetchFromCpnu(radicado);
+          break;
+        case 'samai':
+          result = await fetchFromSamai(radicado);
+          break;
+        case 'tutelas-api':
+          if (tutelaCode) {
+            result = await fetchFromTutelasApi(tutelaCode);
+          } else {
+            return {
+              provider: source,
+              status: 'empty',
+              actuaciones: [],
+              latencyMs: Date.now() - startTime,
+              error: 'No tutela_code available for TUTELAS API',
+            };
+          }
+          break;
+        default:
+          return {
+            provider: source,
+            status: 'error',
+            actuaciones: [],
+            latencyMs: Date.now() - startTime,
+            error: `Unknown provider: ${source}`,
+          };
+      }
+
+      return {
+        provider: source,
+        status: result.ok ? 'success' : (result.isEmpty ? 'empty' : 'error'),
+        actuaciones: result.actuaciones,
+        latencyMs: result.latencyMs || (Date.now() - startTime),
+        error: result.error,
+        httpStatus: result.httpStatus,
+      };
+    } catch (err) {
+      return {
+        provider: source,
+        status: 'error',
+        actuaciones: [],
+        latencyMs: Date.now() - startTime,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  });
+
+  // Execute all providers simultaneously
+  const results = await Promise.all(promises);
+  
+  console.log(`[parallel-sync] Results:`, results.map(r => `${r.provider}: ${r.status}, ${r.actuaciones.length} actuaciones`));
+  
+  return results;
+}
+
 // The two sync functions are independent and should be called separately.
 
 // ============= MAIN HANDLER =============
