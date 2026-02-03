@@ -215,6 +215,23 @@ function extractDateFromTitle(title: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Extract date from URL path (sometimes contains dates)
+ */
+function extractDateFromUrl(url: string): string | null {
+  if (!url) return null;
+  
+  // Pattern: /2026/01/22/ or /20260122/
+  const pattern = /\/(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})\//;
+  const match = url.match(pattern);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${year}-${month}-${day}`;
+  }
+  
+  return null;
+}
+
 // ============= v3 SYNCHRONOUS API FETCH =============
 
 /**
@@ -527,12 +544,43 @@ Deno.serve(async (req) => {
 
     // ============= INGEST PUBLICATIONS WITH DEDUPLICATION =============
     let newestDate: string | null = null;
+    
+    // Get API fetched timestamp for date inference fallback
+    const apiFetchedAt = new Date().toISOString();
 
     for (const pub of fetchResult.publicaciones) {
-      // Extract date from title if fecha_publicacion is null
+      // ============= DATE INFERENCE ENGINE =============
+      // Extract date with confidence tracking for legal accuracy
       const fechaFromTitle = extractDateFromTitle(pub.titulo || '');
       const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
       const parsedFecha = parseDate(fechaPublicacion);
+      
+      // Determine date source and confidence
+      let dateSource: string = 'api_explicit';
+      let dateConfidence: string = 'high';
+      
+      if (pub.fecha_publicacion) {
+        // LAYER 1: Explicit API date (highest confidence)
+        dateSource = 'api_explicit';
+        dateConfidence = 'high';
+      } else if (fechaFromTitle) {
+        // LAYER 2: Parsed from filename/title
+        dateSource = 'parsed_filename';
+        dateConfidence = 'high'; // Filename dates are usually reliable
+      } else if (extractDateFromUrl(pub.pdf_url || pub.url || '')) {
+        // LAYER 3: Parsed from URL
+        dateSource = 'parsed_filename';
+        dateConfidence = 'medium';
+      } else {
+        // LAYER 4/5: Fallback - no reliable date
+        dateSource = 'inferred_sync';
+        dateConfidence = 'low';
+      }
+      
+      // Log if low confidence date
+      if (dateConfidence === 'low') {
+        console.log(`[sync-pub] Low confidence date for: ${pub.titulo?.slice(0, 50)}`);
+      }
 
       // Generate unique fingerprint using asset_id (guaranteed unique per publication)
       const fingerprint = generatePublicacionFingerprint(
@@ -561,10 +609,12 @@ Deno.serve(async (req) => {
         title: pub.titulo?.slice(0, 50),
         asset_id: pub.asset_id,
         fecha_publicacion: fechaPublicacion,
+        date_source: dateSource,
+        date_confidence: dateConfidence,
         pdf_url: pub.pdf_url?.slice(0, 80),
       });
 
-      // Insert new publication
+      // Insert new publication with DATE INFERENCE METADATA
       const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
@@ -580,6 +630,10 @@ Deno.serve(async (req) => {
           fecha_fijacion: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
+          // DATE INFERENCE METADATA
+          date_source: dateSource,
+          date_confidence: dateConfidence,
+          api_fetched_at: apiFetchedAt,
           raw_data: pub,
         })
         .select('id')

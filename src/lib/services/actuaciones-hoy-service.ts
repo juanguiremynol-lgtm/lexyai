@@ -22,6 +22,9 @@ export interface ActuacionHoyItem {
   source: string;
   created_at: string;
   raw_data?: any;
+  // Date inference metadata
+  date_source?: string | null;
+  date_confidence?: 'high' | 'medium' | 'low' | null;
   // Joined work_item fields
   radicado: string;
   workflow_type: string;
@@ -95,7 +98,7 @@ export async function getActuacionesHoy(
   
   // Fetch actuaciones with act_date in last 3 days
   // CRITICAL: We filter by act_date, NOT created_at
-  // Also filter out archived records
+  // Also filter out archived records and exclude LOW confidence dates from bulk syncs
   const { data, error } = await supabase
     .from('work_item_acts')
     .select(`
@@ -108,6 +111,8 @@ export async function getActuacionesHoy(
       source,
       created_at,
       raw_data,
+      date_source,
+      date_confidence,
       work_items!inner (
         id,
         radicado,
@@ -126,6 +131,8 @@ export async function getActuacionesHoy(
     .not('act_date', 'is', null)
     .gte('act_date', threeDaysAgoStr)
     .lte('act_date', todayStr)
+    // Exclude low confidence dates to prevent bulk sync items appearing as "new"
+    .in('date_confidence', ['high', 'medium'])
     .order('act_date', { ascending: false })
     .order('created_at', { ascending: false });
 
@@ -151,6 +158,9 @@ export async function getActuacionesHoy(
       source: act.source || 'cpnu',
       created_at: act.created_at,
       raw_data: act.raw_data,
+      // Date inference metadata
+      date_source: act.date_source,
+      date_confidence: act.date_confidence,
       // Joined fields
       radicado: workItem?.radicado || '',
       workflow_type: workItem?.workflow_type || '',

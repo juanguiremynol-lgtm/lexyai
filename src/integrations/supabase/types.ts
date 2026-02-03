@@ -6048,11 +6048,15 @@ export type Database = {
           act_date: string | null
           act_date_raw: string | null
           act_type: string | null
+          api_fetched_at: string | null
+          api_scraped_at: string | null
           archived_at: string | null
           archived_reason: string | null
           canonical_at: string | null
           confidence_level: string | null
           created_at: string
+          date_confidence: string | null
+          date_source: string | null
           description: string
           despacho: string | null
           event_category: string | null
@@ -6082,11 +6086,15 @@ export type Database = {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          api_fetched_at?: string | null
+          api_scraped_at?: string | null
           archived_at?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           confidence_level?: string | null
           created_at?: string
+          date_confidence?: string | null
+          date_source?: string | null
           description: string
           despacho?: string | null
           event_category?: string | null
@@ -6116,11 +6124,15 @@ export type Database = {
           act_date?: string | null
           act_date_raw?: string | null
           act_type?: string | null
+          api_fetched_at?: string | null
+          api_scraped_at?: string | null
           archived_at?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           confidence_level?: string | null
           created_at?: string
+          date_confidence?: string | null
+          date_source?: string | null
           description?: string
           despacho?: string | null
           event_category?: string | null
@@ -6248,10 +6260,14 @@ export type Database = {
       work_item_publicaciones: {
         Row: {
           annotation: string | null
+          api_fetched_at: string | null
+          api_scraped_at: string | null
           archived_at: string | null
           archived_reason: string | null
           canonical_at: string | null
           created_at: string
+          date_confidence: string | null
+          date_source: string | null
           despacho: string | null
           entry_url: string | null
           fecha_desfijacion: string | null
@@ -6273,10 +6289,14 @@ export type Database = {
         }
         Insert: {
           annotation?: string | null
+          api_fetched_at?: string | null
+          api_scraped_at?: string | null
           archived_at?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           created_at?: string
+          date_confidence?: string | null
+          date_source?: string | null
           despacho?: string | null
           entry_url?: string | null
           fecha_desfijacion?: string | null
@@ -6298,10 +6318,14 @@ export type Database = {
         }
         Update: {
           annotation?: string | null
+          api_fetched_at?: string | null
+          api_scraped_at?: string | null
           archived_at?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           created_at?: string
+          date_confidence?: string | null
+          date_source?: string | null
           despacho?: string | null
           entry_url?: string | null
           fecha_desfijacion?: string | null
