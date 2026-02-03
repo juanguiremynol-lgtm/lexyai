@@ -47,6 +47,7 @@ import {
   Calendar,
   Briefcase,
   Shield,
+  Sparkles,
 } from "lucide-react";
 import {
   type WorkflowType,
@@ -64,6 +65,7 @@ import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
+import { parseApiDate, generateSmartTitle } from "@/lib/date-utils";
 import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
@@ -138,6 +140,9 @@ export function CreateWorkItemWizard({
   const [newClientName, setNewClientName] = useState('');
   const [newClientIdNumber, setNewClientIdNumber] = useState('');
   
+  // Track auto-populated fields for visual indicator
+  const [autoPopulatedFields, setAutoPopulatedFields] = useState<Set<string>>(new Set());
+  
   const createWorkItem = useCreateWorkItem();
   
   // Fetch clients
@@ -180,6 +185,7 @@ export function CreateWorkItemWizard({
       setClientTab('existing');
       setNewClientName('');
       setNewClientIdNumber('');
+      setAutoPopulatedFields(new Set());
     }
   }, [open, defaultWorkflowType, defaultClientId, resetLookup]);
   
@@ -191,21 +197,80 @@ export function CreateWorkItemWizard({
     }
   }, [workflowType, cgpPhase]);
   
-  // Apply lookup data to form fields
+  // Apply lookup data to form fields - EXPANDED
   useEffect(() => {
     if (lookupResult?.process_data && lookupStatus === 'success') {
       const data = lookupResult.process_data;
-      setAuthorityName(data.despacho || '');
-      setAuthorityCity(data.ciudad || '');
-      setDemandantes(data.demandante || '');
-      setDemandados(data.demandado || '');
+      const newAutoFields = new Set<string>();
+      
+      // Authority information
+      if (data.despacho) {
+        setAuthorityName(data.despacho);
+        newAutoFields.add('authorityName');
+      }
+      if (data.ciudad) {
+        setAuthorityCity(data.ciudad);
+        newAutoFields.add('authorityCity');
+      }
+      if (data.departamento) {
+        setAuthorityDepartment(data.departamento);
+        newAutoFields.add('authorityDepartment');
+      }
+      
+      // Parties (general)
+      if (data.demandante) {
+        setDemandantes(data.demandante);
+        newAutoFields.add('demandantes');
+      }
+      if (data.demandado) {
+        setDemandados(data.demandado);
+        newAutoFields.add('demandados');
+      }
+      
+      // Tutela-specific: accionado = demandado (legally equivalent)
+      if (workflowType === 'TUTELA' && data.demandado) {
+        setAccionado(data.demandado);
+        newAutoFields.add('accionado');
+      }
+      
+      // Filing date (workflow-specific)
+      if (data.fecha_radicacion) {
+        const parsedDate = parseApiDate(data.fecha_radicacion);
+        if (parsedDate) {
+          if (workflowType === 'TUTELA') {
+            setTutelaFilingDate(parsedDate);
+            newAutoFields.add('tutelaFilingDate');
+          } else if (workflowType === 'PETICION') {
+            setFilingDate(parsedDate);
+            newAutoFields.add('filingDate');
+          }
+        }
+      }
+      
+      // Auto-generate title if not manually set
+      if (!title) {
+        const smartTitle = generateSmartTitle(
+          workflowType || '',
+          data.tipo_proceso,
+          data.demandante,
+          data.demandado
+        );
+        if (smartTitle) {
+          setTitle(smartTitle);
+          newAutoFields.add('title');
+        }
+      }
       
       // Set CGP phase based on classification
       if (workflowType === 'CGP' && lookupResult.cgp_phase) {
         setCgpPhase(lookupResult.cgp_phase);
+        newAutoFields.add('cgpPhase');
       }
+      
+      // Update auto-populated fields tracking
+      setAutoPopulatedFields(newAutoFields);
     }
-  }, [lookupResult, lookupStatus, workflowType]);
+  }, [lookupResult, lookupStatus, workflowType, title]);
   
   const handleWorkflowSelect = (wf: WorkflowType) => {
     setWorkflowType(wf);
@@ -730,14 +795,41 @@ export function CreateWorkItemWizard({
                 )}
               </div>
               
+              {/* Auto-populated fields notification */}
+              {autoPopulatedFields.size > 0 && (
+                <Alert className="bg-primary/5 border-primary/20">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <AlertTitle className="text-primary text-sm">Datos obtenidos automáticamente</AlertTitle>
+                  <AlertDescription className="text-xs text-muted-foreground">
+                    Se han pre-llenado {autoPopulatedFields.size} campo(s) con información del proceso. Puedes editarlos si es necesario.
+                  </AlertDescription>
+                </Alert>
+              )}
+              
               {/* Common fields */}
               <div className="grid gap-4">
                 <div className="space-y-2">
-                  <Label>Título / Referencia</Label>
+                  <div className="flex items-center gap-2">
+                    <Label>Título / Referencia</Label>
+                    {autoPopulatedFields.has('title') && (
+                      <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        Auto
+                      </Badge>
+                    )}
+                  </div>
                   <Input
                     value={title}
-                    onChange={(e) => setTitle(e.target.value)}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      setAutoPopulatedFields(prev => {
+                        const next = new Set(prev);
+                        next.delete('title');
+                        return next;
+                      });
+                    }}
                     placeholder="Ej: Proceso ejecutivo contra Empresa XYZ"
+                    className={autoPopulatedFields.has('title') ? 'border-primary/30' : ''}
                   />
                 </div>
                 
@@ -795,37 +887,101 @@ export function CreateWorkItemWizard({
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Ciudad</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Ciudad</Label>
+                          {autoPopulatedFields.has('authorityCity') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           value={authorityCity}
-                          onChange={(e) => setAuthorityCity(e.target.value)}
+                          onChange={(e) => {
+                            setAuthorityCity(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('authorityCity');
+                              return next;
+                            });
+                          }}
                           placeholder="Ej: Bogotá"
+                          className={autoPopulatedFields.has('authorityCity') ? 'border-primary/30' : ''}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Juzgado / Despacho</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Juzgado / Despacho</Label>
+                          {autoPopulatedFields.has('authorityName') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           value={authorityName}
-                          onChange={(e) => setAuthorityName(e.target.value)}
+                          onChange={(e) => {
+                            setAuthorityName(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('authorityName');
+                              return next;
+                            });
+                          }}
                           placeholder="Ej: Juzgado 1 Civil del Circuito"
+                          className={autoPopulatedFields.has('authorityName') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Demandante(s)</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Demandante(s)</Label>
+                          {autoPopulatedFields.has('demandantes') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           value={demandantes}
-                          onChange={(e) => setDemandantes(e.target.value)}
+                          onChange={(e) => {
+                            setDemandantes(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('demandantes');
+                              return next;
+                            });
+                          }}
                           placeholder="Nombre del demandante"
+                          className={autoPopulatedFields.has('demandantes') ? 'border-primary/30' : ''}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Demandado(s)</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Demandado(s)</Label>
+                          {autoPopulatedFields.has('demandados') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           value={demandados}
-                          onChange={(e) => setDemandados(e.target.value)}
+                          onChange={(e) => {
+                            setDemandados(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('demandados');
+                              return next;
+                            });
+                          }}
                           placeholder="Nombre del demandado"
+                          className={autoPopulatedFields.has('demandados') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
@@ -927,28 +1083,76 @@ export function CreateWorkItemWizard({
                 {workflowType === 'TUTELA' && (
                   <>
                     <div className="space-y-2">
-                      <Label>Accionado</Label>
+                      <div className="flex items-center gap-2">
+                        <Label>Accionado</Label>
+                        {autoPopulatedFields.has('accionado') && (
+                          <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            Auto
+                          </Badge>
+                        )}
+                      </div>
                       <Input
                         value={accionado}
-                        onChange={(e) => setAccionado(e.target.value)}
+                        onChange={(e) => {
+                          setAccionado(e.target.value);
+                          setAutoPopulatedFields(prev => {
+                            const next = new Set(prev);
+                            next.delete('accionado');
+                            return next;
+                          });
+                        }}
                         placeholder="Ej: EPS Sanitas"
+                        className={autoPopulatedFields.has('accionado') ? 'border-primary/30' : ''}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Fecha de Radicación</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Fecha de Radicación</Label>
+                          {autoPopulatedFields.has('tutelaFilingDate') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           type="date"
                           value={tutelaFilingDate}
-                          onChange={(e) => setTutelaFilingDate(e.target.value)}
+                          onChange={(e) => {
+                            setTutelaFilingDate(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('tutelaFilingDate');
+                              return next;
+                            });
+                          }}
+                          className={autoPopulatedFields.has('tutelaFilingDate') ? 'border-primary/30' : ''}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Juzgado</Label>
+                        <div className="flex items-center gap-2">
+                          <Label>Juzgado</Label>
+                          {autoPopulatedFields.has('authorityName') && (
+                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Auto
+                            </Badge>
+                          )}
+                        </div>
                         <Input
                           value={authorityName}
-                          onChange={(e) => setAuthorityName(e.target.value)}
+                          onChange={(e) => {
+                            setAuthorityName(e.target.value);
+                            setAutoPopulatedFields(prev => {
+                              const next = new Set(prev);
+                              next.delete('authorityName');
+                              return next;
+                            });
+                          }}
                           placeholder="Ej: Juzgado 1 Civil Municipal"
+                          className={autoPopulatedFields.has('authorityName') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
