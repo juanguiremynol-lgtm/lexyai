@@ -511,6 +511,59 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
   return null;
 }
 
+// ============= DATE INFERENCE HELPER =============
+// Parse dates from annotation or title text (for date inference engine)
+
+const SPANISH_MONTHS_MAP: Record<string, string> = {
+  'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+  'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+  'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12',
+};
+
+function parseDateFromAnnotation(text: string | null | undefined): string | null {
+  if (!text) return null;
+  
+  // Pattern 1: "registrada el DD/MM/YYYY" or "realizada el DD/MM/YYYY"
+  const pattern1 = /(?:registrad[ao]|realizad[ao])\s+el\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i;
+  const match1 = text.match(pattern1);
+  if (match1) {
+    const [, day, month, year] = match1;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  // Pattern 2: "DD DE MONTH DE YYYY"
+  const pattern2 = /(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i;
+  const match2 = text.match(pattern2);
+  if (match2) {
+    const [, day, monthName, year] = match2;
+    const month = SPANISH_MONTHS_MAP[monthName.toLowerCase()];
+    if (month) {
+      return `${year}-${month}-${day.padStart(2, '0')}`;
+    }
+  }
+  
+  // Pattern 3: "YYYYMMDD" or "YYYY-MM-DD" anywhere in text
+  const pattern3 = /(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})/;
+  const match3 = text.match(pattern3);
+  if (match3) {
+    const [, year, month, day] = match3;
+    const yearNum = parseInt(year);
+    if (yearNum >= 2020 && yearNum <= 2030) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+  
+  // Pattern 4: "DD-MM-YYYY" or "DD/MM/YYYY"
+  const pattern4 = /(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/;
+  const match4 = text.match(pattern4);
+  if (match4) {
+    const [, day, month, year] = match4;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  return null;
+}
+
 // ============= URL HELPERS =============
 
 // Safe URL join that handles base, prefix, and path
@@ -2880,9 +2933,44 @@ Deno.serve(async (req) => {
     // FIX: Calculate latestDate from ALL fetched data, not just inserted rows
     // This ensures latest_event_date reflects the provider's actual newest event
     let latestDate: string | null = null;
+    
+    // Get API fetched timestamp for date inference fallback
+    const apiFetchedAt = new Date().toISOString();
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
+      
+      // ============= DATE INFERENCE ENGINE =============
+      // Determine date source and confidence for legal accuracy
+      let dateSource: 'api_explicit' | 'parsed_annotation' | 'parsed_title' | 'api_metadata' | 'inferred_sync' = 'api_explicit';
+      let dateConfidence: 'high' | 'medium' | 'low' = 'high';
+      
+      // LAYER 1: Explicit API dates (highest confidence)
+      if (actDate) {
+        // Date came from API - highest confidence
+        dateSource = 'api_explicit';
+        dateConfidence = 'high';
+      } else {
+        // LAYER 2: Try to parse from anotacion
+        const annotationDate = parseDateFromAnnotation(act.anotacion || '');
+        if (annotationDate) {
+          // Use inferred date if no explicit date
+          // Note: actDate stays null, we just track the source for logging
+          dateSource = 'parsed_annotation';
+          dateConfidence = 'medium';
+        } else {
+          // LAYER 3: Try to parse from actuacion text
+          const titleDate = parseDateFromAnnotation(act.actuacion || '');
+          if (titleDate) {
+            dateSource = 'parsed_title';
+            dateConfidence = 'medium';
+          } else {
+            // LAYER 4: Fallback to API metadata/sync date
+            dateSource = 'api_metadata';
+            dateConfidence = 'low';
+          }
+        }
+      }
       
       // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
       // This happens BEFORE deduplication so we report the true latest event date
@@ -2911,6 +2999,11 @@ Deno.serve(async (req) => {
       const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;
       const eventSummary = description.slice(0, 500);
       
+      // Log if low confidence date
+      if (dateConfidence === 'low') {
+        console.log(`[sync-by-work-item] Low confidence date for actuacion: ${act.actuacion?.slice(0, 50)}`);
+      }
+      
       // BUG FIX: Insert into 'work_item_acts' (canonical table) instead of legacy 'actuaciones'
       // The UI reads from work_item_acts, not actuaciones
       const { error: insertError } = await supabase
@@ -2930,6 +3023,10 @@ Deno.serve(async (req) => {
           hash_fingerprint: fingerprint,
           scrape_date: new Date().toISOString().split('T')[0],
           despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
+          // DATE INFERENCE METADATA
+          date_source: dateSource,
+          date_confidence: dateConfidence,
+          api_fetched_at: apiFetchedAt,
           // Store raw data as JSON for debugging
           raw_data: {
             actuacion: act.actuacion,
