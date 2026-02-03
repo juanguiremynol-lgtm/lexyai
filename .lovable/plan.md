@@ -1,180 +1,206 @@
 
+# Plan: Auto-Populate All Work Item Fields from API Lookup Results
 
-# Plan: Mejorar el Botón "+" para Consultar Todas las APIs Externas
+## Problem Summary
+When a user searches for a radicado in the Creation Wizard and finds data from external APIs, only some fields are auto-populated. The user still sees empty form fields for information that was already fetched (departamento, filing dates, accionado for Tutelas, etc.), requiring unnecessary manual entry.
 
-## Situación Actual
+## Current State
+The wizard fetches `process_data` with these fields:
+- `despacho` (court/authority name) ✅ Populated
+- `ciudad` ✅ Populated  
+- `departamento` ❌ NOT populated
+- `demandante` ✅ Populated
+- `demandado` ✅ Populated
+- `fecha_radicacion` ❌ NOT populated
+- `tipo_proceso` ❌ NOT populated (could be used for title)
+- `clase_proceso` ❌ NOT used
+- `actuaciones` ✅ Passed as `initial_actuaciones`
 
-El botón **"+"** en el Dashboard abre el `CreateWorkItemWizard`, que actualmente:
+## Solution
 
-1. **Solo consulta CPNU** durante el paso de "Buscar Proceso" (LOOKUP mode)
-2. No consulta SAMAI, TUTELAS ni PUBLICACIONES
-3. Las otras APIs solo se consultan **después** de crear el work_item (cuando se llama a `sync-by-work-item`)
+### 1. Expand Auto-Population in CreateWorkItemWizard
 
-### Flujo Actual
+Update the `useEffect` that applies lookup data (lines 194-208) to populate ALL available fields:
 
 ```text
-[Botón +] 
-    → CreateWorkItemWizard
-        → useRadicadoLookup (hook)
-            → sync-by-radicado (edge function)
-                → adapter-cpnu ONLY
-                    → CPNU API
+Current fields populated:
+- authorityName ← despacho
+- authorityCity ← ciudad
+- demandantes ← demandante  
+- demandados ← demandado
+
+Fields to ADD:
+- authorityDepartment ← departamento
+- tutelaFilingDate ← fecha_radicacion (for TUTELA)
+- filingDate ← fecha_radicacion (for PETICION/other)
+- accionado ← demandado (for TUTELA - same concept)
+- title ← tipo_proceso or auto-generated title
 ```
 
-## Problema
+### 2. Generate Smart Title from API Data
 
-- Si un proceso está en **SAMAI** (CPACA, administrativo) pero no en CPNU, no se muestra preview
-- Si el usuario ingresa un **código de tutela** (T1234567), no se consulta la API de TUTELAS
-- Los datos de **Publicaciones Procesales** no se obtienen hasta después de crear el item
+When `tipo_proceso` is available, auto-generate a descriptive title:
+- For Tutela: "Tutela vs [Accionado]"
+- For CGP: "[Tipo Proceso] - [Demandante] vs [Demandado]"
+- For CPACA: "[Medio de Control] vs [Demandado]"
 
-## Solución Propuesta
+### 3. Handle Tutela-Specific Fields
 
-Modificar el edge function `sync-by-radicado` para que en modo **LOOKUP** también consulte SAMAI, TUTELAS y opcionalmente Publicaciones, dependiendo del `workflow_type` seleccionado.
+For Tutela workflow:
+- `accionado` field should be populated from `demandado` (legally equivalent)
+- `demandados` should also be set (for consistency)
+- `tutelaFilingDate` from `fecha_radicacion`
 
-### Cambios Necesarios
+### 4. Visual Feedback for Pre-Populated Fields
 
-#### 1. Edge Function: `sync-by-radicado/index.ts`
-
-**Ubicación:** `supabase/functions/sync-by-radicado/index.ts`
-
-**Cambios:**
-
-- **Líneas ~374-467**: Agregar lógica para consultar múltiples providers según `workflow_type`
-- Usar la misma estrategia de `getProviderOrder()` que existe en `sync-by-work-item`
-- Para CPACA: consultar SAMAI primero, luego CPNU como fallback
-- Para TUTELA: consultar CPNU primero, luego API de TUTELAS si hay tutela_code
-- Consolidar resultados de múltiples fuentes
-
-**Pseudocódigo:**
-
-```typescript
-// En lugar de solo llamar adapter-cpnu:
-
-const providerOrder = getProviderOrder(workflowType);
-
-// Try primary provider first
-let processData = await callProvider(providerOrder.primary, radicado);
-
-// If not found and fallback enabled, try fallback
-if (!processData.found && providerOrder.fallbackEnabled && providerOrder.fallback) {
-  processData = await callProvider(providerOrder.fallback, radicado);
-}
-
-// Return consolidated data with source info
-```
-
-#### 2. Agregar funciones para llamar SAMAI
-
-**Nuevo código en sync-by-radicado:**
-
-```typescript
-async function fetchFromSamai(radicado: string, authHeader: string): Promise<ProviderResult> {
-  const samaiBaseUrl = Deno.env.get('SAMAI_BASE_URL');
-  const apiKey = Deno.env.get('SAMAI_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-  
-  if (!samaiBaseUrl || !apiKey) {
-    return { ok: false, error: 'SAMAI not configured' };
-  }
-  
-  const response = await fetch(
-    `${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`,
-    {
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      }
-    }
-  );
-  
-  // Parse and normalize SAMAI response...
-}
-```
-
-#### 3. Agregar funciones para llamar TUTELAS API
-
-```typescript
-async function fetchFromTutelas(tutelaCode: string, authHeader: string): Promise<ProviderResult> {
-  const tutelasBaseUrl = Deno.env.get('TUTELAS_BASE_URL');
-  const apiKey = Deno.env.get('TUTELAS_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-  
-  // TUTELAS uses POST /search with JSON body
-  const response = await fetch(
-    `${tutelasBaseUrl}/search`,
-    {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ radicado: tutelaCode })
-    }
-  );
-  
-  // Parse and normalize response...
-}
-```
-
-#### 4. Actualizar la respuesta del LOOKUP
-
-Modificar la respuesta para incluir información de todos los providers consultados:
-
-```typescript
-const response: SyncResponse = {
-  ok: true,
-  found_in_source: foundInSource,
-  source_used: primarySource, // 'CPNU' | 'SAMAI' | 'TUTELAS'
-  sources_checked: ['CPNU', 'SAMAI'], // Lista de todos los consultados
-  process_data: consolidatedData,
-  attempts: allAttempts, // Incluir timing de cada provider
-};
-```
-
-### Matriz de Providers por Workflow
-
-| Workflow Type | Provider Primario | Fallback | Notas |
-|---------------|-------------------|----------|-------|
-| CGP | CPNU | ❌ Ninguno | Procesos civiles solo en CPNU |
-| LABORAL | CPNU | ❌ Ninguno | Procesos laborales solo en CPNU |
-| CPACA | SAMAI | CPNU (disabled) | Contencioso-administrativo |
-| TUTELA | CPNU | TUTELAS API | Usar tutela_code si disponible |
-| PENAL_906 | CPNU | SAMAI | + Publicaciones como fuente primaria |
-
-### Archivos a Modificar
-
-| Archivo | Cambio |
-|---------|--------|
-| `supabase/functions/sync-by-radicado/index.ts` | Agregar lógica multi-provider para LOOKUP mode |
-| `src/hooks/use-radicado-lookup.ts` | Actualizar tipos para incluir `sources_checked` |
-| `src/components/workflow/CreateWorkItemWizard.tsx` | Mostrar fuente de datos en preview |
-
-### Beneficios
-
-1. **Mejor UX**: El usuario ve datos del proceso antes de crearlo, sin importar la fuente
-2. **Menos errores**: Si CPNU falla, se intenta SAMAI automáticamente
-3. **Consistencia**: Usa la misma lógica de providers que `sync-by-work-item`
-4. **Debugging**: Los attempts de cada provider se registran para diagnóstico
+Add subtle visual indicator to show which fields came from API vs manual entry:
+- Light border or icon showing "auto-populated from API"
+- User can still edit if needed
 
 ---
 
-## Detalles Técnicos
+## Technical Implementation
 
-### Variables de Entorno Requeridas
+### File: `src/components/workflow/CreateWorkItemWizard.tsx`
 
-Las siguientes ya están configuradas en el proyecto:
-- `CPNU_BASE_URL`
-- `SAMAI_BASE_URL`
-- `TUTELAS_BASE_URL`
-- `EXTERNAL_X_API_KEY`
+**Change 1: Expand the auto-populate useEffect (lines 194-208)**
 
-### Headers Requeridos
+```typescript
+// Apply lookup data to form fields - EXPANDED
+useEffect(() => {
+  if (lookupResult?.process_data && lookupStatus === 'success') {
+    const data = lookupResult.process_data;
+    
+    // Authority information
+    setAuthorityName(data.despacho || '');
+    setAuthorityCity(data.ciudad || '');
+    setAuthorityDepartment(data.departamento || ''); // NEW
+    
+    // Parties (general)
+    setDemandantes(data.demandante || '');
+    setDemandados(data.demandado || '');
+    
+    // Tutela-specific: accionado = demandado
+    if (workflowType === 'TUTELA' && data.demandado) {
+      setAccionado(data.demandado);
+    }
+    
+    // Filing date (workflow-specific)
+    if (data.fecha_radicacion) {
+      const parsedDate = parseApiDate(data.fecha_radicacion);
+      if (parsedDate) {
+        if (workflowType === 'TUTELA') {
+          setTutelaFilingDate(parsedDate);
+        } else if (workflowType === 'PETICION') {
+          setFilingDate(parsedDate);
+        }
+      }
+    }
+    
+    // Auto-generate title if not set
+    if (!title && data.tipo_proceso) {
+      let autoTitle = '';
+      if (workflowType === 'TUTELA' && data.demandado) {
+        autoTitle = `Tutela vs ${data.demandado.split(',')[0]?.trim() || data.demandado}`;
+      } else if (data.demandante && data.demandado) {
+        autoTitle = `${data.tipo_proceso} - ${data.demandante.split(',')[0]?.trim()} vs ${data.demandado.split(',')[0]?.trim()}`;
+      } else {
+        autoTitle = data.tipo_proceso;
+      }
+      setTitle(autoTitle.slice(0, 100)); // Limit length
+    }
+    
+    // Set CGP phase based on classification
+    if (workflowType === 'CGP' && lookupResult.cgp_phase) {
+      setCgpPhase(lookupResult.cgp_phase);
+    }
+  }
+}, [lookupResult, lookupStatus, workflowType, title]);
+```
 
-Todos los Cloud Run services requieren:
-- `x-api-key` (lowercase, case-sensitive)
-- `Content-Type: application/json`
+**Change 2: Add date parsing helper function**
 
-### Manejo de Errores
+```typescript
+// Helper to parse Colombian date formats to YYYY-MM-DD
+function parseApiDate(dateStr: string | undefined): string | null {
+  if (!dateStr) return null;
+  
+  // Already ISO format
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return dateStr.split('T')[0];
+  }
+  
+  // DD/MM/YYYY or DD-MM-YYYY
+  const match = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (match) {
+    const [, day, month, year] = match;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  
+  return null;
+}
+```
 
-- Si el provider primario falla con 404: intentar fallback
-- Si el provider primario falla con error de red: log y continuar
-- Si todos los providers fallan: retornar `found_in_source: false` con detalles
+**Change 3: Add visual indicator for auto-populated fields (optional enhancement)**
 
+Track which fields were auto-populated and show a subtle indicator:
+
+```typescript
+// State to track auto-populated fields
+const [autoPopulatedFields, setAutoPopulatedFields] = useState<Set<string>>(new Set());
+
+// In the useEffect, track what was auto-filled
+if (data.despacho) {
+  setAutoPopulatedFields(prev => new Set([...prev, 'authorityName']));
+}
+// ... etc
+
+// In the form fields, show indicator
+<Input
+  value={authorityName}
+  onChange={(e) => {
+    setAuthorityName(e.target.value);
+    setAutoPopulatedFields(prev => { 
+      const next = new Set(prev); 
+      next.delete('authorityName'); 
+      return next; 
+    });
+  }}
+  className={autoPopulatedFields.has('authorityName') ? 'border-primary/30' : ''}
+/>
+{autoPopulatedFields.has('authorityName') && (
+  <span className="text-xs text-primary/60 flex items-center gap-1">
+    <CheckCircle2 className="h-3 w-3" /> Obtenido de API
+  </span>
+)}
+```
+
+---
+
+## Summary of Changes
+
+| Component | Change |
+|-----------|--------|
+| `useEffect` (lines 194-208) | Expand to populate: `authorityDepartment`, `tutelaFilingDate`, `filingDate`, `accionado`, `title` |
+| Date parsing | Add `parseApiDate()` helper for Colombian date formats |
+| Title generation | Auto-generate from `tipo_proceso` + parties |
+| Tutela handling | Map `demandado` → `accionado` (legally equivalent) |
+| Visual feedback | (Optional) Show which fields came from API |
+
+## Expected User Experience After Changes
+
+1. User selects "Tutela" workflow
+2. User enters radicado and clicks "Buscar Proceso"
+3. API returns data with: despacho, ciudad, departamento, accionado (demandado), fecha_radicacion, actuaciones
+4. User sees "Proceso encontrado" preview with all data
+5. User clicks "Siguiente" (Next)
+6. **Details form is pre-populated with ALL available data:**
+   - Title: "Tutela vs [Accionado Name]"
+   - Accionado: [pre-filled from API]
+   - Fecha de Radicación: [pre-filled]
+   - Juzgado: [pre-filled from despacho]
+7. User only needs to select client and confirm
+
+## Files to Modify
+
+1. `src/components/workflow/CreateWorkItemWizard.tsx` - Expand auto-population logic
