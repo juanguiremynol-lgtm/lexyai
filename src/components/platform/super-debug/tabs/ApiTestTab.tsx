@@ -39,7 +39,7 @@ const WORKFLOW_CONFIG: Record<WorkflowType, {
   CGP: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, SAMAI fallback' },
   LABORAL: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, SAMAI fallback' },
   CPACA: { primary: 'samai', available: ['samai', 'cpnu', 'publicaciones'], description: 'SAMAI primario (administrativo)' },
-  TUTELA: { primary: 'cpnu', available: ['cpnu', 'samai', 'tutelas', 'publicaciones'], description: 'CPNU/SAMAI primarios, Corte Const. paralelo' },
+  TUTELA: { primary: 'cpnu', available: ['cpnu', 'samai', 'tutelas', 'publicaciones'], description: '⚡ PARALELO: Consulta CPNU+SAMAI+Corte Const. simultáneamente' },
   PENAL_906: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, Publicaciones para estados' },
 };
 
