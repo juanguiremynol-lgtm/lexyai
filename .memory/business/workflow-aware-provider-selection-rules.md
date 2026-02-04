@@ -7,7 +7,7 @@ Provider selection is workflow-aware with STRICT NO-FALLBACK enforcement for CGP
 
 - **CPACA**: SAMAI is PRIMARY (administrative litigation); CPNU is optional fallback (disabled by default).
 
-- **TUTELA**: TUTELAS API is PRIMARY (using tutela_code); CPNU is fallback if TUTELAS empty/failed.
+- **TUTELA**: Uses PARALLEL sync strategy - queries ALL sources (CPNU, SAMAI, tutelas-api/Corte Constitucional) simultaneously using Promise.all. Results are consolidated using smart deduplication that groups by (date|type|descriptionPrefix), picks the most complete version, and tracks all confirming sources in the `sources[]` array. Multi-source confirmed records get confidence=1.0. Fingerprints use `ms_` prefix to distinguish from single-source records.
 
 - **PENAL_906**: Publicaciones Procesales is PRIMARY (called first) because penal updates frequently surface via published PDFs; CPNU/SAMAI disabled by default.
 
