@@ -29,12 +29,18 @@ import { cn } from '@/lib/utils';
 type ProviderName = 'cpnu' | 'samai' | 'tutelas' | 'publicaciones';
 type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906';
 
-const WORKFLOW_CONFIG: Record<WorkflowType, { primary: ProviderName; description: string }> = {
-  CGP: { primary: 'cpnu', description: 'CPNU primario, SAMAI fallback' },
-  LABORAL: { primary: 'cpnu', description: 'CPNU primario, SAMAI fallback' },
-  CPACA: { primary: 'samai', description: 'SAMAI primario (administrativo)' },
-  TUTELA: { primary: 'tutelas', description: 'TUTELAS API primario' },
-  PENAL_906: { primary: 'publicaciones', description: 'Publicaciones es PRIMARY' },
+// Workflow configuration with available providers for each workflow type
+// This matches the workflow-config.ts definitions
+const WORKFLOW_CONFIG: Record<WorkflowType, { 
+  primary: ProviderName; 
+  available: ProviderName[]; 
+  description: string 
+}> = {
+  CGP: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, SAMAI fallback' },
+  LABORAL: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, SAMAI fallback' },
+  CPACA: { primary: 'samai', available: ['samai', 'cpnu', 'publicaciones'], description: 'SAMAI primario (administrativo)' },
+  TUTELA: { primary: 'cpnu', available: ['cpnu', 'samai', 'tutelas', 'publicaciones'], description: 'CPNU/SAMAI primarios, Corte Const. paralelo' },
+  PENAL_906: { primary: 'cpnu', available: ['cpnu', 'samai', 'publicaciones'], description: 'CPNU primario, Publicaciones para estados' },
 };
 
 interface DebugResult {
@@ -182,12 +188,19 @@ export function ApiTestTab() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="cpnu">CPNU</SelectItem>
-              <SelectItem value="samai">SAMAI</SelectItem>
-              <SelectItem value="publicaciones">PUBLICACIONES</SelectItem>
-              <SelectItem value="tutelas">TUTELAS</SelectItem>
+              {WORKFLOW_CONFIG[workflowType].available.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p.toUpperCase()}
+                  {p === WORKFLOW_CONFIG[workflowType].primary && ' (primario)'}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            {provider === WORKFLOW_CONFIG[workflowType].primary 
+              ? '✓ Proveedor primario para este flujo' 
+              : 'Proveedor alternativo'}
+          </p>
         </div>
 
         <div className="space-y-2">
