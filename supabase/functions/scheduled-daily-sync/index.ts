@@ -102,10 +102,51 @@ serve(async (req) => {
     const totalSynced = allResults.reduce((sum, r) => sum + r.synced, 0);
     const totalErrors = allResults.reduce((sum, r) => sum + r.errors, 0);
     const successfulOrgs = allResults.filter(r => r.status === 'SUCCESS').length;
+    const failedOrgs = allResults.filter(r => r.status === 'FAILED');
 
     console.log(
       `[scheduled-daily-sync] Completed in ${durationMs}ms: ${successfulOrgs}/${orgIds.length} orgs successful, ${totalSynced} items synced, ${totalErrors} errors`
     );
+
+    // FIX 5.2: Create alert_instances for failed orgs
+    if (failedOrgs.length > 0) {
+      console.log(`[scheduled-daily-sync] Creating failure alerts for ${failedOrgs.length} orgs`);
+      for (const failedOrg of failedOrgs) {
+        try {
+          // Find an admin user for this org to own the alert
+          const { data: membership } = await supabase
+            .from('organization_memberships')
+            .select('user_id')
+            .eq('organization_id', failedOrg.org_id)
+            .eq('role', 'admin')
+            .limit(1)
+            .maybeSingle();
+
+          if (membership?.user_id) {
+            await supabase.from('alert_instances').insert({
+              owner_id: membership.user_id,
+              organization_id: failedOrg.org_id,
+              entity_type: 'SYSTEM',
+              entity_id: failedOrg.org_id,
+              severity: 'WARNING',
+              status: 'ACTIVE',
+              title: 'Sincronización diaria fallida',
+              message: `La sincronización automática de ${new Date().toLocaleDateString('es-CO')} falló. ${failedOrg.errors} error(es). El sistema reintentará automáticamente.`,
+              payload: {
+                run_id: runId,
+                errors: failedOrg.errors,
+                synced: failedOrg.synced,
+                ledger_id: failedOrg.ledger_id,
+              },
+              fingerprint: `sync_failed_${failedOrg.org_id}_${new Date().toISOString().slice(0, 10)}`,
+            });
+            console.log(`[scheduled-daily-sync] Alert created for org ${failedOrg.org_id}`);
+          }
+        } catch (alertError) {
+          console.warn(`[scheduled-daily-sync] Failed to create alert for org ${failedOrg.org_id}:`, alertError);
+        }
+      }
+    }
 
     // Log execution to job_runs table (legacy compatibility)
     await logJobRun(supabase, startTime, {
