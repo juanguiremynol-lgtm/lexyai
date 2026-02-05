@@ -41,10 +41,12 @@ export function ActsTab({ workItem }: ActsTabProps) {
     queryFn: async () => {
       console.log("[ActsTab] Fetching actuaciones from work_item_acts for work_item:", workItem.id);
 
+      // FIX 4.1: Filter out archived records
       const { data: actuaciones, error } = await supabase
         .from("work_item_acts")
         .select("*")
         .eq("work_item_id", workItem.id)
+        .eq("is_archived", false)
         .order("act_date", { ascending: false, nullsFirst: false });
 
       if (error) {

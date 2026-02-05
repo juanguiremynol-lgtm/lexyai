@@ -12,12 +12,6 @@ verify_jwt = false
 [functions.adapter-cpnu]
 verify_jwt = true
 
-[functions.adapter-publicaciones]
-verify_jwt = true
-
-[functions.adapter-historico]
-verify_jwt = true
-
 [functions.process-monitor]
 verify_jwt = true
 

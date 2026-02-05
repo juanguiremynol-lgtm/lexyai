@@ -484,11 +484,14 @@ function generateFingerprint(
   workItemId: string,
   date: string,
   text: string,
-  indice?: string
+  indice?: string,
+  source?: string
 ): string {
+  // FIX 1.2: Include source (provider) to prevent cross-provider dedup collisions
+  const sourcePart = source ? `|${source}` : '';
   // Include indice in fingerprint to prevent collisions for same-day actuaciones
   const indexPart = indice ? `|${indice}` : '';
-  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}`;
+  const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}${sourcePart}`;
   let hash = 0;
   for (let i = 0; i < normalized.length; i++) {
     const char = normalized.charCodeAt(i);
@@ -1872,7 +1875,8 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
     console.log(`[sync-by-work-item] SAMAI: Found ${actuaciones.length} actuaciones for ${radicado}`);
     
     // Extract sujetos procesales for demandantes/demandados
-    const sujetos = (result.sujetos || []) as Array<Record<string, unknown>>;
+    // FIX 1.1: SAMAI uses both field names - check sujetos_procesales first, then sujetos
+    const sujetos = (result.sujetos_procesales ?? result.sujetos ?? []) as Array<Record<string, unknown>>;
     
     // Map actuaciones with correct field names
     // CRITICAL: Use fechaActuacion (NOT fecha which doesn't exist in SAMAI)
@@ -2881,7 +2885,8 @@ Deno.serve(async (req) => {
       }
       
       // Include indice in fingerprint to prevent collisions for same-day actuaciones
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice);
+      // FIX 1.2: Include provider source in fingerprint to prevent cross-provider collisions
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, fetchResult.provider);
 
       // Check for existing record using fingerprint
       // BUG FIX: Changed from 'actuaciones' to 'work_item_acts' - the canonical table

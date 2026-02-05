@@ -114,11 +114,14 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     queryKey: ["work-item-publicaciones", workItem.id],
     queryFn: async () => {
       // Query ONLY work_item_publicaciones - this tab shows estados/publicaciones ONLY
+      // FIX 4.1: Filter out archived records
+      // FIX 4.2: Add proper ORDER BY with fallback
       const { data: pubs, error: pubsError } = await supabase
         .from("work_item_publicaciones")
         .select("*")
         .eq("work_item_id", workItem.id)
-        .order("published_at", { ascending: false });
+        .eq("is_archived", false)
+        .order("fecha_fijacion", { ascending: false, nullsFirst: false });
       
       if (pubsError) throw pubsError;
       

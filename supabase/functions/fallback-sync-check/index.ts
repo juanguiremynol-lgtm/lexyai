@@ -171,7 +171,7 @@ serve(async (req) => {
           .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
           .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
           .not("radicado", "is", null)
-          .limit(50); // Smaller batch for retries
+          .limit(30); // FIX 1.4: Aligned with scheduled-daily-sync limit (was 50)
 
         if (fetchError) {
           throw fetchError;

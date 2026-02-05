@@ -74,22 +74,8 @@ export function useLoginSync(): UseLoginSyncResult {
 
     lastOrgIdRef.current = organization.id;
 
-    // Check if we've already triggered sync in this browser session today
-    const syncKey = `login_sync_${organization.id}_${new Date().toDateString()}`;
-    if (sessionStorage.getItem(syncKey)) {
-      console.log('[useLoginSync] Already synced today, skipping');
-      hasTriggeredRef.current = true;
-      
-      // Still fetch status for UI
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (user) {
-          fetchSyncStatus(user.id, organization.id);
-        }
-      });
-      return;
-    }
-
     // Trigger async sync
+    // NOTE: sessionStorage check moved inside runLoginSync to include userId (FIX 1.3)
     const runLoginSync = async () => {
       console.log('[useLoginSync] Starting login sync for org:', organization.id);
 
@@ -98,6 +84,17 @@ export function useLoginSync(): UseLoginSyncResult {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
           console.log('[useLoginSync] No authenticated user, skipping');
+          return;
+        }
+
+        // FIX 1.3: Include userId in sessionStorage key to prevent cross-user collisions
+        const syncKey = `login_sync_${user.id}_${organization.id}_${new Date().toDateString()}`;
+        
+        // Check if we've already triggered sync in this browser session today
+        if (sessionStorage.getItem(syncKey)) {
+          console.log('[useLoginSync] Already synced today for this user, skipping');
+          hasTriggeredRef.current = true;
+          fetchSyncStatus(user.id, organization.id);
           return;
         }
 
@@ -250,8 +247,15 @@ export function useLoginSync(): UseLoginSyncResult {
   // Allow manual re-run (bypasses sessionStorage guard)
   const runSyncAgain = useCallback(() => {
     if (!organization?.id) return;
-    const syncKey = `login_sync_${organization.id}_${new Date().toDateString()}`;
-    sessionStorage.removeItem(syncKey);
+    // FIX 1.3: Clear all user-scoped sync keys for this org+date
+    const dateStr = new Date().toDateString();
+    // Clear any matching key pattern
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('login_sync_') && key.includes(organization.id) && key.includes(dateStr)) {
+        sessionStorage.removeItem(key);
+      }
+    }
     hasTriggeredRef.current = false;
     // Force re-run by updating a dependency (will trigger useEffect)
     setLastRunAt(null);
