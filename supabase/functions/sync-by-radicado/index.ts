@@ -597,10 +597,15 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
     const jobId = buscarResult.jobId || buscarResult.job_id || buscarResult.id;
     
     if (!jobId) {
-      // No jobId - check if data is returned directly (cached response)
-      if (buscarResult.actuaciones?.length > 0 || buscarResult.data?.actuaciones?.length > 0) {
+      // No jobId - check if data is returned directly (cached response or status: "done")
+      // CRITICAL: SAMAI wraps cached data in "result" object: { success: true, status: "done", result: {...} }
+      const cachedData = buscarResult.result || buscarResult.data || buscarResult;
+      const hasCachedActuaciones = (cachedData.actuaciones?.length || 0) > 0;
+      const isCachedDone = buscarResult.status === 'done' || buscarResult.cached === true;
+      
+      if (hasCachedActuaciones || isCachedDone) {
         // Data returned directly, parse it
-        console.log(`[sync-by-radicado][SAMAI] Data returned directly from /buscar (cached)`);
+        console.log(`[sync-by-radicado][SAMAI] Data returned directly from /buscar (cached=${buscarResult.cached}, status=${buscarResult.status}, actuaciones=${cachedData.actuaciones?.length || 0})`);
         return parseSamaiResult(buscarResult, Date.now() - startTime);
       }
       
@@ -610,7 +615,7 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
         source: 'SAMAI',
         processData: {},
         latency_ms: Date.now() - startTime,
-        error: 'SAMAI /buscar did not return a jobId',
+        error: `SAMAI /buscar did not return a jobId or cached data (keys: ${Object.keys(buscarResult).join(',')})`,
       };
     }
     
@@ -690,58 +695,108 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
 function parseSamaiResult(result: Record<string, unknown>, latency: number): ProviderResult {
     console.log(`[sync-by-radicado][SAMAI] Raw response keys:`, Object.keys(result));
     
-    // Check if SAMAI returned data
-    // SAMAI can return data at different paths: result.data, result.proceso, or at root level
-    // Check for actuaciones presence as the main indicator of data
-    const resultActuaciones = result.actuaciones as unknown[] | undefined;
+    // CRITICAL: SAMAI wraps actual process data in a "result" object!
+    // Structure: { success: true, status: "done", result: { sujetos: [...], actuaciones: [...], ... } }
+    // The "result" key contains the actual process data, NOT the top level!
+    
+    // First, find where the actual process data lives
+    // Priority: result.result (SAMAI's nested structure) > result.data > result.proceso > result itself
+    const nestedResult = result.result as Record<string, unknown> | undefined;
     const resultData = result.data as Record<string, unknown> | undefined;
     const resultProceso = result.proceso as Record<string, unknown> | undefined;
-    const hasActuaciones = (resultActuaciones?.length || 0) > 0 || 
-                           ((resultData?.actuaciones as unknown[] | undefined)?.length || 0) > 0 || 
-                           ((resultProceso?.actuaciones as unknown[] | undefined)?.length || 0) > 0;
     
-    if (!result.data && !result.proceso && !hasActuaciones && !result.origen && !result.ponente && result.status !== 'completed') {
+    // The proceso object is where the actual data lives
+    const proceso = nestedResult || resultData || resultProceso || result;
+    
+    console.log(`[sync-by-radicado][SAMAI] Using proceso from: ${nestedResult ? 'result.result' : resultData ? 'result.data' : resultProceso ? 'result.proceso' : 'result (root)'}`);
+    console.log(`[sync-by-radicado][SAMAI] Proceso keys:`, Object.keys(proceso));
+    
+    // Check for data presence indicators
+    const hasActuaciones = ((proceso.actuaciones as unknown[] | undefined)?.length || 0) > 0;
+    const hasSujetos = ((proceso.sujetos as unknown[] | undefined)?.length || 0) > 0;
+    const hasOrigen = !!(proceso.origen || proceso.ponente || proceso.despacho);
+    const hasRadicado = !!(proceso.radicado);
+    
+    console.log(`[sync-by-radicado][SAMAI] Data indicators: hasActuaciones=${hasActuaciones}, hasSujetos=${hasSujetos}, hasOrigen=${hasOrigen}, hasRadicado=${hasRadicado}`);
+    
+    // Check if we have any meaningful data
+    if (!hasActuaciones && !hasSujetos && !hasOrigen && !hasRadicado && result.status !== 'done' && result.status !== 'completed') {
       return {
         ok: true,
         found: false,
         source: 'SAMAI',
         processData: {},
         latency_ms: latency,
-        error: 'No data in SAMAI response',
+        error: `No data in SAMAI response (status: ${result.status || 'unknown'})`,
       };
     }
-
-    // SAMAI can nest data differently - check multiple paths
-    const proceso = (result.data || result.proceso || result) as Record<string, unknown>;
     
-    console.log(`[sync-by-radicado][SAMAI] Proceso keys:`, Object.keys(proceso));
-    console.log(`[sync-by-radicado][SAMAI] Actuaciones count:`, (proceso.actuaciones as unknown[])?.length || 0);
-
-    // Extract parties from sujetos_procesales or partes
+    // ============= CRITICAL FIX: SAMAI uses DIFFERENT field names than CPNU =============
+    // SAMAI: sujetos[].tipo = "ACTOR", "DEMANDADO", "TERCERO INTERVINIENTE/INTERESADO"
+    // SAMAI: sujetos[].nombre = party name (NOT nombreRazonSocial)
+    // CPNU:  sujetos[].tipoSujeto = "Demandante", "Demandado"
+    // CPNU:  sujetos[].nombreRazonSocial = party name
+    
+    // Extract parties from sujetos array (SAMAI-specific field names!)
     let demandantes = '';
     let demandados = '';
     
-    const sujetosSource = (proceso.sujetos_procesales || proceso.partes || proceso.sujetos || []) as Array<{ tipo?: string; nombre?: string; nombreRazonSocial?: string }>;
+    // SAMAI uses "sujetos" (not sujetos_procesales)
+    const sujetosSource = (proceso.sujetos || proceso.sujetos_procesales || proceso.partes || []) as Array<{ 
+      tipo?: string; 
+      tipoSujeto?: string;  // CPNU fallback
+      nombre?: string; 
+      nombreRazonSocial?: string;  // CPNU fallback
+      registro?: string;
+    }>;
+    
+    console.log(`[sync-by-radicado][SAMAI] Found ${sujetosSource.length} sujetos to process`);
     
     if (sujetosSource.length > 0) {
+      // Log first sujeto for debugging
+      console.log(`[sync-by-radicado][SAMAI] First sujeto sample:`, JSON.stringify(sujetosSource[0]));
+      
       const demandantesList = sujetosSource
         .filter((s) => 
-          (s.tipo || '').toLowerCase().includes('demandante') || 
-          (s.tipo || '').toLowerCase().includes('actor') ||
-          (s.tipo || '').toLowerCase().includes('accionante') ||
-          (s.tipo || '').toLowerCase().includes('tutelante')
+          {
+            // SAMAI uses "tipo" field with values: "ACTOR", "DEMANDADO", etc.
+            // CPNU uses "tipoSujeto" field with values: "Demandante", "Demandado", etc.
+            const tipo = ((s.tipo || s.tipoSujeto || '')).toUpperCase();
+            const isActor = tipo === 'ACTOR' || 
+                           tipo.includes('DEMANDANTE') || 
+                           tipo.includes('ACCIONANTE') ||
+                           tipo.includes('TUTELANTE') ||
+                           tipo.includes('REQUIRENTE');
+            if (isActor) {
+              console.log(`[sync-by-radicado][SAMAI] Found demandante/actor: tipo="${s.tipo}", nombre="${s.nombre}"`);
+            }
+            return isActor;
+          }
         )
-        .map((s) => s.nombre || s.nombreRazonSocial || '');
+        .map((s) => s.nombre || s.nombreRazonSocial || '')
+        .filter(Boolean);
+        
       const demandadosList = sujetosSource
         .filter((s) => 
-          (s.tipo || '').toLowerCase().includes('demandado') ||
-          (s.tipo || '').toLowerCase().includes('accionado') ||
-          (s.tipo || '').toLowerCase().includes('tutelado')
+          {
+            const tipo = ((s.tipo || s.tipoSujeto || '')).toUpperCase();
+            const isAccionado = tipo === 'DEMANDADO' ||
+                               tipo.includes('ACCIONADO') ||
+                               tipo.includes('TUTELADO') ||
+                               tipo.includes('REQUERIDO');
+            if (isAccionado) {
+              console.log(`[sync-by-radicado][SAMAI] Found demandado/accionado: tipo="${s.tipo}", nombre="${s.nombre}"`);
+            }
+            return isAccionado;
+          }
         )
-        .map((s) => s.nombre || s.nombreRazonSocial || '');
+        .map((s) => s.nombre || s.nombreRazonSocial || '')
+        .filter(Boolean);
       
-      if (demandantesList.length) demandantes = demandantesList.filter(Boolean).join(', ');
-      if (demandadosList.length) demandados = demandadosList.filter(Boolean).join(', ');
+      if (demandantesList.length) demandantes = demandantesList.join(', ');
+      if (demandadosList.length) demandados = demandadosList.join(', ');
+      
+      console.log(`[sync-by-radicado][SAMAI] Extracted from sujetos: demandantes="${demandantes}", demandados="${demandados}"`);
     }
 
     // Normalize actuaciones from SAMAI format
@@ -786,9 +841,11 @@ function parseSamaiResult(result: Record<string, unknown>, latency: number): Pro
 
     // Map sujetos to required type
     const mappedSujetos = sujetosSource.map(s => ({
-      tipo: s.tipo || '',
-      nombre: s.nombre || s.nombreRazonSocial || '',
+      tipo: s.tipo || s.tipoSujeto || '',
+      nombre: s.nombre || s.nombreRazonSocial || ''
     }));
+    
+    console.log(`[sync-by-radicado][SAMAI] Final extracted data: despacho="${despacho}", demandantes="${demandantes || '(from actuaciones: ' + (demandantes || '(none)') + ')'}", demandados="${demandados}", actuaciones=${actuaciones.length}`);
 
     return {
       ok: true,
