@@ -4,7 +4,6 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
 import { calculateNextReminderDate } from "./business-days";
 import { 
   type ReminderType, 
@@ -317,26 +316,28 @@ async function createReminderAuditEvent(
   payload: Record<string, any>
 ): Promise<void> {
   try {
-    // Get the work_item to find legacy filing_id if needed
+    // Get the work_item owner
     const { data: workItem } = await supabase
       .from("work_items")
-      .select("legacy_filing_id, owner_id")
+      .select("owner_id, organization_id")
       .eq("id", workItemId)
       .single();
     
     if (!workItem) return;
     
-    // Create process_event for audit trail
-    await supabase.from("process_events").insert({
-      owner_id: workItem.owner_id,
-      filing_id: workItem.legacy_filing_id || workItemId, // Use work_item_id if no legacy
-      event_type: eventType,
-      description: `Reminder: ${eventType}`,
-      raw_data: {
+    // Create audit_log entry for reminder lifecycle
+    await supabase.from("audit_logs").insert({
+      organization_id: workItem.organization_id,
+      actor_user_id: workItem.owner_id,
+      actor_type: "SYSTEM",
+      action: eventType,
+      entity_type: "work_item_reminder",
+      entity_id: workItemId,
+      metadata: {
         ...payload,
         work_item_id: workItemId,
         timestamp: new Date().toISOString(),
-      } as unknown as Json,
+      },
     });
   } catch (err) {
     console.error("Error creating reminder audit event:", err);
