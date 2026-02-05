@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// Deno.serve used below
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,7 +10,7 @@ const corsHeaders = {
 const RENDER_API_BASE = "https://rama-judicial-api.onrender.com";
 const TIMEOUT_MS = 45000; // 45 second timeout
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   // Permitir preflight de CORS
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
