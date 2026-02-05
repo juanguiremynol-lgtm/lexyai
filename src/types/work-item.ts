@@ -33,6 +33,9 @@ export interface WorkItem {
   radicado: string | null;
   radicado_verified: boolean;
   tutela_code: string | null; // TUTELA-specific identifier (T + digits)
+  corte_status: string | null; // SELECCIONADA / NO_SELECCIONADA / PENDIENTE
+  sentencia_ref: string | null; // T-123/2026, SU-045/2026
+  provider_sources: Record<string, unknown> | null; // Which providers have data
   
   // Authority/court information
   authority_name: string | null;

@@ -304,6 +304,61 @@ function classifyActuacionType(description: string): string {
  */
 const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai', 'tutelas-api'];
 
+/**
+ * Merge TUTELA metadata from multiple providers using "best available" strategy.
+ * Called in provider priority order: CPNU → SAMAI → TUTELAS.
+ * - Most fields: first non-empty wins (respects call order priority)
+ * - Stage: TUTELAS always overrides (Corte Constitucional status is most authoritative)
+ * - Additive fields (tutela_code, corte_status, sentencia_ref): take from whoever provides
+ * - total_actuaciones: sum across providers (before dedup)
+ */
+function mergeTutelaMetadata(
+  current: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+  source: string
+): Record<string, unknown> {
+  const merged = { ...current };
+
+  // First-non-empty for standard fields
+  const firstWins = [
+    'despacho', 'demandante', 'demandado', 'demandantes', 'demandados',
+    'ponente', 'origen', 'clase_proceso', 'etapa', 'ubicacion',
+    'formato_expediente', 'tipo_proceso', 'subclase', 'recurso',
+    'naturaleza', 'asunto', 'medida_cautelar', 'ministerio_publico',
+    'total_sujetos', 'guid', 'consultado_en', 'fuente',
+    'sala_conoce', 'sala_decide', 'veces_en_corporacion',
+    'fecha_radicado', 'fecha_presenta_demanda', 'fecha_para_sentencia', 'fecha_sentencia',
+  ];
+
+  for (const key of firstWins) {
+    if (!merged[key] && incoming[key]) {
+      merged[key] = incoming[key];
+    }
+  }
+
+  // Stage: TUTELAS (Corte Constitucional) always overrides
+  if (source === 'tutelas-api' && incoming.stage) {
+    merged.stage = incoming.stage;
+  } else if (!merged.stage && incoming.stage) {
+    merged.stage = incoming.stage;
+  }
+
+  // Additive/authoritative fields — take from whoever provides them
+  const additive = ['tutela_code', 'corte_status', 'sentencia_ref'];
+  for (const key of additive) {
+    if (incoming[key]) merged[key] = incoming[key]; // Last provider with data wins (TUTELAS is last)
+  }
+
+  // total_actuaciones: sum across providers (before dedup)
+  const currentTotal = (merged.total_actuaciones as number) || 0;
+  const incomingTotal = (incoming.total_actuaciones as number) || 0;
+  if (incomingTotal > 0) {
+    merged.total_actuaciones = currentTotal + incomingTotal;
+  }
+
+  return merged;
+}
+
 interface ConsolidatedActuacion {
   best: ActuacionRaw;
   sources: string[];
@@ -2500,20 +2555,9 @@ Deno.serve(async (req) => {
           }
           allSources.push(label);
           
-          // Merge metadata: prefer provider with more data
+      // Merge metadata using "best available" strategy per spec §4.1
           if (provResult.caseMetadata) {
-            const currentFields = Object.values(bestMetadata || {}).filter(Boolean).length;
-            const newFields = Object.values(provResult.caseMetadata).filter(Boolean).length;
-            if (newFields > currentFields) {
-              bestMetadata = { ...bestMetadata, ...provResult.caseMetadata };
-            } else {
-              // Still fill in missing fields from this provider
-              for (const [k, v] of Object.entries(provResult.caseMetadata)) {
-                if (v && !(bestMetadata as any)?.[k]) {
-                  (bestMetadata as any)[k] = v;
-                }
-              }
-            }
+            bestMetadata = mergeTutelaMetadata(bestMetadata || {}, provResult.caseMetadata, label);
           }
           
           if (provResult.sujetos && provResult.sujetos.length > (bestSujetos?.length || 0)) {
@@ -3523,8 +3567,36 @@ Deno.serve(async (req) => {
       }
       // fecha_sentencia can be text like "SIN SENTENCIA" or a date
       if (meta.fecha_sentencia) {
-        updatePayload.fecha_sentencia = meta.fecha_sentencia;
+      updatePayload.fecha_sentencia = meta.fecha_sentencia;
       }
+
+      // TUTELA-specific metadata columns
+      if (meta.corte_status) updatePayload.corte_status = meta.corte_status;
+      if (meta.sentencia_ref) updatePayload.sentencia_ref = meta.sentencia_ref;
+      if (meta.tutela_code && !workItem.tutela_code) updatePayload.tutela_code = meta.tutela_code;
+    }
+
+    // ============= PROVIDER SOURCES TRACKING (TUTELA) =============
+    if (workItem.workflow_type === 'TUTELA' && result.provider_attempts.length > 0) {
+      const providerSources: Record<string, Record<string, unknown>> = {};
+      const syncTime = new Date().toISOString();
+      
+      for (const attempt of result.provider_attempts) {
+        providerSources[attempt.provider] = {
+          found: attempt.status === 'success',
+          last_sync: syncTime,
+          ...(attempt.actuacionesCount != null ? { actuaciones_count: attempt.actuacionesCount } : {}),
+          ...(attempt.message && attempt.status !== 'success' ? { error: attempt.message } : {}),
+        };
+      }
+      
+      // If TUTELAS returned corte_status, include it in provider_sources
+      const meta = fetchResult.caseMetadata || {};
+      if (meta.corte_status && providerSources['tutelas-api']) {
+        (providerSources['tutelas-api'] as Record<string, unknown>).corte_status = meta.corte_status;
+      }
+      
+      updatePayload.provider_sources = providerSources;
     }
 
     await supabase

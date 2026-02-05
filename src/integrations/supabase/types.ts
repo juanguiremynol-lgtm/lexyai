@@ -6092,6 +6092,7 @@ export type Database = {
           cgp_variant: string | null
           clase_proceso: string | null
           client_id: string | null
+          corte_status: string | null
           created_at: string
           delete_reason: string | null
           deleted_at: string | null
@@ -6146,6 +6147,7 @@ export type Database = {
           owner_id: string
           pipeline_stage: number | null
           ponente: string | null
+          provider_sources: Json | null
           radicado: string | null
           radicado_verified: boolean | null
           samai_consultado_en: string | null
@@ -6160,6 +6162,7 @@ export type Database = {
           scrape_status: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields: Json | null
           scraping_enabled: boolean | null
+          sentencia_ref: string | null
           sharepoint_url: string | null
           source: Database["public"]["Enums"]["item_source"]
           source_payload: Json | null
@@ -6200,6 +6203,7 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           client_id?: string | null
+          corte_status?: string | null
           created_at?: string
           delete_reason?: string | null
           deleted_at?: string | null
@@ -6254,6 +6258,7 @@ export type Database = {
           owner_id: string
           pipeline_stage?: number | null
           ponente?: string | null
+          provider_sources?: Json | null
           radicado?: string | null
           radicado_verified?: boolean | null
           samai_consultado_en?: string | null
@@ -6268,6 +6273,7 @@ export type Database = {
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
@@ -6308,6 +6314,7 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           client_id?: string | null
+          corte_status?: string | null
           created_at?: string
           delete_reason?: string | null
           deleted_at?: string | null
@@ -6362,6 +6369,7 @@ export type Database = {
           owner_id?: string
           pipeline_stage?: number | null
           ponente?: string | null
+          provider_sources?: Json | null
           radicado?: string | null
           radicado_verified?: boolean | null
           samai_consultado_en?: string | null
@@ -6376,6 +6384,7 @@ export type Database = {
           scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
+          sentencia_ref?: string | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
