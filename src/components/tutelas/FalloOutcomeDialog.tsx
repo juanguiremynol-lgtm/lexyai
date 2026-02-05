@@ -34,14 +34,15 @@ export function FalloOutcomeDialog({
 
       // Determine the new status based on phase
       const newStatus = targetPhase === "FALLO_PRIMERA_INSTANCIA" 
-        ? "MONITORING_ACTIVE" 
+        ? "ACTIVE" 
         : "CLOSED";
 
+      // Update work_items instead of filings
       const { error } = await supabase
-        .from("filings")
+        .from("work_items")
         .update({
           status: newStatus,
-          has_auto_admisorio: isFavorable, // Reusing this field to store if favorable
+          is_flagged: isFavorable, // Using is_flagged to track favorable outcome
         })
         .eq("id", tutela.id);
 
@@ -52,7 +53,6 @@ export function FalloOutcomeDialog({
       if (user.user) {
         await supabase.from("alerts").insert({
           owner_id: user.user.id,
-          filing_id: tutela.id,
           severity: isFavorable ? "INFO" : "WARN",
           message: `Fallo de ${targetPhase === "FALLO_PRIMERA_INSTANCIA" ? "primera" : "segunda"} instancia: ${isFavorable ? "FAVORABLE" : "DESFAVORABLE"} - ${tutela.demandantes || "Accionante"} vs ${tutela.demandados || "Accionado"}`,
         });
@@ -62,7 +62,7 @@ export function FalloOutcomeDialog({
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       
       const outcomeText = result?.isFavorable ? "favorable" : "desfavorable";

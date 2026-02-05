@@ -11,14 +11,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertTriangle, Loader2, CalendarIcon, Bell, Gavel } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { format, addDays, addBusinessDays } from "date-fns";
+import { format, addBusinessDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { TutelaItem } from "./TutelaCard";
@@ -50,16 +49,16 @@ export function ReportIncumplimientoDialog({
       const userId = user.user.id;
       let desacatoId: string | null = null;
 
-      // Step 1: Update filing with compliance info
-      const { error: filingError } = await supabase
-        .from("filings")
+      // Step 1: Update work_item with compliance info
+      const { error: workItemError } = await supabase
+        .from("work_items")
         .update({
-          compliance_reported: true,
-          compliance_reported_at: incumplimientoDate.toISOString(),
+          notes: `${tutela.notes || ""}\n\n[INCUMPLIMIENTO ${incumplimientoDate.toISOString()}] ${notes}`.trim(),
+          updated_at: new Date().toISOString(),
         })
         .eq("id", tutela.id);
 
-      if (filingError) throw filingError;
+      if (workItemError) throw workItemError;
 
       // Step 2: Create desacato incident if selected
       if (createDesacato) {
@@ -129,7 +128,6 @@ export function ReportIncumplimientoDialog({
       // Step 4: Create critical alert for immediate attention
       const { error: alertError } = await supabase.from("alerts").insert({
         owner_id: userId,
-        filing_id: tutela.id,
         severity: "CRITICAL",
         message: `⚠️ INCUMPLIMIENTO REPORTADO: Tutela ${tutela.radicado || ""} - ${tutela.demandantes || "Accionante"} vs ${tutela.demandados || "Accionado"}. ${createDesacato ? "Incidente de desacato iniciado." : ""}`,
       });
@@ -141,7 +139,7 @@ export function ReportIncumplimientoDialog({
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["desacatos"] });
       queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
       

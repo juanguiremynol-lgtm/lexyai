@@ -89,18 +89,21 @@ export function NewHabeasCorpusDialog({
 
       if (matterError) throw matterError;
 
-      // Create filing with HABEAS_CORPUS type
-      const { data: filing, error: filingError } = await supabase
-        .from("filings")
+      // Create work_item with TUTELA type and habeas corpus title
+      const { data: workItem, error: workItemError } = await supabase
+        .from("work_items")
         .insert({
           owner_id: user.user.id,
           matter_id: matter.id,
           client_id: formData.clientId,
-          filing_type: "HABEAS_CORPUS",
-          status: "DRAFTED",
+          workflow_type: "TUTELA",
+          stage: "FILING",
+          status: "ACTIVE",
+          source: "MANUAL",
+          title: `Habeas Corpus - ${formData.detenido || "Detenido"}`,
           demandantes: formData.detenido,
           demandados: formData.autoridadCaptora,
-          court_name: formData.courtName || null,
+          authority_name: formData.courtName || null,
           radicado: formData.radicado || null,
           description: JSON.stringify({
             lugarDetencion: formData.lugarDetencion,
@@ -108,38 +111,25 @@ export function NewHabeasCorpusDialog({
             motivoCaptura: formData.motivoCaptura,
             detalle: formData.description,
           }),
+          monitoring_enabled: true,
         })
         .select()
         .single();
 
-      if (filingError) throw filingError;
+      if (workItemError) throw workItemError;
 
-      // Create urgent task (Habeas Corpus is time-sensitive - 36 hours)
-      const dueAt = new Date();
-      dueAt.setHours(dueAt.getHours() + 36);
-
-      await supabase.from("tasks").insert({
-        owner_id: user.user.id,
-        filing_id: filing.id,
-        title: `URGENTE: Seguimiento Habeas Corpus - ${formData.detenido || "Detenido"}`,
-        type: "FOLLOW_UP_COURT",
-        due_at: dueAt.toISOString(),
-        auto_generated: true,
-      });
-
-      // Create critical alert
+      // Create critical alert (Habeas Corpus is time-sensitive - 36 hours)
       await supabase.from("alerts").insert({
         owner_id: user.user.id,
-        filing_id: filing.id,
-        message: `Habeas Corpus radicado para ${formData.detenido || "detenido"}. Término de 36 horas para resolver.`,
+        message: `URGENTE: Habeas Corpus radicado para ${formData.detenido || "detenido"}. Término de 36 horas para resolver.`,
         severity: "CRITICAL",
       });
 
-      return filing;
+      return workItem;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
       toast.success("Habeas Corpus creado exitosamente");
       onOpenChange(false);
       resetForm();

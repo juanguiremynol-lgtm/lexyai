@@ -37,8 +37,6 @@ interface PurgeResult {
     cgp_items: number;
     peticiones: number;
     cpaca_processes: number;
-    monitored_processes: number;
-    filings: number;
     process_events: number;
     actuaciones: number;
     documents: number;
@@ -59,20 +57,18 @@ export function PurgeLegacyDataSection() {
   const REQUIRED_TEXT = "PURGE MY ORG";
   const isValid = understood && confirmText === REQUIRED_TEXT;
 
-  // Fetch current data counts
+  // Fetch current data counts - only from existing tables
   const { data: counts, refetch: refetchCounts } = useQuery({
     queryKey: ["purge-data-counts"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) return null;
 
-      const [workItems, cgp, cpaca, peticiones, filings, processes] = await Promise.all([
+      const [workItems, cgp, cpaca, peticiones] = await Promise.all([
         supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
         supabase.from("cgp_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
         supabase.from("cpaca_processes").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
         supabase.from("peticiones").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
-        supabase.from("filings").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
-        supabase.from("monitored_processes").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
       ]);
 
       return {
@@ -80,10 +76,7 @@ export function PurgeLegacyDataSection() {
         cgp_items: cgp.count || 0,
         cpaca_processes: cpaca.count || 0,
         peticiones: peticiones.count || 0,
-        filings: filings.count || 0,
-        monitored_processes: processes.count || 0,
-        total: (workItems.count || 0) + (cgp.count || 0) + (cpaca.count || 0) + 
-               (peticiones.count || 0) + (filings.count || 0) + (processes.count || 0),
+        total: (workItems.count || 0) + (cgp.count || 0) + (cpaca.count || 0) + (peticiones.count || 0),
       };
     },
   });
@@ -149,7 +142,7 @@ export function PurgeLegacyDataSection() {
             </Button>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <div className="flex items-center justify-between p-2 bg-muted rounded-md">
               <span className="text-sm">Work Items</span>
               <Badge variant="secondary">{counts?.work_items || 0}</Badge>
@@ -165,14 +158,6 @@ export function PurgeLegacyDataSection() {
             <div className="flex items-center justify-between p-2 bg-muted rounded-md">
               <span className="text-sm">Peticiones</span>
               <Badge variant="secondary">{counts?.peticiones || 0}</Badge>
-            </div>
-            <div className="flex items-center justify-between p-2 bg-muted rounded-md">
-              <span className="text-sm">Filings</span>
-              <Badge variant="secondary">{counts?.filings || 0}</Badge>
-            </div>
-            <div className="flex items-center justify-between p-2 bg-muted rounded-md">
-              <span className="text-sm">Processes</span>
-              <Badge variant="secondary">{counts?.monitored_processes || 0}</Badge>
             </div>
           </div>
           
@@ -195,7 +180,7 @@ export function PurgeLegacyDataSection() {
               </p>
               <p className="text-sm text-muted-foreground">
                 Este purge eliminará TODOS los datos de tu organización incluyendo:
-                cgp_items, filings, tutelas, peticiones, cpaca_processes, monitored_processes,
+                work_items, cgp_items, peticiones, cpaca_processes,
                 y todos sus datos dependientes (documentos, actuaciones, alertas, tareas, términos, etc.)
               </p>
             </div>
@@ -236,8 +221,8 @@ export function PurgeLegacyDataSection() {
                     </p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li>Todos los work_items y procesos CGP</li>
-                      <li>Todas las peticiones y tutelas</li>
-                      <li>Todos los procesos CPACA y administrativos</li>
+                      <li>Todas las peticiones</li>
+                      <li>Todos los procesos CPACA</li>
                       <li>Documentos, actuaciones, y línea de tiempo</li>
                       <li>Términos, plazos, alertas y tareas</li>
                       <li>Archivos almacenados en la nube</li>
