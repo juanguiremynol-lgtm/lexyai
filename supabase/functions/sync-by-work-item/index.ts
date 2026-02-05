@@ -240,6 +240,118 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
 
 // ============= HELPERS =============
 
+// ============= SMART CONSOLIDATION ENGINE =============
+// Two-tier deduplication for cross-provider TUTELA sync:
+// Tier 1: Exact fingerprint per provider (existing, handles same-provider dedup)
+// Tier 2: Fuzzy cross-provider match using Jaccard similarity + legal event classification
+
+/**
+ * Remove accents, punctuation, collapse whitespace, uppercase
+ */
+function normalizeTextForComparison(text: string): string {
+  return text
+    .toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^A-Z0-9\s]/g, '')                       // Remove punctuation
+    .replace(/\s+/g, ' ')                               // Collapse whitespace
+    .trim();
+}
+
+/**
+ * Jaccard similarity on word tokens (0-1 range)
+ */
+function normalizedSimilarity(a: string, b: string): number {
+  const normA = normalizeTextForComparison(a);
+  const normB = normalizeTextForComparison(b);
+
+  const tokensA = new Set(normA.split(/\s+/).filter(Boolean));
+  const tokensB = new Set(normB.split(/\s+/).filter(Boolean));
+
+  if (tokensA.size === 0 && tokensB.size === 0) return 1;
+  if (tokensA.size === 0 || tokensB.size === 0) return 0;
+
+  const intersection = new Set([...tokensA].filter(t => tokensB.has(t)));
+  const union = new Set([...tokensA, ...tokensB]);
+
+  return intersection.size / union.size;
+}
+
+/**
+ * Classify legal event type from description text
+ */
+function classifyActuacionType(description: string): string {
+  const upper = description.toUpperCase();
+
+  if (/SENTENCIA|FALLO/.test(upper)) return 'SENTENCIA';
+  if (/AUTO\s+ADMISORIO|ADMITE\s+TUTELA/.test(upper)) return 'AUTO_ADMISORIO';
+  if (/AUTO\s+INTERLOCUTORIO/.test(upper)) return 'AUTO_INTERLOCUTORIO';
+  if (/AUDIENCIA/.test(upper)) return 'AUDIENCIA';
+  if (/IMPUGNA/.test(upper)) return 'IMPUGNACION';
+  if (/NOTIFICA/.test(upper)) return 'NOTIFICACION';
+  if (/RECURSO/.test(upper)) return 'RECURSO';
+  if (/SELECCION.*REVISION|REVISION/.test(upper)) return 'SELECCION_REVISION';
+  if (/ARCHIV/.test(upper)) return 'ARCHIVO';
+  if (/TRASLADO/.test(upper)) return 'TRASLADO';
+  if (/REQUIERE|REQUERIMIENTO/.test(upper)) return 'REQUERIMIENTO';
+
+  return 'OTHER';
+}
+
+/**
+ * Source priority for TUTELA: determines processing order.
+ * Lower court actuaciones: CPNU > SAMAI
+ * Corte Constitucional: TUTELAS is authoritative
+ */
+const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai', 'tutelas-api'];
+
+interface ConsolidatedActuacion {
+  best: ActuacionRaw;
+  sources: string[];
+  crossProviderData: Record<string, unknown>;
+}
+
+/**
+ * Find a cross-provider duplicate for a new actuacion among existing consolidated records.
+ * Returns the matching record or null if no match.
+ */
+function findCrossProviderDuplicate(
+  newAct: ActuacionRaw,
+  newSource: string,
+  existingRecords: ConsolidatedActuacion[]
+): ConsolidatedActuacion | null {
+  const newDate = (newAct.fecha || '').slice(0, 10);
+
+  for (const existing of existingRecords) {
+    const existingDate = (existing.best.fecha || '').slice(0, 10);
+
+    // Rule 1: Same date is REQUIRED
+    if (newDate !== existingDate) continue;
+
+    // Rule 2: Same source means NOT a cross-provider comparison (Tier 1 handles it)
+    if (existing.sources.length === 1 && existing.sources[0] === newSource) continue;
+
+    // Rule 3: Description similarity via Jaccard
+    const descSimilarity = normalizedSimilarity(
+      newAct.actuacion || '',
+      existing.best.actuacion || ''
+    );
+
+    // Rule 4: High similarity (>70%) = same event
+    if (descSimilarity > 0.70) {
+      return existing;
+    }
+
+    // Rule 5: Same legal event type on same date = same event
+    const newType = classifyActuacionType(newAct.actuacion || '');
+    const existingType = classifyActuacionType(existing.best.actuacion || '');
+    if (newType !== 'OTHER' && newType === existingType) {
+      return existing;
+    }
+  }
+
+  return null;
+}
+
 // ============= SIGNIFICANT EVENT DETECTION =============
 // Detects important judicial events that warrant alerts
 // IMPORTANT: Severity must be uppercase to match DB constraint: 'INFO', 'WARNING', 'CRITICAL'
@@ -2455,43 +2567,108 @@ Deno.serve(async (req) => {
         return jsonResponse(result, 202);
       }
       
-      // If we have actuaciones from multiple sources, deduplicate via similarity key
+      // ============= SMART CONSOLIDATION: TWO-TIER CROSS-PROVIDER DEDUP =============
       if (allActuaciones.length > 0 && allSources.length > 1) {
-        console.log(`[sync-by-work-item] TUTELA: Deduplicating ${allActuaciones.length} actuaciones from ${allSources.join(', ')}`);
+        console.log(`[sync-by-work-item] TUTELA: Smart consolidation of ${allActuaciones.length} actuaciones from ${allSources.join(', ')}`);
         
-        // Group by similarity key: date + normalized description prefix
-        const groups = new Map<string, { best: ActuacionRaw; sources: string[] }>();
-        
+        // Step 1: Group actuaciones by source, ordered by priority
+        const bySource = new Map<string, ActuacionRaw[]>();
         for (const act of allActuaciones) {
-          const date = act.fecha || '';
-          const descPrefix = (act.actuacion || '').toLowerCase().trim().slice(0, 60);
-          const key = `${date}|${descPrefix}`;
+          const src = (act as any)._source || 'unknown';
+          if (!bySource.has(src)) bySource.set(src, []);
+          bySource.get(src)!.push(act);
+        }
+        
+        // Step 2: Process sources in priority order (CPNU first, then SAMAI, then TUTELAS)
+        const sortedSources = [...bySource.keys()].sort((a, b) => {
+          const idxA = TUTELA_SOURCE_PRIORITY.indexOf(a);
+          const idxB = TUTELA_SOURCE_PRIORITY.indexOf(b);
+          return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+        });
+        
+        // Step 3: Build consolidated list — first source inserts all, subsequent sources dedup
+        const consolidated: ConsolidatedActuacion[] = [];
+        let skippedCrossProvider = 0;
+        let enrichedCrossProvider = 0;
+        
+        for (const source of sortedSources) {
+          const acts = bySource.get(source)!;
           
-          const existing = groups.get(key);
-          if (existing) {
-            // Track source
-            const source = (act as any)._source || 'unknown';
-            if (!existing.sources.includes(source)) {
-              existing.sources.push(source);
+          for (const act of acts) {
+            // For the first source, everything is new
+            if (consolidated.length === 0 || source === sortedSources[0]) {
+              // Check within same source (Tier 1 prefix dedup)
+              const match = findCrossProviderDuplicate(act, source, consolidated);
+              if (match) {
+                // Same source, same event — shouldn't happen often but handle gracefully
+                if (!match.sources.includes(source)) match.sources.push(source);
+                skippedCrossProvider++;
+              } else {
+                consolidated.push({
+                  best: act,
+                  sources: [source],
+                  crossProviderData: {},
+                });
+              }
+              continue;
             }
-            // Pick best version (more metadata = better)
-            const existingScore = [existing.best.anotacion, existing.best.fecha_registro, existing.best.indice].filter(Boolean).length;
-            const newScore = [act.anotacion, act.fecha_registro, act.indice].filter(Boolean).length;
-            if (newScore > existingScore) {
-              existing.best = act;
+            
+            // Tier 2: Cross-provider fuzzy match
+            const match = findCrossProviderDuplicate(act, source, consolidated);
+            
+            if (match) {
+              // Cross-provider match found — enrich, don't insert
+              if (!match.sources.includes(source)) {
+                match.sources.push(source);
+              }
+              
+              // If new provider has richer annotation, store as supplementary data
+              const newAnnotationLen = (act.anotacion || '').length;
+              const existingAnnotationLen = (match.best.anotacion || '').length;
+              
+              if (newAnnotationLen > existingAnnotationLen) {
+                // Store richer annotation in crossProviderData (never overwrite primary)
+                match.crossProviderData[`cross_provider_${source}`] = {
+                  actuacion: act.actuacion,
+                  anotacion: act.anotacion,
+                  fecha_registro: act.fecha_registro,
+                  indice: act.indice,
+                };
+                enrichedCrossProvider++;
+              } else {
+                // Still preserve the cross-provider raw payload
+                match.crossProviderData[`cross_provider_${source}`] = {
+                  actuacion: act.actuacion,
+                  anotacion: act.anotacion,
+                };
+              }
+              
+              skippedCrossProvider++;
+            } else {
+              // Genuinely new record from this provider
+              consolidated.push({
+                best: act,
+                sources: [source],
+                crossProviderData: {},
+              });
             }
-          } else {
-            groups.set(key, { best: act, sources: [(act as any)._source || 'unknown'] });
           }
         }
         
-        console.log(`[sync-by-work-item] TUTELA: Deduplicated to ${groups.size} unique actuaciones`);
+        console.log(`[sync-by-work-item] TUTELA: Smart consolidation: ${allActuaciones.length} → ${consolidated.length} unique (skipped=${skippedCrossProvider}, enriched=${enrichedCrossProvider})`);
         
-        // Build merged fetchResult
-        const deduped = Array.from(groups.values());
+        // Build merged fetchResult with cross-provider data embedded in raw_data
         fetchResult = {
           ok: true,
-          actuaciones: deduped.map(g => g.best),
+          actuaciones: consolidated.map(g => {
+            // Embed cross-provider data and source tracking into the actuacion's raw data
+            const enrichedAct = { ...g.best };
+            // Store sources and cross-provider data for the insert loop to use
+            (enrichedAct as any)._consolidated_sources = g.sources;
+            (enrichedAct as any)._cross_provider_data = Object.keys(g.crossProviderData).length > 0
+              ? g.crossProviderData : undefined;
+            return enrichedAct;
+          }),
           caseMetadata: bestMetadata,
           sujetos: bestSujetos,
           provider: allSources.join('+'),
@@ -2510,12 +2687,14 @@ Deno.serve(async (req) => {
           step: 'MULTI_SOURCE_MERGE',
           provider: allSources.join('+'),
           success: true,
-          message: `Merged ${allActuaciones.length} → ${groups.size} actuaciones from ${allSources.join(', ')}`,
+          message: `Smart consolidation: ${allActuaciones.length} → ${consolidated.length} unique from ${allSources.join(', ')}`,
           meta: {
             sources: allSources,
             raw_count: allActuaciones.length,
-            deduped_count: groups.size,
-            multi_source_count: deduped.filter(g => g.sources.length > 1).length,
+            deduped_count: consolidated.length,
+            skipped_cross_provider: skippedCrossProvider,
+            enriched_cross_provider: enrichedCrossProvider,
+            multi_source_count: consolidated.filter(g => g.sources.length > 1).length,
           },
         });
       } else if (allActuaciones.length > 0) {
@@ -3016,7 +3195,9 @@ Deno.serve(async (req) => {
       
       // Include indice in fingerprint to prevent collisions for same-day actuaciones
       // FIX 1.2: Include provider source in fingerprint to prevent cross-provider collisions
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, fetchResult.provider);
+      // For consolidated TUTELA records, use the actual source of the "best" record
+      const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint);
 
       // Check for existing record using fingerprint
       // BUG FIX: Changed from 'actuaciones' to 'work_item_acts' - the canonical table
@@ -3050,9 +3231,37 @@ Deno.serve(async (req) => {
       const dateConfidence = dateConfidenceMap[dateSource] || 'low';
 
       // FIX 2.3: Set raw_schema_version for future data migrations
-      const rawSchemaVersion = fetchResult.provider === 'cpnu' ? 'cpnu_v2' : 
-                                fetchResult.provider === 'samai' ? 'samai_2026_02' : 
-                                `${fetchResult.provider}_v1`;
+      // For consolidated multi-source records, use the actual source of the "best" actuacion
+      const actSource = (act as any)._source || fetchResult.provider;
+      const rawSchemaVersion = actSource === 'cpnu' ? 'cpnu_v2' : 
+                                actSource === 'samai' ? 'samai_2026_02' : 
+                                `${actSource}_v1`;
+
+      // Build raw_data with cross-provider enrichment (TUTELA smart consolidation)
+      const rawDataPayload: Record<string, unknown> = {
+        actuacion: act.actuacion,
+        anotacion: act.anotacion,
+        fecha_registro: act.fecha_registro,
+        estado: act.estado,
+        anexos: act.anexos,
+        indice: act.indice,
+        documentos: act.documentos,
+      };
+      
+      // Embed cross-provider data if this is a consolidated TUTELA record
+      const consolidatedSources = (act as any)._consolidated_sources as string[] | undefined;
+      const crossProviderData = (act as any)._cross_provider_data as Record<string, unknown> | undefined;
+      if (consolidatedSources && consolidatedSources.length > 1) {
+        rawDataPayload._sources = consolidatedSources;
+      }
+      if (crossProviderData) {
+        Object.assign(rawDataPayload, crossProviderData);
+      }
+
+      // Determine source_platform from the actual source of the best record
+      const sourcePlatformMap: Record<string, string> = {
+        'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas-api': 'TUTELAS',
+      };
 
       const { error: insertError } = await supabase
         .from('work_item_acts')
@@ -3066,24 +3275,16 @@ Deno.serve(async (req) => {
           act_date_raw: act.fecha,
           event_date: actDate,
           event_summary: eventSummary,
-          source: fetchResult.provider,
-          source_platform: fetchResult.provider === 'cpnu' ? 'CPNU' : (fetchResult.provider === 'samai' ? 'SAMAI' : fetchResult.provider),
+          source: actSource,
+          source_platform: sourcePlatformMap[actSource] || actSource,
+          sources: consolidatedSources && consolidatedSources.length > 1 ? consolidatedSources : [actSource],
           hash_fingerprint: fingerprint,
           scrape_date: new Date().toISOString().split('T')[0],
           despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
-          // Store raw data as JSON for debugging
-          raw_data: {
-            actuacion: act.actuacion,
-            anotacion: act.anotacion,
-            fecha_registro: act.fecha_registro,
-            estado: act.estado,
-            anexos: act.anexos,
-            indice: act.indice,
-            documentos: act.documentos,
-          },
+          raw_data: rawDataPayload,
         });
 
       if (insertError) {
