@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { NewFilingTypeSelector, FilingCategory } from "./NewFilingTypeSelector";
 import { NewCGPFilingDialog } from "./NewCGPFilingDialog";
-import { NewTutelaDialog } from "@/components/tutelas/NewTutelaDialog";
 import { NewHabeasCorpusDialog } from "@/components/tutelas/NewHabeasCorpusDialog";
 import { NewPeticionDialog } from "@/components/peticiones/NewPeticionDialog";
 import { NewAdminProcessDialog } from "@/components/pipeline/NewAdminProcessDialog";
@@ -87,15 +86,10 @@ export function UnifiedFilingCreator({
 
   // Tutela Dialog
   if (currentStep === "TUTELA") {
-    return (
-      <NewTutelaDialog
-        open={open}
-        onOpenChange={handleClose}
-        onBack={initialType ? undefined : handleBack}
-        onSuccess={handleSuccess}
-        defaultClientId={clientId}
-      />
-    );
+    // Tutela creation should use the canonical CreateWorkItemWizard
+    // This legacy path is deprecated - redirect to select
+    handleClose(false);
+    return null;
   }
 
   // Habeas Corpus Dialog
