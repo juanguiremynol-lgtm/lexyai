@@ -16,8 +16,8 @@
  * - ONLY runs on business days (excludes weekends, holidays, suspensions)
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { parseISO, isWeekend, startOfDay, endOfDay, isWithinInterval } from 'https://esm.sh/date-fns@3.6.0';
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { parseISO, isWeekend, startOfDay, endOfDay, isWithinInterval } from "npm:date-fns@3.6.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

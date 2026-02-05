@@ -22,7 +22,7 @@
  * Output: { ok, inserted_count, skipped_count, newest_publication_date, warnings, errors }
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

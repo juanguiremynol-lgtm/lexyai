@@ -12,7 +12,7 @@
  * - SYNC_AND_APPLY: Create/update work_item and sync events
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
