@@ -86,7 +86,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     enabled: !!organization?.id,
   });
 
-  // Fetch usage counts
+  // Fetch usage counts - now uses work_items only
   const { data: usageCounts, isLoading: usageLoading } = useQuery({
     queryKey: ['usage-counts', organization?.id],
     queryFn: async () => {
@@ -97,19 +97,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         .from('clients')
         .select('*', { count: 'exact', head: true });
 
-      // Count filings (all types: CGP, tutelas, peticiones, admin)
-      const { count: filingCount } = await supabase
-        .from('filings')
-        .select('*', { count: 'exact', head: true });
-
-      // Count monitored processes
-      const { count: processCount } = await supabase
-        .from('monitored_processes')
+      // Count work_items (all judicial/legal items are now in work_items)
+      const { count: workItemCount } = await supabase
+        .from('work_items')
         .select('*', { count: 'exact', head: true });
 
       return {
         clients: clientCount || 0,
-        filings: (filingCount || 0) + (processCount || 0),
+        filings: workItemCount || 0,
       };
     },
     enabled: !!organization?.id,

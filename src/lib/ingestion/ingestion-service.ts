@@ -83,22 +83,22 @@ export async function processSnapshot(
       // Source tracking
       updateData.source_reference = context.run_id;
 
-      const { error: updateError } = await supabase
-        .from("work_items")
+      const { error: updateError } = await (supabase
+        .from("work_items") as any)
         .update(updateData)
-        .eq("id", existing.id);
+        .eq("id", (existing as any).id);
 
       if (updateError) {
         return { 
-          work_item_id: existing.id, 
+          work_item_id: (existing as any).id, 
           status: 'ERROR', 
           reason: updateError.message,
           events_created: 0
         };
       }
 
-      workItemId = existing.id;
-      legacyProcessId = existing.legacy_process_id;
+      workItemId = (existing as any).id;
+      legacyProcessId = null; // Legacy column removed
     } else if (existing) {
       // Exists but not updating
       return { 

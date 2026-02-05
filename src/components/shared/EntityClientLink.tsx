@@ -61,20 +61,20 @@ export function EntityClientLink({
     },
   });
 
-  const getTableName = (type: EntityType): "peticiones" | "filings" | "monitored_processes" | "cpaca_processes" | "cgp_items" | "work_items" => {
+  // Map entity types to valid table names
+  const getTableName = (type: EntityType): "peticiones" | "cpaca_processes" | "cgp_items" | "work_items" => {
     switch (type) {
       case "peticion":
         return "peticiones";
-      case "tutela":
-      case "filing":
-        return "filings";
-      case "process":
-        return "monitored_processes";
       case "cpaca":
         return "cpaca_processes";
       case "cgp_item":
         return "cgp_items";
+      case "tutela":
+      case "filing":
+      case "process":
       case "work_item":
+      default:
         return "work_items";
     }
   };
@@ -109,9 +109,7 @@ export function EntityClientLink({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [getQueryKey(entityType)] });
-      if (entityType === "process") {
-        queryClient.invalidateQueries({ queryKey: ["unlinked-processes"] });
-      }
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       setOpen(false);
       toast.success("Cliente vinculado");
       onLinked?.();

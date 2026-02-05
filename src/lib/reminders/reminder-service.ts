@@ -317,10 +317,10 @@ async function createReminderAuditEvent(
   payload: Record<string, any>
 ): Promise<void> {
   try {
-    // Get the work_item to find legacy filing_id if needed
+    // Get the work_item owner
     const { data: workItem } = await supabase
       .from("work_items")
-      .select("legacy_filing_id, owner_id")
+      .select("owner_id")
       .eq("id", workItemId)
       .single();
     
@@ -329,7 +329,7 @@ async function createReminderAuditEvent(
     // Create process_event for audit trail
     await supabase.from("process_events").insert({
       owner_id: workItem.owner_id,
-      filing_id: workItem.legacy_filing_id || workItemId, // Use work_item_id if no legacy
+      work_item_id: workItemId,
       event_type: eventType,
       description: `Reminder: ${eventType}`,
       raw_data: {

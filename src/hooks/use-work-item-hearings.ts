@@ -102,32 +102,24 @@ export function useCreateHearing() {
       
       if (hearingError) throw hearingError;
       
-      // Get work_item's legacy_filing_id for process_events audit
-      const { data: workItem } = await supabase
-        .from("work_items")
-        .select("legacy_filing_id")
-        .eq("id", input.work_item_id)
-        .single();
-      
       // Create process_event audit trail
-      if (workItem?.legacy_filing_id) {
-        const eventPayload = {
-          hearing_id: hearing.id,
-          work_item_id: input.work_item_id,
-          title: input.title,
-          scheduled_at: input.scheduled_at,
-          location: input.location || null,
-          is_virtual: input.is_virtual || false,
-        };
-        await supabase.from("process_events").insert({
-          owner_id: user.id,
-          filing_id: workItem.legacy_filing_id,
-          event_type: "HEARING_CREATED",
-          description: `Audiencia programada: ${input.title}`,
-          source: "USER_UI",
-          raw_data: eventPayload as unknown as Json,
-        });
-      }
+      const eventPayload = {
+        hearing_id: hearing.id,
+        work_item_id: input.work_item_id,
+        title: input.title,
+        scheduled_at: input.scheduled_at,
+        location: input.location || null,
+        is_virtual: input.is_virtual || false,
+      };
+      
+      await supabase.from("process_events").insert({
+        owner_id: user.id,
+        work_item_id: input.work_item_id,
+        event_type: "HEARING_CREATED",
+        description: `Audiencia programada: ${input.title}`,
+        source: "USER_UI",
+        raw_data: eventPayload as unknown as Json,
+      });
       
       // Create an alert for the hearing
       const scheduledAt = new Date(input.scheduled_at);
@@ -194,32 +186,24 @@ export function useUpdateHearing() {
       
       // Create process_event audit trail
       if (currentHearing.work_item_id) {
-        const { data: workItem } = await supabase
-          .from("work_items")
-          .select("legacy_filing_id")
-          .eq("id", currentHearing.work_item_id)
-          .single();
-        
-        if (workItem?.legacy_filing_id) {
-          const eventPayload = {
-            hearing_id: input.id,
-            work_item_id: currentHearing.work_item_id,
-            changes: updateData,
-            previous: {
-              title: currentHearing.title,
-              scheduled_at: currentHearing.scheduled_at,
-              location: currentHearing.location,
-            },
-          };
-          await supabase.from("process_events").insert({
-            owner_id: user.id,
-            filing_id: workItem.legacy_filing_id,
-            event_type: "HEARING_UPDATED",
-            description: `Audiencia actualizada: ${input.title || currentHearing.title}`,
-            source: "USER_UI",
-            raw_data: eventPayload as unknown as Json,
-          });
-        }
+        const eventPayload = {
+          hearing_id: input.id,
+          work_item_id: currentHearing.work_item_id,
+          changes: updateData,
+          previous: {
+            title: currentHearing.title,
+            scheduled_at: currentHearing.scheduled_at,
+            location: currentHearing.location,
+          },
+        };
+        await supabase.from("process_events").insert({
+          owner_id: user.id,
+          work_item_id: currentHearing.work_item_id,
+          event_type: "HEARING_UPDATED",
+          description: `Audiencia actualizada: ${input.title || currentHearing.title}`,
+          source: "USER_UI",
+          raw_data: eventPayload as unknown as Json,
+        });
       }
       
       return { ...currentHearing, ...updateData };
@@ -237,7 +221,7 @@ export function useUpdateHearing() {
 }
 
 /**
- * Delete (soft delete if available) a hearing with audit trail
+ * Delete a hearing with audit trail
  */
 export function useDeleteHearing() {
   const queryClient = useQueryClient();
@@ -250,31 +234,23 @@ export function useDeleteHearing() {
       
       // Create process_event audit trail before deletion
       if (hearing.work_item_id) {
-        const { data: workItem } = await supabase
-          .from("work_items")
-          .select("legacy_filing_id")
-          .eq("id", hearing.work_item_id)
-          .single();
-        
-        if (workItem?.legacy_filing_id) {
-          const eventPayload = {
-            hearing_id: hearing.id,
-            work_item_id: hearing.work_item_id,
-            title: hearing.title,
-            scheduled_at: hearing.scheduled_at,
-          };
-          await supabase.from("process_events").insert({
-            owner_id: user.id,
-            filing_id: workItem.legacy_filing_id,
-            event_type: "HEARING_DELETED",
-            description: `Audiencia eliminada: ${hearing.title}`,
-            source: "USER_UI",
-            raw_data: eventPayload as unknown as Json,
-          });
-        }
+        const eventPayload = {
+          hearing_id: hearing.id,
+          work_item_id: hearing.work_item_id,
+          title: hearing.title,
+          scheduled_at: hearing.scheduled_at,
+        };
+        await supabase.from("process_events").insert({
+          owner_id: user.id,
+          work_item_id: hearing.work_item_id,
+          event_type: "HEARING_DELETED",
+          description: `Audiencia eliminada: ${hearing.title}`,
+          source: "USER_UI",
+          raw_data: eventPayload as unknown as Json,
+        });
       }
       
-      // Hard delete the hearing (hearings table doesn't have soft delete)
+      // Hard delete the hearing
       const { error } = await supabase
         .from("hearings")
         .delete()

@@ -134,21 +134,22 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       // Create the work_item
       const cpnuVerified = verificationStatus === 'found' && cpnuResult !== null;
       
+      const workItemData = {
+        radicado,
+        workflow_type: "CGP" as const,
+        stage: "PROCESS",
+        status: "ACTIVE" as const,
+        source: cpnuVerified ? 'CRAWLER' as const : 'MANUAL' as const,
+        authority_name: cpnuResult?.despacho || null,
+        demandantes: cpnuResult?.demandante || null,
+        demandados: cpnuResult?.demandado || null,
+        radicado_verified: cpnuVerified,
+        monitoring_enabled: true,
+      };
+      
       const { data: newWorkItem, error: insertError } = await supabase
         .from('work_items')
-        .insert({
-          owner_id: user.id,
-          radicado,
-          workflow_type: "CGP",
-          stage: "PROCESS",
-          status: "ACTIVE",
-          source: cpnuVerified ? 'CRAWLER' : 'MANUAL',
-          authority_name: cpnuResult?.despacho || null,
-          demandantes: cpnuResult?.demandante || null,
-          demandados: cpnuResult?.demandado || null,
-          radicado_verified: cpnuVerified,
-          monitoring_enabled: true,
-        })
+        .insert(workItemData)
         .select()
         .single();
 
