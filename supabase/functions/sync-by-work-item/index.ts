@@ -626,16 +626,18 @@ interface ScrapingJobResult {
 }
 
 // ============= POLLING CONFIGURATION =============
-// Used for all providers that need to poll for scraping results
+// FIX 3.1: Exponential backoff replaces fixed interval polling
 const POLLING_CONFIG = {
-  maxAttempts: 12,         // 12 attempts
-  pollIntervalMs: 5000,    // 5 seconds between polls
-  // Total max wait: 12 * 5 = 60 seconds
+  maxAttempts: 10,          // 10 attempts (reduced — backoff covers more time)
+  initialIntervalMs: 3000,  // Start at 3s for fast common case
+  maxIntervalMs: 15000,     // Cap at 15s to avoid wasting runtime
+  // Total max wait with backoff: ~3+5+8+13+15+15+15+15+15+15 ≈ 119s → capped by maxAttempts
+  // Effective: ~60s total (first 7 attempts cover it)
 };
 
 // ============= GENERIC POLLING FUNCTION =============
 // Polls /resultado/{jobId} endpoint until job completes or times out
-// Returns the result data if successful, null if failed/timeout
+// FIX 3.1: Uses exponential backoff instead of fixed intervals
 
 interface PollResult {
   ok: boolean;
@@ -655,12 +657,15 @@ async function pollForScrapingResult(
   console.log(`[sync-by-work-item] ${providerName}: Starting polling for ${resultadoUrl}`);
   
   for (let attempt = 1; attempt <= POLLING_CONFIG.maxAttempts; attempt++) {
-    // Wait before polling (except first attempt to give job time to start)
-    await new Promise(r => setTimeout(r, POLLING_CONFIG.pollIntervalMs));
+    // FIX 3.1: Exponential backoff — Math.min(initial * 2^(attempt-1), max)
+    const delayMs = Math.min(
+      POLLING_CONFIG.initialIntervalMs * Math.pow(1.6, attempt - 1),
+      POLLING_CONFIG.maxIntervalMs
+    );
+    console.log(`[sync-by-work-item] ${providerName}: Waiting ${Math.round(delayMs)}ms before poll ${attempt}/${POLLING_CONFIG.maxAttempts}`);
+    await new Promise(r => setTimeout(r, delayMs));
     
     try {
-      console.log(`[sync-by-work-item] ${providerName}: Poll ${attempt}/${POLLING_CONFIG.maxAttempts}`);
-      
       const response = await fetch(resultadoUrl, {
         method: 'GET',
         headers,
@@ -708,7 +713,7 @@ async function pollForScrapingResult(
   console.log(`[sync-by-work-item] ${providerName}: Polling TIMEOUT after ${POLLING_CONFIG.maxAttempts} attempts`);
   return { 
     ok: false, 
-    error: `Polling timeout after ${POLLING_CONFIG.maxAttempts * POLLING_CONFIG.pollIntervalMs / 1000} seconds`,
+    error: `Polling timeout after ${POLLING_CONFIG.maxAttempts} attempts with exponential backoff`,
     lastResponse: lastResultData || undefined,
   };
 }

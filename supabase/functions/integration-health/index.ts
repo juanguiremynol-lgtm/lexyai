@@ -111,6 +111,19 @@ interface ProviderAuthCheck {
 interface ProviderHealthCheck {
   connectivity: ProviderConnectivityCheck;
   auth?: ProviderAuthCheck;
+  // FIX 3.4: Deep health check — tests actual scraping path
+  deep_health?: DeepHealthCheck;
+}
+
+// FIX 3.4: Deep health check result
+interface DeepHealthCheck {
+  ok: boolean;
+  latencyMs?: number;
+  scraping_triggered?: boolean;
+  scraping_completed?: boolean;
+  poll_attempts?: number;
+  error?: string;
+  hint?: string;
 }
 
 interface HealthResult {
@@ -525,6 +538,146 @@ async function checkReachability(
   }
 }
 
+// FIX 3.4: Deep health check — tests actual /buscar → poll → /resultado scraping path
+async function checkDeepHealth(
+  provider: string,
+  baseUrl: string | undefined,
+  pathPrefix: string,
+  testRadicado: string | undefined,
+  apiKey: string | undefined,
+): Promise<DeepHealthCheck> {
+  if (!baseUrl || !testRadicado || !apiKey) {
+    return {
+      ok: false,
+      error: !baseUrl ? "Base URL not configured" : !testRadicado ? "No test radicado" : "No API key",
+      hint: "Deep health requires base URL, test radicado, and API key.",
+    };
+  }
+
+  const start = Date.now();
+  const headers: Record<string, string> = {
+    "x-api-key": apiKey,
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+  };
+
+  try {
+    // Step 1: Trigger scraping via /buscar
+    const buscarPath = provider === "publicaciones"
+      ? `/buscar?radicado=${testRadicado}`
+      : `/buscar?numero_radicacion=${testRadicado}`;
+    const buscarUrl = joinUrl(baseUrl, pathPrefix, buscarPath);
+
+    console.log(`[integration-health] Deep health: ${provider} → ${buscarPath}`);
+
+    const buscarResponse = await fetch(buscarUrl, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!buscarResponse.ok) {
+      const body = await buscarResponse.text();
+      return {
+        ok: false,
+        latencyMs: Date.now() - start,
+        scraping_triggered: false,
+        error: `Trigger failed: HTTP ${buscarResponse.status}`,
+        hint: body.slice(0, 200),
+      };
+    }
+
+    const buscarData = await buscarResponse.json();
+    const jobId = buscarData.job_id || buscarData.jobId || buscarData.id;
+    const status = String(buscarData.status || "").toLowerCase();
+
+    // If synchronous response (already done), return immediately
+    if (["done", "completed", "success"].includes(status) || buscarData.found !== undefined) {
+      return {
+        ok: true,
+        latencyMs: Date.now() - start,
+        scraping_triggered: true,
+        scraping_completed: true,
+        poll_attempts: 0,
+      };
+    }
+
+    if (!jobId) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - start,
+        scraping_triggered: true,
+        error: "No job_id returned from /buscar",
+        hint: `Response keys: ${Object.keys(buscarData).join(", ")}`,
+      };
+    }
+
+    // Step 2: Poll /resultado with exponential backoff (max 45s for health check)
+    const resultadoPath = provider === "publicaciones"
+      ? `/resultado/${jobId}`
+      : `/resultado/${jobId}`;
+    const resultadoUrl = joinUrl(baseUrl, pathPrefix, resultadoPath);
+    const maxPollAttempts = 6;
+
+    for (let attempt = 1; attempt <= maxPollAttempts; attempt++) {
+      const delay = Math.min(3000 * Math.pow(1.5, attempt - 1), 10000);
+      await new Promise(r => setTimeout(r, delay));
+
+      try {
+        const pollResponse = await fetch(resultadoUrl, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!pollResponse.ok) continue;
+
+        const pollData = await pollResponse.json();
+        const pollStatus = String(pollData.status || "").toLowerCase();
+
+        if (["done", "completed", "success", "finished"].includes(pollStatus)) {
+          return {
+            ok: true,
+            latencyMs: Date.now() - start,
+            scraping_triggered: true,
+            scraping_completed: true,
+            poll_attempts: attempt,
+          };
+        }
+
+        if (["failed", "error"].includes(pollStatus)) {
+          return {
+            ok: false,
+            latencyMs: Date.now() - start,
+            scraping_triggered: true,
+            scraping_completed: false,
+            poll_attempts: attempt,
+            error: `Scraping job failed: ${pollData.error || pollData.message || "unknown"}`,
+          };
+        }
+      } catch {
+        // Poll error, continue
+      }
+    }
+
+    return {
+      ok: false,
+      latencyMs: Date.now() - start,
+      scraping_triggered: true,
+      scraping_completed: false,
+      poll_attempts: maxPollAttempts,
+      error: "Scraping job did not complete within deep health timeout",
+      hint: "This is expected for slow providers. The scraping infrastructure may still be functional.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - start,
+      error: err instanceof Error ? err.message : "Deep health check failed",
+    };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -590,6 +743,8 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const checkReach = url.searchParams.get("reachability") === "true";
     const checkAuth = url.searchParams.get("auth_check") === "true";
+    // FIX 3.4: Deep health check — tests /buscar → poll → /resultado scraping path (slow: 30-60s)
+    const checkDeepHealthMode = url.searchParams.get("deep_health") === "true";
 
     // Build env presence report (never expose values!)
     const envReport: Record<string, boolean> = {};
@@ -690,10 +845,20 @@ Deno.serve(async (req) => {
         value: apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined,
       });
 
-      result.provider_health[provider] = {
+      const healthEntry: ProviderHealthCheck = {
         connectivity,
         auth: authCheck,
       };
+
+      // FIX 3.4: Optional deep health check (slow — tests actual scraping path)
+      if (checkDeepHealthMode && connectivity.ok && authCheck.ok) {
+        const apiKeyValue = apiKeyInfo.present ? Deno.env.get(apiKeyInfo.source) : undefined;
+        healthEntry.deep_health = await checkDeepHealth(
+          provider, baseUrl, pathPrefix, testRadicado, apiKeyValue
+        );
+      }
+
+      result.provider_health[provider] = healthEntry;
     }
 
     // Add publicaciones test radicado to the report

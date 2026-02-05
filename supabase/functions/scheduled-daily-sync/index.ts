@@ -248,6 +248,7 @@ async function syncOrganization(
         }
 
         // Also sync publicaciones for eligible workflows
+        let pubInserted = 0;
         if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workItem.workflow_type)) {
           try {
             const { data: pubResult } = await supabase.functions.invoke(
@@ -256,17 +257,29 @@ async function syncOrganization(
             );
             if (pubResult?.ok) {
               publicacionesSynced++;
+              pubInserted = pubResult.inserted_count || 0;
             }
           } catch {
             // Publicaciones errors don't count as failures
           }
         }
 
-        // Update last_synced_at
-        await supabase
-          .from("work_items")
-          .update({ last_synced_at: new Date().toISOString() })
-          .eq("id", workItem.id);
+        // FIX 3.2: Only update last_synced_at if sync was genuinely successful
+        // Distinguish between "no new data" (provider OK, 0 inserts) and "provider error"
+        const syncWasSuccessful = syncResult?.ok === true;
+        const hadNewData = (syncResult?.inserted_count || 0) > 0 || pubInserted > 0;
+        const providerReturnedEmpty = syncWasSuccessful && !hadNewData;
+        
+        if (hadNewData || providerReturnedEmpty) {
+          // Provider responded successfully — safe to update timestamp
+          await supabase
+            .from("work_items")
+            .update({ last_synced_at: new Date().toISOString() })
+            .eq("id", workItem.id);
+        } else {
+          // Provider error or scraping initiated — don't push to back of queue
+          console.log(`[scheduled-daily-sync] Skipping last_synced_at update for ${workItem.id} (sync not confirmed successful)`);
+        }
 
         // Heartbeat every few items
         if ((successCount + errorCount) % 10 === 0) {
