@@ -14,4 +14,3 @@ export { default as PlatformAuditPage } from "./PlatformAuditPage";
 export { default as PlatformEmailOpsPage } from "./PlatformEmailOpsPage";
 export { default as PlatformSystemPage } from "./PlatformSystemPage";
 export { default as PlatformApiDebugPage } from "./PlatformApiDebugPage";
-export { default as PlatformAISettingsPage } from "./PlatformAISettingsPage";

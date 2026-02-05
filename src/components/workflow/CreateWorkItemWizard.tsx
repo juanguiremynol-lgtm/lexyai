@@ -47,7 +47,6 @@ import {
   Calendar,
   Briefcase,
   Shield,
-  Sparkles,
 } from "lucide-react";
 import {
   type WorkflowType,
@@ -65,36 +64,7 @@ import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
-import { parseApiDate, generateSmartTitle } from "@/lib/date-utils";
 import { toast } from "sonner";
-
-/**
- * Extract party name from sujetos_procesales array
- * Searches for demandante/demandado/accionante/accionado in the tipo field
- */
-function extractPartyFromSujetos(
-  sujetos: Array<{ tipo: string; nombre: string }> | undefined,
-  partyType: 'demandante' | 'demandado'
-): string {
-  if (!sujetos || !Array.isArray(sujetos) || sujetos.length === 0) {
-    return '';
-  }
-  
-  const searchTerms = partyType === 'demandante' 
-    ? ['demandante', 'actor', 'accionante', 'tutelante', 'requirente']
-    : ['demandado', 'accionado', 'tutelado', 'requerido'];
-  
-  const matches = sujetos.filter(s => {
-    const tipo = (s.tipo || '').toLowerCase();
-    return searchTerms.some(term => tipo.includes(term));
-  });
-  
-  if (matches.length > 0) {
-    return matches.map(m => m.nombre).join(', ');
-  }
-  
-  return '';
-}
 
 interface CreateWorkItemWizardProps {
   open: boolean;
@@ -160,7 +130,6 @@ export function CreateWorkItemWizard({
   
   // Tutela-specific
   const [accionado, setAccionado] = useState('');
-  const [accionante, setAccionante] = useState('');
   const [tutelaFilingDate, setTutelaFilingDate] = useState('');
   
   // Step 3: Client
@@ -168,9 +137,6 @@ export function CreateWorkItemWizard({
   const [clientTab, setClientTab] = useState<'existing' | 'new'>('existing');
   const [newClientName, setNewClientName] = useState('');
   const [newClientIdNumber, setNewClientIdNumber] = useState('');
-  
-  // Track auto-populated fields for visual indicator
-  const [autoPopulatedFields, setAutoPopulatedFields] = useState<Set<string>>(new Set());
   
   const createWorkItem = useCreateWorkItem();
   
@@ -209,13 +175,11 @@ export function CreateWorkItemWizard({
       setFilingDate('');
       setEntityName('');
       setAccionado('');
-      setAccionante('');
       setTutelaFilingDate('');
       setClientId(defaultClientId || '');
       setClientTab('existing');
       setNewClientName('');
       setNewClientIdNumber('');
-      setAutoPopulatedFields(new Set());
     }
   }, [open, defaultWorkflowType, defaultClientId, resetLookup]);
   
@@ -227,114 +191,21 @@ export function CreateWorkItemWizard({
     }
   }, [workflowType, cgpPhase]);
   
-  // Apply lookup data to form fields - EXPANDED
+  // Apply lookup data to form fields
   useEffect(() => {
-    console.log('[CreateWorkItemWizard] Lookup effect triggered:', {
-      hasProcessData: !!lookupResult?.process_data,
-      lookupStatus,
-      processData: lookupResult?.process_data,
-    });
-    
     if (lookupResult?.process_data && lookupStatus === 'success') {
       const data = lookupResult.process_data;
-      const newAutoFields = new Set<string>();
-      
-      console.log('[CreateWorkItemWizard] Applying lookup data:', data);
-      
-      // Authority information
-      if (data.despacho) {
-        setAuthorityName(data.despacho);
-        newAutoFields.add('authorityName');
-        console.log('[CreateWorkItemWizard] Set authorityName:', data.despacho);
-      }
-      if (data.ciudad) {
-        setAuthorityCity(data.ciudad);
-        newAutoFields.add('authorityCity');
-        console.log('[CreateWorkItemWizard] Set authorityCity:', data.ciudad);
-      }
-      if (data.departamento) {
-        setAuthorityDepartment(data.departamento);
-        newAutoFields.add('authorityDepartment');
-        console.log('[CreateWorkItemWizard] Set authorityDepartment:', data.departamento);
-      }
-      
-      // Parties (general)
-      if (data.demandante) {
-        setDemandantes(data.demandante);
-        newAutoFields.add('demandantes');
-        console.log('[CreateWorkItemWizard] Set demandantes:', data.demandante);
-      }
-      if (data.demandado) {
-        setDemandados(data.demandado);
-        newAutoFields.add('demandados');
-        console.log('[CreateWorkItemWizard] Set demandados:', data.demandado);
-      }
-      
-      // Tutela-specific: accionado = demandado (legally equivalent)
-      if (workflowType === 'TUTELA') {
-        // For Tutela: Accionante = Demandante, Accionado = Demandado
-        const accionanteValue = data.demandante || extractPartyFromSujetos(data.sujetos_procesales, 'demandante');
-        const accionadoValue = data.demandado || extractPartyFromSujetos(data.sujetos_procesales, 'demandado');
-        
-        if (accionanteValue) {
-          setAccionante(accionanteValue);
-          // Also set demandantes for work item submission
-          setDemandantes(accionanteValue);
-          newAutoFields.add('accionante');
-          newAutoFields.add('demandantes');
-          console.log('[CreateWorkItemWizard] Set accionante:', accionanteValue);
-        }
-        if (accionadoValue) {
-          setAccionado(accionadoValue);
-          // Also set demandados for work item submission
-          setDemandados(accionadoValue);
-          newAutoFields.add('accionado');
-          newAutoFields.add('demandados');
-          console.log('[CreateWorkItemWizard] Set accionado:', accionadoValue);
-        }
-      }
-      
-      // Filing date (workflow-specific)
-      if (data.fecha_radicacion) {
-        const parsedDate = parseApiDate(data.fecha_radicacion);
-        console.log('[CreateWorkItemWizard] Parsing fecha_radicacion:', data.fecha_radicacion, '→', parsedDate);
-        if (parsedDate) {
-          if (workflowType === 'TUTELA') {
-            setTutelaFilingDate(parsedDate);
-            newAutoFields.add('tutelaFilingDate');
-          } else if (workflowType === 'PETICION') {
-            setFilingDate(parsedDate);
-            newAutoFields.add('filingDate');
-          }
-        }
-      }
-      
-      // Auto-generate title if not manually set
-      if (!title) {
-        const smartTitle = generateSmartTitle(
-          workflowType || '',
-          data.tipo_proceso,
-          data.demandante,
-          data.demandado
-        );
-        console.log('[CreateWorkItemWizard] Generated title:', smartTitle);
-        if (smartTitle) {
-          setTitle(smartTitle);
-          newAutoFields.add('title');
-        }
-      }
+      setAuthorityName(data.despacho || '');
+      setAuthorityCity(data.ciudad || '');
+      setDemandantes(data.demandante || '');
+      setDemandados(data.demandado || '');
       
       // Set CGP phase based on classification
       if (workflowType === 'CGP' && lookupResult.cgp_phase) {
         setCgpPhase(lookupResult.cgp_phase);
-        newAutoFields.add('cgpPhase');
       }
-      
-      // Update auto-populated fields tracking
-      console.log('[CreateWorkItemWizard] Auto-populated fields:', Array.from(newAutoFields));
-      setAutoPopulatedFields(newAutoFields);
     }
-  }, [lookupResult, lookupStatus, workflowType, title]);
+  }, [lookupResult, lookupStatus, workflowType]);
   
   const handleWorkflowSelect = (wf: WorkflowType) => {
     setWorkflowType(wf);
@@ -506,9 +377,6 @@ export function CreateWorkItemWizard({
     
     if (workflowType === 'TUTELA') {
       data.filing_date = tutelaFilingDate || undefined;
-      // For Tutela: accionante/accionado are the primary party fields
-      data.demandantes = accionante || demandantes || undefined;
-      data.demandados = accionado || demandados || undefined;
     }
     
     // Pass initial actuaciones from lookup if available (persist on creation)
@@ -728,9 +596,6 @@ export function CreateWorkItemWizard({
                       classificationReason={lookupResult.classification_reason}
                       sourceUsed={lookupResult.source_used}
                       eventsCount={lookupResult.new_events_count}
-                      syncStrategy={lookupResult.sync_strategy}
-                      consolidationStats={lookupResult.consolidation_stats}
-                      sourcesChecked={lookupResult.sources_checked}
                     />
                   )}
                   
@@ -862,41 +727,14 @@ export function CreateWorkItemWizard({
                 )}
               </div>
               
-              {/* Auto-populated fields notification */}
-              {autoPopulatedFields.size > 0 && (
-                <Alert className="bg-primary/5 border-primary/20">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  <AlertTitle className="text-primary text-sm">Datos obtenidos automáticamente</AlertTitle>
-                  <AlertDescription className="text-xs text-muted-foreground">
-                    Se han pre-llenado {autoPopulatedFields.size} campo(s) con información del proceso. Puedes editarlos si es necesario.
-                  </AlertDescription>
-                </Alert>
-              )}
-              
               {/* Common fields */}
               <div className="grid gap-4">
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Label>Título / Referencia</Label>
-                    {autoPopulatedFields.has('title') && (
-                      <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                        <Sparkles className="h-3 w-3 mr-1" />
-                        Auto
-                      </Badge>
-                    )}
-                  </div>
+                  <Label>Título / Referencia</Label>
                   <Input
                     value={title}
-                    onChange={(e) => {
-                      setTitle(e.target.value);
-                      setAutoPopulatedFields(prev => {
-                        const next = new Set(prev);
-                        next.delete('title');
-                        return next;
-                      });
-                    }}
+                    onChange={(e) => setTitle(e.target.value)}
                     placeholder="Ej: Proceso ejecutivo contra Empresa XYZ"
-                    className={autoPopulatedFields.has('title') ? 'border-primary/30' : ''}
                   />
                 </div>
                 
@@ -954,101 +792,37 @@ export function CreateWorkItemWizard({
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Ciudad</Label>
-                          {autoPopulatedFields.has('authorityCity') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Ciudad</Label>
                         <Input
                           value={authorityCity}
-                          onChange={(e) => {
-                            setAuthorityCity(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('authorityCity');
-                              return next;
-                            });
-                          }}
+                          onChange={(e) => setAuthorityCity(e.target.value)}
                           placeholder="Ej: Bogotá"
-                          className={autoPopulatedFields.has('authorityCity') ? 'border-primary/30' : ''}
                         />
                       </div>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Juzgado / Despacho</Label>
-                          {autoPopulatedFields.has('authorityName') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Juzgado / Despacho</Label>
                         <Input
                           value={authorityName}
-                          onChange={(e) => {
-                            setAuthorityName(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('authorityName');
-                              return next;
-                            });
-                          }}
+                          onChange={(e) => setAuthorityName(e.target.value)}
                           placeholder="Ej: Juzgado 1 Civil del Circuito"
-                          className={autoPopulatedFields.has('authorityName') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Demandante(s)</Label>
-                          {autoPopulatedFields.has('demandantes') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Demandante(s)</Label>
                         <Input
                           value={demandantes}
-                          onChange={(e) => {
-                            setDemandantes(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('demandantes');
-                              return next;
-                            });
-                          }}
+                          onChange={(e) => setDemandantes(e.target.value)}
                           placeholder="Nombre del demandante"
-                          className={autoPopulatedFields.has('demandantes') ? 'border-primary/30' : ''}
                         />
                       </div>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Demandado(s)</Label>
-                          {autoPopulatedFields.has('demandados') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Demandado(s)</Label>
                         <Input
                           value={demandados}
-                          onChange={(e) => {
-                            setDemandados(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('demandados');
-                              return next;
-                            });
-                          }}
+                          onChange={(e) => setDemandados(e.target.value)}
                           placeholder="Nombre del demandado"
-                          className={autoPopulatedFields.has('demandados') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
@@ -1150,100 +924,28 @@ export function CreateWorkItemWizard({
                 {workflowType === 'TUTELA' && (
                   <>
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label>Accionante (Tutelante)</Label>
-                        {autoPopulatedFields.has('accionante') && (
-                          <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            Auto
-                          </Badge>
-                        )}
-                      </div>
-                      <Input
-                        value={accionante}
-                        onChange={(e) => {
-                          setAccionante(e.target.value);
-                          setAutoPopulatedFields(prev => {
-                            const next = new Set(prev);
-                            next.delete('accionante');
-                            return next;
-                          });
-                        }}
-                        placeholder="Ej: Juan Pérez (persona que interpone la tutela)"
-                        className={autoPopulatedFields.has('accionante') ? 'border-primary/30' : ''}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label>Accionado (Entidad demandada)</Label>
-                        {autoPopulatedFields.has('accionado') && (
-                          <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            Auto
-                          </Badge>
-                        )}
-                      </div>
+                      <Label>Accionado</Label>
                       <Input
                         value={accionado}
-                        onChange={(e) => {
-                          setAccionado(e.target.value);
-                          setAutoPopulatedFields(prev => {
-                            const next = new Set(prev);
-                            next.delete('accionado');
-                            return next;
-                          });
-                        }}
+                        onChange={(e) => setAccionado(e.target.value)}
                         placeholder="Ej: EPS Sanitas"
-                        className={autoPopulatedFields.has('accionado') ? 'border-primary/30' : ''}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Fecha de Radicación</Label>
-                          {autoPopulatedFields.has('tutelaFilingDate') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Fecha de Radicación</Label>
                         <Input
                           type="date"
                           value={tutelaFilingDate}
-                          onChange={(e) => {
-                            setTutelaFilingDate(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('tutelaFilingDate');
-                              return next;
-                            });
-                          }}
-                          className={autoPopulatedFields.has('tutelaFilingDate') ? 'border-primary/30' : ''}
+                          onChange={(e) => setTutelaFilingDate(e.target.value)}
                         />
                       </div>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Label>Juzgado</Label>
-                          {autoPopulatedFields.has('authorityName') && (
-                            <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
-                              <Sparkles className="h-3 w-3 mr-1" />
-                              Auto
-                            </Badge>
-                          )}
-                        </div>
+                        <Label>Juzgado</Label>
                         <Input
                           value={authorityName}
-                          onChange={(e) => {
-                            setAuthorityName(e.target.value);
-                            setAutoPopulatedFields(prev => {
-                              const next = new Set(prev);
-                              next.delete('authorityName');
-                              return next;
-                            });
-                          }}
+                          onChange={(e) => setAuthorityName(e.target.value)}
                           placeholder="Ej: Juzgado 1 Civil Municipal"
-                          className={autoPopulatedFields.has('authorityName') ? 'border-primary/30' : ''}
                         />
                       </div>
                     </div>
@@ -1431,27 +1133,14 @@ function ProcessPreview({
   classificationReason,
   sourceUsed,
   eventsCount,
-  syncStrategy,
-  consolidationStats,
-  sourcesChecked,
 }: {
   data?: ProcessData;
   cgpPhase: 'FILING' | 'PROCESS';
   classificationReason?: string;
   sourceUsed?: string | null;
   eventsCount: number;
-  syncStrategy?: 'fallback' | 'parallel';
-  consolidationStats?: {
-    total_from_sources: number;
-    after_dedup: number;
-    duplicates_removed: number;
-  };
-  sourcesChecked?: string[];
 }) {
   if (!data) return null;
-  
-  const isParallel = syncStrategy === 'parallel';
-  const successfulSources = sourcesChecked?.length || 0;
   
   return (
     <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
@@ -1459,58 +1148,18 @@ function ProcessPreview({
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-primary" />
           <span className="font-medium">Proceso encontrado</span>
-          {isParallel && successfulSources > 1 && (
-            <Badge variant="default" className="text-xs">
-              ✓ {successfulSources} fuentes
-            </Badge>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={cgpPhase === 'PROCESS' ? 'default' : 'secondary'}>
             {cgpPhase === 'PROCESS' ? 'Proceso (Admitido)' : 'Radicación (Pendiente)'}
           </Badge>
-          {sourceUsed && !isParallel && (
+          {sourceUsed && (
             <Badge variant="outline" className="text-xs">
               {sourceUsed}
             </Badge>
           )}
         </div>
       </div>
-      
-      {/* Parallel sync consolidation stats */}
-      {isParallel && consolidationStats && (
-        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <span className="font-medium text-sm text-primary">
-              Sincronización Multi-Fuente
-            </span>
-          </div>
-          <div className="grid grid-cols-3 gap-4 text-xs">
-            <div>
-              <p className="text-muted-foreground">Total encontradas</p>
-              <p className="text-lg font-bold">{consolidationStats.total_from_sources}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Duplicados removidos</p>
-              <p className="text-lg font-bold text-warning">
-                -{consolidationStats.duplicates_removed}
-              </p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Únicos a guardar</p>
-              <p className="text-lg font-bold text-primary">
-                {consolidationStats.after_dedup}
-              </p>
-            </div>
-          </div>
-          {sourcesChecked && sourcesChecked.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Fuentes: {sourcesChecked.join(', ')}
-            </p>
-          )}
-        </div>
-      )}
       
       <Separator />
       

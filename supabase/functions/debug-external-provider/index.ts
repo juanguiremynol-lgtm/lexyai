@@ -703,45 +703,6 @@ async function callProviderWithProbing(
       try {
         const jsonData = JSON.parse(bodyText);
         
-        // CRITICAL: SAMAI returns jobId for async processing - need to poll /resultado
-        // Structure: { success: true, jobId: "...", status: "queued", poll_url: "..." }
-        if (provider === 'samai' && jsonData.jobId && (jsonData.status === 'queued' || jsonData.status === 'pending')) {
-          safeLog('info', 'SAMAI returned jobId, polling for result', { provider, request_path: requestPath });
-          
-          const pollResult = await pollSamaiResultado(
-            baseUrl, 
-            pathPrefix, 
-            jsonData.jobId, 
-            headers, 
-            timeoutMs,
-            attempts
-          );
-          
-          if (pollResult.data) {
-            return {
-              status: 200,
-              data: pollResult.data,
-              request_path: `${requestPath} → /resultado/${jsonData.jobId}`,
-              path_prefix_used: normalizedPrefix,
-              attempts,
-              route_probing_used: true,
-              auth: authDiagnostics,
-            };
-          } else {
-            return {
-              status: pollResult.status || 408,
-              data: jsonData, // Return original response with jobId for debugging
-              error_code: pollResult.error_code || 'SAMAI_POLL_TIMEOUT',
-              message: pollResult.message || 'SAMAI polling timeout - job not completed',
-              request_path: requestPath,
-              path_prefix_used: normalizedPrefix,
-              attempts,
-              route_probing_used: true,
-              auth: authDiagnostics,
-            };
-          }
-        }
-        
         // Check for JSON "not found" indicators
         if (jsonData.found === false || jsonData.expediente_encontrado === false) {
           return {
@@ -845,91 +806,6 @@ async function callProviderWithProbing(
 // ============= CPNU ASYNC JOB FLOW =============
 // If /snapshot doesn't work or returns pending, we can try /buscar -> /resultado
 
-// ============= SAMAI ASYNC POLLING =============
-// SAMAI uses async flow: /buscar returns jobId, then poll /resultado/{jobId}
-
-async function pollSamaiResultado(
-  baseUrl: string,
-  pathPrefix: string,
-  jobId: string,
-  headers: Record<string, string>,
-  maxTimeMs: number,
-  attempts: RouteAttempt[]
-): Promise<{ data?: unknown; status?: number; error_code?: string; message?: string }> {
-  const POLL_INTERVAL_MS = 1500;
-  const startTime = Date.now();
-  
-  while (Date.now() - startTime < maxTimeMs) {
-    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-    
-    const resultPath = `/resultado/${jobId}`;
-    const resultUrl = joinUrl(baseUrl, pathPrefix, resultPath);
-    const attemptStart = Date.now();
-    
-    try {
-      const response = await fetch(resultUrl, { method: 'GET', headers });
-      const latencyMs = Date.now() - attemptStart;
-      const bodyText = await response.text();
-      
-      attempts.push({
-        path: resultPath,
-        http_status: response.status,
-        latency_ms: latencyMs,
-        response_kind: classifyResponseKind(bodyText, response.status),
-      });
-      
-      if (response.status === 404) {
-        // Job not ready yet, continue polling
-        continue;
-      }
-      
-      if (!response.ok) {
-        return { 
-          status: response.status, 
-          error_code: `SAMAI_RESULTADO_${response.status}`,
-          message: `SAMAI /resultado returned ${response.status}` 
-        };
-      }
-      
-      try {
-        const data = JSON.parse(bodyText);
-        
-        // Check if job is still processing
-        const status = data.status || data.state;
-        if (status === 'pending' || status === 'queued' || status === 'processing') {
-          console.log(`[debug-external-provider] SAMAI job ${jobId} still ${status}, continuing...`);
-          continue;
-        }
-        
-        // Job complete - return data
-        console.log(`[debug-external-provider] SAMAI job ${jobId} completed`);
-        return { data, status: 200 };
-        
-      } catch {
-        return { 
-          status: response.status, 
-          error_code: 'SAMAI_INVALID_JSON',
-          message: 'SAMAI /resultado returned invalid JSON' 
-        };
-      }
-      
-    } catch (err) {
-      return { 
-        status: 0, 
-        error_code: 'SAMAI_NETWORK_ERROR',
-        message: err instanceof Error ? err.message : 'SAMAI polling network error' 
-      };
-    }
-  }
-  
-  // Timeout
-  return { 
-    status: 408, 
-    error_code: 'SAMAI_POLL_TIMEOUT',
-    message: `SAMAI job ${jobId} did not complete within ${maxTimeMs}ms` 
-  };
-}
-
 async function tryBuscarResultadoFlow(
   baseUrl: string,
   pathPrefix: string,
@@ -999,11 +875,10 @@ function buildSummary(provider: ProviderName, data: unknown): DebugSummary {
 
   switch (provider) {
     case 'cpnu':
-    {
-      // CPNU: data is at root level or in proceso
-      const proceso = obj.proceso as Record<string, unknown> | undefined;
-      const actuaciones = obj.actuaciones || proceso?.actuaciones || [];
+    case 'samai': {
+      const actuaciones = obj.actuaciones || (obj.proceso as Record<string, unknown>)?.actuaciones || [];
       const estados = obj.estados_electronicos || [];
+      const proceso = obj.proceso as Record<string, unknown> | undefined;
       
       return {
         found: Array.isArray(actuaciones) && actuaciones.length > 0,
@@ -1012,38 +887,6 @@ function buildSummary(provider: ProviderName, data: unknown): DebugSummary {
         hasExpediente: !!obj.expediente_url,
         despacho: (proceso?.despacho || obj.despacho) as string | undefined,
         tipoProceso: (proceso?.tipo || obj.tipo_proceso) as string | undefined,
-      };
-    }
-    case 'samai': {
-      // CRITICAL: SAMAI wraps actual process data in "result" object!
-      // Structure: { success: true, status: "done", result: { sujetos: [...], actuaciones: [...], ... } }
-      const nestedResult = obj.result as Record<string, unknown> | undefined;
-      const proceso = nestedResult || obj.proceso as Record<string, unknown> | undefined || obj;
-      
-      // SAMAI uses "actuaciones" at proceso level
-      const actuaciones = (proceso as Record<string, unknown>).actuaciones || obj.actuaciones || [];
-      const totalActuaciones = (proceso as Record<string, unknown>).totalActuaciones as number | undefined;
-      const estados = obj.estados_electronicos || [];
-      
-      // SAMAI uses "origen" for despacho
-      const despacho = ((proceso as Record<string, unknown>).origen || 
-                       (proceso as Record<string, unknown>).despacho || 
-                       (proceso as Record<string, unknown>).corporacion ||
-                       obj.origen || 
-                       obj.despacho) as string | undefined;
-      
-      const actuacionesCount = Array.isArray(actuaciones) ? actuaciones.length : 
-                               (typeof totalActuaciones === 'number' ? totalActuaciones : 0);
-      
-      return {
-        found: actuacionesCount > 0 || !!despacho,
-        actuacionesCount,
-        estadosCount: Array.isArray(estados) ? estados.length : 0,
-        hasExpediente: !!obj.expediente_url,
-        despacho,
-        tipoProceso: ((proceso as Record<string, unknown>).clase || 
-                     (proceso as Record<string, unknown>).tipo || 
-                     obj.tipo_proceso) as string | undefined,
       };
     }
     case 'tutelas': {

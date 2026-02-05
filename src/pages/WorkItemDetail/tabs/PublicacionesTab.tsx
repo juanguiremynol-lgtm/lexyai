@@ -51,7 +51,6 @@ export function PublicacionesTab({ workItem }: PublicacionesTabProps) {
         .from("work_item_publicaciones")
         .select("*")
         .eq("work_item_id", workItem.id)
-        .eq("is_archived", false)
         .order("published_at", { ascending: false, nullsFirst: false });
       
       if (error) throw error;

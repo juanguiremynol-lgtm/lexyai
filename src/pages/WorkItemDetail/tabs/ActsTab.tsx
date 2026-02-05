@@ -45,7 +45,6 @@ export function ActsTab({ workItem }: ActsTabProps) {
         .from("work_item_acts")
         .select("*")
         .eq("work_item_id", workItem.id)
-        .eq("is_archived", false)
         .order("act_date", { ascending: false, nullsFirst: false });
 
       if (error) {

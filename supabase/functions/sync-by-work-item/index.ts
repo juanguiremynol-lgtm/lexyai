@@ -44,7 +44,6 @@ interface SyncResult {
   workflow_type: string;
   inserted_count: number;
   skipped_count: number;
-  updated_count?: number; // For parallel sync: records updated with new sources
   latest_event_date: string | null;
   provider_used: string | null;
   provider_attempts: ProviderAttempt[];
@@ -59,21 +58,6 @@ interface SyncResult {
   scraping_poll_url?: string;
   scraping_provider?: string;
   scraping_message?: string;
-  // Parallel sync fields (TUTELA)
-  sync_strategy?: 'fallback' | 'parallel';
-  parallel_results?: {
-    provider: string;
-    status: string;
-    actuaciones_found: number;
-    latencyMs: number;
-    error?: string;
-  }[];
-  consolidation?: {
-    total_from_sources: number;
-    after_dedup: number;
-    duplicates_removed: number;
-    multi_source_confirmed: number;
-  };
 }
 
 interface WorkItem {
@@ -213,7 +197,7 @@ async function logTrace(
 // - CGP/LABORAL: ESTADOS are primary notification source (for legal terms)
 //   - CPNU primary for enrichment actuaciones, SAMAI fallback
 // - CPACA: SAMAI primary (administrative litigation), CPNU optional fallback (disabled)
-// - TUTELA: PARALLEL sync - query CPNU, SAMAI, and TUTELAS simultaneously, then consolidate
+// - TUTELA: TUTELAS API primary (tutela_code), CPNU fallback if TUTELAS empty/failed
 // - PENAL_906: PUBLICACIONES are PRIMARY sync source (called FIRST); CPNU/SAMAI are optional enrichment
 // 
 // The Estados ingestion pipeline remains canonical for CGP/LABORAL.
@@ -225,40 +209,31 @@ interface ProviderOrderConfig {
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
   usePublicacionesAsPrimary?: boolean; // For PENAL_906: Publicaciones is the PRIMARY sync source
-  // NEW: Parallel sync strategy for TUTELA
-  syncStrategy?: 'fallback' | 'parallel';
-  parallelSources?: ('cpnu' | 'samai' | 'tutelas-api')[];
 }
 
 function getProviderOrder(workflowType: string): ProviderOrderConfig {
   switch (workflowType) {
     case 'CPACA':
       // SAMAI is primary for CPACA (administrative litigation)
-      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false, syncStrategy: 'fallback' };
+      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
     case 'TUTELA':
-      // TUTELA: PARALLEL strategy - query ALL sources simultaneously
-      // This ensures complete data from Corte Constitucional, CPNU, and SAMAI
-      return { 
-        primary: 'cpnu', 
-        fallback: 'samai', 
-        fallbackEnabled: true, 
-        syncStrategy: 'parallel',
-        parallelSources: ['cpnu', 'samai', 'tutelas-api']
-      };
+      // TUTELA: CPNU primary (more reliable), Tutelas API as fallback
+      // CPNU often has more complete data; Tutelas API is supplement
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
     case 'PENAL_906':
       // PENAL_906: CPNU primary for actuaciones, SAMAI as fallback
       // Publicaciones (estados) is fetched ADDITIONALLY via alsoFetchPublicaciones flag
       // This ensures criminal cases get proper actuaciones data
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true, syncStrategy: 'fallback' };
+      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
     case 'CGP':
     case 'LABORAL':
       // CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI
       // Civil/labor/family processes in CPNU are NOT in SAMAI, so fallback is technically useless
       // Note: Estados remain the canonical notification source (via estados ingestion pipeline)
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false, syncStrategy: 'fallback' };
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
     default:
       // Unknown workflows: CPNU primary, no fallback
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false, syncStrategy: 'fallback' };
+      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
   }
 }
 
@@ -506,27 +481,6 @@ function generateFingerprint(
   return `wi_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16)}`;
 }
 
-/**
- * Generate source-independent fingerprint for multi-source consolidation
- * Uses ms_ prefix to distinguish from single-source fingerprints
- */
-function generateMultiSourceFingerprint(
-  workItemId: string,
-  date: string | null,
-  descriptionPrefix: string,
-  indice: string | null
-): string {
-  const indexPart = indice ? `|${indice}` : '';
-  const input = `${workItemId}|${date || 'nodate'}|${descriptionPrefix.slice(0, 50).toLowerCase()}${indexPart}`;
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    const char = input.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `ms_${workItemId.slice(0, 8)}_${Math.abs(hash).toString(16).padStart(8, '0')}`;
-}
-
 function parseColombianDate(dateStr: string | undefined | null): string | null {
   if (!dateStr) return null;
   
@@ -552,59 +506,6 @@ function parseColombianDate(dateStr: string | undefined | null): string | null {
       const month = match[2].padStart(2, '0');
       return `${match[3]}-${month}-${day}`; // YYYY-MM-DD
     }
-  }
-  
-  return null;
-}
-
-// ============= DATE INFERENCE HELPER =============
-// Parse dates from annotation or title text (for date inference engine)
-
-const SPANISH_MONTHS_MAP: Record<string, string> = {
-  'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
-  'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
-  'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12',
-};
-
-function parseDateFromAnnotation(text: string | null | undefined): string | null {
-  if (!text) return null;
-  
-  // Pattern 1: "registrada el DD/MM/YYYY" or "realizada el DD/MM/YYYY"
-  const pattern1 = /(?:registrad[ao]|realizad[ao])\s+el\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/i;
-  const match1 = text.match(pattern1);
-  if (match1) {
-    const [, day, month, year] = match1;
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-  }
-  
-  // Pattern 2: "DD DE MONTH DE YYYY"
-  const pattern2 = /(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})/i;
-  const match2 = text.match(pattern2);
-  if (match2) {
-    const [, day, monthName, year] = match2;
-    const month = SPANISH_MONTHS_MAP[monthName.toLowerCase()];
-    if (month) {
-      return `${year}-${month}-${day.padStart(2, '0')}`;
-    }
-  }
-  
-  // Pattern 3: "YYYYMMDD" or "YYYY-MM-DD" anywhere in text
-  const pattern3 = /(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})/;
-  const match3 = text.match(pattern3);
-  if (match3) {
-    const [, year, month, day] = match3;
-    const yearNum = parseInt(year);
-    if (yearNum >= 2020 && yearNum <= 2030) {
-      return `${year}-${month}-${day}`;
-    }
-  }
-  
-  // Pattern 4: "DD-MM-YYYY" or "DD/MM/YYYY"
-  const pattern4 = /(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/;
-  const match4 = text.match(pattern4);
-  if (match4) {
-    const [, day, month, year] = match4;
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
   
   return null;
@@ -2203,285 +2104,6 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
 // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
 // The two sync functions are independent and should be called separately.
 
-// ============= PARALLEL SYNC FOR TUTELA =============
-// Query multiple sources simultaneously and consolidate results
-
-interface ParallelProviderResult {
-  provider: string;
-  status: 'success' | 'error' | 'empty' | 'timeout' | 'not_found';
-  actuaciones: ActuacionRaw[];
-  latencyMs: number;
-  error?: string;
-  httpStatus?: number;
-}
-
-interface NormalizedActuacion {
-  normalized_date: string | null;
-  normalized_type: string;
-  normalized_description: string;
-  original: {
-    provider: string;
-    raw_data: ActuacionRaw;
-    act_date: string | null;
-    description: string;
-    annotation: string | null;
-  };
-  similarity_key: string;
-  completeness_score: number;
-}
-
-interface ConsolidatedActuacion {
-  act_date: string | null;
-  description: string;
-  annotation: string | null;
-  act_date_raw: string | null;
-  sources: string[];
-  primary_source: string;
-  date_source: 'api_explicit' | 'parsed_annotation' | 'parsed_title' | 'api_metadata' | 'inferred_sync';
-  date_confidence: 'high' | 'medium' | 'low';
-  completeness_score: number;
-  source_data: Record<string, ActuacionRaw>;
-  indice: string | null;
-}
-
-// Type normalization patterns
-const ACTUACION_TYPE_MAP: Record<string, string[]> = {
-  auto_admite: ['auto admite', 'admite demanda', 'auto admisorio', 'admite tutela'],
-  auto_inadmite: ['auto inadmite', 'inadmite demanda', 'inadmite tutela'],
-  auto_requiere: ['auto requiere', 'requiere', 'requerimiento'],
-  sentencia: ['sentencia', 'fallo', 'decision', 'decisión'],
-  fijacion_estado: ['fijacion estado', 'fijación estado', 'estado'],
-  recepcion_memorial: ['recepcion memorial', 'recepción memorial', 'memorial'],
-  audiencia: ['audiencia', 'diligencia'],
-  notificacion: ['notificacion', 'notificación', 'notifica'],
-  medida_cautelar: ['medida cautelar', 'cautelar', 'medida provisional'],
-  radicacion: ['radicacion', 'radicación', 'reparto'],
-  impugnacion: ['impugnacion', 'impugnación', 'recurso'],
-  revision: ['revision', 'revisión', 'corte constitucional'],
-};
-
-function normalizeActuacionType(description: string): string {
-  if (!description) return 'unknown';
-  const lower = description.toLowerCase();
-  for (const [standard, variations] of Object.entries(ACTUACION_TYPE_MAP)) {
-    if (variations.some(v => lower.includes(v))) {
-      return standard;
-    }
-  }
-  return 'other';
-}
-
-function normalizeForDedup(act: ActuacionRaw, provider: string): NormalizedActuacion {
-  const date = act.fecha || '';
-  const description = act.actuacion || '';
-  const annotation = act.anotacion || '';
-
-  const normalizedDate = parseColombianDate(date);
-  const normalizedType = normalizeActuacionType(description);
-
-  const cleanDescription = description
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const descPrefix = cleanDescription.replace(/[^a-z0-9]/g, '').slice(0, 20);
-  const similarityKey = `${normalizedDate || 'nodate'}|${normalizedType}|${descPrefix}`;
-
-  let completeness = 0;
-  if (date) completeness += 30;
-  if (description) completeness += 20;
-  if (annotation && annotation.length > 10) completeness += 20;
-  if (act.fecha_inicia_termino) completeness += 10;
-  if (act.fecha_finaliza_termino) completeness += 10;
-  if (act.documentos && act.documentos.length > 0) completeness += 10;
-
-  return {
-    normalized_date: normalizedDate,
-    normalized_type: normalizedType,
-    normalized_description: cleanDescription,
-    original: {
-      provider,
-      raw_data: act,
-      act_date: normalizedDate,
-      description,
-      annotation: annotation || null,
-    },
-    similarity_key: similarityKey,
-    completeness_score: completeness,
-  };
-}
-
-function consolidateParallelResults(results: ParallelProviderResult[]): {
-  consolidated: ConsolidatedActuacion[];
-  stats: { totalFromSources: number; afterDedup: number; duplicatesRemoved: number; multiSourceCount: number };
-} {
-  const normalized: NormalizedActuacion[] = [];
-
-  for (const result of results) {
-    if (result.status === 'success' || (result.actuaciones && result.actuaciones.length > 0)) {
-      for (const act of result.actuaciones) {
-        normalized.push(normalizeForDedup(act, result.provider));
-      }
-    }
-  }
-
-  const totalFromSources = normalized.length;
-  console.log(`[parallel-sync] Total actuaciones from all sources: ${totalFromSources}`);
-
-  const groups = new Map<string, NormalizedActuacion[]>();
-  for (const act of normalized) {
-    const existing = groups.get(act.similarity_key) || [];
-    existing.push(act);
-    groups.set(act.similarity_key, existing);
-  }
-
-  console.log(`[parallel-sync] Unique actuaciones after grouping: ${groups.size}`);
-
-  const consolidated: ConsolidatedActuacion[] = [];
-  let multiSourceCount = 0;
-
-  for (const [_key, group] of groups) {
-    group.sort((a, b) => b.completeness_score - a.completeness_score);
-
-    const best = group[0];
-    const allSources = [...new Set(group.map(g => g.original.provider))];
-
-    if (allSources.length > 1) {
-      multiSourceCount++;
-    }
-
-    let mergedAnnotation = best.original.annotation;
-    for (const alt of group.slice(1)) {
-      if (alt.original.annotation && alt.original.annotation.length > (mergedAnnotation?.length || 0)) {
-        mergedAnnotation = alt.original.annotation;
-      }
-    }
-
-    let dateConfidence: 'high' | 'medium' | 'low' = 'low';
-    let dateSource: ConsolidatedActuacion['date_source'] = 'inferred_sync';
-
-    const datesFromSources = group.map(g => g.normalized_date).filter((d): d is string => d !== null);
-    if (datesFromSources.length > 0) {
-      const allSameDate = datesFromSources.every(d => d === datesFromSources[0]);
-      if (allSameDate && allSources.length >= 2) {
-        dateConfidence = 'high';
-        dateSource = 'api_explicit';
-      } else if (allSameDate) {
-        dateConfidence = 'medium';
-        dateSource = 'api_explicit';
-      } else {
-        dateConfidence = 'medium';
-        dateSource = 'api_explicit';
-      }
-    }
-
-    const sourceData: Record<string, ActuacionRaw> = {};
-    for (const g of group) {
-      sourceData[g.original.provider] = g.original.raw_data;
-    }
-
-    consolidated.push({
-      act_date: best.normalized_date,
-      description: best.original.description,
-      annotation: mergedAnnotation,
-      act_date_raw: best.original.raw_data.fecha || null,
-      sources: allSources,
-      primary_source: best.original.provider,
-      date_source: dateSource,
-      date_confidence: dateConfidence,
-      completeness_score: best.completeness_score,
-      source_data: sourceData,
-      indice: best.original.raw_data.indice || null,
-    });
-  }
-
-  console.log(`[parallel-sync] Final consolidated count: ${consolidated.length}`);
-  console.log(`[parallel-sync] Multi-source confirmed: ${multiSourceCount}`);
-
-  return {
-    consolidated,
-    stats: {
-      totalFromSources,
-      afterDedup: consolidated.length,
-      duplicatesRemoved: totalFromSources - consolidated.length,
-      multiSourceCount,
-    },
-  };
-}
-
-async function executeParallelSync(
-  radicado: string,
-  tutelaCode: string | null,
-  sources: string[]
-): Promise<ParallelProviderResult[]> {
-  console.log(`[parallel-sync] Executing parallel sync for radicado=${radicado}, tutela_code=${tutelaCode}, sources=${sources.join(',')}`);
-
-  const promises = sources.map(async (source): Promise<ParallelProviderResult> => {
-    const startTime = Date.now();
-    try {
-      let result: FetchResult;
-      
-      switch (source) {
-        case 'cpnu':
-          result = await fetchFromCpnu(radicado);
-          break;
-        case 'samai':
-          result = await fetchFromSamai(radicado);
-          break;
-        case 'tutelas-api':
-          if (tutelaCode) {
-            result = await fetchFromTutelasApi(tutelaCode);
-          } else {
-            return {
-              provider: source,
-              status: 'empty',
-              actuaciones: [],
-              latencyMs: Date.now() - startTime,
-              error: 'No tutela_code available for TUTELAS API',
-            };
-          }
-          break;
-        default:
-          return {
-            provider: source,
-            status: 'error',
-            actuaciones: [],
-            latencyMs: Date.now() - startTime,
-            error: `Unknown provider: ${source}`,
-          };
-      }
-
-      return {
-        provider: source,
-        status: result.ok ? 'success' : (result.isEmpty ? 'empty' : 'error'),
-        actuaciones: result.actuaciones,
-        latencyMs: result.latencyMs || (Date.now() - startTime),
-        error: result.error,
-        httpStatus: result.httpStatus,
-      };
-    } catch (err) {
-      return {
-        provider: source,
-        status: 'error',
-        actuaciones: [],
-        latencyMs: Date.now() - startTime,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      };
-    }
-  });
-
-  // Execute all providers simultaneously
-  const results = await Promise.all(promises);
-  
-  console.log(`[parallel-sync] Results:`, results.map(r => `${r.provider}: ${r.status}, ${r.actuaciones.length} actuaciones`));
-  
-  return results;
-}
-
-// The two sync functions are independent and should be called separately.
-
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -2636,234 +2258,126 @@ Deno.serve(async (req) => {
     // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
 
-    if (workItem.workflow_type === 'TUTELA' && providerOrder.syncStrategy === 'parallel') {
-      // ============= TUTELA: PARALLEL SYNC - Query ALL sources simultaneously =============
-      // This ensures comprehensive data from Corte Constitucional (via tutelas-api), CPNU, and SAMAI
-      
-      if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
-        return errorResponse(
-          'MISSING_RADICADO',
-          'TUTELA workflow requires a valid 23-digit radicado for parallel sync. Please edit the work item to add it.',
-          400,
-          traceId
-        );
-      }
-      
-      const normalizedRadicado = normalizeRadicado(workItem.radicado);
-      const tutelaCode = workItem.tutela_code && isValidTutelaCode(workItem.tutela_code) 
-        ? workItem.tutela_code 
-        : null;
-      
-      console.log(`[sync-by-work-item] TUTELA PARALLEL SYNC: radicado=${normalizedRadicado}, tutela_code=${tutelaCode || 'none'}`);
-      console.log(`[sync-by-work-item] Querying ALL sources simultaneously: ${providerOrder.parallelSources?.join(', ')}`);
-      
-      // Log parallel sync start
-      await logTrace(supabase, {
-        trace_id: traceId,
-        work_item_id,
-        organization_id: workItem.organization_id,
-        workflow_type: workItem.workflow_type,
-        step: 'PARALLEL_SYNC_START',
-        success: true,
-        message: `Starting parallel sync for TUTELA with ${providerOrder.parallelSources?.length || 0} sources`,
-        meta: {
-          sources: providerOrder.parallelSources,
-          has_tutela_code: !!tutelaCode,
-        },
-      });
-      
-      // Execute parallel sync - query ALL sources simultaneously
-      const parallelResults = await executeParallelSync(
-        normalizedRadicado,
-        tutelaCode,
-        providerOrder.parallelSources || ['cpnu', 'samai', 'tutelas-api']
-      );
-      
-      // Add all provider attempts to result
-      for (const pr of parallelResults) {
-        result.provider_attempts.push({
-          provider: pr.provider,
-          status: pr.status === 'success' ? 'success' : (pr.status === 'empty' ? 'not_found' : 'error'),
-          latencyMs: pr.latencyMs,
-          message: pr.error,
-          actuacionesCount: pr.actuaciones.length,
-        });
-      }
-      
-      // Store parallel results for response
-      result.sync_strategy = 'parallel';
-      result.parallel_results = parallelResults.map(pr => ({
-        provider: pr.provider,
-        status: pr.status,
-        actuaciones_found: pr.actuaciones.length,
-        latencyMs: pr.latencyMs,
-        error: pr.error,
-      }));
-      
-      // Consolidate results from all sources using smart deduplication
-      const consolidation = consolidateParallelResults(parallelResults);
-      
-      console.log(`[sync-by-work-item] PARALLEL CONSOLIDATION: ${consolidation.stats.totalFromSources} raw → ${consolidation.stats.afterDedup} unique (${consolidation.stats.duplicatesRemoved} duplicates removed, ${consolidation.stats.multiSourceCount} multi-source confirmed)`);
-      
-      // Store consolidation stats in response
-      result.consolidation = {
-        total_from_sources: consolidation.stats.totalFromSources,
-        after_dedup: consolidation.stats.afterDedup,
-        duplicates_removed: consolidation.stats.duplicatesRemoved,
-        multi_source_confirmed: consolidation.stats.multiSourceCount,
-      };
-      
-      // Log consolidation results
-      await logTrace(supabase, {
-        trace_id: traceId,
-        work_item_id,
-        organization_id: workItem.organization_id,
-        workflow_type: workItem.workflow_type,
-        step: 'PARALLEL_CONSOLIDATION_COMPLETE',
-        success: true,
-        message: `Consolidated ${consolidation.stats.totalFromSources} → ${consolidation.stats.afterDedup} actuaciones`,
-        meta: {
-          total_from_sources: consolidation.stats.totalFromSources,
-          after_dedup: consolidation.stats.afterDedup,
-          duplicates_removed: consolidation.stats.duplicatesRemoved,
-          multi_source_confirmed: consolidation.stats.multiSourceCount,
-        },
-      });
-      
-      // If no actuaciones found from ANY source, return error
-      if (consolidation.consolidated.length === 0) {
-        const sourcesWithData = parallelResults.filter(pr => pr.actuaciones.length > 0).map(pr => pr.provider);
-        if (sourcesWithData.length === 0) {
-          result.ok = false;
-          result.provider_used = 'parallel (all empty)';
-          result.provider_order_reason = 'tutela_parallel_all_sources_empty';
-          result.errors.push('No actuaciones found from any source (CPNU, SAMAI, TUTELAS)');
-          result.trace_id = traceId;
-          return jsonResponse(result);
-        }
-      }
-      
-      // Insert consolidated actuaciones with multi-source tracking
-      let insertedCount = 0;
-      let skippedCount = 0;
-      let updatedCount = 0;
-      let latestDate: string | null = null;
-      const successfulSources = new Set<string>();
-      
-      for (const consolidated of consolidation.consolidated) {
-        // Generate multi-source fingerprint (source-independent)
-        const fingerprint = generateMultiSourceFingerprint(
-          work_item_id,
-          consolidated.act_date,
-          consolidated.description.slice(0, 50).toLowerCase(),
-          consolidated.indice
-        );
-        
-        // Check if record exists
-        const { data: existing } = await supabase
-          .from('actuaciones')
-          .select('id, source, sources')
-          .eq('work_item_id', work_item_id)
-          .eq('hash_fingerprint', fingerprint)
-          .maybeSingle();
-        
-        if (existing) {
-          // Record exists - update sources array if new sources found
-          const existingSources = existing.sources || [existing.source];
-          const newSources = [...new Set([...existingSources, ...consolidated.sources])];
-          
-          if (newSources.length > existingSources.length) {
-            // New sources confirmed this record
-            await supabase
-              .from('actuaciones')
-              .update({ sources: newSources })
-              .eq('id', existing.id);
-            updatedCount++;
-            console.log(`[sync-by-work-item] Updated sources for existing record: ${existingSources.join(',')} → ${newSources.join(',')}`);
-          }
-          
-          skippedCount++;
-          consolidated.sources.forEach((s: string) => successfulSources.add(s));
+    if (workItem.workflow_type === 'TUTELA') {
+      // TUTELA workflow: TUTELAS API primary, CPNU fallback
+      if (!workItem.tutela_code || !isValidTutelaCode(workItem.tutela_code)) {
+        // If no tutela_code, try radicado via CPNU
+        if (workItem.radicado && isValidRadicado(workItem.radicado)) {
+          console.log(`[sync-by-work-item] TUTELA workflow without tutela_code, using radicado via CPNU`);
+          const normalizedRadicado = normalizeRadicado(workItem.radicado);
+          fetchResult = await fetchFromCpnu(normalizedRadicado);
+          result.provider_attempts.push({
+            provider: 'cpnu',
+            status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+            latencyMs: fetchResult.latencyMs || 0,
+            message: 'Used CPNU (no tutela_code available)',
+            actuacionesCount: fetchResult.actuaciones.length,
+          });
+          result.provider_order_reason = 'tutela_no_code_cpnu_fallback';
         } else {
-          // Insert new record with multi-source tracking
-          const { error: insertError } = await supabase
-            .from('actuaciones')
-            .insert({
-              work_item_id,
-              owner_id: workItem.owner_id,
-              organization_id: workItem.organization_id,
-              hash_fingerprint: fingerprint,
-              source: consolidated.primary_source,
-              sources: consolidated.sources,
-              raw_text: consolidated.description,
-              normalized_text: consolidated.description,
-              act_date: consolidated.act_date,
-              act_date_raw: consolidated.act_date_raw,
-              indice: consolidated.indice,
-              raw_data: consolidated.source_data,
-              adapter_name: 'parallel-sync',
-              confidence: consolidated.sources.length > 1 ? 1.0 : 0.8,
-            });
+          return errorResponse(
+            'MISSING_IDENTIFIER',
+            'TUTELA workflow requires a valid tutela_code (format: T + 6-10 digits, e.g., T11728622) or a 23-digit radicado. Please edit the work item to add one.',
+            400
+          );
+        }
+      } else {
+        console.log(`[sync-by-work-item] TUTELA workflow: using tutela_code=${workItem.tutela_code}`);
+        fetchResult = await fetchFromTutelasApi(workItem.tutela_code);
+        
+        result.provider_attempts.push({
+          provider: 'tutelas-api',
+          status: fetchResult.ok ? 'success' : (fetchResult.isEmpty ? 'not_found' : 'error'),
+          latencyMs: fetchResult.latencyMs || 0,
+          message: fetchResult.error,
+          actuacionesCount: fetchResult.actuaciones.length,
+        });
+        
+        // ============= CHECK IF SCRAPING WAS AUTO-INITIATED BY TUTELAS =============
+        // If scraping was initiated, DO NOT attempt fallback - return 202 immediately
+        if (fetchResult.scrapingInitiated && fetchResult.scrapingJobId) {
+          console.log(`[sync-by-work-item] TUTELAS: Auto-scraping initiated, skipping CPNU fallback`);
           
-          if (insertError) {
-            if (insertError.code === '23505') {
-              skippedCount++;
+          result.ok = false;
+          result.provider_used = 'tutelas-api';
+          result.scraping_initiated = true;
+          result.scraping_job_id = fetchResult.scrapingJobId;
+          result.scraping_poll_url = fetchResult.scrapingPollUrl;
+          result.scraping_provider = 'tutelas-api';
+          result.scraping_message = fetchResult.scrapingMessage || 
+            `Tutela not found in cache. Scraping initiated (job ${fetchResult.scrapingJobId}). Retry sync in 30-60 seconds.`;
+          
+          // Log SCRAPING_INITIATED trace step
+          await logTrace(supabase, {
+            trace_id: traceId,
+            work_item_id,
+            organization_id: workItem.organization_id,
+            workflow_type: workItem.workflow_type,
+            step: 'SCRAPING_INITIATED',
+            provider: 'tutelas-api',
+            http_status: null,
+            latency_ms: fetchResult.latencyMs || null,
+            success: true,
+            error_code: null,
+            message: `Scraping job created: ${fetchResult.scrapingJobId}`,
+            meta: {
+              job_id: fetchResult.scrapingJobId,
+              poll_url: fetchResult.scrapingPollUrl,
+              tutela_code_preview: workItem.tutela_code?.slice(0, 6) + '...',
+            },
+          });
+          
+          // Update work_item with SCRAPING status and metadata
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: 'IN_PROGRESS',
+              scrape_provider: 'tutelas-api',
+              scrape_job_id: fetchResult.scrapingJobId,
+              scrape_poll_url: fetchResult.scrapingPollUrl,
+              last_scrape_initiated_at: new Date().toISOString(),
+              last_checked_at: new Date().toISOString(),
+            })
+            .eq('id', work_item_id);
+          
+          result.trace_id = traceId;
+          return jsonResponse(result, 202);
+        }
+        
+        // CPNU fallback for TUTELA if TUTELAS API returns empty/not-found (no scraping initiated)
+        if (!fetchResult.ok && providerOrder.fallbackEnabled && fetchResult.isEmpty) {
+          console.log(`[sync-by-work-item] TUTELAS API empty (no scraping), trying CPNU fallback`);
+          result.warnings.push(`TUTELAS API (primary): ${fetchResult.error || 'Not found'}`);
+          
+          // Try CPNU using radicado if available
+          if (workItem.radicado && isValidRadicado(workItem.radicado)) {
+            const normalizedRadicado = normalizeRadicado(workItem.radicado);
+            const cpnuResult = await fetchFromCpnu(normalizedRadicado);
+            
+            result.provider_attempts.push({
+              provider: 'cpnu',
+              status: cpnuResult.ok ? 'success' : (cpnuResult.isEmpty ? 'not_found' : 'error'),
+              latencyMs: cpnuResult.latencyMs || 0,
+              message: cpnuResult.error,
+              actuacionesCount: cpnuResult.actuaciones.length,
+            });
+            
+            if (cpnuResult.ok) {
+              fetchResult = cpnuResult;
+              result.provider_order_reason = 'tutela_tutelas_failed_cpnu_fallback';
             } else {
-              console.error(`[sync-by-work-item] Insert error:`, insertError);
-              result.errors.push(`Insert failed: ${insertError.message}`);
+              result.warnings.push(`CPNU fallback: ${cpnuResult.error}`);
             }
           } else {
-            insertedCount++;
-            consolidated.sources.forEach((s: string) => successfulSources.add(s));
-            
-            // Track latest date
-            if (consolidated.act_date) {
-              if (!latestDate || consolidated.act_date > latestDate) {
-                latestDate = consolidated.act_date;
-              }
-            }
+            result.provider_attempts.push({
+              provider: 'cpnu',
+              status: 'skipped',
+              latencyMs: 0,
+              message: 'No valid radicado for CPNU fallback',
+            });
           }
         }
       }
-      
-      // Set result
-      result.ok = insertedCount > 0 || skippedCount > 0 || updatedCount > 0;
-      result.inserted_count = insertedCount;
-      result.skipped_count = skippedCount;
-      result.updated_count = updatedCount;
-      result.latest_event_date = latestDate;
-      result.provider_used = Array.from(successfulSources).join('+') || 'parallel';
-      result.provider_order_reason = 'tutela_parallel_all_sources';
-      result.trace_id = traceId;
-      
-      // Update work_item timestamps
-      await supabase
-        .from('work_items')
-        .update({
-          last_crawled_at: new Date().toISOString(),
-          last_checked_at: new Date().toISOString(),
-          last_change_at: insertedCount > 0 ? new Date().toISOString() : undefined,
-        })
-        .eq('id', work_item_id);
-      
-      // Log success
-      await logTrace(supabase, {
-        trace_id: traceId,
-        work_item_id,
-        organization_id: workItem.organization_id,
-        workflow_type: workItem.workflow_type,
-        step: 'PARALLEL_SYNC_COMPLETE',
-        success: true,
-        message: `Parallel sync complete: ${insertedCount} inserted, ${skippedCount} skipped, ${updatedCount} updated`,
-        meta: {
-          inserted_count: insertedCount,
-          skipped_count: skippedCount,
-          updated_count: updatedCount,
-          sources_used: Array.from(successfulSources),
-        },
-      });
-      
-      return jsonResponse(result);
       
     } else if (workItem.workflow_type === 'PENAL_906') {
       // ============= PENAL_906: Use CPNU (Publicaciones handled by separate function) =============
@@ -3318,37 +2832,10 @@ Deno.serve(async (req) => {
     result.provider_used = fetchResult.provider;
     console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
-    // ============= AUDIT: COUNT BEFORE SYNC =============
-    const { count: actsCountBefore } = await supabase
-      .from('work_item_acts')
-      .select('id', { count: 'exact', head: true })
-      .eq('work_item_id', work_item_id)
-      .eq('is_archived', false);
-    
-    console.log(`[sync-by-work-item] Count before sync: ${actsCountBefore || 0} actuaciones`);
-
     // Handle empty actuaciones (success but no data)
     if (fetchResult.actuaciones.length === 0) {
       result.ok = true;
       result.warnings.push('No actuaciones found in external source');
-      
-      // Audit log for empty result
-      await supabase.from('sync_audit_log').insert({
-        work_item_id,
-        organization_id: workItem.organization_id,
-        radicado: workItem.radicado,
-        workflow_type: workItem.workflow_type,
-        sync_type: 'actuaciones',
-        acts_count_before: actsCountBefore || 0,
-        acts_count_after: actsCountBefore || 0,
-        acts_inserted: 0,
-        acts_skipped: 0,
-        provider_used: fetchResult.provider,
-        provider_latency_ms: fetchResult.latencyMs,
-        status: 'success',
-        triggered_by: 'manual',
-        edge_function: 'sync-by-work-item',
-      });
       
       await supabase
         .from('work_items')
@@ -3366,44 +2853,9 @@ Deno.serve(async (req) => {
     // FIX: Calculate latestDate from ALL fetched data, not just inserted rows
     // This ensures latest_event_date reflects the provider's actual newest event
     let latestDate: string | null = null;
-    
-    // Get API fetched timestamp for date inference fallback
-    const apiFetchedAt = new Date().toISOString();
 
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
-      
-      // ============= DATE INFERENCE ENGINE =============
-      // Determine date source and confidence for legal accuracy
-      let dateSource: 'api_explicit' | 'parsed_annotation' | 'parsed_title' | 'api_metadata' | 'inferred_sync' = 'api_explicit';
-      let dateConfidence: 'high' | 'medium' | 'low' = 'high';
-      
-      // LAYER 1: Explicit API dates (highest confidence)
-      if (actDate) {
-        // Date came from API - highest confidence
-        dateSource = 'api_explicit';
-        dateConfidence = 'high';
-      } else {
-        // LAYER 2: Try to parse from anotacion
-        const annotationDate = parseDateFromAnnotation(act.anotacion || '');
-        if (annotationDate) {
-          // Use inferred date if no explicit date
-          // Note: actDate stays null, we just track the source for logging
-          dateSource = 'parsed_annotation';
-          dateConfidence = 'medium';
-        } else {
-          // LAYER 3: Try to parse from actuacion text
-          const titleDate = parseDateFromAnnotation(act.actuacion || '');
-          if (titleDate) {
-            dateSource = 'parsed_title';
-            dateConfidence = 'medium';
-          } else {
-            // LAYER 4: Fallback to API metadata/sync date
-            dateSource = 'api_metadata';
-            dateConfidence = 'low';
-          }
-        }
-      }
       
       // IMPORTANT: Track latest date from ALL fetched actuaciones (for metadata update)
       // This happens BEFORE deduplication so we report the true latest event date
@@ -3432,11 +2884,6 @@ Deno.serve(async (req) => {
       const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;
       const eventSummary = description.slice(0, 500);
       
-      // Log if low confidence date
-      if (dateConfidence === 'low') {
-        console.log(`[sync-by-work-item] Low confidence date for actuacion: ${act.actuacion?.slice(0, 50)}`);
-      }
-      
       // BUG FIX: Insert into 'work_item_acts' (canonical table) instead of legacy 'actuaciones'
       // The UI reads from work_item_acts, not actuaciones
       const { error: insertError } = await supabase
@@ -3456,10 +2903,6 @@ Deno.serve(async (req) => {
           hash_fingerprint: fingerprint,
           scrape_date: new Date().toISOString().split('T')[0],
           despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
-          // DATE INFERENCE METADATA
-          date_source: dateSource,
-          date_confidence: dateConfidence,
-          api_fetched_at: apiFetchedAt,
           // Store raw data as JSON for debugging
           raw_data: {
             actuacion: act.actuacion,
@@ -3724,40 +3167,6 @@ Deno.serve(async (req) => {
     if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
       console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync is handled by sync-publicaciones-by-work-item (call separately)`);
     }
-
-    // ============= AUDIT: COUNT AFTER SYNC & LOG =============
-    const { count: actsCountAfter } = await supabase
-      .from('work_item_acts')
-      .select('id', { count: 'exact', head: true })
-      .eq('work_item_id', work_item_id)
-      .eq('is_archived', false);
-    
-    // ANOMALY CHECK: count should never decrease
-    const countDecreased = (actsCountAfter || 0) < (actsCountBefore || 0);
-    if (countDecreased) {
-      console.error(`[ANOMALY] work_item_acts count DECREASED for ${work_item_id}: ${actsCountBefore} → ${actsCountAfter}`);
-    }
-
-    // Log the audit record
-    await supabase.from('sync_audit_log').insert({
-      work_item_id,
-      organization_id: workItem.organization_id,
-      radicado: workItem.radicado,
-      workflow_type: workItem.workflow_type,
-      sync_type: 'actuaciones',
-      acts_count_before: actsCountBefore || 0,
-      acts_count_after: actsCountAfter || 0,
-      acts_inserted: result.inserted_count,
-      acts_skipped: result.skipped_count,
-      provider_used: result.provider_used,
-      provider_latency_ms: fetchResult.latencyMs,
-      status: countDecreased ? 'anomaly' : (result.errors.length > 0 ? 'partial' : 'success'),
-      error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
-      count_decreased: countDecreased,
-      anomaly_details: countDecreased ? `Count decreased from ${actsCountBefore} to ${actsCountAfter}` : null,
-      triggered_by: 'manual',
-      edge_function: 'sync-by-work-item',
-    });
 
     result.ok = true;
     console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);

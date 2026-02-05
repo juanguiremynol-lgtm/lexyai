@@ -1,13 +1,14 @@
 /**
  * React Query hooks for managing work item hearings (audiencias)
  * 
- * CRUD operations for hearings linked to work_items
+ * CRUD operations with audit trail via process_events
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { toast } from "sonner";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface Hearing {
   id: string;
@@ -70,7 +71,7 @@ export function useWorkItemHearings(workItemId: string | undefined) {
 }
 
 /**
- * Create a new hearing
+ * Create a new hearing with audit trail
  */
 export function useCreateHearing() {
   const queryClient = useQueryClient();
@@ -101,19 +102,42 @@ export function useCreateHearing() {
       
       if (hearingError) throw hearingError;
       
+      // Get work_item's legacy_filing_id for process_events audit
+      const { data: workItem } = await supabase
+        .from("work_items")
+        .select("legacy_filing_id")
+        .eq("id", input.work_item_id)
+        .single();
+      
+      // Create process_event audit trail
+      if (workItem?.legacy_filing_id) {
+        const eventPayload = {
+          hearing_id: hearing.id,
+          work_item_id: input.work_item_id,
+          title: input.title,
+          scheduled_at: input.scheduled_at,
+          location: input.location || null,
+          is_virtual: input.is_virtual || false,
+        };
+        await supabase.from("process_events").insert({
+          owner_id: user.id,
+          filing_id: workItem.legacy_filing_id,
+          event_type: "HEARING_CREATED",
+          description: `Audiencia programada: ${input.title}`,
+          source: "USER_UI",
+          raw_data: eventPayload as unknown as Json,
+        });
+      }
+      
       // Create an alert for the hearing
       const scheduledAt = new Date(input.scheduled_at);
       const daysUntil = Math.ceil((scheduledAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
       
-      await supabase.from("alert_instances").insert({
+      await supabase.from("alerts").insert({
         owner_id: user.id,
-        organization_id: organization?.id,
-        entity_type: "hearing",
-        entity_id: hearing.id,
-        title: `Audiencia: ${input.title}`,
         severity: daysUntil <= 3 ? "CRITICAL" : daysUntil <= 7 ? "WARN" : "INFO",
         message: `Audiencia programada: ${input.title} para ${scheduledAt.toLocaleDateString('es-CO')}`,
-        status: "ACTIVE",
+        is_read: false,
       });
       
       return hearing;
@@ -121,7 +145,8 @@ export function useCreateHearing() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, variables.work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
-      queryClient.invalidateQueries({ queryKey: ["alert-instances", organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ["alerts", organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia programada con éxito");
     },
     onError: (error) => {
@@ -131,7 +156,7 @@ export function useCreateHearing() {
 }
 
 /**
- * Update an existing hearing
+ * Update an existing hearing with audit trail
  */
 export function useUpdateHearing() {
   const queryClient = useQueryClient();
@@ -142,7 +167,7 @@ export function useUpdateHearing() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
       
-      // Get current hearing data
+      // Get current hearing data for audit
       const { data: currentHearing } = await supabase
         .from("hearings")
         .select("*, work_item_id")
@@ -167,11 +192,42 @@ export function useUpdateHearing() {
       
       if (error) throw error;
       
+      // Create process_event audit trail
+      if (currentHearing.work_item_id) {
+        const { data: workItem } = await supabase
+          .from("work_items")
+          .select("legacy_filing_id")
+          .eq("id", currentHearing.work_item_id)
+          .single();
+        
+        if (workItem?.legacy_filing_id) {
+          const eventPayload = {
+            hearing_id: input.id,
+            work_item_id: currentHearing.work_item_id,
+            changes: updateData,
+            previous: {
+              title: currentHearing.title,
+              scheduled_at: currentHearing.scheduled_at,
+              location: currentHearing.location,
+            },
+          };
+          await supabase.from("process_events").insert({
+            owner_id: user.id,
+            filing_id: workItem.legacy_filing_id,
+            event_type: "HEARING_UPDATED",
+            description: `Audiencia actualizada: ${input.title || currentHearing.title}`,
+            source: "USER_UI",
+            raw_data: eventPayload as unknown as Json,
+          });
+        }
+      }
+      
       return { ...currentHearing, ...updateData };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, result.work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia actualizada");
     },
     onError: (error) => {
@@ -181,7 +237,7 @@ export function useUpdateHearing() {
 }
 
 /**
- * Delete a hearing
+ * Delete (soft delete if available) a hearing with audit trail
  */
 export function useDeleteHearing() {
   const queryClient = useQueryClient();
@@ -192,7 +248,33 @@ export function useDeleteHearing() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
       
-      // Delete the hearing
+      // Create process_event audit trail before deletion
+      if (hearing.work_item_id) {
+        const { data: workItem } = await supabase
+          .from("work_items")
+          .select("legacy_filing_id")
+          .eq("id", hearing.work_item_id)
+          .single();
+        
+        if (workItem?.legacy_filing_id) {
+          const eventPayload = {
+            hearing_id: hearing.id,
+            work_item_id: hearing.work_item_id,
+            title: hearing.title,
+            scheduled_at: hearing.scheduled_at,
+          };
+          await supabase.from("process_events").insert({
+            owner_id: user.id,
+            filing_id: workItem.legacy_filing_id,
+            event_type: "HEARING_DELETED",
+            description: `Audiencia eliminada: ${hearing.title}`,
+            source: "USER_UI",
+            raw_data: eventPayload as unknown as Json,
+          });
+        }
+      }
+      
+      // Hard delete the hearing (hearings table doesn't have soft delete)
       const { error } = await supabase
         .from("hearings")
         .delete()
@@ -205,6 +287,7 @@ export function useDeleteHearing() {
     onSuccess: (hearing) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-hearings", organization?.id, hearing.work_item_id] });
       queryClient.invalidateQueries({ queryKey: ["all-hearings", organization?.id] });
+      queryClient.invalidateQueries({ queryKey: ["process-events"] });
       toast.success("Audiencia eliminada");
     },
     onError: (error) => {

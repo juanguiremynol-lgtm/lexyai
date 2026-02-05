@@ -47,13 +47,6 @@ interface SyncResponse {
   error?: string;
   code?: string;
   attempts?: AttemptLog[];
-  // Parallel sync stats
-  sync_strategy?: 'fallback' | 'parallel';
-  consolidation_stats?: {
-    total_from_sources: number;
-    after_dedup: number;
-    duplicates_removed: number;
-  };
 }
 
 interface ProcessData {
@@ -100,25 +93,6 @@ interface ProviderConfig {
   primary: 'CPNU' | 'SAMAI' | 'TUTELAS';
   fallback?: 'CPNU' | 'SAMAI' | 'TUTELAS';
   fallbackEnabled: boolean;
-  useParallelSync: boolean;  // NEW: Enable parallel multi-source sync
-  parallelProviders?: ('CPNU' | 'SAMAI' | 'TUTELAS')[];  // Providers to query in parallel
-}
-
-interface ParallelProviderResult {
-  provider: string;
-  status: 'success' | 'error' | 'empty' | 'timeout';
-  processData: ProcessData;
-  actuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; provider?: string }>;
-  latencyMs: number;
-  error?: string;
-}
-
-interface ConsolidatedLookupResult {
-  processData: ProcessData;
-  actuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; sources: string[]; primarySource: string }>;
-  providerResults: ParallelProviderResult[];
-  totalFromSources: number;
-  afterDedup: number;
 }
 
 // ============= PROVIDER CONFIGURATION =============
@@ -127,22 +101,16 @@ function getProviderOrder(workflowType: string): ProviderConfig {
   switch (workflowType) {
     case 'CPACA':
       // Administrative litigation - SAMAI primary, no fallback to CPNU
-      return { primary: 'SAMAI', fallbackEnabled: false, useParallelSync: false };
+      return { primary: 'SAMAI', fallbackEnabled: false };
     case 'TUTELA':
-      // Tutela - PARALLEL SYNC: Query all sources simultaneously
-      return { 
-        primary: 'CPNU', 
-        fallback: 'TUTELAS', 
-        fallbackEnabled: true,
-        useParallelSync: true,  // Enable parallel sync for Tutelas
-        parallelProviders: ['CPNU', 'SAMAI', 'TUTELAS']  // Query all sources
-      };
+      // Tutela - CPNU primary, TUTELAS API fallback
+      return { primary: 'CPNU', fallback: 'TUTELAS', fallbackEnabled: true };
     case 'CGP':
     case 'LABORAL':
     case 'PENAL_906':
     default:
       // Civil/Labor/Penal - CPNU only, no fallback (SAMAI doesn't have these)
-      return { primary: 'CPNU', fallbackEnabled: false, useParallelSync: false };
+      return { primary: 'CPNU', fallbackEnabled: false };
   }
 }
 
@@ -162,78 +130,6 @@ function errorResponse(code: string, message: string, status: number = 400): Res
     message,
     timestamp: new Date().toISOString(),
   }, status);
-}
-
-/**
- * Extract city from despacho string (e.g., "JUZGADO 002 CIVIL MUNICIPAL DE MEDELLÍN" -> "MEDELLÍN")
- */
-function extractCityFromDespacho(despacho: string): string {
-  if (!despacho) return '';
-  
-  // Common patterns: "... DE [CITY]" or "... - [CITY]"
-  const deMatch = despacho.match(/(?:\sDE\s+|\s-\s+)([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]+)$/i);
-  if (deMatch) {
-    return deMatch[1].trim();
-  }
-  
-  // List of major Colombian cities to detect
-  const majorCities = [
-    'BOGOTÁ', 'BOGOTA', 'MEDELLÍN', 'MEDELLIN', 'CALI', 'BARRANQUILLA', 
-    'CARTAGENA', 'BUCARAMANGA', 'CÚCUTA', 'CUCUTA', 'PEREIRA', 'MANIZALES',
-    'IBAGUÉ', 'IBAGUE', 'SANTA MARTA', 'VILLAVICENCIO', 'PASTO', 'MONTERÍA',
-    'NEIVA', 'VALLEDUPAR', 'ARMENIA', 'SINCELEJO', 'POPAYÁN', 'TUNJA',
-    'FLORENCIA', 'QUIBDÓ', 'RIOHACHA', 'MOCOA', 'YOPAL', 'LETICIA', 'ARAUCA',
-    'MITÚ', 'SAN JOSÉ DEL GUAVIARE', 'PUERTO CARREÑO', 'INÍRIDA',
-  ];
-  
-  const upper = despacho.toUpperCase();
-  for (const city of majorCities) {
-    if (upper.includes(city)) {
-      return city;
-    }
-  }
-  
-  return '';
-}
-
-/**
- * Extract department from despacho or infer from city
- */
-function extractDepartmentFromDespacho(despacho: string): string {
-  const city = extractCityFromDespacho(despacho);
-  
-  // City to department mapping
-  const cityToDept: Record<string, string> = {
-    'BOGOTÁ': 'CUNDINAMARCA', 'BOGOTA': 'CUNDINAMARCA',
-    'MEDELLÍN': 'ANTIOQUIA', 'MEDELLIN': 'ANTIOQUIA',
-    'CALI': 'VALLE DEL CAUCA',
-    'BARRANQUILLA': 'ATLÁNTICO',
-    'CARTAGENA': 'BOLÍVAR',
-    'BUCARAMANGA': 'SANTANDER',
-    'CÚCUTA': 'NORTE DE SANTANDER', 'CUCUTA': 'NORTE DE SANTANDER',
-    'PEREIRA': 'RISARALDA',
-    'MANIZALES': 'CALDAS',
-    'IBAGUÉ': 'TOLIMA', 'IBAGUE': 'TOLIMA',
-    'SANTA MARTA': 'MAGDALENA',
-    'VILLAVICENCIO': 'META',
-    'PASTO': 'NARIÑO',
-    'MONTERÍA': 'CÓRDOBA',
-    'NEIVA': 'HUILA',
-    'VALLEDUPAR': 'CESAR',
-    'ARMENIA': 'QUINDÍO',
-    'SINCELEJO': 'SUCRE',
-    'POPAYÁN': 'CAUCA',
-    'TUNJA': 'BOYACÁ',
-    'FLORENCIA': 'CAQUETÁ',
-    'QUIBDÓ': 'CHOCÓ',
-    'RIOHACHA': 'LA GUAJIRA',
-  };
-  
-  if (city && cityToDept[city.toUpperCase()]) {
-    return cityToDept[city.toUpperCase()];
-  }
-  
-  return '';
 }
 
 /**
@@ -296,7 +192,6 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
   hasAutoAdmisorio: boolean;
   reason: string;
 } {
-  // Extended patterns to match various court formats including SAMAI's "Auto que admite tutela"
   const AUTO_ADMISORIO_PATTERNS = [
     /auto\s+admisorio/i,
     /admite\s+demanda/i,
@@ -304,14 +199,9 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
     /auto\s+que\s+admite/i,
     /se\s+admite\s+la?\s+demanda/i,
     /admite\s+tutela/i,
-    /admite\s+la\s+tutela/i,
-    /admision\s+tutela/i,
-    /auto\s+admite\s+tutela/i,
-    /auto\s+admite\s+la\s+tutela/i,
     /auto\s+avoca\s+conocimiento/i,
     /avoca\s+conocimiento/i,
     /auto\s+admite\s+accion/i,
-    /auto\s+admite\s+la\s+accion/i,
   ];
 
   for (const act of actuaciones) {
@@ -320,7 +210,7 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
       if (pattern.test(text)) {
         return {
           hasAutoAdmisorio: true,
-          reason: `Auto Admisorio detectado: "${(act.actuacion || '').substring(0, 50)}..."`,
+          reason: `Detectado: "${act.actuacion?.substring(0, 50)}..."`,
         };
       }
     }
@@ -388,29 +278,22 @@ async function fetchFromCpnu(
     const result = await response.json();
     const latency = Date.now() - startTime;
 
-    console.log(`[CPNU] Response: ok=${result.ok}, has_proceso=${!!result.proceso}, has_results=${!!result.results?.length}`);
-
-    if (result.ok && (result.proceso || result.results?.length > 0)) {
-      const proceso = result.proceso || {};
-      const firstResult = result.results?.[0] || {};
+    if (result.ok && result.proceso) {
+      const proceso = result.proceso;
       
-      // Extract parties from sujetos_procesales (prefer proceso, fallback to firstResult)
+      // Extract parties from sujetos_procesales
       let demandantes = '';
       let demandados = '';
       
-      const sujetosSource = proceso.sujetos_procesales?.length > 0 
-        ? proceso.sujetos_procesales 
-        : (firstResult.sujetos_procesales || []);
-      
-      if (sujetosSource.length > 0) {
-        const demandantesList = sujetosSource
+      if (proceso.sujetos_procesales?.length > 0) {
+        const demandantesList = proceso.sujetos_procesales
           .filter((s: { tipo: string }) => 
             s.tipo?.toLowerCase().includes('demandante') || 
             s.tipo?.toLowerCase().includes('actor') ||
             s.tipo?.toLowerCase().includes('accionante')
           )
           .map((s: { nombre: string }) => s.nombre);
-        const demandadosList = sujetosSource
+        const demandadosList = proceso.sujetos_procesales
           .filter((s: { tipo: string }) => 
             s.tipo?.toLowerCase().includes('demandado') ||
             s.tipo?.toLowerCase().includes('accionado')
@@ -420,50 +303,27 @@ async function fetchFromCpnu(
         if (demandantesList.length) demandantes = demandantesList.join(', ');
         if (demandadosList.length) demandados = demandadosList.join(', ');
       }
-      
-      // Fallback: Check firstResult for demandante/demandado direct fields
-      if (!demandantes && firstResult.demandante) {
-        demandantes = firstResult.demandante;
-      }
-      if (!demandados && firstResult.demandado) {
-        demandados = firstResult.demandado;
-      }
-      
-      // Also check proceso for direct fields
-      if (!demandantes && proceso.demandante) {
-        demandantes = proceso.demandante;
-      }
-      if (!demandados && proceso.demandado) {
-        demandados = proceso.demandado;
-      }
 
       const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
         fecha: (act.fecha_actuacion || act.fecha || '') as string,
         actuacion: (act.actuacion || '') as string,
         anotacion: (act.anotacion || '') as string,
       }));
-      
-      // Extract location info from multiple sources
-      const despacho = proceso.despacho || firstResult.despacho || '';
-      const ciudad = proceso.ciudad || firstResult.ciudad || extractCityFromDespacho(despacho);
-      const departamento = proceso.departamento || firstResult.departamento || extractDepartmentFromDespacho(despacho);
-      
-      console.log(`[CPNU] Extracted: despacho="${despacho}", ciudad="${ciudad}", demandantes="${demandantes}", demandados="${demandados}"`);
 
       return {
         ok: true,
         found: true,
         source: 'CPNU',
         processData: {
-          despacho,
-          ciudad,
-          departamento,
-          demandante: demandantes,
-          demandado: demandados,
-          tipo_proceso: proceso.tipo || firstResult.tipo_proceso,
-          clase_proceso: proceso.clase || firstResult.clase_proceso,
-          fecha_radicacion: proceso.fecha_radicacion || firstResult.fecha_radicacion,
-          sujetos_procesales: sujetosSource,
+          despacho: proceso.despacho,
+          ciudad: proceso.ciudad,
+          departamento: proceso.departamento,
+          demandante: demandantes || proceso.demandante,
+          demandado: demandados || proceso.demandado,
+          tipo_proceso: proceso.tipo,
+          clase_proceso: proceso.clase,
+          fecha_radicacion: proceso.fecha_radicacion,
+          sujetos_procesales: proceso.sujetos_procesales,
           actuaciones,
           total_actuaciones: actuaciones.length,
         },
@@ -493,59 +353,7 @@ async function fetchFromCpnu(
 }
 
 /**
- * Extract parties from SAMAI actuaciones anotaciones
- * SAMAI often has party info in actuacion annotations like:
- * "El Señor(a): WILSON DAVID GALINDO GONZALEZ"
- */
-function extractPartiesFromSamaiActuaciones(actuaciones: Array<{ anotacion?: string }>): {
-  accionantes: string[];
-  accionados: string[];
-} {
-  const accionantes: string[] = [];
-  const accionados: string[] = [];
-  
-  for (const act of actuaciones) {
-    const anotacion = act.anotacion || '';
-    
-    // Pattern: "El Señor(a): NOMBRE COMPLETO" or "El Señor(a):NOMBRE"
-    const personMatch = anotacion.match(/El Señor\(a\):?\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+con|\s+presenta|\s+solicita|,|$)/i);
-    if (personMatch && !accionantes.includes(personMatch[1].trim())) {
-      accionantes.push(personMatch[1].trim());
-    }
-    
-    // Pattern: "contra ENTIDAD"
-    const entidadMatch = anotacion.match(/contra\s+([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+por|\s+en|\.|,|$)/i);
-    if (entidadMatch && !accionados.includes(entidadMatch[1].trim())) {
-      accionados.push(entidadMatch[1].trim());
-    }
-    
-    // Pattern: "accionante: NOMBRE" or "tutelante: NOMBRE"
-    const accionanteMatch = anotacion.match(/(?:accionante|tutelante|demandante):\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+\||,|$)/i);
-    if (accionanteMatch && !accionantes.includes(accionanteMatch[1].trim())) {
-      accionantes.push(accionanteMatch[1].trim());
-    }
-    
-    // Pattern: "accionado: NOMBRE" or "tutelado: NOMBRE"
-    const accionadoMatch = anotacion.match(/(?:accionado|tutelado|demandado):\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+\||,|$)/i);
-    if (accionadoMatch && !accionados.includes(accionadoMatch[1].trim())) {
-      accionados.push(accionadoMatch[1].trim());
-    }
-  }
-  
-  return { accionantes, accionados };
-}
-
-/**
  * Fetch from SAMAI Cloud Run service
- * 
- * SAMAI has unique field names compared to CPNU:
- * - origen / corporacion → despacho
- * - ponente → judge name
- * - clase → process type
- * - fechaActuacion / fechaRegistro → date fields in actuaciones
- * 
- * SAMAI uses async flow: /buscar → jobId → /resultado/{jobId}
- * We poll the resultado endpoint for up to 30 seconds
  */
 async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   const startTime = Date.now();
@@ -564,11 +372,10 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   }
 
   try {
-    // SAMAI uses /buscar to trigger scraping and returns a jobId
-    console.log(`[sync-by-radicado] Calling SAMAI /buscar: ${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`);
+    console.log(`[sync-by-radicado] Calling SAMAI: ${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`);
     
-    const buscarResponse = await fetch(
-      `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`,
+    const response = await fetch(
+      `${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`,
       {
         method: 'GET',
         headers: {
@@ -578,105 +385,96 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       }
     );
 
-    if (!buscarResponse.ok) {
+    const latency = Date.now() - startTime;
+
+    if (!response.ok) {
+      // Check if it's a 404 (not found) vs other errors
+      if (response.status === 404) {
+        return {
+          ok: true,
+          found: false,
+          source: 'SAMAI',
+          processData: {},
+          latency_ms: latency,
+          error: 'Record not found in SAMAI',
+        };
+      }
       return {
         ok: false,
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: Date.now() - startTime,
-        error: `SAMAI /buscar returned ${buscarResponse.status}`,
+        latency_ms: latency,
+        error: `SAMAI returned ${response.status}`,
       };
     }
 
-    const buscarResult = await buscarResponse.json();
+    const result = await response.json();
     
-    console.log(`[sync-by-radicado][SAMAI] /buscar response:`, buscarResult);
-    
-    // Get jobId from response
-    const jobId = buscarResult.jobId || buscarResult.job_id || buscarResult.id;
-    
-    if (!jobId) {
-      // No jobId - check if data is returned directly (cached response or status: "done")
-      // CRITICAL: SAMAI wraps cached data in "result" object: { success: true, status: "done", result: {...} }
-      const cachedData = buscarResult.result || buscarResult.data || buscarResult;
-      const hasCachedActuaciones = (cachedData.actuaciones?.length || 0) > 0;
-      const isCachedDone = buscarResult.status === 'done' || buscarResult.cached === true;
-      
-      if (hasCachedActuaciones || isCachedDone) {
-        // Data returned directly, parse it
-        console.log(`[sync-by-radicado][SAMAI] Data returned directly from /buscar (cached=${buscarResult.cached}, status=${buscarResult.status}, actuaciones=${cachedData.actuaciones?.length || 0})`);
-        return parseSamaiResult(buscarResult, Date.now() - startTime);
-      }
-      
+    // Check if SAMAI returned data
+    if (!result.data && !result.proceso) {
       return {
         ok: true,
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: Date.now() - startTime,
-        error: `SAMAI /buscar did not return a jobId or cached data (keys: ${Object.keys(buscarResult).join(',')})`,
+        latency_ms: latency,
+        error: 'No data in SAMAI response',
       };
     }
+
+    const proceso = result.data || result.proceso || result;
+
+    // Extract parties from sujetos_procesales
+    let demandantes = '';
+    let demandados = '';
     
-    // Poll for result (up to 30 seconds)
-    const MAX_POLL_TIME_MS = 30000;
-    const POLL_INTERVAL_MS = 1500;
-    const pollStartTime = Date.now();
-    
-    while (Date.now() - pollStartTime < MAX_POLL_TIME_MS) {
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    if (proceso.sujetos_procesales?.length > 0) {
+      const demandantesList = proceso.sujetos_procesales
+        .filter((s: { tipo: string }) => 
+          s.tipo?.toLowerCase().includes('demandante') || 
+          s.tipo?.toLowerCase().includes('actor') ||
+          s.tipo?.toLowerCase().includes('accionante')
+        )
+        .map((s: { nombre: string }) => s.nombre);
+      const demandadosList = proceso.sujetos_procesales
+        .filter((s: { tipo: string }) => 
+          s.tipo?.toLowerCase().includes('demandado') ||
+          s.tipo?.toLowerCase().includes('accionado')
+        )
+        .map((s: { nombre: string }) => s.nombre);
       
-      const resultUrl = `${samaiBaseUrl}/resultado/${jobId}`;
-      console.log(`[sync-by-radicado][SAMAI] Polling resultado: ${resultUrl}`);
-      
-      const resultResponse = await fetch(resultUrl, {
-        method: 'GET',
-        headers: {
-          'x-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!resultResponse.ok) {
-        if (resultResponse.status === 404) {
-          // Job not ready yet, continue polling
-          continue;
-        }
-        return {
-          ok: false,
-          found: false,
-          source: 'SAMAI',
-          processData: {},
-          latency_ms: Date.now() - startTime,
-          error: `SAMAI /resultado returned ${resultResponse.status}`,
-        };
-      }
-      
-      const result = await resultResponse.json();
-      
-      // Check job status
-      const status = result.status || result.state;
-      if (status === 'pending' || status === 'queued' || status === 'processing') {
-        console.log(`[sync-by-radicado][SAMAI] Job ${jobId} still ${status}, continuing to poll...`);
-        continue;
-      }
-      
-      // Job completed - parse result
-      console.log(`[sync-by-radicado][SAMAI] Job ${jobId} completed, parsing result`);
-      return parseSamaiResult(result, Date.now() - startTime);
+      if (demandantesList.length) demandantes = demandantesList.join(', ');
+      if (demandadosList.length) demandados = demandadosList.join(', ');
     }
-    
-    // Timeout reached
+
+    // Normalize actuaciones from SAMAI format
+    const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
+      fecha: (act.fecha_actuacion || act.fecha || act.fecha_registro || '') as string,
+      actuacion: (act.actuacion || act.anotacion || act.tipo_actuacion || '') as string,
+      anotacion: (act.anotacion || act.descripcion || '') as string,
+    }));
+
     return {
       ok: true,
-      found: false,
+      found: true,
       source: 'SAMAI',
-      processData: {},
-      latency_ms: Date.now() - startTime,
-      error: `SAMAI polling timeout after ${MAX_POLL_TIME_MS}ms`,
+      processData: {
+        despacho: proceso.despacho || proceso.corporacion || proceso.despacho_actual,
+        ciudad: proceso.ciudad || proceso.sede,
+        departamento: proceso.departamento,
+        demandante: demandantes || proceso.demandante,
+        demandado: demandados || proceso.demandado,
+        tipo_proceso: proceso.tipo_proceso || proceso.tipo,
+        clase_proceso: proceso.clase_proceso || proceso.clase || proceso.subclase_proceso,
+        fecha_radicacion: proceso.fecha_radicado || proceso.fecha_radicacion,
+        sujetos_procesales: proceso.sujetos_procesales,
+        actuaciones,
+        total_actuaciones: proceso.total_actuaciones || actuaciones.length,
+      },
+      latency_ms: latency,
+      eventsFound: actuaciones.length,
     };
-    
   } catch (err) {
     return {
       ok: false,
@@ -687,186 +485,6 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       error: err instanceof Error ? err.message : 'SAMAI fetch failed',
     };
   }
-}
-
-/**
- * Parse SAMAI result into ProviderResult format
- */
-function parseSamaiResult(result: Record<string, unknown>, latency: number): ProviderResult {
-    console.log(`[sync-by-radicado][SAMAI] Raw response keys:`, Object.keys(result));
-    
-    // CRITICAL: SAMAI wraps actual process data in a "result" object!
-    // Structure: { success: true, status: "done", result: { sujetos: [...], actuaciones: [...], ... } }
-    // The "result" key contains the actual process data, NOT the top level!
-    
-    // First, find where the actual process data lives
-    // Priority: result.result (SAMAI's nested structure) > result.data > result.proceso > result itself
-    const nestedResult = result.result as Record<string, unknown> | undefined;
-    const resultData = result.data as Record<string, unknown> | undefined;
-    const resultProceso = result.proceso as Record<string, unknown> | undefined;
-    
-    // The proceso object is where the actual data lives
-    const proceso = nestedResult || resultData || resultProceso || result;
-    
-    console.log(`[sync-by-radicado][SAMAI] Using proceso from: ${nestedResult ? 'result.result' : resultData ? 'result.data' : resultProceso ? 'result.proceso' : 'result (root)'}`);
-    console.log(`[sync-by-radicado][SAMAI] Proceso keys:`, Object.keys(proceso));
-    
-    // Check for data presence indicators
-    const hasActuaciones = ((proceso.actuaciones as unknown[] | undefined)?.length || 0) > 0;
-    const hasSujetos = ((proceso.sujetos as unknown[] | undefined)?.length || 0) > 0;
-    const hasOrigen = !!(proceso.origen || proceso.ponente || proceso.despacho);
-    const hasRadicado = !!(proceso.radicado);
-    
-    console.log(`[sync-by-radicado][SAMAI] Data indicators: hasActuaciones=${hasActuaciones}, hasSujetos=${hasSujetos}, hasOrigen=${hasOrigen}, hasRadicado=${hasRadicado}`);
-    
-    // Check if we have any meaningful data
-    if (!hasActuaciones && !hasSujetos && !hasOrigen && !hasRadicado && result.status !== 'done' && result.status !== 'completed') {
-      return {
-        ok: true,
-        found: false,
-        source: 'SAMAI',
-        processData: {},
-        latency_ms: latency,
-        error: `No data in SAMAI response (status: ${result.status || 'unknown'})`,
-      };
-    }
-    
-    // ============= CRITICAL FIX: SAMAI uses DIFFERENT field names than CPNU =============
-    // SAMAI: sujetos[].tipo = "ACTOR", "DEMANDADO", "TERCERO INTERVINIENTE/INTERESADO"
-    // SAMAI: sujetos[].nombre = party name (NOT nombreRazonSocial)
-    // CPNU:  sujetos[].tipoSujeto = "Demandante", "Demandado"
-    // CPNU:  sujetos[].nombreRazonSocial = party name
-    
-    // Extract parties from sujetos array (SAMAI-specific field names!)
-    let demandantes = '';
-    let demandados = '';
-    
-    // SAMAI uses "sujetos" (not sujetos_procesales)
-    const sujetosSource = (proceso.sujetos || proceso.sujetos_procesales || proceso.partes || []) as Array<{ 
-      tipo?: string; 
-      tipoSujeto?: string;  // CPNU fallback
-      nombre?: string; 
-      nombreRazonSocial?: string;  // CPNU fallback
-      registro?: string;
-    }>;
-    
-    console.log(`[sync-by-radicado][SAMAI] Found ${sujetosSource.length} sujetos to process`);
-    
-    if (sujetosSource.length > 0) {
-      // Log first sujeto for debugging
-      console.log(`[sync-by-radicado][SAMAI] First sujeto sample:`, JSON.stringify(sujetosSource[0]));
-      
-      const demandantesList = sujetosSource
-        .filter((s) => 
-          {
-            // SAMAI uses "tipo" field with values: "ACTOR", "DEMANDADO", etc.
-            // CPNU uses "tipoSujeto" field with values: "Demandante", "Demandado", etc.
-            const tipo = ((s.tipo || s.tipoSujeto || '')).toUpperCase();
-            const isActor = tipo === 'ACTOR' || 
-                           tipo.includes('DEMANDANTE') || 
-                           tipo.includes('ACCIONANTE') ||
-                           tipo.includes('TUTELANTE') ||
-                           tipo.includes('REQUIRENTE');
-            if (isActor) {
-              console.log(`[sync-by-radicado][SAMAI] Found demandante/actor: tipo="${s.tipo}", nombre="${s.nombre}"`);
-            }
-            return isActor;
-          }
-        )
-        .map((s) => s.nombre || s.nombreRazonSocial || '')
-        .filter(Boolean);
-        
-      const demandadosList = sujetosSource
-        .filter((s) => 
-          {
-            const tipo = ((s.tipo || s.tipoSujeto || '')).toUpperCase();
-            const isAccionado = tipo === 'DEMANDADO' ||
-                               tipo.includes('ACCIONADO') ||
-                               tipo.includes('TUTELADO') ||
-                               tipo.includes('REQUERIDO');
-            if (isAccionado) {
-              console.log(`[sync-by-radicado][SAMAI] Found demandado/accionado: tipo="${s.tipo}", nombre="${s.nombre}"`);
-            }
-            return isAccionado;
-          }
-        )
-        .map((s) => s.nombre || s.nombreRazonSocial || '')
-        .filter(Boolean);
-      
-      if (demandantesList.length) demandantes = demandantesList.join(', ');
-      if (demandadosList.length) demandados = demandadosList.join(', ');
-      
-      console.log(`[sync-by-radicado][SAMAI] Extracted from sujetos: demandantes="${demandantes}", demandados="${demandados}"`);
-    }
-
-    // Normalize actuaciones from SAMAI format
-    // SAMAI fields: fechaActuacion, fechaRegistro, actuacion, anotacion
-    const rawActuaciones = (proceso.actuaciones || proceso.historial || []) as Array<Record<string, unknown>>;
-    
-    const actuaciones = rawActuaciones.map((act) => ({
-      // SAMAI date fields: fechaActuacion (primary), fechaRegistro (fallback), fecha
-      fecha: (act.fechaActuacion || act.fecha_actuacion || act.fechaRegistro || act.fecha_registro || act.fecha || '') as string,
-      actuacion: (act.actuacion || act.tipo_actuacion || act.tipo || act.descripcion || '') as string,
-      anotacion: (act.anotacion || act.detalle || act.descripcion || act.observacion || '') as string,
-    }));
-    
-    console.log(`[sync-by-radicado][SAMAI] Normalized ${actuaciones.length} actuaciones`);
-    
-    // If no parties found in sujetos, try extracting from actuacion annotations
-    if (!demandantes && !demandados && actuaciones.length > 0) {
-      const extractedParties = extractPartiesFromSamaiActuaciones(actuaciones);
-      if (extractedParties.accionantes.length > 0) {
-        demandantes = extractedParties.accionantes.join(', ');
-      }
-      if (extractedParties.accionados.length > 0) {
-        demandados = extractedParties.accionados.join(', ');
-      }
-      console.log(`[sync-by-radicado][SAMAI] Extracted parties from actuaciones: demandantes="${demandantes}", demandados="${demandados}"`);
-    }
-
-    // SAMAI uses 'origen' or 'corporacion' for the court/judge info
-    const despacho = (proceso.origen || proceso.corporacion || proceso.despacho || proceso.despacho_actual || proceso.ponente || '') as string;
-    
-    // Extract department from origen if possible (e.g., "CONSEJO DE ESTADO... DE BOGOTA D.C.")
-    let departamento = (proceso.departamento || '') as string;
-    if (!departamento && despacho) {
-      const deptMatch = despacho.match(/DE\s+([\w\s\.]+)$/i);
-      if (deptMatch) {
-        departamento = deptMatch[1].trim();
-      }
-    }
-    
-    // SAMAI date format for radicacion: may be DD/MM/YYYY or YYYY-MM-DD
-    const fechaRadicacion = (proceso.fechaRadicacion || proceso.fecha_radicado || proceso.fecha_radicacion || proceso.radicadoEl || '') as string;
-
-    // Map sujetos to required type
-    const mappedSujetos = sujetosSource.map(s => ({
-      tipo: s.tipo || s.tipoSujeto || '',
-      nombre: s.nombre || s.nombreRazonSocial || ''
-    }));
-    
-    console.log(`[sync-by-radicado][SAMAI] Final extracted data: despacho="${despacho}", demandantes="${demandantes || '(from actuaciones: ' + (demandantes || '(none)') + ')'}", demandados="${demandados}", actuaciones=${actuaciones.length}`);
-
-    return {
-      ok: true,
-      found: true,
-      source: 'SAMAI',
-      processData: {
-        despacho,
-        ciudad: (proceso.ciudad || proceso.sede || extractCityFromDespacho(despacho)) as string,
-        departamento,
-        demandante: demandantes || (proceso.demandante as string) || (proceso.accionante as string) || '',
-        demandado: demandados || (proceso.demandado as string) || (proceso.accionado as string) || '',
-        tipo_proceso: (proceso.tipo_proceso || proceso.tipo || proceso.clase || 'PROCESO') as string,
-        clase_proceso: (proceso.clase_proceso || proceso.clase || proceso.subclase_proceso || proceso.subclase || '') as string,
-        fecha_radicacion: fechaRadicacion,
-        sujetos_procesales: mappedSujetos,
-        actuaciones,
-        total_actuaciones: (proceso.total_actuaciones as number) || actuaciones.length,
-      },
-      latency_ms: latency,
-      eventsFound: actuaciones.length,
-    };
 }
 
 /**
@@ -976,238 +594,6 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
       error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
     };
   }
-}
-
-// ============= PARALLEL SYNC FUNCTIONS =============
-
-/**
- * Normalize actuacion for deduplication
- */
-function normalizeActuacionForDedup(act: { fecha?: string; actuacion?: string; anotacion?: string }): string {
-  const date = act.fecha || 'nodate';
-  const desc = (act.actuacion || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 50);
-  return `${date}|${desc}`;
-}
-
-/**
- * Execute parallel sync for TUTELA workflow - query all sources simultaneously
- */
-async function executeParallelLookup(
-  radicado: string,
-  providers: string[],
-  supabaseUrl: string,
-  authHeader: string
-): Promise<ConsolidatedLookupResult> {
-  console.log(`[sync-by-radicado] Starting PARALLEL lookup for ${radicado} with ${providers.length} sources: ${providers.join(', ')}`);
-  
-  // Execute all providers simultaneously using Promise.allSettled
-  const promises = providers.map(async (provider): Promise<ParallelProviderResult> => {
-    const startTime = Date.now();
-    try {
-      let result: ProviderResult;
-      
-      switch (provider) {
-        case 'CPNU':
-          result = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
-          break;
-        case 'SAMAI':
-          result = await fetchFromSamai(radicado);
-          break;
-        case 'TUTELAS':
-          result = await fetchFromTutelas(radicado);
-          break;
-        default:
-          throw new Error(`Unknown provider: ${provider}`);
-      }
-      
-      const actuaciones = result.processData.actuaciones || [];
-      return {
-        provider,
-        status: result.found ? 'success' : (result.ok ? 'empty' : 'error'),
-        processData: result.processData,
-        actuaciones: actuaciones.map(a => ({ ...a, provider })),
-        latencyMs: result.latency_ms,
-        error: result.error,
-      };
-    } catch (err) {
-      return {
-        provider,
-        status: 'error',
-        processData: {},
-        actuaciones: [],
-        latencyMs: Date.now() - startTime,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      };
-    }
-  });
-  
-  const results = await Promise.all(promises);
-  
-  console.log(`[sync-by-radicado] Parallel results:`, results.map(r => 
-    `${r.provider}: ${r.status}, ${r.actuaciones.length} actuaciones, ${r.latencyMs}ms`
-  ));
-  
-  // Consolidate results
-  return consolidateParallelResults(results);
-}
-
-/**
- * Consolidate results from multiple providers - deduplicate and merge actuaciones
- */
-function consolidateParallelResults(results: ParallelProviderResult[]): ConsolidatedLookupResult {
-  // Find the best process data (prefer successful result with most complete data)
-  const successfulResults = results
-    .filter(r => r.status === 'success')
-    .sort((a, b) => {
-      // Prioritize by completeness of data
-      const scoreA = (a.processData.despacho ? 1 : 0) + 
-                     (a.processData.demandante ? 1 : 0) + 
-                     (a.processData.demandado ? 1 : 0) +
-                     (a.actuaciones.length > 0 ? 2 : 0);
-      const scoreB = (b.processData.despacho ? 1 : 0) + 
-                     (b.processData.demandante ? 1 : 0) + 
-                     (b.processData.demandado ? 1 : 0) +
-                     (b.actuaciones.length > 0 ? 2 : 0);
-      return scoreB - scoreA;
-    });
-  
-  // Pick best process data (merge from multiple sources if beneficial)
-  let consolidatedProcessData: ProcessData = {};
-  let primarySource = '';
-  
-  if (successfulResults.length > 0) {
-    const primary = successfulResults[0];
-    primarySource = primary.provider;
-    consolidatedProcessData = { ...primary.processData };
-    
-    // Merge missing fields from other sources
-    for (const result of successfulResults.slice(1)) {
-      if (!consolidatedProcessData.despacho && result.processData.despacho) {
-        consolidatedProcessData.despacho = result.processData.despacho;
-      }
-      if (!consolidatedProcessData.demandante && result.processData.demandante) {
-        consolidatedProcessData.demandante = result.processData.demandante;
-      }
-      if (!consolidatedProcessData.demandado && result.processData.demandado) {
-        consolidatedProcessData.demandado = result.processData.demandado;
-      }
-      if (!consolidatedProcessData.ciudad && result.processData.ciudad) {
-        consolidatedProcessData.ciudad = result.processData.ciudad;
-      }
-      if (!consolidatedProcessData.departamento && result.processData.departamento) {
-        consolidatedProcessData.departamento = result.processData.departamento;
-      }
-    }
-  }
-  
-  // Collect all actuaciones from all sources
-  const allActuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string; provider: string }> = [];
-  for (const result of results) {
-    if (result.status === 'success' || result.status === 'empty') {
-      for (const act of result.actuaciones) {
-        allActuaciones.push({
-          fecha: act.fecha || '',
-          actuacion: act.actuacion || '',
-          anotacion: act.anotacion,
-          provider: result.provider,
-        });
-      }
-    }
-  }
-  
-  const totalFromSources = allActuaciones.length;
-  
-  // Deduplicate actuaciones by similarity key
-  const dedupMap = new Map<string, { 
-    act: { fecha: string; actuacion: string; anotacion?: string }; 
-    sources: string[]; 
-    primarySource: string;
-    bestScore: number;
-  }>();
-  
-  for (const act of allActuaciones) {
-    const key = normalizeActuacionForDedup(act);
-    const existing = dedupMap.get(key);
-    
-    // Calculate completeness score
-    const score = (act.fecha ? 2 : 0) + 
-                  (act.actuacion ? 1 : 0) + 
-                  (act.anotacion && act.anotacion.length > 10 ? 2 : 0);
-    
-    if (!existing) {
-      dedupMap.set(key, {
-        act: { fecha: act.fecha, actuacion: act.actuacion, anotacion: act.anotacion },
-        sources: [act.provider],
-        primarySource: act.provider,
-        bestScore: score,
-      });
-    } else {
-      // Add source if not already present
-      if (!existing.sources.includes(act.provider)) {
-        existing.sources.push(act.provider);
-      }
-      // Use the more complete version
-      if (score > existing.bestScore) {
-        existing.act = { fecha: act.fecha, actuacion: act.actuacion, anotacion: act.anotacion };
-        existing.bestScore = score;
-      }
-      // Merge annotations (take longer one)
-      if (act.anotacion && (!existing.act.anotacion || act.anotacion.length > existing.act.anotacion.length)) {
-        existing.act.anotacion = act.anotacion;
-      }
-    }
-  }
-  
-  // Convert to consolidated array
-  const consolidatedActuaciones: Array<{ 
-    fecha: string; 
-    actuacion: string; 
-    anotacion?: string; 
-    sources: string[]; 
-    primarySource: string 
-  }> = [];
-  
-  for (const [, value] of dedupMap) {
-    consolidatedActuaciones.push({
-      ...value.act,
-      sources: value.sources,
-      primarySource: value.primarySource,
-    });
-  }
-  
-  // Sort by date descending
-  consolidatedActuaciones.sort((a, b) => {
-    if (!a.fecha && !b.fecha) return 0;
-    if (!a.fecha) return 1;
-    if (!b.fecha) return -1;
-    return b.fecha.localeCompare(a.fecha);
-  });
-  
-  const afterDedup = consolidatedActuaciones.length;
-  
-  console.log(`[sync-by-radicado] Consolidation: ${totalFromSources} total → ${afterDedup} unique (${totalFromSources - afterDedup} duplicates removed)`);
-  
-  // Update process data with consolidated actuaciones
-  consolidatedProcessData.actuaciones = consolidatedActuaciones.map(a => ({
-    fecha: a.fecha,
-    actuacion: a.actuacion,
-    anotacion: a.anotacion,
-  }));
-  consolidatedProcessData.total_actuaciones = afterDedup;
-  
-  return {
-    processData: consolidatedProcessData,
-    actuaciones: consolidatedActuaciones,
-    providerResults: results,
-    totalFromSources,
-    afterDedup,
-  };
 }
 
 // ============= MAIN HANDLER =============
@@ -1380,112 +766,63 @@ Deno.serve(async (req) => {
     let processData: ProcessData = {};
     let foundInSource = false;
     let sourceUsed: string | null = null;
-    let consolidationStats: { totalFromSources: number; afterDedup: number } | null = null;
 
     console.log(`[sync-by-radicado] Provider config for ${workflowType}:`, providerConfig);
 
-    // ============= PARALLEL SYNC FOR TUTELA =============
-    if (providerConfig.useParallelSync && providerConfig.parallelProviders) {
-      console.log(`[sync-by-radicado] Using PARALLEL sync for ${workflowType}`);
-      
-      const parallelResult = await executeParallelLookup(
-        radicado,
-        providerConfig.parallelProviders,
-        supabaseUrl,
-        authHeader
-      );
-      
-      // Populate attempts and sourcesChecked from parallel results
-      for (const pr of parallelResult.providerResults) {
-        sourcesChecked.push(pr.provider);
-        attempts.push({
-          source: pr.provider,
-          success: pr.status === 'success',
-          latency_ms: pr.latencyMs,
-          error: pr.error,
-          events_found: pr.actuaciones.length,
-        });
-        
-        if (pr.status === 'success' && !foundInSource) {
-          foundInSource = true;
-          sourceUsed = pr.provider;
-        }
-      }
-      
-      // Use consolidated data
-      processData = parallelResult.processData;
-      foundInSource = parallelResult.providerResults.some(r => r.status === 'success');
-      
-      // Store consolidation stats for response
-      consolidationStats = {
-        totalFromSources: parallelResult.totalFromSources,
-        afterDedup: parallelResult.afterDedup,
-      };
-      
-      // Pick the first successful provider as the "primary" source
-      const successfulProvider = parallelResult.providerResults.find(r => r.status === 'success');
-      if (successfulProvider) {
-        sourceUsed = successfulProvider.provider;
-      }
-      
+    // Try primary provider
+    let primaryResult: ProviderResult;
+    
+    if (providerConfig.primary === 'SAMAI') {
+      primaryResult = await fetchFromSamai(radicado);
+    } else if (providerConfig.primary === 'TUTELAS') {
+      primaryResult = await fetchFromTutelas(radicado);
     } else {
-      // ============= FALLBACK PATTERN FOR OTHER WORKFLOWS =============
+      primaryResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+    }
+
+    sourcesChecked.push(primaryResult.source);
+    attempts.push({
+      source: primaryResult.source,
+      success: primaryResult.found,
+      latency_ms: primaryResult.latency_ms,
+      error: primaryResult.error,
+      events_found: primaryResult.eventsFound,
+    });
+
+    if (primaryResult.found) {
+      processData = primaryResult.processData;
+      foundInSource = true;
+      sourceUsed = primaryResult.source;
+      console.log(`[sync-by-radicado] Found in ${primaryResult.source} with ${primaryResult.eventsFound} events`);
+    } 
+    // Try fallback if primary didn't find data and fallback is enabled
+    else if (providerConfig.fallbackEnabled && providerConfig.fallback) {
+      console.log(`[sync-by-radicado] Primary ${primaryResult.source} not found, trying fallback ${providerConfig.fallback}`);
       
-      // Try primary provider
-      let primaryResult: ProviderResult;
+      let fallbackResult: ProviderResult;
       
-      if (providerConfig.primary === 'SAMAI') {
-        primaryResult = await fetchFromSamai(radicado);
-      } else if (providerConfig.primary === 'TUTELAS') {
-        primaryResult = await fetchFromTutelas(radicado);
+      if (providerConfig.fallback === 'SAMAI') {
+        fallbackResult = await fetchFromSamai(radicado);
+      } else if (providerConfig.fallback === 'TUTELAS') {
+        fallbackResult = await fetchFromTutelas(radicado);
       } else {
-        primaryResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
+        fallbackResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
       }
 
-      sourcesChecked.push(primaryResult.source);
+      sourcesChecked.push(fallbackResult.source);
       attempts.push({
-        source: primaryResult.source,
-        success: primaryResult.found,
-        latency_ms: primaryResult.latency_ms,
-        error: primaryResult.error,
-        events_found: primaryResult.eventsFound,
+        source: fallbackResult.source,
+        success: fallbackResult.found,
+        latency_ms: fallbackResult.latency_ms,
+        error: fallbackResult.error,
+        events_found: fallbackResult.eventsFound,
       });
 
-      if (primaryResult.found) {
-        processData = primaryResult.processData;
+      if (fallbackResult.found) {
+        processData = fallbackResult.processData;
         foundInSource = true;
-        sourceUsed = primaryResult.source;
-        console.log(`[sync-by-radicado] Found in ${primaryResult.source} with ${primaryResult.eventsFound} events`);
-      } 
-      // Try fallback if primary didn't find data and fallback is enabled
-      else if (providerConfig.fallbackEnabled && providerConfig.fallback) {
-        console.log(`[sync-by-radicado] Primary ${primaryResult.source} not found, trying fallback ${providerConfig.fallback}`);
-        
-        let fallbackResult: ProviderResult;
-        
-        if (providerConfig.fallback === 'SAMAI') {
-          fallbackResult = await fetchFromSamai(radicado);
-        } else if (providerConfig.fallback === 'TUTELAS') {
-          fallbackResult = await fetchFromTutelas(radicado);
-        } else {
-          fallbackResult = await fetchFromCpnu(radicado, supabaseUrl, authHeader);
-        }
-
-        sourcesChecked.push(fallbackResult.source);
-        attempts.push({
-          source: fallbackResult.source,
-          success: fallbackResult.found,
-          latency_ms: fallbackResult.latency_ms,
-          error: fallbackResult.error,
-          events_found: fallbackResult.eventsFound,
-        });
-
-        if (fallbackResult.found) {
-          processData = fallbackResult.processData;
-          foundInSource = true;
-          sourceUsed = fallbackResult.source;
-          console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
-        }
+        sourceUsed = fallbackResult.source;
+        console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
       }
     }
 
@@ -1512,16 +849,9 @@ Deno.serve(async (req) => {
         classification_reason: classificationReason,
         process_data: processData,
         attempts,
-        // Add parallel sync metadata
-        sync_strategy: providerConfig.useParallelSync ? 'parallel' : 'fallback',
-        consolidation_stats: consolidationStats ? {
-          total_from_sources: consolidationStats.totalFromSources,
-          after_dedup: consolidationStats.afterDedup,
-          duplicates_removed: consolidationStats.totalFromSources - consolidationStats.afterDedup,
-        } : undefined,
       };
       
-      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}${consolidationStats ? `, consolidated: ${consolidationStats.totalFromSources} → ${consolidationStats.afterDedup}` : ''}`);
+      console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
       return jsonResponse(response);
     }
 

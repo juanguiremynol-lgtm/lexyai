@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 // Result types
 interface SearchResult {
   id: string;
-  type: "work_item" | "client" | "actuacion";
+  type: "work_item" | "client" | "process_event";
   title: string;
   subtitle: string;
   badge?: string;
@@ -34,7 +34,7 @@ interface SearchResult {
 interface GroupedResults {
   work_items: SearchResult[];
   clients: SearchResult[];
-  actuaciones: SearchResult[];
+  process_events: SearchResult[];
 }
 
 // Debounce hook
@@ -57,19 +57,19 @@ function useDebounce<T>(value: T, delay: number): T {
 // Search function
 async function performSearch(query: string): Promise<GroupedResults> {
   if (!query || query.length < 2) {
-    return { work_items: [], clients: [], actuaciones: [] };
+    return { work_items: [], clients: [], process_events: [] };
   }
 
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) {
-    return { work_items: [], clients: [], actuaciones: [] };
+    return { work_items: [], clients: [], process_events: [] };
   }
 
   const searchPattern = `%${query}%`;
   const limitPerType = 7;
 
   // Parallel searches
-  const [workItemsResult, clientsResult, actuacionesResult] = await Promise.all([
+  const [workItemsResult, clientsResult, eventsResult] = await Promise.all([
     // Work items search
     supabase
       .from("work_items")
@@ -86,13 +86,13 @@ async function performSearch(query: string): Promise<GroupedResults> {
       .eq("owner_id", user.user.id)
       .limit(limitPerType),
 
-    // Actuaciones search
+    // Process events search
     supabase
-      .from("actuaciones")
-      .select("id, work_item_id, act_type_guess, normalized_text, act_date")
-      .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
+      .from("process_events")
+      .select("id, filing_id, event_type, title, description, event_date")
+      .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},event_type.ilike.${searchPattern}`)
       .eq("owner_id", user.user.id)
-      .order("act_date", { ascending: false })
+      .order("event_date", { ascending: false })
       .limit(limitPerType),
   ]);
 
@@ -118,21 +118,21 @@ async function performSearch(query: string): Promise<GroupedResults> {
     route: `/app/clients/${client.id}`,
   }));
 
-  // Transform actuaciones
-  const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => ({
-    id: act.id,
-    type: "actuacion" as const,
-    title: act.act_type_guess || "Actuación",
-    subtitle: act.normalized_text?.substring(0, 60) + (act.normalized_text && act.normalized_text.length > 60 ? "..." : "") || "Sin descripción",
-    badge: act.act_type_guess || "Actuación",
+  // Transform process events
+  const processEvents: SearchResult[] = (eventsResult.data || []).map((event) => ({
+    id: event.id,
+    type: "process_event" as const,
+    title: event.title || event.event_type,
+    subtitle: event.description?.substring(0, 60) + (event.description && event.description.length > 60 ? "..." : "") || "Sin descripción",
+    badge: event.event_type,
     badgeVariant: "default" as const,
-    route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
+    route: event.filing_id ? `/app/work-items/${event.filing_id}` : `/app/work-items`,
   }));
 
   return {
     work_items: workItems,
     clients: clients,
-    actuaciones: actuaciones,
+    process_events: processEvents,
   };
 }
 
@@ -145,7 +145,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   GOV_PROCEDURE: <Building2 className="h-4 w-4" />,
   work_item: <FileText className="h-4 w-4" />,
   client: <Users className="h-4 w-4" />,
-  actuacion: <Calendar className="h-4 w-4" />,
+  process_event: <Calendar className="h-4 w-4" />,
 };
 
 export function GlobalSearch() {
@@ -172,7 +172,7 @@ export function GlobalSearch() {
     return [
       ...results.work_items,
       ...results.clients,
-      ...results.actuaciones,
+      ...results.process_events,
     ];
   }, [results]);
 
@@ -367,8 +367,8 @@ export function GlobalSearch() {
                   results?.work_items?.length || 0
                 )}
                 {renderGroup(
-                  "Actuaciones",
-                  results?.actuaciones || [],
+                  "Eventos",
+                  results?.process_events || [],
                   <Calendar className="h-3.5 w-3.5" />,
                   (results?.work_items?.length || 0) + (results?.clients?.length || 0)
                 )}

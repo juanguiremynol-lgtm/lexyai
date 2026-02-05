@@ -190,8 +190,8 @@ serve(async (req) => {
               body: { work_item_id: item.id }
             });
 
-            // Publicaciones (TUTELA included for court notifications)
-            if (['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'].includes(item.workflow_type)) {
+            // Publicaciones
+            if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
               await supabase.functions.invoke("sync-publicaciones-by-work-item", {
                 body: { work_item_id: item.id }
               });

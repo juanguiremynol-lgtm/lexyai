@@ -215,23 +215,6 @@ function extractDateFromTitle(title: string): string | undefined {
   return undefined;
 }
 
-/**
- * Extract date from URL path (sometimes contains dates)
- */
-function extractDateFromUrl(url: string): string | null {
-  if (!url) return null;
-  
-  // Pattern: /2026/01/22/ or /20260122/
-  const pattern = /\/(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})\//;
-  const match = url.match(pattern);
-  if (match) {
-    const [, year, month, day] = match;
-    return `${year}-${month}-${day}`;
-  }
-  
-  return null;
-}
-
 // ============= v3 SYNCHRONOUS API FETCH =============
 
 /**
@@ -491,15 +474,6 @@ Deno.serve(async (req) => {
       inserted: [],
     };
 
-    // ============= AUDIT: COUNT BEFORE SYNC =============
-    const { count: pubsCountBefore } = await supabase
-      .from('work_item_publicaciones')
-      .select('id', { count: 'exact', head: true })
-      .eq('work_item_id', work_item_id)
-      .eq('is_archived', false);
-    
-    console.log(`[sync-pub] Count before sync: ${pubsCountBefore || 0} publicaciones`);
-
     // ============= FETCH PUBLICACIONES (v3 SYNCHRONOUS API) =============
     const fetchResult = await fetchPublicaciones(normalizedRadicado, baseUrl, apiKey);
     result.provider_latency_ms = fetchResult.latencyMs;
@@ -518,25 +492,6 @@ Deno.serve(async (req) => {
       result.status = 'EMPTY';
       result.warnings.push('No publications found for this radicado');
       console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
-      
-      // Audit log for empty result
-      await supabase.from('sync_audit_log').insert({
-        work_item_id,
-        organization_id: workItem.organization_id,
-        radicado: workItem.radicado,
-        workflow_type: workItem.workflow_type,
-        sync_type: 'publicaciones',
-        publicaciones_count_before: pubsCountBefore || 0,
-        publicaciones_count_after: pubsCountBefore || 0,
-        publicaciones_inserted: 0,
-        publicaciones_skipped: 0,
-        provider_used: 'publicaciones',
-        provider_latency_ms: fetchResult.latencyMs,
-        status: 'success',
-        triggered_by: 'manual',
-        edge_function: 'sync-publicaciones-by-work-item',
-      });
-      
       return jsonResponse(result);
     }
 
@@ -544,43 +499,12 @@ Deno.serve(async (req) => {
 
     // ============= INGEST PUBLICATIONS WITH DEDUPLICATION =============
     let newestDate: string | null = null;
-    
-    // Get API fetched timestamp for date inference fallback
-    const apiFetchedAt = new Date().toISOString();
 
     for (const pub of fetchResult.publicaciones) {
-      // ============= DATE INFERENCE ENGINE =============
-      // Extract date with confidence tracking for legal accuracy
+      // Extract date from title if fecha_publicacion is null
       const fechaFromTitle = extractDateFromTitle(pub.titulo || '');
       const fechaPublicacion = pub.fecha_publicacion || fechaFromTitle || null;
       const parsedFecha = parseDate(fechaPublicacion);
-      
-      // Determine date source and confidence
-      let dateSource: string = 'api_explicit';
-      let dateConfidence: string = 'high';
-      
-      if (pub.fecha_publicacion) {
-        // LAYER 1: Explicit API date (highest confidence)
-        dateSource = 'api_explicit';
-        dateConfidence = 'high';
-      } else if (fechaFromTitle) {
-        // LAYER 2: Parsed from filename/title
-        dateSource = 'parsed_filename';
-        dateConfidence = 'high'; // Filename dates are usually reliable
-      } else if (extractDateFromUrl(pub.pdf_url || pub.url || '')) {
-        // LAYER 3: Parsed from URL
-        dateSource = 'parsed_filename';
-        dateConfidence = 'medium';
-      } else {
-        // LAYER 4/5: Fallback - no reliable date
-        dateSource = 'inferred_sync';
-        dateConfidence = 'low';
-      }
-      
-      // Log if low confidence date
-      if (dateConfidence === 'low') {
-        console.log(`[sync-pub] Low confidence date for: ${pub.titulo?.slice(0, 50)}`);
-      }
 
       // Generate unique fingerprint using asset_id (guaranteed unique per publication)
       const fingerprint = generatePublicacionFingerprint(
@@ -609,12 +533,10 @@ Deno.serve(async (req) => {
         title: pub.titulo?.slice(0, 50),
         asset_id: pub.asset_id,
         fecha_publicacion: fechaPublicacion,
-        date_source: dateSource,
-        date_confidence: dateConfidence,
         pdf_url: pub.pdf_url?.slice(0, 80),
       });
 
-      // Insert new publication with DATE INFERENCE METADATA
+      // Insert new publication
       const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
@@ -630,10 +552,6 @@ Deno.serve(async (req) => {
           fecha_fijacion: parsedFecha ? new Date(parsedFecha + 'T12:00:00Z').toISOString() : null,
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
-          // DATE INFERENCE METADATA
-          date_source: dateSource,
-          date_confidence: dateConfidence,
-          api_fetched_at: apiFetchedAt,
           raw_data: pub,
         })
         .select('id')
@@ -734,42 +652,6 @@ Deno.serve(async (req) => {
       }
     }
     
-    // ============= AUDIT: COUNT AFTER SYNC & LOG =============
-    const { count: pubsCountAfter } = await supabase
-      .from('work_item_publicaciones')
-      .select('id', { count: 'exact', head: true })
-      .eq('work_item_id', work_item_id)
-      .eq('is_archived', false);
-    
-    // ANOMALY CHECK: count should never decrease
-    const countDecreased = (pubsCountAfter || 0) < (pubsCountBefore || 0);
-    if (countDecreased) {
-      console.error(`[ANOMALY] work_item_publicaciones count DECREASED for ${work_item_id}: ${pubsCountBefore} → ${pubsCountAfter}`);
-    }
-
-    // Log the audit record
-    await supabase.from('sync_audit_log').insert({
-      work_item_id,
-      organization_id: workItem.organization_id,
-      radicado: workItem.radicado,
-      workflow_type: workItem.workflow_type,
-      sync_type: 'publicaciones',
-      publicaciones_count_before: pubsCountBefore || 0,
-      publicaciones_count_after: pubsCountAfter || 0,
-      publicaciones_inserted: result.inserted_count,
-      publicaciones_skipped: result.skipped_count,
-      acts_count_before: 0,
-      acts_count_after: 0,
-      provider_used: 'publicaciones',
-      provider_latency_ms: fetchResult.latencyMs,
-      status: countDecreased ? 'anomaly' : (result.errors.length > 0 ? 'partial' : 'success'),
-      error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
-      count_decreased: countDecreased,
-      anomaly_details: countDecreased ? `Count decreased from ${pubsCountBefore} to ${pubsCountAfter}` : null,
-      triggered_by: 'manual',
-      edge_function: 'sync-publicaciones-by-work-item',
-    });
-
     result.ok = true;
     result.status = 'SUCCESS';
 
