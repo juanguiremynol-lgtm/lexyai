@@ -58,6 +58,20 @@ SELECT cron.schedule(
 );
 ```
 
+## 4. Sync Traces Retention Cleanup — Daily at 03:00 UTC
+
+Deletes sync trace records older than 30 days to prevent unbounded growth.
+
+```sql
+SELECT cron.schedule(
+  'cleanup-sync-traces-30d',
+  '0 3 * * *',  -- 03:00 UTC daily
+  $$
+  DELETE FROM sync_traces WHERE created_at < now() - INTERVAL '30 days';
+  $$
+);
+```
+
 ## Verification
 
 List active cron jobs:

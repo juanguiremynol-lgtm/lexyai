@@ -187,7 +187,7 @@ serve(async (req) => {
         for (const item of eligibleItems) {
           try {
             await supabase.functions.invoke("sync-by-work-item", {
-              body: { work_item_id: item.id }
+              body: { work_item_id: item.id, _scheduled: true }
             });
 
             // Publicaciones
