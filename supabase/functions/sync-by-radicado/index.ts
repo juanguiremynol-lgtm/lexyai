@@ -67,6 +67,14 @@ interface ProcessData {
     anotacion?: string;
   }>;
   total_actuaciones?: number;
+  // TUTELA-specific fields
+  ponente?: string;
+  tutela_code?: string;
+  corte_status?: string;
+  sentencia_ref?: string;
+  stage?: string;
+  sources_found?: string[];
+  provider_summary?: Record<string, { ok: boolean; found: boolean; actuaciones_count?: number; error?: string }>;
 }
 
 interface AttemptLog {
@@ -629,6 +637,11 @@ function buildTutelasResult(proceso: Record<string, unknown>, latencyMs: number)
       fecha_radicacion: proceso.fecha_radicacion as string,
       actuaciones: mappedActuaciones,
       total_actuaciones: mappedActuaciones.length,
+      // TUTELA-specific metadata from Corte Constitucional
+      ponente: (proceso.ponente || proceso.magistrado_ponente) as string,
+      tutela_code: (proceso.tutela_code || proceso.codigo_tutela || proceso.expediente) as string,
+      corte_status: (proceso.corte_status || proceso.estado_seleccion || proceso.estado) as string,
+      sentencia_ref: (proceso.sentencia_ref || proceso.sentencia || proceso.numero_sentencia) as string,
     },
     latency_ms: latencyMs,
     eventsFound: mappedActuaciones.length,
@@ -815,6 +828,45 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
       error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
     };
   }
+}
+
+// ============= TUTELA STAGE INFERENCE =============
+
+/**
+ * Infer the current tutela stage from merged metadata and actuaciones
+ */
+function inferTutelaStage(
+  metadata: ProcessData,
+  providerResults: ProviderResult[]
+): string {
+  // Corte Constitucional status overrides everything
+  if (metadata.corte_status) {
+    const status = metadata.corte_status.toUpperCase();
+    if (status.includes('SELECCIONADA') && metadata.sentencia_ref) {
+      return 'SENTENCIA_CORTE';
+    }
+    if (status.includes('SELECCIONADA')) {
+      return 'REVISION';
+    }
+  }
+
+  // Check actuaciones for stage indicators (most recent first)
+  const allActuaciones = metadata.actuaciones || [];
+  const sorted = [...allActuaciones].sort((a, b) =>
+    (b.fecha || '').localeCompare(a.fecha || '')
+  );
+
+  for (const act of sorted) {
+    const upper = `${act.actuacion || ''} ${act.anotacion || ''}`.toUpperCase();
+
+    if (/ARCHIV/.test(upper)) return 'ARCHIVADO';
+    if (/SENTENCIA.*SEGUNDA|FALLO.*SEGUNDA|SEGUNDA\s+INSTANCIA/.test(upper)) return 'SEGUNDA_INSTANCIA';
+    if (/IMPUGNA/.test(upper)) return 'IMPUGNACION';
+    if (/SENTENCIA|FALLO/.test(upper)) return 'FALLO_PRIMERA_INSTANCIA';
+    if (/AUTO\s+ADMISORIO|ADMITE\s+TUTELA|AUTO\s+QUE\s+ADMITE|ADMISION\s+TUTELA/.test(upper)) return 'ADMITIDA';
+  }
+
+  return 'PRESENTADA';
 }
 
 // ============= MAIN HANDLER =============
@@ -1033,26 +1085,67 @@ Deno.serve(async (req) => {
         }
       }
       
+      // Build provider_summary for the frontend
+      const providerSummary: Record<string, { ok: boolean; found: boolean; actuaciones_count?: number; error?: string }> = {};
+      const providerLabelsForSummary = ['CPNU', 'SAMAI', 'TUTELAS'];
+      for (let i = 0; i < settled.length; i++) {
+        const s = settled[i];
+        const label = providerLabelsForSummary[i];
+        if (s.status === 'rejected') {
+          providerSummary[label] = { ok: false, found: false, error: s.reason?.message || 'Promise rejected' };
+        } else {
+          providerSummary[label] = {
+            ok: s.value.ok,
+            found: s.value.found,
+            actuaciones_count: s.value.eventsFound,
+            error: s.value.error,
+          };
+        }
+      }
+      
+      const sourcesFound: string[] = [];
+
       if (allResults.length > 0) {
         foundInSource = true;
         
-        // Merge: pick the provider with the most complete metadata as base
+        // Process in priority order: CPNU → SAMAI → TUTELAS for party/authority data
+        const priorityOrder = ['CPNU', 'SAMAI', 'TUTELAS'];
         allResults.sort((a, b) => {
-          const scoreA = Object.values(a.processData || {}).filter(Boolean).length;
-          const scoreB = Object.values(b.processData || {}).filter(Boolean).length;
-          return scoreB - scoreA;
+          const idxA = priorityOrder.indexOf(a.source);
+          const idxB = priorityOrder.indexOf(b.source);
+          return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
         });
         
-        processData = { ...allResults[0].processData };
-        sourceUsed = allResults.map(r => r.source).join('+');
+        // Merge metadata: first non-empty wins (respects priority order)
+        processData = {};
+        const firstWinsFields = [
+          'despacho', 'ciudad', 'departamento', 'demandante', 'demandado',
+          'tipo_proceso', 'clase_proceso', 'fecha_radicacion',
+        ];
         
-        // Fill in missing fields from other providers
-        for (let i = 1; i < allResults.length; i++) {
-          const pd = allResults[i].processData;
-          for (const [key, val] of Object.entries(pd)) {
-            if (val && !(processData as any)[key]) {
-              (processData as any)[key] = val;
+        for (const r of allResults) {
+          sourcesFound.push(r.source);
+          const pd = r.processData;
+          for (const key of firstWinsFields) {
+            if ((pd as any)[key] && !(processData as any)[key]) {
+              (processData as any)[key] = (pd as any)[key];
             }
+          }
+        }
+        
+        sourceUsed = sourcesFound.join('+');
+        
+        // Stage: TUTELAS overrides (Corte Constitucional is most authoritative)
+        for (const r of allResults) {
+          if (r.source === 'TUTELAS' && r.processData.corte_status) {
+            processData.corte_status = r.processData.corte_status;
+            processData.sentencia_ref = r.processData.sentencia_ref;
+            processData.tutela_code = r.processData.tutela_code;
+            processData.ponente = r.processData.ponente;
+          } else {
+            // Fill additive fields from any provider
+            if (!processData.ponente && r.processData.ponente) processData.ponente = r.processData.ponente;
+            if (!processData.tutela_code && r.processData.tutela_code) processData.tutela_code = r.processData.tutela_code;
           }
         }
         
@@ -1065,14 +1158,12 @@ Deno.serve(async (req) => {
         }
         
         if (allActuaciones.length > 0) {
-          // Deduplicate by date + description prefix
           const seen = new Map<string, typeof allActuaciones[0]>();
           for (const act of allActuaciones) {
             const key = `${act.fecha}|${(act.actuacion || '').toLowerCase().trim().slice(0, 60)}`;
             if (!seen.has(key)) {
               seen.set(key, act);
             } else {
-              // Keep the version with more annotation
               const existing = seen.get(key)!;
               if ((act.anotacion?.length || 0) > (existing.anotacion?.length || 0)) {
                 seen.set(key, act);
@@ -1083,8 +1174,15 @@ Deno.serve(async (req) => {
           processData.total_actuaciones = processData.actuaciones.length;
         }
         
-        console.log(`[sync-by-radicado] TUTELA: Merged ${allResults.length} providers, ${processData.total_actuaciones || 0} deduped actuaciones, sources: ${sourceUsed}`);
+        // Infer tutela stage from merged data
+        processData.stage = inferTutelaStage(processData, allResults);
+        processData.sources_found = sourcesFound;
+        processData.provider_summary = providerSummary;
+        
+        console.log(`[sync-by-radicado] TUTELA: Merged ${allResults.length} providers, ${processData.total_actuaciones || 0} deduped actuaciones, stage=${processData.stage}, sources: ${sourceUsed}`);
       } else {
+        processData.provider_summary = providerSummary;
+        processData.sources_found = [];
         console.log(`[sync-by-radicado] TUTELA: No providers returned data`);
       }
     }
@@ -1203,38 +1301,51 @@ Deno.serve(async (req) => {
       } else if (workflowType === 'CPACA') {
         stage = hasAutoAdmisorio ? 'AUTO_ADMISORIO' : 'DEMANDA_RADICADA';
       } else if (workflowType === 'TUTELA') {
-        stage = hasAutoAdmisorio ? 'TUTELA_ADMITIDA' : 'TUTELA_RADICADA';
+        // Use inferred stage from parallel lookup if available
+        stage = processData.stage || (hasAutoAdmisorio ? 'TUTELA_ADMITIDA' : 'TUTELA_RADICADA');
       } else {
         stage = 'MONITORING';
       }
     }
 
+    // Build insert payload
+    const insertPayload: Record<string, unknown> = {
+      owner_id: userId,
+      organization_id: organizationId,
+      radicado,
+      radicado_verified: foundInSource,
+      workflow_type: workflowType,
+      stage,
+      cgp_phase: workflowType === 'CGP' ? cgpPhase : null,
+      cgp_phase_source: 'AUTO',
+      status: 'ACTIVE',
+      source: foundInSource ? 'SCRAPE_API' : 'MANUAL',
+      source_reference: `sync-by-radicado-${Date.now()}`,
+      authority_name: processData.despacho || null,
+      authority_city: processData.ciudad || null,
+      authority_department: processData.departamento || null,
+      demandantes: processData.demandante || null,
+      demandados: processData.demandado || null,
+      filing_date: parseColombianDate(processData.fecha_radicacion),
+      client_id: payload.client_id || null,
+      is_flagged: false,
+      monitoring_enabled: true,
+      email_linking_enabled: true,
+    };
+
+    // TUTELA-specific fields
+    if (workflowType === 'TUTELA') {
+      if (processData.tutela_code) insertPayload.tutela_code = processData.tutela_code;
+      if (processData.corte_status) insertPayload.corte_status = processData.corte_status;
+      if (processData.sentencia_ref) insertPayload.sentencia_ref = processData.sentencia_ref;
+      if (processData.ponente) insertPayload.ponente = processData.ponente;
+      if (processData.provider_summary) insertPayload.provider_sources = processData.provider_summary;
+    }
+
     // Create the work item
     const { data: newWorkItem, error: insertError } = await supabase
       .from('work_items')
-      .insert({
-        owner_id: userId,
-        organization_id: organizationId,
-        radicado,
-        radicado_verified: foundInSource,
-        workflow_type: workflowType,
-        stage,
-        cgp_phase: workflowType === 'CGP' ? cgpPhase : null,
-        cgp_phase_source: 'AUTO',
-        status: 'ACTIVE',
-        source: foundInSource ? 'SCRAPE_API' : 'MANUAL',
-        source_reference: `sync-by-radicado-${Date.now()}`,
-        authority_name: processData.despacho || null,
-        authority_city: processData.ciudad || null,
-        authority_department: processData.departamento || null,
-        demandantes: processData.demandante || null,
-        demandados: processData.demandado || null,
-        filing_date: parseColombianDate(processData.fecha_radicacion),
-        client_id: payload.client_id || null,
-        is_flagged: false,
-        monitoring_enabled: true,
-        email_linking_enabled: true,
-      })
+      .insert(insertPayload)
       .select('id')
       .single();
 
