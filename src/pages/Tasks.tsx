@@ -32,19 +32,18 @@ export default function Tasks() {
   const { data: tasks, isLoading } = useQuery({
     queryKey: ["tasks"],
     queryFn: async () => {
+      // Tasks reference filing_id from legacy table - just fetch tasks directly
       const { data, error } = await supabase
         .from("tasks")
-        .select(`
-          *,
-          filing:filings(
-            id,
-            filing_type,
-            matter:matters(client_name, matter_name)
-          )
-        `)
+        .select("*")
         .order("due_at", { ascending: true });
       if (error) throw error;
-      return data;
+      
+      // Return tasks without work_item join since filing_id maps to deleted table
+      return data?.map(task => ({
+        ...task,
+        work_item: null as { id: string; workflow_type: string; radicado: string | null; clients: { id: string; name: string } | null; matters: { id: string; matter_name: string } | null } | null,
+      })) || [];
     },
   });
 
@@ -218,11 +217,13 @@ export default function Tasks() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTasks?.map((task) => {
-                  const filing = task.filing as {
+              {filteredTasks?.map((task) => {
+                  const workItem = task.work_item as {
                     id: string;
-                    filing_type: string;
-                    matter: { client_name: string; matter_name: string } | null;
+                    workflow_type: string;
+                    radicado: string | null;
+                    clients: { id: string; name: string } | null;
+                    matters: { id: string; matter_name: string } | null;
                   } | null;
                   return (
                     <TableRow key={task.id}>
@@ -242,13 +243,13 @@ export default function Tasks() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {filing ? (
+                        {workItem ? (
                           <div>
                             <p className="text-sm">
-                              {filing.matter?.client_name}
+                              {workItem.clients?.name || "—"}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {filing.matter?.matter_name}
+                              {workItem.matters?.matter_name || workItem.radicado || "—"}
                             </p>
                           </div>
                         ) : (
@@ -312,9 +313,9 @@ export default function Tasks() {
                               </Button>
                             </>
                           )}
-                          {filing && (
+                          {workItem && (
                             <Button variant="ghost" size="sm" asChild>
-                              <Link to={`/app/work-items/${filing.id}`}>
+                              <Link to={`/app/work-items/${workItem.id}`}>
                                 <ExternalLink className="h-4 w-4" />
                               </Link>
                             </Button>
