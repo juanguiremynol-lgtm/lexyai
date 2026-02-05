@@ -286,6 +286,11 @@ async function storeActuaciones(
     source_url: act.sourceUrl,
     hash_fingerprint: act.hashFingerprint,
     scrape_date: new Date().toISOString().split('T')[0],
+    // FIX 2.2: Set date_confidence from date_source
+    date_source: act.actDate ? 'api_explicit' : 'inferred',
+    date_confidence: act.actDate ? 'high' : 'low',
+    // FIX 2.3: Schema versioning for raw payloads
+    raw_schema_version: 'cpnu_client_v1',
     raw_data: {
       attachments: act.attachments,
       act_type_guess: act.actTypeGuess,

@@ -644,6 +644,10 @@ Deno.serve(async (req) => {
       });
 
       // Insert new publication
+      // FIX 2.2: Derive date_confidence from date_source
+      const dateSource = parsedFecha ? 'api_explicit' : 'inferred';
+      const dateConfidence = parsedFecha ? 'high' : 'low';
+
       const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
         .insert({
@@ -660,6 +664,9 @@ Deno.serve(async (req) => {
           tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
           hash_fingerprint: fingerprint,
           raw_data: pub,
+          date_source: dateSource,
+          date_confidence: dateConfidence,
+          raw_schema_version: 'publicaciones_v3',
         })
         .select('id')
         .single();

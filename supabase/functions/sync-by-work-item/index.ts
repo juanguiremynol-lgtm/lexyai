@@ -2908,6 +2908,22 @@ Deno.serve(async (req) => {
       
       // BUG FIX: Insert into 'work_item_acts' (canonical table) instead of legacy 'actuaciones'
       // The UI reads from work_item_acts, not actuaciones
+      // FIX 2.2: Derive date_confidence from date_source
+      const dateSource = actDate ? 'api_explicit' : 'inferred';
+      const dateConfidenceMap: Record<string, string> = {
+        api_explicit: 'high',
+        parsed_filename: 'medium',
+        parsed_annotation: 'medium',
+        parsed_title: 'medium',
+        inferred: 'low',
+      };
+      const dateConfidence = dateConfidenceMap[dateSource] || 'low';
+
+      // FIX 2.3: Set raw_schema_version for future data migrations
+      const rawSchemaVersion = fetchResult.provider === 'cpnu' ? 'cpnu_v2' : 
+                                fetchResult.provider === 'samai' ? 'samai_2026_02' : 
+                                `${fetchResult.provider}_v1`;
+
       const { error: insertError } = await supabase
         .from('work_item_acts')
         .insert({
@@ -2925,6 +2941,9 @@ Deno.serve(async (req) => {
           hash_fingerprint: fingerprint,
           scrape_date: new Date().toISOString().split('T')[0],
           despacho: fetchResult.caseMetadata?.despacho || act.nombre_despacho || null,
+          date_source: dateSource,
+          date_confidence: dateConfidence,
+          raw_schema_version: rawSchemaVersion,
           // Store raw data as JSON for debugging
           raw_data: {
             actuacion: act.actuacion,

@@ -5491,6 +5491,7 @@ export type Database = {
           api_fetched_at: string | null
           api_scraped_at: string | null
           archived_at: string | null
+          archived_by: string | null
           archived_reason: string | null
           canonical_at: string | null
           confidence_level: string | null
@@ -5514,12 +5515,14 @@ export type Database = {
           parsing_errors: string[] | null
           phase_inferred: number | null
           raw_data: Json | null
+          raw_schema_version: string | null
           scrape_date: string | null
           source: string | null
           source_platform: string | null
           source_reference: string | null
           source_url: string | null
           sources: string[] | null
+          updated_at: string
           work_item_id: string
           workflow_type: string | null
         }
@@ -5530,6 +5533,7 @@ export type Database = {
           api_fetched_at?: string | null
           api_scraped_at?: string | null
           archived_at?: string | null
+          archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           confidence_level?: string | null
@@ -5553,12 +5557,14 @@ export type Database = {
           parsing_errors?: string[] | null
           phase_inferred?: number | null
           raw_data?: Json | null
+          raw_schema_version?: string | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
           source_reference?: string | null
           source_url?: string | null
           sources?: string[] | null
+          updated_at?: string
           work_item_id: string
           workflow_type?: string | null
         }
@@ -5569,6 +5575,7 @@ export type Database = {
           api_fetched_at?: string | null
           api_scraped_at?: string | null
           archived_at?: string | null
+          archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           confidence_level?: string | null
@@ -5592,12 +5599,14 @@ export type Database = {
           parsing_errors?: string[] | null
           phase_inferred?: number | null
           raw_data?: Json | null
+          raw_schema_version?: string | null
           scrape_date?: string | null
           source?: string | null
           source_platform?: string | null
           source_reference?: string | null
           source_url?: string | null
           sources?: string[] | null
+          updated_at?: string
           work_item_id?: string
           workflow_type?: string | null
         }
@@ -5706,6 +5715,7 @@ export type Database = {
           api_fetched_at: string | null
           api_scraped_at: string | null
           archived_at: string | null
+          archived_by: string | null
           archived_reason: string | null
           canonical_at: string | null
           created_at: string
@@ -5725,10 +5735,12 @@ export type Database = {
           published_at: string | null
           raw_data: Json | null
           raw_json: Json | null
+          raw_schema_version: string | null
           source: string
           sources: string[] | null
           tipo_publicacion: string | null
           title: string
+          updated_at: string
           work_item_id: string
         }
         Insert: {
@@ -5736,6 +5748,7 @@ export type Database = {
           api_fetched_at?: string | null
           api_scraped_at?: string | null
           archived_at?: string | null
+          archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           created_at?: string
@@ -5755,10 +5768,12 @@ export type Database = {
           published_at?: string | null
           raw_data?: Json | null
           raw_json?: Json | null
+          raw_schema_version?: string | null
           source?: string
           sources?: string[] | null
           tipo_publicacion?: string | null
           title: string
+          updated_at?: string
           work_item_id: string
         }
         Update: {
@@ -5766,6 +5781,7 @@ export type Database = {
           api_fetched_at?: string | null
           api_scraped_at?: string | null
           archived_at?: string | null
+          archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
           created_at?: string
@@ -5785,10 +5801,12 @@ export type Database = {
           published_at?: string | null
           raw_data?: Json | null
           raw_json?: Json | null
+          raw_schema_version?: string | null
           source?: string
           sources?: string[] | null
           tipo_publicacion?: string | null
           title?: string
+          updated_at?: string
           work_item_id?: string
         }
         Relationships: [
