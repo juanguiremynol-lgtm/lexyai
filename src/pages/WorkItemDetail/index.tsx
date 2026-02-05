@@ -107,7 +107,7 @@ export default function WorkItemDetail() {
   };
 
   // Extended workItem type for new fields
-  const extendedWorkItem = workItem as WorkItem & { 
+  const extendedWorkItem = workItem as unknown as WorkItem & { 
     _source?: string;
     onedrive_url?: string | null;
     acta_radicacion_url?: string | null;
@@ -127,7 +127,7 @@ export default function WorkItemDetail() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <h1 className="text-2xl font-semibold">
-              {workItem.radicado || workItem.title || "Sin radicado"}
+              {workItem.title || workItem.radicado || "Sin radicado"}
             </h1>
             {getStatusBadge(workItem.status)}
             {workItem.is_flagged && (
@@ -137,14 +137,61 @@ export default function WorkItemDetail() {
               </Badge>
             )}
           </div>
-          <p className="text-muted-foreground ml-10">
-            {workItem.workflow_type} • {workItem.stage}
-            {workItem.last_crawled_at && (
-              <span className="text-xs ml-3">
-                Última sync: {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
-              </span>
+          <div className="ml-10 space-y-1">
+            <p className="text-muted-foreground">
+              {workItem.workflow_type} • {workItem.stage}
+              {workItem.last_synced_at && (
+                <span className="text-xs ml-3">
+                  Última sync: {formatDistanceToNow(new Date(workItem.last_synced_at), { addSuffix: true, locale: es })}
+                </span>
+              )}
+            </p>
+            {workItem.radicado && workItem.title && (
+              <p className="text-sm text-muted-foreground font-mono">
+                Rad: {workItem.radicado}
+              </p>
             )}
-          </p>
+
+            {/* TUTELA-specific: Corte Constitucional info */}
+            {workItem.workflow_type === 'TUTELA' && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-1">
+                {(workItem as any).ponente && (
+                  <span>Magistrado Ponente: <span className="font-medium text-foreground">{(workItem as any).ponente}</span></span>
+                )}
+                {workItem.corte_status && (
+                  <span className="flex items-center gap-1">
+                    Corte: 
+                    <Badge variant={workItem.corte_status === 'SELECCIONADA' ? 'default' : 'secondary'} className="text-xs ml-1">
+                      {workItem.corte_status === 'SELECCIONADA' ? '🟢 Seleccionada' :
+                       workItem.corte_status === 'NO_SELECCIONADA' ? '🔴 No seleccionada' :
+                       workItem.corte_status === 'SENTENCIA_EMITIDA' ? '⚖️ Sentencia emitida' :
+                       workItem.corte_status}
+                    </Badge>
+                  </span>
+                )}
+                {workItem.sentencia_ref && (
+                  <span>Sentencia: <span className="font-medium text-foreground">{workItem.sentencia_ref}</span></span>
+                )}
+              </div>
+            )}
+
+            {/* Provider sources row */}
+            {workItem.workflow_type === 'TUTELA' && workItem.provider_sources && (
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <span className="text-xs text-muted-foreground">Fuentes:</span>
+                {(() => {
+                  const sources = workItem.provider_sources as Record<string, { found?: boolean; actuaciones_count?: number; publicaciones_count?: number }>;
+                  return Object.entries(sources).map(([key, val]) => (
+                    <Badge key={key} variant="outline" className={`text-xs ${val?.found ? 'border-emerald-500/50 text-emerald-600' : 'border-muted text-muted-foreground'}`}>
+                      {val?.found ? '✅' : '❌'} {key.toUpperCase()}
+                      {val?.found && val?.actuaciones_count ? ` (${val.actuaciones_count})` : ''}
+                      {val?.found && val?.publicaciones_count ? ` (${val.publicaciones_count} est.)` : ''}
+                    </Badge>
+                  ));
+                })()}
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 items-center">
           {/* Flag button */}
