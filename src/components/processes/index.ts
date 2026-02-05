@@ -1,7 +1,6 @@
 export { ProcessClientLink } from "./ProcessClientLink";
 export { UnlinkedProcessesAlert, UnlinkedProcessesPage } from "./UnlinkedProcessesAlert";
 export { ProcessClassificationDialog } from "./ProcessClassificationDialog";
-export { MonitoredProcessesSection } from "./MonitoredProcessesSection";
 export { ProcessPipeline } from "./ProcessPipeline";
 export { ProcessPipelineColumn } from "./ProcessPipelineColumn";
 export { ProcessPipelineCard } from "./ProcessPipelineCard";

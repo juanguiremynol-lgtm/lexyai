@@ -52,52 +52,55 @@ export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: Emai
           })));
         }
       } else if (activeTab === "CGP_CASE" || activeTab === "TUTELA" || activeTab === "HABEAS_CORPUS") {
-        const filingType = activeTab === "CGP_CASE" ? null : activeTab;
+        // Query work_items with appropriate workflow_type filter
+        const workflowType = activeTab === "CGP_CASE" ? "CGP" : activeTab;
         let query = supabase
-          .from("filings")
-          .select("id, filing_type, radicado, court_name, demandantes")
+          .from("work_items")
+          .select("id, workflow_type, radicado, authority_name, demandantes")
           .eq("email_linking_enabled", true)
           .limit(20);
 
-        if (filingType) {
-          query = query.eq("filing_type", filingType);
+        if (activeTab !== "CGP_CASE") {
+          query = query.eq("workflow_type", workflowType);
         } else {
-          query = query.not("filing_type", "in", '("TUTELA","HABEAS_CORPUS")');
+          query = query.eq("workflow_type", "CGP");
         }
 
         if (search) {
-          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,court_name.ilike.%${search}%`);
+          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,authority_name.ilike.%${search}%`);
         }
 
         const { data } = await query;
         
         if (data) {
-          results.push(...data.map(f => ({
-            id: f.id,
+          results.push(...data.map(w => ({
+            id: w.id,
             type: activeTab,
-            name: f.radicado || `${f.filing_type} - ${f.demandantes || "Sin partes"}`,
-            details: f.court_name || undefined,
+            name: w.radicado || `${w.workflow_type} - ${w.demandantes || "Sin partes"}`,
+            details: w.authority_name || undefined,
           })));
         }
       } else if (activeTab === "PROCESO_ADMINISTRATIVO") {
+        // Query work_items with GOV_PROCEDURE workflow type
         let query = supabase
-          .from("monitored_processes")
-          .select("id, radicado, autoridad, demandantes")
+          .from("work_items")
+          .select("id, radicado, authority_name, demandantes")
           .eq("email_linking_enabled", true)
+          .eq("workflow_type", "GOV_PROCEDURE")
           .limit(20);
 
         if (search) {
-          query = query.or(`radicado.ilike.%${search}%,autoridad.ilike.%${search}%,demandantes.ilike.%${search}%`);
+          query = query.or(`radicado.ilike.%${search}%,authority_name.ilike.%${search}%,demandantes.ilike.%${search}%`);
         }
 
         const { data } = await query;
         
         if (data) {
-          results.push(...data.map(p => ({
-            id: p.id,
+          results.push(...data.map(w => ({
+            id: w.id,
             type: "PROCESO_ADMINISTRATIVO" as EmailEntityType,
-            name: p.radicado || `Proceso - ${p.demandantes || "Sin partes"}`,
-            details: p.autoridad || undefined,
+            name: w.radicado || `Proceso - ${w.demandantes || "Sin partes"}`,
+            details: w.authority_name || undefined,
           })));
         }
       }
