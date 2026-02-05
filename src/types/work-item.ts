@@ -69,6 +69,7 @@ export interface WorkItem {
   
   // Scraping/monitoring state
   scrape_status: 'NOT_ATTEMPTED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'PARTIAL_SUCCESS';
+  last_synced_at: string | null;
   last_checked_at: string | null;
   last_crawled_at: string | null;
   scraped_fields: Record<string, unknown> | null;
