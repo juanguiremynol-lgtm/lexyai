@@ -296,6 +296,7 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
   hasAutoAdmisorio: boolean;
   reason: string;
 } {
+  // Extended patterns to match various court formats including SAMAI's "Auto que admite tutela"
   const AUTO_ADMISORIO_PATTERNS = [
     /auto\s+admisorio/i,
     /admite\s+demanda/i,
@@ -303,9 +304,14 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
     /auto\s+que\s+admite/i,
     /se\s+admite\s+la?\s+demanda/i,
     /admite\s+tutela/i,
+    /admite\s+la\s+tutela/i,
+    /admision\s+tutela/i,
+    /auto\s+admite\s+tutela/i,
+    /auto\s+admite\s+la\s+tutela/i,
     /auto\s+avoca\s+conocimiento/i,
     /avoca\s+conocimiento/i,
     /auto\s+admite\s+accion/i,
+    /auto\s+admite\s+la\s+accion/i,
   ];
 
   for (const act of actuaciones) {
@@ -314,7 +320,7 @@ function detectAutoAdmisorio(actuaciones: Array<{ actuacion: string; anotacion?:
       if (pattern.test(text)) {
         return {
           hasAutoAdmisorio: true,
-          reason: `Detectado: "${act.actuacion?.substring(0, 50)}..."`,
+          reason: `Auto Admisorio detectado: "${(act.actuacion || '').substring(0, 50)}..."`,
         };
       }
     }
@@ -487,7 +493,59 @@ async function fetchFromCpnu(
 }
 
 /**
+ * Extract parties from SAMAI actuaciones anotaciones
+ * SAMAI often has party info in actuacion annotations like:
+ * "El Señor(a): WILSON DAVID GALINDO GONZALEZ"
+ */
+function extractPartiesFromSamaiActuaciones(actuaciones: Array<{ anotacion?: string }>): {
+  accionantes: string[];
+  accionados: string[];
+} {
+  const accionantes: string[] = [];
+  const accionados: string[] = [];
+  
+  for (const act of actuaciones) {
+    const anotacion = act.anotacion || '';
+    
+    // Pattern: "El Señor(a): NOMBRE COMPLETO" or "El Señor(a):NOMBRE"
+    const personMatch = anotacion.match(/El Señor\(a\):?\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+con|\s+presenta|\s+solicita|,|$)/i);
+    if (personMatch && !accionantes.includes(personMatch[1].trim())) {
+      accionantes.push(personMatch[1].trim());
+    }
+    
+    // Pattern: "contra ENTIDAD"
+    const entidadMatch = anotacion.match(/contra\s+([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+por|\s+en|\.|,|$)/i);
+    if (entidadMatch && !accionados.includes(entidadMatch[1].trim())) {
+      accionados.push(entidadMatch[1].trim());
+    }
+    
+    // Pattern: "accionante: NOMBRE" or "tutelante: NOMBRE"
+    const accionanteMatch = anotacion.match(/(?:accionante|tutelante|demandante):\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+\||,|$)/i);
+    if (accionanteMatch && !accionantes.includes(accionanteMatch[1].trim())) {
+      accionantes.push(accionanteMatch[1].trim());
+    }
+    
+    // Pattern: "accionado: NOMBRE" or "tutelado: NOMBRE"
+    const accionadoMatch = anotacion.match(/(?:accionado|tutelado|demandado):\s*([A-ZÁÉÍÓÚÑ\s]+?)(?:\s+\||,|$)/i);
+    if (accionadoMatch && !accionados.includes(accionadoMatch[1].trim())) {
+      accionados.push(accionadoMatch[1].trim());
+    }
+  }
+  
+  return { accionantes, accionados };
+}
+
+/**
  * Fetch from SAMAI Cloud Run service
+ * 
+ * SAMAI has unique field names compared to CPNU:
+ * - origen / corporacion → despacho
+ * - ponente → judge name
+ * - clase → process type
+ * - fechaActuacion / fechaRegistro → date fields in actuaciones
+ * 
+ * SAMAI uses async flow: /buscar → jobId → /resultado/{jobId}
+ * We poll the resultado endpoint for up to 30 seconds
  */
 async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   const startTime = Date.now();
@@ -506,10 +564,11 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   }
 
   try {
-    console.log(`[sync-by-radicado] Calling SAMAI: ${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`);
+    // SAMAI uses /buscar to trigger scraping and returns a jobId
+    console.log(`[sync-by-radicado] Calling SAMAI /buscar: ${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`);
     
-    const response = await fetch(
-      `${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`,
+    const buscarResponse = await fetch(
+      `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`,
       {
         method: 'GET',
         headers: {
@@ -519,96 +578,100 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       }
     );
 
-    const latency = Date.now() - startTime;
-
-    if (!response.ok) {
-      // Check if it's a 404 (not found) vs other errors
-      if (response.status === 404) {
-        return {
-          ok: true,
-          found: false,
-          source: 'SAMAI',
-          processData: {},
-          latency_ms: latency,
-          error: 'Record not found in SAMAI',
-        };
-      }
+    if (!buscarResponse.ok) {
       return {
         ok: false,
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: latency,
-        error: `SAMAI returned ${response.status}`,
+        latency_ms: Date.now() - startTime,
+        error: `SAMAI /buscar returned ${buscarResponse.status}`,
       };
     }
 
-    const result = await response.json();
+    const buscarResult = await buscarResponse.json();
     
-    // Check if SAMAI returned data
-    if (!result.data && !result.proceso) {
+    console.log(`[sync-by-radicado][SAMAI] /buscar response:`, buscarResult);
+    
+    // Get jobId from response
+    const jobId = buscarResult.jobId || buscarResult.job_id || buscarResult.id;
+    
+    if (!jobId) {
+      // No jobId - check if data is returned directly (cached response)
+      if (buscarResult.actuaciones?.length > 0 || buscarResult.data?.actuaciones?.length > 0) {
+        // Data returned directly, parse it
+        console.log(`[sync-by-radicado][SAMAI] Data returned directly from /buscar (cached)`);
+        return parseSamaiResult(buscarResult, Date.now() - startTime);
+      }
+      
       return {
         ok: true,
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: latency,
-        error: 'No data in SAMAI response',
+        latency_ms: Date.now() - startTime,
+        error: 'SAMAI /buscar did not return a jobId',
       };
     }
-
-    const proceso = result.data || result.proceso || result;
-
-    // Extract parties from sujetos_procesales
-    let demandantes = '';
-    let demandados = '';
     
-    if (proceso.sujetos_procesales?.length > 0) {
-      const demandantesList = proceso.sujetos_procesales
-        .filter((s: { tipo: string }) => 
-          s.tipo?.toLowerCase().includes('demandante') || 
-          s.tipo?.toLowerCase().includes('actor') ||
-          s.tipo?.toLowerCase().includes('accionante')
-        )
-        .map((s: { nombre: string }) => s.nombre);
-      const demandadosList = proceso.sujetos_procesales
-        .filter((s: { tipo: string }) => 
-          s.tipo?.toLowerCase().includes('demandado') ||
-          s.tipo?.toLowerCase().includes('accionado')
-        )
-        .map((s: { nombre: string }) => s.nombre);
+    // Poll for result (up to 30 seconds)
+    const MAX_POLL_TIME_MS = 30000;
+    const POLL_INTERVAL_MS = 1500;
+    const pollStartTime = Date.now();
+    
+    while (Date.now() - pollStartTime < MAX_POLL_TIME_MS) {
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
       
-      if (demandantesList.length) demandantes = demandantesList.join(', ');
-      if (demandadosList.length) demandados = demandadosList.join(', ');
+      const resultUrl = `${samaiBaseUrl}/resultado/${jobId}`;
+      console.log(`[sync-by-radicado][SAMAI] Polling resultado: ${resultUrl}`);
+      
+      const resultResponse = await fetch(resultUrl, {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!resultResponse.ok) {
+        if (resultResponse.status === 404) {
+          // Job not ready yet, continue polling
+          continue;
+        }
+        return {
+          ok: false,
+          found: false,
+          source: 'SAMAI',
+          processData: {},
+          latency_ms: Date.now() - startTime,
+          error: `SAMAI /resultado returned ${resultResponse.status}`,
+        };
+      }
+      
+      const result = await resultResponse.json();
+      
+      // Check job status
+      const status = result.status || result.state;
+      if (status === 'pending' || status === 'queued' || status === 'processing') {
+        console.log(`[sync-by-radicado][SAMAI] Job ${jobId} still ${status}, continuing to poll...`);
+        continue;
+      }
+      
+      // Job completed - parse result
+      console.log(`[sync-by-radicado][SAMAI] Job ${jobId} completed, parsing result`);
+      return parseSamaiResult(result, Date.now() - startTime);
     }
-
-    // Normalize actuaciones from SAMAI format
-    const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
-      fecha: (act.fecha_actuacion || act.fecha || act.fecha_registro || '') as string,
-      actuacion: (act.actuacion || act.anotacion || act.tipo_actuacion || '') as string,
-      anotacion: (act.anotacion || act.descripcion || '') as string,
-    }));
-
+    
+    // Timeout reached
     return {
       ok: true,
-      found: true,
+      found: false,
       source: 'SAMAI',
-      processData: {
-        despacho: proceso.despacho || proceso.corporacion || proceso.despacho_actual,
-        ciudad: proceso.ciudad || proceso.sede,
-        departamento: proceso.departamento,
-        demandante: demandantes || proceso.demandante,
-        demandado: demandados || proceso.demandado,
-        tipo_proceso: proceso.tipo_proceso || proceso.tipo,
-        clase_proceso: proceso.clase_proceso || proceso.clase || proceso.subclase_proceso,
-        fecha_radicacion: proceso.fecha_radicado || proceso.fecha_radicacion,
-        sujetos_procesales: proceso.sujetos_procesales,
-        actuaciones,
-        total_actuaciones: proceso.total_actuaciones || actuaciones.length,
-      },
-      latency_ms: latency,
-      eventsFound: actuaciones.length,
+      processData: {},
+      latency_ms: Date.now() - startTime,
+      error: `SAMAI polling timeout after ${MAX_POLL_TIME_MS}ms`,
     };
+    
   } catch (err) {
     return {
       ok: false,
@@ -619,6 +682,134 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       error: err instanceof Error ? err.message : 'SAMAI fetch failed',
     };
   }
+}
+
+/**
+ * Parse SAMAI result into ProviderResult format
+ */
+function parseSamaiResult(result: Record<string, unknown>, latency: number): ProviderResult {
+    console.log(`[sync-by-radicado][SAMAI] Raw response keys:`, Object.keys(result));
+    
+    // Check if SAMAI returned data
+    // SAMAI can return data at different paths: result.data, result.proceso, or at root level
+    // Check for actuaciones presence as the main indicator of data
+    const resultActuaciones = result.actuaciones as unknown[] | undefined;
+    const resultData = result.data as Record<string, unknown> | undefined;
+    const resultProceso = result.proceso as Record<string, unknown> | undefined;
+    const hasActuaciones = (resultActuaciones?.length || 0) > 0 || 
+                           ((resultData?.actuaciones as unknown[] | undefined)?.length || 0) > 0 || 
+                           ((resultProceso?.actuaciones as unknown[] | undefined)?.length || 0) > 0;
+    
+    if (!result.data && !result.proceso && !hasActuaciones && !result.origen && !result.ponente && result.status !== 'completed') {
+      return {
+        ok: true,
+        found: false,
+        source: 'SAMAI',
+        processData: {},
+        latency_ms: latency,
+        error: 'No data in SAMAI response',
+      };
+    }
+
+    // SAMAI can nest data differently - check multiple paths
+    const proceso = (result.data || result.proceso || result) as Record<string, unknown>;
+    
+    console.log(`[sync-by-radicado][SAMAI] Proceso keys:`, Object.keys(proceso));
+    console.log(`[sync-by-radicado][SAMAI] Actuaciones count:`, (proceso.actuaciones as unknown[])?.length || 0);
+
+    // Extract parties from sujetos_procesales or partes
+    let demandantes = '';
+    let demandados = '';
+    
+    const sujetosSource = (proceso.sujetos_procesales || proceso.partes || proceso.sujetos || []) as Array<{ tipo?: string; nombre?: string; nombreRazonSocial?: string }>;
+    
+    if (sujetosSource.length > 0) {
+      const demandantesList = sujetosSource
+        .filter((s) => 
+          (s.tipo || '').toLowerCase().includes('demandante') || 
+          (s.tipo || '').toLowerCase().includes('actor') ||
+          (s.tipo || '').toLowerCase().includes('accionante') ||
+          (s.tipo || '').toLowerCase().includes('tutelante')
+        )
+        .map((s) => s.nombre || s.nombreRazonSocial || '');
+      const demandadosList = sujetosSource
+        .filter((s) => 
+          (s.tipo || '').toLowerCase().includes('demandado') ||
+          (s.tipo || '').toLowerCase().includes('accionado') ||
+          (s.tipo || '').toLowerCase().includes('tutelado')
+        )
+        .map((s) => s.nombre || s.nombreRazonSocial || '');
+      
+      if (demandantesList.length) demandantes = demandantesList.filter(Boolean).join(', ');
+      if (demandadosList.length) demandados = demandadosList.filter(Boolean).join(', ');
+    }
+
+    // Normalize actuaciones from SAMAI format
+    // SAMAI fields: fechaActuacion, fechaRegistro, actuacion, anotacion
+    const rawActuaciones = (proceso.actuaciones || proceso.historial || []) as Array<Record<string, unknown>>;
+    
+    const actuaciones = rawActuaciones.map((act) => ({
+      // SAMAI date fields: fechaActuacion (primary), fechaRegistro (fallback), fecha
+      fecha: (act.fechaActuacion || act.fecha_actuacion || act.fechaRegistro || act.fecha_registro || act.fecha || '') as string,
+      actuacion: (act.actuacion || act.tipo_actuacion || act.tipo || act.descripcion || '') as string,
+      anotacion: (act.anotacion || act.detalle || act.descripcion || act.observacion || '') as string,
+    }));
+    
+    console.log(`[sync-by-radicado][SAMAI] Normalized ${actuaciones.length} actuaciones`);
+    
+    // If no parties found in sujetos, try extracting from actuacion annotations
+    if (!demandantes && !demandados && actuaciones.length > 0) {
+      const extractedParties = extractPartiesFromSamaiActuaciones(actuaciones);
+      if (extractedParties.accionantes.length > 0) {
+        demandantes = extractedParties.accionantes.join(', ');
+      }
+      if (extractedParties.accionados.length > 0) {
+        demandados = extractedParties.accionados.join(', ');
+      }
+      console.log(`[sync-by-radicado][SAMAI] Extracted parties from actuaciones: demandantes="${demandantes}", demandados="${demandados}"`);
+    }
+
+    // SAMAI uses 'origen' or 'corporacion' for the court/judge info
+    const despacho = (proceso.origen || proceso.corporacion || proceso.despacho || proceso.despacho_actual || proceso.ponente || '') as string;
+    
+    // Extract department from origen if possible (e.g., "CONSEJO DE ESTADO... DE BOGOTA D.C.")
+    let departamento = (proceso.departamento || '') as string;
+    if (!departamento && despacho) {
+      const deptMatch = despacho.match(/DE\s+([\w\s\.]+)$/i);
+      if (deptMatch) {
+        departamento = deptMatch[1].trim();
+      }
+    }
+    
+    // SAMAI date format for radicacion: may be DD/MM/YYYY or YYYY-MM-DD
+    const fechaRadicacion = (proceso.fechaRadicacion || proceso.fecha_radicado || proceso.fecha_radicacion || proceso.radicadoEl || '') as string;
+
+    // Map sujetos to required type
+    const mappedSujetos = sujetosSource.map(s => ({
+      tipo: s.tipo || '',
+      nombre: s.nombre || s.nombreRazonSocial || '',
+    }));
+
+    return {
+      ok: true,
+      found: true,
+      source: 'SAMAI',
+      processData: {
+        despacho,
+        ciudad: (proceso.ciudad || proceso.sede || extractCityFromDespacho(despacho)) as string,
+        departamento,
+        demandante: demandantes || (proceso.demandante as string) || (proceso.accionante as string) || '',
+        demandado: demandados || (proceso.demandado as string) || (proceso.accionado as string) || '',
+        tipo_proceso: (proceso.tipo_proceso || proceso.tipo || proceso.clase || 'PROCESO') as string,
+        clase_proceso: (proceso.clase_proceso || proceso.clase || proceso.subclase_proceso || proceso.subclase || '') as string,
+        fecha_radicacion: fechaRadicacion,
+        sujetos_procesales: mappedSujetos,
+        actuaciones,
+        total_actuaciones: (proceso.total_actuaciones as number) || actuaciones.length,
+      },
+      latency_ms: latency,
+      eventsFound: actuaciones.length,
+    };
 }
 
 /**
