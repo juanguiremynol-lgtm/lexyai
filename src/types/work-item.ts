@@ -63,6 +63,9 @@ export interface WorkItem {
   // External references
   expediente_url: string | null;
   sharepoint_url: string | null;
+  onedrive_url?: string | null;
+  acta_radicacion_url?: string | null;
+  auto_admisorio_url?: string | null;
   
   // Scraping/monitoring state
   scrape_status: 'NOT_ATTEMPTED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'PARTIAL_SUCCESS';

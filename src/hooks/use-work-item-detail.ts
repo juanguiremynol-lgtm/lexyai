@@ -46,6 +46,9 @@ interface WorkItemDetail {
   email_linking_enabled: boolean;
   expediente_url: string | null;
   sharepoint_url: string | null;
+  onedrive_url: string | null;
+  acta_radicacion_url: string | null;
+  auto_admisorio_url: string | null;
   scrape_status: string;
   last_checked_at: string | null;
   last_crawled_at: string | null;
