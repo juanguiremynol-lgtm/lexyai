@@ -275,7 +275,7 @@ async function syncOrganization(
         // Call sync-by-work-item function (CPNU/SAMAI actuaciones)
         const { data: syncResult, error: syncError } = await supabase.functions.invoke(
           "sync-by-work-item",
-          { body: { work_item_id: workItem.id } }
+          { body: { work_item_id: workItem.id, _scheduled: true } }
         );
 
         if (syncError) {

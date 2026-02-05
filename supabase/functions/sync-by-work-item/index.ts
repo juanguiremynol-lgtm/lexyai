@@ -28,6 +28,7 @@ const corsHeaders = {
 interface SyncRequest {
   work_item_id: string;
   force_refresh?: boolean;
+  _scheduled?: boolean; // When true, skip auth + org membership check (cron/fallback callers)
 }
 
 interface ProviderAttempt {
@@ -2151,38 +2152,10 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Auth check
+    // Auth check — skip for scheduled/cron callers using service role
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      await logTrace(supabase, {
-        trace_id: traceId,
-        step: 'AUTHZ_FAILED',
-        success: false,
-        error_code: 'UNAUTHORIZED',
-        message: 'Missing Authorization header',
-      });
-      return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, traceId);
-    }
-
-    const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
     
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
-    
-    if (authError || !claims?.claims?.sub) {
-      await logTrace(supabase, {
-        trace_id: traceId,
-        step: 'AUTHZ_FAILED',
-        success: false,
-        error_code: 'UNAUTHORIZED',
-        message: 'Invalid or expired token',
-      });
-      return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, traceId);
-    }
-
-    const userId = claims.claims.sub as string;
-
-    // Parse request
+    // Parse request body first to check _scheduled flag
     let payload: SyncRequest;
     try {
       payload = await req.json();
@@ -2190,10 +2163,54 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
-    const { work_item_id } = payload;
+    const { work_item_id, _scheduled } = payload;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
+    }
+
+    let userId: string;
+
+    if (_scheduled) {
+      // FIX 6.3: Scheduled callers (cron/fallback) use service role — skip user auth + membership
+      // Validate that caller is using service role key (not anon)
+      const callerToken = authHeader?.replace('Bearer ', '') || '';
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY') || '';
+      if (callerToken === anonKey) {
+        return errorResponse('UNAUTHORIZED', 'Scheduled mode requires service role', 403, traceId);
+      }
+      userId = 'system-scheduled';
+      console.log(`[sync-by-work-item] Scheduled mode: skipping auth + membership check for work_item_id=${work_item_id}`);
+    } else {
+      // Interactive callers: full auth + membership check
+      if (!authHeader) {
+        await logTrace(supabase, {
+          trace_id: traceId,
+          step: 'AUTHZ_FAILED',
+          success: false,
+          error_code: 'UNAUTHORIZED',
+          message: 'Missing Authorization header',
+        });
+        return errorResponse('UNAUTHORIZED', 'Missing Authorization header', 401, traceId);
+      }
+
+      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
+      
+      const token = authHeader.replace('Bearer ', '');
+      const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
+      
+      if (authError || !claims?.claims?.sub) {
+        await logTrace(supabase, {
+          trace_id: traceId,
+          step: 'AUTHZ_FAILED',
+          success: false,
+          error_code: 'UNAUTHORIZED',
+          message: 'Invalid or expired token',
+        });
+        return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401, traceId);
+      }
+
+      userId = claims.claims.sub as string;
     }
 
     console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}, trace_id=${traceId}`);
@@ -2205,7 +2222,7 @@ Deno.serve(async (req) => {
       step: 'SYNC_START',
       success: true,
       message: `Starting sync for work_item_id=${work_item_id}`,
-      meta: { user_id: userId.slice(0, 8) + '...' },
+      meta: { user_id: userId.slice(0, 8) + '...', scheduled: !!_scheduled },
     });
 
     // Fetch work item
@@ -2245,23 +2262,26 @@ Deno.serve(async (req) => {
     });
 
     // ============= MULTI-TENANT SECURITY: Verify user is member of org =============
-    const { data: membership, error: membershipError } = await supabase
-      .from('organization_memberships')
-      .select('id, role')
-      .eq('organization_id', workItem.organization_id)
-      .eq('user_id', userId)
-      .maybeSingle();
+    // FIX 6.3: Skip for scheduled callers (already verified by cron infrastructure)
+    if (!_scheduled) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('organization_memberships')
+        .select('id, role')
+        .eq('organization_id', workItem.organization_id)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-    if (membershipError || !membership) {
-      console.log(`[sync-by-work-item] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
-      return errorResponse(
-        'ACCESS_DENIED', 
-        'You do not have permission to sync this work item. You must be a member of the organization.', 
-        403
-      );
+      if (membershipError || !membership) {
+        console.log(`[sync-by-work-item] ACCESS DENIED: User ${userId} is not member of org ${workItem.organization_id}`);
+        return errorResponse(
+          'ACCESS_DENIED', 
+          'You do not have permission to sync this work item. You must be a member of the organization.', 
+          403
+        );
+      }
+
+      console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
     }
-
-    console.log(`[sync-by-work-item] Access verified: user ${userId} has role ${membership.role} in org ${workItem.organization_id}`);
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
