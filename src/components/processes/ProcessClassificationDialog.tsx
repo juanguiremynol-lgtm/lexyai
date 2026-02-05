@@ -18,7 +18,7 @@ import { useNavigate } from "react-router-dom";
 interface UnclassifiedProcess {
   id: string;
   radicado: string;
-  despacho_name: string | null;
+  authority_name: string | null;
   clients: { id: string; name: string } | null;
   monitoring_enabled: boolean;
 }
@@ -43,7 +43,7 @@ export function ProcessClassificationDialog({
   const handleConfirmMonitoring = async (processId: string) => {
     try {
       const { error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .update({ monitoring_enabled: true })
         .eq("id", processId);
 
@@ -70,7 +70,7 @@ export function ProcessClassificationDialog({
       }
 
       const { error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .update({ monitoring_enabled: true })
         .in("id", unconfirmedIds);
 
@@ -129,7 +129,7 @@ export function ProcessClassificationDialog({
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-1">
-                      {process.despacho_name || "Sin despacho asignado"}
+                      {process.authority_name || "Sin despacho asignado"}
                     </p>
                     {process.clients && (
                       <p className="text-xs text-muted-foreground">

@@ -2,10 +2,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { Mail, Paperclip, ExternalLink, ToggleLeft, ToggleRight } from "lucide-react";
+import { Mail, Paperclip } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,7 +15,7 @@ import type { InboundMessage, MessageLink, InboundAttachment } from "@/types/ema
 interface EntityEmailTabProps {
   entityType: EmailEntityType;
   entityId: string;
-  entityTable: "clients" | "filings" | "monitored_processes";
+  entityTable: "clients" | "work_items";
   emailLinkingEnabled: boolean;
 }
 

@@ -113,79 +113,43 @@ export function NewCGPFilingDialog({
 
       if (matterError) throw matterError;
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("sla_receipt_hours, sla_acta_days")
-        .eq("id", user.id)
-        .single();
-
-      const slaReceiptHours = profile?.sla_receipt_hours || 24;
-      const slaActaDays = profile?.sla_acta_days || 5;
-
       const sentAt = filingDate ? new Date(filingDate) : new Date();
-      const slaReceiptDueAt = new Date(sentAt.getTime() + slaReceiptHours * 60 * 60 * 1000);
-      const slaActaDueAt = new Date(sentAt.getTime() + slaActaDays * 24 * 60 * 60 * 1000);
 
-      let proofFilePath: string | null = null;
-      if (proofFile) {
-        setUploading(true);
-        const fileExt = proofFile.name.split('.').pop();
-        const fileName = `${user.id}/${matter.id}/proof_${Date.now()}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from("lexdocket")
-          .upload(fileName, proofFile);
-
-        if (uploadError) throw uploadError;
-        proofFilePath = fileName;
-        setUploading(false);
-      }
-
-      const { data: filing, error: filingError } = await supabase
-        .from("filings")
+      // Create a work_item instead of filing
+      const { data: workItem, error: workItemError } = await supabase
+        .from("work_items")
         .insert({
           owner_id: user.id,
           matter_id: matter.id,
           client_id: clientId,
-          filing_type: filingSubtype,
-          filing_method: filingMethod,
-          target_authority: targetAuthority || null,
+          workflow_type: "CGP",
+          stage: "FILING",
+          status: "ACTIVE",
+          source: "MANUAL",
+          title: `${filingSubtype} - ${demandantes || 'Demandante'}`,
           description: description || null,
           demandantes: demandantes || null,
           demandados: demandados || null,
-          proof_file_path: proofFilePath,
-          sent_at: sentAt.toISOString(),
-          sla_receipt_due_at: slaReceiptDueAt.toISOString(),
-          sla_acta_due_at: slaActaDueAt.toISOString(),
-          status: "SENT_TO_REPARTO",
+          authority_name: targetAuthority || null,
+          filing_date: sentAt.toISOString(),
+          monitoring_enabled: true,
         })
         .select()
         .single();
 
-      if (filingError) throw filingError;
-
-      await supabase.from("tasks").insert({
-        owner_id: user.id,
-        filing_id: filing.id,
-        title: `Confirmar recibo de ${filingSubtype}`,
-        type: "FOLLOW_UP_REPARTO",
-        due_at: slaReceiptDueAt.toISOString(),
-        auto_generated: true,
-      });
+      if (workItemError) throw workItemError;
 
       await supabase.from("alerts").insert({
         owner_id: user.id,
-        filing_id: filing.id,
         message: `Nueva demanda CGP creada: ${filingSubtype}. Objetivos pendientes: Número de radicado, Juzgado de conocimiento, Acceso a expediente electrónico.`,
         severity: "INFO",
       });
 
-      return filing;
+      return workItem;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["matters"] });
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       toast.success("Demanda CGP creada exitosamente");
       onOpenChange(false);

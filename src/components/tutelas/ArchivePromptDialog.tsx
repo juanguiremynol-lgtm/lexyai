@@ -20,7 +20,7 @@ interface ArchivePromptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   itemId: string | null;
-  itemType: "tutela" | "peticion" | "filing" | "process";
+  itemType: "tutela" | "peticion" | "filing" | "process" | "work_item";
   itemLabel: string;
   onDeleted?: () => void;
 }
@@ -40,37 +40,18 @@ export function ArchivePromptDialog({
       if (!itemId) return;
 
       if (itemType === "peticion") {
-        // Delete related alerts first
         await supabase.from("peticion_alerts").delete().eq("peticion_id", itemId);
-        // Delete peticion
         const { error } = await supabase.from("peticiones").delete().eq("id", itemId);
         if (error) throw error;
-      } else if (itemType === "tutela" || itemType === "filing") {
-        // Delete related data
-        await supabase.from("documents").delete().eq("filing_id", itemId);
-        await supabase.from("hearings").delete().eq("filing_id", itemId);
-        await supabase.from("emails").delete().eq("filing_id", itemId);
-        await supabase.from("process_events").delete().eq("filing_id", itemId);
-        await supabase.from("tasks").delete().eq("filing_id", itemId);
-        await supabase.from("alerts").delete().eq("filing_id", itemId);
-        // Delete filing
-        const { error } = await supabase.from("filings").delete().eq("id", itemId);
-        if (error) throw error;
-      } else if (itemType === "process") {
-        // Delete related data
-        await supabase.from("process_events").delete().eq("monitored_process_id", itemId);
-        await supabase.from("evidence_snapshots").delete().eq("monitored_process_id", itemId);
-        // Delete process
-        const { error } = await supabase.from("monitored_processes").delete().eq("id", itemId);
+      } else {
+        // For work_items (tutela, filing, process, work_item)
+        const { error } = await supabase.from("work_items").delete().eq("id", itemId);
         if (error) throw error;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      queryClient.invalidateQueries({ queryKey: ["monitored_processes"] });
-      queryClient.invalidateQueries({ queryKey: ["unified-pipeline"] });
       toast.success("Registro eliminado exitosamente");
       onOpenChange(false);
       onDeleted?.();
@@ -92,25 +73,18 @@ export function ArchivePromptDialog({
           .update({ updated_at: new Date().toISOString() })
           .eq("id", itemId);
         if (error) throw error;
-      } else if (itemType === "tutela" || itemType === "filing") {
+      } else {
+        // For work_items
         const { error } = await supabase
-          .from("filings")
-          .update({ last_reviewed_at: nextPromptDate.toISOString() })
-          .eq("id", itemId);
-        if (error) throw error;
-      } else if (itemType === "process") {
-        const { error } = await supabase
-          .from("monitored_processes")
-          .update({ last_reviewed_at: nextPromptDate.toISOString() })
+          .from("work_items")
+          .update({ updated_at: nextPromptDate.toISOString() })
           .eq("id", itemId);
         if (error) throw error;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      queryClient.invalidateQueries({ queryKey: ["monitored_processes"] });
       toast.success(`Recordatorio pospuesto ${ARCHIVE_PROMPT_INTERVAL_DAYS} días hábiles`);
       onOpenChange(false);
     },

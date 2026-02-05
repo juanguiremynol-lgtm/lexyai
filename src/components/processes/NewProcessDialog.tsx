@@ -55,9 +55,9 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // Check if process already exists
+      // Check if process already exists in work_items
       const { data: existing } = await supabase
-        .from('monitored_processes')
+        .from('work_items')
         .select('id, radicado')
         .eq('radicado', radicado)
         .maybeSingle();
@@ -120,7 +120,7 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
 
       // Check again for existing process
       const { data: existing } = await supabase
-        .from('monitored_processes')
+        .from('work_items')
         .select('id')
         .eq('radicado', radicado)
         .maybeSingle();
@@ -131,22 +131,23 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
         return;
       }
 
-      // Create the monitored process
+      // Create the work_item
       const cpnuVerified = verificationStatus === 'found' && cpnuResult !== null;
       
-      const { data: newProcess, error: insertError } = await supabase
-        .from('monitored_processes')
+      const { data: newWorkItem, error: insertError } = await supabase
+        .from('work_items')
         .insert({
           owner_id: user.id,
           radicado,
-          monitoring_enabled: true,
-          source: cpnuVerified ? 'CPNU' : 'MANUAL',
-          sources_enabled: ['CPNU'],
-          despacho_name: cpnuResult?.despacho || null,
+          workflow_type: "CGP",
+          stage: "PROCESS",
+          status: "ACTIVE",
+          source: cpnuVerified ? 'CRAWLER' : 'MANUAL',
+          authority_name: cpnuResult?.despacho || null,
           demandantes: cpnuResult?.demandante || null,
           demandados: cpnuResult?.demandado || null,
-          cpnu_confirmed: cpnuVerified,
-          cpnu_confirmed_at: cpnuVerified ? new Date().toISOString() : null,
+          radicado_verified: cpnuVerified,
+          monitoring_enabled: true,
         })
         .select()
         .single();
@@ -160,18 +161,6 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
         message: `Nuevo proceso creado: ${radicado}. Actualice la información completa importando desde ICARUS (Procesos y Estados).`,
       });
 
-      // Create task to update process info
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
-
-      await supabase.from('tasks').insert({
-        owner_id: user.id,
-        type: 'REVIEW_PROCESS',
-        title: `Actualizar información del proceso ${radicado.substring(0, 15)}...`,
-        due_at: dueDate.toISOString(),
-        metadata: { process_id: newProcess.id },
-      });
-
       toast.success("Proceso creado exitosamente");
       
       // Reset form
@@ -180,7 +169,7 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       setCpnuResult(null);
       setErrorMessage("");
       
-      onSuccess(newProcess.id);
+      onSuccess(newWorkItem.id);
     } catch (error: any) {
       console.error('Create process error:', error);
       toast.error(error.message || "Error al crear el proceso");

@@ -97,14 +97,15 @@ export function ProcessClientLink({
 
   const linkMutation = useMutation({
     mutationFn: async (clientId: string | null) => {
+      // Update work_items instead of monitored_processes
       const { error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .update({ client_id: clientId })
         .eq("id", processId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["unlinked-processes"] });
       setOpen(false);
       toast.success("Proceso vinculado al cliente");

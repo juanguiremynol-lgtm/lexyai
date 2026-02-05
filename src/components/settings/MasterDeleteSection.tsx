@@ -39,10 +39,9 @@ import {
   X
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 type DeleteMode = "all" | "pipeline" | "client" | "specific";
-type PipelineType = "cgp" | "cpaca" | "peticiones" | "tutelas" | "admin" | "work_items";
+type PipelineType = "work_items" | "cgp" | "cpaca" | "peticiones" | "tutelas" | "admin";
 
 const PIPELINE_OPTIONS: { value: PipelineType; label: string; icon: React.ElementType }[] = [
   { value: "work_items", label: "Work Items", icon: FileText },
@@ -63,7 +62,6 @@ export function MasterDeleteSection() {
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [specificItemId, setSpecificItemId] = useState("");
 
-  // Fetch clients for client-based deletion
   const { data: clients } = useQuery({
     queryKey: ["clients-for-deletion"],
     queryFn: async () => {
@@ -78,7 +76,6 @@ export function MasterDeleteSection() {
     },
   });
 
-  // Fetch counts for each pipeline
   const { data: counts } = useQuery({
     queryKey: ["deletion-counts"],
     queryFn: async () => {
@@ -87,11 +84,11 @@ export function MasterDeleteSection() {
 
       const [workItems, cgp, cpaca, peticiones, tutelas, admin] = await Promise.all([
         supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
-        supabase.from("cgp_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
+        supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id).eq("workflow_type", "CGP"),
         supabase.from("cpaca_processes").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
         supabase.from("peticiones").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id),
-        supabase.from("filings").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id).eq("filing_type", "TUTELA"),
-        supabase.from("monitored_processes").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id).eq("process_type", "ADMINISTRATIVE"),
+        supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id).eq("workflow_type", "TUTELA"),
+        supabase.from("work_items").select("id", { count: "exact", head: true }).eq("owner_id", user.user.id).eq("workflow_type", "GOV_PROCEDURE"),
       ]);
 
       return {
@@ -107,7 +104,7 @@ export function MasterDeleteSection() {
 
   const totalCount = useMemo(() => {
     if (!counts) return 0;
-    return counts.work_items + counts.cgp + counts.cpaca + counts.peticiones + counts.tutelas + counts.admin;
+    return counts.work_items;
   }, [counts]);
 
   const getRequiredText = () => {
@@ -131,83 +128,30 @@ export function MasterDeleteSection() {
       let idsToDelete: string[] = [];
 
       if (deleteMode === "all") {
-        // Fetch all IDs from all tables
-        const [workItems, cgp, peticiones, processes, cpaca, filings] = await Promise.all([
-          supabase.from("work_items").select("id").eq("owner_id", user.id),
-          supabase.from("cgp_items").select("id").eq("owner_id", user.id),
-          supabase.from("peticiones").select("id").eq("owner_id", user.id),
-          supabase.from("monitored_processes").select("id").eq("owner_id", user.id),
-          supabase.from("cpaca_processes").select("id").eq("owner_id", user.id),
-          supabase.from("filings").select("id").eq("owner_id", user.id),
-        ]);
-
-        idsToDelete = [
-          ...(workItems.data || []).map(w => w.id),
-          ...(cgp.data || []).map(c => c.id),
-          ...(peticiones.data || []).map(p => p.id),
-          ...(processes.data || []).map(p => p.id),
-          ...(cpaca.data || []).map(c => c.id),
-          ...(filings.data || []).map(f => f.id),
-        ];
+        const { data: workItems } = await supabase.from("work_items").select("id").eq("owner_id", user.id);
+        idsToDelete = (workItems || []).map(w => w.id);
       } else if (deleteMode === "pipeline") {
+        let query = supabase.from("work_items").select("id").eq("owner_id", user.id);
+        
         switch (selectedPipeline) {
-          case "work_items": {
-            const { data } = await supabase.from("work_items").select("id").eq("owner_id", user.id);
-            idsToDelete = (data || []).map(w => w.id);
-            break;
-          }
-          case "cgp": {
-            const { data } = await supabase.from("cgp_items").select("id").eq("owner_id", user.id);
-            idsToDelete = (data || []).map(c => c.id);
-            break;
-          }
-          case "cpaca": {
-            const { data } = await supabase.from("cpaca_processes").select("id").eq("owner_id", user.id);
-            idsToDelete = (data || []).map(c => c.id);
-            break;
-          }
-          case "peticiones": {
-            const { data } = await supabase.from("peticiones").select("id").eq("owner_id", user.id);
-            idsToDelete = (data || []).map(p => p.id);
-            break;
-          }
-          case "tutelas": {
-            const { data } = await supabase.from("filings").select("id").eq("owner_id", user.id).eq("filing_type", "TUTELA");
-            idsToDelete = (data || []).map(f => f.id);
-            break;
-          }
-          case "admin": {
-            const { data } = await supabase.from("monitored_processes").select("id").eq("owner_id", user.id).eq("process_type", "ADMINISTRATIVE");
-            idsToDelete = (data || []).map(p => p.id);
-            break;
-          }
+          case "cgp": query = query.eq("workflow_type", "CGP"); break;
+          case "tutelas": query = query.eq("workflow_type", "TUTELA"); break;
+          case "admin": query = query.eq("workflow_type", "GOV_PROCEDURE"); break;
+          case "cpaca": query = query.eq("workflow_type", "CPACA"); break;
+          case "peticiones": query = query.eq("workflow_type", "PETICION"); break;
         }
+        
+        const { data } = await query;
+        idsToDelete = (data || []).map(w => w.id);
       } else if (deleteMode === "client" && selectedClientId) {
-        // Get all items linked to this client
-        const [workItems, cgp, cpaca, peticiones, filings] = await Promise.all([
-          supabase.from("work_items").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId),
-          supabase.from("cgp_items").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId),
-          supabase.from("cpaca_processes").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId),
-          supabase.from("peticiones").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId),
-          supabase.from("filings").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId),
-        ]);
-
-        idsToDelete = [
-          ...(workItems.data || []).map(w => w.id),
-          ...(cgp.data || []).map(c => c.id),
-          ...(cpaca.data || []).map(c => c.id),
-          ...(peticiones.data || []).map(p => p.id),
-          ...(filings.data || []).map(f => f.id),
-        ];
+        const { data } = await supabase.from("work_items").select("id").eq("owner_id", user.id).eq("client_id", selectedClientId);
+        idsToDelete = (data || []).map(w => w.id);
       } else if (deleteMode === "specific" && specificItemId.trim()) {
         idsToDelete = [specificItemId.trim()];
       }
 
-      if (idsToDelete.length === 0) {
-        return { deleted_count: 0 };
-      }
+      if (idsToDelete.length === 0) return { deleted_count: 0 };
 
-      // Call the delete edge function
       const { data, error } = await supabase.functions.invoke("delete-work-items", {
         body: { work_item_ids: idsToDelete, mode: "HARD_DELETE" },
       });
@@ -220,8 +164,7 @@ export function MasterDeleteSection() {
       setDialogOpen(false);
       setUnderstood(false);
       setConfirmText("");
-      setSpecificItemId("");
-      toast.success(`Se eliminaron ${result?.deleted_count || 0} elementos y todos sus datos asociados`);
+      toast.success(`Se eliminaron ${result?.deleted_count || 0} elementos`);
     },
     onError: (error: Error) => {
       toast.error(`Error al eliminar: ${error.message}`);
@@ -229,26 +172,8 @@ export function MasterDeleteSection() {
   });
 
   const handleClose = (open: boolean) => {
-    if (!open) {
-      setUnderstood(false);
-      setConfirmText("");
-    }
+    if (!open) { setUnderstood(false); setConfirmText(""); }
     setDialogOpen(open);
-  };
-
-  const getDeleteDescription = () => {
-    switch (deleteMode) {
-      case "all":
-        return `Esta acción eliminará TODOS los ${totalCount} elementos de tu cuenta.`;
-      case "pipeline":
-        return `Eliminar todos los elementos de ${PIPELINE_OPTIONS.find(p => p.value === selectedPipeline)?.label} (${counts?.[selectedPipeline] || 0} elementos).`;
-      case "client":
-        return `Eliminar todos los asuntos vinculados al cliente seleccionado.`;
-      case "specific":
-        return `Eliminar un elemento específico por su ID.`;
-      default:
-        return "";
-    }
   };
 
   return (
@@ -258,239 +183,100 @@ export function MasterDeleteSection() {
           <AlertTriangle className="h-5 w-5" />
           Zona de Peligro
         </CardTitle>
-        <CardDescription>
-          Acciones irreversibles que afectan tus datos. Selecciona qué deseas eliminar.
-        </CardDescription>
+        <CardDescription>Acciones irreversibles que afectan tus datos.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Mode selector */}
         <div className="space-y-4">
           <Label className="text-base font-medium">Tipo de eliminación</Label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Button
-              variant={deleteMode === "all" ? "destructive" : "outline"}
-              size="sm"
-              onClick={() => setDeleteMode("all")}
-              className="justify-start"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Todo
-            </Button>
-            <Button
-              variant={deleteMode === "pipeline" ? "destructive" : "outline"}
-              size="sm"
-              onClick={() => setDeleteMode("pipeline")}
-              className="justify-start"
-            >
-              <Scale className="h-4 w-4 mr-2" />
-              Por pipeline
-            </Button>
-            <Button
-              variant={deleteMode === "client" ? "destructive" : "outline"}
-              size="sm"
-              onClick={() => setDeleteMode("client")}
-              className="justify-start"
-            >
-              <Users className="h-4 w-4 mr-2" />
-              Por cliente
-            </Button>
-            <Button
-              variant={deleteMode === "specific" ? "destructive" : "outline"}
-              size="sm"
-              onClick={() => setDeleteMode("specific")}
-              className="justify-start"
-            >
-              <Search className="h-4 w-4 mr-2" />
-              Específico
-            </Button>
+            {[
+              { mode: "all" as DeleteMode, icon: Trash2, label: "Todo" },
+              { mode: "pipeline" as DeleteMode, icon: Scale, label: "Por pipeline" },
+              { mode: "client" as DeleteMode, icon: Users, label: "Por cliente" },
+              { mode: "specific" as DeleteMode, icon: Search, label: "Específico" },
+            ].map(({ mode, icon: Icon, label }) => (
+              <Button
+                key={mode}
+                variant={deleteMode === mode ? "destructive" : "outline"}
+                size="sm"
+                onClick={() => setDeleteMode(mode)}
+                className="justify-start"
+              >
+                <Icon className="h-4 w-4 mr-2" />
+                {label}
+              </Button>
+            ))}
           </div>
         </div>
 
         <Separator />
 
-        {/* Conditional options based on mode */}
         {deleteMode === "pipeline" && (
-          <div className="space-y-3">
-            <Label>Seleccionar pipeline</Label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {PIPELINE_OPTIONS.map((option) => {
-                const Icon = option.icon;
-                const count = counts?.[option.value] || 0;
-                return (
-                  <Button
-                    key={option.value}
-                    variant={selectedPipeline === option.value ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedPipeline(option.value)}
-                    className="justify-between"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Icon className="h-4 w-4" />
-                      {option.label}
-                    </span>
-                    <Badge variant="secondary" className="ml-2">
-                      {count}
-                    </Badge>
-                  </Button>
-                );
-              })}
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {PIPELINE_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              return (
+                <Button
+                  key={option.value}
+                  variant={selectedPipeline === option.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedPipeline(option.value)}
+                  className="justify-between"
+                >
+                  <span className="flex items-center gap-2"><Icon className="h-4 w-4" />{option.label}</span>
+                  <Badge variant="secondary">{counts?.[option.value] || 0}</Badge>
+                </Button>
+              );
+            })}
           </div>
         )}
 
         {deleteMode === "client" && (
-          <div className="space-y-3">
-            <Label>Seleccionar cliente</Label>
-            <Select value={selectedClientId} onValueChange={setSelectedClientId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un cliente..." />
-              </SelectTrigger>
-              <SelectContent>
-                {clients?.map((client) => (
-                  <SelectItem key={client.id} value={client.id}>
-                    {client.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {clients?.length === 0 && (
-              <p className="text-sm text-muted-foreground">No hay clientes registrados.</p>
-            )}
-          </div>
+          <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+            <SelectTrigger><SelectValue placeholder="Selecciona un cliente..." /></SelectTrigger>
+            <SelectContent>
+              {clients?.map((client) => (
+                <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
 
         {deleteMode === "specific" && (
-          <div className="space-y-3">
-            <Label>ID del elemento</Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Pegar UUID del elemento..."
-                value={specificItemId}
-                onChange={(e) => setSpecificItemId(e.target.value)}
-                className="font-mono text-sm"
-              />
-              {specificItemId && (
-                <Button variant="ghost" size="icon" onClick={() => setSpecificItemId("")}>
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Puedes encontrar el ID en la URL cuando abres el detalle del elemento.
-            </p>
+          <div className="flex gap-2">
+            <Input placeholder="UUID del elemento..." value={specificItemId} onChange={(e) => setSpecificItemId(e.target.value)} className="font-mono text-sm" />
+            {specificItemId && <Button variant="ghost" size="icon" onClick={() => setSpecificItemId("")}><X className="h-4 w-4" /></Button>}
           </div>
         )}
 
-        {/* Summary of what will be deleted */}
-        <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
-          <p className="text-sm text-muted-foreground">
-            {getDeleteDescription()}
-          </p>
-        </div>
-
-        {/* Delete button */}
         <AlertDialog open={dialogOpen} onOpenChange={handleClose}>
           <AlertDialogTrigger asChild>
-            <Button 
-              variant="destructive" 
-              className="w-full sm:w-auto"
-              disabled={
-                (deleteMode === "client" && !selectedClientId) ||
-                (deleteMode === "specific" && !specificItemId.trim())
-              }
-            >
+            <Button variant="destructive" disabled={(deleteMode === "client" && !selectedClientId) || (deleteMode === "specific" && !specificItemId.trim())}>
               <Trash2 className="h-4 w-4 mr-2" />
-              {deleteMode === "all" ? "Eliminar todos mis datos" : "Eliminar seleccionados"}
+              Eliminar
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="max-w-md">
+          <AlertDialogContent>
             <AlertDialogHeader>
-              <div className="flex items-center gap-3 text-destructive">
-                <div className="h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
-                  <AlertTriangle className="h-6 w-6" />
-                </div>
-                <AlertDialogTitle className="text-xl">
-                  Confirmar eliminación
-                </AlertDialogTitle>
-              </div>
-              <AlertDialogDescription asChild>
-                <div className="space-y-4 pt-4">
-                  <p className="text-base">
-                    {getDeleteDescription()}
-                  </p>
-
-                  <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4 space-y-2">
-                    <p className="font-medium text-destructive text-sm">
-                      Esta acción eliminará permanentemente:
-                    </p>
-                    <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                      <li>Todos los datos asociados (documentos, alertas, tareas)</li>
-                      <li>Archivos almacenados en la nube</li>
-                      <li>Historial de actuaciones y eventos</li>
-                      <li>Términos, plazos y recordatorios</li>
-                    </ul>
+              <AlertDialogTitle>Confirmar eliminación</AlertDialogTitle>
+              <AlertDialogDescription>
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3 pt-4">
+                    <Checkbox id="understand" checked={understood} onCheckedChange={(c) => setUnderstood(c === true)} />
+                    <Label htmlFor="understand">Entiendo que esta acción es irreversible</Label>
                   </div>
-
-                  <div className="space-y-4 pt-2">
-                    <div className="flex items-start space-x-3">
-                      <Checkbox
-                        id="master-understand"
-                        checked={understood}
-                        onCheckedChange={(checked) => setUnderstood(checked === true)}
-                        disabled={deleteMutation.isPending}
-                      />
-                      <Label
-                        htmlFor="master-understand"
-                        className="text-sm font-normal cursor-pointer leading-relaxed"
-                      >
-                        Entiendo que esta acción es <strong>permanente e irreversible</strong>
-                      </Label>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="master-confirm-text" className="text-sm">
-                        Escribe{" "}
-                        <code className="bg-muted px-1.5 py-0.5 rounded text-destructive font-mono font-bold">
-                          {requiredText}
-                        </code>{" "}
-                        para confirmar:
-                      </Label>
-                      <Input
-                        id="master-confirm-text"
-                        value={confirmText}
-                        onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
-                        placeholder={requiredText}
-                        disabled={deleteMutation.isPending}
-                        className={cn(
-                          "font-mono text-center text-lg",
-                          confirmText === requiredText && "border-destructive focus-visible:ring-destructive"
-                        )}
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Escriba "{requiredText}" para confirmar:</Label>
+                    <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
                   </div>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="mt-4">
-              <AlertDialogCancel disabled={deleteMutation.isPending}>
-                Cancelar
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => deleteMutation.mutate()}
-                disabled={!isValid || deleteMutation.isPending}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {deleteMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Eliminando...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Confirmar eliminación
-                  </>
-                )}
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => deleteMutation.mutate()} disabled={!isValid || deleteMutation.isPending} className="bg-destructive">
+                {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Eliminar
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

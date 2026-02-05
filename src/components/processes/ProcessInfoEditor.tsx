@@ -61,7 +61,6 @@ export function ProcessInfoEditor({
   totalSujetosProcessales,
   lastActionDate,
   scrapedFields,
-  sourcePayload,
   onUpdate,
 }: ProcessInfoEditorProps) {
   const queryClient = useQueryClient();
@@ -82,14 +81,15 @@ export function ProcessInfoEditor({
 
   const updateProcess = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
+      // Update work_items instead of monitored_processes
       const { error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .update(updates)
         .eq("id", processId);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["monitored-process", processId] });
+      queryClient.invalidateQueries({ queryKey: ["work-item", processId] });
       toast.success("Proceso actualizado");
       onUpdate?.();
     },
@@ -109,10 +109,9 @@ export function ProcessInfoEditor({
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     updateProcess.mutate({
-      despacho_name: form.get("despacho_name") as string,
-      juez_ponente: form.get("juez_ponente") as string,
-      department: form.get("department") as string,
-      municipality: form.get("municipality") as string,
+      authority_name: form.get("despacho_name") as string,
+      authority_department: form.get("department") as string,
+      authority_city: form.get("municipality") as string,
     });
   };
 
