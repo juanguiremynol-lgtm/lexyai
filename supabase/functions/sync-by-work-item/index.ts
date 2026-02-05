@@ -450,12 +450,29 @@ function isValidTutelaCode(code: string): boolean {
 }
 
 function isValidRadicado(radicado: string): boolean {
-  const normalized = radicado.replace(/\D/g, '');
+  const normalized = normalizeRadicado(radicado);
   return normalized.length === 23;
 }
 
+/**
+ * Normalize radicado input:
+ * - Trims whitespace
+ * - If starts with 'T' (tutela code), keeps the 'T' prefix and removes spaces
+ * - Otherwise removes all non-digits (spaces, hyphens, etc.)
+ * This is used for all external API calls while preserving original in DB.
+ */
 function normalizeRadicado(radicado: string): string {
-  return radicado.replace(/\D/g, '');
+  if (!radicado) return '';
+  const trimmed = radicado.trim();
+  
+  // Tutela codes start with T followed by digits (e.g., T1234567)
+  if (/^[Tt]\d/.test(trimmed)) {
+    // Keep the T prefix, remove spaces but keep the structure
+    return trimmed.toUpperCase().replace(/\s+/g, '');
+  }
+  
+  // Standard radicado: remove all non-digits
+  return trimmed.replace(/\D/g, '');
 }
 
 /**

@@ -133,6 +133,25 @@ function errorResponse(code: string, message: string, status: number = 400): Res
 }
 
 /**
+ * Normalize radicado input:
+ * - Trims whitespace
+ * - If starts with 'T' (tutela code), keeps the 'T' prefix and removes spaces
+ * - Otherwise removes all non-digits (spaces, hyphens, etc.)
+ */
+function normalizeRadicado(radicado: string): string {
+  if (!radicado) return '';
+  const trimmed = radicado.trim();
+  
+  // Tutela codes start with T followed by digits (e.g., T1234567)
+  if (/^[Tt]\d/.test(trimmed)) {
+    return trimmed.toUpperCase().replace(/\s+/g, '');
+  }
+  
+  // Standard radicado: remove all non-digits
+  return trimmed.replace(/\D/g, '');
+}
+
+/**
  * Validate and normalize radicado input
  */
 function validateRadicado(radicado: string, workflowType?: string): { 
@@ -150,7 +169,7 @@ function validateRadicado(radicado: string, workflowType?: string): {
     };
   }
   
-  const normalized = radicado.replace(/\D/g, '');
+  const normalized = normalizeRadicado(radicado);
   
   if (normalized.length === 0) {
     return { 
@@ -159,6 +178,11 @@ function validateRadicado(radicado: string, workflowType?: string): {
       error: 'El radicado no contiene dígitos válidos',
       errorCode: 'INVALID_CHARS',
     };
+  }
+  
+  // Tutela codes have a different format (T followed by digits)
+  if (workflowType === 'TUTELA' && /^T\d+$/.test(normalized)) {
+    return { valid: true, normalized };
   }
   
   if (normalized.length !== 23) {
@@ -353,6 +377,72 @@ async function fetchFromCpnu(
 }
 
 /**
+ * Helper to build SAMAI result from proceso data
+ */
+function buildSamaiResult(
+  proceso: Record<string, unknown>,
+  sujetos: Array<{ tipo: string; nombre: string }>,
+  rawActuaciones: Array<Record<string, unknown>>,
+  latencyMs: number
+): ProviderResult {
+  let demandantes = '';
+  let demandados = '';
+  
+  if (Array.isArray(sujetos) && sujetos.length > 0) {
+    const demandantesList = sujetos
+      .filter((s) => {
+        const tipo = (s.tipo || '').toLowerCase();
+        return tipo.includes('demandante') || 
+               tipo.includes('actor') ||
+               tipo.includes('accionante') ||
+               tipo.includes('ofendido') ||
+               tipo.includes('tutelante');
+      })
+      .map((s) => s.nombre)
+      .filter(Boolean);
+    const demandadosList = sujetos
+      .filter((s) => {
+        const tipo = (s.tipo || '').toLowerCase();
+        return tipo.includes('demandado') ||
+               tipo.includes('accionado') ||
+               tipo.includes('procesado');
+      })
+      .map((s) => s.nombre)
+      .filter(Boolean);
+    
+    if (demandantesList.length) demandantes = demandantesList.join(' | ');
+    if (demandadosList.length) demandados = demandadosList.join(' | ');
+  }
+  
+  const actuaciones = rawActuaciones.map((act) => ({
+    fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
+    actuacion: String(act.actuacion || act.tipo_actuacion || ''),
+    anotacion: String(act.anotacion || act.descripcion || ''),
+  }));
+  
+  return {
+    ok: true,
+    found: true,
+    source: 'SAMAI',
+    processData: {
+      despacho: (proceso.despacho || proceso.corporacion || proceso.corporacionNombre || proceso.despacho_actual) as string,
+      ciudad: (proceso.ciudad || proceso.sede) as string,
+      departamento: proceso.departamento as string,
+      demandante: demandantes || (proceso.demandante as string),
+      demandado: demandados || (proceso.demandado as string),
+      tipo_proceso: (proceso.tipo_proceso || proceso.tipo) as string,
+      clase_proceso: (proceso.clase_proceso || proceso.clase || proceso.subclase_proceso) as string,
+      fecha_radicacion: (proceso.fecha_radicado || proceso.fecha_radicacion) as string,
+      sujetos_procesales: sujetos,
+      actuaciones,
+      total_actuaciones: (proceso.total_actuaciones as number) || actuaciones.length,
+    },
+    latency_ms: latencyMs,
+    eventsFound: actuaciones.length,
+  };
+}
+
+/**
  * Fetch from SAMAI Cloud Run service
  */
 async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
@@ -388,15 +478,49 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
     const latency = Date.now() - startTime;
 
     if (!response.ok) {
-      // Check if it's a 404 (not found) vs other errors
+      // For 404, try /buscar endpoint as fallback (SAMAI may require scraping trigger)
       if (response.status === 404) {
+        console.log(`[sync-by-radicado] SAMAI /snapshot returned 404, trying /buscar fallback`);
+        
+        try {
+          const buscarUrl = `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`;
+          const buscarResponse = await fetch(buscarUrl, {
+            method: 'GET',
+            headers: {
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (buscarResponse.ok) {
+            const buscarData = await buscarResponse.json();
+            // /buscar may return cached data directly if available
+            const proceso = buscarData.result || buscarData.data || buscarData;
+            const actuaciones = proceso.actuaciones ?? [];
+            
+            if (actuaciones.length > 0) {
+              console.log(`[sync-by-radicado] SAMAI /buscar returned ${actuaciones.length} cached actuaciones`);
+              // Return this data - continue processing below
+              const sujetos = proceso.sujetos_procesales ?? proceso.sujetos ?? [];
+              return buildSamaiResult(proceso, sujetos, actuaciones, Date.now() - startTime);
+            }
+            
+            // /buscar returned jobId for async scraping - we can't wait for it in lookup mode
+            if (buscarData.jobId || buscarData.job_id) {
+              console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job, data not immediately available`);
+            }
+          }
+        } catch (buscarErr) {
+          console.warn(`[sync-by-radicado] SAMAI /buscar fallback failed:`, buscarErr);
+        }
+        
         return {
           ok: true,
           found: false,
           source: 'SAMAI',
           processData: {},
-          latency_ms: latency,
-          error: 'Record not found in SAMAI',
+          latency_ms: Date.now() - startTime,
+          error: 'Record not found in SAMAI (tried /snapshot and /buscar)',
         };
       }
       return {
@@ -404,15 +528,17 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: latency,
+        latency_ms: Date.now() - startTime,
         error: `SAMAI returned ${response.status}`,
       };
     }
 
     const result = await response.json();
     
-    // Check if SAMAI returned data
-    if (!result.data && !result.proceso) {
+    // Check if SAMAI returned data - SAMAI may wrap in "result" key
+    const proceso = result.result || result.data || result.proceso || result;
+    
+    if (!proceso || (Object.keys(proceso).length === 0)) {
       return {
         ok: true,
         found: false,
@@ -423,36 +549,45 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       };
     }
 
-    const proceso = result.data || result.proceso || result;
-
-    // Extract parties from sujetos_procesales
+    // Extract parties from sujetos_procesales OR sujetos (SAMAI uses both field names)
+    const sujetos = proceso.sujetos_procesales ?? proceso.sujetos ?? [];
     let demandantes = '';
     let demandados = '';
     
-    if (proceso.sujetos_procesales?.length > 0) {
-      const demandantesList = proceso.sujetos_procesales
-        .filter((s: { tipo: string }) => 
-          s.tipo?.toLowerCase().includes('demandante') || 
-          s.tipo?.toLowerCase().includes('actor') ||
-          s.tipo?.toLowerCase().includes('accionante')
-        )
-        .map((s: { nombre: string }) => s.nombre);
-      const demandadosList = proceso.sujetos_procesales
-        .filter((s: { tipo: string }) => 
-          s.tipo?.toLowerCase().includes('demandado') ||
-          s.tipo?.toLowerCase().includes('accionado')
-        )
-        .map((s: { nombre: string }) => s.nombre);
+    if (Array.isArray(sujetos) && sujetos.length > 0) {
+      const demandantesList = sujetos
+        .filter((s: { tipo: string }) => {
+          const tipo = (s.tipo || '').toLowerCase();
+          return tipo.includes('demandante') || 
+                 tipo.includes('actor') ||
+                 tipo.includes('accionante') ||
+                 tipo.includes('ofendido') ||
+                 tipo.includes('tutelante');
+        })
+        .map((s: { nombre: string }) => s.nombre)
+        .filter(Boolean);
+      const demandadosList = sujetos
+        .filter((s: { tipo: string }) => {
+          const tipo = (s.tipo || '').toLowerCase();
+          return tipo.includes('demandado') ||
+                 tipo.includes('accionado') ||
+                 tipo.includes('procesado');
+        })
+        .map((s: { nombre: string }) => s.nombre)
+        .filter(Boolean);
       
-      if (demandantesList.length) demandantes = demandantesList.join(', ');
-      if (demandadosList.length) demandados = demandadosList.join(', ');
+      if (demandantesList.length) demandantes = demandantesList.join(' | ');
+      if (demandadosList.length) demandados = demandadosList.join(' | ');
     }
 
     // Normalize actuaciones from SAMAI format
-    const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
-      fecha: (act.fecha_actuacion || act.fecha || act.fecha_registro || '') as string,
-      actuacion: (act.actuacion || act.anotacion || act.tipo_actuacion || '') as string,
-      anotacion: (act.anotacion || act.descripcion || '') as string,
+    // CRITICAL: SAMAI uses fechaActuacion (not fecha), and actuaciones may have different field names
+    const rawActuaciones = proceso.actuaciones ?? [];
+    const actuaciones = rawActuaciones.map((act: Record<string, unknown>) => ({
+      // SAMAI uses fechaActuacion, fallback to other possible names
+      fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
+      actuacion: String(act.actuacion || act.tipo_actuacion || ''),
+      anotacion: String(act.anotacion || act.descripcion || ''),
     }));
 
     return {
@@ -485,6 +620,37 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
       error: err instanceof Error ? err.message : 'SAMAI fetch failed',
     };
   }
+}
+
+/**
+ * Helper to build TUTELAS result from proceso data
+ */
+function buildTutelasResult(proceso: Record<string, unknown>, latencyMs: number): ProviderResult {
+  const actuaciones = (proceso.actuaciones || proceso.eventos || []) as Array<Record<string, unknown>>;
+  const mappedActuaciones = actuaciones.map((act) => ({
+    fecha: String(act.fecha_actuacion || act.fecha || ''),
+    actuacion: String(act.actuacion || act.descripcion || act.tipo || ''),
+    anotacion: String(act.anotacion || act.detalle || ''),
+  }));
+  
+  return {
+    ok: true,
+    found: true,
+    source: 'TUTELAS',
+    processData: {
+      despacho: (proceso.despacho || proceso.juzgado) as string,
+      ciudad: proceso.ciudad as string,
+      departamento: proceso.departamento as string,
+      demandante: (proceso.accionante || proceso.demandante || proceso.tutelante) as string,
+      demandado: (proceso.accionado || proceso.demandado) as string,
+      tipo_proceso: 'TUTELA',
+      fecha_radicacion: proceso.fecha_radicacion as string,
+      actuaciones: mappedActuaciones,
+      total_actuaciones: mappedActuaciones.length,
+    },
+    latency_ms: latencyMs,
+    eventsFound: mappedActuaciones.length,
+  };
 }
 
 /**
@@ -524,6 +690,20 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
     const latency = Date.now() - startTime;
 
     if (!response.ok) {
+      // Handle 422 Unprocessable Entity (usually means malformed body)
+      if (response.status === 422) {
+        const errorBody = await response.text();
+        console.error(`[sync-by-radicado] TUTELAS 422 error - check body format: ${errorBody}`);
+        return {
+          ok: false,
+          found: false,
+          source: 'TUTELAS',
+          processData: {},
+          latency_ms: latency,
+          error: `TUTELAS validation error (422): ${errorBody.slice(0, 200)}`,
+        };
+      }
+      
       if (response.status === 404) {
         return {
           ok: true,
@@ -546,7 +726,66 @@ async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
 
     const result = await response.json();
     
-    if (!result.data && !result.proceso && !result.tutela) {
+    // Check if this is an async job response (status: "pending", job_id present)
+    if ((result.status === 'pending' || result.status === 'processing') && (result.job_id || result.jobId)) {
+      const jobId = result.job_id || result.jobId;
+      console.log(`[sync-by-radicado] TUTELAS initiated async job: ${jobId}. Polling for result...`);
+      
+      // Poll for result using GET /job/{job_id}
+      const maxAttempts = 10;
+      const pollInterval = 3000; // 3 seconds
+      
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        
+        try {
+          const pollUrl = `${tutelasBaseUrl}/job/${jobId}`;
+          console.log(`[sync-by-radicado] TUTELAS poll ${attempt}/${maxAttempts}: ${pollUrl}`);
+          
+          const pollResponse = await fetch(pollUrl, {
+            method: 'GET',
+            headers: {
+              'x-api-key': apiKey,
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (pollResponse.ok) {
+            const pollResult = await pollResponse.json();
+            const pollStatus = String(pollResult.status || '').toLowerCase();
+            
+            if (['done', 'completed', 'success', 'finished'].includes(pollStatus)) {
+              console.log(`[sync-by-radicado] TUTELAS job completed!`);
+              // Extract data and continue processing below
+              const proceso = pollResult.result || pollResult.data || pollResult;
+              if (proceso && (proceso.actuaciones || proceso.eventos)) {
+                return buildTutelasResult(proceso, Date.now() - startTime);
+              }
+            }
+            
+            if (['failed', 'error'].includes(pollStatus)) {
+              console.log(`[sync-by-radicado] TUTELAS job failed: ${pollResult.error || 'Unknown error'}`);
+              break;
+            }
+          }
+        } catch (pollErr) {
+          console.warn(`[sync-by-radicado] TUTELAS poll error:`, pollErr);
+        }
+      }
+      
+      // Timeout or failure
+      return {
+        ok: false,
+        found: false,
+        source: 'TUTELAS',
+        processData: {},
+        latency_ms: Date.now() - startTime,
+        error: 'TUTELAS scraping job did not complete in time',
+      };
+    }
+    
+    // Direct response with data
+    if (!result.data && !result.proceso && !result.tutela && !result.actuaciones) {
       return {
         ok: true,
         found: false,
