@@ -15,11 +15,6 @@ interface PurgeResult {
   message: string;
   deleted_counts: {
     work_items: number;
-    cgp_items: number;
-    peticiones: number;
-    cpaca_processes: number;
-    monitored_processes: number;
-    filings: number;
     process_events: number;
     actuaciones: number;
     documents: number;
@@ -99,11 +94,6 @@ Deno.serve(async (req) => {
       message: "",
       deleted_counts: {
         work_items: 0,
-        cgp_items: 0,
-        peticiones: 0,
-        cpaca_processes: 0,
-        monitored_processes: 0,
-        filings: 0,
         process_events: 0,
         actuaciones: 0,
         documents: 0,
@@ -115,42 +105,18 @@ Deno.serve(async (req) => {
       errors: [],
     };
 
-    // 6. Collect all IDs to delete from all tables
+    // 6. Collect all IDs to delete from work_items table only
     const [
       workItemsRes,
-      cgpItemsRes,
-      peticionesRes,
-      cpacaRes,
-      processesRes,
-      filingsRes,
     ] = await Promise.all([
       serviceClient.from("work_items").select("id").eq("owner_id", user.id),
-      serviceClient.from("cgp_items").select("id").eq("owner_id", user.id),
-      serviceClient.from("peticiones").select("id").eq("owner_id", user.id),
-      serviceClient.from("cpaca_processes").select("id").eq("owner_id", user.id),
-      serviceClient.from("monitored_processes").select("id").eq("owner_id", user.id),
-      serviceClient.from("filings").select("id").eq("owner_id", user.id),
     ]);
 
     const workItemIds = (workItemsRes.data || []).map(r => r.id);
-    const cgpItemIds = (cgpItemsRes.data || []).map(r => r.id);
-    const peticionIds = (peticionesRes.data || []).map(r => r.id);
-    const cpacaIds = (cpacaRes.data || []).map(r => r.id);
-    const processIds = (processesRes.data || []).map(r => r.id);
-    const filingIds = (filingsRes.data || []).map(r => r.id);
 
-    const allIds = [...new Set([
-      ...workItemIds,
-      ...cgpItemIds,
-      ...peticionIds,
-      ...cpacaIds,
-      ...processIds,
-      ...filingIds,
-    ])];
+    console.log(`[purge-org] Found ${workItemIds.length} work items to delete`);
 
-    console.log(`[purge-org] Found ${allIds.length} total entities to delete`);
-
-    // 7. Delete all dependent data first (order matters for FK constraints)
+    // 7. Delete all dependent data first (work_items is canonical, so FK order matters)
     
     // Delete work_item_acts
     if (workItemIds.length > 0) {
@@ -168,65 +134,45 @@ Deno.serve(async (req) => {
       result.deleted_counts.process_events += (res1.data?.length || 0);
       await serviceClient.from("process_events").delete().in("work_item_id", workItemIds);
     }
-    if (filingIds.length > 0) {
-      await serviceClient.from("process_events").delete().in("filing_id", filingIds);
-    }
-    if (processIds.length > 0) {
-      await serviceClient.from("process_events").delete().in("process_id", processIds);
-    }
 
     // Delete alert_instances and alert_rules
-    if (allIds.length > 0) {
-      await serviceClient.from("alert_instances").delete().in("entity_id", allIds);
-      await serviceClient.from("alert_rules").delete().in("entity_id", allIds);
+    if (workItemIds.length > 0) {
+      await serviceClient.from("alert_instances").delete().in("entity_id", workItemIds);
+      await serviceClient.from("alert_rules").delete().in("entity_id", workItemIds);
     }
 
     // Delete tasks
-    if (filingIds.length > 0) {
-      const tasksRes = await serviceClient.from("tasks").select("id").in("filing_id", filingIds);
+    if (workItemIds.length > 0) {
+      const tasksRes = await serviceClient.from("tasks").select("id").in("filing_id", workItemIds);
       result.deleted_counts.tasks += (tasksRes.data?.length || 0);
-      await serviceClient.from("tasks").delete().in("filing_id", filingIds);
+      await serviceClient.from("tasks").delete().in("filing_id", workItemIds);
     }
 
     // Delete cgp_deadlines, cgp_term_instances, cgp_milestones, cgp_inactivity_tracker
     if (workItemIds.length > 0) {
       await serviceClient.from("cgp_deadlines").delete().in("work_item_id", workItemIds);
-    }
-    if (filingIds.length > 0) {
-      await serviceClient.from("cgp_term_instances").delete().in("filing_id", filingIds);
-      await serviceClient.from("cgp_milestones").delete().in("filing_id", filingIds);
-      await serviceClient.from("cgp_inactivity_tracker").delete().in("filing_id", filingIds);
-    }
-    if (processIds.length > 0) {
-      await serviceClient.from("cgp_term_instances").delete().in("process_id", processIds);
-      await serviceClient.from("cgp_milestones").delete().in("process_id", processIds);
-      await serviceClient.from("cgp_inactivity_tracker").delete().in("process_id", processIds);
+      await serviceClient.from("cgp_term_instances").delete().in("filing_id", workItemIds);
+      await serviceClient.from("cgp_milestones").delete().in("filing_id", workItemIds);
+      await serviceClient.from("cgp_inactivity_tracker").delete().in("filing_id", workItemIds);
     }
 
     // Delete desacato_incidents
-    if (filingIds.length > 0) {
-      await serviceClient.from("desacato_incidents").delete().in("tutela_id", filingIds);
-    }
     if (workItemIds.length > 0) {
+      await serviceClient.from("desacato_incidents").delete().in("tutela_id", workItemIds);
       await serviceClient.from("desacato_incidents").delete().in("linked_work_item_id", workItemIds);
     }
 
-    // Delete peticion_alerts
-    if (peticionIds.length > 0) {
-      await serviceClient.from("peticion_alerts").delete().in("peticion_id", peticionIds);
-    }
-
     // Delete message_links
-    if (filingIds.length > 0) {
-      await serviceClient.from("message_links").delete().in("filing_id", filingIds);
+    if (workItemIds.length > 0) {
+      await serviceClient.from("message_links").delete().in("filing_id", workItemIds);
     }
 
     // Delete documents and storage files
-    if (filingIds.length > 0) {
+    if (workItemIds.length > 0) {
       const { data: docs } = await serviceClient
         .from("documents")
         .select("id, storage_path")
-        .in("filing_id", filingIds);
+        .in("filing_id", workItemIds);
 
       if (docs && docs.length > 0) {
         for (const doc of docs) {
@@ -239,17 +185,17 @@ Deno.serve(async (req) => {
             }
           }
         }
-        await serviceClient.from("documents").delete().in("filing_id", filingIds);
+        await serviceClient.from("documents").delete().in("filing_id", workItemIds);
         result.deleted_counts.documents = docs.length;
       }
     }
 
     // Delete evidence_snapshots
-    if (processIds.length > 0) {
+    if (workItemIds.length > 0) {
       const { data: snapshots } = await serviceClient
         .from("evidence_snapshots")
         .select("id, storage_path")
-        .in("monitored_process_id", processIds);
+        .in("monitored_process_id", workItemIds);
 
       if (snapshots && snapshots.length > 0) {
         for (const snap of snapshots) {
@@ -262,109 +208,54 @@ Deno.serve(async (req) => {
             }
           }
         }
-        await serviceClient.from("evidence_snapshots").delete().in("monitored_process_id", processIds);
+        await serviceClient.from("evidence_snapshots").delete().in("monitored_process_id", workItemIds);
       }
     }
 
     // Delete actuaciones
-    if (filingIds.length > 0) {
-      const actRes1 = await serviceClient.from("actuaciones").select("id").in("filing_id", filingIds);
+    if (workItemIds.length > 0) {
+      const actRes1 = await serviceClient.from("actuaciones").select("id").in("filing_id", workItemIds);
       result.deleted_counts.actuaciones += (actRes1.data?.length || 0);
-      await serviceClient.from("actuaciones").delete().in("filing_id", filingIds);
+      await serviceClient.from("actuaciones").delete().in("filing_id", workItemIds);
     }
-    if (processIds.length > 0) {
-      const actRes2 = await serviceClient.from("actuaciones").select("id").in("monitored_process_id", processIds);
+    if (workItemIds.length > 0) {
+      const actRes2 = await serviceClient.from("actuaciones").select("id").in("monitored_process_id", workItemIds);
       result.deleted_counts.actuaciones += (actRes2.data?.length || 0);
-      await serviceClient.from("actuaciones").delete().in("monitored_process_id", processIds);
+      await serviceClient.from("actuaciones").delete().in("monitored_process_id", workItemIds);
     }
 
     // Delete alerts
-    if (filingIds.length > 0) {
-      const alertsRes = await serviceClient.from("alerts").select("id").in("filing_id", filingIds);
+    if (workItemIds.length > 0) {
+      const alertsRes = await serviceClient.from("alerts").select("id").in("filing_id", workItemIds);
       result.deleted_counts.alerts += (alertsRes.data?.length || 0);
-      await serviceClient.from("alerts").delete().in("filing_id", filingIds);
+      await serviceClient.from("alerts").delete().in("filing_id", workItemIds);
     }
 
     // Delete hearings
-    if (filingIds.length > 0) {
-      const hearingsRes = await serviceClient.from("hearings").select("id").in("filing_id", filingIds);
+    if (workItemIds.length > 0) {
+      const hearingsRes = await serviceClient.from("hearings").select("id").in("filing_id", workItemIds);
       result.deleted_counts.hearings += (hearingsRes.data?.length || 0);
-      await serviceClient.from("hearings").delete().in("filing_id", filingIds);
+      await serviceClient.from("hearings").delete().in("filing_id", workItemIds);
     }
-    if (processIds.length > 0) {
-      await serviceClient.from("hearings").delete().in("process_id", processIds);
+    if (workItemIds.length > 0) {
+      await serviceClient.from("hearings").delete().in("process_id", workItemIds);
     }
 
     // Delete work_item_mappings
     if (workItemIds.length > 0) {
       await serviceClient.from("work_item_mappings").delete().in("work_item_id", workItemIds);
-    }
-    if (filingIds.length > 0) {
-      await serviceClient.from("work_item_mappings").delete().in("legacy_filing_id", filingIds);
-    }
-    if (processIds.length > 0) {
-      await serviceClient.from("work_item_mappings").delete().in("legacy_process_id", processIds);
+      await serviceClient.from("work_item_mappings").delete().in("legacy_filing_id", workItemIds);
+      await serviceClient.from("work_item_mappings").delete().in("legacy_process_id", workItemIds);
     }
 
-    // 8. Delete main entities
+    // 8. Delete main entity (work_items only)
     
-    // Delete work_items
     if (workItemIds.length > 0) {
       const { error } = await serviceClient.from("work_items").delete().in("id", workItemIds);
       if (error) {
         result.errors.push(`work_items: ${error.message}`);
       } else {
         result.deleted_counts.work_items = workItemIds.length;
-      }
-    }
-
-    // Delete cgp_items
-    if (cgpItemIds.length > 0) {
-      const { error } = await serviceClient.from("cgp_items").delete().in("id", cgpItemIds);
-      if (error) {
-        result.errors.push(`cgp_items: ${error.message}`);
-      } else {
-        result.deleted_counts.cgp_items = cgpItemIds.length;
-      }
-    }
-
-    // Delete peticiones
-    if (peticionIds.length > 0) {
-      const { error } = await serviceClient.from("peticiones").delete().in("id", peticionIds);
-      if (error) {
-        result.errors.push(`peticiones: ${error.message}`);
-      } else {
-        result.deleted_counts.peticiones = peticionIds.length;
-      }
-    }
-
-    // Delete cpaca_processes
-    if (cpacaIds.length > 0) {
-      const { error } = await serviceClient.from("cpaca_processes").delete().in("id", cpacaIds);
-      if (error) {
-        result.errors.push(`cpaca_processes: ${error.message}`);
-      } else {
-        result.deleted_counts.cpaca_processes = cpacaIds.length;
-      }
-    }
-
-    // Delete monitored_processes
-    if (processIds.length > 0) {
-      const { error } = await serviceClient.from("monitored_processes").delete().in("id", processIds);
-      if (error) {
-        result.errors.push(`monitored_processes: ${error.message}`);
-      } else {
-        result.deleted_counts.monitored_processes = processIds.length;
-      }
-    }
-
-    // Delete filings
-    if (filingIds.length > 0) {
-      const { error } = await serviceClient.from("filings").delete().in("id", filingIds);
-      if (error) {
-        result.errors.push(`filings: ${error.message}`);
-      } else {
-        result.deleted_counts.filings = filingIds.length;
       }
     }
 
