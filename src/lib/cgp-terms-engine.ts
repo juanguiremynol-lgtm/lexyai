@@ -819,24 +819,15 @@ export async function registerActivity(
  * @param processId - Legacy process ID (deprecated)
  */
 export async function checkInactivityRisk(
-  workItemId?: string,
-  filingId?: string,
-  processId?: string
+  workItemId?: string
 ): Promise<{ isAtRisk: boolean; monthsInactive: number; thresholdMonths: number } | null> {
-  // Build query with explicit conditionals to avoid type depth issues
-  let query = supabase.from('cgp_inactivity_tracker').select('*');
-  
-  if (workItemId) {
-    query = query.eq('work_item_id', workItemId);
-  } else if (filingId) {
-    query = query.eq('filing_id', filingId);
-  } else if (processId) {
-    query = query.eq('process_id', processId);
-  } else {
-    return null;
-  }
+  if (!workItemId) return null;
 
-  const { data, error } = await query.maybeSingle();
+  const { data, error } = await (supabase
+    .from('cgp_inactivity_tracker') as any)
+    .select('*')
+    .eq('work_item_id', workItemId)
+    .maybeSingle();
 
   if (error || !data) return null;
 

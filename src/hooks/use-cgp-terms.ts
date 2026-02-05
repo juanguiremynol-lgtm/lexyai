@@ -256,11 +256,11 @@ export function useRecomputeTerms() {
 
 // ============= Inactivity =============
 
-export function useCgpInactivity(filingId?: string, processId?: string) {
+export function useCgpInactivity(workItemId?: string) {
   return useQuery({
-    queryKey: cgpTermsKeys.inactivity(filingId, processId),
-    queryFn: () => checkInactivityRisk(filingId, processId),
-    enabled: !!(filingId || processId),
+    queryKey: cgpTermsKeys.inactivity(workItemId),
+    queryFn: () => checkInactivityRisk(workItemId),
+    enabled: !!workItemId,
   });
 }
 
