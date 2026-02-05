@@ -32,13 +32,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
+import { useHoyCounts } from "@/hooks/use-hoy-counts";
+import { Badge } from "@/components/ui/badge";
 
 // All tenant nav items now use /app/* prefix
 const navItems = [
   { title: "Dashboard", url: "/app/dashboard", icon: LayoutDashboard },
   { title: "Clientes", url: "/app/clients", icon: Briefcase },
   { title: "Procesos", url: "/app/processes", icon: Scale },
-  { title: "Estados de Hoy", url: "/app/estados-hoy", icon: Newspaper },
+  { title: "Estados de Hoy", url: "/app/estados-hoy", icon: Newspaper, countKey: 'estados' as const },
+  { title: "Actuaciones de Hoy", url: "/app/actuaciones-hoy", icon: Scale, countKey: 'actuaciones' as const },
   { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
   { title: "Tareas", url: "/app/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/app/alerts", icon: Bell },
@@ -49,6 +52,58 @@ const navItems = [
 const settingsItems = [
   { title: "Configuración", url: "/app/settings", icon: Settings },
 ];
+
+type NavItem = {
+  title: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  countKey?: 'estados' | 'actuaciones';
+};
+
+function SidebarNavItemsList({ items, currentPath }: { items: NavItem[]; currentPath: string }) {
+  const { estadosCount, actuacionesCount } = useHoyCounts();
+  const counts: Record<string, number> = { estados: estadosCount, actuaciones: actuacionesCount };
+
+  return (
+    <>
+      {items.map((item) => {
+        const isActive = currentPath === item.url || currentPath.startsWith(item.url + '/');
+        const count = item.countKey ? counts[item.countKey] : 0;
+        return (
+          <SidebarMenuItem key={item.title}>
+            <SidebarMenuButton
+              asChild
+              isActive={isActive}
+              tooltip={item.title}
+              className={cn(
+                "transition-all duration-200",
+                isActive && "bg-primary/15 text-primary border-l-2 border-primary"
+              )}
+            >
+              <NavLink to={item.url} className="flex items-center gap-3">
+                <item.icon className={cn(
+                  "h-4 w-4 transition-colors",
+                  isActive ? "text-primary" : "text-sidebar-foreground/70"
+                )} />
+                <span className={cn(
+                  "flex-1",
+                  isActive ? "text-primary font-medium" : "text-sidebar-foreground"
+                )}>
+                  {item.title}
+                </span>
+                {item.countKey && count > 0 && (
+                  <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[10px] font-bold">
+                    {count > 99 ? '99+' : count}
+                  </Badge>
+                )}
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        );
+      })}
+    </>
+  );
+}
 
 export function AppSidebar() {
   const { state } = useSidebar();
@@ -82,7 +137,6 @@ export function AppSidebar() {
               alt="ATENIA" 
               className="h-full w-auto object-contain"
             />
-            {/* Glow effect behind logo */}
             <div className="absolute inset-0 -z-10 blur-xl bg-primary/10 rounded-full" />
           </div>
         </div>
@@ -95,34 +149,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => {
-                const isActive = location.pathname === item.url || location.pathname.startsWith(item.url + '/');
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isActive}
-                      tooltip={item.title}
-                      className={cn(
-                        "transition-all duration-200",
-                        isActive && "bg-primary/15 text-primary border-l-2 border-primary"
-                      )}
-                    >
-                      <NavLink to={item.url} className="flex items-center gap-3">
-                        <item.icon className={cn(
-                          "h-4 w-4 transition-colors",
-                          isActive ? "text-primary" : "text-sidebar-foreground/70"
-                        )} />
-                        <span className={cn(
-                          isActive ? "text-primary font-medium" : "text-sidebar-foreground"
-                        )}>
-                          {item.title}
-                        </span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              <SidebarNavItemsList items={navItems} currentPath={location.pathname} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -42,6 +42,7 @@ import MockCheckoutPage from "./pages/MockCheckoutPage";
 import JoinPage from "./pages/JoinPage";
 import VoucherRedeemPage from "./pages/VoucherRedeemPage";
 import EstadosHoy from "./pages/EstadosHoy";
+import ActuacionesHoy from "./pages/ActuacionesHoy";
 
 // Platform Console Pages
 import {
@@ -139,6 +140,7 @@ const App = () => (
             <Route path="filings" element={<Navigate to="/app/processes" replace />} />
             <Route path="processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
             <Route path="estados-hoy" element={<ErrorBoundary><EstadosHoy /></ErrorBoundary>} />
+            <Route path="actuaciones-hoy" element={<ErrorBoundary><ActuacionesHoy /></ErrorBoundary>} />
             <Route path="hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
             <Route path="process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
