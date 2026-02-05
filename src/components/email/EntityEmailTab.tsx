@@ -16,7 +16,7 @@ import type { InboundMessage, MessageLink, InboundAttachment } from "@/types/ema
 interface EntityEmailTabProps {
   entityType: EmailEntityType;
   entityId: string;
-  entityTable: "clients" | "filings" | "monitored_processes";
+  entityTable: "clients" | "work_items";
   emailLinkingEnabled: boolean;
 }
 
@@ -61,10 +61,10 @@ export function EntityEmailTab({
 
   const toggleLinkingMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const { error } = await supabase
+      const { error } = await (supabase
         .from(entityTable)
         .update({ email_linking_enabled: enabled })
-        .eq("id", entityId);
+        .eq("id", entityId) as any);
       
       if (error) throw error;
     },

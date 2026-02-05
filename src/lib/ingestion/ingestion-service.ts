@@ -28,7 +28,7 @@ export async function processSnapshot(
   work_item_id: string | null; 
   status: 'CREATED' | 'UPDATED' | 'SKIPPED' | 'ERROR';
   reason?: string;
-  events_created: number;
+  acts_created: number;
 }> {
   try {
     // Validate radicado
@@ -37,20 +37,19 @@ export async function processSnapshot(
         work_item_id: null, 
         status: 'SKIPPED', 
         reason: `Radicado inválido: ${snapshot.radicado?.length || 0} dígitos`,
-        events_created: 0
+        acts_created: 0
       };
     }
 
     // Check for existing work_item with this radicado
     const { data: existing } = await supabase
       .from("work_items")
-      .select("id, last_action_date, last_action_description, legacy_process_id")
+      .select("id, last_action_date, last_action_description")
       .eq("owner_id", context.owner_id)
       .eq("radicado", snapshot.radicado)
       .maybeSingle();
 
     let workItemId: string;
-    let legacyProcessId: string | null = null;
     let isNew = false;
 
     if (existing && context.update_existing) {
@@ -93,19 +92,18 @@ export async function processSnapshot(
           work_item_id: existing.id, 
           status: 'ERROR', 
           reason: updateError.message,
-          events_created: 0
+          acts_created: 0
         };
       }
 
       workItemId = existing.id;
-      legacyProcessId = existing.legacy_process_id;
     } else if (existing) {
       // Exists but not updating
       return { 
         work_item_id: existing.id, 
         status: 'SKIPPED', 
         reason: 'Ya existe',
-        events_created: 0
+        acts_created: 0
       };
     } else {
       // Determine workflow type - use context default or detect from data
@@ -145,7 +143,7 @@ export async function processSnapshot(
           work_item_id: null, 
           status: 'ERROR', 
           reason: insertResult.error?.message || 'Insert failed',
-          events_created: 0
+          acts_created: 0
         };
       }
 
@@ -153,24 +151,21 @@ export async function processSnapshot(
       isNew = true;
     }
 
-    // Create process_event if this is a notification/estado
-    // Note: process_events requires filing_id which work_items don't have directly
-    // We need to either create a filing or use the legacy_filing_id if present
-    let eventsCreated = 0;
+    // Create work_item_act if this is a notification/estado
+    let actsCreated = 0;
     if (context.create_process_events && snapshot.last_notification) {
-      const eventCreated = await createEstadoRecord(
+      const actCreated = await createActRecord(
         workItemId,
         context.owner_id,
-        snapshot,
-        legacyProcessId
+        snapshot
       );
-      if (eventCreated) eventsCreated++;
+      if (actCreated) actsCreated++;
     }
 
     return { 
       work_item_id: workItemId, 
       status: isNew ? 'CREATED' : 'UPDATED',
-      events_created: eventsCreated
+      acts_created: actsCreated
     };
 
   } catch (error) {
@@ -178,7 +173,7 @@ export async function processSnapshot(
       work_item_id: null, 
       status: 'ERROR', 
       reason: error instanceof Error ? error.message : 'Unknown error',
-      events_created: 0
+      acts_created: 0
     };
   }
 }
@@ -197,7 +192,7 @@ export async function processBatch(
   let updated = 0;
   let skipped = 0;
   let errors = 0;
-  let processEventsCreated = 0;
+  let actsCreated = 0;
 
   for (const snapshot of snapshots) {
     const result = await processSnapshot(snapshot, context);
@@ -216,7 +211,7 @@ export async function processBatch(
       case 'ERROR': errors++; break;
     }
     
-    processEventsCreated += result.events_created;
+    actsCreated += result.acts_created;
   }
 
   return {
@@ -229,7 +224,7 @@ export async function processBatch(
     updated,
     skipped,
     errors,
-    process_events_created: processEventsCreated,
+    process_events_created: actsCreated,
     milestones_triggered: 0, // TODO: implement milestone triggering
     alerts_created: 0, // TODO: implement alert creation
     item_results: results,
@@ -237,42 +232,18 @@ export async function processBatch(
 }
 
 /**
- * Create a process_estados record (used for estados imports)
- * This stores the estado data and can be linked to monitored_process
+ * Create a work_item_acts record (used for estados imports)
  */
-async function createEstadoRecord(
+async function createActRecord(
   workItemId: string,
   ownerId: string,
-  snapshot: NormalizedProcessSnapshot,
-  legacyProcessId: string | null
+  snapshot: NormalizedProcessSnapshot
 ): Promise<boolean> {
   if (!snapshot.last_notification) return false;
 
   const notification = snapshot.last_notification;
-  
-  // If we have a legacy_process_id, we can create a process_estados record
-  if (legacyProcessId) {
-    // Get the monitored_process to find its ID
-    const { error } = await supabase
-      .from("process_estados")
-      .insert({
-        owner_id: ownerId,
-        monitored_process_id: legacyProcessId,
-        radicado: snapshot.radicado,
-        distrito: snapshot.authority?.department || '',
-        despacho: snapshot.authority?.despacho_name || '',
-        juez_ponente: snapshot.authority?.judge_name || null,
-        demandantes: snapshot.demandantes_text || null,
-        demandados: snapshot.demandados_text || null,
-        fecha_ultima_actuacion: notification.notification_date,
-        fecha_ultima_actuacion_raw: notification.notification_date_raw,
-        source_payload: notification.source_columns || {},
-      } as never); // Use type assertion to handle schema differences
 
-    return !error;
-  }
 
-  // For work_items without legacy_process_id, we can create a work_item_acts record
   const fingerprint = computeEventFingerprint(
     snapshot.source,
     snapshot.radicado,

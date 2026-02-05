@@ -25,6 +25,14 @@ interface EmailLinkDialogProps {
   onSuccess: () => void;
 }
 
+// Map entity types to work_items workflow_types
+const ENTITY_TO_WORKFLOW: Record<string, string[]> = {
+  CGP_CASE: ["CGP", "LABORAL", "PENAL"],
+  TUTELA: ["TUTELA"],
+  HABEAS_CORPUS: ["TUTELA"],
+  PROCESO_ADMINISTRATIVO: ["GOV_PROCEDURE", "CPACA"],
+};
+
 export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: EmailLinkDialogProps) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<EmailEntityType>("CLIENT");
@@ -36,12 +44,12 @@ export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: Emai
       const results: LinkableEntity[] = [];
 
       if (activeTab === "CLIENT") {
-        const { data } = await supabase
+        const { data } = await (supabase
           .from("clients")
           .select("id, name, email, id_number")
           .eq("email_linking_enabled", true)
           .ilike("name", `%${search}%`)
-          .limit(20);
+          .limit(20) as any);
         
         if (data) {
           results.push(...data.map(c => ({
@@ -51,53 +59,31 @@ export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: Emai
             details: c.email || c.id_number || undefined,
           })));
         }
-      } else if (activeTab === "CGP_CASE" || activeTab === "TUTELA" || activeTab === "HABEAS_CORPUS") {
-        const filingType = activeTab === "CGP_CASE" ? null : activeTab;
-        let query = supabase
-          .from("filings")
-          .select("id, filing_type, radicado, court_name, demandantes")
+      } else {
+        // Search work_items by workflow_type
+        const workflowTypes = ENTITY_TO_WORKFLOW[activeTab] || [];
+        
+        if (workflowTypes.length === 0) return results;
+        
+        let query = (supabase
+          .from("work_items")
+          .select("id, workflow_type, radicado, authority_name, demandantes")
           .eq("email_linking_enabled", true)
-          .limit(20);
-
-        if (filingType) {
-          query = query.eq("filing_type", filingType);
-        } else {
-          query = query.not("filing_type", "in", '("TUTELA","HABEAS_CORPUS")');
-        }
+          .in("workflow_type", workflowTypes as any)
+          .limit(20)) as any;
 
         if (search) {
-          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,court_name.ilike.%${search}%`);
+          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,authority_name.ilike.%${search}%`);
         }
 
         const { data } = await query;
         
         if (data) {
-          results.push(...data.map(f => ({
-            id: f.id,
+          results.push(...data.map((w: any) => ({
+            id: w.id,
             type: activeTab,
-            name: f.radicado || `${f.filing_type} - ${f.demandantes || "Sin partes"}`,
-            details: f.court_name || undefined,
-          })));
-        }
-      } else if (activeTab === "PROCESO_ADMINISTRATIVO") {
-        let query = supabase
-          .from("monitored_processes")
-          .select("id, radicado, autoridad, demandantes")
-          .eq("email_linking_enabled", true)
-          .limit(20);
-
-        if (search) {
-          query = query.or(`radicado.ilike.%${search}%,autoridad.ilike.%${search}%,demandantes.ilike.%${search}%`);
-        }
-
-        const { data } = await query;
-        
-        if (data) {
-          results.push(...data.map(p => ({
-            id: p.id,
-            type: "PROCESO_ADMINISTRATIVO" as EmailEntityType,
-            name: p.radicado || `Proceso - ${p.demandantes || "Sin partes"}`,
-            details: p.autoridad || undefined,
+            name: w.radicado || `${w.workflow_type} - ${w.demandantes || "Sin partes"}`,
+            details: w.authority_name || undefined,
           })));
         }
       }

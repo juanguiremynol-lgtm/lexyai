@@ -27,11 +27,9 @@ export type Database = {
           created_at: string
           estado: string | null
           fecha_registro: string | null
-          filing_id: string | null
           hash_fingerprint: string
           id: string
           indice: string | null
-          monitored_process_id: string | null
           normalized_text: string
           organization_id: string | null
           owner_id: string
@@ -53,11 +51,9 @@ export type Database = {
           created_at?: string
           estado?: string | null
           fecha_registro?: string | null
-          filing_id?: string | null
           hash_fingerprint: string
           id?: string
           indice?: string | null
-          monitored_process_id?: string | null
           normalized_text: string
           organization_id?: string | null
           owner_id: string
@@ -79,11 +75,9 @@ export type Database = {
           created_at?: string
           estado?: string | null
           fecha_registro?: string | null
-          filing_id?: string | null
           hash_fingerprint?: string
           id?: string
           indice?: string | null
-          monitored_process_id?: string | null
           normalized_text?: string
           organization_id?: string | null
           owner_id?: string
@@ -94,20 +88,6 @@ export type Database = {
           work_item_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "actuaciones_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "actuaciones_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "actuaciones_organization_id_fkey"
             columns: ["organization_id"]
@@ -368,7 +348,6 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           deleted_by: string | null
-          filing_id: string | null
           id: string
           is_read: boolean | null
           message: string
@@ -380,7 +359,6 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
-          filing_id?: string | null
           id?: string
           is_read?: boolean | null
           message: string
@@ -392,7 +370,6 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
-          filing_id?: string | null
           id?: string
           is_read?: boolean | null
           message?: string
@@ -401,13 +378,6 @@ export type Database = {
           severity?: Database["public"]["Enums"]["alert_severity"]
         }
         Relationships: [
-          {
-            foreignKeyName: "alerts_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "alerts_organization_id_fkey"
             columns: ["organization_id"]
@@ -960,7 +930,6 @@ export type Database = {
       cgp_inactivity_tracker: {
         Row: {
           created_at: string
-          filing_id: string | null
           has_favorable_sentencia: boolean
           id: string
           inactivity_threshold_months: number
@@ -969,14 +938,12 @@ export type Database = {
           last_activity_description: string | null
           last_activity_milestone_id: string | null
           owner_id: string
-          process_id: string | null
           risk_since: string | null
           updated_at: string
           work_item_id: string | null
         }
         Insert: {
           created_at?: string
-          filing_id?: string | null
           has_favorable_sentencia?: boolean
           id?: string
           inactivity_threshold_months?: number
@@ -985,14 +952,12 @@ export type Database = {
           last_activity_description?: string | null
           last_activity_milestone_id?: string | null
           owner_id: string
-          process_id?: string | null
           risk_since?: string | null
           updated_at?: string
           work_item_id?: string | null
         }
         Update: {
           created_at?: string
-          filing_id?: string | null
           has_favorable_sentencia?: boolean
           id?: string
           inactivity_threshold_months?: number
@@ -1001,19 +966,11 @@ export type Database = {
           last_activity_description?: string | null
           last_activity_milestone_id?: string | null
           owner_id?: string
-          process_id?: string | null
           risk_since?: string | null
           updated_at?: string
           work_item_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "cgp_inactivity_tracker_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "cgp_inactivity_tracker_last_activity_milestone_id_fkey"
             columns: ["last_activity_milestone_id"]
@@ -1026,13 +983,6 @@ export type Database = {
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cgp_inactivity_tracker_process_id_fkey"
-            columns: ["process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
             referencedColumns: ["id"]
           },
           {
@@ -1251,7 +1201,6 @@ export type Database = {
           custom_type_name: string | null
           event_date: string | null
           event_time: string | null
-          filing_id: string | null
           id: string
           in_audience: boolean
           milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
@@ -1263,7 +1212,6 @@ export type Database = {
           occurred: boolean
           owner_id: string
           pattern_match_explanation: Json | null
-          process_id: string | null
           source: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id: string | null
           updated_at: string
@@ -1279,7 +1227,6 @@ export type Database = {
           custom_type_name?: string | null
           event_date?: string | null
           event_time?: string | null
-          filing_id?: string | null
           id?: string
           in_audience?: boolean
           milestone_type: Database["public"]["Enums"]["cgp_milestone_type"]
@@ -1291,7 +1238,6 @@ export type Database = {
           occurred?: boolean
           owner_id: string
           pattern_match_explanation?: Json | null
-          process_id?: string | null
           source?: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id?: string | null
           updated_at?: string
@@ -1307,7 +1253,6 @@ export type Database = {
           custom_type_name?: string | null
           event_date?: string | null
           event_time?: string | null
-          filing_id?: string | null
           id?: string
           in_audience?: boolean
           milestone_type?: Database["public"]["Enums"]["cgp_milestone_type"]
@@ -1319,7 +1264,6 @@ export type Database = {
           occurred?: boolean
           owner_id?: string
           pattern_match_explanation?: Json | null
-          process_id?: string | null
           source?: Database["public"]["Enums"]["milestone_source"] | null
           source_actuacion_id?: string | null
           updated_at?: string
@@ -1336,24 +1280,10 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "cgp_milestones_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "cgp_milestones_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cgp_milestones_process_id_fkey"
-            columns: ["process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
             referencedColumns: ["id"]
           },
           {
@@ -1377,7 +1307,6 @@ export type Database = {
           computed_with_suspensions: boolean
           created_at: string
           due_date: string
-          filing_id: string | null
           id: string
           in_audience: boolean
           last_computed_at: string
@@ -1386,7 +1315,6 @@ export type Database = {
           pause_reason: string | null
           paused_at: string | null
           paused_days_accumulated: number | null
-          process_id: string | null
           satisfaction_notes: string | null
           satisfied_at: string | null
           satisfied_by_milestone_id: string | null
@@ -1404,7 +1332,6 @@ export type Database = {
           computed_with_suspensions?: boolean
           created_at?: string
           due_date: string
-          filing_id?: string | null
           id?: string
           in_audience?: boolean
           last_computed_at?: string
@@ -1413,7 +1340,6 @@ export type Database = {
           pause_reason?: string | null
           paused_at?: string | null
           paused_days_accumulated?: number | null
-          process_id?: string | null
           satisfaction_notes?: string | null
           satisfied_at?: string | null
           satisfied_by_milestone_id?: string | null
@@ -1431,7 +1357,6 @@ export type Database = {
           computed_with_suspensions?: boolean
           created_at?: string
           due_date?: string
-          filing_id?: string | null
           id?: string
           in_audience?: boolean
           last_computed_at?: string
@@ -1440,7 +1365,6 @@ export type Database = {
           pause_reason?: string | null
           paused_at?: string | null
           paused_days_accumulated?: number | null
-          process_id?: string | null
           satisfaction_notes?: string | null
           satisfied_at?: string | null
           satisfied_by_milestone_id?: string | null
@@ -1456,24 +1380,10 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "cgp_term_instances_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "cgp_term_instances_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cgp_term_instances_process_id_fkey"
-            columns: ["process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
             referencedColumns: ["id"]
           },
           {
@@ -2083,13 +1993,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "cpaca_processes_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "cpaca_processes_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
@@ -2331,13 +2234,6 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "desacato_incidents_tutela_id_fkey"
-            columns: ["tutela_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
         ]
       }
       documents: {
@@ -2375,13 +2271,6 @@ export type Database = {
           uploaded_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "documents_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "documents_owner_id_fkey"
             columns: ["owner_id"]
@@ -2617,13 +2506,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "email_threads_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "email_threads_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -2685,13 +2567,6 @@ export type Database = {
           thread_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "emails_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "emails_owner_id_fkey"
             columns: ["owner_id"]
@@ -2853,13 +2728,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "evidence_snapshots_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "evidence_snapshots_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -2871,188 +2739,6 @@ export type Database = {
             columns: ["process_event_id"]
             isOneToOne: false
             referencedRelation: "process_events"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      filings: {
-        Row: {
-          acta_received_at: string | null
-          case_family: string | null
-          case_subtype: string | null
-          client_id: string | null
-          compliance_deadline: string | null
-          compliance_reported: boolean | null
-          compliance_reported_at: string | null
-          compliance_term_days: number | null
-          court_city: string | null
-          court_department: string | null
-          court_email: string | null
-          court_name: string | null
-          crawler_enabled: boolean | null
-          created_at: string
-          demandados: string | null
-          demandantes: string | null
-          description: string | null
-          email_linking_enabled: boolean | null
-          expediente_url: string | null
-          filing_method: string | null
-          filing_type: string
-          has_auto_admisorio: boolean | null
-          id: string
-          is_flagged: boolean | null
-          last_crawled_at: string | null
-          last_event_at: string | null
-          last_reviewed_at: string | null
-          linked_process_id: string | null
-          matter_id: string
-          owner_id: string
-          proof_file_path: string | null
-          radicado: string | null
-          radicado_status:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          rama_judicial_url: string | null
-          reparto_email_to: string | null
-          reparto_reference: string | null
-          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields: Json | null
-          sent_at: string | null
-          sla_acta_due_at: string | null
-          sla_court_reply_due_at: string | null
-          sla_receipt_due_at: string | null
-          source_links: Json | null
-          status: Database["public"]["Enums"]["filing_status"]
-          target_authority: string | null
-          updated_at: string
-        }
-        Insert: {
-          acta_received_at?: string | null
-          case_family?: string | null
-          case_subtype?: string | null
-          client_id?: string | null
-          compliance_deadline?: string | null
-          compliance_reported?: boolean | null
-          compliance_reported_at?: string | null
-          compliance_term_days?: number | null
-          court_city?: string | null
-          court_department?: string | null
-          court_email?: string | null
-          court_name?: string | null
-          crawler_enabled?: boolean | null
-          created_at?: string
-          demandados?: string | null
-          demandantes?: string | null
-          description?: string | null
-          email_linking_enabled?: boolean | null
-          expediente_url?: string | null
-          filing_method?: string | null
-          filing_type: string
-          has_auto_admisorio?: boolean | null
-          id?: string
-          is_flagged?: boolean | null
-          last_crawled_at?: string | null
-          last_event_at?: string | null
-          last_reviewed_at?: string | null
-          linked_process_id?: string | null
-          matter_id: string
-          owner_id: string
-          proof_file_path?: string | null
-          radicado?: string | null
-          radicado_status?:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          rama_judicial_url?: string | null
-          reparto_email_to?: string | null
-          reparto_reference?: string | null
-          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields?: Json | null
-          sent_at?: string | null
-          sla_acta_due_at?: string | null
-          sla_court_reply_due_at?: string | null
-          sla_receipt_due_at?: string | null
-          source_links?: Json | null
-          status?: Database["public"]["Enums"]["filing_status"]
-          target_authority?: string | null
-          updated_at?: string
-        }
-        Update: {
-          acta_received_at?: string | null
-          case_family?: string | null
-          case_subtype?: string | null
-          client_id?: string | null
-          compliance_deadline?: string | null
-          compliance_reported?: boolean | null
-          compliance_reported_at?: string | null
-          compliance_term_days?: number | null
-          court_city?: string | null
-          court_department?: string | null
-          court_email?: string | null
-          court_name?: string | null
-          crawler_enabled?: boolean | null
-          created_at?: string
-          demandados?: string | null
-          demandantes?: string | null
-          description?: string | null
-          email_linking_enabled?: boolean | null
-          expediente_url?: string | null
-          filing_method?: string | null
-          filing_type?: string
-          has_auto_admisorio?: boolean | null
-          id?: string
-          is_flagged?: boolean | null
-          last_crawled_at?: string | null
-          last_event_at?: string | null
-          last_reviewed_at?: string | null
-          linked_process_id?: string | null
-          matter_id?: string
-          owner_id?: string
-          proof_file_path?: string | null
-          radicado?: string | null
-          radicado_status?:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          rama_judicial_url?: string | null
-          reparto_email_to?: string | null
-          reparto_reference?: string | null
-          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields?: Json | null
-          sent_at?: string | null
-          sla_acta_due_at?: string | null
-          sla_court_reply_due_at?: string | null
-          sla_receipt_due_at?: string | null
-          source_links?: Json | null
-          status?: Database["public"]["Enums"]["filing_status"]
-          target_authority?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "filings_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "filings_linked_process_id_fkey"
-            columns: ["linked_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "filings_matter_id_fkey"
-            columns: ["matter_id"]
-            isOneToOne: false
-            referencedRelation: "matters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "filings_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3124,13 +2810,6 @@ export type Database = {
             columns: ["cpaca_process_id"]
             isOneToOne: false
             referencedRelation: "cpaca_processes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hearings_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
             referencedColumns: ["id"]
           },
           {
@@ -3998,190 +3677,6 @@ export type Database = {
           },
         ]
       }
-      monitored_processes: {
-        Row: {
-          admin_phase: string | null
-          autoridad: string | null
-          case_family: string | null
-          case_subtype: string | null
-          client_id: string | null
-          correo_autoridad: string | null
-          cpnu_confirmed: boolean | null
-          cpnu_confirmed_at: string | null
-          created_at: string
-          demandados: string | null
-          demandantes: string | null
-          department: string | null
-          dependencia: string | null
-          despacho_name: string | null
-          email_linking_enabled: boolean | null
-          entidad: string | null
-          expediente_administrativo: string | null
-          expediente_digital_url: string | null
-          has_auto_admisorio: boolean | null
-          id: string
-          is_flagged: boolean | null
-          juez_ponente: string | null
-          jurisdiction: string | null
-          last_action_date: string | null
-          last_action_date_raw: string | null
-          last_change_at: string | null
-          last_checked_at: string | null
-          last_reviewed_at: string | null
-          linked_filing_id: string | null
-          monitoring_enabled: boolean | null
-          monitoring_schedule: string | null
-          municipality: string | null
-          notes: string | null
-          owner_id: string
-          phase: Database["public"]["Enums"]["process_phase"] | null
-          process_type: string
-          radicado: string
-          radicado_status:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          scrape_status: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields: Json | null
-          source: string | null
-          source_links: Json | null
-          source_payload: Json | null
-          source_run_id: string | null
-          sources_enabled: Json | null
-          tipo_actuacion: string | null
-          total_actuaciones: number | null
-          total_sujetos_procesales: number | null
-          updated_at: string
-        }
-        Insert: {
-          admin_phase?: string | null
-          autoridad?: string | null
-          case_family?: string | null
-          case_subtype?: string | null
-          client_id?: string | null
-          correo_autoridad?: string | null
-          cpnu_confirmed?: boolean | null
-          cpnu_confirmed_at?: string | null
-          created_at?: string
-          demandados?: string | null
-          demandantes?: string | null
-          department?: string | null
-          dependencia?: string | null
-          despacho_name?: string | null
-          email_linking_enabled?: boolean | null
-          entidad?: string | null
-          expediente_administrativo?: string | null
-          expediente_digital_url?: string | null
-          has_auto_admisorio?: boolean | null
-          id?: string
-          is_flagged?: boolean | null
-          juez_ponente?: string | null
-          jurisdiction?: string | null
-          last_action_date?: string | null
-          last_action_date_raw?: string | null
-          last_change_at?: string | null
-          last_checked_at?: string | null
-          last_reviewed_at?: string | null
-          linked_filing_id?: string | null
-          monitoring_enabled?: boolean | null
-          monitoring_schedule?: string | null
-          municipality?: string | null
-          notes?: string | null
-          owner_id: string
-          phase?: Database["public"]["Enums"]["process_phase"] | null
-          process_type?: string
-          radicado: string
-          radicado_status?:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields?: Json | null
-          source?: string | null
-          source_links?: Json | null
-          source_payload?: Json | null
-          source_run_id?: string | null
-          sources_enabled?: Json | null
-          tipo_actuacion?: string | null
-          total_actuaciones?: number | null
-          total_sujetos_procesales?: number | null
-          updated_at?: string
-        }
-        Update: {
-          admin_phase?: string | null
-          autoridad?: string | null
-          case_family?: string | null
-          case_subtype?: string | null
-          client_id?: string | null
-          correo_autoridad?: string | null
-          cpnu_confirmed?: boolean | null
-          cpnu_confirmed_at?: string | null
-          created_at?: string
-          demandados?: string | null
-          demandantes?: string | null
-          department?: string | null
-          dependencia?: string | null
-          despacho_name?: string | null
-          email_linking_enabled?: boolean | null
-          entidad?: string | null
-          expediente_administrativo?: string | null
-          expediente_digital_url?: string | null
-          has_auto_admisorio?: boolean | null
-          id?: string
-          is_flagged?: boolean | null
-          juez_ponente?: string | null
-          jurisdiction?: string | null
-          last_action_date?: string | null
-          last_action_date_raw?: string | null
-          last_change_at?: string | null
-          last_checked_at?: string | null
-          last_reviewed_at?: string | null
-          linked_filing_id?: string | null
-          monitoring_enabled?: boolean | null
-          monitoring_schedule?: string | null
-          municipality?: string | null
-          notes?: string | null
-          owner_id?: string
-          phase?: Database["public"]["Enums"]["process_phase"] | null
-          process_type?: string
-          radicado?: string
-          radicado_status?:
-            | Database["public"]["Enums"]["radicado_verification_status"]
-            | null
-          scrape_status?: Database["public"]["Enums"]["scrape_status"] | null
-          scraped_fields?: Json | null
-          source?: string | null
-          source_links?: Json | null
-          source_payload?: Json | null
-          source_run_id?: string | null
-          sources_enabled?: Json | null
-          tipo_actuacion?: string | null
-          total_actuaciones?: number | null
-          total_sujetos_procesales?: number | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "monitored_processes_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "monitored_processes_linked_filing_id_fkey"
-            columns: ["linked_filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "monitored_processes_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       mrr_pricing_config: {
         Row: {
           created_at: string
@@ -4754,13 +4249,6 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "peticiones_tutela_filing_id_fkey"
-            columns: ["tutela_filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
         ]
       }
       plan_limits: {
@@ -5091,13 +4579,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "process_estados_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "process_estados_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
@@ -5115,10 +4596,8 @@ export type Database = {
           detected_milestones: Json | null
           event_date: string | null
           event_type: string
-          filing_id: string
           hash_fingerprint: string | null
           id: string
-          monitored_process_id: string | null
           organization_id: string | null
           owner_id: string
           raw_data: Json | null
@@ -5135,10 +4614,8 @@ export type Database = {
           detected_milestones?: Json | null
           event_date?: string | null
           event_type: string
-          filing_id: string
           hash_fingerprint?: string | null
           id?: string
-          monitored_process_id?: string | null
           organization_id?: string | null
           owner_id: string
           raw_data?: Json | null
@@ -5155,10 +4632,8 @@ export type Database = {
           detected_milestones?: Json | null
           event_date?: string | null
           event_type?: string
-          filing_id?: string
           hash_fingerprint?: string | null
           id?: string
-          monitored_process_id?: string | null
           organization_id?: string | null
           owner_id?: string
           raw_data?: Json | null
@@ -5168,20 +4643,6 @@ export type Database = {
           work_item_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "process_events_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "process_events_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "process_events_organization_id_fkey"
             columns: ["organization_id"]
@@ -5414,20 +4875,6 @@ export type Database = {
           status?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "scraping_jobs_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scraping_jobs_monitored_process_id_fkey"
-            columns: ["monitored_process_id"]
-            isOneToOne: false
-            referencedRelation: "monitored_processes"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "scraping_jobs_owner_id_fkey"
             columns: ["owner_id"]
@@ -5825,13 +5272,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "tasks_filing_id_fkey"
-            columns: ["filing_id"]
-            isOneToOne: false
-            referencedRelation: "filings"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "tasks_organization_id_fkey"
             columns: ["organization_id"]
@@ -6652,9 +6092,7 @@ export type Database = {
           legacy_admin_process_id: string | null
           legacy_cgp_item_id: string | null
           legacy_cpaca_id: string | null
-          legacy_filing_id: string | null
           legacy_peticion_id: string | null
-          legacy_process_id: string | null
           matter_id: string | null
           medida_cautelar: string | null
           migration_note: string | null
@@ -6759,9 +6197,7 @@ export type Database = {
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
-          legacy_filing_id?: string | null
           legacy_peticion_id?: string | null
-          legacy_process_id?: string | null
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
@@ -6866,9 +6302,7 @@ export type Database = {
           legacy_admin_process_id?: string | null
           legacy_cgp_item_id?: string | null
           legacy_cpaca_id?: string | null
-          legacy_filing_id?: string | null
           legacy_peticion_id?: string | null
-          legacy_process_id?: string | null
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
@@ -7054,16 +6488,6 @@ export type Database = {
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
-      }
-      resolve_work_item_id: {
-        Args: {
-          p_legacy_filing_id?: string
-          p_legacy_process_id?: string
-          p_organization_id?: string
-          p_owner_id?: string
-          p_radicado?: string
-        }
-        Returns: string
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
