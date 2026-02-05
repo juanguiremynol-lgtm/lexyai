@@ -2140,9 +2140,79 @@ async function fetchFromSamai(radicado: string): Promise<FetchResult> {
   }
 }
 
-// ============= PROVIDER: TUTELAS API =============
+// ============= TUTELAS RESPONSE NORMALIZER =============
 
-async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
+/**
+ * Map raw Corte Constitucional status to canonical status
+ */
+function mapCorteStatus(estado: string): string {
+  const upper = (estado || '').toUpperCase();
+  if (/SELECCION.*REVISION|SELECCIONAD/.test(upper)) return 'SELECCIONADA';
+  if (/NO.*SELECCION/.test(upper)) return 'NO_SELECCIONADA';
+  if (/SENTENCIA|FALLAD/.test(upper)) return 'SENTENCIA_EMITIDA';
+  return 'PENDIENTE';
+}
+
+/**
+ * Extract tutela_code (T-XXXXXXX) from CPNU/SAMAI actuaciones text
+ * Sometimes CPNU mentions "Expediente T-1234567" in actuación annotations
+ */
+function extractTutelaCodeFromActuaciones(actuaciones: ActuacionRaw[]): string | null {
+  for (const act of actuaciones) {
+    const text = `${act.actuacion || ''} ${act.anotacion || ''}`;
+    // Match T- followed by 4-10 digits
+    const match = text.match(/\b(T-?\d{4,10})\b/i);
+    if (match) return match[1].toUpperCase().replace(/^T(\d)/, 'T$1');
+
+    // Also check for SU- (sentencia de unificación)
+    const suMatch = text.match(/\b(SU-\d{3,4}\/\d{4})\b/i);
+    if (suMatch) return suMatch[1].toUpperCase();
+  }
+  return null;
+}
+
+/**
+ * Normalize TUTELAS API response to extract rich Corte Constitucional metadata
+ */
+function normalizeTutelasResponse(raw: Record<string, unknown>): {
+  metadata: FetchResult['caseMetadata'];
+  actuaciones: ActuacionRaw[];
+  expedienteUrl?: string;
+} {
+  // Response may be wrapped in "expediente", "resultado", or flat
+  const exp = (raw.expediente || raw.resultado || raw) as Record<string, unknown>;
+
+  const rawActuaciones = (exp.actuaciones || exp.eventos || []) as Array<Record<string, unknown>>;
+
+  const actuaciones: ActuacionRaw[] = rawActuaciones.map((act) => ({
+    fecha: String(act.fecha || act.fecha_actuacion || ''),
+    actuacion: String(act.actuacion || act.descripcion || act.tipo || ''),
+    anotacion: String(act.anotacion || act.detalle || ''),
+  }));
+
+  const corteStatusRaw = String(exp.estado || exp.corte_status || exp.estado_seleccion || '');
+
+  const metadata: FetchResult['caseMetadata'] = {
+    despacho: (exp.sala || exp.despacho || exp.juzgado || 'Corte Constitucional') as string,
+    demandante: (exp.accionante || exp.demandante || exp.tutelante) as string,
+    demandado: (exp.accionado || exp.demandado) as string,
+    tipo_proceso: 'TUTELA',
+    ponente: (exp.magistrado_ponente || exp.ponente) as string,
+    // Store normalized corte_status in etapa field for metadata merge
+    etapa: corteStatusRaw ? mapCorteStatus(corteStatusRaw) : undefined,
+  };
+
+  return {
+    metadata,
+    actuaciones,
+    expedienteUrl: (exp.expediente_url || exp.url) as string | undefined,
+  };
+}
+
+// ============= PROVIDER: TUTELAS API =============
+// Supports both tutela_code-based (/expediente) and radicado-based (/search) lookups
+
+async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_code' | 'radicado' = 'tutela_code'): Promise<FetchResult> {
   const startTime = Date.now();
   const baseUrl = Deno.env.get('TUTELAS_BASE_URL');
   
@@ -2170,24 +2240,91 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       headers['x-api-key'] = apiKeyInfo.value;
     }
 
-    console.log(`[sync-by-work-item] Calling TUTELAS: ${baseUrl}/expediente/${tutelaCode}`);
+    let response: Response;
     
-    const response = await fetch(`${baseUrl}/expediente/${tutelaCode}`, {
-      method: 'GET',
-      headers,
-    });
+    if (identifierType === 'tutela_code') {
+      // Direct expediente lookup by T-code
+      console.log(`[sync-by-work-item] Calling TUTELAS: ${baseUrl}/expediente/${identifier}`);
+      response = await fetch(`${baseUrl.replace(/\/+$/, '')}/expediente/${identifier}`, {
+        method: 'GET',
+        headers,
+      });
+    } else {
+      // Radicado-based search (async — triggers /search, then poll /job/{id})
+      console.log(`[sync-by-work-item] Calling TUTELAS: POST /search with radicado=${identifier}`);
+      
+      const scrapingResult = await triggerTutelasScrapingJob(identifier, baseUrl, apiKeyInfo);
+      
+      if (!scrapingResult.ok || !scrapingResult.jobId) {
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: scrapingResult.error || 'TUTELAS search failed', 
+          provider: 'tutelas-api',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 404,
+        };
+      }
+      
+      // Poll for result
+      const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/job/${scrapingResult.jobId}`;
+      const pollResult = await pollForScrapingResult(pollUrl, headers, 'TUTELAS');
+      
+      if (!pollResult.ok || !pollResult.data) {
+        return { 
+          ok: false, 
+          actuaciones: [], 
+          error: pollResult.error || 'TUTELAS polling failed', 
+          provider: 'tutelas-api',
+          isEmpty: true,
+          latencyMs: Date.now() - startTime,
+          httpStatus: 408,
+          scrapingInitiated: true,
+          scrapingJobId: scrapingResult.jobId,
+          scrapingMessage: `TUTELAS job ${scrapingResult.jobId} did not complete.`,
+        };
+      }
+      
+      // Normalize the polled response
+      const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
+      const normalized = normalizeTutelasResponse(resultData);
+      
+      // Extract tutela_code and corte metadata
+      const tutelaCode = (resultData.tutela_code || resultData.codigo_tutela || resultData.expediente) as string;
+      const corteStatusRaw = String(resultData.estado || resultData.corte_status || resultData.estado_seleccion || '');
+      const sentenciaRef = (resultData.sentencia || resultData.sentencia_ref || resultData.numero_sentencia) as string;
+      
+      // Enrich caseMetadata with Corte Constitucional fields
+      const enrichedMetadata = {
+        ...normalized.metadata,
+        // Store in the fields that mergeTutelaMetadata expects
+      };
+      
+      return {
+        ok: normalized.actuaciones.length > 0 || !!normalized.expedienteUrl,
+        actuaciones: normalized.actuaciones,
+        expedienteUrl: normalized.expedienteUrl,
+        caseMetadata: {
+          ...enrichedMetadata,
+          // Corte-specific fields stored as extra properties for mergeTutelaMetadata
+        } as FetchResult['caseMetadata'] & { tutela_code?: string; corte_status?: string; sentencia_ref?: string },
+        provider: 'tutelas-api',
+        latencyMs: Date.now() - startTime,
+        httpStatus: 200,
+      };
+    }
 
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.log(`[sync-by-work-item] TUTELAS: Record not found (404) for ${tutelaCode}. Auto-triggering scraping...`);
+    if (!response!.ok) {
+      if (response!.status === 404) {
+        console.log(`[sync-by-work-item] TUTELAS: Record not found (404) for ${identifier}. Auto-triggering scraping...`);
         
         // Attempt to trigger scraping job via /search (POST)
-        const scrapingResult = await triggerTutelasScrapingJob(tutelaCode, baseUrl, apiKeyInfo);
+        const scrapingResult = await triggerTutelasScrapingJob(identifier, baseUrl, apiKeyInfo);
         
         if (scrapingResult.ok && scrapingResult.jobId) {
           console.log(`[sync-by-work-item] TUTELAS: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling for results...`);
           
-          // Poll for the scraping result
           const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/job/${scrapingResult.jobId}`;
           const pollResult = await pollForScrapingResult(pollUrl, headers, 'TUTELAS');
           
@@ -2195,24 +2332,23 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
             console.log(`[sync-by-work-item] TUTELAS: Scraping completed! Extracting actuaciones...`);
             
             const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
-            const polledActuaciones = ((resultData.actuaciones || []) as unknown) as Record<string, unknown>[];
+            const normalized = normalizeTutelasResponse(resultData);
             
-            if (polledActuaciones.length > 0) {
-              console.log(`[sync-by-work-item] TUTELAS: Scraping found ${polledActuaciones.length} actuaciones!`);
+            if (normalized.actuaciones.length > 0) {
+              console.log(`[sync-by-work-item] TUTELAS: Scraping found ${normalized.actuaciones.length} actuaciones!`);
+              
+              // Extract Corte metadata
+              const tutelaCode = (resultData.tutela_code || resultData.codigo_tutela || resultData.expediente) as string;
+              const corteStatusRaw = String(resultData.estado || resultData.corte_status || '');
+              const sentenciaRef = (resultData.sentencia || resultData.sentencia_ref || resultData.numero_sentencia) as string;
+              
               return {
                 ok: true,
-                actuaciones: polledActuaciones.map((act) => ({
-                  fecha: String(act.fecha || ''),
-                  actuacion: String(act.actuacion || act.descripcion || ''),
-                  anotacion: String(act.anotacion || ''),
-                })),
-                expedienteUrl: resultData.expediente_url as string,
+                actuaciones: normalized.actuaciones,
+                expedienteUrl: normalized.expedienteUrl,
                 caseMetadata: {
-                  despacho: resultData.despacho as string,
-                  demandante: resultData.accionante as string,
-                  demandado: resultData.accionado as string,
-                  tipo_proceso: 'TUTELA',
-                },
+                  ...normalized.metadata,
+                } as any,
                 provider: 'tutelas-api',
                 latencyMs: Date.now() - startTime,
                 httpStatus: 200,
@@ -2220,7 +2356,6 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
             }
           }
           
-          // Polling failed or timed out
           console.log(`[sync-by-work-item] TUTELAS: Polling failed/timed out. Returning timeout error.`);
           return { 
             ok: false, 
@@ -2250,33 +2385,43 @@ async function fetchFromTutelasApi(tutelaCode: string): Promise<FetchResult> {
       return { 
         ok: false, 
         actuaciones: [], 
-        error: `HTTP ${response.status}`, 
+        error: `HTTP ${response!.status}`, 
         provider: 'tutelas-api',
         latencyMs: Date.now() - startTime,
-        httpStatus: response.status,
+        httpStatus: response!.status,
       };
     }
 
-    const data = await response.json();
+    const data = await response!.json();
     
-    const actuaciones = data.actuaciones || [];
+    // Use the normalizer for all TUTELAS responses
+    const normalized = normalizeTutelasResponse(data);
     
-    console.log(`[sync-by-work-item] TUTELAS: Found ${actuaciones.length} actuaciones for ${tutelaCode}`);
+    // Extract Corte-specific metadata from raw response
+    const exp = (data.expediente || data.resultado || data) as Record<string, unknown>;
+    const tutelaCode = (exp.tutela_code || exp.codigo_tutela || exp.expediente_code) as string;
+    const corteStatusRaw = String(exp.estado || exp.corte_status || exp.estado_seleccion || '');
+    const sentenciaRef = (exp.sentencia || exp.sentencia_ref || exp.numero_sentencia) as string;
+    
+    console.log(`[sync-by-work-item] TUTELAS: Found ${normalized.actuaciones.length} actuaciones for ${identifier}`);
+    if (corteStatusRaw) console.log(`[sync-by-work-item] TUTELAS: corte_status=${mapCorteStatus(corteStatusRaw)}, sentencia_ref=${sentenciaRef || 'none'}`);
+    
+    // Build enriched caseMetadata that includes Corte Constitucional fields
+    // These will be picked up by mergeTutelaMetadata and the metadata persistence section
+    const enrichedMetadata: Record<string, unknown> = {
+      ...normalized.metadata,
+    };
+    
+    // Store Corte-specific fields in metadata for the merge engine
+    if (tutelaCode) enrichedMetadata.tutela_code = tutelaCode;
+    if (corteStatusRaw) enrichedMetadata.corte_status = mapCorteStatus(corteStatusRaw);
+    if (sentenciaRef) enrichedMetadata.sentencia_ref = sentenciaRef;
     
     return {
-      ok: actuaciones.length > 0 || !!data.expediente_url,
-      actuaciones: actuaciones.map((act: Record<string, unknown>) => ({
-        fecha: String(act.fecha || ''),
-        actuacion: String(act.actuacion || act.descripcion || ''),
-        anotacion: String(act.anotacion || ''),
-      })),
-      expedienteUrl: data.expediente_url,
-      caseMetadata: {
-        despacho: data.despacho,
-        demandante: data.accionante,
-        demandado: data.accionado,
-        tipo_proceso: 'TUTELA',
-      },
+      ok: normalized.actuaciones.length > 0 || !!normalized.expedienteUrl,
+      actuaciones: normalized.actuaciones,
+      expedienteUrl: normalized.expedienteUrl,
+      caseMetadata: enrichedMetadata as FetchResult['caseMetadata'],
       provider: 'tutelas-api',
       latencyMs: Date.now() - startTime,
       httpStatus: 200,
@@ -2502,7 +2647,12 @@ Deno.serve(async (req) => {
         providerLabels.push('samai');
       }
       if (hasTutelaCode) {
-        providerPromises.push(fetchFromTutelasApi(workItem.tutela_code!));
+        // T-code available: use direct /expediente lookup
+        providerPromises.push(fetchFromTutelasApi(workItem.tutela_code!, 'tutela_code'));
+        providerLabels.push('tutelas-api');
+      } else if (hasRadicado) {
+        // No T-code: try TUTELAS with radicado-based /search
+        providerPromises.push(fetchFromTutelasApi(normalizedRadicado, 'radicado'));
         providerLabels.push('tutelas-api');
       }
       
@@ -2749,6 +2899,19 @@ Deno.serve(async (req) => {
         if (winnerIdx >= 0) {
           fetchResult = (settledResults[winnerIdx] as PromiseFulfilledResult<FetchResult>).value;
           result.provider_order_reason = `tutela_parallel_single: ${fetchResult.provider}`;
+        }
+      }
+      
+      // ============= TUTELA T-CODE EXTRACTION =============
+      // If we don't have a tutela_code yet, try to extract it from CPNU/SAMAI actuaciones
+      if (!workItem.tutela_code && fetchResult && fetchResult.actuaciones.length > 0) {
+        const extractedCode = extractTutelaCodeFromActuaciones(fetchResult.actuaciones);
+        if (extractedCode) {
+          console.log(`[sync-by-work-item] TUTELA: Extracted tutela_code="${extractedCode}" from actuaciones`);
+          // Save to caseMetadata so it gets persisted in the metadata update section
+          if (fetchResult.caseMetadata) {
+            (fetchResult.caseMetadata as any).tutela_code = extractedCode;
+          }
         }
       }
       // If no actuaciones at all and no scraping, fetchResult stays null → handled by existing failure logic below
