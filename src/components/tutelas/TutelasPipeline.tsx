@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Gavel, CheckSquare, Keyboard, Plus, RefreshCw } from "lucide-react";
+import { Gavel, CheckSquare, Keyboard, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -30,7 +30,7 @@ import {
 } from "@/lib/tutela-constants";
 import { TutelaColumn, TutelaStageConfig } from "./TutelaColumn";
 import { TutelaCard, TutelaItem } from "./TutelaCard";
-import { NewTutelaDialog } from "./NewTutelaDialog";
+
 import { NewHabeasCorpusDialog } from "./NewHabeasCorpusDialog";
 import { FalloOutcomeDialog } from "./FalloOutcomeDialog";
 import { ArchivePromptDialog } from "./ArchivePromptDialog";
@@ -123,7 +123,7 @@ function rawToTutelaItem(raw: RawWorkItem): TutelaItem {
 export function TutelasPipeline() {
   const queryClient = useQueryClient();
   const [activeItem, setActiveItem] = useState<TutelaItem | null>(null);
-  const [newDialogOpen, setNewDialogOpen] = useState(false);
+  
   const [habeasDialogOpen, setHabeasDialogOpen] = useState(false);
   const [falloDialog, setFalloDialog] = useState<{
     open: boolean;
@@ -434,10 +434,6 @@ export function TutelasPipeline() {
             <Keyboard className="h-4 w-4 mr-2" />
             {isNavigating ? "Navegando" : "Tab"}
           </Button>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Nueva Tutela
-          </Button>
         </div>
       </div>
 
@@ -476,7 +472,7 @@ export function TutelasPipeline() {
       </DndContext>
 
       {/* Dialogs */}
-      <NewTutelaDialog open={newDialogOpen} onOpenChange={setNewDialogOpen} />
+      
       <NewHabeasCorpusDialog open={habeasDialogOpen} onOpenChange={setHabeasDialogOpen} />
       
       <FalloOutcomeDialog
