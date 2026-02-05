@@ -28,6 +28,7 @@ export interface LookupResult {
   found_in_source: boolean;
   source_used: string | null;
   sources_checked: string[];
+  sources_found?: string[];
   new_events_count: number;
   cgp_phase: 'FILING' | 'PROCESS';
   classification_reason: string;
