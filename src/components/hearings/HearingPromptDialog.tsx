@@ -21,8 +21,7 @@ import type { ProcessPhase } from "@/lib/constants";
 interface HearingPromptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  processId: string;
-  filingId: string | null;
+  workItemId: string;
   radicado: string | null;
   targetPhase: ProcessPhase;
   onComplete: () => void;
@@ -43,8 +42,7 @@ const PHASE_HEARING_TITLES: Record<string, string> = {
 export function HearingPromptDialog({
   open,
   onOpenChange,
-  processId,
-  filingId,
+  workItemId,
   radicado,
   targetPhase,
   onComplete,
@@ -65,74 +63,11 @@ export function HearingPromptDialog({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      // We need a filing_id - if process has linked_filing_id use it, otherwise create one
-      let targetFilingId = filingId;
-
-      if (!targetFilingId) {
-        // Get process to check for linked filing
-        const { data: process } = await supabase
-          .from("monitored_processes")
-          .select("linked_filing_id")
-          .eq("id", processId)
-          .single();
-
-        if (process?.linked_filing_id) {
-          targetFilingId = process.linked_filing_id;
-        } else {
-          // Create a placeholder filing for this process
-          const { data: existingMatters } = await supabase
-            .from("matters")
-            .select("id")
-            .eq("owner_id", user.id)
-            .limit(1);
-
-          let matterId = existingMatters?.[0]?.id;
-
-          if (!matterId) {
-            const { data: newMatter, error: matterError } = await supabase
-              .from("matters")
-              .insert({
-                owner_id: user.id,
-                client_name: "Cliente sin asignar",
-                matter_name: `Proceso ${radicado || "nuevo"}`,
-              })
-              .select("id")
-              .single();
-            
-            if (matterError) throw matterError;
-            matterId = newMatter.id;
-          }
-
-          const { data: newFiling, error: filingError } = await supabase
-            .from("filings")
-            .insert({
-              owner_id: user.id,
-              matter_id: matterId,
-              radicado: radicado,
-              filing_type: "Demanda",
-              status: "MONITORING_ACTIVE",
-              linked_process_id: processId,
-              has_auto_admisorio: true,
-            })
-            .select("id")
-            .single();
-
-          if (filingError) throw filingError;
-          targetFilingId = newFiling.id;
-
-          // Update process to link to this filing
-          await supabase
-            .from("monitored_processes")
-            .update({ linked_filing_id: targetFilingId })
-            .eq("id", processId);
-        }
-      }
-
       const scheduledAt = new Date(`${formData.scheduled_at}T${formData.scheduled_time}`);
 
-      // Create the hearing
+      // Create the hearing linked to work_item
       const { error: hearingError } = await supabase.from("hearings").insert({
-        filing_id: targetFilingId,
+        work_item_id: workItemId,
         owner_id: user.id,
         title: formData.title,
         scheduled_at: scheduledAt.toISOString(),
@@ -149,12 +84,14 @@ export function HearingPromptDialog({
       // Create an alert for the hearing
       const daysUntil = Math.ceil((scheduledAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
       
-      const { error: alertError } = await supabase.from("alerts").insert({
+      const { error: alertError } = await supabase.from("alert_instances").insert({
         owner_id: user.id,
-        filing_id: targetFilingId,
-        severity: daysUntil <= 3 ? "CRITICAL" : daysUntil <= 7 ? "WARN" : "INFO",
+        entity_type: "work_item",
+        entity_id: workItemId,
+        severity: daysUntil <= 3 ? "critical" : daysUntil <= 7 ? "warn" : "info",
+        title: `${formData.title} programada`,
         message: `${formData.title} programada para ${scheduledAt.toLocaleDateString('es-CO')} - Radicado: ${radicado || "Sin radicado"}`,
-        is_read: false,
+        status: "active",
       });
 
       if (alertError) console.error("Error creating alert:", alertError);
@@ -162,6 +99,7 @@ export function HearingPromptDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["all-hearings"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["alert-instances"] });
       toast.success("Audiencia programada y alerta creada");
       onComplete();
       onOpenChange(false);

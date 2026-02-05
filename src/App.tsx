@@ -27,8 +27,6 @@ import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Utilities from "./pages/Utilities";
 import Links from "./pages/Links";
-import Filings from "./pages/Filings";
-import CGPRedirect from "./pages/CGPRedirect";
 import WorkItemDetailPage from "./pages/WorkItemDetail/index";
 import ItemRedirect from "./pages/ItemRedirect";
 import Hearings from "./pages/Hearings";
@@ -129,16 +127,16 @@ const App = () => (
             <Route path="clients" element={<ErrorBoundary><Clients /></ErrorBoundary>} />
             <Route path="clients/:id" element={<ErrorBoundary><ClientDetail /></ErrorBoundary>} />
             
-            {/* Work Item routes */}
+            {/* Work Item routes - all point to unified detail page */}
             <Route path="items/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             <Route path="work-items/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="cgp/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
-            <Route path="filings/:id" element={<ErrorBoundary><CGPRedirect type="filing" /></ErrorBoundary>} />
+            <Route path="filings/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             <Route path="processes/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             <Route path="process-status/:id" element={<ErrorBoundary><ItemRedirect /></ErrorBoundary>} />
             
-            {/* List views */}
-            <Route path="filings" element={<ErrorBoundary><Filings /></ErrorBoundary>} />
+            {/* List views - filings redirects to processes (unified view) */}
+            <Route path="filings" element={<Navigate to="/app/processes" replace />} />
             <Route path="processes" element={<ErrorBoundary><Processes /></ErrorBoundary>} />
             <Route path="estados-hoy" element={<ErrorBoundary><EstadosHoy /></ErrorBoundary>} />
             <Route path="hearings" element={<ErrorBoundary><Hearings /></ErrorBoundary>} />
