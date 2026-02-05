@@ -22,6 +22,9 @@ export interface UseLoginSyncResult {
   syncStatus: LoginSyncStatus | null;
   isRunning: boolean;
   lastRunAt: Date | null;
+  eligibleCount: number;
+  syncedCount: number;
+  runSyncAgain: () => void;
 }
 
 // Workflows that support external API sync
@@ -50,6 +53,8 @@ export function useLoginSync(): UseLoginSyncResult {
   const [syncStatus, setSyncStatus] = useState<LoginSyncStatus | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
+  const [eligibleCount, setEligibleCount] = useState(0);
+  const [syncedCount, setSyncedCount] = useState(0);
 
   // Fetch current sync status on mount/org change
   const fetchSyncStatus = useCallback(async (userId: string, orgId: string) => {
@@ -153,10 +158,12 @@ export function useLoginSync(): UseLoginSyncResult {
           hasTriggeredRef.current = true;
           setIsRunning(false);
           setLastRunAt(new Date());
+          setEligibleCount(0);
           return;
         }
 
         console.log('[useLoginSync] Found', eligibleItems.length, 'items to sync');
+        setEligibleCount(eligibleItems.length);
 
         // Show toast with remaining syncs
         const remainingSyncs = checkResult.remaining ?? (checkResult.limit - checkResult.count);
@@ -212,6 +219,7 @@ export function useLoginSync(): UseLoginSyncResult {
         hasTriggeredRef.current = true;
         setIsRunning(false);
         setLastRunAt(new Date());
+        setSyncedCount(successCount + publicacionesCount);
 
         // Refresh status after sync
         await fetchSyncStatus(user.id, organization.id);
@@ -239,5 +247,15 @@ export function useLoginSync(): UseLoginSyncResult {
     return () => clearTimeout(timeoutId);
   }, [organization?.id, fetchSyncStatus]);
 
-  return { syncStatus, isRunning, lastRunAt };
+  // Allow manual re-run (bypasses sessionStorage guard)
+  const runSyncAgain = useCallback(() => {
+    if (!organization?.id) return;
+    const syncKey = `login_sync_${organization.id}_${new Date().toDateString()}`;
+    sessionStorage.removeItem(syncKey);
+    hasTriggeredRef.current = false;
+    // Force re-run by updating a dependency (will trigger useEffect)
+    setLastRunAt(null);
+  }, [organization?.id]);
+
+  return { syncStatus, isRunning, lastRunAt, eligibleCount, syncedCount, runSyncAgain };
 }

@@ -112,12 +112,27 @@ function errorResponse(code: string, message: string, status: number = 400): Res
 }
 
 function isValidRadicado(radicado: string): boolean {
-  const normalized = radicado.replace(/\D/g, '');
+  const normalized = normalizeRadicado(radicado);
   return normalized.length === 23;
 }
 
+/**
+ * Normalize radicado input:
+ * - Trims whitespace
+ * - If starts with 'T' (tutela code), keeps the 'T' prefix and removes spaces
+ * - Otherwise removes all non-digits
+ */
 function normalizeRadicado(radicado: string): string {
-  return radicado.replace(/\D/g, '');
+  if (!radicado) return '';
+  const trimmed = radicado.trim();
+  
+  // Tutela codes start with T followed by digits
+  if (/^[Tt]\d/.test(trimmed)) {
+    return trimmed.toUpperCase().replace(/\s+/g, '');
+  }
+  
+  // Standard radicado: remove all non-digits
+  return trimmed.replace(/\D/g, '');
 }
 
 function parseDate(dateStr: string | undefined | null): string | null {
@@ -215,6 +230,90 @@ function extractDateFromTitle(title: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Try /buscar endpoint as final fallback (for APIs that require async trigger)
+ * This is the CPNU-style pattern where /buscar triggers scraping and returns a jobId
+ */
+async function tryBuscarFallback(
+  baseUrl: string,
+  radicado: string,
+  headers: Record<string, string>
+): Promise<FetchResultV3 | null> {
+  const startTime = Date.now();
+  
+  try {
+    // Try /buscar?radicado={radicado} (query param style)
+    const buscarUrl = `${baseUrl}/buscar?radicado=${radicado}`;
+    console.log(`[sync-pub] Trying /buscar: ${buscarUrl}`);
+    
+    const buscarResponse = await fetch(buscarUrl, {
+      method: 'GET',
+      headers,
+    });
+    
+    if (!buscarResponse.ok) {
+      console.log(`[sync-pub] /buscar returned ${buscarResponse.status}`);
+      return null;
+    }
+    
+    const buscarData = await buscarResponse.json();
+    
+    // Check if /buscar returned data directly (cached)
+    if (buscarData.found && buscarData.publicaciones?.length > 0) {
+      console.log(`[sync-pub] /buscar returned cached data directly`);
+      return extractPublicacionesFromResponse(buscarData, Date.now() - startTime);
+    }
+    
+    // Check if /buscar returned a job ID for polling
+    const jobId = buscarData.jobId || buscarData.job_id || buscarData.id;
+    const pollUrl = buscarData.poll_url || buscarData.pollUrl || (jobId ? `${baseUrl}/resultado/${jobId}` : null);
+    
+    if (jobId && pollUrl) {
+      console.log(`[sync-pub] /buscar initiated scraping job: ${jobId}. Polling...`);
+      
+      // Poll for result
+      const maxAttempts = 10;
+      const pollInterval = 3000;
+      
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        
+        try {
+          console.log(`[sync-pub] Poll ${attempt}/${maxAttempts}: ${pollUrl}`);
+          const pollResponse = await fetch(pollUrl, { method: 'GET', headers });
+          
+          if (pollResponse.ok) {
+            const pollData = await pollResponse.json();
+            const status = String(pollData.status || '').toLowerCase();
+            
+            if (['done', 'completed', 'success', 'finished'].includes(status)) {
+              console.log(`[sync-pub] Polling completed!`);
+              const resultData = pollData.result || pollData;
+              if (resultData.publicaciones?.length > 0 || resultData.found) {
+                return extractPublicacionesFromResponse(resultData, Date.now() - startTime);
+              }
+            }
+            
+            if (['failed', 'error'].includes(status)) {
+              console.log(`[sync-pub] Polling job failed`);
+              break;
+            }
+          }
+        } catch (pollErr) {
+          console.warn(`[sync-pub] Poll error:`, pollErr);
+        }
+      }
+    }
+    
+    // No data obtained
+    return null;
+    
+  } catch (err) {
+    console.warn(`[sync-pub] /buscar fallback error:`, err);
+    return null;
+  }
+}
+
 // ============= v3 SYNCHRONOUS API FETCH =============
 
 /**
@@ -223,6 +322,7 @@ function extractDateFromTitle(title: string): string | undefined {
  * Strategy: Call /snapshot/{radicado} directly (synchronous scraping)
  * This may take 10-30 seconds as it scrapes Rama Judicial live
  * If /snapshot fails, try /search/{radicado} as fallback
+ * If both fail, try /buscar (async trigger) with polling
  */
 async function fetchPublicaciones(
   radicado: string,
@@ -267,6 +367,13 @@ async function fetchPublicaciones(
         const searchData = await searchResponse.json();
         console.log(`[sync-pub] /search fallback returned data`);
         return extractPublicacionesFromResponse(searchData, searchLatency);
+      }
+      
+      // Both /snapshot and /search failed - try /buscar as async trigger
+      console.log(`[sync-pub] /search also failed, trying /buscar?radicado=${radicado}`);
+      const buscarResult = await tryBuscarFallback(cleanBaseUrl, radicado, headers);
+      if (buscarResult) {
+        return buscarResult;
       }
       
       return { 
