@@ -103,9 +103,11 @@ function getProviderOrder(workflowType: string): ProviderConfig {
       // Administrative litigation - SAMAI primary, no fallback to CPNU
       return { primary: 'SAMAI', fallbackEnabled: false };
     case 'TUTELA':
-      // Tutela - CPNU primary, TUTELAS API fallback
+      // Tutela - CPNU primary, TUTELAS API fallback (aligned with sync-by-work-item)
       return { primary: 'CPNU', fallback: 'TUTELAS', fallbackEnabled: true };
-    case 'CGP':
+    case 'PENAL_906':
+      // Penal 906 - CPNU primary, SAMAI fallback (aligned with sync-by-work-item)
+      return { primary: 'CPNU', fallback: 'SAMAI', fallbackEnabled: true };
     case 'LABORAL':
     case 'PENAL_906':
     default:
@@ -462,65 +464,30 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
   }
 
   try {
-    console.log(`[sync-by-radicado] Calling SAMAI: ${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`);
+    // FIX S2: Call /buscar directly (primary SAMAI endpoint), not /snapshot
+    // /snapshot may not exist for all records; /buscar handles both cached and async scraping
+    const buscarUrl = `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`;
+    console.log(`[sync-by-radicado] Calling SAMAI: ${buscarUrl}`);
     
-    const response = await fetch(
-      `${samaiBaseUrl}/snapshot?numero_radicacion=${radicado}`,
-      {
-        method: 'GET',
-        headers: {
-          'x-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    const response = await fetch(buscarUrl, {
+      method: 'GET',
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json',
+      },
+    });
 
     const latency = Date.now() - startTime;
 
     if (!response.ok) {
-      // For 404, try /buscar endpoint as fallback (SAMAI may require scraping trigger)
       if (response.status === 404) {
-        console.log(`[sync-by-radicado] SAMAI /snapshot returned 404, trying /buscar fallback`);
-        
-        try {
-          const buscarUrl = `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`;
-          const buscarResponse = await fetch(buscarUrl, {
-            method: 'GET',
-            headers: {
-              'x-api-key': apiKey,
-              'Content-Type': 'application/json',
-            },
-          });
-          
-          if (buscarResponse.ok) {
-            const buscarData = await buscarResponse.json();
-            // /buscar may return cached data directly if available
-            const proceso = buscarData.result || buscarData.data || buscarData;
-            const actuaciones = proceso.actuaciones ?? [];
-            
-            if (actuaciones.length > 0) {
-              console.log(`[sync-by-radicado] SAMAI /buscar returned ${actuaciones.length} cached actuaciones`);
-              // Return this data - continue processing below
-              const sujetos = proceso.sujetos_procesales ?? proceso.sujetos ?? [];
-              return buildSamaiResult(proceso, sujetos, actuaciones, Date.now() - startTime);
-            }
-            
-            // /buscar returned jobId for async scraping - we can't wait for it in lookup mode
-            if (buscarData.jobId || buscarData.job_id) {
-              console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job, data not immediately available`);
-            }
-          }
-        } catch (buscarErr) {
-          console.warn(`[sync-by-radicado] SAMAI /buscar fallback failed:`, buscarErr);
-        }
-        
         return {
           ok: true,
           found: false,
           source: 'SAMAI',
           processData: {},
-          latency_ms: Date.now() - startTime,
-          error: 'Record not found in SAMAI (tried /snapshot and /buscar)',
+          latency_ms: latency,
+          error: 'Record not found in SAMAI',
         };
       }
       return {
@@ -528,15 +495,30 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: Date.now() - startTime,
+        latency_ms: latency,
         error: `SAMAI returned ${response.status}`,
       };
     }
 
-    const result = await response.json();
+    const buscarResult = await response.json();
     
-    // Check if SAMAI returned data - SAMAI may wrap in "result" key
-    const proceso = result.result || result.data || result.proceso || result;
+    // /buscar returns: { success, status, result: {...}, cached: bool } for cached data
+    // or { jobId, status: "pending" } for async scraping
+    // Handle async job response — wizard can't wait, so treat as "not found"
+    if ((buscarResult.jobId || buscarResult.job_id) && !buscarResult.result) {
+      console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job, data not immediately available`);
+      return {
+        ok: true,
+        found: false,
+        source: 'SAMAI',
+        processData: {},
+        latency_ms: latency,
+        error: 'SAMAI scraping initiated but data not yet available',
+      };
+    }
+    
+    // Extract data from the response (handles various SAMAI response shapes)
+    const proceso = buscarResult.result || buscarResult.data || buscarResult.proceso || buscarResult;
     
     if (!proceso || (Object.keys(proceso).length === 0)) {
       return {
@@ -1185,6 +1167,33 @@ Deno.serve(async (req) => {
         inserted: syncResult.inserted_count,
         source: syncResult.source_used,
       });
+    }
+
+    // FIX B4: Trigger publicaciones sync after creation for eligible workflows
+    // This ensures the Estados tab is populated immediately rather than waiting for cron
+    if (workItemId && ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workflowType)) {
+      try {
+        console.log(`[sync-by-radicado] Triggering publicaciones sync for new work item ${workItemId}`);
+        const pubResponse = await fetch(
+          `${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ work_item_id: workItemId }),
+          }
+        );
+        const pubResult = await pubResponse.json();
+        console.log(`[sync-by-radicado] Publicaciones sync result:`, {
+          ok: pubResult.ok,
+          inserted: pubResult.inserted_count,
+        });
+      } catch (pubErr) {
+        // Non-blocking — publicaciones failure shouldn't block creation
+        console.warn(`[sync-by-radicado] Publicaciones sync failed (non-blocking):`, pubErr);
+      }
     }
 
     const response: SyncResponse = {

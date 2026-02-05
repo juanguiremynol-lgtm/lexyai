@@ -162,6 +162,16 @@ Deno.serve(async (req) => {
         retriesAttempted++;
 
         // Get work items for this org
+        // FIX E1c: Only retry items that weren't reached in the original run
+        // Items with last_synced_at < ledger start time were not synced today
+        const { data: ledgerEntry } = await supabase
+          .from("auto_sync_daily_ledger")
+          .select("started_at")
+          .eq("id", pendingOrg.ledger_id)
+          .single();
+
+        const ledgerStartedAt = ledgerEntry?.started_at || new Date(new Date().setHours(0,0,0,0)).toISOString();
+
         const { data: workItems, error: fetchError } = await supabase
           .from("work_items")
           .select("id, radicado, workflow_type")
@@ -170,7 +180,8 @@ Deno.serve(async (req) => {
           .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
           .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
           .not("radicado", "is", null)
-          .limit(30); // FIX 1.4: Aligned with scheduled-daily-sync limit (was 50)
+          .or(`last_synced_at.is.null,last_synced_at.lt.${ledgerStartedAt}`)
+          .limit(30);
 
         if (fetchError) {
           throw fetchError;
