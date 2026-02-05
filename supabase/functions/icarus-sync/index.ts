@@ -827,12 +827,13 @@ Deno.serve(async (req) => {
 
     for (const process of listResult.processes) {
       try {
-        // Upsert monitored_process
-        const { data: mp } = await supabase
-          .from('monitored_processes')
+        // Upsert work_item (canonical)
+        const { data: workItem } = await supabase
+          .from('work_items')
           .upsert({
             owner_id: userId,
             radicado: process.radicado,
+            workflow_type: 'GENERIC',
             monitoring_enabled: true,
             sources_enabled: ['ICARUS'],
             updated_at: new Date().toISOString(),
@@ -840,38 +841,7 @@ Deno.serve(async (req) => {
           .select('id')
           .single();
 
-        // Find or create filing
-        let { data: filing } = await supabase
-          .from('filings')
-          .select('id')
-          .eq('owner_id', userId)
-          .eq('radicado', process.radicado)
-          .maybeSingle();
-
-        if (!filing) {
-          const { data: matters } = await supabase
-            .from('matters')
-            .select('id')
-            .eq('owner_id', userId)
-            .limit(1);
-
-          if (matters?.length) {
-            const { data: newFiling } = await supabase
-              .from('filings')
-              .insert({
-                owner_id: userId,
-                matter_id: matters[0].id,
-                radicado: process.radicado,
-                filing_type: 'ICARUS_IMPORT',
-                status: 'MONITORING_ACTIVE',
-              })
-              .select('id')
-              .single();
-            filing = newFiling;
-          }
-        }
-
-        if (filing && mp) {
+        if (workItem) {
           // Create a discovery event
           const fingerprint = computeFingerprint('ICARUS', process.radicado, new Date().toISOString().split('T')[0], 'Proceso sincronizado desde ICARUS');
 
@@ -884,8 +854,7 @@ Deno.serve(async (req) => {
           if (!existing) {
             await supabase.from('process_events').insert({
               owner_id: userId,
-              filing_id: filing.id,
-              monitored_process_id: mp.id,
+              work_item_id: workItem.id,
               source: 'ICARUS',
               event_type: 'ACTUACION',
               event_date: new Date().toISOString(),

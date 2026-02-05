@@ -104,12 +104,11 @@ Deno.serve(async (req) => {
     // 6. Process each work item
     for (const workItemId of work_item_ids) {
       try {
-        // Verify ownership - check multiple tables since items might be in legacy tables
+        // Verify ownership - work_items is canonical
         let ownerVerified = false;
-        let sourceTable = "";
         let ownerId = "";
 
-        // Check work_items table first
+        // Check work_items table only (canonical source)
         const { data: workItem } = await serviceClient
           .from("work_items")
           .select("id, owner_id, organization_id")
@@ -117,93 +116,15 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (workItem) {
-          sourceTable = "work_items";
           ownerId = workItem.owner_id;
           ownerVerified = workItem.owner_id === user.id || 
             (organizationId && workItem.organization_id === organizationId);
-        }
-
-        // Check cgp_items table
-        if (!ownerVerified) {
-          const { data: cgpItem } = await serviceClient
-            .from("cgp_items")
-            .select("id, owner_id")
-            .eq("id", workItemId)
-            .maybeSingle();
-
-          if (cgpItem) {
-            sourceTable = "cgp_items";
-            ownerId = cgpItem.owner_id;
-            ownerVerified = cgpItem.owner_id === user.id;
-          }
-        }
-
-        // Check peticiones table
-        if (!ownerVerified) {
-          const { data: peticion } = await serviceClient
-            .from("peticiones")
-            .select("id, owner_id")
-            .eq("id", workItemId)
-            .maybeSingle();
-
-          if (peticion) {
-            sourceTable = "peticiones";
-            ownerId = peticion.owner_id;
-            ownerVerified = peticion.owner_id === user.id;
-          }
-        }
-
-        // Check monitored_processes table
-        if (!ownerVerified) {
-          const { data: process } = await serviceClient
-            .from("monitored_processes")
-            .select("id, owner_id")
-            .eq("id", workItemId)
-            .maybeSingle();
-
-          if (process) {
-            sourceTable = "monitored_processes";
-            ownerId = process.owner_id;
-            ownerVerified = process.owner_id === user.id;
-          }
-        }
-
-        // Check cpaca_processes table
-        if (!ownerVerified) {
-          const { data: cpaca } = await serviceClient
-            .from("cpaca_processes")
-            .select("id, owner_id")
-            .eq("id", workItemId)
-            .maybeSingle();
-
-          if (cpaca) {
-            sourceTable = "cpaca_processes";
-            ownerId = cpaca.owner_id;
-            ownerVerified = cpaca.owner_id === user.id;
-          }
-        }
-
-        // Check filings table (tutelas)
-        if (!ownerVerified) {
-          const { data: filing } = await serviceClient
-            .from("filings")
-            .select("id, owner_id")
-            .eq("id", workItemId)
-            .maybeSingle();
-
-          if (filing) {
-            sourceTable = "filings";
-            ownerId = filing.owner_id;
-            ownerVerified = filing.owner_id === user.id;
-          }
         }
 
         if (!ownerVerified) {
           result.errors.push({ id: workItemId, error: "Item not found or access denied" });
           continue;
         }
-
-        console.log(`[delete-work-items] Deleting ${workItemId} from ${sourceTable}`);
 
         // 7. Delete dependent entities in correct FK order
         // Start with the most dependent tables first
@@ -223,13 +144,13 @@ Deno.serve(async (req) => {
         // Delete alert_rules linked to this item
         await serviceClient.from("alert_rules").delete().eq("entity_id", workItemId);
 
-        // Delete tasks linked to this item (using filing_id for legacy support)
+        // Delete tasks linked to this item (legacy support for filing_id)
         await serviceClient.from("tasks").delete().eq("filing_id", workItemId);
 
         // Delete cgp_deadlines
         await serviceClient.from("cgp_deadlines").delete().eq("work_item_id", workItemId);
 
-        // Delete cgp_term_instances (using filing_id or process_id)
+        // Delete cgp_term_instances
         await serviceClient.from("cgp_term_instances").delete().eq("filing_id", workItemId);
         await serviceClient.from("cgp_term_instances").delete().eq("process_id", workItemId);
 
@@ -309,28 +230,8 @@ Deno.serve(async (req) => {
         await serviceClient.from("work_item_mappings").delete().eq("legacy_filing_id", workItemId);
         await serviceClient.from("work_item_mappings").delete().eq("legacy_process_id", workItemId);
 
-        // 8. Delete the main entity based on source table
-        let deleteError;
-        switch (sourceTable) {
-          case "work_items":
-            ({ error: deleteError } = await serviceClient.from("work_items").delete().eq("id", workItemId));
-            break;
-          case "cgp_items":
-            ({ error: deleteError } = await serviceClient.from("cgp_items").delete().eq("id", workItemId));
-            break;
-          case "peticiones":
-            ({ error: deleteError } = await serviceClient.from("peticiones").delete().eq("id", workItemId));
-            break;
-          case "monitored_processes":
-            ({ error: deleteError } = await serviceClient.from("monitored_processes").delete().eq("id", workItemId));
-            break;
-          case "cpaca_processes":
-            ({ error: deleteError } = await serviceClient.from("cpaca_processes").delete().eq("id", workItemId));
-            break;
-          case "filings":
-            ({ error: deleteError } = await serviceClient.from("filings").delete().eq("id", workItemId));
-            break;
-        }
+        // 8. Delete the main entity (always work_items now)
+        const { error: deleteError } = await serviceClient.from("work_items").delete().eq("id", workItemId);
 
         if (deleteError) {
           console.error(`[delete-work-items] Delete error for ${workItemId}:`, deleteError);
@@ -347,10 +248,9 @@ Deno.serve(async (req) => {
               actor_user_id: user.id,
               actor_type: "USER",
               action: "WORK_ITEM_HARD_DELETED",
-              entity_type: sourceTable === "work_items" ? "work_item" : sourceTable,
+              entity_type: "work_item",
               entity_id: workItemId,
               metadata: {
-                source_table: sourceTable,
                 deleted_at: new Date().toISOString(),
                 storage_files_deleted: result.storage_files_deleted,
               },

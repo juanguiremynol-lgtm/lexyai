@@ -142,18 +142,18 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Run full crawl for a monitored process
+    // Run full crawl for a work item
     if (action === 'crawl') {
       if (!process_id) {
         return new Response(
-          JSON.stringify({ success: false, error: 'process_id is required' }),
+          JSON.stringify({ success: false, error: 'work_item_id is required' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       
-      // Get the monitored process
+      // Get the work item
       const { data: process, error: processError } = await supabase
-        .from('monitored_processes')
+        .from('work_items')
         .select('*')
         .eq('id', process_id)
         .eq('owner_id', owner_id)
@@ -255,13 +255,13 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Run scheduled crawl for all monitored processes
+    // Run scheduled crawl for all work items
     if (action === 'scheduled_crawl') {
       console.log('Process Monitor: Starting scheduled crawl...');
       
-      // Get all enabled monitored processes
+      // Get all enabled work items with monitoring enabled
       const { data: processes, error: queryError } = await supabase
-        .from('monitored_processes')
+        .from('work_items')
         .select('*')
         .eq('monitoring_enabled', true);
       

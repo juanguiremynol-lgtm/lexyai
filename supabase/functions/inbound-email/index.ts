@@ -57,33 +57,11 @@ interface NormalizedMessage {
 }
 
 interface LinkCandidate {
-  entity_type: "CLIENT" | "CGP_CASE" | "TUTELA" | "HABEAS_CORPUS" | "PROCESO_ADMINISTRATIVO";
+  entity_type: "CLIENT" | "WORK_ITEM";
   entity_id: string;
   confidence: number;
   reasons: string[];
   auto_link: boolean;
-}
-
-interface FilingRecord {
-  id: string;
-  filing_type: string;
-  radicado: string | null;
-  email_linking_enabled: boolean;
-  court_email?: string | null;
-  court_name?: string | null;
-}
-
-interface ProcessRecord {
-  id: string;
-  radicado: string | null;
-  email_linking_enabled: boolean;
-}
-
-interface ClientRecord {
-  id: string;
-  name: string;
-  email: string | null;
-  email_linking_enabled: boolean;
 }
 
 interface WebhookToken {
@@ -222,54 +200,27 @@ async function findLinkCandidates(
   const candidates: LinkCandidate[] = [];
   const searchText = `${message.subject} ${message.text_body || ""} ${message.from_email}`;
 
-  // 1) Extract radicados and match CGP cases
+  // 1) Extract radicados and match work items
   const radicados = extractRadicados(searchText);
   
   if (radicados.length > 0) {
-    // Check filings (CGP, Tutela, Habeas Corpus)
-    const { data: filings } = await supabase
-      .from("filings")
-      .select("id, filing_type, radicado, email_linking_enabled")
-      .eq("owner_id", ownerId)
-      .eq("email_linking_enabled", true)
-      .not("radicado", "is", null);
-
-    if (filings) {
-      for (const filing of filings as FilingRecord[]) {
-        const normalizedRadicado = (filing.radicado || "").replace(/[-\s]/g, "");
-        if (radicados.includes(normalizedRadicado)) {
-          let entityType: LinkCandidate["entity_type"] = "CGP_CASE";
-          if (filing.filing_type === "TUTELA") entityType = "TUTELA";
-          else if (filing.filing_type === "HABEAS_CORPUS") entityType = "HABEAS_CORPUS";
-
-          candidates.push({
-            entity_type: entityType,
-            entity_id: filing.id,
-            confidence: 0.95,
-            reasons: [`Radicado "${filing.radicado}" encontrado en el mensaje`],
-            auto_link: true,
-          });
-        }
-      }
-    }
-
-    // Check monitored processes
-    const { data: processes } = await supabase
-      .from("monitored_processes")
+    // Check work_items (canonical source for all case types)
+    const { data: workItems } = await supabase
+      .from("work_items")
       .select("id, radicado, email_linking_enabled")
       .eq("owner_id", ownerId)
       .eq("email_linking_enabled", true)
       .not("radicado", "is", null);
 
-    if (processes) {
-      for (const proc of processes as ProcessRecord[]) {
-        const normalizedRadicado = (proc.radicado || "").replace(/[-\s]/g, "");
+    if (workItems) {
+      for (const item of workItems) {
+        const normalizedRadicado = (item.radicado || "").replace(/[-\s]/g, "");
         if (radicados.includes(normalizedRadicado)) {
           candidates.push({
-            entity_type: "PROCESO_ADMINISTRATIVO",
-            entity_id: proc.id,
+            entity_type: "WORK_ITEM",
+            entity_id: item.id,
             confidence: 0.95,
-            reasons: [`Radicado "${proc.radicado}" encontrado en el mensaje`],
+            reasons: [`Radicado "${item.radicado}" encontrado en el mensaje`],
             auto_link: true,
           });
         }
@@ -289,7 +240,7 @@ async function findLinkCandidates(
     const allEmails = [message.from_email, ...message.to_emails, ...message.cc_emails]
       .map(e => e.toLowerCase());
 
-    for (const client of clients as ClientRecord[]) {
+    for (const client of clients) {
       if (client.email && allEmails.includes(client.email.toLowerCase())) {
         candidates.push({
           entity_type: "CLIENT",
@@ -302,29 +253,25 @@ async function findLinkCandidates(
     }
   }
 
-  // 3) Match by court email in filings
-  const { data: filingsWithEmail } = await supabase
-    .from("filings")
-    .select("id, filing_type, court_email, court_name, email_linking_enabled")
+  // 3) Match by court email in work items
+  const { data: itemsWithEmail } = await supabase
+    .from("work_items")
+    .select("id, court_email, email_linking_enabled")
     .eq("owner_id", ownerId)
     .eq("email_linking_enabled", true)
     .not("court_email", "is", null);
 
-  if (filingsWithEmail) {
-    for (const filing of filingsWithEmail as FilingRecord[]) {
-      if (filing.court_email && message.from_email.toLowerCase() === filing.court_email.toLowerCase()) {
-        let entityType: LinkCandidate["entity_type"] = "CGP_CASE";
-        if (filing.filing_type === "TUTELA") entityType = "TUTELA";
-        else if (filing.filing_type === "HABEAS_CORPUS") entityType = "HABEAS_CORPUS";
-
+  if (itemsWithEmail) {
+    for (const item of itemsWithEmail) {
+      if (item.court_email && message.from_email.toLowerCase() === item.court_email.toLowerCase()) {
         // Check if already added by radicado
-        const alreadyAdded = candidates.some(c => c.entity_id === filing.id);
+        const alreadyAdded = candidates.some(c => c.entity_id === item.id);
         if (!alreadyAdded) {
           candidates.push({
-            entity_type: entityType,
-            entity_id: filing.id,
+            entity_type: "WORK_ITEM",
+            entity_id: item.id,
             confidence: 0.75,
-            reasons: [`Email remitente coincide con juzgado "${filing.court_name}"`],
+            reasons: [`Email remitente coincide con juzgado`],
             auto_link: false, // Suggest only
           });
         }

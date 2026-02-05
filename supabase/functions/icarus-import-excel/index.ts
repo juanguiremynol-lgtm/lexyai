@@ -172,9 +172,9 @@ Deno.serve(async (req) => {
 
       rowsValid++;
 
-      // Check if process already exists for this user
+      // Check if work item already exists for this user
       const { data: existing } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .select("id, last_action_date, client_id")
         .eq("owner_id", user.id)
         .eq("radicado", row.radicado_norm)
@@ -189,7 +189,8 @@ Deno.serve(async (req) => {
         juez_ponente: row.juez_ponente || null,
         last_action_date: row.last_action_date_iso || null,
         last_action_date_raw: row.last_action_date_raw || null,
-        source: "ICARUS_EXCEL",
+        workflow_type: 'GENERIC',
+        source: 'icarus_import',
         source_run_id: runId,
         source_payload: {
           radicado_raw: row.radicado_raw,
@@ -202,7 +203,7 @@ Deno.serve(async (req) => {
       };
 
       if (existing) {
-        // Update existing process - only update client_id if not already set
+        // Update existing work item - only update client_id if not already set
         const updateData: Record<string, unknown> = {
           despacho_name: processData.despacho_name || undefined,
           department: processData.department || undefined,
@@ -217,7 +218,7 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         };
 
-        // Only update client_id if process doesn't have one and we're providing one
+        // Only update client_id if work item doesn't have one and we're providing one
         if (!existing.client_id && client_id) {
           updateData.client_id = client_id;
         }
@@ -249,9 +250,9 @@ Deno.serve(async (req) => {
           rowsUpdated++;
         }
       } else {
-        // Insert new process
+        // Insert new work item
         const { data: insertedData, error: insertError } = await supabase
-          .from("monitored_processes")
+          .from("work_items")
           .insert(processData)
           .select("id")
           .single();
