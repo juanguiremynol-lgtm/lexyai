@@ -68,6 +68,34 @@ import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-ut
 import { parseApiDate, generateSmartTitle } from "@/lib/date-utils";
 import { toast } from "sonner";
 
+/**
+ * Extract party name from sujetos_procesales array
+ * Searches for demandante/demandado/accionante/accionado in the tipo field
+ */
+function extractPartyFromSujetos(
+  sujetos: Array<{ tipo: string; nombre: string }> | undefined,
+  partyType: 'demandante' | 'demandado'
+): string {
+  if (!sujetos || !Array.isArray(sujetos) || sujetos.length === 0) {
+    return '';
+  }
+  
+  const searchTerms = partyType === 'demandante' 
+    ? ['demandante', 'actor', 'accionante', 'tutelante', 'requirente']
+    : ['demandado', 'accionado', 'tutelado', 'requerido'];
+  
+  const matches = sujetos.filter(s => {
+    const tipo = (s.tipo || '').toLowerCase();
+    return searchTerms.some(term => tipo.includes(term));
+  });
+  
+  if (matches.length > 0) {
+    return matches.map(m => m.nombre).join(', ');
+  }
+  
+  return '';
+}
+
 interface CreateWorkItemWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -132,6 +160,7 @@ export function CreateWorkItemWizard({
   
   // Tutela-specific
   const [accionado, setAccionado] = useState('');
+  const [accionante, setAccionante] = useState('');
   const [tutelaFilingDate, setTutelaFilingDate] = useState('');
   
   // Step 3: Client
@@ -180,6 +209,7 @@ export function CreateWorkItemWizard({
       setFilingDate('');
       setEntityName('');
       setAccionado('');
+      setAccionante('');
       setTutelaFilingDate('');
       setClientId(defaultClientId || '');
       setClientTab('existing');
@@ -241,10 +271,27 @@ export function CreateWorkItemWizard({
       }
       
       // Tutela-specific: accionado = demandado (legally equivalent)
-      if (workflowType === 'TUTELA' && data.demandado) {
-        setAccionado(data.demandado);
-        newAutoFields.add('accionado');
-        console.log('[CreateWorkItemWizard] Set accionado:', data.demandado);
+      if (workflowType === 'TUTELA') {
+        // For Tutela: Accionante = Demandante, Accionado = Demandado
+        const accionanteValue = data.demandante || extractPartyFromSujetos(data.sujetos_procesales, 'demandante');
+        const accionadoValue = data.demandado || extractPartyFromSujetos(data.sujetos_procesales, 'demandado');
+        
+        if (accionanteValue) {
+          setAccionante(accionanteValue);
+          // Also set demandantes for work item submission
+          setDemandantes(accionanteValue);
+          newAutoFields.add('accionante');
+          newAutoFields.add('demandantes');
+          console.log('[CreateWorkItemWizard] Set accionante:', accionanteValue);
+        }
+        if (accionadoValue) {
+          setAccionado(accionadoValue);
+          // Also set demandados for work item submission
+          setDemandados(accionadoValue);
+          newAutoFields.add('accionado');
+          newAutoFields.add('demandados');
+          console.log('[CreateWorkItemWizard] Set accionado:', accionadoValue);
+        }
       }
       
       // Filing date (workflow-specific)
@@ -459,6 +506,9 @@ export function CreateWorkItemWizard({
     
     if (workflowType === 'TUTELA') {
       data.filing_date = tutelaFilingDate || undefined;
+      // For Tutela: accionante/accionado are the primary party fields
+      data.demandantes = accionante || demandantes || undefined;
+      data.demandados = accionado || demandados || undefined;
     }
     
     // Pass initial actuaciones from lookup if available (persist on creation)
@@ -1101,7 +1151,31 @@ export function CreateWorkItemWizard({
                   <>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Label>Accionado</Label>
+                        <Label>Accionante (Tutelante)</Label>
+                        {autoPopulatedFields.has('accionante') && (
+                          <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            Auto
+                          </Badge>
+                        )}
+                      </div>
+                      <Input
+                        value={accionante}
+                        onChange={(e) => {
+                          setAccionante(e.target.value);
+                          setAutoPopulatedFields(prev => {
+                            const next = new Set(prev);
+                            next.delete('accionante');
+                            return next;
+                          });
+                        }}
+                        placeholder="Ej: Juan Pérez (persona que interpone la tutela)"
+                        className={autoPopulatedFields.has('accionante') ? 'border-primary/30' : ''}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Label>Accionado (Entidad demandada)</Label>
                         {autoPopulatedFields.has('accionado') && (
                           <Badge variant="outline" className="text-xs text-primary border-primary/30 h-5 px-1.5">
                             <Sparkles className="h-3 w-3 mr-1" />
