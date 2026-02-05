@@ -6036,6 +6036,7 @@ export type Database = {
       }
       work_items: {
         Row: {
+          acta_radicacion_url: string | null
           acta_reparto_notes: string | null
           acta_reparto_received_at: string | null
           asunto: string | null
@@ -6044,6 +6045,7 @@ export type Database = {
           authority_email: string | null
           authority_name: string | null
           auto_admisorio_date: string | null
+          auto_admisorio_url: string | null
           cgp_class: string | null
           cgp_cuantia: string | null
           cgp_instancia: string | null
@@ -6102,6 +6104,7 @@ export type Database = {
           notes: string | null
           notification_effective_date: string | null
           notification_substatus: string | null
+          onedrive_url: string | null
           organization_id: string | null
           origen: string | null
           owner_id: string
@@ -6141,6 +6144,7 @@ export type Database = {
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Insert: {
+          acta_radicacion_url?: string | null
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
           asunto?: string | null
@@ -6149,6 +6153,7 @@ export type Database = {
           authority_email?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
           cgp_class?: string | null
           cgp_cuantia?: string | null
           cgp_instancia?: string | null
@@ -6207,6 +6212,7 @@ export type Database = {
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
+          onedrive_url?: string | null
           organization_id?: string | null
           origen?: string | null
           owner_id: string
@@ -6246,6 +6252,7 @@ export type Database = {
           workflow_type: Database["public"]["Enums"]["workflow_type"]
         }
         Update: {
+          acta_radicacion_url?: string | null
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
           asunto?: string | null
@@ -6254,6 +6261,7 @@ export type Database = {
           authority_email?: string | null
           authority_name?: string | null
           auto_admisorio_date?: string | null
+          auto_admisorio_url?: string | null
           cgp_class?: string | null
           cgp_cuantia?: string | null
           cgp_instancia?: string | null
@@ -6312,6 +6320,7 @@ export type Database = {
           notes?: string | null
           notification_effective_date?: string | null
           notification_substatus?: string | null
+          onedrive_url?: string | null
           organization_id?: string | null
           origen?: string | null
           owner_id?: string

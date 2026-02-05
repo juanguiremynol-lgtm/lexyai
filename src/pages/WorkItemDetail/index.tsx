@@ -1,32 +1,71 @@
 /**
  * WorkItemDetail - Unified detail page for all work items
- * Uses the consolidated useWorkItemDetail hook for data fetching
+ * 
+ * Features:
+ * - Overview with case setup checklist
+ * - Electronic file button (OneDrive/SharePoint)
+ * - Tabbed interface: Actuaciones, Estados, Notas
+ * - Works with canonical work_items table
  */
 
 import { useParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkItemDetail } from "@/hooks/use-work-item-detail";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+// Import tab components
+import { ActsTab } from "./tabs/ActsTab";
+import { EstadosTab } from "./tabs/EstadosTab";
+import { NotesTab } from "./tabs/NotesTab";
+
+// Import work item components
+import { CaseSetupChecklist } from "@/components/work-items/CaseSetupChecklist";
+import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
+
+import type { WorkItem } from "@/types/work-item";
 
 export default function WorkItemDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   
   const {
     workItem,
     isLoading,
     error,
-    processEvents,
     actuaciones,
-    documents,
-    tasks,
-    hearings,
+    refetch,
   } = useWorkItemDetail(id);
+
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async () => {
+      if (!workItem) return;
+      const { error } = await supabase
+        .from("work_items")
+        .update({ 
+          is_flagged: !workItem.is_flagged,
+          updated_at: new Date().toISOString() 
+        })
+        .eq("id", workItem.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(workItem?.is_flagged ? "Desmarcado" : "Marcado como prioritario");
+      queryClient.invalidateQueries({ queryKey: ["work-item-detail", id] });
+    },
+    onError: () => {
+      toast.error("Error al actualizar");
+    },
+  });
 
   if (isLoading) {
     return (
@@ -67,6 +106,17 @@ export default function WorkItemDetail() {
     return <Badge variant={variants[status] || "default"}>{status}</Badge>;
   };
 
+  // Extended workItem type for new fields
+  const extendedWorkItem = workItem as WorkItem & { 
+    _source?: string;
+    onedrive_url?: string | null;
+    acta_radicacion_url?: string | null;
+    auto_admisorio_url?: string | null;
+  };
+
+  // Count publicaciones from cache (if available) or default to showing "—"
+  const publicacionesCount = "—"; // Will be loaded by EstadosTab
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -80,13 +130,43 @@ export default function WorkItemDetail() {
               {workItem.radicado || workItem.title || "Sin radicado"}
             </h1>
             {getStatusBadge(workItem.status)}
+            {workItem.is_flagged && (
+              <Badge variant="destructive" className="gap-1">
+                <Flag className="h-3 w-3" />
+                Prioritario
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground ml-10">
             {workItem.workflow_type} • {workItem.stage}
+            {workItem.last_crawled_at && (
+              <span className="text-xs ml-3">
+                Última sync: {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
+              </span>
+            )}
           </p>
         </div>
-        <div className="flex gap-2">
-          {workItem.expediente_url && (
+        <div className="flex gap-2 items-center">
+          {/* Flag button */}
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => toggleFlagMutation.mutate()}
+            disabled={toggleFlagMutation.isPending}
+            title={workItem.is_flagged ? "Quitar prioridad" : "Marcar como prioritario"}
+          >
+            {workItem.is_flagged ? (
+              <FlagOff className="h-4 w-4" />
+            ) : (
+              <Flag className="h-4 w-4" />
+            )}
+          </Button>
+          
+          {/* Electronic File Button */}
+          <ElectronicFileButton workItem={extendedWorkItem} />
+          
+          {/* Legacy expediente_url if different from onedrive */}
+          {workItem.expediente_url && !extendedWorkItem.onedrive_url && (
             <Button variant="outline" asChild>
               <a href={workItem.expediente_url} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" />
@@ -97,10 +177,14 @@ export default function WorkItemDetail() {
         </div>
       </div>
 
+      {/* Case Setup Checklist - for early stages */}
+      <CaseSetupChecklist workItem={extendedWorkItem} onUpdate={refetch} />
+
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Details */}
+        {/* Left Column - Tabs */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Info Card */}
           <Card>
             <CardHeader>
               <CardTitle>Información General</CardTitle>
@@ -145,174 +229,48 @@ export default function WorkItemDetail() {
             </CardContent>
           </Card>
 
-          {/* Tabs for related data */}
-          <Tabs defaultValue="timeline" className="w-full">
-            <TabsList>
-              <TabsTrigger value="timeline">
-                <Clock className="h-4 w-4 mr-2" />
-                Timeline ({processEvents.length})
+          {/* Tabs for Actuaciones, Estados, Notas */}
+          <Tabs defaultValue="actuaciones" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="actuaciones" className="gap-2">
+                <Scale className="h-4 w-4" />
+                Actuaciones
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {actuaciones.length}
+                </Badge>
               </TabsTrigger>
-              <TabsTrigger value="actuaciones">
-                <FileText className="h-4 w-4 mr-2" />
-                Actuaciones ({actuaciones.length})
+              <TabsTrigger value="estados" className="gap-2">
+                <Newspaper className="h-4 w-4" />
+                Estados
               </TabsTrigger>
-              <TabsTrigger value="documents">
-                <FileText className="h-4 w-4 mr-2" />
-                Documentos ({documents.length})
-              </TabsTrigger>
-              <TabsTrigger value="hearings">
-                <Calendar className="h-4 w-4 mr-2" />
-                Audiencias ({hearings.length})
+              <TabsTrigger value="notas" className="gap-2">
+                <StickyNote className="h-4 w-4" />
+                Notas
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="timeline" className="mt-4">
-              <Card>
-                <CardContent className="pt-6">
-                  {processEvents.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">
-                      No hay eventos registrados
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      {processEvents.map((event: any) => (
-                        <div key={event.id} className="flex gap-4 border-l-2 border-muted pl-4 pb-4">
-                          <div className="flex-1">
-                            <p className="font-medium">{event.event_type}</p>
-                            <p className="text-sm text-muted-foreground">{event.description}</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {formatDate(event.event_date)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
             <TabsContent value="actuaciones" className="mt-4">
-              <Card>
-                <CardContent className="pt-6">
-                  {actuaciones.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">
-                      No hay actuaciones registradas
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      {actuaciones.map((act: any) => (
-                        <div key={act.id} className="border rounded-lg p-4">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{act.normalized_text || act.raw_text}</p>
-                              <p className="text-sm text-muted-foreground mt-1">
-                                {formatDate(act.act_date)}
-                              </p>
-                            </div>
-                            {act.act_type_guess && (
-                              <Badge variant="outline">{act.act_type_guess}</Badge>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <ActsTab workItem={extendedWorkItem} />
             </TabsContent>
 
-            <TabsContent value="documents" className="mt-4">
-              <Card>
-                <CardContent className="pt-6">
-                  {documents.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">
-                      No hay documentos adjuntos
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {documents.map((doc: any) => (
-                        <div key={doc.id} className="flex items-center justify-between border rounded-lg p-3">
-                          <div className="flex items-center gap-3">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">{doc.file_name}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatDate(doc.uploaded_at)}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            <TabsContent value="estados" className="mt-4">
+              <EstadosTab workItem={extendedWorkItem} />
             </TabsContent>
 
-            <TabsContent value="hearings" className="mt-4">
-              <Card>
-                <CardContent className="pt-6">
-                  {hearings.length === 0 ? (
-                    <p className="text-muted-foreground text-center py-8">
-                      No hay audiencias programadas
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      {hearings.map((hearing: any) => (
-                        <div key={hearing.id} className="border rounded-lg p-4">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{hearing.hearing_type}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {formatDate(hearing.scheduled_at)}
-                              </p>
-                            </div>
-                            <Badge variant={hearing.status === 'COMPLETED' ? 'secondary' : 'default'}>
-                              {hearing.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            <TabsContent value="notas" className="mt-4">
+              <NotesTab workItem={extendedWorkItem} />
             </TabsContent>
           </Tabs>
         </div>
 
-        {/* Right Column - Tasks & Status */}
+        {/* Right Column - Key Dates & Quick Info */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5" />
-                Tareas
+                <Calendar className="h-5 w-5" />
+                Fechas Clave
               </CardTitle>
-              <CardDescription>{tasks.length} tareas</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {tasks.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No hay tareas pendientes</p>
-              ) : (
-                <div className="space-y-2">
-                  {tasks.slice(0, 5).map((task: any) => (
-                    <div key={task.id} className="flex items-center gap-2 text-sm">
-                      <div className={`h-2 w-2 rounded-full ${task.completed_at ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                      <span className={task.completed_at ? 'line-through text-muted-foreground' : ''}>
-                        {task.title}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Fechas Clave</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
@@ -341,19 +299,56 @@ export default function WorkItemDetail() {
                   <p className="font-medium">{formatDate(workItem.last_action_date)}</p>
                 </div>
               )}
+              {workItem.last_checked_at && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Última revisión</p>
+                  <p className="font-medium">{formatDate(workItem.last_checked_at)}</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {workItem.notes && (
+          {/* Description if present */}
+          {workItem.description && (
             <Card>
               <CardHeader>
-                <CardTitle>Notas</CardTitle>
+                <CardTitle>Descripción</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{workItem.notes}</p>
+                <p className="text-sm whitespace-pre-wrap">{workItem.description}</p>
               </CardContent>
             </Card>
           )}
+
+          {/* Sync Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Estado de Sincronización</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Estado scrape:</span>
+                <Badge variant="outline" className="text-xs">
+                  {workItem.scrape_status || "NOT_ATTEMPTED"}
+                </Badge>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total actuaciones:</span>
+                <span className="font-medium">{workItem.total_actuaciones || 0}</span>
+              </div>
+              {workItem.last_crawled_at && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Última sync:</span>
+                  <span className="text-xs">
+                    {formatDistanceToNow(new Date(workItem.last_crawled_at), { addSuffix: true, locale: es })}
+                  </span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground pt-2 border-t">
+                Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
+              </p>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
