@@ -29,6 +29,7 @@ export interface TutelaItem {
   lastArchivedPromptAt: string | null;
   isFavorable: boolean | null;
   isFlagged: boolean;
+  notes?: string | null;
   // Compliance tracking
   complianceReported: boolean;
   complianceReportedAt: string | null;

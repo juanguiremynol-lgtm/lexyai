@@ -16,17 +16,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { SlaBadge } from "@/components/ui/sla-badge";
-import { DocumentUpload } from "@/components/filings/DocumentUpload";
-import { DocumentList } from "@/components/filings/DocumentList";
-import { ProcessTimeline } from "@/components/filings/ProcessTimeline";
-import { HearingsList } from "@/components/filings/HearingsList";
-import { CrawlerControl } from "@/components/filings/CrawlerControl";
-import { FilingGoalsCard } from "@/components/filings/FilingGoalsCard";
-import { SharepointHub } from "@/components/shared";
-import { TermsPanel } from "@/components/cgp-terms";
 import { EntityEmailTab } from "@/components/email";
 import {
   AlertDialog,
@@ -41,20 +30,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   ArrowLeft,
-  Building2,
-  Mail,
-  FileText,
-  CheckCircle,
-  Copy,
   Save,
-  Clock,
-  Calendar,
   Trash2,
-  Link2,
-  Globe,
-  Package,
-  ArrowRightLeft,
-  Gavel,
   RefreshCw,
   Loader2,
   Scale,
@@ -62,48 +39,64 @@ import {
 import { fetchFromRamaJudicial, parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
 import {
-  FILING_STATUSES,
-  PROCESS_PHASES,
   COLOMBIAN_DEPARTMENTS,
-  EMAIL_TEMPLATES,
-  validateRadicado,
   formatDateColombia,
 } from "@/lib/constants";
-import type { FilingStatus, ProcessPhase } from "@/lib/constants";
 
 // CGP Phase types
 type CGPPhase = "FILING" | "PROCESS";
 
-const FILING_METHOD_LABELS: Record<string, { label: string; icon: typeof Mail }> = {
-  EMAIL: { label: "Correo electrónico", icon: Mail },
-  PLATFORM: { label: "Plataforma digital", icon: Globe },
-  PHYSICAL: { label: "Envío físico", icon: Package },
-};
+interface CGPItemData {
+  id: string;
+  owner_id: string;
+  client_id: string | null;
+  matter_id: string | null;
+  radicado: string | null;
+  court_name: string | null;
+  court_email: string | null;
+  court_city: string | null;
+  court_department: string | null;
+  demandantes: string | null;
+  demandados: string | null;
+  description: string | null;
+  notes: string | null;
+  phase: CGPPhase;
+  status: string;
+  monitoring_enabled: boolean;
+  email_linking_enabled: boolean;
+  expediente_url: string | null;
+  total_actuaciones: number;
+  last_crawled_at: string | null;
+  created_at: string;
+  updated_at: string;
+  client: { id: string; name: string } | null;
+  _isWorkItem?: boolean;
+}
 
 export default function CGPDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
 
-  // Fetch CGP item - supports cgp_items, work_items, filings, and monitored_processes tables
+  // Fetch CGP item - supports cgp_items and work_items tables
   const { data: cgpItem, isLoading } = useQuery({
     queryKey: ["cgp-item", id],
-    queryFn: async () => {
+    queryFn: async (): Promise<CGPItemData | null> => {
       // 1. First try cgp_items table
       const { data: cgpData } = await supabase
         .from("cgp_items")
         .select(`
           *,
-          client:clients(id, name),
-          matter:matters(id, client_name, matter_name, practice_area, sharepoint_url, sharepoint_alerts_dismissed)
+          client:clients(id, name)
         `)
         .eq("id", id!)
         .maybeSingle();
       
       if (cgpData) {
-        return cgpData;
+        return {
+          ...cgpData,
+          client: cgpData.client as any,
+        } as CGPItemData;
       }
       
       // 2. If not in cgp_items, try work_items table (unified model)
@@ -111,14 +104,12 @@ export default function CGPDetail() {
         .from("work_items")
         .select(`
           *,
-          client:clients(id, name),
-          matter:matters(id, matter_name)
+          client:clients(id, name)
         `)
         .eq("id", id!)
         .maybeSingle();
       
       if (workItemData) {
-        // Map work_item to cgp_item-compatible structure
         const cgpPhaseValue = String(workItemData.cgp_phase || '');
         const isProcessPhase = cgpPhaseValue === 'PROCESO' || cgpPhaseValue === 'PROCESS';
         
@@ -137,233 +128,30 @@ export default function CGPDetail() {
           description: workItemData.description,
           notes: workItemData.notes,
           phase: isProcessPhase ? 'PROCESS' : 'FILING',
-          phase_source: workItemData.cgp_phase_source,
           status: workItemData.status,
-          filing_status: workItemData.stage,
-          filing_type: "Demanda",
-          filing_method: "PLATFORM",
-          practice_area: "Civil",
-          has_auto_admisorio: isProcessPhase,
-          auto_admisorio_date: workItemData.auto_admisorio_date,
           monitoring_enabled: workItemData.monitoring_enabled,
           email_linking_enabled: workItemData.email_linking_enabled,
           expediente_url: workItemData.expediente_url,
           total_actuaciones: workItemData.total_actuaciones,
           last_crawled_at: workItemData.last_crawled_at,
-          scrape_status: workItemData.scrape_status,
           created_at: workItemData.created_at,
           updated_at: workItemData.updated_at,
-          sent_at: workItemData.filing_date,
-          acta_received_at: null,
-          reparto_reference: null,
-          reparto_email_to: null,
-          target_authority: workItemData.authority_name,
-          process_phase: workItemData.stage,
-          sla_receipt_due_at: null,
-          sla_acta_due_at: null,
-          sla_court_reply_due_at: null,
-          legacy_filing_id: workItemData.legacy_filing_id,
-          legacy_process_id: workItemData.legacy_process_id,
-          client: workItemData.client,
-          matter: workItemData.matter ? {
-            ...workItemData.matter,
-            client_name: (workItemData.client as any)?.name || "",
-            practice_area: "Civil",
-            sharepoint_url: workItemData.sharepoint_url,
-            sharepoint_alerts_dismissed: false,
-          } : null,
+          client: workItemData.client as any,
           _isWorkItem: true,
-          _workItemId: workItemData.id,
         };
       }
       
-      // 3. Try filings table (legacy support for /cgp/:filingId navigation)
-      const { data: filingData } = await supabase
-        .from("filings")
-        .select(`
-          *,
-          client:clients(id, name),
-          matter:matters(id, client_name, matter_name, practice_area, sharepoint_url, sharepoint_alerts_dismissed)
-        `)
-        .eq("id", id!)
-        .maybeSingle();
-      
-      if (filingData) {
-        // Map filing to cgp_item-compatible structure
-        return {
-          id: filingData.id,
-          owner_id: filingData.owner_id,
-          client_id: filingData.client_id,
-          matter_id: filingData.matter_id,
-          radicado: filingData.radicado,
-          court_name: filingData.court_name,
-          court_email: filingData.court_email,
-          court_city: filingData.court_city,
-          court_department: filingData.court_department,
-          demandantes: filingData.demandantes,
-          demandados: filingData.demandados,
-          description: filingData.description,
-          notes: null,
-          phase: 'FILING' as const,
-          phase_source: 'SYSTEM',
-          status: filingData.status,
-          filing_status: filingData.status,
-          filing_type: filingData.filing_type,
-          filing_method: filingData.filing_method,
-          practice_area: (filingData.matter as any)?.practice_area || "Civil",
-          has_auto_admisorio: false,
-          auto_admisorio_date: null,
-          monitoring_enabled: false,
-          email_linking_enabled: filingData.email_linking_enabled,
-          expediente_url: filingData.expediente_url,
-          total_actuaciones: 0,
-          last_crawled_at: null,
-          scrape_status: null,
-          created_at: filingData.created_at,
-          updated_at: filingData.updated_at,
-          sent_at: filingData.sent_at,
-          acta_received_at: filingData.acta_received_at,
-          reparto_reference: filingData.reparto_reference,
-          reparto_email_to: filingData.reparto_email_to,
-          target_authority: filingData.target_authority,
-          process_phase: null,
-          sla_receipt_due_at: filingData.sla_receipt_due_at,
-          sla_acta_due_at: filingData.sla_acta_due_at,
-          sla_court_reply_due_at: filingData.sla_court_reply_due_at,
-          legacy_filing_id: filingData.id,
-          legacy_process_id: null,
-          client: filingData.client,
-          matter: filingData.matter,
-          _isFiling: true,
-          _filingId: filingData.id,
-        };
-      }
-      
-      // 4. Try monitored_processes table (legacy support for /cgp/:processId navigation)
-      const { data: processData } = await supabase
-        .from("monitored_processes")
-        .select(`
-          *,
-          client:clients(id, name)
-        `)
-        .eq("id", id!)
-        .maybeSingle();
-      
-      if (processData) {
-        // Map monitored_process to cgp_item-compatible structure
-        return {
-          id: processData.id,
-          owner_id: processData.owner_id,
-          client_id: processData.client_id,
-          matter_id: null,
-          radicado: processData.radicado,
-          court_name: processData.despacho_name,
-          court_email: null,
-          court_city: processData.municipality,
-          court_department: processData.department,
-          demandantes: processData.demandantes,
-          demandados: processData.demandados,
-          description: null,
-          notes: null,
-          phase: 'PROCESS' as const,
-          phase_source: 'SYSTEM',
-          status: processData.monitoring_enabled ? 'active' : 'inactive',
-          filing_status: 'RADICADO_CONFIRMED',
-          filing_type: "Demanda",
-          filing_method: "PLATFORM",
-          practice_area: processData.jurisdiction || "Civil",
-          has_auto_admisorio: true,
-          auto_admisorio_date: null,
-          monitoring_enabled: processData.monitoring_enabled,
-          email_linking_enabled: false,
-          expediente_url: null,
-          total_actuaciones: processData.total_actuaciones,
-          last_crawled_at: processData.last_checked_at,
-          scrape_status: processData.cpnu_confirmed ? "SUCCESS" : null,
-          created_at: processData.created_at,
-          updated_at: processData.updated_at,
-          sent_at: null,
-          acta_received_at: null,
-          reparto_reference: null,
-          reparto_email_to: null,
-          target_authority: processData.despacho_name,
-          process_phase: null,
-          sla_receipt_due_at: null,
-          sla_acta_due_at: null,
-          sla_court_reply_due_at: null,
-          legacy_filing_id: null,
-          legacy_process_id: processData.id,
-          client: processData.client,
-          matter: null,
-          _isMonitoredProcess: true,
-          _monitoredProcessId: processData.id,
-        };
-      }
-      
-      // Neither found
       return null;
     },
     enabled: !!id,
   });
 
-  // Fetch documents (from legacy filing if exists)
-  const { data: documents } = useQuery({
-    queryKey: ["cgp-documents", id, cgpItem?.legacy_filing_id],
-    queryFn: async () => {
-      const filingId = cgpItem?.legacy_filing_id;
-      if (!filingId) return [];
-      
-      const { data, error } = await supabase
-        .from("documents")
-        .select("*")
-        .eq("filing_id", filingId);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!cgpItem?.legacy_filing_id,
-  });
-
-  // Fetch tasks (from legacy filing if exists)
-  const { data: tasks } = useQuery({
-    queryKey: ["cgp-tasks", id, cgpItem?.legacy_filing_id],
-    queryFn: async () => {
-      const filingId = cgpItem?.legacy_filing_id;
-      if (!filingId) return [];
-      
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("filing_id", filingId);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!cgpItem?.legacy_filing_id,
-  });
-
-  const { data: profile } = useQuery({
-    queryKey: ["profile"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Update CGP item mutation - supports cgp_items, work_items, filings, and monitored_processes
+  // Update CGP item mutation
   const updateCGPItem = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
-      const isWorkItem = (cgpItem as any)?._isWorkItem;
-      const isFiling = (cgpItem as any)?._isFiling;
-      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
+      const isWorkItem = cgpItem?._isWorkItem;
       
       if (isWorkItem) {
-        // Map cgp_items field names to work_items field names
         const workItemUpdates: Record<string, unknown> = {};
         const fieldMap: Record<string, string> = {
           court_name: 'authority_name',
@@ -371,7 +159,6 @@ export default function CGPDetail() {
           court_city: 'authority_city',
           court_department: 'authority_department',
           phase: 'cgp_phase',
-          phase_source: 'cgp_phase_source',
         };
         
         for (const [key, value] of Object.entries(updates)) {
@@ -384,60 +171,21 @@ export default function CGPDetail() {
         }
         workItemUpdates.updated_at = new Date().toISOString();
         
-        const { error } = await supabase
-          .from("work_items")
+        const { error } = await (supabase.from("work_items") as any)
           .update(workItemUpdates)
           .eq("id", id!);
         if (error) throw error;
-      } else if (isFiling) {
-        // Update filings table
-        const filingUpdates = { ...updates };
-        delete filingUpdates.phase;
-        delete filingUpdates.phase_source;
-        delete filingUpdates.has_auto_admisorio;
-        delete filingUpdates.monitoring_enabled;
-        
-        const { error } = await supabase
-          .from("filings")
-          .update(filingUpdates)
-          .eq("id", id!);
-        if (error) throw error;
-      } else if (isMonitoredProcess) {
-        // Map to monitored_processes field names
-        const processUpdates: Record<string, unknown> = {};
-        const fieldMap: Record<string, string> = {
-          court_name: 'despacho_name',
-          court_city: 'municipality',
-          court_department: 'department',
-        };
-        
-        for (const [key, value] of Object.entries(updates)) {
-          const mappedKey = fieldMap[key] || key;
-          if (!['phase', 'phase_source', 'has_auto_admisorio'].includes(key)) {
-            processUpdates[mappedKey] = value;
-          }
-        }
-        
-        const { error } = await supabase
-          .from("monitored_processes")
-          .update(processUpdates)
-          .eq("id", id!);
-        if (error) throw error;
       } else {
-        // Original cgp_items update
         const { error } = await supabase
           .from("cgp_items")
-          .update(updates)
+          .update(updates as any)
           .eq("id", id!);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
-      queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
-      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
       toast.success("Caso CGP actualizado");
     },
     onError: (error) => {
@@ -445,13 +193,12 @@ export default function CGPDetail() {
     },
   });
 
-  // API Update mutation - fetches from external API (supports all table types)
+  // API Update mutation
   const apiUpdateMutation = useMutation({
     mutationFn: async () => {
       if (!cgpItem?.radicado) throw new Error("Sin radicado");
       
       const result = await fetchFromRamaJudicial(cgpItem.radicado);
-
       if (!result.success || !result.data) {
         throw new Error(result.error || "No se encontró información para este radicado");
       }
@@ -460,247 +207,103 @@ export default function CGPDetail() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      const isWorkItem = (cgpItem as any)?._isWorkItem;
-      const isFiling = (cgpItem as any)?._isFiling;
-      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
+      const isWorkItem = cgpItem?._isWorkItem;
+      const tableName = isWorkItem ? "work_items" : "cgp_items";
       
-      // Determine table and field mappings
-      let tableName = "cgp_items";
-      let updates: Record<string, unknown> = {};
-      
-      if (isWorkItem) {
-        tableName = "work_items";
-        updates = {
-          authority_name: data.proceso["Despacho"] || cgpItem.court_name,
-          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-          demandados: data.proceso["Demandado"] || cgpItem.demandados,
-          last_crawled_at: new Date().toISOString(),
-          scrape_status: "SUCCESS",
-          total_actuaciones: data.total_actuaciones || 0,
-          updated_at: new Date().toISOString(),
-        };
-      } else if (isFiling) {
-        tableName = "filings";
-        updates = {
-          court_name: data.proceso["Despacho"] || cgpItem.court_name,
-          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-          demandados: data.proceso["Demandado"] || cgpItem.demandados,
-        };
-      } else if (isMonitoredProcess) {
-        tableName = "monitored_processes";
-        updates = {
-          despacho_name: data.proceso["Despacho"] || cgpItem.court_name,
-          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-          demandados: data.proceso["Demandado"] || cgpItem.demandados,
-          last_checked_at: new Date().toISOString(),
-          cpnu_confirmed: true,
-          cpnu_confirmed_at: new Date().toISOString(),
-          total_actuaciones: data.total_actuaciones || 0,
-        };
-      } else {
-        updates = {
-          court_name: data.proceso["Despacho"] || cgpItem.court_name,
-          demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-          demandados: data.proceso["Demandado"] || cgpItem.demandados,
-          last_crawled_at: new Date().toISOString(),
-          scrape_status: "SUCCESS",
-          total_actuaciones: data.total_actuaciones || 0,
-        };
-      }
-
-      // Perform update based on table type
-      if (isWorkItem) {
-        await supabase.from("work_items").update(updates).eq("id", id!);
-      } else if (isFiling) {
-        await supabase.from("filings").update(updates).eq("id", id!);
-      } else if (isMonitoredProcess) {
-        await supabase.from("monitored_processes").update(updates).eq("id", id!);
-      } else {
-        await supabase.from("cgp_items").update(updates).eq("id", id!);
-      }
-
-      // Insert actuaciones - determine which legacy ID to use
-      const filingIdForActs = isFiling ? id : cgpItem.legacy_filing_id;
-      const processIdForActs = isMonitoredProcess ? id : cgpItem.legacy_process_id;
-      
-      if ((filingIdForActs || processIdForActs) && data.actuaciones && data.actuaciones.length > 0) {
-        const orFilters = [];
-        if (filingIdForActs) orFilters.push(`filing_id.eq.${filingIdForActs}`);
-        if (processIdForActs) orFilters.push(`monitored_process_id.eq.${processIdForActs}`);
-        
-        const { data: existingActs } = await supabase
-          .from("actuaciones")
-          .select("hash_fingerprint")
-          .or(orFilters.join(","));
-        
-        const existingHashes = new Set((existingActs || []).map(a => a.hash_fingerprint));
-        let newActuaciones = 0;
-
-        for (const act of data.actuaciones) {
-          const rawText = `${act["Actuación"] || ""}${act["Anotación"] ? " - " + act["Anotación"] : ""}`;
-          const normalizedText = normalizeActuacionText(rawText);
-          const actDate = parseColombianDate(act["Fecha de Actuación"] || "");
-          const hashFingerprint = computeActuacionHash(actDate, normalizedText, cgpItem.radicado);
-          
-          if (!existingHashes.has(hashFingerprint)) {
-            await supabase.from("actuaciones").insert({
-              owner_id: user.id,
-              filing_id: filingIdForActs || null,
-              monitored_process_id: processIdForActs || null,
-              raw_text: rawText,
-              normalized_text: normalizedText,
-              act_date: actDate,
-              act_date_raw: act["Fecha de Actuación"] || "",
-              source: "RAMA_JUDICIAL",
-              adapter_name: "external_api",
-              hash_fingerprint: hashFingerprint,
-              confidence: 0.7,
-            });
-            newActuaciones++;
+      const updates: Record<string, unknown> = isWorkItem
+        ? {
+            authority_name: data.proceso["Despacho"] || cgpItem.court_name,
+            demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+            demandados: data.proceso["Demandado"] || cgpItem.demandados,
+            last_crawled_at: new Date().toISOString(),
+            scrape_status: "SUCCESS",
+            total_actuaciones: data.actuaciones?.length || 0,
           }
-        }
+        : {
+            court_name: data.proceso["Despacho"] || cgpItem.court_name,
+            demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
+            demandados: data.proceso["Demandado"] || cgpItem.demandados,
+            last_crawled_at: new Date().toISOString(),
+            scrape_status: "SUCCESS",
+            total_actuaciones: data.actuaciones?.length || 0,
+          };
 
-        return { total_actuaciones: data.total_actuaciones, new_actuaciones: newActuaciones };
+      const { error: updateError } = await (supabase.from(tableName) as any)
+        .update(updates)
+        .eq("id", id!);
+      if (updateError) throw updateError;
+
+      if (data.actuaciones && data.actuaciones.length > 0) {
+        const actuaciones = data.actuaciones.map((act: any) => {
+          const normalizedText = normalizeActuacionText(act.actuacion || "");
+          return {
+            owner_id: user.id,
+            work_item_id: id,
+            raw_text: act.actuacion || "",
+            normalized_text: normalizedText,
+            act_date: parseColombianDate(act.fechaActuacion) || null,
+            act_date_raw: act.fechaActuacion || null,
+            hash_fingerprint: computeActuacionHash(cgpItem.radicado!, act.fechaActuacion || "", normalizedText),
+            source: "CPNU",
+          };
+        });
+
+        await supabase
+          .from("actuaciones")
+          .upsert(actuaciones, { onConflict: "hash_fingerprint", ignoreDuplicates: true });
       }
 
-      return { total_actuaciones: data.total_actuaciones, new_actuaciones: 0 };
+      return data;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
-      queryClient.invalidateQueries({ queryKey: ["actuaciones-timeline"] });
-      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
-      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
-      
-      if (data.new_actuaciones > 0) {
-        toast.success(`Caso actualizado. ${data.new_actuaciones} nuevas actuaciones`);
-      } else {
-        toast.success(`Caso actualizado. ${data.total_actuaciones} actuaciones totales`);
-      }
+      toast.success("Información actualizada desde la Rama Judicial");
     },
     onError: (error) => {
-      toast.error("Error al actualizar: " + error.message);
+      toast.error("Error: " + error.message);
     },
   });
 
-  // Delete mutation - supports cgp_items, work_items, filings, and monitored_processes
+  // Delete mutation
   const deleteCGPItem = useMutation({
     mutationFn: async () => {
-      const isWorkItem = (cgpItem as any)?._isWorkItem;
-      const isFiling = (cgpItem as any)?._isFiling;
-      const isMonitoredProcess = (cgpItem as any)?._isMonitoredProcess;
-      
-      let error: Error | null = null;
-      
-      if (isWorkItem) {
-        const result = await supabase.from("work_items").delete().eq("id", id!);
-        error = result.error;
-      } else if (isFiling) {
-        const result = await supabase.from("filings").delete().eq("id", id!);
-        error = result.error;
-      } else if (isMonitoredProcess) {
-        const result = await supabase.from("monitored_processes").delete().eq("id", id!);
-        error = result.error;
-      } else {
-        const result = await supabase.from("cgp_items").delete().eq("id", id!);
-        error = result.error;
-      }
-      
+      const isWorkItem = cgpItem?._isWorkItem;
+      const tableName = isWorkItem ? "work_items" : "cgp_items";
+      const { error } = await (supabase.from(tableName) as any).delete().eq("id", id!);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["work-items-cgp-pipeline"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["filings-list"] });
-      queryClient.invalidateQueries({ queryKey: ["processes-list"] });
       toast.success("Caso CGP eliminado");
-      navigate("/processes");
+      navigate("/app/cgp");
     },
     onError: (error) => {
-      toast.error("Error al eliminar: " + error.message);
+      toast.error("Error: " + error.message);
     },
   });
 
-  // Handle phase change (reclassification)
-  const handlePhaseChange = async (newPhase: CGPPhase) => {
-    const hasAutoAdmisorio = newPhase === "PROCESS";
-    await updateCGPItem.mutateAsync({
-      phase: newPhase,
-      phase_source: "MANUAL",
-      has_auto_admisorio: hasAutoAdmisorio,
-      monitoring_enabled: hasAutoAdmisorio,
-    });
-    setReclassifyDialogOpen(false);
-  };
-
-  const handleCourtUpdate = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    updateCGPItem.mutate({
-      court_name: form.get("court_name"),
-      court_email: form.get("court_email"),
-      court_city: form.get("court_city"),
-      court_department: form.get("court_department"),
-    });
-  };
-
-  const handleRadicadoUpdate = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const radicado = form.get("radicado") as string;
+    const formData = new FormData(e.currentTarget);
     
-    if (radicado && !validateRadicado(radicado)) {
-      toast.error("El radicado debe tener exactamente 23 dígitos");
-      return;
-    }
+    const updates: Record<string, unknown> = {
+      radicado: formData.get("radicado"),
+      court_name: formData.get("court_name"),
+      court_email: formData.get("court_email"),
+      court_city: formData.get("court_city"),
+      court_department: formData.get("court_department"),
+      demandantes: formData.get("demandantes"),
+      demandados: formData.get("demandados"),
+      description: formData.get("description"),
+      notes: formData.get("notes"),
+      expediente_url: formData.get("expediente_url"),
+    };
 
-    updateCGPItem.mutate({
-      radicado,
-      filing_status: radicado ? "RADICADO_CONFIRMED" : cgpItem?.filing_status,
-    });
-  };
-
-  const handleExpedienteUpdate = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    updateCGPItem.mutate({
-      expediente_url: form.get("expediente_url"),
-    });
-  };
-
-  const handleFilingStatusChange = (newStatus: FilingStatus) => {
-    updateCGPItem.mutate({ filing_status: newStatus });
-  };
-
-  const handleProcessPhaseChange = (newPhase: ProcessPhase) => {
-    updateCGPItem.mutate({ process_phase: newPhase });
-  };
-
-  const getEmailBody = (templateKey: string) => {
-    const template = EMAIL_TEMPLATES[templateKey as keyof typeof EMAIL_TEMPLATES];
-    if (!template || !cgpItem) return "";
-
-    const matter = cgpItem.matter as { client_name: string; matter_name: string } | null;
-    
-    return template.body
-      .replace("{{sent_at}}", cgpItem.sent_at ? formatDateColombia(cgpItem.sent_at) : "[Fecha de envío]")
-      .replace("{{matter_name}}", matter?.matter_name || "[Asunto]")
-      .replace("{{client_name}}", matter?.client_name || "[Cliente]")
-      .replace("{{court_name}}", cgpItem.court_name || "[Juzgado]")
-      .replace("{{court_city}}", cgpItem.court_city || "[Ciudad]")
-      .replace("{{court_department}}", cgpItem.court_department || "[Departamento]")
-      .replace("{{acta_received_at}}", cgpItem.acta_received_at ? formatDateColombia(cgpItem.acta_received_at) : "[Fecha acta]")
-      .replace("{{reparto_reference}}", cgpItem.reparto_reference || "[Referencia]")
-      .replace(/\{\{signature_block\}\}/g, profile?.signature_block || "[Firma]");
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copiado al portapapeles");
+    updateCGPItem.mutate(updates);
   };
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -708,192 +311,87 @@ export default function CGPDetail() {
 
   if (!cgpItem) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">Caso CGP no encontrado</p>
-        <Button asChild className="mt-4">
-          <Link to="/processes">Volver a Casos CGP</Link>
+      <div className="container py-8 text-center">
+        <h1 className="text-2xl font-bold mb-4">Caso no encontrado</h1>
+        <p className="text-muted-foreground mb-4">
+          El caso CGP que buscas no existe o no tienes acceso.
+        </p>
+        <Button asChild>
+          <Link to="/app/cgp">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Volver a CGP
+          </Link>
         </Button>
       </div>
     );
   }
 
-  const client = cgpItem.client as { id: string; name: string } | null;
-  const matter = cgpItem.matter as { 
-    id: string;
-    client_name: string; 
-    matter_name: string; 
-    practice_area: string | null;
-    sharepoint_url: string | null;
-    sharepoint_alerts_dismissed: boolean | null;
-  } | null;
-  
-  const displayClientName = client?.name || matter?.client_name || "Sin cliente";
-  const filingMethod = FILING_METHOD_LABELS[cgpItem.filing_method || "EMAIL"];
-  const MethodIcon = filingMethod?.icon || Mail;
-  
-  // Determine phase display
   const isProcessPhase = cgpItem.phase === "PROCESS";
-  const phaseLabel = isProcessPhase ? "PROCESO" : "RADICACIÓN";
-  const phaseColor = isProcessPhase ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300" : "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300";
 
   return (
-    <div className="space-y-6">
-      {/* Phase Banner */}
-      <Card className={`border-2 ${isProcessPhase ? "border-emerald-200 dark:border-emerald-800" : "border-amber-200 dark:border-amber-800"}`}>
-        <CardContent className="py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Badge className={phaseColor}>
-                {isProcessPhase ? <Scale className="h-3 w-3 mr-1" /> : <FileText className="h-3 w-3 mr-1" />}
-                {phaseLabel}
-              </Badge>
-              {cgpItem.radicado && (
-                <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">
-                  {cgpItem.radicado}
-                </code>
-              )}
-              {cgpItem.court_name && (
-                <span className="text-sm text-muted-foreground">
-                  {cgpItem.court_name}
-                </span>
-              )}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setReclassifyDialogOpen(true)}
-            >
-              <ArrowRightLeft className="h-4 w-4 mr-2" />
-              Cambiar fase
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Reclassification Dialog */}
-      <AlertDialog open={reclassifyDialogOpen} onOpenChange={setReclassifyDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cambiar fase del caso CGP</AlertDialogTitle>
-            <AlertDialogDescription>
-              {isProcessPhase 
-                ? "¿Desea reclasificar este caso como RADICACIÓN (sin auto admisorio)?"
-                : "¿Desea reclasificar este caso como PROCESO (con auto admisorio)?"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => handlePhaseChange(isProcessPhase ? "FILING" : "PROCESS")}
-            >
-              Confirmar cambio a {isProcessPhase ? "RADICACIÓN" : "PROCESO"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
+    <div className="container py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link to="/processes">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-serif font-bold">
-              {displayClientName} – {cgpItem.filing_type}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" asChild>
+            <Link to="/app/cgp">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-display font-bold flex items-center gap-2">
+              <Scale className="h-6 w-6 text-blue-600" />
+              Caso CGP
+              {cgpItem.radicado && (
+                <Badge variant="outline" className="ml-2 font-mono">
+                  {cgpItem.radicado}
+                </Badge>
+              )}
             </h1>
-            {isProcessPhase ? (
-              <Badge variant="outline">
-                {PROCESS_PHASES[cgpItem.process_phase as ProcessPhase]?.label || cgpItem.process_phase}
-              </Badge>
-            ) : (
-              <StatusBadge status={cgpItem.filing_status as FilingStatus} />
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <MethodIcon className="h-4 w-4" />
-            <span>{filingMethod?.label}</span>
-            <span>•</span>
-            <span>{cgpItem.practice_area || matter?.practice_area || "CGP"}</span>
-            {cgpItem.target_authority && (
-              <>
-                <span>•</span>
-                <span>{cgpItem.target_authority}</span>
-              </>
-            )}
+            <p className="text-muted-foreground text-sm">
+              {cgpItem.client?.name || "Sin cliente"} • {cgpItem.court_name || "Sin juzgado"}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {cgpItem.radicado && (
-            <Button
-              onClick={() => apiUpdateMutation.mutate()}
-              disabled={apiUpdateMutation.isPending}
-              variant="default"
-            >
-              {apiUpdateMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Actualizar desde Rama Judicial
-            </Button>
-          )}
-          
-          {/* Status/Phase selector */}
-          {isProcessPhase ? (
-            <Select
-              value={cgpItem.process_phase || ""}
-              onValueChange={(v) => handleProcessPhaseChange(v as ProcessPhase)}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(PROCESS_PHASES).map(([key, { label }]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Select
-              value={cgpItem.filing_status || ""}
-              onValueChange={(v) => handleFilingStatusChange(v as FilingStatus)}
-            >
-              <SelectTrigger className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(FILING_STATUSES).map(([key, { label }]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
 
+        <div className="flex items-center gap-2">
+          <Badge variant={isProcessPhase ? "default" : "secondary"}>
+            {isProcessPhase ? "En Proceso" : "Radicación"}
+          </Badge>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => apiUpdateMutation.mutate()}
+            disabled={apiUpdateMutation.isPending || !cgpItem.radicado}
+          >
+            {apiUpdateMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Actualizar API
+          </Button>
+          
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" size="icon" className="text-destructive hover:text-destructive">
-                <Trash2 className="h-4 w-4" />
+              <Button variant="destructive" size="sm">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Eliminar
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>¿Eliminar caso CGP?</AlertDialogTitle>
+                <AlertDialogTitle>¿Eliminar este caso?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Esta acción eliminará permanentemente este caso y todos sus datos asociados.
+                  Esta acción no se puede deshacer. Se eliminarán todos los datos asociados.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => deleteCGPItem.mutate()}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  className="bg-destructive text-destructive-foreground"
                 >
                   Eliminar
                 </AlertDialogAction>
@@ -903,109 +401,52 @@ export default function CGPDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sharepoint Document Hub */}
-        {matter && (
-          <div className="lg:col-span-3">
-            <SharepointHub
-              matterId={matter.id}
-              sharepointUrl={matter.sharepoint_url}
-              alertsDismissed={matter.sharepoint_alerts_dismissed ?? false}
-              matterName={matter.matter_name}
-              onUpdate={() => queryClient.invalidateQueries({ queryKey: ["cgp-item", id] })}
-            />
-          </div>
-        )}
+      {/* Main content */}
+      <Tabs defaultValue="details" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="details">Detalles</TabsTrigger>
+          <TabsTrigger value="emails">Emails</TabsTrigger>
+        </TabsList>
 
-        {/* Goals Card */}
-        <div className="lg:col-span-3">
-          <FilingGoalsCard
-            radicado={cgpItem.radicado}
-            courtName={cgpItem.court_name}
-            expedienteUrl={cgpItem.expediente_url}
-          />
-        </div>
-
-        {/* SLA Badges (only for FILING phase) */}
-        {!isProcessPhase && (
-          <Card className="lg:col-span-3">
-            <CardContent className="py-4">
-              <div className="flex flex-wrap gap-4">
-                {cgpItem.sla_receipt_due_at && (
-                  <SlaBadge
-                    dueDate={cgpItem.sla_receipt_due_at}
-                    label="Recibo de reparto"
-                  />
-                )}
-                {cgpItem.sla_acta_due_at && (
-                  <SlaBadge dueDate={cgpItem.sla_acta_due_at} label="Acta de reparto" />
-                )}
-                {cgpItem.sla_court_reply_due_at && (
-                  <SlaBadge
-                    dueDate={cgpItem.sla_court_reply_due_at}
-                    label="Respuesta juzgado"
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-6">
-          <Tabs defaultValue="court" className="w-full">
-            <TabsList className="grid w-full grid-cols-6">
-              <TabsTrigger value="court">
-                <Building2 className="h-4 w-4 mr-2" />
-                Juzgado
-              </TabsTrigger>
-              <TabsTrigger value="timeline">
-                <Clock className="h-4 w-4 mr-2" />
-                Actuaciones
-              </TabsTrigger>
-              <TabsTrigger value="hearings">
-                <Calendar className="h-4 w-4 mr-2" />
-                Audiencias
-              </TabsTrigger>
-              <TabsTrigger value="emails">
-                <Mail className="h-4 w-4 mr-2" />
-                Correos
-              </TabsTrigger>
-              <TabsTrigger value="documents">
-                <FileText className="h-4 w-4 mr-2" />
-                Documentos
-              </TabsTrigger>
-              <TabsTrigger value="terms">
-                <Gavel className="h-4 w-4 mr-2" />
-                Términos CGP
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="court" className="space-y-4">
+        <TabsContent value="details" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Main form */}
+            <div className="lg:col-span-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Datos del Juzgado / Autoridad</CardTitle>
+                  <CardTitle>Información del Caso</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleCourtUpdate} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="col-span-2 space-y-2">
-                        <Label htmlFor="court_name">Nombre del Juzgado / Autoridad</Label>
+                  <form onSubmit={handleFormSubmit} className="space-y-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="radicado">Radicado (23 dígitos)</Label>
+                      <Input
+                        id="radicado"
+                        name="radicado"
+                        defaultValue={cgpItem.radicado || ""}
+                        placeholder="00000000000000000000000"
+                        className="font-mono"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="court_name">Juzgado</Label>
                         <Input
                           id="court_name"
                           name="court_name"
-                          defaultValue={cgpItem.court_name || cgpItem.target_authority || ""}
-                          placeholder="Ej: Juzgado 15 Civil del Circuito"
+                          defaultValue={cgpItem.court_name || ""}
+                          placeholder="Nombre del juzgado"
                         />
                       </div>
-                      <div className="col-span-2 space-y-2">
-                        <Label htmlFor="court_email">Correo del Juzgado</Label>
+                      <div className="space-y-2">
+                        <Label htmlFor="court_email">Email del Juzgado</Label>
                         <Input
                           id="court_email"
                           name="court_email"
                           type="email"
                           defaultValue={cgpItem.court_email || ""}
-                          placeholder="Ej: j15cctobog@cendoj.ramajudicial.gov.co"
+                          placeholder="correo@juzgado.gov.co"
                         />
                       </div>
                       <div className="space-y-2">
@@ -1014,15 +455,12 @@ export default function CGPDetail() {
                           id="court_city"
                           name="court_city"
                           defaultValue={cgpItem.court_city || ""}
-                          placeholder="Ej: Bogotá"
+                          placeholder="Ciudad"
                         />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="court_department">Departamento</Label>
-                        <Select
-                          name="court_department"
-                          defaultValue={cgpItem.court_department || ""}
-                        >
+                        <Select name="court_department" defaultValue={cgpItem.court_department || ""}>
                           <SelectTrigger>
                             <SelectValue placeholder="Seleccionar" />
                           </SelectTrigger>
@@ -1036,369 +474,118 @@ export default function CGPDetail() {
                         </Select>
                       </div>
                     </div>
-                    <Button type="submit" disabled={updateCGPItem.isPending}>
-                      <Save className="h-4 w-4 mr-2" />
-                      Guardar Datos del Juzgado
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Radicado</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleRadicadoUpdate} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="radicado">Número de Radicado (23 dígitos)</Label>
-                      <Input
-                        id="radicado"
-                        name="radicado"
-                        defaultValue={cgpItem.radicado || ""}
-                        placeholder="Ej: 11001310301520230001200"
-                        maxLength={23}
-                        pattern="\d{23}"
-                      />
-                      <p className="text-sm text-muted-foreground">
-                        Formato: 23 dígitos numéricos exactos
-                      </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="demandantes">Demandante(s)</Label>
+                        <Input
+                          id="demandantes"
+                          name="demandantes"
+                          defaultValue={cgpItem.demandantes || ""}
+                          placeholder="Nombre del demandante"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="demandados">Demandado(s)</Label>
+                        <Input
+                          id="demandados"
+                          name="demandados"
+                          defaultValue={cgpItem.demandados || ""}
+                          placeholder="Nombre del demandado"
+                        />
+                      </div>
                     </div>
-                    <Button type="submit" disabled={updateCGPItem.isPending}>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Confirmar Radicado
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Link2 className="h-5 w-5" />
-                    Expediente Electrónico
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleExpedienteUpdate} className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="expediente_url">URL del Expediente Digital</Label>
+                      <Label htmlFor="description">Descripción</Label>
+                      <Textarea
+                        id="description"
+                        name="description"
+                        defaultValue={cgpItem.description || ""}
+                        placeholder="Descripción del caso"
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="notes">Notas</Label>
+                      <Textarea
+                        id="notes"
+                        name="notes"
+                        defaultValue={cgpItem.notes || ""}
+                        placeholder="Notas adicionales"
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="expediente_url">URL Expediente Electrónico</Label>
                       <Input
                         id="expediente_url"
                         name="expediente_url"
                         type="url"
                         defaultValue={cgpItem.expediente_url || ""}
-                        placeholder="Ej: https://expedientes.ramajudicial.gov.co/..."
+                        placeholder="https://..."
                       />
-                      <p className="text-sm text-muted-foreground">
-                        Enlace para acceder al expediente electrónico del proceso
-                      </p>
                     </div>
+
                     <Button type="submit" disabled={updateCGPItem.isPending}>
-                      <Save className="h-4 w-4 mr-2" />
-                      Guardar URL
+                      {updateCGPItem.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Guardar Cambios
                     </Button>
                   </form>
                 </CardContent>
               </Card>
-            </TabsContent>
+            </div>
 
-            <TabsContent value="timeline" className="space-y-4">
-              {cgpItem.legacy_filing_id && (
-                <CrawlerControl
-                  filingId={cgpItem.legacy_filing_id}
-                  radicado={cgpItem.radicado}
-                  crawlerEnabled={cgpItem.monitoring_enabled}
-                  lastCrawledAt={cgpItem.last_crawled_at}
-                  ramaJudicialUrl={null}
-                />
-              )}
+            {/* Sidebar */}
+            <div className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Actuaciones del Proceso</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {cgpItem.legacy_filing_id ? (
-                    <ProcessTimeline filingId={cgpItem.legacy_filing_id} />
-                  ) : cgpItem.legacy_process_id ? (
-                    <ProcessTimeline processId={cgpItem.legacy_process_id} />
-                  ) : (
-                    <p className="text-muted-foreground text-center py-4">
-                      No hay actuaciones registradas
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="hearings" className="space-y-4">
-              <Card>
-                <CardContent className="pt-6">
-                  {cgpItem.legacy_filing_id ? (
-                    <HearingsList filingId={cgpItem.legacy_filing_id} />
-                  ) : (
-                    <p className="text-muted-foreground text-center py-4">
-                      No hay audiencias programadas
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="emails" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Plantillas de Correo</CardTitle>
+                  <CardTitle className="text-base">Estado</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(EMAIL_TEMPLATES).map(([key, template]) => (
-                      <Button
-                        key={key}
-                        variant={selectedTemplate === key ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setSelectedTemplate(key)}
-                      >
-                        {template.name}
-                      </Button>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Fase</span>
+                    <Badge variant={isProcessPhase ? "default" : "secondary"}>
+                      {isProcessPhase ? "Proceso" : "Radicación"}
+                    </Badge>
                   </div>
-
-                  {selectedTemplate && (
-                    <div className="space-y-4">
-                      <Separator />
-                      <div className="space-y-2">
-                        <Label>Asunto</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            readOnly
-                            value={EMAIL_TEMPLATES[selectedTemplate as keyof typeof EMAIL_TEMPLATES]?.subject || ""}
-                            className="flex-1"
-                          />
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() =>
-                              copyToClipboard(
-                                EMAIL_TEMPLATES[selectedTemplate as keyof typeof EMAIL_TEMPLATES]?.subject || ""
-                              )
-                            }
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Cuerpo del Correo</Label>
-                        <Textarea
-                          readOnly
-                          value={getEmailBody(selectedTemplate)}
-                          className="min-h-[300px] font-mono text-sm"
-                        />
-                        <Button
-                          onClick={() => copyToClipboard(getEmailBody(selectedTemplate))}
-                          className="w-full"
-                        >
-                          <Copy className="h-4 w-4 mr-2" />
-                          Copiar al Portapapeles
-                        </Button>
-                      </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Monitoreo</span>
+                    <Badge variant={cgpItem.monitoring_enabled ? "default" : "outline"}>
+                      {cgpItem.monitoring_enabled ? "Activo" : "Inactivo"}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Actuaciones</span>
+                    <span className="font-mono">{cgpItem.total_actuaciones || 0}</span>
+                  </div>
+                  {cgpItem.last_crawled_at && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Última sync</span>
+                      <span className="text-sm">{formatDateColombia(cgpItem.last_crawled_at)}</span>
                     </div>
                   )}
                 </CardContent>
               </Card>
+            </div>
+          </div>
+        </TabsContent>
 
-              {/* Inbound Emails */}
-              {cgpItem.legacy_filing_id && (
-                <EntityEmailTab
-                  entityType="CGP_CASE"
-                  entityId={cgpItem.legacy_filing_id}
-                  entityTable="filings"
-                  emailLinkingEnabled={cgpItem.email_linking_enabled ?? false}
-                />
-              )}
-            </TabsContent>
-
-            <TabsContent value="documents" className="space-y-4">
-              {cgpItem.legacy_filing_id && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Cargar Documento</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DocumentUpload filingId={cgpItem.legacy_filing_id} />
-                  </CardContent>
-                </Card>
-              )}
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Documentos Adjuntos</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {!documents || documents.length === 0 ? (
-                    <div className="text-center py-8">
-                      <FileText className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                      <p className="mt-2 text-muted-foreground">
-                        No hay documentos adjuntos
-                      </p>
-                    </div>
-                  ) : (
-                    <DocumentList
-                      documents={documents as Array<{
-                        id: string;
-                        kind: "DEMANDA" | "ACTA_REPARTO" | "AUTO_RECEIPT" | "COURT_RESPONSE" | "OTHER";
-                        original_filename: string;
-                        file_path: string;
-                        uploaded_at: string;
-                      }>}
-                      filingId={cgpItem.legacy_filing_id || ""}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* CGP Terms Tab */}
-            <TabsContent value="terms" className="space-y-4">
-              {profile?.id && cgpItem.legacy_filing_id ? (
-                <TermsPanel
-                  filingId={cgpItem.legacy_filing_id}
-                  ownerId={profile.id}
-                />
-              ) : profile?.id && cgpItem.legacy_process_id ? (
-                <TermsPanel
-                  processId={cgpItem.legacy_process_id}
-                  ownerId={profile.id}
-                />
-              ) : (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    {profile?.id ? "Sin datos de términos CGP" : "Cargando perfil..."}
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-          </Tabs>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Información del Caso</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Fase</p>
-                <Badge className={phaseColor}>
-                  {phaseLabel}
-                </Badge>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tipo</p>
-                <p className="font-medium">{cgpItem.filing_type}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Medio de Radicación</p>
-                <div className="flex items-center gap-2">
-                  <MethodIcon className="h-4 w-4 text-muted-foreground" />
-                  <p className="font-medium">{filingMethod?.label}</p>
-                </div>
-              </div>
-              {cgpItem.demandantes && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Demandantes</p>
-                  <p className="text-sm">{cgpItem.demandantes}</p>
-                </div>
-              )}
-              {cgpItem.demandados && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Demandados</p>
-                  <p className="text-sm">{cgpItem.demandados}</p>
-                </div>
-              )}
-              {cgpItem.description && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Descripción</p>
-                  <p className="text-sm">{cgpItem.description}</p>
-                </div>
-              )}
-              <Separator />
-              <div>
-                <p className="text-sm text-muted-foreground">Fecha de Radicación</p>
-                <p className="font-medium">
-                  {cgpItem.sent_at ? formatDateColombia(cgpItem.sent_at) : "No especificada"}
-                </p>
-              </div>
-              {cgpItem.has_auto_admisorio && cgpItem.auto_admisorio_date && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Auto Admisorio</p>
-                  <p className="font-medium">
-                    {formatDateColombia(cgpItem.auto_admisorio_date)}
-                  </p>
-                </div>
-              )}
-              {cgpItem.reparto_email_to && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Correo de Reparto</p>
-                  <p className="font-medium">{cgpItem.reparto_email_to}</p>
-                </div>
-              )}
-              {cgpItem.reparto_reference && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Referencia Reparto</p>
-                  <p className="font-medium">{cgpItem.reparto_reference}</p>
-                </div>
-              )}
-              {cgpItem.acta_received_at && (
-                <div>
-                  <p className="text-sm text-muted-foreground">Acta Recibida</p>
-                  <p className="font-medium">
-                    {formatDateColombia(cgpItem.acta_received_at)}
-                  </p>
-                </div>
-              )}
-              <Separator />
-              <div>
-                <p className="text-sm text-muted-foreground">Creado</p>
-                <p className="font-medium">{formatDateColombia(cgpItem.created_at)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Última actualización</p>
-                <p className="font-medium">{formatDateColombia(cgpItem.updated_at)}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Tareas Asociadas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!tasks || tasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No hay tareas</p>
-              ) : (
-                <div className="space-y-2">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Badge
-                        variant={task.status === "DONE" ? "secondary" : "default"}
-                      >
-                        {task.status}
-                      </Badge>
-                      <span>{task.title}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+        <TabsContent value="emails">
+          <EntityEmailTab
+            entityType="CGP_CASE"
+            entityId={id!}
+            entityTable="work_items"
+            emailLinkingEnabled={cgpItem.email_linking_enabled}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
