@@ -164,8 +164,11 @@ export type Database = {
           acknowledged_at: string | null
           actions: Json | null
           alert_rule_id: string | null
+          alert_source: string | null
+          alert_type: string | null
           created_at: string
           dismissed_at: string | null
+          emailed_at: string | null
           entity_id: string
           entity_type: string
           fingerprint: string | null
@@ -178,6 +181,7 @@ export type Database = {
           payload: Json | null
           read_at: string | null
           resolved_at: string | null
+          seen_at: string | null
           sent_at: string | null
           severity: string
           snoozed_until: string | null
@@ -188,8 +192,11 @@ export type Database = {
           acknowledged_at?: string | null
           actions?: Json | null
           alert_rule_id?: string | null
+          alert_source?: string | null
+          alert_type?: string | null
           created_at?: string
           dismissed_at?: string | null
+          emailed_at?: string | null
           entity_id: string
           entity_type: string
           fingerprint?: string | null
@@ -202,6 +209,7 @@ export type Database = {
           payload?: Json | null
           read_at?: string | null
           resolved_at?: string | null
+          seen_at?: string | null
           sent_at?: string | null
           severity?: string
           snoozed_until?: string | null
@@ -212,8 +220,11 @@ export type Database = {
           acknowledged_at?: string | null
           actions?: Json | null
           alert_rule_id?: string | null
+          alert_source?: string | null
+          alert_type?: string | null
           created_at?: string
           dismissed_at?: string | null
+          emailed_at?: string | null
           entity_id?: string
           entity_type?: string
           fingerprint?: string | null
@@ -226,6 +237,7 @@ export type Database = {
           payload?: Json | null
           read_at?: string | null
           resolved_at?: string | null
+          seen_at?: string | null
           sent_at?: string | null
           severity?: string
           snoozed_until?: string | null

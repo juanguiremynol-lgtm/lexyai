@@ -2,45 +2,21 @@ import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useNavigate } from "react-router-dom";
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { ColombianClock } from "./ColombianClock";
 import { ThemeToggle } from "./ThemeToggle";
 import { GlobalSearch } from "./GlobalSearch";
 import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
+import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
 import logo from "@/assets/atenia-logo.png";
 
 export function TopBar() {
   const navigate = useNavigate();
-  const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const { unreadCount, markAllSeen } = useUnreadAlerts();
 
-  useEffect(() => {
-    const fetchUnreadAlerts = async () => {
-      // Query alert_instances (authoritative source) for pending/unacknowledged alerts
-      const { count } = await supabase
-        .from('alert_instances')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['PENDING', 'SENT']);
-      
-      setUnreadAlerts(count || 0);
-    };
-
-    fetchUnreadAlerts();
-
-    // Subscribe to changes in alert_instances
-    const channel = supabase
-      .channel('alert-instances-count')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'alert_instances' },
-        () => fetchUnreadAlerts()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+  const handleBellClick = () => {
+    markAllSeen();
+    navigate('/app/alerts');
+  };
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:px-6 w-full max-w-full overflow-hidden">
@@ -70,12 +46,12 @@ export function TopBar() {
           variant="ghost"
           size="icon"
           className="relative flex-shrink-0"
-          onClick={() => navigate('/alerts')}
+          onClick={handleBellClick}
         >
           <Bell className="h-5 w-5" />
-          {unreadAlerts > 0 && (
+          {unreadCount > 0 && (
             <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-              {unreadAlerts > 9 ? '9+' : unreadAlerts}
+              {unreadCount > 9 ? '9+' : unreadCount}
             </span>
           )}
         </Button>
