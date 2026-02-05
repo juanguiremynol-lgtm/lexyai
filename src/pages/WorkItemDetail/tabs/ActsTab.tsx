@@ -7,6 +7,8 @@
  * NOT from legacy 'actuaciones' table
  */
 
+// FIX 4.3: Import SyncStatusBadge for data freshness indicator
+
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Scale, Search, Filter, Users, Building2 } from "lucide-react";
+import { SyncStatusBadge } from "@/components/work-items/SyncStatusBadge";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, type WorkItemAct } from "./WorkItemActCard";
@@ -192,6 +195,11 @@ export function ActsTab({ workItem }: ActsTabProps) {
               <Badge variant="secondary" className="ml-2">
                 {acts.length} {acts.length === 1 ? "actuación" : "actuaciones"}
               </Badge>
+              <SyncStatusBadge
+                lastSyncedAt={workItem.last_synced_at ?? null}
+                monitoringEnabled={workItem.monitoring_enabled}
+                scrapeStatus={workItem.scrape_status}
+              />
             </CardTitle>
 
             {/* Filters */}

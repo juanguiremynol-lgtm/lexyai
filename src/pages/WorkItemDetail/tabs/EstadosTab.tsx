@@ -20,8 +20,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { SyncStatusBadge } from "@/components/work-items/SyncStatusBadge";
 import { 
-  Scale, 
+  Scale,
   Calendar,
   ExternalLink,
   RefreshCw,
@@ -185,6 +186,11 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                 <Badge variant="secondary" className="ml-2">
                   {estados?.length || 0} registros
                 </Badge>
+                <SyncStatusBadge
+                  lastSyncedAt={workItem.last_synced_at ?? null}
+                  monitoringEnabled={workItem.monitoring_enabled}
+                  scrapeStatus={workItem.scrape_status}
+                />
               </CardTitle>
               <CardDescription className="mt-1">
                 Estados electrónicos y publicaciones procesales de la Rama Judicial.

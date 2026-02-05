@@ -50,6 +50,7 @@ interface WorkItemDetail {
   acta_radicacion_url: string | null;
   auto_admisorio_url: string | null;
   scrape_status: string;
+  last_synced_at: string | null;
   last_checked_at: string | null;
   last_crawled_at: string | null;
   scraped_fields: Record<string, unknown> | null;
@@ -124,6 +125,7 @@ async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
       expediente_url: cgpData.expediente_url,
       sharepoint_url: null,
       scrape_status: cgpData.scrape_status || "NOT_ATTEMPTED",
+      last_synced_at: null,
       last_checked_at: null,
       last_crawled_at: cgpData.last_crawled_at,
       scraped_fields: null,
@@ -179,6 +181,7 @@ async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
       expediente_url: null,
       sharepoint_url: null,
       scrape_status: "NOT_ATTEMPTED",
+      last_synced_at: null,
       last_checked_at: null,
       last_crawled_at: null,
       scraped_fields: null,
@@ -234,6 +237,7 @@ async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
       expediente_url: null,
       sharepoint_url: null,
       scrape_status: "NOT_ATTEMPTED",
+      last_synced_at: null,
       last_checked_at: null,
       last_crawled_at: null,
       scraped_fields: null,
