@@ -21,6 +21,14 @@ export interface ProcessData {
     anotacion?: string;
   }>;
   total_actuaciones?: number;
+  // TUTELA-specific fields
+  ponente?: string;
+  tutela_code?: string;
+  corte_status?: string;
+  sentencia_ref?: string;
+  stage?: string;
+  sources_found?: string[];
+  provider_summary?: Record<string, { ok: boolean; found: boolean; actuaciones_count?: number; error?: string }>;
 }
 
 export interface LookupResult {
