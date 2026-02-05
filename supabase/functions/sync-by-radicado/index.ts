@@ -990,6 +990,106 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-by-radicado] Provider config for ${workflowType}:`, providerConfig);
 
+    // ============= TUTELA: PARALLEL MULTI-PROVIDER LOOKUP =============
+    if (workflowType === 'TUTELA') {
+      console.log(`[sync-by-radicado] TUTELA: Launching parallel providers (CPNU + SAMAI + TUTELAS)`);
+      
+      const [cpnuSettled, samaiSettled, tutelasSettled] = await Promise.allSettled([
+        fetchFromCpnu(radicado, supabaseUrl, authHeader),
+        fetchFromSamai(radicado),
+        fetchFromTutelas(radicado),
+      ]);
+      
+      const allResults: ProviderResult[] = [];
+      const labels = ['CPNU', 'SAMAI', 'TUTELAS'];
+      const settled = [cpnuSettled, samaiSettled, tutelasSettled];
+      
+      for (let i = 0; i < settled.length; i++) {
+        const s = settled[i];
+        const label = labels[i];
+        sourcesChecked.push(label);
+        
+        if (s.status === 'rejected') {
+          attempts.push({
+            source: label,
+            success: false,
+            latency_ms: 0,
+            error: s.reason?.message || 'Promise rejected',
+          });
+          continue;
+        }
+        
+        const r = s.value;
+        attempts.push({
+          source: r.source,
+          success: r.found,
+          latency_ms: r.latency_ms,
+          error: r.error,
+          events_found: r.eventsFound,
+        });
+        
+        if (r.found) {
+          allResults.push(r);
+        }
+      }
+      
+      if (allResults.length > 0) {
+        foundInSource = true;
+        
+        // Merge: pick the provider with the most complete metadata as base
+        allResults.sort((a, b) => {
+          const scoreA = Object.values(a.processData || {}).filter(Boolean).length;
+          const scoreB = Object.values(b.processData || {}).filter(Boolean).length;
+          return scoreB - scoreA;
+        });
+        
+        processData = { ...allResults[0].processData };
+        sourceUsed = allResults.map(r => r.source).join('+');
+        
+        // Fill in missing fields from other providers
+        for (let i = 1; i < allResults.length; i++) {
+          const pd = allResults[i].processData;
+          for (const [key, val] of Object.entries(pd)) {
+            if (val && !(processData as any)[key]) {
+              (processData as any)[key] = val;
+            }
+          }
+        }
+        
+        // Merge actuaciones and deduplicate
+        const allActuaciones: Array<{ fecha: string; actuacion: string; anotacion?: string }> = [];
+        for (const r of allResults) {
+          if (r.processData.actuaciones) {
+            allActuaciones.push(...r.processData.actuaciones);
+          }
+        }
+        
+        if (allActuaciones.length > 0) {
+          // Deduplicate by date + description prefix
+          const seen = new Map<string, typeof allActuaciones[0]>();
+          for (const act of allActuaciones) {
+            const key = `${act.fecha}|${(act.actuacion || '').toLowerCase().trim().slice(0, 60)}`;
+            if (!seen.has(key)) {
+              seen.set(key, act);
+            } else {
+              // Keep the version with more annotation
+              const existing = seen.get(key)!;
+              if ((act.anotacion?.length || 0) > (existing.anotacion?.length || 0)) {
+                seen.set(key, act);
+              }
+            }
+          }
+          processData.actuaciones = Array.from(seen.values());
+          processData.total_actuaciones = processData.actuaciones.length;
+        }
+        
+        console.log(`[sync-by-radicado] TUTELA: Merged ${allResults.length} providers, ${processData.total_actuaciones || 0} deduped actuaciones, sources: ${sourceUsed}`);
+      } else {
+        console.log(`[sync-by-radicado] TUTELA: No providers returned data`);
+      }
+    }
+    // ============= NON-TUTELA: SEQUENTIAL PRIMARY/FALLBACK =============
+    else {
     // Try primary provider
     let primaryResult: ProviderResult;
     
@@ -1046,6 +1146,7 @@ Deno.serve(async (req) => {
         console.log(`[sync-by-radicado] Found in fallback ${fallbackResult.source} with ${fallbackResult.eventsFound} events`);
       }
     }
+    } // end non-TUTELA else block
 
     // Classify FILING vs PROCESS
     const { hasAutoAdmisorio, reason: classificationReason } = detectAutoAdmisorio(
@@ -1171,7 +1272,7 @@ Deno.serve(async (req) => {
 
     // FIX B4: Trigger publicaciones sync after creation for eligible workflows
     // This ensures the Estados tab is populated immediately rather than waiting for cron
-    if (workItemId && ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workflowType)) {
+    if (workItemId && ['CGP', 'LABORAL', 'CPACA', 'PENAL_906', 'TUTELA'].includes(workflowType)) {
       try {
         console.log(`[sync-by-radicado] Triggering publicaciones sync for new work item ${workItemId}`);
         const pubResponse = await fetch(
