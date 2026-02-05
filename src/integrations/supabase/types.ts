@@ -5508,6 +5508,7 @@ export type Database = {
           id: string
           is_archived: boolean | null
           is_canonical: boolean | null
+          is_notifiable: boolean | null
           is_retroactive: boolean | null
           keywords_matched: string[] | null
           organization_id: string | null
@@ -5550,6 +5551,7 @@ export type Database = {
           id?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
           organization_id?: string | null
@@ -5592,6 +5594,7 @@ export type Database = {
           id?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
           organization_id?: string | null
@@ -5729,6 +5732,7 @@ export type Database = {
           id: string
           is_archived: boolean | null
           is_canonical: boolean | null
+          is_notifiable: boolean | null
           organization_id: string
           pdf_available: boolean | null
           pdf_url: string | null
@@ -5762,6 +5766,7 @@ export type Database = {
           id?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_notifiable?: boolean | null
           organization_id: string
           pdf_available?: boolean | null
           pdf_url?: string | null
@@ -5795,6 +5800,7 @@ export type Database = {
           id?: string
           is_archived?: boolean | null
           is_canonical?: boolean | null
+          is_notifiable?: boolean | null
           organization_id?: string
           pdf_available?: boolean | null
           pdf_url?: string | null
