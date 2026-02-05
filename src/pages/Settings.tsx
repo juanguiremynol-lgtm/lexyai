@@ -80,15 +80,9 @@ export default function Settings() {
   };
   const exportIcarus = async () => {
     const { data, error } = await supabase
-      .from("filings")
-      .select(`
-        radicado,
-        court_name,
-        filing_type,
-        updated_at,
-        matter:matters(client_name, matter_name)
-      `)
-      .in("status", ["RADICADO_CONFIRMED", "ICARUS_SYNC_PENDING"])
+      .from("work_items")
+      .select("id, radicado, authority_name, workflow_type, updated_at, title")
+      .in("status", ["ACTIVE"])
       .not("radicado", "is", null);
 
     if (error) {
@@ -102,15 +96,13 @@ export default function Settings() {
     }
 
     const csvContent = [
-      ["Radicado", "Juzgado", "Cliente", "Asunto", "Tipo", "Fecha Confirmación"].join(","),
+      ["Radicado", "Juzgado", "Tipo", "Titulo", "Fecha Actualización"].join(","),
       ...data.map((f) => {
-        const matter = f.matter as { client_name: string; matter_name: string } | null;
         return [
           f.radicado,
-          `"${f.court_name || ""}"`,
-          `"${matter?.client_name || ""}"`,
-          `"${matter?.matter_name || ""}"`,
-          f.filing_type,
+          `"${f.authority_name || ""}"`,
+          f.workflow_type,
+          `"${f.title || ""}"`,
           new Date(f.updated_at).toLocaleDateString("es-CO"),
         ].join(",");
       }),

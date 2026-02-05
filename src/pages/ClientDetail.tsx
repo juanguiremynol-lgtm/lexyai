@@ -65,24 +65,20 @@ import { ContractsTab, ClientDocumentsTab } from "@/components/clients";
 import { CreateWorkItemWizard } from "@/components/workflow";
 import type { Client } from "@/types/client";
 
-
-interface Matter {
+interface WorkItemRow {
   id: string;
-  matter_name: string;
-  practice_area: string | null;
-  created_at: string;
-  updated_at: string;
-  filings: Filing[];
-}
-
-interface Filing {
-  id: string;
-  filing_type: string;
+  workflow_type: string;
+  stage: string;
   status: string;
   radicado: string | null;
-  court_name: string | null;
+  authority_name: string | null;
+  demandantes: string | null;
+  demandados: string | null;
+  monitoring_enabled: boolean;
   created_at: string;
   updated_at: string;
+  title: string | null;
+  matters: { id: string; matter_name: string } | null;
 }
 
 export default function ClientDetail() {
@@ -106,75 +102,46 @@ export default function ClientDetail() {
     enabled: !!id,
   });
 
-  // Fetch monitored processes linked to this client
-  const { data: monitoredProcesses, isLoading: processesLoading } = useQuery({
-    queryKey: ["client-processes", id],
+  // Fetch all work_items linked to this client
+  const { data: workItems, isLoading: workItemsLoading } = useQuery({
+    queryKey: ["client-work-items", id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("monitored_processes")
-        .select("*")
-        .eq("client_id", id)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
-
-  // Fetch filings linked directly to this client
-  const { data: clientFilings, isLoading: filingsLoading } = useQuery({
-    queryKey: ["client-filings", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("filings")
+        .from("work_items")
         .select(`
           id,
-          filing_type,
+          workflow_type,
+          stage,
           status,
           radicado,
-          court_name,
+          authority_name,
+          demandantes,
+          demandados,
+          monitoring_enabled,
           created_at,
           updated_at,
-          filing_method,
-          target_authority,
-          matters (
-            id,
-            matter_name
-          )
+          title,
+          matters (id, matter_name)
         `)
         .eq("client_id", id)
         .order("updated_at", { ascending: false });
       if (error) throw error;
-      return data;
+      return data as unknown as WorkItemRow[];
     },
     enabled: !!id,
   });
 
-  const { data: matters, isLoading: mattersLoading } = useQuery({
-    queryKey: ["client-matters", id],
+  // Fetch peticiones linked to this client
+  const { data: clientPeticiones } = useQuery({
+    queryKey: ["client-peticiones", id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("matters")
-        .select(`
-          id,
-          matter_name,
-          practice_area,
-          created_at,
-          updated_at,
-          filings (
-            id,
-            filing_type,
-            status,
-            radicado,
-            court_name,
-            created_at,
-            updated_at
-          )
-        `)
+        .from("peticiones")
+        .select("id, entity_name, subject, phase, radicado, deadline_at, filed_at, updated_at")
         .eq("client_id", id)
         .order("updated_at", { ascending: false });
       if (error) throw error;
-      return data as Matter[];
+      return data;
     },
     enabled: !!id,
   });
@@ -204,32 +171,10 @@ export default function ClientDetail() {
     },
   });
 
-  // Fetch peticiones linked to this client
-  const { data: clientPeticiones } = useQuery({
-    queryKey: ["client-peticiones", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("peticiones")
-        .select("id, entity_name, subject, phase, radicado, deadline_at, filed_at, updated_at")
-        .eq("client_id", id)
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!id,
-  });
-
-  // Separate tutelas and habeas corpus from regular filings (CGP demandas = procesos judiciales)
-  const tutelas = clientFilings?.filter(f => f.filing_type === "TUTELA") || [];
-  const habeasCorpus = clientFilings?.filter(f => f.filing_type === "HABEAS_CORPUS") || [];
-  const judicialFilings = clientFilings?.filter(f => !["TUTELA", "HABEAS_CORPUS"].includes(f.filing_type)) || [];
-
-  // Administrative processes from monitored_processes
-  const adminProcesses = monitoredProcesses?.filter(p => p.process_type === "ADMINISTRATIVE") || [];
-  const judicialMonitoredProcesses = monitoredProcesses?.filter(p => p.process_type !== "ADMINISTRATIVE") || [];
-  
-  // Count total judicial items (filings + monitored processes)
-  const totalJudicialCount = judicialFilings.length + judicialMonitoredProcesses.length;
+  // Filter work items by workflow type
+  const judicialItems = workItems?.filter(w => ["CGP", "LABORAL", "CPACA", "PENAL_906"].includes(w.workflow_type)) || [];
+  const tutelas = workItems?.filter(w => w.workflow_type === "TUTELA") || [];
+  const adminProcesses = workItems?.filter(w => w.workflow_type === "GOV_PROCEDURE") || [];
 
   const deleteClient = useMutation({
     mutationFn: async () => {
@@ -247,9 +192,6 @@ export default function ClientDetail() {
       toast.error("Error al eliminar: " + error.message);
     },
   });
-
-  // All matters for display
-  
 
   if (clientLoading) {
     return (
@@ -433,13 +375,13 @@ export default function ClientDetail() {
         </CardContent>
       </Card>
 
-      {/* Radicaciones & Procesos Tabs */}
+      {/* Work Items Tabs */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>Trámites y Procesos</CardTitle>
             <CardDescription>
-              Demandas, tutelas, peticiones, habeas corpus y procesos administrativos vinculados a este cliente
+              Demandas, tutelas, peticiones y procesos administrativos vinculados a este cliente
             </CardDescription>
           </div>
           <Button size="sm" onClick={() => setNewFilingOpen(true)}>
@@ -451,7 +393,7 @@ export default function ClientDetail() {
             <TabsList className="mb-4 flex-wrap h-auto gap-1">
               <TabsTrigger value="judicial" className="flex items-center gap-2">
                 <Scale className="h-4 w-4" />
-                Procesos Judiciales ({totalJudicialCount})
+                Procesos Judiciales ({judicialItems.length})
               </TabsTrigger>
               <TabsTrigger value="tutelas" className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
@@ -460,10 +402,6 @@ export default function ClientDetail() {
               <TabsTrigger value="peticiones" className="flex items-center gap-2">
                 <ScrollText className="h-4 w-4" />
                 Peticiones ({clientPeticiones?.length || 0})
-              </TabsTrigger>
-              <TabsTrigger value="habeas" className="flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Habeas Corpus ({habeasCorpus.length})
               </TabsTrigger>
               <TabsTrigger value="admin" className="flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
@@ -479,9 +417,9 @@ export default function ClientDetail() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Procesos Judiciales Tab (merged CGP demandas + monitored judicial processes) */}
+            {/* Procesos Judiciales Tab */}
             <TabsContent value="judicial">
-              {totalJudicialCount === 0 ? (
+              {judicialItems.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Scale className="mx-auto h-10 w-10 mb-2 opacity-50" />
                   <p>No hay procesos judiciales vinculados a este cliente</p>
@@ -502,63 +440,34 @@ export default function ClientDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {/* Filings (demandas CGP) */}
-                    {judicialFilings.map((filing) => (
-                      <TableRow key={`filing-${filing.id}`}>
+                    {judicialItems.map((item) => (
+                      <TableRow key={item.id}>
                         <TableCell>
-                          {filing.radicado ? (
+                          {item.radicado ? (
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                              {filing.radicado}
+                              {item.radicado}
                             </code>
                           ) : (
                             <span className="text-muted-foreground">Pendiente</span>
                           )}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">
-                          {filing.court_name || filing.target_authority || "—"}
+                          {item.authority_name || "—"}
                         </TableCell>
                         <TableCell className="max-w-[150px] truncate">
-                          {filing.matters?.matter_name || "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">—</TableCell>
-                        <TableCell>
-                          <StatusBadge status={filing.status as any} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/work-items/${filing.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              Ver
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {/* Monitored Processes (from CPNU) */}
-                    {judicialMonitoredProcesses.map((process) => (
-                      <TableRow key={`process-${process.id}`}>
-                        <TableCell>
-                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                            {process.radicado}
-                          </code>
-                        </TableCell>
-                        <TableCell className="max-w-[200px] truncate">
-                          {process.despacho_name || "—"}
+                          {item.demandantes || "—"}
                         </TableCell>
                         <TableCell className="max-w-[150px] truncate">
-                          {process.demandantes || "—"}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">
-                          {process.demandados || "—"}
+                          {item.demandados || "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
-                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
+                          <Badge variant={item.monitoring_enabled ? "default" : "secondary"}>
+                            {item.monitoring_enabled ? "Activo" : "Inactivo"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/processes/${process.id}`}>
+                            <Link to={`/app/work-items/${item.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -585,8 +494,7 @@ export default function ClientDetail() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Accionante</TableHead>
-                      <TableHead>Accionado</TableHead>
+                      <TableHead>Título</TableHead>
                       <TableHead>Radicado</TableHead>
                       <TableHead>Juzgado</TableHead>
                       <TableHead>Estado</TableHead>
@@ -594,28 +502,27 @@ export default function ClientDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {tutelas.map((filing) => (
-                      <TableRow key={filing.id}>
+                    {tutelas.map((item) => (
+                      <TableRow key={item.id}>
                         <TableCell className="font-medium">
-                          {filing.matters?.matter_name || "—"}
+                          {item.title || item.demandantes || "—"}
                         </TableCell>
-                        <TableCell>{filing.court_name || "—"}</TableCell>
                         <TableCell>
-                          {filing.radicado ? (
+                          {item.radicado ? (
                             <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                              {filing.radicado}
+                              {item.radicado}
                             </code>
                           ) : (
                             <span className="text-muted-foreground">Pendiente</span>
                           )}
                         </TableCell>
-                        <TableCell>{filing.court_name || "—"}</TableCell>
+                        <TableCell>{item.authority_name || "—"}</TableCell>
                         <TableCell>
-                          <StatusBadge status={filing.status as any} />
+                          <StatusBadge status={item.status as any} />
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/work-items/${filing.id}`}>
+                            <Link to={`/app/work-items/${item.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -672,62 +579,7 @@ export default function ClientDetail() {
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/work-items/${peticion.id}`}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              Ver
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </TabsContent>
-
-            {/* Habeas Corpus Tab */}
-            <TabsContent value="habeas">
-              {habeasCorpus.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <FileText className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay habeas corpus vinculados a este cliente</p>
-                  <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" /> Crear Habeas Corpus
-                  </Button>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Asunto</TableHead>
-                      <TableHead>Juzgado</TableHead>
-                      <TableHead>Radicado</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {habeasCorpus.map((filing) => (
-                      <TableRow key={filing.id}>
-                        <TableCell className="font-medium">
-                          {filing.matters?.matter_name || "—"}
-                        </TableCell>
-                        <TableCell>{filing.court_name || "—"}</TableCell>
-                        <TableCell>
-                          {filing.radicado ? (
-                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                              {filing.radicado}
-                            </code>
-                          ) : (
-                            <span className="text-muted-foreground">Pendiente</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={filing.status as any} />
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/work-items/${filing.id}`}>
+                            <Link to={`/app/peticiones/${peticion.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -745,7 +597,7 @@ export default function ClientDetail() {
               {adminProcesses.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Building2 className="mx-auto h-10 w-10 mb-2 opacity-50" />
-                  <p>No hay procesos administrativos vinculados a este cliente</p>
+                  <p>No hay procesos administrativos vinculados</p>
                   <Button variant="outline" size="sm" className="mt-4" onClick={() => setNewFilingOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" /> Crear Proceso Administrativo
                   </Button>
@@ -754,33 +606,39 @@ export default function ClientDetail() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Radicado/Expediente</TableHead>
+                      <TableHead>Radicado</TableHead>
                       <TableHead>Autoridad</TableHead>
-                      <TableHead>Tipo Actuación</TableHead>
+                      <TableHead>Etapa</TableHead>
                       <TableHead>Monitoreo</TableHead>
                       <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {adminProcesses.map((process) => (
-                      <TableRow key={process.id}>
+                    {adminProcesses.map((item) => (
+                      <TableRow key={item.id}>
                         <TableCell>
-                          <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                            {process.expediente_administrativo || process.radicado}
-                          </code>
+                          {item.radicado ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                              {item.radicado}
+                            </code>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate">
-                          {process.autoridad || process.entidad || "—"}
+                          {item.authority_name || "—"}
                         </TableCell>
-                        <TableCell>{process.tipo_actuacion || "—"}</TableCell>
                         <TableCell>
-                          <Badge variant={process.monitoring_enabled ? "default" : "secondary"}>
-                            {process.monitoring_enabled ? "Activo" : "Inactivo"}
+                          <Badge variant="outline">{item.stage}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={item.monitoring_enabled ? "default" : "secondary"}>
+                            {item.monitoring_enabled ? "Activo" : "Inactivo"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" asChild>
-                            <Link to={`/app/work-items/${process.id}`}>
+                            <Link to={`/app/work-items/${item.id}`}>
                               <Eye className="h-4 w-4 mr-1" />
                               Ver
                             </Link>
@@ -793,36 +651,27 @@ export default function ClientDetail() {
               )}
             </TabsContent>
 
-
+            {/* Contracts Tab */}
             <TabsContent value="contracts">
               <ContractsTab clientId={id!} clientName={client.name} />
             </TabsContent>
 
+            {/* Documents Tab */}
             <TabsContent value="documents">
-              <ClientDocumentsTab 
-                client={{ 
-                  id: client.id, 
-                  name: client.name, 
-                  id_number: client.id_number, 
-                  email: client.email 
-                }} 
-              />
+              <ClientDocumentsTab client={{ id: id!, name: client.name, id_number: client.id_number, email: client.email }} />
             </TabsContent>
-
           </Tabs>
         </CardContent>
       </Card>
 
-      {/* Unified Work Item Creator */}
+      {/* Create Work Item Wizard */}
       <CreateWorkItemWizard
         open={newFilingOpen}
         onOpenChange={setNewFilingOpen}
         defaultClientId={id}
         onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ["client-filings", id] });
-          queryClient.invalidateQueries({ queryKey: ["client-peticiones", id] });
-          queryClient.invalidateQueries({ queryKey: ["client-processes", id] });
           queryClient.invalidateQueries({ queryKey: ["client-work-items", id] });
+          setNewFilingOpen(false);
         }}
       />
     </div>
