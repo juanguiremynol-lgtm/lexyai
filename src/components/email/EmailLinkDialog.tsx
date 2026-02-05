@@ -51,20 +51,14 @@ export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: Emai
             details: c.email || c.id_number || undefined,
           })));
         }
-      } else if (activeTab === "CGP_CASE" || activeTab === "TUTELA" || activeTab === "HABEAS_CORPUS") {
-        // Query work_items with appropriate workflow_type filter
-        const workflowType = activeTab === "CGP_CASE" ? "CGP" : activeTab;
+      } else if (activeTab === "CGP_CASE") {
+        // Query work_items with CGP workflow type
         let query = supabase
           .from("work_items")
           .select("id, workflow_type, radicado, authority_name, demandantes")
           .eq("email_linking_enabled", true)
+          .eq("workflow_type", "CGP")
           .limit(20);
-
-        if (activeTab !== "CGP_CASE") {
-          query = query.eq("workflow_type", workflowType);
-        } else {
-          query = query.eq("workflow_type", "CGP");
-        }
 
         if (search) {
           query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,authority_name.ilike.%${search}%`);
@@ -75,8 +69,55 @@ export function EmailLinkDialog({ open, onOpenChange, message, onSuccess }: Emai
         if (data) {
           results.push(...data.map(w => ({
             id: w.id,
-            type: activeTab,
-            name: w.radicado || `${w.workflow_type} - ${w.demandantes || "Sin partes"}`,
+            type: "CGP_CASE" as EmailEntityType,
+            name: w.radicado || `CGP - ${w.demandantes || "Sin partes"}`,
+            details: w.authority_name || undefined,
+          })));
+        }
+      } else if (activeTab === "TUTELA") {
+        // Query work_items with TUTELA workflow type
+        let query = supabase
+          .from("work_items")
+          .select("id, workflow_type, radicado, authority_name, demandantes")
+          .eq("email_linking_enabled", true)
+          .eq("workflow_type", "TUTELA")
+          .limit(20);
+
+        if (search) {
+          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,authority_name.ilike.%${search}%`);
+        }
+
+        const { data } = await query;
+        
+        if (data) {
+          results.push(...data.map(w => ({
+            id: w.id,
+            type: "TUTELA" as EmailEntityType,
+            name: w.radicado || `Tutela - ${w.demandantes || "Sin partes"}`,
+            details: w.authority_name || undefined,
+          })));
+        }
+      } else if (activeTab === "HABEAS_CORPUS") {
+        // Query work_items - habeas corpus is a special tutela type
+        let query = supabase
+          .from("work_items")
+          .select("id, workflow_type, radicado, authority_name, demandantes, title")
+          .eq("email_linking_enabled", true)
+          .eq("workflow_type", "TUTELA")
+          .ilike("title", "%habeas%")
+          .limit(20);
+
+        if (search) {
+          query = query.or(`radicado.ilike.%${search}%,demandantes.ilike.%${search}%,authority_name.ilike.%${search}%`);
+        }
+
+        const { data } = await query;
+        
+        if (data) {
+          results.push(...data.map(w => ({
+            id: w.id,
+            type: "HABEAS_CORPUS" as EmailEntityType,
+            name: w.radicado || `Habeas Corpus - ${w.demandantes || "Sin partes"}`,
             details: w.authority_name || undefined,
           })));
         }

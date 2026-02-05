@@ -51,28 +51,32 @@ export function EscalateToTutelaDialog({
 
       if (matterError) throw matterError;
 
-      // Create the tutela filing
-      const { data: filing, error: filingError } = await supabase
-        .from("filings")
+      // Create the tutela as a work_item
+      const { data: workItem, error: workItemError } = await supabase
+        .from("work_items")
         .insert({
           owner_id: user.user.id,
           matter_id: matter.id,
-          filing_type: "Tutela",
+          workflow_type: "TUTELA",
+          stage: "FILING",
+          status: "ACTIVE",
+          source: "MANUAL",
+          title: `Tutela por vulneración al Derecho de Petición`,
           description: `Tutela por vulneración al Derecho de Petición.\n\nEntidad demandada: ${peticion.entityName}\nPetición original: ${peticion.subject}\n\n${notes}`,
-          status: "DRAFTED",
           demandados: peticion.entityName,
+          monitoring_enabled: true,
         })
         .select()
         .single();
 
-      if (filingError) throw filingError;
+      if (workItemError) throw workItemError;
 
       // Update the petición to mark as escalated
       const { error: updateError } = await supabase
         .from("peticiones")
         .update({
           escalated_to_tutela: true,
-          tutela_filing_id: filing.id,
+          tutela_work_item_id: workItem.id,
         })
         .eq("id", peticion.id);
 
@@ -87,16 +91,16 @@ export function EscalateToTutelaDialog({
         message: `Petición escalada a Tutela: ${peticion.subject}`,
       });
 
-      return filing;
+      return workItem;
     },
-    onSuccess: (filing) => {
+    onSuccess: (workItem) => {
       queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      queryClient.invalidateQueries({ queryKey: ["filings"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       toast.success("Tutela creada exitosamente", {
         description: "La petición ha sido escalada a proceso de tutela",
         action: {
           label: "Ver Tutela",
-          onClick: () => window.location.href = `/filings/${filing.id}`,
+          onClick: () => window.location.href = `/app/work-items/${workItem.id}`,
         },
       });
       setNotes("");

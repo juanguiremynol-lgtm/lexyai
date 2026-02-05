@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -39,8 +38,9 @@ export function ProcessBulkDeleteDialog({
     mutationFn: async () => {
       if (processIds.length === 0) return;
 
+      // Delete from work_items instead of monitored_processes
       const { error } = await supabase
-        .from("monitored_processes")
+        .from("work_items")
         .delete()
         .in("id", processIds);
 
@@ -48,7 +48,7 @@ export function ProcessBulkDeleteDialog({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["process-pipeline"] });
-      queryClient.invalidateQueries({ queryKey: ["monitored-processes"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       toast.success(`${processIds.length} proceso(s) eliminado(s)`);
       onComplete();
     },

@@ -74,29 +74,30 @@ export function NewAdminProcessDialog({ open, onOpenChange, onBack, onSuccess, d
       const { data: user } = await supabase.auth.getUser();
       if (!user.user) throw new Error("No user");
 
-      const { error } = await supabase.from("monitored_processes").insert({
+      // Create work_item with GOV_PROCEDURE workflow type
+      const { error } = await supabase.from("work_items").insert({
         owner_id: user.user.id,
-        process_type: "ADMINISTRATIVE",
+        workflow_type: "GOV_PROCEDURE",
+        stage: ADMIN_PROCESS_PHASES_ORDER[0],
+        status: "ACTIVE",
+        source: "MANUAL",
         radicado: formData.radicado || `ADMIN-${Date.now()}`,
-        expediente_administrativo: formData.expediente_administrativo || null,
-        autoridad: formData.autoridad || null,
-        entidad: formData.entidad || null,
-        dependencia: formData.dependencia || null,
-        tipo_actuacion: formData.tipo_actuacion || null,
-        department: formData.department || null,
-        municipality: formData.municipality || null,
+        title: formData.tipo_actuacion || "Proceso Administrativo",
+        description: formData.notes || null,
+        authority_name: formData.autoridad || formData.entidad || null,
+        authority_email: formData.correo_autoridad || null,
+        authority_city: formData.municipality || null,
+        authority_department: formData.department || null,
         demandantes: formData.demandantes || null,
         demandados: formData.demandados || null,
-        correo_autoridad: formData.correo_autoridad || null,
-        notes: formData.notes || null,
         client_id: formData.client_id || null,
-        admin_phase: ADMIN_PROCESS_PHASES_ORDER[0],
         monitoring_enabled: true,
       });
 
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["admin-pipeline-processes"] });
       toast.success("Proceso administrativo creado");
       onOpenChange(false);
