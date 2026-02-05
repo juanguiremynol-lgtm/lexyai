@@ -102,30 +102,28 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         created_at: t.created_at,
       })) as Task[];
     },
-    enabled: !!workItem.legacy_filing_id,
+    enabled: !!workItem.id,
   });
 
-  // Fetch alerts
+  // Fetch alerts using work_item_id
   const { data: alerts, isLoading: alertsLoading } = useQuery({
     queryKey: ["work-item-alerts", workItem.id],
     queryFn: async () => {
-      const legacyFilingId = workItem.legacy_filing_id;
-      
-      if (!legacyFilingId) return [];
-      
+      // Query alert_instances which use work_item_id via entity_id
       const { data, error } = await supabase
-        .from("alerts")
+        .from("alert_instances")
         .select("*")
-        .eq("filing_id", legacyFilingId)
+        .eq("entity_id", workItem.id)
+        .eq("entity_type", "work_item")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
       return (data || []).map((a: any) => ({
         id: a.id,
-        title: a.message?.substring(0, 50) || "Alerta",
+        title: a.title || "Alerta",
         message: a.message,
-        severity: a.severity === "CRITICAL" ? "error" : a.severity === "WARN" ? "warning" : "info",
-        is_read: a.is_read,
+        severity: a.severity === "critical" ? "error" : a.severity === "warn" ? "warning" : "info",
+        is_read: !!a.read_at,
         created_at: a.created_at,
       })) as Alert[];
     },

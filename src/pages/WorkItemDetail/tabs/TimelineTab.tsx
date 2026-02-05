@@ -110,34 +110,14 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
   const { data: events, isLoading } = useQuery({
     queryKey: ["work-item-events", workItem.id],
     queryFn: async () => {
-      const legacyFilingId = workItem.legacy_filing_id;
-      const legacyProcessId = workItem.legacy_process_id;
+      // Fetch events using work_item_id
+      const { data } = await supabase
+        .from("process_events")
+        .select("*")
+        .eq("work_item_id", workItem.id)
+        .order("event_date", { ascending: false, nullsFirst: false });
       
-      let events: ProcessEvent[] = [];
-      
-      // Try fetching by filing_id first
-      if (legacyFilingId) {
-        const { data } = await supabase
-          .from("process_events")
-          .select("*")
-          .eq("filing_id", legacyFilingId)
-          .order("event_date", { ascending: false, nullsFirst: false });
-        
-        if (data) events = data as unknown as ProcessEvent[];
-      }
-      
-      // Fallback to monitored_process_id
-      if (events.length === 0 && legacyProcessId) {
-        const { data } = await supabase
-          .from("process_events")
-          .select("*")
-          .eq("monitored_process_id", legacyProcessId)
-          .order("event_date", { ascending: false, nullsFirst: false });
-        
-        if (data) events = data as unknown as ProcessEvent[];
-      }
-      
-      return events;
+      return (data || []) as unknown as ProcessEvent[];
     },
     enabled: !!workItem.id,
   });

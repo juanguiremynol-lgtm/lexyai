@@ -57,28 +57,8 @@ export function NotesTab({ workItem }: NotesTabProps) {
           .from("work_items")
           .update({ notes: newNotes, updated_at: new Date().toISOString() })
           .eq("id", workItem.id));
-      } else if (source === "cgp_items") {
-        ({ error } = await supabase
-          .from("cgp_items")
-          .update({ notes: newNotes, updated_at: new Date().toISOString() })
-          .eq("id", workItem.id));
-      } else if (source === "peticiones") {
-        ({ error } = await supabase
-          .from("peticiones")
-          .update({ notes: newNotes, updated_at: new Date().toISOString() })
-          .eq("id", workItem.id));
-      } else if (source === "monitored_processes") {
-        ({ error } = await supabase
-          .from("monitored_processes")
-          .update({ notes: newNotes, updated_at: new Date().toISOString() })
-          .eq("id", workItem.id));
-      } else if (source === "cpaca_processes") {
-        ({ error } = await supabase
-          .from("cpaca_processes")
-          .update({ notas: newNotes, updated_at: new Date().toISOString() })
-          .eq("id", workItem.id));
       } else {
-        // Default to work_items
+        // All sources now update work_items directly
         ({ error } = await supabase
           .from("work_items")
           .update({ notes: newNotes, updated_at: new Date().toISOString() })

@@ -115,18 +115,13 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
   // Toggle monitoring mutation
   const toggleMonitoringMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const source = workItem._source;
-      let error;
+      // All items now update work_items directly
+      const { error: updateError } = await supabase
+        .from("work_items")
+        .update({ monitoring_enabled: enabled })
+        .eq("id", workItem.id);
       
-      if (source === "work_items") {
-        ({ error } = await supabase.from("work_items").update({ monitoring_enabled: enabled }).eq("id", workItem.id));
-      } else if (source === "cgp_items") {
-        ({ error } = await supabase.from("cgp_items").update({ monitoring_enabled: enabled }).eq("id", workItem.id));
-      } else if (source === "monitored_processes") {
-        ({ error } = await supabase.from("monitored_processes").update({ monitoring_enabled: enabled }).eq("id", workItem.id));
-      }
-      
-      if (error) throw error;
+      if (updateError) throw updateError;
     },
     onSuccess: (_, enabled) => {
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
