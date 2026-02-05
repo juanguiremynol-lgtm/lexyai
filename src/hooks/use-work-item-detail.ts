@@ -55,6 +55,10 @@ interface WorkItemDetail {
   last_crawled_at: string | null;
   scraped_fields: Record<string, unknown> | null;
   total_actuaciones: number;
+  ponente: string | null;
+  corte_status: string | null;
+  sentencia_ref: string | null;
+  provider_sources: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   clients: { id: string; name: string } | null;
