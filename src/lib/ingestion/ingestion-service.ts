@@ -42,9 +42,9 @@ export async function processSnapshot(
     }
 
     // Check for existing work_item with this radicado
-    const { data: existing } = await supabase
-      .from("work_items")
-      .select("id, last_action_date, last_action_description, legacy_process_id")
+    const { data: existing } = await (supabase
+      .from("work_items") as any)
+      .select("id, last_action_date, last_action_description")
       .eq("owner_id", context.owner_id)
       .eq("radicado", snapshot.radicado)
       .maybeSingle();

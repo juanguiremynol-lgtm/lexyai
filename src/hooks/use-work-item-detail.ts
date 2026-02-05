@@ -261,8 +261,8 @@ async function fetchProcessEvents(id: string): Promise<any[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchActuaciones(id: string): Promise<any[]> {
   // Try work_item_id
-  const { data } = await supabase
-    .from("actuaciones")
+  const { data } = await (supabase
+    .from("actuaciones") as any)
     .select("*")
     .eq("work_item_id", id)
     .order("act_date", { ascending: false });
@@ -270,10 +270,9 @@ async function fetchActuaciones(id: string): Promise<any[]> {
   return data || [];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchDocuments(workItemId: string): Promise<any[]> {
-  const { data } = await supabase
-    .from("documents")
+  const { data } = await (supabase
+    .from("documents") as any)
     .select("*")
     .eq("work_item_id", workItemId)
     .order("uploaded_at", { ascending: false });
@@ -282,18 +281,17 @@ async function fetchDocuments(workItemId: string): Promise<any[]> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchTasks(workItemId: string): Promise<any[]> {
-  const { data } = await supabase
-    .from("tasks")
+  const { data } = await (supabase
+    .from("tasks") as any)
     .select("*")
     .eq("work_item_id", workItemId)
     .order("due_at", { ascending: true });
   return data || [];
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchHearings(workItemId: string): Promise<any[]> {
-  const { data } = await supabase
-    .from("hearings")
+  const { data } = await (supabase
+    .from("hearings") as any)
     .select("*")
     .eq("work_item_id", workItemId)
     .order("scheduled_at", { ascending: true });

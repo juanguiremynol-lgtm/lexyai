@@ -50,10 +50,13 @@ export function ReportIncumplimientoDialog({
       let desacatoId: string | null = null;
 
       // Step 1: Update work_item with compliance info
-      const { error: workItemError } = await supabase
-        .from("work_items")
+      const existingNotes = tutela.notes || "";
+      const newNotes = `${existingNotes}\n\n[INCUMPLIMIENTO ${incumplimientoDate.toISOString()}] ${notes}`.trim();
+      
+      const { error: workItemError } = await (supabase
+        .from("work_items") as any)
         .update({
-          notes: `${tutela.notes || ""}\n\n[INCUMPLIMIENTO ${incumplimientoDate.toISOString()}] ${notes}`.trim(),
+          notes: newNotes,
           updated_at: new Date().toISOString(),
         })
         .eq("id", tutela.id);

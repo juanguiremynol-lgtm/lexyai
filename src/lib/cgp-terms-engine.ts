@@ -380,24 +380,28 @@ export async function fetchMilestones(
   filingId?: string,
   processId?: string
 ): Promise<CgpMilestone[]> {
-  let query = supabase.from('cgp_milestones').select('*');
+  // Use type assertion to avoid deep type instantiation issues
+  const baseQuery = supabase.from('cgp_milestones') as any;
 
-  // Prioritize work_item_id
+  // Build query based on available ID
+  let filter: { column: string; value: string } | null = null;
+  
   if (workItemId) {
-    query = query.eq('work_item_id', workItemId);
+    filter = { column: 'work_item_id', value: workItemId };
   } else if (filingId) {
-    // Legacy fallback
     console.warn('[CGP Terms] Using legacy filing_id lookup for milestones');
-    query = query.eq('filing_id', filingId);
+    filter = { column: 'filing_id', value: filingId };
   } else if (processId) {
-    // Legacy fallback
     console.warn('[CGP Terms] Using legacy process_id lookup for milestones');
-    query = query.eq('process_id', processId);
-  } else {
-    return [];
+    filter = { column: 'process_id', value: processId };
   }
+  
+  if (!filter) return [];
 
-  const { data, error } = await query.order('event_date', { ascending: false, nullsFirst: false });
+  const { data, error } = await baseQuery
+    .select('*')
+    .eq(filter.column, filter.value)
+    .order('event_date', { ascending: false, nullsFirst: false });
 
   if (error) {
     console.error('Error fetching milestones:', error);
@@ -418,24 +422,28 @@ export async function fetchTermInstances(
   filingId?: string,
   processId?: string
 ): Promise<CgpTermInstance[]> {
-  let query = supabase.from('cgp_term_instances').select('*');
+  // Use type assertion to avoid deep type instantiation issues
+  const baseQuery = supabase.from('cgp_term_instances') as any;
 
-  // Prioritize work_item_id
+  // Build query based on available ID
+  let filter: { column: string; value: string } | null = null;
+  
   if (workItemId) {
-    query = query.eq('work_item_id', workItemId);
+    filter = { column: 'work_item_id', value: workItemId };
   } else if (filingId) {
-    // Legacy fallback
     console.warn('[CGP Terms] Using legacy filing_id lookup for term instances');
-    query = query.eq('filing_id', filingId);
+    filter = { column: 'filing_id', value: filingId };
   } else if (processId) {
-    // Legacy fallback
     console.warn('[CGP Terms] Using legacy process_id lookup for term instances');
-    query = query.eq('process_id', processId);
-  } else {
-    return [];
+    filter = { column: 'process_id', value: processId };
   }
+  
+  if (!filter) return [];
 
-  const { data, error } = await query.order('due_date', { ascending: true });
+  const { data, error } = await baseQuery
+    .select('*')
+    .eq(filter.column, filter.value)
+    .order('due_date', { ascending: true });
 
   if (error) {
     console.error('Error fetching term instances:', error);
@@ -766,8 +774,9 @@ export async function registerActivity(
     return;
   }
 
-  // Upsert inactivity tracker - use explicit conditionals to avoid type depth issues
-  let existingQuery = supabase.from('cgp_inactivity_tracker').select('id');
+  // Upsert inactivity tracker - use type assertion to avoid deep type inference
+  const baseQuery = supabase.from('cgp_inactivity_tracker') as any;
+  let existingQuery = baseQuery.select('id');
   if (workItemId) {
     existingQuery = existingQuery.eq('work_item_id', workItemId);
   } else if (filingId) {
@@ -778,8 +787,7 @@ export async function registerActivity(
   const { data: existing } = await existingQuery.maybeSingle();
 
   if (existing) {
-    await supabase
-      .from('cgp_inactivity_tracker')
+    await (supabase.from('cgp_inactivity_tracker') as any)
       .update({
         last_activity_date: today,
         last_activity_description: description,
@@ -789,7 +797,7 @@ export async function registerActivity(
       })
       .eq('id', existing.id);
   } else {
-    await supabase.from('cgp_inactivity_tracker').insert({
+    await (supabase.from('cgp_inactivity_tracker') as any).insert({
       owner_id: ownerId,
       work_item_id: workItemId,
       filing_id: filingId,

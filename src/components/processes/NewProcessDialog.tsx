@@ -147,9 +147,9 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
         monitoring_enabled: true,
       };
       
-      const { data: newWorkItem, error: insertError } = await supabase
-        .from('work_items')
-        .insert(workItemData)
+      const { data: newWorkItem, error: insertError } = await (supabase
+        .from('work_items') as any)
+        .insert([workItemData])
         .select()
         .single();
 
