@@ -15,7 +15,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, CheckSquare, Plus, RefreshCw, Keyboard } from "lucide-react";
+import { FileText, CheckSquare, RefreshCw, Keyboard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addBusinessDays } from "@/lib/colombian-holidays";
@@ -28,7 +28,6 @@ import {
 } from "@/lib/peticiones-constants";
 import { PeticionColumn, PeticionStageConfig } from "./PeticionColumn";
 import { PeticionCard, PeticionItem } from "./PeticionCard";
-import { NewPeticionDialog } from "./NewPeticionDialog";
 import { EscalateToTutelaDialog } from "./EscalateToTutelaDialog";
 import { PeticionesBulkActionsBar } from "./PeticionesBulkActionsBar";
 import { PeticionesBulkDeleteDialog } from "./PeticionesBulkDeleteDialog";
@@ -85,7 +84,6 @@ function rawToPeticionItem(raw: RawPeticion): PeticionItem {
 export function PeticionesPipeline() {
   const queryClient = useQueryClient();
   const [activeItem, setActiveItem] = useState<PeticionItem | null>(null);
-  const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [escalateDialog, setEscalateDialog] = useState<{
     open: boolean;
     peticion: PeticionItem | null;
@@ -363,10 +361,6 @@ export function PeticionesPipeline() {
             <Keyboard className="h-4 w-4 mr-2" />
             {isNavigating ? "Navegando" : "Tab"}
           </Button>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Nueva Petición
-          </Button>
         </div>
       </div>
 
@@ -403,8 +397,6 @@ export function PeticionesPipeline() {
       </DndContext>
 
       {/* Dialogs */}
-      <NewPeticionDialog open={newDialogOpen} onOpenChange={setNewDialogOpen} />
-      
       <EscalateToTutelaDialog
         open={escalateDialog.open}
         onOpenChange={(open) => setEscalateDialog(prev => ({ ...prev, open }))}
