@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { RefreshCw, Keyboard, CheckSquare, Plus, Landmark, Filter, AlertCircle } from "lucide-react";
+import { RefreshCw, Keyboard, CheckSquare, Landmark, Filter, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
@@ -23,7 +23,6 @@ import { WorkItemBulkActionsBar } from "@/components/pipeline/WorkItemBulkAction
 import { WorkItemBulkDeleteDialog } from "@/components/pipeline/WorkItemBulkDeleteDialog";
 import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
 import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
-import { NewCpacaDialog } from "./NewCpacaDialog";
 import {
   CPACA_PHASES,
   CPACA_PHASES_ORDER,
@@ -64,7 +63,6 @@ export function CpacaPipeline() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
-  const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [phaseFilter, setPhaseFilter] = useState<'ALL' | CpacaPhase>('ALL');
 
   // Use secure delete hook
@@ -363,10 +361,6 @@ export function CpacaPipeline() {
           >
             <Keyboard className="h-4 w-4" />
           </Button>
-          <Button onClick={() => setNewDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Nuevo CPACA
-          </Button>
         </div>
       </div>
 
@@ -438,8 +432,6 @@ export function CpacaPipeline() {
         }}
       />
 
-      {/* New CPACA dialog */}
-      <NewCpacaDialog open={newDialogOpen} onOpenChange={setNewDialogOpen} />
     </div>
   );
 }
