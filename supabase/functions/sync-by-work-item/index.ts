@@ -3427,13 +3427,13 @@ Deno.serve(async (req) => {
       // BUG FIX: Insert into 'work_item_acts' (canonical table) instead of legacy 'actuaciones'
       // The UI reads from work_item_acts, not actuaciones
       // FIX 2.2: Derive date_confidence from date_source
-      const dateSource = actDate ? 'api_explicit' : 'inferred';
+      const dateSource = actDate ? 'api_explicit' : 'inferred_sync';
       const dateConfidenceMap: Record<string, string> = {
         api_explicit: 'high',
         parsed_filename: 'medium',
         parsed_annotation: 'medium',
         parsed_title: 'medium',
-        inferred: 'low',
+        inferred_sync: 'low',
       };
       const dateConfidence = dateConfidenceMap[dateSource] || 'low';
 
