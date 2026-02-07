@@ -539,9 +539,28 @@ Deno.serve(async (req) => {
     const { data: ledgerEntries, error: ledgerError } = await ledgerQuery;
     if (ledgerError) console.warn("[atenia-ai] Ledger read error:", ledgerError.message);
 
-    const orgIds = input.organization_id
-      ? [input.organization_id]
-      : [...new Set((ledgerEntries || []).map((l: any) => l.organization_id))];
+    let orgIds: string[];
+    if (input.organization_id) {
+      orgIds = [input.organization_id];
+    } else {
+      // Get orgs from ledger first
+      orgIds = [...new Set((ledgerEntries || []).map((l: any) => l.organization_id))];
+
+      // For MANUAL_AUDIT: if no ledger entries exist (no daily sync ran today),
+      // fall back to all orgs that have monitored work items
+      if (orgIds.length === 0 && (input.mode === "MANUAL_AUDIT" || input.mode === "POST_LOGIN_SYNC")) {
+        console.log("[atenia-ai-supervisor] No ledger entries found, discovering orgs from work_items...");
+        const { data: wiOrgs } = await supabase
+          .from("work_items")
+          .select("organization_id")
+          .eq("monitoring_enabled", true)
+          .not("organization_id", "is", null)
+          .not("radicado", "is", null);
+
+        orgIds = [...new Set((wiOrgs || []).map((w: any) => w.organization_id))];
+        console.log(`[atenia-ai-supervisor] Discovered ${orgIds.length} orgs from monitored work items`);
+      }
+    }
 
     console.log(`[atenia-ai-supervisor] Processing ${orgIds.length} organizations`);
 
@@ -709,7 +728,8 @@ async function auditOrganization(
   let aiDiagnosis: string | null = null;
   const problems = diagnostics.filter((d) => d.severity !== "OK" && d.severity !== "AVISO");
   const shouldUseGemini =
-    problems.length >= 5 ||
+    problems.length >= 3 ||
+    diagnostics.length > 0 ||
     Object.values(providerStatus).some((p) => p.status === "degraded" || p.status === "down") ||
     mode === "MANUAL_AUDIT";
 
