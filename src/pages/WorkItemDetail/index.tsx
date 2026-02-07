@@ -9,7 +9,7 @@
  */
 
 import { useParams, useNavigate } from "react-router-dom";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { ActsTab } from "./tabs/ActsTab";
 import { EstadosTab } from "./tabs/EstadosTab";
 import { NotesTab } from "./tabs/NotesTab";
+import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 
 // Import work item components
 import { CaseSetupChecklist } from "@/components/work-items/CaseSetupChecklist";
@@ -278,7 +279,7 @@ export default function WorkItemDetail() {
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue="actuaciones" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -289,6 +290,10 @@ export default function WorkItemDetail() {
               <TabsTrigger value="estados" className="gap-2">
                 <Newspaper className="h-4 w-4" />
                 Estados
+              </TabsTrigger>
+              <TabsTrigger value="alertas" className="gap-2">
+                <Bell className="h-4 w-4" />
+                Alertas
               </TabsTrigger>
               <TabsTrigger value="notas" className="gap-2">
                 <StickyNote className="h-4 w-4" />
@@ -302,6 +307,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="estados" className="mt-4">
               <EstadosTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="alertas" className="mt-4">
+              <AlertsTasksTab workItem={extendedWorkItem} />
             </TabsContent>
 
             <TabsContent value="notas" className="mt-4">

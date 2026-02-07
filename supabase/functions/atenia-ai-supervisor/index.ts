@@ -677,6 +677,25 @@ async function auditOrganization(
     else itemsFailed++;
   }
 
+  // Step 3c: Ghost item detection — monitored items with zero traces
+  const tracedItemIds = new Set([...tracesByWI.keys()]);
+  const ghostItems = (workItems || []).filter((wi: any) => !tracedItemIds.has(wi.id));
+  
+  if (ghostItems.length > 0) {
+    console.log(`[atenia-ai] ${ghostItems.length} monitored items had no traces (ghost items)`);
+    for (const ghost of ghostItems) {
+      diagnostics.push({
+        work_item_id: ghost.id,
+        radicado: ghost.radicado || 'desconocido',
+        severity: "AVISO",
+        category: "OMITIDO",
+        message_es: `El radicado ${ghost.radicado || 'desconocido'} tiene monitoreo activo pero no fue consultado en la sincronización de hoy. Puede haber sido omitido por tiempo de espera del sistema.`,
+        technical_detail: `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
+        suggested_action: "Se reintentará en la próxima ventana de sincronización.",
+      });
+    }
+  }
+
   // Step 3b: Provider health aggregation
   const providerStatus = aggregateProviderHealth(traceData);
 

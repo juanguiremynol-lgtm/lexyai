@@ -59,6 +59,8 @@ interface Alert {
   severity: "info" | "warning" | "error";
   is_read: boolean;
   created_at: string;
+  alert_type?: string;
+  alert_source?: string;
 }
 
 // Icon mapping for reminder types
@@ -105,29 +107,32 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
     enabled: !!workItem.id,
   });
 
-  // Fetch alerts using work_item_id
+  // Fetch alerts using work_item_id via entity_id
   const { data: alerts, isLoading: alertsLoading } = useQuery({
     queryKey: ["work-item-alerts", workItem.id],
     queryFn: async () => {
-      // Query alert_instances which use work_item_id via entity_id
       const { data, error } = await supabase
         .from("alert_instances")
         .select("*")
         .eq("entity_id", workItem.id)
         .eq("entity_type", "work_item")
-        .order("created_at", { ascending: false });
+        .not("status", "eq", "RESOLVED")
+        .order("fired_at", { ascending: false })
+        .limit(20);
       
       if (error) throw error;
       return (data || []).map((a: any) => ({
         id: a.id,
         title: a.title || "Alerta",
         message: a.message,
-        severity: a.severity === "critical" ? "error" : a.severity === "warn" ? "warning" : "info",
-        is_read: !!a.read_at,
-        created_at: a.created_at,
+        severity: a.severity === "CRITICAL" ? "error" : a.severity === "WARNING" ? "warning" : "info",
+        is_read: !!a.read_at || !!a.seen_at,
+        created_at: a.fired_at || a.created_at,
+        alert_type: a.alert_type,
+        alert_source: a.alert_source,
       })) as Alert[];
     },
-    enabled: !!workItem.legacy_filing_id,
+    enabled: !!workItem.id,
   });
 
   const isLoading = tasksLoading || alertsLoading || remindersLoading;
@@ -366,16 +371,24 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-medium">{alert.title}</p>
-                          {!alert.is_read && (
-                            <Badge variant="secondary" className="text-xs">Nuevo</Badge>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {alert.alert_type === 'LEXY_DAILY' && (
+                              <Badge variant="outline" className="text-[10px]">📩 Lexy</Badge>
+                            )}
+                            {!alert.is_read && (
+                              <Badge variant="secondary" className="text-xs">Nuevo</Badge>
+                            )}
+                          </div>
                         </div>
                         {alert.message && (
                           <p className="text-sm text-muted-foreground mt-1">{alert.message}</p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true, locale: es })}
-                        </p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
+                          <span>{formatDistanceToNow(new Date(alert.created_at), { addSuffix: true, locale: es })}</span>
+                          {alert.alert_source && (
+                            <Badge variant="outline" className="text-[10px]">{alert.alert_source}</Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
