@@ -313,7 +313,7 @@ Deno.serve(async (req) => {
           .select("id, severity, title, message")
           .eq("owner_id", user_id)
           .eq("organization_id", organization_id)
-          .in("status", ["ACTIVE", "FIRED"])
+          .in("status", ["PENDING", "SENT"])
           .is("seen_at", null)
           .limit(10);
 
@@ -412,7 +412,7 @@ Deno.serve(async (req) => {
           severity: "INFO",
           title: "📋 Resumen diario de Lexy",
           message: lexyMessage.greeting,
-          status: "ACTIVE",
+          status: "PENDING",
           fired_at: new Date().toISOString(),
           alert_type: "LEXY_DAILY",
           alert_source: "lexy",
