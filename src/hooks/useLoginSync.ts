@@ -221,12 +221,29 @@ export function useLoginSync(): UseLoginSyncResult {
         // Refresh status after sync
         await fetchSyncStatus(user.id, organization.id);
 
-        // Show result
+        // Show result — check for existing Lexy message first
         if (successCount > 0 || publicacionesCount > 0) {
-          toast({
-            title: 'Sincronización completada',
-            description: `${successCount} actuaciones, ${publicacionesCount} estados actualizados${errorCount > 0 ? `, ${errorCount} errores` : ''}`,
-          });
+          // Check if a Lexy daily message already exists for today
+          const todayStr = new Date(new Date().getTime() - 5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          const { data: existingLexy } = await (supabase
+            .from('lexy_daily_messages') as any)
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('message_date', todayStr)
+            .maybeSingle();
+
+          if (existingLexy) {
+            // Lexy message exists — show simple toast with counts instead of duplicating
+            toast({
+              title: 'Procesos actualizados',
+              description: `Se encontraron ${successCount} nuevas actuaciones y ${publicacionesCount} nuevos estados.${errorCount > 0 ? ` (${errorCount} errores)` : ''}`,
+            });
+          } else {
+            toast({
+              title: 'Sincronización completada',
+              description: `${successCount} actuaciones, ${publicacionesCount} estados actualizados${errorCount > 0 ? `, ${errorCount} errores` : ''}`,
+            });
+          }
         }
 
         console.log('[useLoginSync] Completed:', { successCount, publicacionesCount, errorCount });

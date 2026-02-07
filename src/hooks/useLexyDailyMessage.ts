@@ -52,7 +52,7 @@ export function useLexyDailyMessage() {
       if (!userId) return null;
 
       const { data, error } = await (supabase
-        .from("lexy_daily_messages") as any)
+        .from("lexy_daily_messages" as any) as any)
         .select("*")
         .eq("user_id", userId)
         .eq("message_date", today)
@@ -65,6 +65,7 @@ export function useLexyDailyMessage() {
         return null;
       }
 
+      // Type the response explicitly instead of relying on generated types
       return data as LexyDailyMessage | null;
     },
     enabled: !!userId,
@@ -76,7 +77,7 @@ export function useLexyDailyMessage() {
     mutationFn: async () => {
       if (!message) return;
       await (supabase
-        .from("lexy_daily_messages") as any)
+        .from("lexy_daily_messages" as any) as any)
         .update({ seen_at: new Date().toISOString() })
         .eq("id", message.id);
     },

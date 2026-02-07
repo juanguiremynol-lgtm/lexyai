@@ -167,10 +167,31 @@ export function AteniaAISupervisorPanel() {
     }
   }
 
-  // All diagnostics (non-OK)
-  const allDiagnostics = (reports || [])
+    // All diagnostics (non-OK), grouped by category+severity
+  const rawDiagnostics = (reports || [])
     .flatMap((r) => (r.diagnostics || []))
     .filter((d) => d.severity !== "OK");
+
+  // Group identical diagnostics by category+severity
+  const groupedDiagnostics = (() => {
+    const groups = new Map<string, { representative: typeof rawDiagnostics[0]; items: typeof rawDiagnostics; count: number }>();
+    for (const d of rawDiagnostics) {
+      const key = `${d.severity}::${d.category}`;
+      if (!groups.has(key)) {
+        groups.set(key, { representative: d, items: [d], count: 1 });
+      } else {
+        const g = groups.get(key)!;
+        g.items.push(d);
+        g.count++;
+      }
+    }
+    return [...groups.values()].sort((a, b) => {
+      const order: Record<string, number> = { CRITICO: 0, PROBLEMA: 1, AVISO: 2 };
+      return (order[a.representative.severity] ?? 3) - (order[b.representative.severity] ?? 3);
+    });
+  })();
+
+  const allDiagnosticsCount = rawDiagnostics.length;
 
   // All remediation actions
   const allActions = (reports || []).flatMap((r) => r.remediation_actions || []);
@@ -278,43 +299,56 @@ export function AteniaAISupervisorPanel() {
             </CardContent>
           </Card>
 
-          {/* Diagnostics */}
-          {allDiagnostics.length > 0 && (
+          {/* Diagnostics — grouped by category+severity */}
+          {allDiagnosticsCount > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">
-                  Diagnósticos ({allDiagnostics.length})
+                  Diagnósticos ({allDiagnosticsCount})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {allDiagnostics.slice(0, 20).map((d, i) => (
-                    <Collapsible key={i}>
-                      <CollapsibleTrigger className="flex items-start gap-2 w-full text-left group">
-                        {severityIcon(d.severity)}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Badge variant={severityBadgeVariant(d.severity)} className="text-[10px] px-1.5 py-0">
-                              {d.category}
-                            </Badge>
-                            {d.auto_remediated && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600">
-                                Auto-corregido
+                  {groupedDiagnostics.map((group, i) => {
+                    const d = group.representative;
+                    const label = group.count > 1
+                      ? `${d.category} (${group.count} asuntos)`
+                      : d.category;
+                    return (
+                      <Collapsible key={i}>
+                        <CollapsibleTrigger className="flex items-start gap-2 w-full text-left group">
+                          {severityIcon(d.severity)}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={severityBadgeVariant(d.severity)} className="text-[10px] px-1.5 py-0">
+                                {label}
                               </Badge>
-                            )}
+                              {group.items.some((item) => item.auto_remediated) && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600">
+                                  Auto-corregido
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm mt-1">{d.message_es}</p>
                           </div>
-                          <p className="text-sm mt-1">{d.message_es}</p>
-                        </div>
-                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 mt-1 group-data-[state=open]:rotate-180 transition-transform" />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="ml-6 mt-2 space-y-1">
-                        <p className="text-xs text-muted-foreground font-mono">{d.technical_detail}</p>
-                        {d.suggested_action && (
-                          <p className="text-xs text-primary">💡 {d.suggested_action}</p>
-                        )}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  ))}
+                          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0 mt-1 group-data-[state=open]:rotate-180 transition-transform" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="ml-6 mt-2 space-y-2">
+                          {group.items.map((item, j) => (
+                            <div key={j} className="space-y-1">
+                              {group.count > 1 && (
+                                <p className="text-xs font-medium text-muted-foreground">Radicado: {item.radicado}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground font-mono">{item.technical_detail}</p>
+                              {item.suggested_action && (
+                                <p className="text-xs text-primary">💡 {item.suggested_action}</p>
+                              )}
+                            </div>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

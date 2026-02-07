@@ -737,11 +737,42 @@ async function auditOrganization(
     console.log(`[atenia-ai] Report saved for org ${orgId}: ${itemsOk} OK, ${itemsFailed} failed, ${newActuaciones} new acts, ${newPublicaciones} new pubs`);
   }
 
-  // Step 8: Critical failure alerts for super admin
-  const criticals = diagnostics.filter((d) => d.severity === "CRITICO");
-  if (criticals.length > 0) {
-    console.log(`[atenia-ai] ${criticals.length} CRITICAL issues for org ${orgId}`);
-  }
+    // Step 8: Critical failure alerts for ALL CRITICO diagnostics (not just AUTH)
+    const criticals = diagnostics.filter((d) => d.severity === "CRITICO");
+    if (criticals.length > 0) {
+      console.log(`[atenia-ai] ${criticals.length} CRITICAL issues for org ${orgId}`);
+
+      // Find an admin to notify
+      const { data: adminMember } = await supabase
+        .from("organization_memberships")
+        .select("user_id")
+        .eq("organization_id", orgId)
+        .eq("role", "admin")
+        .limit(1)
+        .maybeSingle();
+
+      if (adminMember?.user_id) {
+        // Only create alerts for non-AUTH criticals (AUTH already handled in remediate())
+        const nonAuthCriticals = criticals.filter((d) => d.category !== "AUTENTICACIÓN");
+        for (const d of nonAuthCriticals) {
+          const fingerprint = `critico_${d.category}_${orgId}_${runDate}`;
+          await supabase.from("alert_instances").insert({
+            owner_id: adminMember.user_id,
+            organization_id: orgId,
+            entity_type: "SYSTEM",
+            entity_id: orgId,
+            severity: "CRITICAL",
+            title: `⚠️ Error crítico: ${d.category}`,
+            message: d.message_es,
+            status: "ACTIVE",
+            fired_at: new Date().toISOString(),
+            alert_type: "SYNC_FAILURE",
+            alert_source: "atenia_ai",
+            fingerprint,
+          });
+        }
+      }
+    }
 
   return reportData;
 }
