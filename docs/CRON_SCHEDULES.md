@@ -74,7 +74,8 @@ SELECT cron.schedule(
 
 ## 5. Atenia AI Supervisor — 07:30 COT (12:30 UTC)
 
-Post-sync audit: diagnostics, remediation, Gemini analysis.
+Post-sync audit: diagnostics, remediation, ghost item detection, Gemini analysis.
+✅ **Registered via migration** using `current_setting('supabase.service_role_key')`.
 
 > ⚠️ **IMPORTANT**: Use `service_role_key` (not anon key) for production cron jobs.
 > The anon key works only because `verify_jwt = false`, but using service_role_key
@@ -97,6 +98,7 @@ SELECT cron.schedule(
 ## 6. Lexy Daily Messages — 07:45 COT (12:45 UTC)
 
 Generates personalized AI daily messages for all users.
+✅ **Registered via migration** using `current_setting('supabase.service_role_key')`.
 
 > ⚠️ **IMPORTANT**: Use `service_role_key` (not anon key) for production cron jobs.
 
