@@ -119,3 +119,6 @@ verify_jwt = false
 
 [functions.atenia-ai-supervisor]
 verify_jwt = false
+
+[functions.lexy-daily-message]
+verify_jwt = false

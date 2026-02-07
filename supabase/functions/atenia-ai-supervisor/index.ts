@@ -349,7 +349,7 @@ Responde con:
 Sé conciso. No uses jerga técnica. Habla como un asistente legal inteligente.`;
 
   try {
-    const resp = await fetch("https://api.lovable.dev/v1/chat/completions", {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

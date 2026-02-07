@@ -72,6 +72,42 @@ SELECT cron.schedule(
 );
 ```
 
+## 5. Atenia AI Supervisor — 07:30 COT (12:30 UTC)
+
+Post-sync audit: diagnostics, remediation, Gemini analysis.
+
+```sql
+SELECT cron.schedule(
+  'atenia-ai-supervisor-daily',
+  '30 12 * * *',  -- 07:30 COT = 12:30 UTC
+  $$
+  SELECT net.http_post(
+    url := 'https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/atenia-ai-supervisor',
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dXVrYnFjdmxudm1jdmNydWppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMzcwNDMsImV4cCI6MjA4MTkxMzA0M30.ueXyei3v_gYAISV47psLmCmHTfIgCRTfdZnFSaNAQho"}'::jsonb,
+    body := '{"mode": "POST_DAILY_SYNC"}'::jsonb
+  ) AS request_id;
+  $$
+);
+```
+
+## 6. Lexy Daily Messages — 07:45 COT (12:45 UTC)
+
+Generates personalized AI daily messages for all users.
+
+```sql
+SELECT cron.schedule(
+  'lexy-daily-message-generation',
+  '45 12 * * *',  -- 07:45 COT = 12:45 UTC
+  $$
+  SELECT net.http_post(
+    url := 'https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/lexy-daily-message',
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dXVrYnFjdmxudm1jdmNydWppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMzcwNDMsImV4cCI6MjA4MTkxMzA0M30.ueXyei3v_gYAISV47psLmCmHTfIgCRTfdZnFSaNAQho"}'::jsonb,
+    body := '{"mode": "GENERATE_ALL"}'::jsonb
+  ) AS request_id;
+  $$
+);
+```
+
 ## Verification
 
 List active cron jobs:
