@@ -3628,6 +3628,7 @@ Deno.serve(async (req) => {
       scrape_status: result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
       last_crawled_at: new Date().toISOString(),
       last_checked_at: new Date().toISOString(),
+      last_synced_at: new Date().toISOString(),
       total_actuaciones: fetchResult.actuaciones.length,
       scrape_provider: fetchResult.provider, // Track which provider was used
     };
