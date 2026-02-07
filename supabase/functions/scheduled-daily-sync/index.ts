@@ -248,12 +248,18 @@ async function syncOrganization(
   const ledgerId = lock.ledger_id;
   let successCount = 0;
   let errorCount = 0;
+  let itemsSkipped = 0;
   let publicacionesSynced = 0;
   let scrapingInitiated = 0;
+  let totalInserted = 0;
+  let totalPubInserted = 0;
+  const syncStartTime = Date.now();
+
+  const BATCH_SIZE = 3;
+  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
 
   try {
     // Get all active work items for this org
-    // LIMIT reduced from 100 to account for longer polling times (up to 60s per item)
     const { data: workItems, error: fetchError } = await supabase
       .from("work_items")
       .select("id, radicado, workflow_type, stage, last_synced_at")
@@ -262,8 +268,8 @@ async function syncOrganization(
       .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
       .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
       .not("radicado", "is", null)
-      .order("last_synced_at", { ascending: true, nullsFirst: true }) // Oldest sync first
-      .limit(30); // Reduced from 100 to 30 due to 60s polling per item
+      .order("last_synced_at", { ascending: true, nullsFirst: true })
+      .limit(50); // Increased from 30 — parallel batching handles throughput
 
     if (fetchError) {
       throw fetchError;
@@ -274,102 +280,166 @@ async function syncOrganization(
       item.radicado && item.radicado.replace(/\D/g, '').length === 23
     );
 
-    console.log(`[scheduled-daily-sync] Org ${orgId}: ${eligibleItems.length} eligible items`);
+    // === 404 COOLDOWN: deprioritize items that got PROVIDER_404 in last 48h ===
+    let sortedItems = [...eligibleItems];
+    if (sortedItems.length > 0) {
+      const itemIds = sortedItems.map((w: any) => w.id);
+      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const { data: recent404s } = await supabase
+        .from("sync_traces")
+        .select("work_item_id")
+        .in("work_item_id", itemIds)
+        .eq("error_code", "PROVIDER_404")
+        .gte("created_at", fortyEightHoursAgo);
+
+      if (recent404s && recent404s.length > 0) {
+        const cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
+        const priorityItems = sortedItems.filter((w: any) => !cooldownIds.has(w.id));
+        const cooldownItems = sortedItems.filter((w: any) => cooldownIds.has(w.id));
+        sortedItems = [...priorityItems, ...cooldownItems];
+        if (cooldownItems.length > 0) {
+          console.log(`[scheduled-daily-sync] ${cooldownItems.length} items in 404 cooldown (deprioritized)`);
+        }
+      }
+    }
+
+    console.log(`[scheduled-daily-sync] Org ${orgId}: ${sortedItems.length} eligible items (batch size ${BATCH_SIZE})`);
 
     // Update ledger with targeted count
     await supabase.rpc('update_daily_sync_ledger', {
       p_ledger_id: ledgerId,
       p_status: 'RUNNING',
-      p_items_targeted: eligibleItems.length
+      p_items_targeted: sortedItems.length
     });
 
-    // Sync each work item
-    for (const workItem of eligibleItems) {
-      try {
-        // Call sync-by-work-item function (CPNU/SAMAI actuaciones)
-        const { data: syncResult, error: syncError } = await supabase.functions.invoke(
-          "sync-by-work-item",
-          { body: { work_item_id: workItem.id, _scheduled: true } }
-        );
-
-        if (syncError) {
-          throw syncError;
-        }
-
-        if (syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED') {
-          scrapingInitiated++;
-        } else if (syncResult?.ok) {
-          successCount++;
-        }
-
-        // Also sync publicaciones for eligible workflows
-        let pubInserted = 0;
-        if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(workItem.workflow_type)) {
-          try {
-            const { data: pubResult } = await supabase.functions.invoke(
-              "sync-publicaciones-by-work-item",
-              { body: { work_item_id: workItem.id } }
-            );
-            if (pubResult?.ok) {
-              publicacionesSynced++;
-              pubInserted = pubResult.inserted_count || 0;
-            }
-          } catch {
-            // Publicaciones errors don't count as failures
-          }
-        }
-
-        // FIX 3.2: Only update last_synced_at if sync was genuinely successful
-        // Distinguish between "no new data" (provider OK, 0 inserts) and "provider error"
-        const syncWasSuccessful = syncResult?.ok === true;
-        const hadNewData = (syncResult?.inserted_count || 0) > 0 || pubInserted > 0;
-        const providerReturnedEmpty = syncWasSuccessful && !hadNewData;
-        
-        if (hadNewData || providerReturnedEmpty) {
-          // Provider responded successfully — safe to update timestamp
-          await supabase
-            .from("work_items")
-            .update({ last_synced_at: new Date().toISOString() })
-            .eq("id", workItem.id);
-        } else {
-          // Provider error or scraping initiated — don't push to back of queue
-          console.log(`[scheduled-daily-sync] Skipping last_synced_at update for ${workItem.id} (sync not confirmed successful)`);
-        }
-
-        // Heartbeat every few items
-        if ((successCount + errorCount) % 10 === 0) {
-          await supabase.rpc('update_daily_sync_ledger', {
-            p_ledger_id: ledgerId,
-            p_status: 'RUNNING',
-            p_items_succeeded: successCount,
-            p_items_failed: errorCount
-          });
-        }
-
-      } catch (itemError: any) {
-        console.error(`[scheduled-daily-sync] Item ${workItem.id} error:`, itemError);
-        errorCount++;
-      }
-
-      // Rate limit: wait 1 second between syncs
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Check for global timeout
-      if (Date.now() - globalStartTime > 48000) {
-        console.log("[scheduled-daily-sync] Global timeout, breaking item loop");
+    // === PARALLEL BATCH PROCESSING ===
+    for (let i = 0; i < sortedItems.length; i += BATCH_SIZE) {
+      // Check if we're approaching the function timeout (keep 10s buffer)
+      const elapsedMs = Date.now() - syncStartTime;
+      if (elapsedMs > 48000) {
+        console.warn(`[scheduled-daily-sync] Timeout approaching after ${i}/${sortedItems.length} items, stopping batch`);
+        itemsSkipped += (sortedItems.length - i);
         break;
       }
+
+      // Also check global timeout
+      if (Date.now() - globalStartTime > 48000) {
+        console.log("[scheduled-daily-sync] Global timeout, stopping batch");
+        itemsSkipped += (sortedItems.length - i);
+        break;
+      }
+
+      const batch = sortedItems.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (workItem: any) => {
+          const itemStart = Date.now();
+          try {
+            // Sync actuaciones
+            const { data: syncResult, error: syncError } = await supabase.functions.invoke(
+              "sync-by-work-item",
+              { body: { work_item_id: workItem.id, _scheduled: true } }
+            );
+
+            if (syncError) {
+              throw syncError;
+            }
+
+            // Sync publicaciones (only for eligible workflows)
+            let pubResult: any = null;
+            let pubInserted = 0;
+            if (PUBLICACIONES_WORKFLOWS.includes(workItem.workflow_type)) {
+              try {
+                const { data: pr } = await supabase.functions.invoke(
+                  "sync-publicaciones-by-work-item",
+                  { body: { work_item_id: workItem.id } }
+                );
+                pubResult = pr;
+                pubInserted = pr?.inserted_count || 0;
+              } catch {
+                // Publicaciones errors don't count as failures
+              }
+            }
+
+            // Update last_synced_at if sync was genuinely successful
+            const syncWasSuccessful = syncResult?.ok === true;
+            const hadNewData = (syncResult?.inserted_count || 0) > 0 || pubInserted > 0;
+            const providerReturnedEmpty = syncWasSuccessful && !hadNewData;
+
+            if (hadNewData || providerReturnedEmpty) {
+              await supabase
+                .from("work_items")
+                .update({ last_synced_at: new Date().toISOString() })
+                .eq("id", workItem.id);
+            }
+
+            return {
+              work_item_id: workItem.id,
+              radicado: workItem.radicado,
+              actSuccess: syncResult?.ok === true,
+              scrapingInitiated: syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED',
+              pubSuccess: pubResult?.ok === true || pubResult === null,
+              latencyMs: Date.now() - itemStart,
+              inserted_count: syncResult?.inserted_count || 0,
+              pub_inserted: pubInserted,
+            };
+          } catch (err: any) {
+            return {
+              work_item_id: workItem.id,
+              radicado: workItem.radicado,
+              actSuccess: false,
+              scrapingInitiated: false,
+              pubSuccess: false,
+              latencyMs: Date.now() - itemStart,
+              inserted_count: 0,
+              pub_inserted: 0,
+              error: err?.message || 'unknown',
+            };
+          }
+        })
+      );
+
+      // Process batch results
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled') {
+          const val = result.value;
+          if (val.scrapingInitiated) {
+            scrapingInitiated++;
+          } else if (val.actSuccess) {
+            successCount++;
+          } else {
+            errorCount++;
+            console.error(`[scheduled-daily-sync] Item ${val.work_item_id} failed:`, val.error || 'actSuccess=false');
+          }
+          totalInserted += val.inserted_count;
+          totalPubInserted += val.pub_inserted;
+          if (val.pubSuccess && val.pub_inserted > 0) publicacionesSynced++;
+        } else {
+          errorCount++;
+          console.error(`[scheduled-daily-sync] Batch item rejected:`, result.reason?.message);
+        }
+      }
+
+      // Heartbeat the ledger after each batch
+      await supabase.rpc('update_daily_sync_ledger', {
+        p_ledger_id: ledgerId,
+        p_status: 'RUNNING',
+        p_items_succeeded: successCount + scrapingInitiated,
+        p_items_failed: errorCount
+      });
     }
 
-    // Determine final status
-    const totalItems = eligibleItems.length;
-    const processedItems = successCount + scrapingInitiated;
-    const successRate = totalItems > 0 ? processedItems / totalItems : 1;
-    
+    // Determine final status (accounting for skipped items)
+    const totalProcessed = successCount + scrapingInitiated + errorCount;
+    const totalItems = sortedItems.length;
+    const successRate = totalProcessed > 0 ? (successCount + scrapingInitiated) / totalProcessed : 0;
+
     let finalStatus: string;
-    if (errorCount === 0 && successRate >= SUCCESS_THRESHOLD) {
+    if (successCount + scrapingInitiated === totalItems) {
       finalStatus = 'SUCCESS';
-    } else if (processedItems > 0) {
+    } else if (successRate >= SUCCESS_THRESHOLD && itemsSkipped === 0) {
+      finalStatus = 'SUCCESS';
+    } else if (successCount + scrapingInitiated > 0) {
       finalStatus = 'PARTIAL';
     } else {
       finalStatus = 'FAILED';
@@ -384,7 +454,11 @@ async function syncOrganization(
       p_metadata: {
         publicaciones_synced: publicacionesSynced,
         scraping_initiated: scrapingInitiated,
-        success_rate: successRate
+        items_skipped: itemsSkipped,
+        total_inserted: totalInserted,
+        total_pub_inserted: totalPubInserted,
+        success_rate: successRate,
+        batch_size: BATCH_SIZE,
       }
     });
 
