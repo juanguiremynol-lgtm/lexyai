@@ -3391,6 +3391,24 @@ Deno.serve(async (req) => {
     // This ensures latest_event_date reflects the provider's actual newest event
     let latestDate: string | null = null;
 
+    // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
+    // This prevents SAMAI duplicates where the same court event produces slightly different
+    // annotation text across scraping runs, resulting in different fingerprints.
+    const { data: existingActsForDedup } = await supabase
+      .from('work_item_acts')
+      .select('act_date, description')
+      .eq('work_item_id', work_item_id)
+      .eq('is_archived', false);
+
+    const existingSemanticSet = new Set(
+      (existingActsForDedup || []).map(a => {
+        // Extract just the actuacion part (before " - " annotation separator)
+        const descOnly = (a.description || '').split(' - ')[0].toUpperCase().trim();
+        return `${a.act_date || ''}|${descOnly}`;
+      })
+    );
+    console.log(`[sync-by-work-item] Loaded ${existingSemanticSet.size} existing (date+desc) pairs for semantic dedup`);
+
     for (const act of fetchResult.actuaciones) {
       const actDate = parseColombianDate(act.fecha);
       
@@ -3406,8 +3424,7 @@ Deno.serve(async (req) => {
       const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
       const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint);
 
-      // Check for existing record using fingerprint
-      // BUG FIX: Changed from 'actuaciones' to 'work_item_acts' - the canonical table
+      // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
         .from('work_item_acts')
         .select('id')
@@ -3419,6 +3436,17 @@ Deno.serve(async (req) => {
         result.skipped_count++;
         continue;
       }
+
+      // ============= SEMANTIC DEDUP: Check date + normalized description =============
+      // Catches SAMAI variants where annotation text differs slightly
+      const semanticKey = `${actDate || ''}|${(act.actuacion || '').toUpperCase().trim()}`;
+      if (existingSemanticSet.has(semanticKey)) {
+        console.log(`[sync-by-work-item] SEMANTIC DEDUP: Skipping "${act.actuacion}" on ${actDate} (already exists with different fingerprint)`);
+        result.skipped_count++;
+        continue;
+      }
+      // Add to set to prevent intra-batch duplicates too
+      existingSemanticSet.add(semanticKey);
 
       // Build description from actuacion + anotacion
       const description = `${act.actuacion}${act.anotacion ? ' - ' + act.anotacion : ''}`;

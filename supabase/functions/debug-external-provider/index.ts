@@ -41,9 +41,9 @@ const CPNU_ROUTE_CANDIDATES = [
   '/buscar?numero_radicacion={id}',        // Fallback: async job creation
 ];
 
-// SAMAI uses similar routes
+// SAMAI uses /proceso (cache lookup) and /buscar (scraping trigger) — NOT /snapshot
 const SAMAI_ROUTE_CANDIDATES = [
-  '/snapshot?numero_radicacion={id}',
+  '/proceso/{id}',
   '/buscar?numero_radicacion={id}',
 ];
 
@@ -972,7 +972,7 @@ Deno.serve(async (req) => {
     safeLog('info', 'Access granted', { user_id: userId });
 
     // Parse request
-    let payload: DebugRequest;
+    let payload: any;
     try {
       payload = await req.json();
     } catch {
@@ -980,8 +980,6 @@ Deno.serve(async (req) => {
     }
 
     const { provider, identifier, mode = 'lookup' } = payload;
-    // Enforce timeout limits
-    const timeoutMs = Math.min(Math.max(payload.timeoutMs || DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
 
     // Validate provider
     const validProviders: ProviderName[] = ['cpnu', 'samai', 'tutelas', 'publicaciones'];
@@ -993,6 +991,124 @@ Deno.serve(async (req) => {
         Date.now() - startTime
       );
     }
+
+    // ============= PROBE_ROUTES ACTION =============
+    // Discover available API endpoints for any provider
+    if (mode === 'probe_routes') {
+      const envMap: Record<ProviderName, string> = {
+        cpnu: 'CPNU_BASE_URL', samai: 'SAMAI_BASE_URL',
+        tutelas: 'TUTELAS_BASE_URL', publicaciones: 'PUBLICACIONES_BASE_URL',
+      };
+      const providerBaseUrl = Deno.env.get(envMap[provider]);
+      const apiKeyInfo = await getApiKeyForProvider(provider);
+      
+      if (!providerBaseUrl) {
+        return jsonResponse({ ok: false, error: `${envMap[provider]} not configured`, provider });
+      }
+      
+      const cleanBase = providerBaseUrl.replace(/\/+$/, '');
+      const probePaths = [
+        '/docs', '/openapi.json', '/redoc', '/health', '/healthz', '/status',
+        '/', '/api', '/api/v1', '/api/docs', '/api/openapi.json',
+        '/buscar', '/proceso', '/resultado', '/snapshot', '/search',
+        '/expediente', '/expedientes', '/tutela', '/api/tutela',
+        '/job', '/api/expediente',
+      ];
+
+      const probeResults: Array<{
+        path: string; status: number; statusText: string;
+        contentType: string; bodyPreview: string; bodyLength: number;
+        durationMs: number; isJson: boolean;
+      }> = [];
+
+      for (const path of probePaths) {
+        try {
+          const url = `${cleanBase}${path}`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          const start = Date.now();
+          
+          const probeHeaders: Record<string, string> = {
+            'Content-Type': 'application/json', 'Accept': 'application/json',
+          };
+          if (apiKeyInfo.value) probeHeaders['x-api-key'] = apiKeyInfo.value;
+          
+          const resp = await fetch(url, { method: 'GET', headers: probeHeaders, signal: controller.signal });
+          clearTimeout(timeoutId);
+          const dur = Date.now() - start;
+          const body = await resp.text();
+          const ct = resp.headers.get('content-type') || 'unknown';
+          
+          probeResults.push({
+            path, status: resp.status, statusText: resp.statusText,
+            contentType: ct, bodyPreview: body.substring(0, 500), bodyLength: body.length,
+            durationMs: dur, isJson: ct.includes('json'),
+          });
+        } catch (e: any) {
+          probeResults.push({
+            path, status: 0, statusText: e.name === 'AbortError' ? 'TIMEOUT' : 'ERROR',
+            contentType: '', bodyPreview: e.message || '', bodyLength: 0,
+            durationMs: e.name === 'AbortError' ? 8000 : 0, isJson: false,
+          });
+        }
+      }
+
+      const liveRoutes = probeResults.filter(r => r.status >= 200 && r.status < 400);
+      const authRequired = probeResults.filter(r => r.status === 401 || r.status === 403);
+      
+      // Try parsing OpenAPI spec
+      let openApiEndpoints: string[] = [];
+      const openApiResult = probeResults.find(r => r.path === '/openapi.json' && r.status === 200 && r.isJson);
+      if (openApiResult) {
+        try {
+          // Re-fetch full OpenAPI spec if preview was truncated
+          const fullResp = await fetch(`${cleanBase}/openapi.json`, {
+            headers: apiKeyInfo.value ? { 'x-api-key': apiKeyInfo.value } : {},
+            signal: AbortSignal.timeout(10000),
+          });
+          if (fullResp.ok) {
+            const spec = await fullResp.json();
+            openApiEndpoints = Object.entries(spec.paths || {}).map(([path, methods]: [string, any]) => {
+              const httpMethods = Object.keys(methods).filter(m => m !== 'parameters').map(m => m.toUpperCase());
+              return `${httpMethods.join('/')} ${path}`;
+            });
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Write discovery trace
+      try {
+        await supabase.from('sync_traces').insert({
+          trace_id: crypto.randomUUID(),
+          provider,
+          step: 'ENDPOINT_DISCOVERY',
+          success: liveRoutes.length > 0,
+          message: `Probed ${probePaths.length} paths: ${liveRoutes.length} live, ${authRequired.length} auth-required`,
+          meta: { probe_results: probeResults, openapi_endpoints: openApiEndpoints },
+        });
+      } catch { /* fail silently */ }
+
+      return jsonResponse({
+        ok: true,
+        provider,
+        base_url_masked: `<${provider.toUpperCase()}>`,
+        summary: {
+          total_probed: probeResults.length,
+          live_routes: liveRoutes.length,
+          auth_required: authRequired.length,
+          not_found: probeResults.filter(r => r.status === 404).length,
+          server_errors: probeResults.filter(r => r.status >= 500).length,
+          timeouts: probeResults.filter(r => r.statusText === 'TIMEOUT').length,
+        },
+        live_routes: liveRoutes.map(r => ({ path: r.path, status: r.status, contentType: r.contentType, durationMs: r.durationMs })),
+        auth_required: authRequired.map(r => ({ path: r.path, status: r.status })),
+        openapi_endpoints: openApiEndpoints,
+        full_results: probeResults,
+      });
+    }
+
+    // Enforce timeout limits
+    const timeoutMs = Math.min(Math.max(payload.timeoutMs || DEFAULT_TIMEOUT_MS, 1000), MAX_TIMEOUT_MS);
 
     // Validate identifier based on provider
     let resolvedIdentifier: string;
