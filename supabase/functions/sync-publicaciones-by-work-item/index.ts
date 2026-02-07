@@ -752,10 +752,10 @@ Deno.serve(async (req) => {
               organization_id: workItem.organization_id,
               entity_id: workItem.id,
               entity_type: 'WORK_ITEM',
-              severity: 'info',
+              severity: 'INFO',
               title: `Nuevo Estado: ${pub.tipo || pub.clasificacion?.categoria || 'Publicación'}`,
               message: `${pub.titulo || pub.key}`,
-              status: 'ACTIVE',
+              status: 'PENDING',
               payload: {
                 publicacion_id: insertedPub.id,
                 fecha_publicacion: fechaPublicacion,

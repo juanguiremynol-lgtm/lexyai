@@ -712,7 +712,7 @@ Deno.serve(async (req) => {
     // Check if user is platform admin
     const { data: platformAdmin } = await supabase
       .from("platform_admins")
-      .select("id")
+      .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
 

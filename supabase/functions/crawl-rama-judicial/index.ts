@@ -324,7 +324,7 @@ Deno.serve(async (req) => {
           owner_id,
           title: 'Nueva audiencia detectada',
           message: `${hearing.title} programada para ${new Date(hearing.scheduled_at).toLocaleDateString('es-CO')}`,
-          severity: 'WARN',
+          severity: 'WARNING',
           status: 'PENDING',
           payload: { radicado, hearing },
           actions: [{ label: 'Ver Proceso', action: 'navigate', params: { path: `/work-items/${resolvedWorkItemId}` } }],

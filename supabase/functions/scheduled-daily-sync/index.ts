@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
               entity_type: 'SYSTEM',
               entity_id: failedOrg.org_id,
               severity: 'WARNING',
-              status: 'ACTIVE',
+              status: 'PENDING',
               title: 'Sincronización diaria fallida',
               message: `La sincronización automática de ${new Date().toLocaleDateString('es-CO')} falló. ${failedOrg.errors} error(es). El sistema reintentará automáticamente.`,
               payload: {
@@ -361,16 +361,19 @@ async function syncOrganization(
               }
             }
 
-            // Update last_synced_at if sync was genuinely successful
+            // Update last_synced_at ALWAYS after a successful sync attempt
+            // (sync-by-work-item already updates it too, but this is the safety net)
             const syncWasSuccessful = syncResult?.ok === true;
-            const hadNewData = (syncResult?.inserted_count || 0) > 0 || pubInserted > 0;
-            const providerReturnedEmpty = syncWasSuccessful && !hadNewData;
+            const scrapingWasInitiated = syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED';
 
-            if (hadNewData || providerReturnedEmpty) {
-              await supabase
+            if (syncWasSuccessful || scrapingWasInitiated) {
+              const { error: tsError } = await supabase
                 .from("work_items")
                 .update({ last_synced_at: new Date().toISOString() })
                 .eq("id", workItem.id);
+              if (tsError) {
+                console.error(`[scheduled-daily-sync] CRITICAL: Failed to update last_synced_at for ${workItem.id}: ${tsError.message}`);
+              }
             }
 
             return {
