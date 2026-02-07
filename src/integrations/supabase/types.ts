@@ -3435,6 +3435,71 @@ export type Database = {
           },
         ]
       }
+      lexy_daily_messages: {
+        Row: {
+          alerts_included: Json | null
+          closing: string | null
+          created_at: string | null
+          critical_alerts_count: number | null
+          delivered_via: string[] | null
+          greeting: string
+          highlights: Json | null
+          id: string
+          message_date: string
+          new_actuaciones_count: number | null
+          new_publicaciones_count: number | null
+          organization_id: string
+          seen_at: string | null
+          summary_body: string
+          user_id: string
+          work_items_covered: number | null
+        }
+        Insert: {
+          alerts_included?: Json | null
+          closing?: string | null
+          created_at?: string | null
+          critical_alerts_count?: number | null
+          delivered_via?: string[] | null
+          greeting: string
+          highlights?: Json | null
+          id?: string
+          message_date: string
+          new_actuaciones_count?: number | null
+          new_publicaciones_count?: number | null
+          organization_id: string
+          seen_at?: string | null
+          summary_body: string
+          user_id: string
+          work_items_covered?: number | null
+        }
+        Update: {
+          alerts_included?: Json | null
+          closing?: string | null
+          created_at?: string | null
+          critical_alerts_count?: number | null
+          delivered_via?: string[] | null
+          greeting?: string
+          highlights?: Json | null
+          id?: string
+          message_date?: string
+          new_actuaciones_count?: number | null
+          new_publicaciones_count?: number | null
+          organization_id?: string
+          seen_at?: string | null
+          summary_body?: string
+          user_id?: string
+          work_items_covered?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lexy_daily_messages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       master_sync_runs: {
         Row: {
           actuaciones_found: number | null

@@ -9,6 +9,7 @@ import { PeticionesPipeline } from "@/components/peticiones";
 import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
 import { CreateWorkItemWizard } from "@/components/workflow";
+import { LexyDailyCard } from "@/components/lexy/LexyDailyCard";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -106,6 +107,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 main-content-glass">
+      {/* Lexy Daily Message */}
+      <LexyDailyCard />
       {/* Header - always visible, never scrolls horizontally */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
