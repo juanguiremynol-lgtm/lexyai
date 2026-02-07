@@ -127,6 +127,48 @@ export function AteniaAISupervisorPanel() {
     staleTime: 1000 * 60 * 2,
   });
 
+  // Lexy messages sent today
+  const { data: lexyStats } = useQuery({
+    queryKey: ["atenia-lexy-stats", today],
+    queryFn: async () => {
+      const { count: lexyCount } = await (supabase
+        .from("lexy_daily_messages") as any)
+        .select("id", { count: "exact", head: true })
+        .eq("message_date", today);
+
+      // Total users who own monitored work items (potential Lexy recipients)
+      const { data: users } = await supabase
+        .from("work_items")
+        .select("owner_id")
+        .eq("monitoring_enabled", true);
+      const uniqueUsers = new Set((users || []).map((u: any) => u.owner_id)).size;
+
+      return { sent: lexyCount || 0, total: uniqueUsers };
+    },
+    staleTime: 1000 * 60 * 2,
+  });
+
+  // Alerts generated today
+  const { data: alertStats } = useQuery({
+    queryKey: ["atenia-alert-stats", today],
+    queryFn: async () => {
+      const dayStart = `${today}T00:00:00.000Z`;
+      const { count: totalAlerts } = await supabase
+        .from("alert_instances")
+        .select("id", { count: "exact", head: true })
+        .gte("fired_at", dayStart);
+
+      const { count: criticalAlerts } = await supabase
+        .from("alert_instances")
+        .select("id", { count: "exact", head: true })
+        .gte("fired_at", dayStart)
+        .eq("severity", "CRITICAL");
+
+      return { total: totalAlerts || 0, critical: criticalAlerts || 0 };
+    },
+    staleTime: 1000 * 60 * 2,
+  });
+
   const handleManualAudit = async () => {
     setIsAuditing(true);
     try {
@@ -240,7 +282,7 @@ export function AteniaAISupervisorPanel() {
               <CardTitle className="text-base">Resumen del Día</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                 <div>
                   <div className="text-2xl font-bold">{syncRate}%</div>
                   <div className="text-xs text-muted-foreground">Sincronizados ({totalOk}/{totalItems})</div>
@@ -256,6 +298,19 @@ export function AteniaAISupervisorPanel() {
                 <div>
                   <div className="text-2xl font-bold text-destructive">{totalFailed}</div>
                   <div className="text-xs text-muted-foreground">Fallos</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{alertStats?.total ?? 0}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Alertas generadas
+                    {(alertStats?.critical ?? 0) > 0 && (
+                      <span className="text-destructive ml-1">({alertStats!.critical} críticas)</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{lexyStats?.sent ?? 0}/{lexyStats?.total ?? 0}</div>
+                  <div className="text-xs text-muted-foreground">Mensajes Lexy</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold">{allActions.length}</div>
