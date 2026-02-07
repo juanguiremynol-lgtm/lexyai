@@ -158,6 +158,21 @@ Deno.serve(async (req) => {
       results: allResults.slice(0, 20)
     });
 
+    // Trigger Atenia AI Supervisor for post-sync analysis (fire and forget)
+    try {
+      console.log("[scheduled-daily-sync] Triggering Atenia AI Supervisor...");
+      supabase.functions.invoke("atenia-ai-supervisor", {
+        body: { mode: "POST_DAILY_SYNC" },
+      }).then((res: any) => {
+        if (res.error) console.warn("[scheduled-daily-sync] Atenia AI error:", res.error);
+        else console.log("[scheduled-daily-sync] Atenia AI supervisor triggered successfully");
+      }).catch((err: any) => {
+        console.warn("[scheduled-daily-sync] Atenia AI invoke failed:", err);
+      });
+    } catch (ateniaErr) {
+      console.warn("[scheduled-daily-sync] Atenia AI trigger error:", ateniaErr);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
