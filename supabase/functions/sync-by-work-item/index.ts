@@ -3809,12 +3809,65 @@ Deno.serve(async (req) => {
 
     return jsonResponse(result);
 
-  } catch (err) {
-    console.error('[sync-by-work-item] Unhandled error:', err);
+  } catch (err: any) {
+    // Enhanced error classification for better diagnostics
+    const errorDetail = {
+      name: err?.name || 'UnknownError',
+      message: (err?.message || 'No message').substring(0, 500),
+      httpStatus: err?.status || err?.statusCode || null,
+      responsePreview: null as string | null,
+      isTimeout: err?.name === 'AbortError' || err?.message?.includes('timeout'),
+      isNetworkError: err?.message?.includes('fetch') || err?.message?.includes('network'),
+    };
+
+    // Try to get response body preview if available
+    if (err?.response) {
+      try {
+        const bodyText = typeof err.response === 'string'
+          ? err.response
+          : await err.response.text?.();
+        errorDetail.responsePreview = bodyText?.substring(0, 200) || null;
+      } catch { /* ignore */ }
+    }
+
+    const errorCode = errorDetail.isTimeout ? 'PROVIDER_TIMEOUT'
+      : errorDetail.isNetworkError ? 'NETWORK_ERROR'
+      : errorDetail.httpStatus === 503 ? 'PROVIDER_UNAVAILABLE'
+      : errorDetail.httpStatus === 429 ? 'PROVIDER_RATE_LIMITED'
+      : 'INTERNAL_ERROR';
+
+    console.error(`[sync-by-work-item] Unhandled error (${errorCode}):`, errorDetail.message);
+
+    // Log enhanced trace if we have context
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      if (supabaseUrl && supabaseServiceKey) {
+        const supabaseForTrace = createClient(supabaseUrl, supabaseServiceKey);
+        await logTrace(supabaseForTrace, {
+          trace_id: traceId,
+          work_item_id: work_item_id,
+          step: 'SYNC_FAILED',
+          provider: result?.provider_used || 'unknown',
+          http_status: errorDetail.httpStatus,
+          success: false,
+          error_code: errorCode,
+          message: `${errorCode}: ${errorDetail.message}`,
+          meta: {
+            error_name: errorDetail.name,
+            response_preview: errorDetail.responsePreview,
+            is_timeout: errorDetail.isTimeout,
+            provider_attempts: result?.provider_attempts?.length || 0,
+          },
+        });
+      }
+    } catch { /* trace logging should never fail the response */ }
+
     return errorResponse(
-      'INTERNAL_ERROR',
-      err instanceof Error ? err.message : 'An unexpected error occurred',
-      500
+      errorCode,
+      errorDetail.message,
+      500,
+      traceId
     );
   }
 });
