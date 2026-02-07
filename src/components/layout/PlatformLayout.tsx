@@ -22,6 +22,7 @@ const routeTitles: Record<string, string> = {
   "/platform/email-ops": "Operaciones de Email",
   "/platform/system": "Estado del Sistema",
   "/platform/api-debug": "API Debug",
+  "/platform/atenia-ai": "Atenia AI Supervisor",
 };
 
 export function PlatformLayout() {
