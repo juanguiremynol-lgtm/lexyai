@@ -406,6 +406,71 @@ export type Database = {
           },
         ]
       }
+      atenia_ai_reports: {
+        Row: {
+          ai_diagnosis: string | null
+          created_at: string | null
+          diagnostics: Json | null
+          id: string
+          items_failed: number | null
+          items_synced_ok: number | null
+          items_synced_partial: number | null
+          lexy_data_ready: boolean | null
+          new_actuaciones_found: number | null
+          new_publicaciones_found: number | null
+          organization_id: string
+          provider_status: Json | null
+          remediation_actions: Json | null
+          report_date: string
+          report_type: string
+          total_work_items: number | null
+        }
+        Insert: {
+          ai_diagnosis?: string | null
+          created_at?: string | null
+          diagnostics?: Json | null
+          id?: string
+          items_failed?: number | null
+          items_synced_ok?: number | null
+          items_synced_partial?: number | null
+          lexy_data_ready?: boolean | null
+          new_actuaciones_found?: number | null
+          new_publicaciones_found?: number | null
+          organization_id: string
+          provider_status?: Json | null
+          remediation_actions?: Json | null
+          report_date: string
+          report_type?: string
+          total_work_items?: number | null
+        }
+        Update: {
+          ai_diagnosis?: string | null
+          created_at?: string | null
+          diagnostics?: Json | null
+          id?: string
+          items_failed?: number | null
+          items_synced_ok?: number | null
+          items_synced_partial?: number | null
+          lexy_data_ready?: boolean | null
+          new_actuaciones_found?: number | null
+          new_publicaciones_found?: number | null
+          organization_id?: string
+          provider_status?: Json | null
+          remediation_actions?: Json | null
+          report_date?: string
+          report_type?: string
+          total_work_items?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_reports_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
