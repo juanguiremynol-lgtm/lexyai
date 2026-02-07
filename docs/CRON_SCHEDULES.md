@@ -76,6 +76,10 @@ SELECT cron.schedule(
 
 Post-sync audit: diagnostics, remediation, Gemini analysis.
 
+> ⚠️ **IMPORTANT**: Use `service_role_key` (not anon key) for production cron jobs.
+> The anon key works only because `verify_jwt = false`, but using service_role_key
+> is more resilient to future security tightening.
+
 ```sql
 SELECT cron.schedule(
   'atenia-ai-supervisor-daily',
@@ -83,7 +87,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/atenia-ai-supervisor',
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dXVrYnFjdmxudm1jdmNydWppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMzcwNDMsImV4cCI6MjA4MTkxMzA0M30.ueXyei3v_gYAISV47psLmCmHTfIgCRTfdZnFSaNAQho"}'::jsonb,
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
     body := '{"mode": "POST_DAILY_SYNC"}'::jsonb
   ) AS request_id;
   $$
@@ -94,6 +98,8 @@ SELECT cron.schedule(
 
 Generates personalized AI daily messages for all users.
 
+> ⚠️ **IMPORTANT**: Use `service_role_key` (not anon key) for production cron jobs.
+
 ```sql
 SELECT cron.schedule(
   'lexy-daily-message-generation',
@@ -101,7 +107,7 @@ SELECT cron.schedule(
   $$
   SELECT net.http_post(
     url := 'https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/lexy-daily-message',
-    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dXVrYnFjdmxudm1jdmNydWppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMzcwNDMsImV4cCI6MjA4MTkxMzA0M30.ueXyei3v_gYAISV47psLmCmHTfIgCRTfdZnFSaNAQho"}'::jsonb,
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
     body := '{"mode": "GENERATE_ALL"}'::jsonb
   ) AS request_id;
   $$
