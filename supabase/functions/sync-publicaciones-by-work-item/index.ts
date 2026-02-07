@@ -324,6 +324,64 @@ async function tryBuscarFallback(
  * If /snapshot fails, try /search/{radicado} as fallback
  * If both fail, try /buscar (async trigger) with polling
  */
+/**
+ * Fetch a single endpoint with timeout and retry
+ */
+async function fetchWithTimeoutAndRetry(
+  url: string,
+  headers: Record<string, string>,
+  timeoutMs: number = 45000,
+  maxAttempts: number = 2,
+): Promise<{ ok: boolean; response?: Response; error?: string; latencyMs: number }> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startMs = Date.now();
+
+    try {
+      console.log(`[sync-pub] Attempt ${attempt}/${maxAttempts}: ${url}`);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startMs;
+
+      if (response.ok) {
+        return { ok: true, response, latencyMs };
+      }
+
+      if (response.status === 404) {
+        console.log(`[sync-pub] 404 from ${url}`);
+        return { ok: false, error: `HTTP 404`, latencyMs };
+      }
+
+      // Server error — retry after delay
+      if (response.status >= 500 && attempt < maxAttempts) {
+        console.log(`[sync-pub] ${response.status} from ${url}, retrying in 3s...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+
+      return { ok: false, error: `HTTP ${response.status}`, latencyMs };
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      const latencyMs = Date.now() - startMs;
+      if (error.name === 'AbortError') {
+        console.error(`[sync-pub] Timeout on ${url} attempt ${attempt} after ${timeoutMs}ms`);
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
+        return { ok: false, error: `TIMEOUT after ${timeoutMs}ms`, latencyMs };
+      }
+      return { ok: false, error: error.message || 'Network error', latencyMs };
+    }
+  }
+  return { ok: false, error: 'All attempts exhausted', latencyMs: 0 };
+}
+
 async function fetchPublicaciones(
   radicado: string,
   baseUrl: string,
@@ -339,67 +397,52 @@ async function fetchPublicaciones(
   // Clean base URL
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  // Primary: GET /snapshot/{radicado} (synchronous scraping)
-  const snapshotUrl = `${cleanBaseUrl}/snapshot/${radicado}`;
-  console.log(`[sync-pub] Calling ${snapshotUrl}`);
+  // STRATEGY: Try /snapshot (45s timeout, 2 attempts), then /search, then /buscar
+  const endpoints = [
+    `${cleanBaseUrl}/snapshot/${radicado}`,
+    `${cleanBaseUrl}/search/${radicado}`,
+  ];
 
-  try {
-    const response = await fetch(snapshotUrl, {
-      method: 'GET',
-      headers,
-      // Note: Deno's fetch doesn't have a timeout option, but Cloud Run has its own timeout
-    });
+  for (const url of endpoints) {
+    const result = await fetchWithTimeoutAndRetry(url, headers, 45000, 2);
 
-    const latencyMs = Date.now() - startTime;
-    console.log(`[sync-pub] /snapshot/${radicado} → HTTP ${response.status} (${latencyMs}ms)`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log(`[sync-pub] Error response: ${errorText.slice(0, 500)}`);
-      
-      // Try legacy /search/{radicado} as fallback
-      console.log(`[sync-pub] Trying fallback: /search/${radicado}`);
-      const searchUrl = `${cleanBaseUrl}/search/${radicado}`;
-      const searchResponse = await fetch(searchUrl, { method: 'GET', headers });
-      const searchLatency = Date.now() - startTime;
-      
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        console.log(`[sync-pub] /search fallback returned data`);
-        return extractPublicacionesFromResponse(searchData, searchLatency);
+    if (result.ok && result.response) {
+      try {
+        const data = await result.response.json();
+        const latencyMs = Date.now() - startTime;
+        console.log(`[sync-pub] Success from ${url}: found=${data.found}, totalResultados=${data.totalResultados}`);
+        return extractPublicacionesFromResponse(data, latencyMs);
+      } catch {
+        console.warn(`[sync-pub] Invalid JSON from ${url}`);
+        continue;
       }
-      
-      // Both /snapshot and /search failed - try /buscar as async trigger
-      console.log(`[sync-pub] /search also failed, trying /buscar?radicado=${radicado}`);
-      const buscarResult = await tryBuscarFallback(cleanBaseUrl, radicado, headers);
-      if (buscarResult) {
-        return buscarResult;
-      }
-      
-      return { 
-        ok: false, 
-        publicaciones: [], 
-        error: `HTTP ${response.status}: ${errorText.slice(0, 200)}`, 
-        latencyMs,
-        httpStatus: response.status,
-      };
     }
 
-    const data = await response.json();
-    console.log(`[sync-pub] Response: found=${data.found}, totalResultados=${data.totalResultados}`);
-    
-    return extractPublicacionesFromResponse(data, latencyMs);
-    
-  } catch (err) {
-    const latencyMs = Date.now() - startTime;
-    console.log(`[sync-pub] Fetch error: ${err}`);
-    return { 
-      ok: false, 
-      publicaciones: [], 
-      error: `Fetch error: ${err instanceof Error ? err.message : String(err)}`, 
-      latencyMs,
-    };
+    // 404 means try next endpoint; timeout/5xx already retried
+    if (result.error?.startsWith('HTTP 404')) {
+      console.log(`[sync-pub] ${url} returned 404, trying next endpoint`);
+      continue;
+    }
+
+    // Timeout or server error after retries — try next endpoint
+    console.log(`[sync-pub] ${url} failed: ${result.error}, trying next endpoint`);
   }
+
+  // All primary endpoints exhausted — try /buscar async trigger as last resort
+  console.log(`[sync-pub] All synchronous endpoints exhausted, trying /buscar fallback`);
+  const buscarResult = await tryBuscarFallback(cleanBaseUrl, radicado, headers);
+  if (buscarResult) {
+    return buscarResult;
+  }
+
+  const totalLatency = Date.now() - startTime;
+  console.error(`[sync-pub] ALL endpoints exhausted for radicado ${radicado} (${totalLatency}ms)`);
+  return {
+    ok: false,
+    publicaciones: [],
+    error: `All endpoints exhausted (tried /snapshot, /search, /buscar) after ${totalLatency}ms`,
+    latencyMs: totalLatency,
+  };
 }
 
 /**

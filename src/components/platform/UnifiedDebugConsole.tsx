@@ -5,6 +5,8 @@
  * based on workflow type. Tests the full pipeline: API → Edge Functions → Database → UI
  */
 
+import { RouteDiscoveryPanel } from './RouteDiscoveryPanel';
+
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -490,6 +492,9 @@ export function UnifiedDebugConsole() {
             </TabsContent>
           </Tabs>
         )}
+
+        {/* Route Discovery Panel */}
+        <RouteDiscoveryPanel />
       </CardContent>
     </Card>
   );
