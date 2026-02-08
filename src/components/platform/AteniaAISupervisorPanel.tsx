@@ -1,12 +1,14 @@
 /**
  * Atenia AI Supervisor Panel — Platform admin view of sync diagnostics
  *
- * Shows daily audit reports, provider health, diagnostics, and Gemini analysis.
+ * Shows daily audit reports, provider health, diagnostics, Gemini analysis,
+ * and the Master Sync debug tool.
  * Only visible to platform admins.
  */
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { MasterSyncPanel } from "./master-sync/MasterSyncPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -446,6 +448,9 @@ export function AteniaAISupervisorPanel() {
               </CardContent>
             </Card>
           )}
+
+          {/* Master Sync Debug Tool */}
+          <MasterSyncPanel />
         </>
       )}
     </div>
