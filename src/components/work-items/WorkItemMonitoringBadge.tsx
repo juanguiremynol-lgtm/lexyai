@@ -1,16 +1,17 @@
 /**
- * WorkItemMonitoringBadge — Shows monitoring status and allows suspend/resume
+ * WorkItemMonitoringBadge — Shows monitoring status and allows suspend/resume/correct radicado
  * 
  * States:
  * 1. monitoring_enabled=true, provider_reachable=true → Green "Monitoreado"
  * 2. monitoring_enabled=true, provider_reachable=false → Yellow "Sin respuesta"
- * 3. monitoring_enabled=false, demonitor_reason set → Orange "Suspendido por Atenia AI"
+ * 3. monitoring_enabled=false, demonitor_reason set → Orange "Suspendido" (AI or user)
  * 4. monitoring_enabled=false, no reason → Gray "Monitoreo inactivo"
  */
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   AlertDialog,
@@ -28,9 +29,13 @@ import {
   Pause,
   Play,
   Bot,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { suspendMonitoring, reactivateMonitoring } from "@/lib/services/atenia-ai-engine";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -44,6 +49,7 @@ interface WorkItemMonitoringProps {
     consecutive_404_count?: number;
     provider_reachable?: boolean;
     scrape_status?: string;
+    radicado?: string | null;
   };
   onUpdate?: () => void;
 }
@@ -51,9 +57,12 @@ interface WorkItemMonitoringProps {
 export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitoringProps) {
   const [showSuspendDialog, setShowSuspendDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [editingRadicado, setEditingRadicado] = useState(false);
+  const [newRadicado, setNewRadicado] = useState(workItem.radicado || "");
 
   const isAIDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason?.startsWith('Atenia AI');
-  const isManuallyDisabled = !workItem.monitoring_enabled && !isAIDemonitored;
+  const isUserDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason && !isAIDemonitored;
+  const isManuallyDisabled = !workItem.monitoring_enabled && !workItem.demonitor_reason;
   const isUnreachable = workItem.monitoring_enabled && workItem.provider_reachable === false;
   const isHealthy = workItem.monitoring_enabled && workItem.provider_reachable !== false;
 
@@ -77,7 +86,7 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
     setIsLoading(true);
     try {
       await reactivateMonitoring(workItem.id, workItem.organization_id);
-      toast.success('Monitoreo reactivado');
+      toast.success('Monitoreo reactivado. Se buscará información en la próxima sincronización.');
       onUpdate?.();
     } catch {
       toast.error('Error al reactivar el monitoreo');
@@ -86,7 +95,67 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
     }
   };
 
-  // Compact badge for header
+  const handleRadicadoUpdate = async () => {
+    const cleaned = newRadicado.replace(/[\s_\-]/g, '');
+    if (!/^\d{23}$/.test(cleaned)) {
+      toast.error('El radicado debe tener exactamente 23 dígitos');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await (supabase.from('work_items') as any)
+        .update({
+          radicado: cleaned,
+          monitoring_enabled: true,
+          demonitor_reason: null,
+          demonitor_at: null,
+          consecutive_404_count: 0,
+          provider_reachable: true,
+          scrape_status: 'NOT_ATTEMPTED',
+        })
+        .eq('id', workItem.id);
+
+      toast.success('Radicado actualizado. Se buscará información en la próxima sincronización.');
+      setEditingRadicado(false);
+      onUpdate?.();
+    } catch {
+      toast.error('Error al actualizar el radicado');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Inline radicado editor
+  const radicadoEditor = editingRadicado && (
+    <div className="flex items-center gap-2 mt-2 ml-6">
+      <Input
+        value={newRadicado}
+        onChange={(e) => setNewRadicado(e.target.value)}
+        placeholder="23 dígitos del radicado"
+        className="h-8 text-sm font-mono max-w-[260px]"
+      />
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-7 w-7"
+        onClick={handleRadicadoUpdate}
+        disabled={isLoading}
+      >
+        <Check className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-7 w-7"
+        onClick={() => { setEditingRadicado(false); setNewRadicado(workItem.radicado || ""); }}
+      >
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+
+  // State 1: Healthy
   if (isHealthy) {
     return (
       <div className="flex items-center gap-1">
@@ -107,10 +176,10 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
         <AlertDialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>¿Suspender monitoreo?</AlertDialogTitle>
+              <AlertDialogTitle>¿Suspender monitoreo de este asunto?</AlertDialogTitle>
               <AlertDialogDescription>
-                Se dejará de sincronizar automáticamente este asunto con los sistemas judiciales.
-                Podrás reactivarlo en cualquier momento.
+                ATENIA dejará de buscar actuaciones y publicaciones nuevas para este radicado
+                en las sincronizaciones automáticas. Puedes reactivar el monitoreo en cualquier momento.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -125,62 +194,116 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
     );
   }
 
+  // State 2: Unreachable (monitoring active but provider not finding data)
   if (isUnreachable) {
     return (
-      <Badge variant="outline" className="gap-1 border-yellow-500/50 text-yellow-600">
-        <AlertTriangle className="h-3 w-3" />
-        Sin respuesta ({workItem.consecutive_404_count || 0})
-      </Badge>
+      <div className="flex items-center gap-1">
+        <Badge variant="outline" className="gap-1 border-yellow-500/50 text-yellow-600">
+          <AlertTriangle className="h-3 w-3" />
+          Sin datos en las últimas {workItem.consecutive_404_count || 0} consultas
+        </Badge>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={() => setShowSuspendDialog(true)}
+          title="Suspender monitoreo"
+        >
+          <Pause className="h-3 w-3" />
+        </Button>
+
+        <AlertDialog open={showSuspendDialog} onOpenChange={setShowSuspendDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Suspender monitoreo de este asunto?</AlertDialogTitle>
+              <AlertDialogDescription>
+                El radicado no ha sido encontrado en los sistemas judiciales recientemente.
+                ATENIA dejará de buscar actuaciones y publicaciones nuevas.
+                Puedes reactivar el monitoreo en cualquier momento.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleSuspend} disabled={isLoading}>
+                Suspender
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     );
   }
 
-  // Demonitored — show expanded card with reason
-  if (isAIDemonitored) {
+  // State 3: Suspended (by AI or user) — expanded card with reason + actions
+  if (isAIDemonitored || isUserDemonitored) {
+    const suspendedByAI = isAIDemonitored;
     return (
-      <Card className="border-orange-200 bg-orange-50 dark:border-orange-900/50 dark:bg-orange-950/20">
-        <CardContent className="py-3 px-4 space-y-2">
-          <div className="flex items-start gap-2">
-            <Bot className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
-            <div className="space-y-1 flex-1">
-              <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
-                Monitoreo Suspendido por Atenia AI
-              </p>
-              {workItem.demonitor_at && (
-                <p className="text-xs text-muted-foreground">
-                  {format(new Date(workItem.demonitor_at), "d 'de' MMMM 'de' yyyy", { locale: es })}
-                </p>
+      <>
+        <Card className="border-orange-200 bg-orange-50 dark:border-orange-900/50 dark:bg-orange-950/20">
+          <CardContent className="py-3 px-4 space-y-2">
+            <div className="flex items-start gap-2">
+              {suspendedByAI ? (
+                <Bot className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+              ) : (
+                <Pause className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
               )}
-              <p className="text-xs text-muted-foreground">
-                {workItem.demonitor_reason}
-              </p>
-              <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-                <p>Esto puede significar:</p>
-                <ul className="list-disc list-inside ml-1">
-                  <li>El radicado fue digitado incorrectamente</li>
-                  <li>El proceso aún no está registrado en el sistema judicial electrónico</li>
-                  <li>El proceso fue archivado o migrado</li>
-                </ul>
+              <div className="space-y-1 flex-1">
+                <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+                  Monitoreo Suspendido
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Este asunto no está siendo sincronizado automáticamente.
+                </p>
+                {workItem.demonitor_reason && (
+                  <p className="text-xs text-muted-foreground">
+                    Razón: {workItem.demonitor_reason}
+                  </p>
+                )}
+                {workItem.demonitor_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Suspendido: {format(new Date(workItem.demonitor_at), "d 'de' MMMM 'de' yyyy", { locale: es })}
+                  </p>
+                )}
+                <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                  <p>Esto puede significar:</p>
+                  <ul className="list-disc list-inside ml-1">
+                    <li>El radicado fue digitado incorrectamente</li>
+                    <li>El proceso aún no está registrado en el sistema judicial electrónico</li>
+                    <li>El proceso fue archivado o migrado</li>
+                  </ul>
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex gap-2 ml-6">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleReactivate}
-              disabled={isLoading}
-              className="gap-1"
-            >
-              <Play className="h-3 w-3" />
-              Reactivar Monitoreo
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex gap-2 ml-6">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleReactivate}
+                disabled={isLoading}
+                className="gap-1"
+              >
+                <Play className="h-3 w-3" />
+                Reactivar Monitoreo
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setEditingRadicado(true); setNewRadicado(workItem.radicado || ""); }}
+                disabled={isLoading}
+                className="gap-1"
+              >
+                <Pencil className="h-3 w-3" />
+                Corregir Radicado
+              </Button>
+            </div>
+            {radicadoEditor}
+          </CardContent>
+        </Card>
+      </>
     );
   }
 
-  // Manually disabled
+  // State 4: Manually disabled (no reason)
   if (isManuallyDisabled) {
     return (
       <div className="flex items-center gap-1">
