@@ -35,6 +35,9 @@ import {
   Scale,
   Filter,
   AlertCircle,
+  Activity,
+  Pause,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
@@ -61,6 +64,7 @@ export default function Processes() {
   ]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [monitoringFilter, setMonitoringFilter] = useState<"all" | "active" | "suspended">("all");
 
   // Fetch work items using the new hook
   const { data: workItems, isLoading, refetch } = useWorkItemsList({
@@ -70,7 +74,11 @@ export default function Processes() {
     },
   });
 
-  const filteredItems = workItems || [];
+  const filteredItems = (workItems || []).filter((item: any) => {
+    if (monitoringFilter === "active") return item.monitoring_enabled !== false;
+    if (monitoringFilter === "suspended") return item.monitoring_enabled === false;
+    return true;
+  });
   const allSelected = filteredItems.length > 0 && selectedItems.size === filteredItems.length;
 
   const handleSelectAll = () => {
@@ -186,6 +194,39 @@ export default function Processes() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Activity className="h-4 w-4" />
+                  Monitoreo
+                  {monitoringFilter !== "all" && (
+                    <Badge variant="secondary" className="ml-1">
+                      {monitoringFilter === "active" ? "Activo" : "Suspendido"}
+                    </Badge>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuCheckboxItem
+                  checked={monitoringFilter === "all"}
+                  onCheckedChange={() => setMonitoringFilter("all")}
+                >
+                  Todos
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={monitoringFilter === "active"}
+                  onCheckedChange={() => setMonitoringFilter("active")}
+                >
+                  🟢 Activo
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={monitoringFilter === "suspended"}
+                  onCheckedChange={() => setMonitoringFilter("suspended")}
+                >
+                  ⏸️ Suspendido
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
@@ -257,6 +298,7 @@ export default function Processes() {
                     <TableHead>Cliente</TableHead>
                     <TableHead>Última Actualización</TableHead>
                     <TableHead>Etapa</TableHead>
+                    <TableHead>Monitoreo</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -371,6 +413,24 @@ export default function Processes() {
                           <Badge variant="secondary" className="text-xs">
                             {getStageLabel(item.workflow_type, item.stage, item.cgp_phase)}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {(item as any).monitoring_enabled === false ? (
+                            <Badge variant="outline" className="gap-1 text-xs border-orange-500/50 text-orange-600">
+                              <Pause className="h-3 w-3" />
+                              Suspendido
+                            </Badge>
+                          ) : (item as any).provider_reachable === false ? (
+                            <Badge variant="outline" className="gap-1 text-xs border-yellow-500/50 text-yellow-600">
+                              <AlertTriangle className="h-3 w-3" />
+                              Sin respuesta
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="gap-1 text-xs border-emerald-500/50 text-emerald-600">
+                              <Activity className="h-3 w-3" />
+                              Activo
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Link to={`/app/work-items/${item.id}`}>

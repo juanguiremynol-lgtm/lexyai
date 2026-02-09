@@ -45,6 +45,9 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
           description,
           is_flagged,
           monitoring_enabled,
+          demonitor_reason,
+          consecutive_404_count,
+          provider_reachable,
           last_action_date,
           last_action_description,
           last_checked_at,
@@ -82,7 +85,7 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
       if (error) throw error;
 
       // Apply search filter in memory for flexible matching
-      let items = data as WorkItem[];
+      let items = data as unknown as WorkItem[];
 
       if (filters?.search) {
         const searchLower = filters.search.toLowerCase().trim();
