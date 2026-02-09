@@ -37,12 +37,14 @@ export function FalloOutcomeDialog({
         ? "ACTIVE" 
         : "CLOSED";
 
-      // Update work_items instead of filings
+      // Update work_items: stage + status + outcome flag
       const { error } = await supabase
         .from("work_items")
         .update({
+          stage: targetPhase,
           status: newStatus,
-          is_flagged: isFavorable, // Using is_flagged to track favorable outcome
+          is_flagged: isFavorable,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", tutela.id);
 
@@ -61,8 +63,11 @@ export function FalloOutcomeDialog({
       return { isFavorable };
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas"] });
+      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
+      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
       
       const outcomeText = result?.isFavorable ? "favorable" : "desfavorable";
