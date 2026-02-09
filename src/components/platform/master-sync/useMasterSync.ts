@@ -6,7 +6,7 @@ import type {
   ItemSyncResult,
   WorkItemPreview,
 } from "./types";
-import { DEFAULT_CONFIG } from "./types";
+import { DEFAULT_CONFIG, HEAVY_ITEM_THRESHOLD } from "./types";
 
 const DELAY_BETWEEN_BATCHES_MS = 500;
 
@@ -39,6 +39,62 @@ function emptyResult(item: WorkItemPreview, includePublicaciones: boolean): Item
   };
 }
 
+async function syncItem(
+  item: WorkItemPreview,
+  idx: number,
+  results: ItemSyncResult[],
+  config: MasterSyncConfig,
+) {
+  const itemStart = Date.now();
+  try {
+    const actStart = Date.now();
+    const actResult = await supabase.functions.invoke("sync-by-work-item", {
+      body: { work_item_id: item.id, force_refresh: config.forceRefresh || false },
+    });
+    const actData = actResult.data;
+    results[idx].act_ok = actData?.ok === true;
+    results[idx].act_status = actData?.ok ? "success" : "error";
+    results[idx].act_inserted = actData?.inserted_count || 0;
+    results[idx].act_skipped = actData?.skipped_count || 0;
+    results[idx].act_provider = actData?.provider_used || null;
+    results[idx].act_latency_ms = Date.now() - actStart;
+    results[idx].act_error_code = actData?.code || null;
+    results[idx].act_error_message = actData?.ok
+      ? null
+      : actData?.message || actResult.error?.message || "Unknown";
+    results[idx].act_provider_attempts = actData?.provider_attempts || [];
+    results[idx].act_raw_response = actData;
+
+    if (config.includePublicaciones) {
+      const pubStart = Date.now();
+      const pubResult = await supabase.functions.invoke(
+        "sync-publicaciones-by-work-item",
+        { body: { work_item_id: item.id } },
+      );
+      const pubData = pubResult.data;
+      results[idx].pub_ok = pubData?.ok === true;
+      results[idx].pub_status = pubData?.ok ? "success" : "error";
+      results[idx].pub_inserted = pubData?.inserted_count || 0;
+      results[idx].pub_skipped = pubData?.skipped_count || 0;
+      results[idx].pub_latency_ms = Date.now() - pubStart;
+      results[idx].pub_error_message = pubData?.ok
+        ? null
+        : pubData?.message || pubResult.error?.message || "Unknown";
+      results[idx].pub_raw_response = pubData;
+    }
+  } catch (err: any) {
+    results[idx].act_status = "error";
+    results[idx].act_error_code = "INVOCATION_FAILED";
+    results[idx].act_error_message = err?.message || "Edge function invocation failed";
+    results[idx].act_raw_response = { error: err?.message };
+    if (config.includePublicaciones) {
+      results[idx].pub_status = "skipped";
+    }
+  }
+  results[idx].completed_at = new Date().toISOString();
+  results[idx].total_ms = Date.now() - itemStart;
+}
+
 export function useMasterSync() {
   const [config, setConfig] = useState<MasterSyncConfig>(DEFAULT_CONFIG);
   const [state, setState] = useState<MasterSyncState>({
@@ -66,7 +122,7 @@ export function useMasterSync() {
 
     let query = (supabase.from("work_items") as any)
       .select(
-        "id, radicado, workflow_type, stage, monitoring_enabled, last_synced_at, last_crawled_at, scrape_status, authority_name",
+        "id, radicado, workflow_type, stage, monitoring_enabled, last_synced_at, last_crawled_at, scrape_status, authority_name, total_actuaciones",
       )
       .eq("organization_id", config.organizationId)
       .not("radicado", "is", null)
@@ -103,8 +159,21 @@ export function useMasterSync() {
       emptyResult(item, config.includePublicaciones),
     );
 
+    // Split into normal and heavy items
+    const normalIndices: number[] = [];
+    const heavyIndices: number[] = [];
+    preview.forEach((item, idx) => {
+      if ((item.total_actuaciones || 0) >= HEAVY_ITEM_THRESHOLD) {
+        heavyIndices.push(idx);
+      } else {
+        normalIndices.push(idx);
+      }
+    });
+
+    const totalItems = preview.length;
     const BATCH_SIZE = config.batchSize || 3;
-    const totalBatches = Math.ceil(preview.length / BATCH_SIZE);
+    const normalBatches = Math.ceil(normalIndices.length / BATCH_SIZE);
+    const totalBatches = normalBatches + heavyIndices.length;
 
     setState({
       status: "running",
@@ -113,7 +182,7 @@ export function useMasterSync() {
       completedAt: null,
       currentBatch: 0,
       totalBatches,
-      totalItems: preview.length,
+      totalItems,
       completedItems: 0,
       successCount: 0,
       errorCount: 0,
@@ -121,86 +190,100 @@ export function useMasterSync() {
       totalPubInserted: 0,
     });
 
-    for (let i = 0; i < preview.length; i += BATCH_SIZE) {
+    let batchNum = 0;
+
+    // === Process NORMAL items in parallel batches ===
+    for (let i = 0; i < normalIndices.length; i += BATCH_SIZE) {
       if (controller.signal.aborted) break;
 
-      const batch = preview.slice(i, i + BATCH_SIZE);
-      const batchIndices = batch.map((_, idx) => i + idx);
-
-      // Mark running
-      batchIndices.forEach((idx) => {
+      const batchIdxs = normalIndices.slice(i, i + BATCH_SIZE);
+      batchIdxs.forEach((idx) => {
         results[idx].act_status = "running";
         results[idx].started_at = new Date().toISOString();
       });
 
-      const currentBatch = Math.floor(i / BATCH_SIZE) + 1;
-      updateState(results, currentBatch, totalBatches, preview.length);
+      batchNum++;
+      updateState(results, batchNum, totalBatches, totalItems);
 
       await Promise.allSettled(
-        batch.map(async (item, batchIdx) => {
-          const idx = i + batchIdx;
-          const itemStart = Date.now();
-
-          try {
-            // Actuaciones sync
-            const actStart = Date.now();
-            const actResult = await supabase.functions.invoke("sync-by-work-item", {
-              body: {
-                work_item_id: item.id,
-                force_refresh: config.forceRefresh || false,
-              },
-            });
-
-            const actData = actResult.data;
-            results[idx].act_ok = actData?.ok === true;
-            results[idx].act_status = actData?.ok ? "success" : "error";
-            results[idx].act_inserted = actData?.inserted_count || 0;
-            results[idx].act_skipped = actData?.skipped_count || 0;
-            results[idx].act_provider = actData?.provider_used || null;
-            results[idx].act_latency_ms = Date.now() - actStart;
-            results[idx].act_error_code = actData?.code || null;
-            results[idx].act_error_message = actData?.ok
-              ? null
-              : actData?.message || actResult.error?.message || "Unknown";
-            results[idx].act_provider_attempts = actData?.provider_attempts || [];
-            results[idx].act_raw_response = actData;
-
-            // Publicaciones sync
-            if (config.includePublicaciones) {
-              const pubStart = Date.now();
-              const pubResult = await supabase.functions.invoke(
-                "sync-publicaciones-by-work-item",
-                { body: { work_item_id: item.id } },
-              );
-
-              const pubData = pubResult.data;
-              results[idx].pub_ok = pubData?.ok === true;
-              results[idx].pub_status = pubData?.ok ? "success" : "error";
-              results[idx].pub_inserted = pubData?.inserted_count || 0;
-              results[idx].pub_skipped = pubData?.skipped_count || 0;
-              results[idx].pub_latency_ms = Date.now() - pubStart;
-              results[idx].pub_error_message = pubData?.ok
-                ? null
-                : pubData?.message || pubResult.error?.message || "Unknown";
-              results[idx].pub_raw_response = pubData;
-            }
-          } catch (err: any) {
-            results[idx].act_status = "error";
-            results[idx].act_error_code = "INVOCATION_FAILED";
-            results[idx].act_error_message = err?.message || "Edge function invocation failed";
-            results[idx].act_raw_response = { error: err?.message };
-            if (config.includePublicaciones) {
-              results[idx].pub_status = "skipped";
-            }
-          }
-
-          results[idx].completed_at = new Date().toISOString();
-          results[idx].total_ms = Date.now() - itemStart;
-          updateState(results, currentBatch, totalBatches, preview.length);
-        }),
+        batchIdxs.map((idx) => syncItem(preview[idx], idx, results, config)),
       );
 
-      if (i + BATCH_SIZE < preview.length && !controller.signal.aborted) {
+      updateState(results, batchNum, totalBatches, totalItems);
+
+      if (i + BATCH_SIZE < normalIndices.length && !controller.signal.aborted) {
+        await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
+      }
+    }
+
+    // === Process HEAVY items sequentially (act then pub with separate timeouts) ===
+    for (const idx of heavyIndices) {
+      if (controller.signal.aborted) break;
+
+      batchNum++;
+      results[idx].act_status = "running";
+      results[idx].started_at = new Date().toISOString();
+      updateState(results, batchNum, totalBatches, totalItems);
+
+      const item = preview[idx];
+      const itemStart = Date.now();
+
+      try {
+        // Step 1: Actuaciones (may take 60-120s for 399+ items)
+        const actStart = Date.now();
+        const actResult = await supabase.functions.invoke("sync-by-work-item", {
+          body: { work_item_id: item.id, force_refresh: config.forceRefresh || false },
+        });
+        const actData = actResult.data;
+        results[idx].act_ok = actData?.ok === true;
+        results[idx].act_status = actData?.ok ? "success" : "error";
+        results[idx].act_inserted = actData?.inserted_count || 0;
+        results[idx].act_skipped = actData?.skipped_count || 0;
+        results[idx].act_provider = actData?.provider_used || null;
+        results[idx].act_latency_ms = Date.now() - actStart;
+        results[idx].act_error_code = actData?.code || null;
+        results[idx].act_error_message = actData?.ok
+          ? null
+          : actData?.message || actResult.error?.message || "Unknown";
+        results[idx].act_provider_attempts = actData?.provider_attempts || [];
+        results[idx].act_raw_response = actData;
+
+        // Step 2: Publicaciones (separate invocation with fresh timeout)
+        if (config.includePublicaciones) {
+          // Delay to let edge function cold start settle after heavy act sync
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+
+          const pubStart = Date.now();
+          const pubResult = await supabase.functions.invoke(
+            "sync-publicaciones-by-work-item",
+            { body: { work_item_id: item.id } },
+          );
+          const pubData = pubResult.data;
+          results[idx].pub_ok = pubData?.ok === true;
+          results[idx].pub_status = pubData?.ok ? "success" : "error";
+          results[idx].pub_inserted = pubData?.inserted_count || 0;
+          results[idx].pub_skipped = pubData?.skipped_count || 0;
+          results[idx].pub_latency_ms = Date.now() - pubStart;
+          results[idx].pub_error_message = pubData?.ok
+            ? null
+            : pubData?.message || pubResult.error?.message || "Unknown";
+          results[idx].pub_raw_response = pubData;
+        }
+      } catch (err: any) {
+        results[idx].act_status = "error";
+        results[idx].act_error_code = "INVOCATION_FAILED";
+        results[idx].act_error_message = err?.message || "Edge function invocation failed";
+        results[idx].act_raw_response = { error: err?.message };
+        if (config.includePublicaciones) {
+          results[idx].pub_status = "skipped";
+        }
+      }
+
+      results[idx].completed_at = new Date().toISOString();
+      results[idx].total_ms = Date.now() - itemStart;
+      updateState(results, batchNum, totalBatches, totalItems);
+
+      if (!controller.signal.aborted) {
         await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_BATCHES_MS));
       }
     }

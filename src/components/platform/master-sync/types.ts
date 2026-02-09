@@ -62,7 +62,10 @@ export interface WorkItemPreview {
   last_crawled_at: string | null;
   scrape_status: string | null;
   authority_name: string | null;
+  total_actuaciones: number | null;
 }
+
+export const HEAVY_ITEM_THRESHOLD = 100;
 
 export const DEFAULT_CONFIG: MasterSyncConfig = {
   scope: "ALL",
