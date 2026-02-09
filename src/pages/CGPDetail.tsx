@@ -32,11 +32,11 @@ import {
   ArrowLeft,
   Save,
   Trash2,
-  RefreshCw,
+  
   Loader2,
   Scale,
 } from "lucide-react";
-import { fetchFromRamaJudicial, parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
+import { parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
 import {
   COLOMBIAN_DEPARTMENTS,
@@ -193,76 +193,8 @@ export default function CGPDetail() {
     },
   });
 
-  // API Update mutation
-  const apiUpdateMutation = useMutation({
-    mutationFn: async () => {
-      if (!cgpItem?.radicado) throw new Error("Sin radicado");
-      
-      const result = await fetchFromRamaJudicial(cgpItem.radicado);
-      if (!result.success || !result.data) {
-        throw new Error(result.error || "No se encontró información para este radicado");
-      }
-
-      const data = result.data;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
-
-      const isWorkItem = cgpItem?._isWorkItem;
-      const tableName = isWorkItem ? "work_items" : "cgp_items";
-      
-      const updates: Record<string, unknown> = isWorkItem
-        ? {
-            authority_name: data.proceso["Despacho"] || cgpItem.court_name,
-            demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-            demandados: data.proceso["Demandado"] || cgpItem.demandados,
-            last_crawled_at: new Date().toISOString(),
-            scrape_status: "SUCCESS",
-            total_actuaciones: data.actuaciones?.length || 0,
-          }
-        : {
-            court_name: data.proceso["Despacho"] || cgpItem.court_name,
-            demandantes: data.proceso["Demandante"] || cgpItem.demandantes,
-            demandados: data.proceso["Demandado"] || cgpItem.demandados,
-            last_crawled_at: new Date().toISOString(),
-            scrape_status: "SUCCESS",
-            total_actuaciones: data.actuaciones?.length || 0,
-          };
-
-      const { error: updateError } = await (supabase.from(tableName) as any)
-        .update(updates)
-        .eq("id", id!);
-      if (updateError) throw updateError;
-
-      if (data.actuaciones && data.actuaciones.length > 0) {
-        const actuaciones = data.actuaciones.map((act: any) => {
-          const normalizedText = normalizeActuacionText(act.actuacion || "");
-          return {
-            owner_id: user.id,
-            work_item_id: id,
-            raw_text: act.actuacion || "",
-            normalized_text: normalizedText,
-            act_date: parseColombianDate(act.fechaActuacion) || null,
-            act_date_raw: act.fechaActuacion || null,
-            hash_fingerprint: computeActuacionHash(cgpItem.radicado!, act.fechaActuacion || "", normalizedText),
-            source: "CPNU",
-          };
-        });
-
-        await supabase
-          .from("actuaciones")
-          .upsert(actuaciones, { onConflict: "hash_fingerprint", ignoreDuplicates: true });
-      }
-
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cgp-item", id] });
-      toast.success("Información actualizada desde la Rama Judicial");
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
-  });
+  // CLEANUP: Removed orphan "Actualizar API" sync button per ATENIA sync policy.
+  // Sync is automatic: daily cron 7AM COT + login sync (3/day max).
 
   // Delete mutation
   const deleteCGPItem = useMutation({
@@ -359,19 +291,11 @@ export default function CGPDetail() {
             {isProcessPhase ? "En Proceso" : "Radicación"}
           </Badge>
           
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => apiUpdateMutation.mutate()}
-            disabled={apiUpdateMutation.isPending || !cgpItem.radicado}
-          >
-            {apiUpdateMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Actualizar API
-          </Button>
+          {cgpItem.last_crawled_at && (
+            <span className="text-xs text-muted-foreground">
+              Última sync: {new Date(cgpItem.last_crawled_at).toLocaleDateString('es-CO')}
+            </span>
+          )}
           
           <AlertDialog>
             <AlertDialogTrigger asChild>
