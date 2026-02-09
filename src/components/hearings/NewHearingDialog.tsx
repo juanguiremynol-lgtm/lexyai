@@ -53,7 +53,7 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
 
       const { data, error } = await supabase
         .from("work_items")
-        .select("id, title, radicado, workflow_type")
+        .select("id, title, radicado, workflow_type, demandantes, demandados, authority_name")
         .eq("owner_id", user.user.id)
         .is("deleted_at", null)
         .order("updated_at", { ascending: false })
@@ -183,14 +183,29 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">Sin vincular</SelectItem>
-                {workItems?.map((wi) => (
-                  <SelectItem key={wi.id} value={wi.id}>
-                    {wi.title || wi.radicado || wi.id.slice(0, 8)}
-                    {wi.workflow_type && (
-                      <span className="text-muted-foreground ml-1">({wi.workflow_type})</span>
-                    )}
-                  </SelectItem>
-                ))}
+                {workItems?.map((wi) => {
+                  const parties = wi.demandantes || wi.demandados || "";
+                  const label = wi.radicado || wi.title || wi.id.slice(0, 8);
+                  return (
+                    <SelectItem key={wi.id} value={wi.id}>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs">{label}</span>
+                          {wi.workflow_type && (
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                              {wi.workflow_type}
+                            </span>
+                          )}
+                        </div>
+                        {parties && (
+                          <span className="text-xs text-muted-foreground truncate max-w-[350px]">
+                            {parties}
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
