@@ -406,6 +406,118 @@ export type Database = {
           },
         ]
       }
+      atenia_ai_actions: {
+        Row: {
+          action_result: string | null
+          action_taken: string | null
+          action_type: string
+          approved_at: string | null
+          approved_by: string | null
+          autonomy_tier: string
+          created_at: string | null
+          evidence: Json | null
+          expires_at: string | null
+          id: string
+          organization_id: string
+          reasoning: string
+          target_entity_id: string | null
+          target_entity_type: string | null
+        }
+        Insert: {
+          action_result?: string | null
+          action_taken?: string | null
+          action_type: string
+          approved_at?: string | null
+          approved_by?: string | null
+          autonomy_tier: string
+          created_at?: string | null
+          evidence?: Json | null
+          expires_at?: string | null
+          id?: string
+          organization_id: string
+          reasoning: string
+          target_entity_id?: string | null
+          target_entity_type?: string | null
+        }
+        Update: {
+          action_result?: string | null
+          action_taken?: string | null
+          action_type?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          autonomy_tier?: string
+          created_at?: string | null
+          evidence?: Json | null
+          expires_at?: string | null
+          id?: string
+          organization_id?: string
+          reasoning?: string
+          target_entity_id?: string | null
+          target_entity_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_actions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_config: {
+        Row: {
+          alert_ai_enrichment: boolean | null
+          auto_demonitor_after_404s: number | null
+          created_at: string | null
+          email_alert_min_severity: string | null
+          email_alerts_enabled: boolean | null
+          gemini_enabled: boolean | null
+          id: string
+          organization_id: string
+          provider_error_rate_threshold: number | null
+          provider_slow_threshold_ms: number | null
+          stage_inference_mode: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          alert_ai_enrichment?: boolean | null
+          auto_demonitor_after_404s?: number | null
+          created_at?: string | null
+          email_alert_min_severity?: string | null
+          email_alerts_enabled?: boolean | null
+          gemini_enabled?: boolean | null
+          id?: string
+          organization_id: string
+          provider_error_rate_threshold?: number | null
+          provider_slow_threshold_ms?: number | null
+          stage_inference_mode?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          alert_ai_enrichment?: boolean | null
+          auto_demonitor_after_404s?: number | null
+          created_at?: string | null
+          email_alert_min_severity?: string | null
+          email_alerts_enabled?: boolean | null
+          gemini_enabled?: boolean | null
+          id?: string
+          organization_id?: string
+          provider_error_rate_threshold?: number | null
+          provider_slow_threshold_ms?: number | null
+          stage_inference_mode?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_config_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       atenia_ai_reports: {
         Row: {
           ai_diagnosis: string | null
@@ -6206,6 +6318,7 @@ export type Database = {
           acta_reparto_notes: string | null
           acta_reparto_received_at: string | null
           asunto: string | null
+          atenia_health_score: number | null
           authority_city: string | null
           authority_department: string | null
           authority_email: string | null
@@ -6222,6 +6335,7 @@ export type Database = {
           cgp_variant: string | null
           clase_proceso: string | null
           client_id: string | null
+          consecutive_404_count: number | null
           corte_status: string | null
           created_at: string
           delete_reason: string | null
@@ -6229,6 +6343,8 @@ export type Database = {
           deleted_by: string | null
           demandados: string | null
           demandantes: string | null
+          demonitor_at: string | null
+          demonitor_reason: string | null
           description: string | null
           email_linking_enabled: boolean | null
           etapa: string | null
@@ -6254,6 +6370,7 @@ export type Database = {
           last_stage_change_at: string | null
           last_stage_change_by_user_id: string | null
           last_stage_change_source: string | null
+          last_stage_suggestion_at: string | null
           last_stage_suggestion_id: string | null
           last_synced_at: string | null
           latest_estado_at: string | null
@@ -6277,6 +6394,7 @@ export type Database = {
           owner_id: string
           pipeline_stage: number | null
           ponente: string | null
+          provider_reachable: boolean | null
           provider_sources: Json | null
           radicado: string | null
           radicado_verified: boolean | null
@@ -6317,6 +6435,7 @@ export type Database = {
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
           asunto?: string | null
+          atenia_health_score?: number | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -6333,6 +6452,7 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           client_id?: string | null
+          consecutive_404_count?: number | null
           corte_status?: string | null
           created_at?: string
           delete_reason?: string | null
@@ -6340,6 +6460,8 @@ export type Database = {
           deleted_by?: string | null
           demandados?: string | null
           demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
           description?: string | null
           email_linking_enabled?: boolean | null
           etapa?: string | null
@@ -6365,6 +6487,7 @@ export type Database = {
           last_stage_change_at?: string | null
           last_stage_change_by_user_id?: string | null
           last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
@@ -6388,6 +6511,7 @@ export type Database = {
           owner_id: string
           pipeline_stage?: number | null
           ponente?: string | null
+          provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
           radicado_verified?: boolean | null
@@ -6428,6 +6552,7 @@ export type Database = {
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
           asunto?: string | null
+          atenia_health_score?: number | null
           authority_city?: string | null
           authority_department?: string | null
           authority_email?: string | null
@@ -6444,6 +6569,7 @@ export type Database = {
           cgp_variant?: string | null
           clase_proceso?: string | null
           client_id?: string | null
+          consecutive_404_count?: number | null
           corte_status?: string | null
           created_at?: string
           delete_reason?: string | null
@@ -6451,6 +6577,8 @@ export type Database = {
           deleted_by?: string | null
           demandados?: string | null
           demandantes?: string | null
+          demonitor_at?: string | null
+          demonitor_reason?: string | null
           description?: string | null
           email_linking_enabled?: boolean | null
           etapa?: string | null
@@ -6476,6 +6604,7 @@ export type Database = {
           last_stage_change_at?: string | null
           last_stage_change_by_user_id?: string | null
           last_stage_change_source?: string | null
+          last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
@@ -6499,6 +6628,7 @@ export type Database = {
           owner_id?: string
           pipeline_stage?: number | null
           ponente?: string | null
+          provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
           radicado_verified?: boolean | null

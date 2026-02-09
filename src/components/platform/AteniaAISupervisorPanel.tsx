@@ -2,13 +2,17 @@
  * Atenia AI Supervisor Panel — Platform admin view of sync diagnostics
  *
  * Shows daily audit reports, provider health, diagnostics, Gemini analysis,
- * and the Master Sync debug tool.
+ * autonomous actions log, AI config, health audit, and the Master Sync debug tool.
  * Only visible to platform admins.
  */
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MasterSyncPanel } from "./master-sync/MasterSyncPanel";
+import { AteniaActionsLog } from "./atenia-ai/AteniaActionsLog";
+import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
+import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
+import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -107,9 +111,19 @@ function severityBadgeVariant(severity: string): "destructive" | "secondary" | "
   }
 }
 
+// Default org for platform admin
+const PLATFORM_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
+
 export function AteniaAISupervisorPanel() {
   const [isAuditing, setIsAuditing] = useState(false);
   const today = todayCOT();
+
+  // Load Atenia AI config for gemini_enabled check
+  const { data: ateniaConfig } = useQuery({
+    queryKey: ['atenia-config', PLATFORM_ORG_ID],
+    queryFn: () => loadConfig(PLATFORM_ORG_ID),
+    staleTime: 1000 * 60 * 5,
+  });
 
   const { data: reports, isLoading, refetch } = useQuery({
     queryKey: ["atenia-ai-reports", today],
@@ -448,6 +462,18 @@ export function AteniaAISupervisorPanel() {
               </CardContent>
             </Card>
           )}
+
+          {/* Atenia AI Actions Log */}
+          <AteniaActionsLog organizationId={PLATFORM_ORG_ID} />
+
+          {/* Platform Health Audit */}
+          <AteniaHealthAudit
+            organizationId={PLATFORM_ORG_ID}
+            geminiEnabled={ateniaConfig?.gemini_enabled ?? true}
+          />
+
+          {/* Atenia AI Configuration */}
+          <AteniaConfigEditor organizationId={PLATFORM_ORG_ID} />
 
           {/* Master Sync Debug Tool */}
           <MasterSyncPanel />

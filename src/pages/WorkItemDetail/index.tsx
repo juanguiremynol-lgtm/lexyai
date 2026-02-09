@@ -30,6 +30,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 // Import work item components
 import { CaseSetupChecklist } from "@/components/work-items/CaseSetupChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
+import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -137,6 +138,7 @@ export default function WorkItemDetail() {
                 Prioritario
               </Badge>
             )}
+            <WorkItemMonitoringBadge workItem={extendedWorkItem} onUpdate={refetch} />
           </div>
           <div className="ml-10 space-y-1">
             <p className="text-muted-foreground">
