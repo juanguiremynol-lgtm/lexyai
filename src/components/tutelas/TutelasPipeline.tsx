@@ -1,23 +1,29 @@
+/**
+ * TutelasPipeline - Tutela Kanban pipeline with full feature parity with CGP/CPACA
+ * 
+ * KEY ARCHITECTURE:
+ * - Single source of truth: work_items table with workflow_type = 'TUTELA'
+ * - Uses UnifiedKanbanBoard for consistent DnD behavior (same as CGP/CPACA)
+ * - Stages correspond to TUTELA_STAGES from workflow-constants
+ * - Includes drag-drop, bulk selection, keyboard navigation
+ * - Preserves Tutela-specific dialogs: Fallo, Desacato, Incumplimiento, Archive
+ */
+
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragStartEvent,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Gavel, CheckSquare, Keyboard, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { RefreshCw, Keyboard, CheckSquare, Gavel, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
+import { WorkItemPipelineCard, WorkItemPipelineItem } from "@/components/pipeline/WorkItemPipelineCard";
+import { WorkItemBulkActionsBar } from "@/components/pipeline/WorkItemBulkActionsBar";
+import { WorkItemBulkDeleteDialog } from "@/components/pipeline/WorkItemBulkDeleteDialog";
+import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
 import {
   TUTELA_STAGES,
   type TutelaStage,
@@ -28,103 +34,63 @@ import {
   TUTELA_FINAL_PHASES,
   type TutelaPhase,
 } from "@/lib/tutela-constants";
-import { TutelaColumn, TutelaStageConfig } from "./TutelaColumn";
-import { TutelaCard, TutelaItem } from "./TutelaCard";
 
-import { NewHabeasCorpusDialog } from "./NewHabeasCorpusDialog";
 import { FalloOutcomeDialog } from "./FalloOutcomeDialog";
 import { ArchivePromptDialog } from "./ArchivePromptDialog";
-import { TutelasBulkActionsBar } from "./TutelasBulkActionsBar";
-import { TutelasBulkDeleteDialog } from "./TutelasBulkDeleteDialog";
-import { DesacatoPipeline } from "./DesacatoPipeline";
 import { InitiateDesacatoDialog } from "./InitiateDesacatoDialog";
 import { ReportIncumplimientoDialog } from "./ReportIncumplimientoDialog";
-import { useBatchSelection } from "@/hooks/use-batch-selection";
-import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
+import { DesacatoPipeline } from "./DesacatoPipeline";
+import type { TutelaItem } from "./TutelaCard";
 
-// Map work_items.stage to tutela phase for display purposes
-function stageToPhase(stage: string): TutelaPhase {
-  // Direct mapping - stage keys match phase keys in TUTELA_STAGES
-  if (stage === "TUTELA_RADICADA") return "TUTELA_RADICADA";
-  if (stage === "TUTELA_ADMITIDA") return "TUTELA_ADMITIDA";
-  if (stage === "FALLO_PRIMERA_INSTANCIA") return "FALLO_PRIMERA_INSTANCIA";
-  if (stage === "FALLO_SEGUNDA_INSTANCIA") return "FALLO_SEGUNDA_INSTANCIA";
-  if (stage === "ARCHIVADO") return "FALLO_SEGUNDA_INSTANCIA"; // Archivado maps to final phase
-  // Fallback
-  return "TUTELA_RADICADA";
-}
-
-// Build stages configuration from TUTELA_STAGES (canonical source)
-const TUTELA_STAGE_CONFIGS: TutelaStageConfig[] = Object.entries(TUTELA_STAGES)
+// Tutela stage order (excluding ARCHIVADO from Kanban columns)
+const TUTELA_STAGES_ORDER: TutelaStage[] = (
+  Object.entries(TUTELA_STAGES) as [TutelaStage, { label: string; order: number }][]
+)
   .sort((a, b) => a[1].order - b[1].order)
-  .filter(([key]) => key !== "ARCHIVADO") // Exclude ARCHIVADO from Kanban columns
-  .map(([key, value]) => {
-    const phase = stageToPhase(key);
-    const phaseConfig = TUTELA_PHASES[phase];
-    return {
-      id: `tutela:${key}`,
-      label: value.label,
-      shortLabel: phaseConfig?.shortLabel || value.label,
-      color: phaseConfig?.color || "bg-slate-500",
-      phase,
-    };
-  });
+  .filter(([key]) => key !== "ARCHIVADO")
+  .map(([key]) => key);
 
-interface RawWorkItem {
-  id: string;
-  workflow_type: string;
-  stage: string | null;
-  radicado: string | null;
-  authority_name: string | null;
-  created_at: string;
-  status: string;
-  auto_admisorio_date: string | null;
-  demandantes: string | null;
-  demandados: string | null;
-  last_checked_at: string | null;
-  client_id: string | null;
-  is_flagged: boolean | null;
-  clients: { id: string; name: string } | null;
-  // For tutela-specific fields, we'll use notes/description for compliance tracking
-  notes: string | null;
-}
+// Color mapping for tutela stages
+const STAGE_COLORS: Record<string, string> = {
+  TUTELA_RADICADA: "slate",
+  TUTELA_ADMITIDA: "blue",
+  FALLO_PRIMERA_INSTANCIA: "amber",
+  FALLO_SEGUNDA_INSTANCIA: "emerald",
+};
 
-function rawToTutelaItem(raw: RawWorkItem): TutelaItem {
-  const stage = raw.stage || "TUTELA_RADICADA";
-  const phase = stageToPhase(stage);
-  const isFinalPhase = TUTELA_FINAL_PHASES.includes(phase);
-  
-  // Check for favorable ruling - we'll derive from notes or a specific field
-  // For now, assume favorable if auto_admisorio_date is set (simplified logic)
-  const isFavorable = raw.auto_admisorio_date !== null;
-  
+// Convert TUTELA stage to Kanban stage format
+function toKanbanStage(stage: TutelaStage): KanbanStage {
+  const config = TUTELA_STAGES[stage];
+  const phase = TUTELA_PHASES[stage as TutelaPhase];
   return {
-    id: raw.id,
-    type: "tutela" as const,
-    filingType: "TUTELA",
-    radicado: raw.radicado,
-    courtName: raw.authority_name,
-    createdAt: raw.created_at,
-    status: raw.status || "ACTIVE",
-    phase,
-    clientId: raw.client_id,
-    clientName: raw.clients?.name || null,
-    demandantes: raw.demandantes,
-    demandados: raw.demandados,
-    lastArchivedPromptAt: raw.last_checked_at,
-    isFavorable: isFinalPhase ? isFavorable : null,
-    isFlagged: raw.is_flagged ?? false,
-    complianceReported: false, // Would need dedicated field
-    complianceReportedAt: null,
-    hasDesacatoIncident: false, // Would need separate query
+    id: stage,
+    label: config.label,
+    shortLabel: phase?.shortLabel || config.label,
+    color: STAGE_COLORS[stage] || "slate",
+    description: undefined,
+    phase: stage,
   };
 }
 
+// Query keys for global invalidation
+const INVALIDATE_QUERIES = [
+  ["tutelas-work-items"],
+  ["work-items"],
+  ["work-items-list"],
+  ["dashboard-stats"],
+  ["dashboard"],
+];
+
 export function TutelasPipeline() {
   const queryClient = useQueryClient();
-  const [activeItem, setActiveItem] = useState<TutelaItem | null>(null);
-  
-  const [habeasDialogOpen, setHabeasDialogOpen] = useState(false);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [singleDeleteItem, setSingleDeleteItem] = useState<WorkItemPipelineItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+
+  // Tutela-specific dialogs
   const [falloDialog, setFalloDialog] = useState<{
     open: boolean;
     tutela: TutelaItem | null;
@@ -135,7 +101,6 @@ export function TutelasPipeline() {
     tutelaId: string | null;
     label: string;
   }>({ open: false, tutelaId: null, label: "" });
-  const [deleteDialog, setDeleteDialog] = useState(false);
   const [desacatoDialog, setDesacatoDialog] = useState<{
     open: boolean;
     tutela: TutelaItem | null;
@@ -145,15 +110,24 @@ export function TutelasPipeline() {
     tutela: TutelaItem | null;
   }>({ open: false, tutela: null });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor)
+  // Use secure delete hook
+  const { deleteSingle, isDeleting: isSingleDeleting } = useDeleteWorkItems({
+    onSuccess: () => {
+      setSingleDeleteItem(null);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+  });
+
+  // Get all Tutela stages as Kanban stages
+  const allStages = useMemo(() =>
+    TUTELA_STAGES_ORDER.map(toKanbanStage),
+    []
   );
 
-  // Fetch tutelas from CANONICAL work_items table
-  const { data: tutelas, isLoading, refetch } = useQuery({
+  // Fetch work_items for TUTELA workflow
+  const { data: workItems, isLoading, refetch } = useQuery({
     queryKey: ["tutelas-work-items"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
@@ -162,65 +136,135 @@ export function TutelasPipeline() {
       const { data, error } = await supabase
         .from("work_items")
         .select(`
-          id, workflow_type, stage, radicado, authority_name, created_at, status,
-          auto_admisorio_date, demandantes, demandados, last_checked_at,
-          client_id, is_flagged, notes,
-          clients(id, name)
+          id, workflow_type, stage, status,
+          radicado, title, authority_name, authority_city, demandantes, demandados,
+          is_flagged, last_action_date, last_checked_at, monitoring_enabled,
+          auto_admisorio_date, created_at,
+          client_id, clients(id, name)
         `)
+        .eq("owner_id", user.user.id)
         .eq("workflow_type", "TUTELA")
+        .neq("status", "CLOSED")
+        .neq("status", "ARCHIVED")
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data as unknown as RawWorkItem[]).map(rawToTutelaItem);
+
+      return (data || []).map((item): WorkItemPipelineItem => {
+        // Map stage to valid tutela stage, fallback to TUTELA_RADICADA
+        let stage = item.stage;
+        if (!stage || !TUTELA_STAGES_ORDER.includes(stage as TutelaStage)) {
+          // Also check ARCHIVADO — if archived, filter was supposed to exclude it
+          if (stage === "ARCHIVADO") stage = "FALLO_SEGUNDA_INSTANCIA";
+          else stage = "TUTELA_RADICADA";
+        }
+
+        return {
+          id: item.id,
+          workflow_type: item.workflow_type as any,
+          stage: stage,
+          cgp_phase: null, // Not applicable for Tutela
+          radicado: item.radicado,
+          title: item.title,
+          client_id: item.client_id,
+          client_name: (item.clients as any)?.name || null,
+          authority_name: item.authority_name,
+          demandantes: item.demandantes,
+          demandados: item.demandados,
+          is_flagged: item.is_flagged ?? false,
+          last_action_date: item.last_action_date,
+          last_checked_at: item.last_checked_at,
+          monitoring_enabled: item.monitoring_enabled ?? false,
+          auto_admisorio_date: item.auto_admisorio_date,
+          created_at: item.created_at,
+        };
+      });
     },
   });
 
-  // Toggle flag mutation
-  // Toggle flag mutation - now uses work_items
-  const toggleFlagMutation = useMutation({
-    mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
+  /**
+   * Stage update mutation - updates work_items.stage to new tutela stage
+   */
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ itemId, newStage }: { itemId: string; newStage: string }) => {
       const { error } = await supabase
         .from("work_items")
-        .update({ is_flagged: !isFlagged })
-        .eq("id", id);
+        .update({
+          stage: newStage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
+
+      if (error) throw error;
+      return { itemId, newStage };
+    },
+    onSuccess: ({ newStage }) => {
+      const stageConfig = TUTELA_STAGES[newStage as TutelaStage];
+      toast.success(`Movido a: ${stageConfig?.label || newStage}`);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+    onError: () => {
+      toast.error("Error al actualizar etapa");
+    },
+  });
+
+  // Handle stage drop from Kanban — intercept fallo phases
+  const handleStageDrop = useCallback(async (
+    itemId: string,
+    newStageId: string,
+    item: WorkItemPipelineItem
+  ) => {
+    const isFalloPhase = newStageId === "FALLO_PRIMERA_INSTANCIA" || newStageId === "FALLO_SEGUNDA_INSTANCIA";
+
+    if (isFalloPhase) {
+      // Build a TutelaItem stub for the dialog
+      const tutelaItem: TutelaItem = {
+        id: item.id,
+        type: "tutela",
+        filingType: "TUTELA",
+        radicado: item.radicado,
+        courtName: item.authority_name,
+        createdAt: item.created_at,
+        status: "ACTIVE",
+        phase: newStageId as TutelaPhase,
+        clientId: item.client_id,
+        clientName: item.client_name,
+        demandantes: item.demandantes,
+        demandados: item.demandados,
+        lastArchivedPromptAt: null,
+        isFavorable: null,
+        isFlagged: item.is_flagged,
+        complianceReported: false,
+        complianceReportedAt: null,
+        hasDesacatoIncident: false,
+      };
+      setFalloDialog({ open: true, tutela: tutelaItem, targetPhase: newStageId as TutelaPhase });
+      // The FalloOutcomeDialog will handle the actual stage update
+      return;
+    }
+
+    await updateStageMutation.mutateAsync({ itemId, newStage: newStageId });
+  }, [updateStageMutation]);
+
+  // Mutation for toggling flag
+  const toggleFlagMutation = useMutation({
+    mutationFn: async (item: WorkItemPipelineItem) => {
+      const { error } = await supabase
+        .from("work_items")
+        .update({ is_flagged: !item.is_flagged })
+        .eq("id", item.id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
     },
+    onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Update stage mutation - now uses work_items.stage
-  const updateStageMutation = useMutation({
-    mutationFn: async ({ tutelaId, newStage }: { tutelaId: string; newStage: string }) => {
-      const { error } = await supabase
-        .from("work_items")
-        .update({ stage: newStage, updated_at: new Date().toISOString() })
-        .eq("id", tutelaId);
-      
-      if (error) throw error;
-      return { tutelaId, newStage };
-    },
-    onSuccess: ({ newStage }) => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      toast.success("Estado actualizado");
-      
-      // If moving to a fallo phase, open the outcome dialog
-      const phase = stageToPhase(newStage);
-      if (phase === "FALLO_PRIMERA_INSTANCIA" || phase === "FALLO_SEGUNDA_INSTANCIA") {
-        const tutela = tutelas?.find(t => t.id === newStage);
-        if (tutela) {
-          setFalloDialog({ open: true, tutela, targetPhase: phase });
-        }
-      }
-    },
-    onError: () => toast.error("Error al actualizar estado"),
-  });
-
-  // Bulk delete mutation using edge function
+  // Bulk delete mutation
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const { data, error } = await supabase.functions.invoke("delete-work-items", {
@@ -230,251 +274,207 @@ export function TutelasPipeline() {
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      clearSelection();
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
       setDeleteDialog(false);
       toast.success(`${result?.deleted_count || 0} tutela${result?.deleted_count !== 1 ? "s" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => {
-      toast.error("Error al eliminar tutelas");
-    },
+    onError: () => toast.error("Error al eliminar tutelas"),
   });
 
-  // Drag handlers
-  const handleDragStart = (event: DragStartEvent) => {
-    const itemId = event.active.id as string;
-    const [, id] = itemId.split(":");
-    const item = tutelas?.find(t => t.id === id);
-    setActiveItem(item || null);
-  };
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveItem(null);
-
-    if (!over) return;
-
-    const activeId = active.id as string;
-    const [, itemId] = activeId.split(":");
-    const [, targetStage] = (over.id as string).split(":");
-
-    const item = tutelas?.find(t => t.id === itemId);
-    if (!item) return;
-
-    // Get current stage from item's phase
-    const currentStage = item.phase;
-    
-    if (currentStage !== targetStage) {
-      // If moving to a fallo phase, we need to ask about the outcome first
-      const targetPhase = stageToPhase(targetStage);
-      if (targetPhase === "FALLO_PRIMERA_INSTANCIA" || targetPhase === "FALLO_SEGUNDA_INSTANCIA") {
-        setFalloDialog({ open: true, tutela: item, targetPhase });
-      } else {
-        updateStageMutation.mutate({ tutelaId: itemId, newStage: targetStage });
-      }
-    }
-  }, [tutelas, updateStageMutation]);
-
-  const handleDragCancel = () => {
-    setActiveItem(null);
-  };
-
-  // Handle archive prompt for items in final phases
-  const handleArchivePrompt = useCallback((item: TutelaItem) => {
-    setArchiveDialog({
-      open: true,
-      tutelaId: item.id,
-      label: `${item.radicado || "Sin radicado"} - ${item.demandantes || "Accionante"} vs ${item.demandados || "Accionado"}`,
-    });
-  }, []);
-
-  // Handle initiate desacato for items with favorable ruling
-  const handleInitiateDesacato = useCallback((item: TutelaItem) => {
-    setDesacatoDialog({ open: true, tutela: item });
-  }, []);
-
-  // Handle report incumplimiento for items with favorable ruling
-  const handleReportIncumplimiento = useCallback((item: TutelaItem) => {
-    setIncumplimientoDialog({ open: true, tutela: item });
-  }, []);
-
-  // Handle toggle flag
-  const handleToggleFlag = useCallback((item: TutelaItem) => {
-    toggleFlagMutation.mutate({ id: item.id, isFlagged: item.isFlagged });
-  }, [toggleFlagMutation]);
-
-  // Group items by stage
-  const itemsByStage = useMemo(() => {
-    const result: Record<string, TutelaItem[]> = {};
-    TUTELA_STAGE_CONFIGS.forEach(stage => {
-      result[stage.id] = [];
-    });
-
-    tutelas?.forEach(item => {
-      const stageId = `tutela:${item.phase}`;
-      if (result[stageId]) {
-        result[stageId].push(item);
-      } else {
-        // Fallback to first stage
-        result[TUTELA_STAGE_CONFIGS[0].id].push(item);
-      }
-    });
-
-    return result;
-  }, [tutelas]);
-
-  // Flatten items for batch selection
-  const allItemsFlat = useMemo(() => {
-    const items: { id: string; type: "tutela" }[] = [];
-    TUTELA_STAGE_CONFIGS.forEach(stage => {
-      itemsByStage[stage.id]?.forEach(item => {
-        items.push({ id: item.id, type: "tutela" as const });
-      });
-    });
-    return items;
-  }, [itemsByStage]);
-
-  // Batch selection
-  const {
-    isSelectionMode,
-    toggleSelection,
-    isSelected,
-    selectAll,
-    clearSelection,
-    getSelectedItems,
-    selectedCount,
-  } = useBatchSelection({ allItems: allItemsFlat });
-
-  // Wrapper to adapt selection for tutela type
-  const isItemSelected = useCallback((item: { id: string; type: "tutela" }) => {
-    return isSelected(item);
-  }, [isSelected]);
-
-  const toggleItemSelection = useCallback((item: { id: string; type: "tutela" }, shiftKey: boolean) => {
-    toggleSelection(item, shiftKey);
-  }, [toggleSelection]);
-
-  const toggleSelectionMode = useCallback(() => {
+  // Selection handlers
+  const toggleSelectionMode = () => {
     if (isSelectionMode) {
-      clearSelection();
-    } else {
-      toast.info("Modo selección activado", {
-        description: "Shift+click para seleccionar rango",
-        duration: 3000,
-      });
+      setSelectedIds(new Set());
     }
-  }, [isSelectionMode, clearSelection]);
+    setIsSelectionMode(!isSelectionMode);
+  };
 
-  // Keyboard navigation - memoize stages for hook
-  const stagesForKeyboard = useMemo(() => 
-    TUTELA_STAGE_CONFIGS.map(s => ({ id: s.id, type: "tutela" as const })), 
-    []
-  );
-  
-  const { 
-    isNavigating, 
-    startNavigation, 
-    getFocusedItemId 
-  } = usePipelineKeyboard({
-    stages: stagesForKeyboard,
-    itemsByStage,
-    onReclassify: () => {}, // No reclassification for tutelas
-    enabled: !isSelectionMode,
-  });
+  const toggleItemSelection = useCallback((item: WorkItemPipelineItem, shiftKey: boolean) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(item.id)) {
+        newSet.delete(item.id);
+      } else {
+        newSet.add(item.id);
+      }
+      return newSet;
+    });
+  }, []);
 
-  const focusedItemId = getFocusedItemId();
+  const selectAll = () => {
+    setSelectedIds(new Set((workItems || []).map(i => i.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  };
+
+  // Sort items: flagged first, then by last action date
+  const sortItems = useCallback((a: WorkItemPipelineItem, b: WorkItemPipelineItem) => {
+    if (a.is_flagged && !b.is_flagged) return -1;
+    if (!a.is_flagged && b.is_flagged) return 1;
+    const dateA = a.last_action_date ? new Date(a.last_action_date).getTime() : 0;
+    const dateB = b.last_action_date ? new Date(b.last_action_date).getTime() : 0;
+    return dateB - dateA;
+  }, []);
+
+  // Render card function for Kanban
+  const renderCard = useCallback((
+    item: WorkItemPipelineItem,
+    options: { isDragging?: boolean; isFocused?: boolean; isSelected?: boolean; isSelectionMode?: boolean }
+  ) => (
+    <WorkItemPipelineCard
+      item={item}
+      isDragging={options.isDragging}
+      isFocused={options.isFocused}
+      isSelected={options.isSelected}
+      isSelectionMode={options.isSelectionMode}
+      onToggleSelection={toggleItemSelection}
+      onToggleFlag={(item) => toggleFlagMutation.mutate(item)}
+      onDelete={(item) => setSingleDeleteItem(item)}
+    />
+  ), [toggleItemSelection, toggleFlagMutation]);
 
   if (isLoading) {
     return (
-      <div className="flex gap-4">
-        {TUTELA_STAGE_CONFIGS.map((_, i) => (
-          <Skeleton key={i} className="h-[400px] w-64 flex-shrink-0" />
-        ))}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-24" />
+          </div>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {TUTELA_STAGES_ORDER.map((_, i) => (
+            <Skeleton key={i} className="h-[500px] min-w-[280px]" />
+          ))}
+        </div>
       </div>
     );
   }
 
-  const totalTutelas = tutelas?.length || 0;
+  const totalItems = workItems?.length || 0;
 
   return (
-    <>
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">Pipeline Tutelas</h2>
-          <Badge variant="secondary" className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 px-3 py-1">
-            <Gavel className="h-3.5 w-3.5 mr-1.5" />
-            {totalTutelas} Tutela{totalTutelas !== 1 ? "s" : ""}
+          <div>
+            <h2 className="text-xl font-semibold">Pipeline Tutelas</h2>
+            <p className="text-sm text-muted-foreground">{totalItems} tutelas activas • {TUTELA_STAGES_ORDER.length} fases</p>
+          </div>
+          <Badge
+            variant="secondary"
+            className="bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+          >
+            <Gavel className="h-3 w-3 mr-1" />
+            {totalItems} Total
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Actualizar
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => refetch()}
+            title="Actualizar"
+          >
+            <RefreshCw className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant={isSelectionMode ? "default" : "outline"}
             size="sm"
             onClick={toggleSelectionMode}
-            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
           >
             <CheckSquare className="h-4 w-4 mr-2" />
             {isSelectionMode ? "Cancelar" : "Seleccionar"}
           </Button>
           <Button
-            variant="outline"
+            variant={isKeyboardMode ? "default" : "outline"}
             size="sm"
-            onClick={startNavigation}
-            className={isNavigating ? "ring-2 ring-primary" : ""}
-            disabled={isSelectionMode}
+            onClick={() => setIsKeyboardMode(!isKeyboardMode)}
+            title="Navegación con teclado"
           >
-            <Keyboard className="h-4 w-4 mr-2" />
-            {isNavigating ? "Navegando" : "Tab"}
+            <Keyboard className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Pipeline */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <ScrollArea className="w-full whitespace-nowrap">
-          <div className="flex gap-3 pb-4">
-            {TUTELA_STAGE_CONFIGS.map((stage) => (
-              <TutelaColumn
-                key={stage.id}
-                stage={stage}
-                items={itemsByStage[stage.id] || []}
-                focusedItemId={focusedItemId}
-                isSelectionMode={isSelectionMode}
-                isItemSelected={isItemSelected}
-                onToggleSelection={toggleItemSelection}
-                onArchivePrompt={handleArchivePrompt}
-                onInitiateDesacato={handleInitiateDesacato}
-                onReportIncumplimiento={handleReportIncumplimiento}
-                onToggleFlag={handleToggleFlag}
-              />
-            ))}
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+      {/* Empty state */}
+      {totalItems === 0 && !isLoading && (
+        <Alert className="border-purple-200 bg-purple-50 dark:border-purple-800 dark:bg-purple-950/20">
+          <AlertCircle className="h-4 w-4 text-purple-500" />
+          <AlertDescription className="text-purple-700 dark:text-purple-300">
+            No hay tutelas activas. Crea una nueva tutela desde el botón "Nueva Tutela".
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <DragOverlay>
-          {activeItem ? <TutelaCard item={activeItem} isDragging /> : null}
-        </DragOverlay>
-      </DndContext>
+      {/* Phase explanation */}
+      <div className="text-xs text-muted-foreground flex items-center gap-2 px-2 flex-wrap">
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-purple-500" />
+          Fases del proceso de tutela
+        </span>
+        <span className="text-muted-foreground/30 mx-2">|</span>
+        <span className="italic">Arrastra tarjetas para cambiar de fase.</span>
+      </div>
 
-      {/* Dialogs */}
-      
-      <NewHabeasCorpusDialog open={habeasDialogOpen} onOpenChange={setHabeasDialogOpen} />
-      
+      {/* Unified Kanban Board - same component as CGP/CPACA */}
+      <UnifiedKanbanBoard<WorkItemPipelineItem, KanbanStage>
+        stages={allStages}
+        items={workItems || []}
+        isLoading={isLoading}
+        onStageDrop={handleStageDrop}
+        renderCard={renderCard}
+        invalidateQueries={INVALIDATE_QUERIES}
+        minColumnHeight="500px"
+        sortItems={sortItems}
+        isSelectionMode={isSelectionMode}
+        selectedIds={selectedIds}
+        focusedItemId={focusedItemId}
+        onToggleSelection={toggleItemSelection}
+      />
+
+      {/* Bulk actions */}
+      {isSelectionMode && selectedIds.size > 0 && (
+        <WorkItemBulkActionsBar
+          selectedCount={selectedIds.size}
+          onSelectAll={selectAll}
+          onClearSelection={clearSelection}
+          onBulkDelete={() => setDeleteDialog(true)}
+          isDeleting={bulkDeleteMutation.isPending}
+        />
+      )}
+
+      <WorkItemBulkDeleteDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        selectedCount={selectedIds.size}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        isDeleting={bulkDeleteMutation.isPending}
+      />
+
+      {/* Single delete dialog */}
+      <DeleteWorkItemDialog
+        open={!!singleDeleteItem}
+        onOpenChange={(open) => !open && setSingleDeleteItem(null)}
+        onConfirm={() => singleDeleteItem && deleteSingle(singleDeleteItem.id)}
+        isDeleting={isSingleDeleting}
+        itemInfo={{
+          title: singleDeleteItem?.title,
+          radicado: singleDeleteItem?.radicado,
+          workflowType: "TUTELA",
+        }}
+      />
+
+      {/* Tutela-specific dialogs */}
       <FalloOutcomeDialog
         open={falloDialog.open}
         onOpenChange={(open) => setFalloDialog(prev => ({ ...prev, open }))}
@@ -488,25 +488,6 @@ export function TutelasPipeline() {
         itemId={archiveDialog.tutelaId}
         itemType="tutela"
         itemLabel={archiveDialog.label}
-      />
-
-      <TutelasBulkActionsBar
-        selectedCount={selectedCount}
-        onSelectAll={selectAll}
-        onClearSelection={clearSelection}
-        onBulkDelete={() => setDeleteDialog(true)}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
-
-      <TutelasBulkDeleteDialog
-        open={deleteDialog}
-        onOpenChange={setDeleteDialog}
-        count={selectedCount}
-        onConfirm={() => {
-          const ids = getSelectedItems().map(i => i.id);
-          bulkDeleteMutation.mutate(ids);
-        }}
-        isDeleting={bulkDeleteMutation.isPending}
       />
 
       <InitiateDesacatoDialog
@@ -523,6 +504,6 @@ export function TutelasPipeline() {
 
       {/* Desacato Pipeline - only shows when there are incidents */}
       <DesacatoPipeline />
-    </>
+    </div>
   );
 }
