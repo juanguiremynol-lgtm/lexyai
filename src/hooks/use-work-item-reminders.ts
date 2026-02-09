@@ -107,6 +107,8 @@ export function useSnoozeReminder() {
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-active"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-due"] });
+      queryClient.invalidateQueries({ queryKey: ["all-active-reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
     },
     onError: (error: Error) => {
@@ -134,6 +136,8 @@ export function useDismissReminder() {
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-active"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-due"] });
+      queryClient.invalidateQueries({ queryKey: ["all-active-reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
     },
     onError: (error: Error) => {
