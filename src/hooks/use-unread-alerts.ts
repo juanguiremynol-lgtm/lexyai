@@ -36,7 +36,7 @@ export function useUnreadAlerts() {
         .from('alert_instances')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', user.id)
-        .in('status', ['PENDING', 'SENT', 'FIRED'])
+        .in('status', ['PENDING', 'SENT', 'ACKNOWLEDGED'])
         .is('seen_at', null);
 
       if (error) {
@@ -115,7 +115,7 @@ export function useUnreadAlerts() {
       .from('alert_instances')
       .update({ seen_at: new Date().toISOString() })
       .eq('owner_id', user.id)
-      .in('status', ['PENDING', 'SENT', 'FIRED'])
+      .in('status', ['PENDING', 'SENT', 'ACKNOWLEDGED'])
       .is('seen_at', null);
 
     refetchCount();

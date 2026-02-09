@@ -167,6 +167,7 @@ export default function Alerts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       toast.success("Alerta reconocida");
     },
     onError: (error) => {
@@ -181,6 +182,7 @@ export default function Alerts() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       toast.success("Alerta descartada");
     },
     onError: (error) => {
@@ -197,6 +199,7 @@ export default function Alerts() {
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       clearSelection();
       setShowDismissConfirm(false);
       toast.success(`${count} alerta(s) descartada(s)`);
