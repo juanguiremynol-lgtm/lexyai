@@ -3353,13 +3353,25 @@ Deno.serve(async (req) => {
         },
       });
       
-      // Update scrape status to FAILED
+      // Update scrape status to FAILED + track consecutive 404s
+      const isNotFound = fetchResult?.isEmpty || errorCode === 'PROVIDER_NOT_FOUND';
+      const update404Payload: Record<string, unknown> = {
+        scrape_status: 'FAILED',
+        last_checked_at: new Date().toISOString(),
+      };
+      if (isNotFound) {
+        // Increment consecutive 404 counter
+        const { data: currentItem } = await supabase
+          .from('work_items')
+          .select('consecutive_404_count')
+          .eq('id', work_item_id)
+          .single();
+        update404Payload.consecutive_404_count = ((currentItem as any)?.consecutive_404_count || 0) + 1;
+        update404Payload.provider_reachable = false;
+      }
       await supabase
         .from('work_items')
-        .update({
-          scrape_status: 'FAILED',
-          last_checked_at: new Date().toISOString(),
-        })
+        .update(update404Payload)
         .eq('id', work_item_id);
       
       result.trace_id = traceId;
@@ -3658,7 +3670,10 @@ Deno.serve(async (req) => {
       last_checked_at: new Date().toISOString(),
       last_synced_at: new Date().toISOString(),
       total_actuaciones: fetchResult.actuaciones.length,
-      scrape_provider: fetchResult.provider, // Track which provider was used
+      scrape_provider: fetchResult.provider,
+      // Reset 404 counter on success
+      consecutive_404_count: 0,
+      provider_reachable: true,
     };
 
     if (latestDate) {
