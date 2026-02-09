@@ -177,12 +177,12 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
           {/* Work Item */}
           <div className="space-y-2">
             <Label>Proceso vinculado</Label>
-            <Select value={workItemId} onValueChange={setWorkItemId}>
+            <Select value={workItemId || "__none__"} onValueChange={(v) => setWorkItemId(v === "__none__" ? "" : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Seleccione un proceso (opcional)" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Sin vincular</SelectItem>
+                <SelectItem value="__none__">Sin vincular</SelectItem>
                 {workItems?.map((wi) => (
                   <SelectItem key={wi.id} value={wi.id}>
                     {wi.title || wi.radicado || wi.id.slice(0, 8)}
