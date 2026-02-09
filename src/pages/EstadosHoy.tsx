@@ -1,11 +1,12 @@
 /**
- * Estados de Hoy — Global View
- * 
- * Shows all court publications (estados electrónicos, edictos) for today/yesterday/week
- * across all of the user's work items. Only from work_item_publicaciones.
+ * Estados de Hoy — Global View (Dual-Criteria)
+ *
+ * Shows estados DISCOVERED by ATENIA (created_at) AND/OR
+ * court-posted (fecha_fijacion) within the selected time window.
+ * ONLY from work_item_publicaciones — never merges with actuaciones.
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -16,19 +17,20 @@ import {
 } from "@/lib/services/estados-hoy-service";
 import { detectEstadoType, type TickerItemSeverity, type TickerItemSource } from "@/lib/services/ticker-data-service";
 import { supabase } from "@/integrations/supabase/client";
-import type { DateRange } from "@/lib/services/actuaciones-hoy-service";
+import {
+  getWindowBounds,
+  humanizeCreatedAt,
+  formatActDate,
+  getDeadlineUrgency,
+  windowLabel,
+  type HoyWindow,
+} from "@/lib/colombia-date-utils";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Search,
   RefreshCw,
@@ -39,6 +41,8 @@ import {
   Calendar,
   Download,
   ExternalLink,
+  Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -46,33 +50,14 @@ import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 
-// ============= HELPERS =============
+/* ── helpers ── */
 
-function getColombiaDate(offset: number = 0): string {
-  const now = new Date();
-  const colombiaOffset = -5 * 60;
-  const localOffset = now.getTimezoneOffset();
-  const colombiaTime = new Date(now.getTime() + (localOffset + colombiaOffset) * 60000);
-  colombiaTime.setDate(colombiaTime.getDate() + offset);
-  return colombiaTime.toISOString().split('T')[0];
-}
+type MatchReason = "discovered" | "court_posted" | "both";
 
-function getDateRangeValues(range: DateRange): { from: string; to: string } {
-  const today = getColombiaDate(0);
-  switch (range) {
-    case 'today': return { from: today, to: today };
-    case 'yesterday': return { from: getColombiaDate(-1), to: getColombiaDate(-1) };
-    case 'week': return { from: getColombiaDate(-6), to: today };
-  }
-}
-
-function mapSource(source: string | null | undefined): TickerItemSource {
-  if (!source) return 'MANUAL';
-  const lower = source.toLowerCase();
-  if (lower.includes('publicaciones')) return 'PUBLICACIONES_API';
-  if (lower.includes('cpnu')) return 'CPNU';
-  if (lower.includes('samai')) return 'SAMAI';
-  return 'MANUAL';
+interface EstadoHoyItemWithMeta extends EstadoHoyItem {
+  match_reason: MatchReason;
+  is_new: boolean;
+  fecha_fijacion_raw?: string | null;
 }
 
 const TIPO_COLORS: Record<string, string> = {
@@ -83,93 +68,127 @@ const TIPO_COLORS: Record<string, string> = {
   SENTENCIA: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-300",
 };
 
-// ============= DATA FETCHING =============
+function mapSource(source: string | null | undefined): TickerItemSource {
+  if (!source) return "MANUAL";
+  const l = source.toLowerCase();
+  if (l.includes("publicaciones")) return "PUBLICACIONES_API";
+  if (l.includes("cpnu")) return "CPNU";
+  if (l.includes("samai")) return "SAMAI";
+  return "MANUAL";
+}
+
+const PUB_SELECT = `
+  id, work_item_id, title, annotation, published_at, fecha_fijacion, fecha_desfijacion,
+  despacho, tipo_publicacion, source, pdf_url, raw_data, created_at,
+  work_items!inner (
+    id, radicado, workflow_type, organization_id,
+    authority_name, demandantes, demandados,
+    client:clients ( name )
+  )
+`;
+
+function mapPubRow(pub: any, reason: MatchReason): EstadoHoyItemWithMeta {
+  const wi = pub.work_items as any;
+  const content = pub.annotation || pub.title || "Estado publicado";
+  const estadoType = detectEstadoType(content);
+  const rawData = pub.raw_data as Record<string, any> | null;
+  const termCalc = calculateTermStart(pub.fecha_desfijacion, rawData?.fechaInicial, pub.published_at);
+  const ejecutoria = isInEjecutoriaWindow(termCalc.date);
+
+  let severity: TickerItemSeverity = pub.fecha_desfijacion ? "HIGH" : "MEDIUM";
+  if (estadoType.type === "SENTENCIA") severity = "CRITICAL";
+  else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
+
+  return {
+    id: pub.id,
+    type: "ESTADO" as const,
+    source: mapSource(pub.source),
+    radicado: wi?.radicado || "",
+    work_item_id: pub.work_item_id,
+    workflow_type: wi?.workflow_type || "",
+    client_name: wi?.client?.name || undefined,
+    authority_name: wi?.authority_name || undefined,
+    demandantes: wi?.demandantes || undefined,
+    demandados: wi?.demandados || undefined,
+    content,
+    date: pub.published_at,
+    fecha_desfijacion: pub.fecha_desfijacion,
+    fecha_fijacion_raw: pub.fecha_fijacion,
+    terminos_inician: termCalc.date,
+    is_deadline_trigger: !!pub.fecha_desfijacion && estadoType.triggersDeadline,
+    missing_fecha_desfijacion: !pub.fecha_desfijacion,
+    severity,
+    tipo_publicacion: pub.tipo_publicacion || undefined,
+    despacho: pub.despacho || undefined,
+    pdf_url: pub.pdf_url || undefined,
+    created_at: pub.created_at,
+    actuacion_type: estadoType.label,
+    inicia_termino: termCalc.date,
+    inicia_termino_source: termCalc.source,
+    is_in_ejecutoria_window: ejecutoria.isInWindow,
+    ejecutoria_ends_at: ejecutoria.windowEndsAt,
+    match_reason: reason,
+    is_new: reason === "discovered" || reason === "both",
+  };
+}
+
+/* ── dual-criteria fetch ── */
 
 async function fetchEstadosHoy(
   organizationId: string,
-  range: DateRange,
+  window: HoyWindow,
   search?: string
-): Promise<{ items: EstadoHoyItem[]; total: number }> {
-  const { from, to } = getDateRangeValues(range);
+): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number }> {
+  const bounds = getWindowBounds(window);
 
-  const { data, error } = await supabase
-    .from('work_item_publicaciones')
-    .select(`
-      id,
-      work_item_id,
-      title,
-      annotation,
-      published_at,
-      fecha_fijacion,
-      fecha_desfijacion,
-      despacho,
-      tipo_publicacion,
-      source,
-      pdf_url,
-      raw_data,
-      created_at,
-      work_items!inner (
-        id, radicado, workflow_type, organization_id,
-        authority_name, demandantes, demandados,
-        client:clients ( name )
-      )
-    `)
-    .eq('work_items.organization_id', organizationId)
-    .gte('fecha_fijacion', from)
-    .lte('fecha_fijacion', to)
-    .eq('is_archived', false)
-    .order('created_at', { ascending: false });
+  const [discoveredResult, courtPostedResult] = await Promise.all([
+    supabase
+      .from("work_item_publicaciones")
+      .select(PUB_SELECT)
+      .eq("work_items.organization_id", organizationId)
+      .eq("is_archived", false)
+      .gte("created_at", bounds.created_start)
+      .lte("created_at", bounds.created_end)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("work_item_publicaciones")
+      .select(PUB_SELECT)
+      .eq("work_items.organization_id", organizationId)
+      .eq("is_archived", false)
+      .gte("fecha_fijacion", bounds.date_start)
+      .lte("fecha_fijacion", bounds.date_end)
+      .order("fecha_fijacion", { ascending: false })
+      .limit(200),
+  ]);
 
-  if (error) {
-    console.error('[estados-hoy] Query error:', error);
-    return { items: [], total: 0 };
+  if (discoveredResult.error) console.error("[estados-hoy] discovered query error:", discoveredResult.error);
+  if (courtPostedResult.error) console.error("[estados-hoy] court-posted query error:", courtPostedResult.error);
+
+  const itemMap = new Map<string, EstadoHoyItemWithMeta>();
+
+  for (const row of discoveredResult.data || []) {
+    itemMap.set(row.id, mapPubRow(row, "discovered"));
+  }
+  const discoveredCount = itemMap.size;
+
+  let courtOnlyCount = 0;
+  for (const row of courtPostedResult.data || []) {
+    if (itemMap.has(row.id)) {
+      const existing = itemMap.get(row.id)!;
+      existing.match_reason = "both";
+      existing.is_new = true;
+    } else {
+      itemMap.set(row.id, mapPubRow(row, "court_posted"));
+      courtOnlyCount++;
+    }
   }
 
-  let items: EstadoHoyItem[] = (data || []).map((pub: any) => {
-    const wi = pub.work_items;
-    const content = pub.annotation || pub.title || 'Estado publicado';
-    const estadoType = detectEstadoType(content);
-    const rawData = pub.raw_data as Record<string, any> | null;
-    const termCalc = calculateTermStart(pub.fecha_desfijacion, rawData?.fechaInicial, pub.published_at);
-    const ejecutoria = isInEjecutoriaWindow(termCalc.date);
-
-    let severity: TickerItemSeverity = pub.fecha_desfijacion ? 'HIGH' : 'MEDIUM';
-    if (estadoType.type === 'SENTENCIA') severity = 'CRITICAL';
-    else if (estadoType.type === 'AUTO_ADMISORIO') severity = 'HIGH';
-
-    return {
-      id: pub.id,
-      type: 'ESTADO' as const,
-      source: mapSource(pub.source),
-      radicado: wi?.radicado || '',
-      work_item_id: pub.work_item_id,
-      workflow_type: wi?.workflow_type || '',
-      client_name: wi?.client?.name || undefined,
-      authority_name: wi?.authority_name || undefined,
-      demandantes: wi?.demandantes || undefined,
-      demandados: wi?.demandados || undefined,
-      content,
-      date: pub.published_at,
-      fecha_desfijacion: pub.fecha_desfijacion,
-      terminos_inician: termCalc.date,
-      is_deadline_trigger: !!pub.fecha_desfijacion && estadoType.triggersDeadline,
-      missing_fecha_desfijacion: !pub.fecha_desfijacion,
-      severity,
-      tipo_publicacion: pub.tipo_publicacion || undefined,
-      despacho: pub.despacho || undefined,
-      pdf_url: pub.pdf_url || undefined,
-      created_at: pub.created_at,
-      actuacion_type: estadoType.label,
-      inicia_termino: termCalc.date,
-      inicia_termino_source: termCalc.source,
-      is_in_ejecutoria_window: ejecutoria.isInWindow,
-      ejecutoria_ends_at: ejecutoria.windowEndsAt,
-    };
-  });
+  let items = Array.from(itemMap.values());
 
   if (search) {
     const lower = search.toLowerCase();
-    items = items.filter(i =>
+    items = items.filter((i) =>
       i.radicado?.toLowerCase().includes(lower) ||
       i.despacho?.toLowerCase().includes(lower) ||
       i.demandantes?.toLowerCase().includes(lower) ||
@@ -179,55 +198,70 @@ async function fetchEstadosHoy(
     );
   }
 
-  return { items, total: items.length };
+  items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  return { items, total: items.length, discoveredCount, courtPostedCount: courtOnlyCount };
 }
 
-// ============= COMPONENT =============
+/* ── page component ── */
 
 export default function EstadosHoy() {
   const { organization } = useOrganization();
   const navigate = useNavigate();
 
-  const [range, setRange] = useState<DateRange>('today');
+  const [window, setWindow] = useState<HoyWindow>("today");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchTerm(value);
-    const timeout = setTimeout(() => setDebouncedSearch(value), 300);
-    return () => clearTimeout(timeout);
+    const t = setTimeout(() => setDebouncedSearch(value), 300);
+    return () => clearTimeout(t);
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy-v2", organization?.id, range, debouncedSearch],
-    queryFn: () => fetchEstadosHoy(organization!.id, range, debouncedSearch || undefined),
+    queryKey: ["estados-hoy-v3", organization?.id, window, debouncedSearch],
+    queryFn: () => fetchEstadosHoy(organization!.id, window, debouncedSearch || undefined),
     enabled: !!organization?.id,
     staleTime: 30_000,
+    refetchInterval: 60_000,
   });
 
-  const rangeLabel = range === 'today' ? 'hoy' : range === 'yesterday' ? 'ayer' : 'esta semana';
+  useEffect(() => {
+    const handler = () => { refetch(); };
+    globalThis.addEventListener("atenia-sync-complete", handler);
+    return () => globalThis.removeEventListener("atenia-sync-complete", handler);
+  }, [refetch]);
+
+  const deadlineItems = data?.items.filter((i) => {
+    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
+    return u === "critical" || u === "warning";
+  }).length ?? 0;
+
+  const label = windowLabel(window);
   const todayFormatted = format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es });
 
   const handleExport = useCallback(() => {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
-    const rows = data.items.map(i => ({
-      "Radicado": i.radicado || "",
-      "Despacho": i.despacho || i.authority_name || "",
+    const rows = data.items.map((i) => ({
+      Radicado: i.radicado || "",
+      Despacho: i.despacho || i.authority_name || "",
       "Demandante(s)": i.demandantes || "",
       "Demandado(s)": i.demandados || "",
-      "Tipo": i.tipo_publicacion || "",
-      "Contenido": i.content || "",
-      "Fecha fijación": i.date || "",
+      Tipo: i.tipo_publicacion || "",
+      Contenido: i.content || "",
+      "Fecha fijación": i.fecha_fijacion_raw || i.date || "",
       "Fecha desfijación": i.fecha_desfijacion || "",
       "Inicia término": i.inicia_termino || "",
-      "En ejecutoria": i.is_in_ejecutoria_window ? 'Sí' : 'No',
+      "En ejecutoria": i.is_in_ejecutoria_window ? "Sí" : "No",
+      Descubierta: i.is_new ? "Sí" : "No",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Estados");
-    XLSX.writeFile(wb, `estados_${range}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    XLSX.writeFile(wb, `estados_${window}_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
     toast.success("Exportado");
-  }, [data?.items, range]);
+  }, [data?.items, window]);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -238,9 +272,7 @@ export default function EstadosHoy() {
             <Newspaper className="h-6 w-6 text-primary" />
             Estados de Hoy
           </h1>
-          <p className="text-muted-foreground capitalize">
-            {todayFormatted} — {data?.total ?? 0} publicacion(es) {rangeLabel}
-          </p>
+          <p className="text-muted-foreground capitalize">{todayFormatted}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -254,7 +286,30 @@ export default function EstadosHoy() {
         </div>
       </div>
 
-      {/* Ejecutoria banner */}
+      {/* Summary bar */}
+      {data && data.total > 0 && (
+        <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <strong className="text-foreground">{data.discoveredCount}</strong> nuevos descubiertos
+          </span>
+          <span>·</span>
+          <span>📅 <strong className="text-foreground">{data.courtPostedCount}</strong> por fecha fijación</span>
+          {deadlineItems > 0 && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1 text-destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <strong>{deadlineItems}</strong> con términos urgentes
+              </span>
+            </>
+          )}
+          <span>·</span>
+          <span><strong className="text-foreground">{data.total}</strong> total</span>
+        </div>
+      )}
+
+      {/* Ejecutoria info banner */}
       <Card className="border-green-200 bg-green-50 dark:bg-green-950/20">
         <CardContent className="py-3 flex items-center gap-3">
           <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
@@ -264,13 +319,13 @@ export default function EstadosHoy() {
         </CardContent>
       </Card>
 
-      {/* Date nav + search */}
+      {/* Window selector + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          {(['today', 'yesterday', 'week'] as DateRange[]).map((r) => (
-            <Button key={r} variant={range === r ? 'default' : 'ghost'} size="sm" onClick={() => setRange(r)}>
-              {r === 'today' ? 'Hoy' : r === 'yesterday' ? 'Ayer' : 'Esta semana'}
+          {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
+            <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
+              {w === "today" ? "Hoy" : w === "three_days" ? "3 Días" : "Semana"}
             </Button>
           ))}
         </div>
@@ -291,8 +346,8 @@ export default function EstadosHoy() {
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Newspaper className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No hay estados publicados {rangeLabel}</p>
-            <p className="text-sm mt-1">Los estados se sincronizan automáticamente.</p>
+            <p className="font-medium">No hay estados publicados {label}</p>
+            <p className="text-sm mt-1">Los estados aparecerán aquí cuando se descubran novedades en los juzgados monitoreados.</p>
           </CardContent>
         </Card>
       ) : (
@@ -300,84 +355,86 @@ export default function EstadosHoy() {
           {data?.items.map((item) => (
             <EstadoCard key={item.id} item={item} onNavigate={() => navigate(`/app/work-items/${item.work_item_id}`)} />
           ))}
-          {range === 'today' && (
-            <p className="text-center text-sm text-muted-foreground py-2">— Sin más estados para hoy —</p>
-          )}
-        </div>
-      )}
-
-      {/* Date nav footer */}
-      {range === 'today' && (
-        <div className="flex items-center justify-center gap-3 text-sm">
-          <Button variant="link" size="sm" onClick={() => setRange('yesterday')}>📆 Ver ayer</Button>
-          <span className="text-muted-foreground">·</span>
-          <Button variant="link" size="sm" onClick={() => setRange('week')}>Ver esta semana</Button>
         </div>
       )}
     </div>
   );
 }
 
-// ============= CARD COMPONENT =============
+/* ── card component ── */
 
-function EstadoCard({ item, onNavigate }: { item: EstadoHoyItem; onNavigate: () => void }) {
-  const tipo = (item.tipo_publicacion || 'ESTADO').toUpperCase();
-  const colorClass = TIPO_COLORS[tipo] || TIPO_COLORS['ESTADO'];
-
-  const formatDate = (d: string | null | undefined) => {
-    if (!d) return '—';
-    try { return format(new Date(d + 'T12:00:00'), "d MMM", { locale: es }); } catch { return d; }
-  };
+function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavigate: () => void }) {
+  const tipo = (item.tipo_publicacion || "ESTADO").toUpperCase();
+  const colorClass = TIPO_COLORS[tipo] || TIPO_COLORS["ESTADO"];
+  const urgency = getDeadlineUrgency(item.terminos_inician ?? item.inicia_termino ?? null);
 
   return (
     <Card
       className={cn(
-        "cursor-pointer hover:shadow-md transition-shadow",
-        item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/20 border-green-200"
+        "cursor-pointer hover:shadow-md transition-shadow border-l-4",
+        item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/20 border-green-200",
+        urgency === "critical" && !item.is_in_ejecutoria_window && "border-l-destructive bg-destructive/5",
+        urgency === "warning" && !item.is_in_ejecutoria_window && "border-l-orange-500 bg-orange-50 dark:bg-orange-950/10",
+        urgency === "normal" && !item.is_in_ejecutoria_window && "border-l-primary/30",
+        urgency === "none" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/30"
       )}
       onClick={onNavigate}
     >
       <CardContent className="py-4 space-y-3">
-        {/* Type badge */}
-        <div className="flex items-center justify-between">
-          <Badge variant="outline" className={cn("text-xs font-medium", colorClass)}>
-            {tipo.replace(/_/g, ' ')}
-          </Badge>
-          {item.is_in_ejecutoria_window && (
-            <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              En ejecutoria
+        {/* Top row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {item.is_new && <span className="text-xs">🆕</span>}
+            <Badge variant="outline" className={cn("text-xs font-medium", colorClass)}>
+              {tipo.replace(/_/g, " ")}
             </Badge>
-          )}
+            {item.is_in_ejecutoria_window && (
+              <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                En ejecutoria
+              </Badge>
+            )}
+            {urgency === "critical" && !item.is_in_ejecutoria_window && (
+              <Badge variant="destructive" className="text-xs">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Términos urgentes
+              </Badge>
+            )}
+          </div>
+          <Badge variant="outline" className="text-xs text-muted-foreground">{item.source}</Badge>
         </div>
 
         {/* Radicado + court */}
         <div>
-          <p className="font-mono text-sm font-medium text-foreground">{item.radicado || '—'}</p>
-          <p className="text-sm text-muted-foreground truncate">{item.despacho || item.authority_name || '—'}</p>
+          <p className="font-mono text-sm font-medium text-foreground">{item.radicado || "—"}</p>
+          <p className="text-sm text-muted-foreground truncate">{item.despacho || item.authority_name || "—"}</p>
           {(item.demandantes || item.demandados) && (
             <p className="text-sm text-muted-foreground truncate">
-              {item.demandantes || '—'} vs {item.demandados || '—'}
+              {item.demandantes || "—"} vs {item.demandados || "—"}
             </p>
           )}
         </div>
 
-        {/* PDF + title */}
-        {item.content && (
-          <p className="text-sm text-foreground/80 truncate">{item.content}</p>
-        )}
+        {/* Content */}
+        {item.content && <p className="text-sm text-foreground/80 line-clamp-2">{item.content}</p>}
 
-        {/* Footer: dates + PDF + nav */}
+        {/* Dates */}
         <div className="flex items-center justify-between text-xs text-muted-foreground flex-wrap gap-2">
-          <div className="flex items-center gap-3">
-            <span>Fijación: {formatDate(item.date)}</span>
-            {item.fecha_desfijacion && <span>· Desfijación: {formatDate(item.fecha_desfijacion)}</span>}
-            {item.inicia_termino && (
-              <span className={cn("flex items-center gap-1", item.is_in_ejecutoria_window && "text-green-700 dark:text-green-400 font-medium")}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span>📅 Fijación: {formatActDate(item.fecha_fijacion_raw || item.date)}</span>
+            {item.fecha_desfijacion && <span>· Desfijación: {formatActDate(item.fecha_desfijacion)}</span>}
+            {(item.inicia_termino || item.terminos_inician) && (
+              <span className={cn(
+                "flex items-center gap-1",
+                urgency === "critical" && "text-destructive font-bold",
+                urgency === "warning" && "text-orange-600 dark:text-orange-400 font-medium",
+                item.is_in_ejecutoria_window && "text-green-700 dark:text-green-400 font-medium"
+              )}>
                 <Clock className="h-3 w-3" />
-                Términos: {formatDate(item.inicia_termino)}
+                Términos: {formatActDate(item.inicia_termino || item.terminos_inician || null)}
               </span>
             )}
+            <span>🔄 {humanizeCreatedAt(item.created_at)}</span>
           </div>
           <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             {item.pdf_url && (
