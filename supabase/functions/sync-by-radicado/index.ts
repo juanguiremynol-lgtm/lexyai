@@ -512,16 +512,83 @@ async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
     
     // /buscar returns: { success, status, result: {...}, cached: bool } for cached data
     // or { jobId, status: "pending" } for async scraping
-    // Handle async job response — wizard can't wait, so treat as "not found"
+    // FIX: Poll for result instead of giving up — matches sync-by-work-item behavior
     if ((buscarResult.jobId || buscarResult.job_id) && !buscarResult.result) {
-      console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job, data not immediately available`);
+      const jobId = buscarResult.jobId || buscarResult.job_id;
+      console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job: ${jobId}. Polling for result...`);
+      
+      const rawPollUrl = buscarResult.poll_url || buscarResult.pollUrl || buscarResult.resultado_url || '';
+      let pollUrl: string;
+      if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
+        pollUrl = rawPollUrl;
+      } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
+        pollUrl = `${samaiBaseUrl}${rawPollUrl}`;
+      } else {
+        pollUrl = `${samaiBaseUrl}/resultado/${jobId}`;
+      }
+      
+      // Poll with exponential backoff (up to ~60s total)
+      const maxAttempts = 10;
+      const initialInterval = 3000;
+      
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const delayMs = Math.min(initialInterval * Math.pow(1.6, attempt - 1), 15000);
+        console.log(`[sync-by-radicado] SAMAI poll ${attempt}/${maxAttempts}: waiting ${Math.round(delayMs)}ms, url=${pollUrl}`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        
+        try {
+          const pollResponse = await fetch(pollUrl, {
+            method: 'GET',
+            headers: {
+              'x-api-key': apiKey,
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (!pollResponse.ok) {
+            console.log(`[sync-by-radicado] SAMAI poll ${attempt} HTTP ${pollResponse.status}, continuing...`);
+            continue;
+          }
+          
+          const pollData = await pollResponse.json();
+          const pollStatus = String(pollData.status || '').toLowerCase();
+          
+          console.log(`[sync-by-radicado] SAMAI poll ${attempt}: status="${pollStatus}"`);
+          
+          if (['queued', 'processing', 'running', 'pending', 'started'].includes(pollStatus)) {
+            continue;
+          }
+          
+          if (['done', 'completed', 'success', 'finished'].includes(pollStatus)) {
+            console.log(`[sync-by-radicado] SAMAI job completed after ${attempt} polls`);
+            const resultData = pollData.result || pollData.data || pollData;
+            
+            if (resultData && (resultData.actuaciones || resultData.sujetos_procesales || resultData.sujetos)) {
+              // Extract sujetos and actuaciones using the same logic as the direct response path below
+              const sujetos = resultData.sujetos_procesales ?? resultData.sujetos ?? [];
+              const rawActuaciones = resultData.actuaciones ?? [];
+              return buildSamaiResult(resultData, sujetos, rawActuaciones, Date.now() - startTime);
+            }
+          }
+          
+          if (['failed', 'error', 'cancelled'].includes(pollStatus)) {
+            console.log(`[sync-by-radicado] SAMAI job failed: ${pollData.error || 'Unknown'}`);
+            break;
+          }
+        } catch (pollErr) {
+          console.warn(`[sync-by-radicado] SAMAI poll ${attempt} error:`, pollErr);
+        }
+      }
+      
+      // Polling exhausted — return not found
+      console.log(`[sync-by-radicado] SAMAI polling exhausted after ${maxAttempts} attempts`);
       return {
         ok: true,
         found: false,
         source: 'SAMAI',
         processData: {},
-        latency_ms: latency,
-        error: 'SAMAI scraping initiated but data not yet available',
+        latency_ms: Date.now() - startTime,
+        error: 'SAMAI scraping job did not complete in time',
       };
     }
     
