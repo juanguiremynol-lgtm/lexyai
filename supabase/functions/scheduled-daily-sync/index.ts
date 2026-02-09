@@ -262,7 +262,7 @@ async function syncOrganization(
     // Get all active work items for this org
     const { data: workItems, error: fetchError } = await supabase
       .from("work_items")
-      .select("id, radicado, workflow_type, stage, last_synced_at")
+      .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
       .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
@@ -350,6 +350,14 @@ async function syncOrganization(
             let pubInserted = 0;
             if (PUBLICACIONES_WORKFLOWS.includes(workItem.workflow_type)) {
               try {
+                // Heavy items (100+ actuaciones) need a delay before pub sync
+                // to avoid timeout starvation from long act dedup
+                const isHeavy = (workItem.total_actuaciones || 0) >= 100;
+                if (isHeavy) {
+                  console.log(`[scheduled-daily-sync] Heavy item ${workItem.radicado} (${workItem.total_actuaciones} acts), adding delay before pub sync`);
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+
                 const { data: pr } = await supabase.functions.invoke(
                   "sync-publicaciones-by-work-item",
                   { body: { work_item_id: workItem.id } }
