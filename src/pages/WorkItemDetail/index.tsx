@@ -33,6 +33,7 @@ import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButt
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { ReportToAteniaDialog } from "@/components/atenia/ReportToAteniaDialog";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
+import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -280,6 +281,9 @@ export default function WorkItemDetail() {
               )}
             </CardContent>
           </Card>
+
+          {/* Courthouse Email Resolution */}
+          <CourthouseEmailDisplay workItem={extendedWorkItem as any} />
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue="actuaciones" className="w-full">
