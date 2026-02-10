@@ -7203,6 +7203,7 @@ export type Database = {
       peticion_phase:
         | "PETICION_RADICADA"
         | "CONSTANCIA_RADICACION"
+        | "PRORROGA"
         | "RESPUESTA"
       plan_tier: "FREE_TRIAL" | "BASIC" | "PRO" | "ENTERPRISE"
       process_event_type:
@@ -7543,6 +7544,7 @@ export const Constants = {
       peticion_phase: [
         "PETICION_RADICADA",
         "CONSTANCIA_RADICACION",
+        "PRORROGA",
         "RESPUESTA",
       ],
       plan_tier: ["FREE_TRIAL", "BASIC", "PRO", "ENTERPRISE"],

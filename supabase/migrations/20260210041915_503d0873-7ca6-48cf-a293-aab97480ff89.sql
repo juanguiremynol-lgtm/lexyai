@@ -1,0 +1,2 @@
+-- Add PRORROGA value to peticion_phase enum after CONSTANCIA_RADICACION
+ALTER TYPE public.peticion_phase ADD VALUE IF NOT EXISTS 'PRORROGA' AFTER 'CONSTANCIA_RADICACION';

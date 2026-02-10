@@ -130,7 +130,8 @@ export type CGPProcessStage = keyof typeof CGP_PROCESS_STAGES;
 export const PETICION_STAGES = {
   PETICION_RADICADA: { label: 'Petición Radicada', order: 0 },
   CONSTANCIA_RADICACION: { label: 'Constancia de Radicación', order: 1 },
-  RESPUESTA: { label: 'Respuesta', order: 2 },
+  PRORROGA: { label: 'Prórroga', order: 2 },
+  RESPUESTA: { label: 'Respuesta', order: 3 },
 } as const;
 
 export type PeticionStage = keyof typeof PETICION_STAGES;
