@@ -366,23 +366,46 @@ async function syncOrganization(
             let pubResult: any = null;
             let pubInserted = 0;
             if (PUBLICACIONES_WORKFLOWS.includes(workItem.workflow_type)) {
-              try {
-                // Heavy items (100+ actuaciones) need a delay before pub sync
-                // to avoid timeout starvation from long act dedup
-                const isHeavy = (workItem.total_actuaciones || 0) >= 100;
-                if (isHeavy) {
-                  console.log(`[scheduled-daily-sync] Heavy item ${workItem.radicado} (${workItem.total_actuaciones} acts), adding delay before pub sync`);
-                  await new Promise(resolve => setTimeout(resolve, 2000));
+              // PENAL_906: Isolate pub sync to avoid timeout starvation.
+              // Enqueue PUB_RETRY so process-retry-queue handles it with its own time budget.
+              if (workItem.workflow_type === 'PENAL_906') {
+                try {
+                  console.log(`[scheduled-daily-sync] PENAL_906: Enqueueing PUB_RETRY for ${workItem.radicado} (isolated invocation)`);
+                  await (supabase.from('sync_retry_queue') as any).upsert({
+                    work_item_id: workItem.id,
+                    organization_id: orgId,
+                    radicado: workItem.radicado,
+                    workflow_type: workItem.workflow_type,
+                    stage: workItem.stage || null,
+                    kind: 'PUB_RETRY',
+                    provider: 'publicaciones',
+                    attempt: 1,
+                    max_attempts: 3,
+                    next_run_at: new Date(Date.now() + 10_000 + Math.floor(Math.random() * 10_000)).toISOString(),
+                    last_error_code: null,
+                    last_error_message: 'Enqueued by daily-sync for isolated execution',
+                  }, { onConflict: 'work_item_id,kind' });
+                } catch (enqueueErr) {
+                  console.warn(`[scheduled-daily-sync] Failed to enqueue PUB_RETRY for ${workItem.id}:`, enqueueErr);
                 }
+              } else {
+                try {
+                  // Non-PENAL workflows: call pub sync inline (typically fast)
+                  const isHeavy = (workItem.total_actuaciones || 0) >= 100;
+                  if (isHeavy) {
+                    console.log(`[scheduled-daily-sync] Heavy item ${workItem.radicado} (${workItem.total_actuaciones} acts), adding delay before pub sync`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                  }
 
-                const { data: pr } = await supabase.functions.invoke(
-                  "sync-publicaciones-by-work-item",
-                  { body: { work_item_id: workItem.id } }
-                );
-                pubResult = pr;
-                pubInserted = pr?.inserted_count || 0;
-              } catch {
-                // Publicaciones errors don't count as failures
+                  const { data: pr } = await supabase.functions.invoke(
+                    "sync-publicaciones-by-work-item",
+                    { body: { work_item_id: workItem.id, _scheduled: true } }
+                  );
+                  pubResult = pr;
+                  pubInserted = pr?.inserted_count || 0;
+                } catch {
+                  // Publicaciones errors don't count as failures
+                }
               }
             }
 
