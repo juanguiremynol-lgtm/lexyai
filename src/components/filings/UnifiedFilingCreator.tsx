@@ -1,23 +1,23 @@
 import { useState } from "react";
 import { NewFilingTypeSelector, FilingCategory } from "./NewFilingTypeSelector";
 import { RadicadoBranchStep, type RadicadoBranch } from "./RadicadoBranchStep";
+import { JudicialWithRadicadoDialog } from "./JudicialWithRadicadoDialog";
 import { NewCGPFilingDialog } from "./NewCGPFilingDialog";
-import { NewCGPWithRadicadoDialog } from "./NewCGPWithRadicadoDialog";
+import { NewLaboralFilingDialog } from "./NewLaboralFilingDialog";
 import { NewTutelaDialog } from "@/components/tutelas/NewTutelaDialog";
 import { NewHabeasCorpusDialog } from "@/components/tutelas/NewHabeasCorpusDialog";
 import { NewPeticionDialog } from "@/components/peticiones/NewPeticionDialog";
 import { NewAdminProcessDialog } from "@/components/pipeline/NewAdminProcessDialog";
 import { NewCpacaDialog } from "@/components/cpaca/NewCpacaDialog";
 
-// Judicial workflow types that support radicado branching
-const JUDICIAL_TYPES_WITH_BRANCHING: FilingCategory[] = ["CGP"];
-// TUTELA already has radicado branching built into its dialog
-// CPACA has optional radicado in its form
-// HABEAS_CORPUS uses the same flow as TUTELA
+// Judicial workflow types that get the "¿Ya tiene radicado?" branching step
+const JUDICIAL_TYPES_WITH_BRANCHING: FilingCategory[] = ["CGP", "LABORAL", "CPACA", "TUTELA"];
 
 const WORKFLOW_LABELS: Record<string, string> = {
   CGP: "Nueva Demanda CGP",
+  LABORAL: "Nuevo Proceso Laboral",
   CPACA: "Nuevo Proceso CPACA",
+  TUTELA: "Nueva Acción de Tutela",
 };
 
 interface UnifiedFilingCreatorProps {
@@ -40,7 +40,11 @@ export function UnifiedFilingCreator({
   clientName,
 }: UnifiedFilingCreatorProps) {
   const [selectedType, setSelectedType] = useState<FilingCategory | null>(initialType || null);
-  const [step, setStep] = useState<Step>(initialType ? (JUDICIAL_TYPES_WITH_BRANCHING.includes(initialType) ? "radicado_branch" : "dialog") : "select");
+  const [step, setStep] = useState<Step>(
+    initialType
+      ? JUDICIAL_TYPES_WITH_BRANCHING.includes(initialType) ? "radicado_branch" : "dialog"
+      : "select"
+  );
   const [radicadoBranch, setRadicadoBranch] = useState<RadicadoBranch | null>(null);
 
   const handleSelectType = (type: FilingCategory) => {
@@ -68,19 +72,23 @@ export function UnifiedFilingCreator({
     setStep("select");
   };
 
+  const resetState = () => {
+    setSelectedType(initialType || null);
+    setRadicadoBranch(null);
+    setStep(
+      initialType
+        ? JUDICIAL_TYPES_WITH_BRANCHING.includes(initialType) ? "radicado_branch" : "dialog"
+        : "select"
+    );
+  };
+
   const handleClose = (isOpen: boolean) => {
-    if (!isOpen) {
-      setSelectedType(initialType || null);
-      setRadicadoBranch(null);
-      setStep(initialType ? (JUDICIAL_TYPES_WITH_BRANCHING.includes(initialType) ? "radicado_branch" : "dialog") : "select");
-    }
+    if (!isOpen) resetState();
     onOpenChange(isOpen);
   };
 
   const handleSuccess = () => {
-    setSelectedType(initialType || null);
-    setRadicadoBranch(null);
-    setStep(initialType ? (JUDICIAL_TYPES_WITH_BRANCHING.includes(initialType) ? "radicado_branch" : "dialog") : "select");
+    resetState();
     onSuccess?.();
   };
 
@@ -108,7 +116,7 @@ export function UnifiedFilingCreator({
     );
   }
 
-  // Step 3: Specific dialog
+  // Step 3: Specific dialog based on type + branch
   if (step === "dialog" && selectedType) {
     const backHandler = initialType
       ? undefined
@@ -116,20 +124,24 @@ export function UnifiedFilingCreator({
         ? handleBackToBranch
         : handleBackToSelect;
 
-    // CGP with radicado branching
+    // ── With radicado path → generic JudicialWithRadicadoDialog ──
+    if (radicadoBranch === "with_radicado" && JUDICIAL_TYPES_WITH_BRANCHING.includes(selectedType)) {
+      return (
+        <JudicialWithRadicadoDialog
+          open={open}
+          onOpenChange={handleClose}
+          onBack={backHandler}
+          onSuccess={handleSuccess}
+          defaultClientId={clientId}
+          workflowKey={selectedType as "CGP" | "LABORAL" | "CPACA" | "TUTELA"}
+        />
+      );
+    }
+
+    // ── Without radicado (filing) paths ──
+
+    // CGP filing
     if (selectedType === "CGP") {
-      if (radicadoBranch === "with_radicado") {
-        return (
-          <NewCGPWithRadicadoDialog
-            open={open}
-            onOpenChange={handleClose}
-            onBack={backHandler}
-            onSuccess={handleSuccess}
-            defaultClientId={clientId}
-          />
-        );
-      }
-      // without_radicado → existing filing dialog
       return (
         <NewCGPFilingDialog
           open={open}
@@ -141,7 +153,20 @@ export function UnifiedFilingCreator({
       );
     }
 
-    // CPACA
+    // LABORAL filing
+    if (selectedType === "LABORAL") {
+      return (
+        <NewLaboralFilingDialog
+          open={open}
+          onOpenChange={handleClose}
+          onBack={backHandler}
+          onSuccess={handleSuccess}
+          defaultClientId={clientId}
+        />
+      );
+    }
+
+    // CPACA filing (existing dialog with optional radicado)
     if (selectedType === "CPACA") {
       return (
         <NewCpacaDialog
@@ -154,7 +179,7 @@ export function UnifiedFilingCreator({
       );
     }
 
-    // TUTELA (has built-in radicado branching)
+    // TUTELA filing (existing dialog with built-in radicado flow)
     if (selectedType === "TUTELA") {
       return (
         <NewTutelaDialog
