@@ -16,6 +16,7 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import { getWindowBounds } from '@/lib/colombia-date-utils';
 import { filterToLatestTickerItems } from './latest-estado-selector';
 
 // ============= TYPES =============
@@ -225,9 +226,12 @@ export async function getTickerItems(
   organizationId: string,
   limit: number = 50
 ): Promise<TickerItem[]> {
-  // Fetch from both sources in parallel
-  const [publicacionesResult, actuacionesResult] = await Promise.all([
-    // Estados from Publicaciones API
+  // Use the same 1-week window as Estados de Hoy for consistency
+  const bounds = getWindowBounds('week');
+
+  // Fetch from both sources in parallel, using dual-criteria (discovered + court-posted)
+  const [pubDiscovered, pubCourtPosted, actuacionesResult] = await Promise.all([
+    // Estados discovered this week (by created_at)
     supabase
       .from('work_item_publicaciones')
       .select(`
@@ -255,10 +259,47 @@ export async function getTickerItems(
         )
       `)
       .eq('work_items.organization_id', organizationId)
+      .eq('is_archived', false)
+      .gte('created_at', bounds.created_start)
+      .lte('created_at', bounds.created_end)
       .order('created_at', { ascending: false })
       .limit(limit),
 
-    // Actuaciones from CPNU/SAMAI (via work_item_acts)
+    // Estados court-posted this week (by fecha_fijacion)
+    supabase
+      .from('work_item_publicaciones')
+      .select(`
+        id,
+        work_item_id,
+        title,
+        annotation,
+        published_at,
+        fecha_fijacion,
+        fecha_desfijacion,
+        despacho,
+        tipo_publicacion,
+        source,
+        pdf_url,
+        created_at,
+        work_items!inner (
+          id,
+          radicado,
+          workflow_type,
+          organization_id,
+          authority_name,
+          client:clients (
+            name
+          )
+        )
+      `)
+      .eq('work_items.organization_id', organizationId)
+      .eq('is_archived', false)
+      .gte('fecha_fijacion', bounds.date_start)
+      .lte('fecha_fijacion', bounds.date_end)
+      .order('fecha_fijacion', { ascending: false })
+      .limit(limit),
+
+    // Actuaciones from CPNU/SAMAI (via work_item_acts) — discovered this week
     supabase
       .from('work_item_acts')
       .select(`
@@ -282,15 +323,24 @@ export async function getTickerItems(
         )
       `)
       .eq('work_items.organization_id', organizationId)
+      .eq('is_archived', false)
+      .gte('created_at', bounds.created_start)
+      .lte('created_at', bounds.created_end)
       .order('created_at', { ascending: false })
       .limit(limit)
   ]);
 
+  // Merge publicaciones from both criteria, deduplicating by id
+  const pubMap = new Map<string, any>();
+  for (const row of pubDiscovered.data || []) pubMap.set(row.id, row);
+  for (const row of pubCourtPosted.data || []) pubMap.set(row.id, row);
+  const publicacionesData = Array.from(pubMap.values());
+
   const tickerItems: TickerItem[] = [];
 
   // Map publicaciones to ticker items
-  if (publicacionesResult.data) {
-    for (const pub of publicacionesResult.data) {
+  if (publicacionesData.length > 0) {
+    for (const pub of publicacionesData) {
       const workItem = pub.work_items as any;
       if (!workItem) continue;
 
