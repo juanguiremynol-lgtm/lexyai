@@ -23,6 +23,84 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-trace-id',
 };
 
+// ============= RETRY QUEUE HELPER =============
+
+function jitterMs(minMs: number, maxMs: number): number {
+  return Math.floor(minMs + Math.random() * (maxMs - minMs + 1));
+}
+
+/**
+ * Enqueue a delayed retry for SCRAPING_TIMEOUT failures.
+ * Uses UPSERT on (work_item_id, kind) to avoid duplicates.
+ */
+async function enqueueScrapingRetry(
+  supabase: any,
+  input: {
+    workItemId: string;
+    organizationId: string | null;
+    radicado: string;
+    workflowType: string;
+    stage?: string | null;
+    provider: string;
+    kind: 'ACT_SCRAPE_RETRY' | 'PUB_RETRY';
+    scrapingJobId?: string | null;
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }
+): Promise<void> {
+  try {
+    const nextRunAt = new Date(Date.now() + jitterMs(30_000, 60_000)).toISOString();
+    
+    // Check if already queued
+    const { data: existing } = await (supabase.from('sync_retry_queue') as any)
+      .select('id, attempt, max_attempts')
+      .eq('work_item_id', input.workItemId)
+      .eq('kind', input.kind)
+      .maybeSingle();
+
+    if (existing) {
+      // Already queued — increment attempt and reschedule
+      if (existing.attempt < existing.max_attempts) {
+        await (supabase.from('sync_retry_queue') as any)
+          .update({
+            attempt: existing.attempt + 1,
+            next_run_at: nextRunAt,
+            last_error_code: input.errorCode || 'SCRAPING_TIMEOUT',
+            last_error_message: input.errorMessage || 'Rescheduled',
+            scraping_job_id: input.scrapingJobId || null,
+          })
+          .eq('id', existing.id);
+        console.log(`[sync-by-work-item] Retry rescheduled: attempt ${existing.attempt + 1}/${existing.max_attempts}, next_run_at=${nextRunAt}`);
+      } else {
+        console.log(`[sync-by-work-item] Retry already at max attempts (${existing.max_attempts}), not rescheduling`);
+      }
+      return;
+    }
+
+    // Insert new retry task
+    await (supabase.from('sync_retry_queue') as any).insert({
+      work_item_id: input.workItemId,
+      organization_id: input.organizationId,
+      radicado: input.radicado,
+      workflow_type: input.workflowType,
+      stage: input.stage || null,
+      kind: input.kind,
+      provider: input.provider,
+      attempt: 1,
+      max_attempts: 3,
+      next_run_at: nextRunAt,
+      last_error_code: input.errorCode || 'SCRAPING_TIMEOUT',
+      last_error_message: input.errorMessage || 'Initial retry scheduled',
+      scraping_job_id: input.scrapingJobId || null,
+    });
+
+    console.log(`[sync-by-work-item] Retry enqueued: kind=${input.kind}, provider=${input.provider}, next_run_at=${nextRunAt}`);
+  } catch (err) {
+    // Non-blocking — retry queue is best-effort
+    console.warn('[sync-by-work-item] Failed to enqueue retry:', err);
+  }
+}
+
 // ============= TYPES =============
 
 interface SyncRequest {
@@ -2759,8 +2837,23 @@ Deno.serve(async (req) => {
           })
           .eq('id', work_item_id);
         
+        // Enqueue delayed retry for TUTELA SCRAPING_TIMEOUT
+        await enqueueScrapingRetry(supabase, {
+          workItemId: work_item_id,
+          organizationId: workItem.organization_id,
+          radicado: workItem.radicado || '',
+          workflowType: workItem.workflow_type,
+          stage: (workItem as any).stage || null,
+          provider: scrapingResult.provider || 'tutelas-api',
+          kind: 'ACT_SCRAPE_RETRY',
+          scrapingJobId: scrapingResult.scrapingJobId,
+          errorCode: 'SCRAPING_TIMEOUT',
+          errorMessage: 'TUTELA scraping initiated, retry scheduled',
+        });
+
         result.trace_id = traceId;
         result.provider_order_reason = 'tutela_parallel_scraping_initiated';
+        result.code = 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
         return jsonResponse(result, 202);
       }
       
@@ -3063,7 +3156,22 @@ Deno.serve(async (req) => {
             })
             .eq('id', work_item_id);
           
+          // Enqueue delayed retry for SAMAI SCRAPING_TIMEOUT
+          await enqueueScrapingRetry(supabase, {
+            workItemId: work_item_id,
+            organizationId: workItem.organization_id,
+            radicado: workItem.radicado || '',
+            workflowType: workItem.workflow_type,
+            stage: (workItem as any).stage || null,
+            provider: 'samai',
+            kind: 'ACT_SCRAPE_RETRY',
+            scrapingJobId: fetchResult.scrapingJobId,
+            errorCode: 'SCRAPING_TIMEOUT',
+            errorMessage: 'SAMAI scraping initiated, retry scheduled',
+          });
+
           result.trace_id = traceId;
+          result.code = 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
           return jsonResponse(result, 202);
         }
         
@@ -3201,7 +3309,22 @@ Deno.serve(async (req) => {
             })
             .eq('id', work_item_id);
           
+          // Enqueue delayed retry for SCRAPING_TIMEOUT
+          await enqueueScrapingRetry(supabase, {
+            workItemId: work_item_id,
+            organizationId: workItem.organization_id,
+            radicado: workItem.radicado || '',
+            workflowType: workItem.workflow_type,
+            stage: (workItem as any).stage || null,
+            provider: 'cpnu',
+            kind: 'ACT_SCRAPE_RETRY',
+            scrapingJobId: fetchResult.scrapingJobId,
+            errorCode: 'SCRAPING_TIMEOUT',
+            errorMessage: fetchResult.scrapingMessage || 'Scraping initiated, retry scheduled',
+          });
+
           result.trace_id = traceId;
+          result.code = 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
           return jsonResponse(result, 202);
         }
         
@@ -3330,9 +3453,24 @@ Deno.serve(async (req) => {
           })
           .eq('id', work_item_id);
         
+        // Enqueue delayed retry for SCRAPING_TIMEOUT (generic path)
+        await enqueueScrapingRetry(supabase, {
+          workItemId: work_item_id,
+          organizationId: workItem.organization_id,
+          radicado: workItem.radicado || '',
+          workflowType: workItem.workflow_type,
+          stage: (workItem as any).stage || null,
+          provider: providerUsed,
+          kind: 'ACT_SCRAPE_RETRY',
+          scrapingJobId: fetchResult.scrapingJobId,
+          errorCode: 'SCRAPING_TIMEOUT',
+          errorMessage: fetchResult.scrapingMessage || 'Scraping initiated, retry scheduled',
+        });
+
         // Return with scraping info - use 202 Accepted to indicate async processing
         result.ok = false; // Still "failed" to get data, but scraping is happening
         result.trace_id = traceId;
+        result.code = 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
         return jsonResponse(result, 202);
       }
       

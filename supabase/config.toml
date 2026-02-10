@@ -125,3 +125,6 @@ verify_jwt = false
 
 [functions.superadmin-lexy-analysis]
 verify_jwt = false
+
+[functions.process-retry-queue]
+verify_jwt = false

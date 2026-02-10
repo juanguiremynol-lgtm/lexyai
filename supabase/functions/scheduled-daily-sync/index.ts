@@ -280,25 +280,42 @@ async function syncOrganization(
       item.radicado && item.radicado.replace(/\D/g, '').length === 23
     );
 
-    // === 404 COOLDOWN: deprioritize items that got PROVIDER_404 in last 48h ===
+    // === SKIP items with pending retries in sync_retry_queue ===
+    // These are already being handled by process-retry-queue
     let sortedItems = [...eligibleItems];
     if (sortedItems.length > 0) {
       const itemIds = sortedItems.map((w: any) => w.id);
-      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const { data: recent404s } = await supabase
-        .from("sync_traces")
+      
+      const { data: pendingRetries } = await (supabase.from("sync_retry_queue") as any)
         .select("work_item_id")
-        .in("work_item_id", itemIds)
-        .eq("error_code", "PROVIDER_404")
-        .gte("created_at", fortyEightHoursAgo);
+        .in("work_item_id", itemIds);
 
-      if (recent404s && recent404s.length > 0) {
-        const cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
-        const priorityItems = sortedItems.filter((w: any) => !cooldownIds.has(w.id));
-        const cooldownItems = sortedItems.filter((w: any) => cooldownIds.has(w.id));
-        sortedItems = [...priorityItems, ...cooldownItems];
-        if (cooldownItems.length > 0) {
-          console.log(`[scheduled-daily-sync] ${cooldownItems.length} items in 404 cooldown (deprioritized)`);
+      if (pendingRetries && pendingRetries.length > 0) {
+        const retryIds = new Set(pendingRetries.map((r: any) => r.work_item_id));
+        const beforeCount = sortedItems.length;
+        sortedItems = sortedItems.filter((w: any) => !retryIds.has(w.id));
+        console.log(`[scheduled-daily-sync] Skipped ${beforeCount - sortedItems.length} items with pending retries`);
+      }
+
+      // === 404 COOLDOWN: deprioritize items that got PROVIDER_404 in last 48h ===
+      if (sortedItems.length > 0) {
+        const remainingIds = sortedItems.map((w: any) => w.id);
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        const { data: recent404s } = await supabase
+          .from("sync_traces")
+          .select("work_item_id")
+          .in("work_item_id", remainingIds)
+          .eq("error_code", "PROVIDER_404")
+          .gte("created_at", fortyEightHoursAgo);
+
+        if (recent404s && recent404s.length > 0) {
+          const cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
+          const priorityItems = sortedItems.filter((w: any) => !cooldownIds.has(w.id));
+          const cooldownItems = sortedItems.filter((w: any) => cooldownIds.has(w.id));
+          sortedItems = [...priorityItems, ...cooldownItems];
+          if (cooldownItems.length > 0) {
+            console.log(`[scheduled-daily-sync] ${cooldownItems.length} items in 404 cooldown (deprioritized)`);
+          }
         }
       }
     }
