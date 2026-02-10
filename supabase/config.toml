@@ -131,3 +131,21 @@ verify_jwt = false
 
 [functions.atenia-ai-autopilot]
 verify_jwt = false
+
+[functions.provider-create-connector]
+verify_jwt = false
+
+[functions.provider-create-instance]
+verify_jwt = false
+
+[functions.provider-test-connection]
+verify_jwt = false
+
+[functions.provider-resolve-source]
+verify_jwt = false
+
+[functions.provider-sync-external-provider]
+verify_jwt = false
+
+[functions.provider-rotate-secret]
+verify_jwt = false
