@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ─── Normalization (mirrors importer) ───
+// ─── Text normalization ───
 function removeAccents(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -20,7 +20,6 @@ const STOPWORDS = new Set(["de", "del", "la", "el", "los", "las", "y", "e", "en"
 function normSoft(s: string): string {
   return normalizeBase(s).split(" ").filter((w) => !STOPWORDS.has(w)).join(" ");
 }
-
 const ABBREV: Record<string, string> = {
   j: "juzgado", jdo: "juzgado", juzg: "juzgado",
   trib: "tribunal", mpal: "municipal",
@@ -31,7 +30,6 @@ const ABBREV: Record<string, string> = {
 function expandAbbreviations(s: string): string {
   return s.split(" ").map((w) => ABBREV[w] || w).join(" ");
 }
-
 function extractCourtNumber(name: string): number | null {
   const normalized = normalizeBase(name);
   const digitMatch = normalized.match(/(?:juzgado|despacho)\s+(\d{1,3})/);
@@ -46,7 +44,7 @@ function extractCourtNumber(name: string): number | null {
   return null;
 }
 
-// Trigram similarity (Jaccard on character trigrams)
+// ─── Trigram similarity ───
 function trigrams(s: string): Set<string> {
   const padded = `  ${s} `;
   const t = new Set<string>();
@@ -64,6 +62,54 @@ function trigramSimilarity(a: string, b: string): number {
   return union === 0 ? 0 : intersection / union;
 }
 
+// ─── Radicado parser (mirrors frontend) ───
+interface RadicadoBlocks {
+  dane: string;
+  dept: string;
+  municipality: string;
+  corp: string;
+  esp: string;
+  desp: string;
+  year: string;
+  consec: string;
+  recurso: string;
+}
+
+interface ParseResult {
+  valid: boolean;
+  blocks?: RadicadoBlocks;
+  radicado23?: string;
+  errors: string[];
+}
+
+function parseRadicado(input: string | null | undefined): ParseResult {
+  if (!input) return { valid: false, errors: ["No radicado provided"] };
+  const cleaned = input.replace(/\D/g, "");
+  if (cleaned.length !== 23) return { valid: false, errors: [`Length ${cleaned.length}, expected 23`] };
+  if (!/^\d{23}$/.test(cleaned)) return { valid: false, errors: ["Non-numeric"] };
+
+  const blocks: RadicadoBlocks = {
+    dane: cleaned.slice(0, 5),
+    dept: cleaned.slice(0, 2),
+    municipality: cleaned.slice(2, 5),
+    corp: cleaned.slice(5, 7),
+    esp: cleaned.slice(7, 9),
+    desp: cleaned.slice(9, 12),
+    year: cleaned.slice(12, 16),
+    consec: cleaned.slice(16, 21),
+    recurso: cleaned.slice(21, 23),
+  };
+
+  const yearNum = parseInt(blocks.year, 10);
+  const currentYear = new Date().getFullYear();
+  if (yearNum < 1990 || yearNum > currentYear + 1) {
+    return { valid: false, errors: [`Year ${blocks.year} out of range`] };
+  }
+
+  return { valid: true, blocks, radicado23: cleaned, errors: [] };
+}
+
+// ─── Types ───
 interface Candidate {
   id: number;
   email: string;
@@ -77,7 +123,12 @@ interface Candidate {
   name_norm_hard: string;
   codigo_despacho_norm: string | null;
   account_type_norm: string | null;
+  dane_code: string | null;
+  corp_code: string | null;
+  esp_code: string | null;
+  desp_code: string | null;
   score: number;
+  radicado_match_details?: Record<string, string>;
 }
 
 Deno.serve(async (req) => {
@@ -114,7 +165,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Extract input sources — merge: overrides > raw_courthouse_input > scraped_fields > authority_*
+    // Extract inputs
     const rawInput = workItem.raw_courthouse_input as Record<string, string> || {};
     const scrapedFields = workItem.scraped_fields as Record<string, unknown> || {};
     const scrapedDespacho = scrapedFields.despacho as Record<string, string> || {};
@@ -129,7 +180,29 @@ Deno.serve(async (req) => {
 
     let codeNorm = inputCode.replace(/\D/g, "").trim() || null;
 
-    if (!inputName && !inputCity && !inputDept && !codeNorm) {
+    // ─── Parse radicado ───
+    const radicadoInput = body.radicado || workItem.radicado || "";
+    const radParsed = parseRadicado(radicadoInput);
+    const radBlocks = radParsed.blocks;
+
+    // Store radicado analysis on work_item
+    if (radicadoInput) {
+      await supabase.from("work_items").update({
+        radicado_valid: radParsed.valid,
+        radicado_blocks: radParsed.valid && radBlocks ? {
+          dane: radBlocks.dane,
+          corp: radBlocks.corp,
+          esp: radBlocks.esp,
+          desp: radBlocks.desp,
+          year: radBlocks.year,
+          consec: radBlocks.consec,
+          recurso: radBlocks.recurso,
+        } : null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", work_item_id);
+    }
+
+    if (!inputName && !inputCity && !inputDept && !codeNorm && !radParsed.valid) {
       await supabase.from("work_items").update({
         resolution_method: "not_found",
         resolution_confidence: 0,
@@ -153,11 +226,67 @@ Deno.serve(async (req) => {
     const courtClassNorm = inputCourtClass ? normalizeBase(inputCourtClass) : null;
 
     // ─── Candidate generation ───
-    const selectFields = "id, email, nombre_raw, dept_norm, city_norm, court_class, specialty_norm, court_number, name_norm_soft, name_norm_hard, codigo_despacho_norm, account_type_norm";
+    const selectFields = "id, email, nombre_raw, dept_norm, city_norm, court_class, specialty_norm, court_number, name_norm_soft, name_norm_hard, codigo_despacho_norm, account_type_norm, dane_code, corp_code, esp_code, desp_code";
     let candidates: Candidate[] = [];
 
-    // Strategy 1: by codigo_despacho
-    if (codeNorm) {
+    // Strategy 0: Radicado-based exact code match (highest priority)
+    if (radParsed.valid && radBlocks) {
+      // Try full match: dane + corp + esp + desp
+      const { data } = await supabase
+        .from("courthouse_directory")
+        .select(selectFields)
+        .eq("dane_code", radBlocks.dane)
+        .eq("corp_code", radBlocks.corp)
+        .eq("esp_code", radBlocks.esp)
+        .eq("desp_code", radBlocks.desp)
+        .limit(20);
+      if (data && data.length > 0) {
+        candidates = data.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "exact_full" } }));
+      }
+
+      // Relax: dane + corp + desp (skip esp)
+      if (candidates.length === 0) {
+        const { data: d2 } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .eq("dane_code", radBlocks.dane)
+          .eq("corp_code", radBlocks.corp)
+          .eq("desp_code", radBlocks.desp)
+          .limit(30);
+        if (d2 && d2.length > 0) {
+          candidates = d2.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_corp_desp" } }));
+        }
+      }
+
+      // Relax: dane + corp + esp (skip desp)
+      if (candidates.length === 0) {
+        const { data: d3 } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .eq("dane_code", radBlocks.dane)
+          .eq("corp_code", radBlocks.corp)
+          .eq("esp_code", radBlocks.esp)
+          .limit(30);
+        if (d3 && d3.length > 0) {
+          candidates = d3.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_corp_esp" } }));
+        }
+      }
+
+      // Relax: dane only (broadest radicado filter)
+      if (candidates.length === 0) {
+        const { data: d4 } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .eq("dane_code", radBlocks.dane)
+          .limit(200);
+        if (d4 && d4.length > 0) {
+          candidates = d4.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_only" } }));
+        }
+      }
+    }
+
+    // Strategy 1: by codigo_despacho (if no radicado candidates)
+    if (candidates.length === 0 && codeNorm) {
       const { data } = await supabase
         .from("courthouse_directory")
         .select(selectFields)
@@ -174,7 +303,6 @@ Deno.serve(async (req) => {
         .eq("dept_norm", deptNorm)
         .eq("city_norm", cityNorm)
         .limit(200);
-      
       if (data) {
         candidates = data
           .map((r) => ({ ...r, score: 0 }))
@@ -192,7 +320,6 @@ Deno.serve(async (req) => {
         .select(selectFields)
         .eq("dept_norm", deptNorm)
         .limit(300);
-      
       if (data) {
         candidates = data
           .map((r) => ({ ...r, score: 0 }))
@@ -211,10 +338,8 @@ Deno.serve(async (req) => {
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-
       await supabase.from("work_items").update(updateData).eq("id", work_item_id);
 
-      // Audit log
       if (workItem.organization_id) {
         await supabase.from("audit_logs").insert({
           organization_id: workItem.organization_id,
@@ -223,17 +348,17 @@ Deno.serve(async (req) => {
           action: "COURTHOUSE_EMAIL_NOT_FOUND",
           entity_type: "work_item",
           entity_id: work_item_id,
-          metadata: { input_name: inputName, input_city: inputCity, input_dept: inputDept },
+          metadata: { input_name: inputName, input_city: inputCity, input_dept: inputDept, radicado_valid: radParsed.valid },
         }).then(() => {});
       }
 
       return new Response(
-        JSON.stringify({ ok: true, method: "not_found", candidates_count: 0 }),
+        JSON.stringify({ ok: true, method: "not_found", candidates_count: 0, radicado_valid: radParsed.valid }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // ─── Hard gating ───
+    // ─── Hard gating (radicado-aware) ───
     const gated = candidates.filter((c) => {
       if (deptNorm && c.dept_norm !== deptNorm) return false;
       if (cityNorm && c.city_norm !== cityNorm) return false;
@@ -245,21 +370,90 @@ Deno.serve(async (req) => {
 
     const scorable = gated.length > 0 ? gated : candidates;
 
-    // ─── Scoring ───
+    // ─── Scoring (radicado-enhanced) ───
     const hasCode = !!codeNorm;
+    const hasRadicado = radParsed.valid && !!radBlocks;
+
     for (const c of scorable) {
       let score = 0;
+      const matchDetails: Record<string, string> = {};
 
-      // Code match (strong signal)
+      // Radicado code matching (strongest signal)
+      if (hasRadicado && radBlocks) {
+        let radScore = 0;
+        let radChecks = 0;
+        let radMatches = 0;
+
+        // DANE must match (mandatory for radicado-based scoring)
+        if (c.dane_code) {
+          radChecks++;
+          if (c.dane_code === radBlocks.dane) {
+            radMatches++;
+            matchDetails.dane = "match";
+          } else {
+            matchDetails.dane = "mismatch";
+          }
+        }
+
+        // CORP
+        if (c.corp_code) {
+          radChecks++;
+          if (c.corp_code === radBlocks.corp) {
+            radMatches++;
+            matchDetails.corp = "match";
+          } else {
+            matchDetails.corp = "mismatch";
+          }
+        }
+
+        // ESP
+        if (c.esp_code) {
+          radChecks++;
+          if (c.esp_code === radBlocks.esp) {
+            radMatches++;
+            matchDetails.esp = "match";
+          } else {
+            matchDetails.esp = "mismatch";
+          }
+        }
+
+        // DESP (skip check for collegiate bodies 000)
+        if (c.desp_code && radBlocks.desp !== "000") {
+          radChecks++;
+          if (c.desp_code === radBlocks.desp) {
+            radMatches++;
+            matchDetails.desp = "match";
+          } else {
+            matchDetails.desp = "mismatch";
+          }
+        }
+
+        if (radChecks > 0) {
+          radScore = radMatches / radChecks;
+          // Heavy weight for radicado code match
+          score += radScore * 0.55;
+
+          // Penalize mismatches strongly
+          if (radMatches < radChecks) {
+            const mismatchPenalty = (radChecks - radMatches) * 0.08;
+            score -= mismatchPenalty;
+          }
+        }
+      }
+
+      // Despacho code match
       if (codeNorm && c.codigo_despacho_norm === codeNorm) {
-        score += 0.45;
+        score += hasRadicado ? 0.15 : 0.45;
+        matchDetails.codigo = "match";
       }
 
       // Name similarity
       if (nameNormSoft) {
         const softSim = trigramSimilarity(c.name_norm_soft, nameNormSoft);
         const hardSim = trigramSimilarity(c.name_norm_hard, expandAbbreviations(normalizeBase(inputName).toLowerCase()));
-        score += Math.max(softSim, hardSim) * 0.35;
+        const nameSim = Math.max(softSim, hardSim);
+        score += nameSim * (hasRadicado ? 0.20 : 0.35);
+        matchDetails.name_sim = nameSim.toFixed(2);
       }
 
       // Dept + city match
@@ -269,15 +463,16 @@ Deno.serve(async (req) => {
       // Court number match
       if (inputCourtNumber !== null && c.court_number === inputCourtNumber) score += 0.1;
 
-      // Account type preference: slight boost for 'Despacho Judicial'
+      // Account type preference
       if (c.account_type_norm && normSoft(c.account_type_norm) === normSoft(preferredAccountType)) {
         score += 0.02;
       }
 
-      c.score = Math.min(score, 1.0);
+      c.score = Math.max(0, Math.min(score, 1.0));
+      c.radicado_match_details = matchDetails;
     }
 
-    // Sort by score desc; for ties, prefer 'Despacho Judicial' account type
+    // Sort by score desc
     scorable.sort((a, b) => {
       if (Math.abs(b.score - a.score) > 0.001) return b.score - a.score;
       const aIsPreferred = a.account_type_norm && normSoft(a.account_type_norm) === normSoft(preferredAccountType);
@@ -292,11 +487,49 @@ Deno.serve(async (req) => {
     const margin = top2 ? top1.score - top2.score : 1.0;
     const nameSim = nameNormSoft ? trigramSimilarity(top1.name_norm_soft, nameNormSoft) : 0;
 
-    // ─── Decision ───
+    // ─── Radicado hard gating for auto-accept ───
+    let radicadoGatingPassed = true;
+    const radicadoGatingReasons: string[] = [];
+
+    if (hasRadicado && radBlocks) {
+      // Mandatory: DANE must match
+      if (top1.dane_code && top1.dane_code !== radBlocks.dane) {
+        radicadoGatingPassed = false;
+        radicadoGatingReasons.push(`DANE mismatch: ${top1.dane_code} vs ${radBlocks.dane}`);
+      }
+      // If candidate has corp_code, it must match
+      if (top1.corp_code && top1.corp_code !== radBlocks.corp) {
+        radicadoGatingPassed = false;
+        radicadoGatingReasons.push(`CORP mismatch: ${top1.corp_code} vs ${radBlocks.corp}`);
+      }
+      // If candidate has esp_code, it must match
+      if (top1.esp_code && top1.esp_code !== radBlocks.esp) {
+        radicadoGatingPassed = false;
+        radicadoGatingReasons.push(`ESP mismatch: ${top1.esp_code} vs ${radBlocks.esp}`);
+      }
+      // If candidate has desp_code and not collegiate, it must match
+      if (top1.desp_code && radBlocks.desp !== "000" && top1.desp_code !== radBlocks.desp) {
+        radicadoGatingPassed = false;
+        radicadoGatingReasons.push(`DESP mismatch: ${top1.desp_code} vs ${radBlocks.desp}`);
+      }
+    }
+
+    // ─── Decision (stricter with radicado) ───
     let method: string;
     let needsReview = false;
 
-    if (hasCode) {
+    if (hasRadicado) {
+      // With radicado: require radicado gating + high score + strong margin
+      if (radicadoGatingPassed && top1.score >= 0.88 && margin >= 0.08) {
+        method = "auto_radicado";
+      } else if (radicadoGatingPassed && top1.score >= 0.75 && margin >= 0.05) {
+        method = "fuzzy_radicado";
+        needsReview = true;
+      } else {
+        method = "fuzzy_radicado";
+        needsReview = true;
+      }
+    } else if (hasCode) {
       if (top1.score >= 0.85 && margin >= 0.05) {
         method = "auto_code";
       } else {
@@ -304,18 +537,16 @@ Deno.serve(async (req) => {
         needsReview = true;
       }
     } else {
+      // Name-only: even stricter
       if (top1.score >= 0.92 && margin >= 0.08 && nameSim >= 0.85) {
         method = "auto_fuzzy";
-      } else if (top1.score >= 0.75 && margin >= 0.05) {
-        method = "fuzzy";
-        needsReview = true;
       } else {
         method = "fuzzy";
         needsReview = true;
       }
     }
 
-    // Build top 5 candidates for storage
+    // Build top 5 candidates
     const topCandidates = scorable.slice(0, 5).map((c) => ({
       id: c.id,
       email: c.email,
@@ -325,6 +556,7 @@ Deno.serve(async (req) => {
       specialty: c.specialty_norm,
       tipo_cuenta: c.account_type_norm || "",
       similarity_score: Math.round(c.score * 100) / 100,
+      radicado_match: c.radicado_match_details || null,
     }));
 
     // Persist resolution
@@ -346,7 +578,6 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
     };
 
-    // Also update authority_email if auto-accepted
     if (!needsReview) {
       updateData.authority_email = top1.email;
     }
@@ -369,6 +600,9 @@ Deno.serve(async (req) => {
           resolved_email: needsReview ? null : top1.email,
           candidates_count: topCandidates.length,
           total_scored: scorable.length,
+          radicado_valid: radParsed.valid,
+          radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
+          radicado_gating_reasons: radicadoGatingReasons.length > 0 ? radicadoGatingReasons : null,
         },
       }).then(() => {});
     }
@@ -382,6 +616,10 @@ Deno.serve(async (req) => {
         resolved_email: needsReview ? null : top1.email,
         top_candidates: topCandidates,
         total_candidates: scorable.length,
+        radicado_valid: radParsed.valid,
+        radicado_blocks: radParsed.valid ? radBlocks : null,
+        radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
+        radicado_gating_reasons: radicadoGatingReasons,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

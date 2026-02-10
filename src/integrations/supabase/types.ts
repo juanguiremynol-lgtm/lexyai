@@ -2044,13 +2044,17 @@ export type Database = {
           codigo_despacho_norm: string | null
           codigo_despacho_raw: string | null
           corp_area_norm: string
+          corp_code: string | null
           corporacion_area_raw: string | null
           court_class: string
           court_number: number | null
           court_number_padded: string | null
+          dane_code: string | null
           departamento_raw: string | null
           dept_norm: string
+          desp_code: string | null
           email: string
+          esp_code: string | null
           especialidad_area_raw: string | null
           id: number
           imported_at: string
@@ -2072,13 +2076,17 @@ export type Database = {
           codigo_despacho_norm?: string | null
           codigo_despacho_raw?: string | null
           corp_area_norm?: string
+          corp_code?: string | null
           corporacion_area_raw?: string | null
           court_class?: string
           court_number?: number | null
           court_number_padded?: string | null
+          dane_code?: string | null
           departamento_raw?: string | null
           dept_norm?: string
+          desp_code?: string | null
           email: string
+          esp_code?: string | null
           especialidad_area_raw?: string | null
           id?: number
           imported_at?: string
@@ -2100,13 +2108,17 @@ export type Database = {
           codigo_despacho_norm?: string | null
           codigo_despacho_raw?: string | null
           corp_area_norm?: string
+          corp_code?: string | null
           corporacion_area_raw?: string | null
           court_class?: string
           court_number?: number | null
           court_number_padded?: string | null
+          dane_code?: string | null
           departamento_raw?: string | null
           dept_norm?: string
+          desp_code?: string | null
           email?: string
+          esp_code?: string | null
           especialidad_area_raw?: string | null
           id?: number
           imported_at?: string
@@ -6581,7 +6593,9 @@ export type Database = {
           provider_reachable: boolean | null
           provider_sources: Json | null
           radicado: string | null
+          radicado_blocks: Json | null
           radicado_raw: string | null
+          radicado_valid: boolean | null
           radicado_verified: boolean | null
           raw_courthouse_input: Json | null
           resolution_candidates: Json | null
@@ -6709,7 +6723,9 @@ export type Database = {
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
+          radicado_blocks?: Json | null
           radicado_raw?: string | null
+          radicado_valid?: boolean | null
           radicado_verified?: boolean | null
           raw_courthouse_input?: Json | null
           resolution_candidates?: Json | null
@@ -6837,7 +6853,9 @@ export type Database = {
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
+          radicado_blocks?: Json | null
           radicado_raw?: string | null
+          radicado_valid?: boolean | null
           radicado_verified?: boolean | null
           raw_courthouse_input?: Json | null
           resolution_candidates?: Json | null
