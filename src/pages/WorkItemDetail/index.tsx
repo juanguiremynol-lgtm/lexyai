@@ -31,6 +31,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { CaseSetupChecklist } from "@/components/work-items/CaseSetupChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
+import { ReportToAteniaDialog } from "@/components/atenia/ReportToAteniaDialog";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -212,6 +213,12 @@ export default function WorkItemDetail() {
             )}
           </Button>
           
+          {/* Report to Atenia AI */}
+          <ReportToAteniaDialog
+            workItemId={workItem.id}
+            workItemRadicado={workItem.radicado || undefined}
+          />
+
           {/* Electronic File Button */}
           <ElectronicFileButton workItem={extendedWorkItem} />
           
