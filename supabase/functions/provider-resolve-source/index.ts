@@ -4,6 +4,7 @@ import {
   safeFetchProvider,
   buildAuthHeaders,
   type ProviderInstanceInfo,
+  type ProviderSecurityWarning,
 } from "../_shared/externalProviderClient.ts";
 
 const corsHeaders = {
@@ -148,14 +149,30 @@ Deno.serve(async (req) => {
     });
 
     const resolveStart = Date.now();
+    const securityWarnings: ProviderSecurityWarning[] = [];
     const resolveRes = await safeFetchProvider({
       url: resolveUrl,
       allowlist: providerInfo.allowed_domains,
       init: { method: "POST", headers, body: resolveBody },
       timeoutMs: providerInfo.timeout_ms,
+      onSecurityWarning: (w) => securityWarnings.push(w),
     });
     const resolveLatency = Date.now() - resolveStart;
     const resolveData = await resolveRes.json();
+
+    // Write security warning trace if any
+    if (securityWarnings.length > 0) {
+      await adminClient.from("provider_sync_traces").insert({
+        organization_id: workItem.organization_id,
+        work_item_id,
+        provider_instance_id,
+        stage: "SECURITY",
+        result_code: "WARN",
+        ok: true,
+        latency_ms: 0,
+        payload: { warnings: securityWarnings },
+      });
+    }
 
     // Write trace
     await adminClient.from("provider_sync_traces").insert({

@@ -4,6 +4,7 @@ import {
   safeFetchProvider,
   buildAuthHeaders,
   type ProviderInstanceInfo,
+  type ProviderSecurityWarning,
 } from "../_shared/externalProviderClient.ts";
 import {
   isTransientError,
@@ -172,12 +173,14 @@ Deno.serve(async (req) => {
 
     const snapStart = Date.now();
     let snapRes: Response;
+    const securityWarnings: ProviderSecurityWarning[] = [];
     try {
       snapRes = await safeFetchProvider({
         url: snapshotUrl,
         allowlist: providerInfo.allowed_domains,
         init: { method: "POST", headers, body: snapshotBody },
         timeoutMs: providerInfo.timeout_ms,
+        onSecurityWarning: (w) => securityWarnings.push(w),
       });
     } catch (fetchErr: unknown) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
@@ -365,6 +368,11 @@ Deno.serve(async (req) => {
         consecutive_404_count: 0,
       })
       .eq("id", source.id);
+
+    // Write security warning trace if any
+    if (securityWarnings.length > 0) {
+      await writeTrace(db, runId, source, instance, "SECURITY", "WARN", true, 0, { warnings: securityWarnings });
+    }
 
     await writeTrace(db, runId, source, instance, "DONE", "OK", true, Date.now() - startTime, {
       actuaciones_received: acts.length,
