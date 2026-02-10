@@ -1,7 +1,8 @@
 /**
- * syncPolicy unit tests
+ * syncPolicy unit + integration-style tests
  *
  * Covers all invariant gates and semantics from the shared policy engine.
+ * Also validates wired-function behavior patterns.
  * Run with: npx vitest run src/lib/tests/syncPolicy.test.ts
  */
 
@@ -24,6 +25,7 @@ const DEMONITOR_ELIGIBLE_ERROR_CODES = [
 ];
 
 const DEFAULT_STALENESS_GUARD_DAYS = 14;
+const RETRY_JITTER_SECONDS: [number, number] = [30, 60];
 
 function isTransientError(code: string | null): boolean {
   if (!code) return false;
@@ -33,7 +35,11 @@ function isTransientError(code: string | null): boolean {
 interface SyncResult {
   ok?: boolean;
   scraping_initiated?: boolean;
+  scraping_job_id?: string;
+  scraping_provider?: string;
   code?: string;
+  message?: string;
+  inserted_count?: number;
   [key: string]: unknown;
 }
 
@@ -66,7 +72,7 @@ function shouldEnqueueRetry(
   syncResult: SyncResult | null | undefined,
   currentRetryRow: RetryRow | null | undefined,
 ) {
-  const noDecision = { enqueue: false, kind: "ACT_SCRAPE_RETRY" as const, reason: "" };
+  const noDecision = { enqueue: false, kind: "ACT_SCRAPE_RETRY" as const, nextRunAt: new Date(), reason: "" };
   if (!syncResult) return { ...noDecision, reason: "no_sync_result" };
   if (!isScrapingPending(syncResult)) return { ...noDecision, reason: "not_scraping_pending" };
   if (currentRetryRow) {
@@ -75,15 +81,24 @@ function shouldEnqueueRetry(
     }
     return { ...noDecision, reason: "retry_row_exhausted" };
   }
-  return { enqueue: true, kind: "ACT_SCRAPE_RETRY" as const, reason: "scraping_pending" };
+  const jitterSec = RETRY_JITTER_SECONDS[0] +
+    Math.floor(Math.random() * (RETRY_JITTER_SECONDS[1] - RETRY_JITTER_SECONDS[0] + 1));
+  return {
+    enqueue: true,
+    kind: "ACT_SCRAPE_RETRY" as const,
+    nextRunAt: new Date(Date.now() + jitterSec * 1000),
+    reason: `scraping_pending, no active retry row, jitter=${jitterSec}s`,
+  };
 }
 
 interface WorkItem {
   id: string;
   radicado?: string | null;
   consecutive_404_count?: number | null;
+  consecutive_failures?: number | null;
   last_error_code?: string | null;
   last_synced_at?: string | null;
+  monitoring_enabled?: boolean;
 }
 
 function shouldDemonitor(
@@ -107,11 +122,16 @@ function shouldDemonitor(
     if (item.last_synced_at > cutoff) blockedBy.push("RECENTLY_HEALTHY");
   }
 
-  if (blockedBy.length > 0) return { demonitor: false, blockedBy };
-  return { demonitor: true };
+  if (blockedBy.length > 0) return { demonitor: false, blockedBy, reason: `Blocked by: ${blockedBy.join(", ")}` };
+  return { demonitor: true, reason: `${c404} consecutive 404s, stale >${stalenessGuardDays}d` };
 }
 
-// ════════════════════════ Tests ════════════════════════
+function retryJitterMs(): number {
+  const [minSec, maxSec] = RETRY_JITTER_SECONDS;
+  return (minSec + Math.floor(Math.random() * (maxSec - minSec + 1))) * 1000;
+}
+
+// ════════════════════════ Unit Tests ════════════════════════
 
 describe("syncPolicy — shouldCountAsSuccess", () => {
   it("scraping_initiated must NOT count as success", () => {
@@ -166,6 +186,15 @@ describe("syncPolicy — shouldEnqueueRetry", () => {
   it("does NOT enqueue when not scraping pending", () => {
     expect(shouldEnqueueRetry({ ok: true }, null).enqueue).toBe(false);
     expect(shouldEnqueueRetry({ ok: false }, null).enqueue).toBe(false);
+  });
+
+  it("enqueue nextRunAt is within jitter bounds (30-60s)", () => {
+    const before = Date.now();
+    const result = shouldEnqueueRetry({ scraping_initiated: true }, null);
+    expect(result.enqueue).toBe(true);
+    const deltaMs = result.nextRunAt.getTime() - before;
+    expect(deltaMs).toBeGreaterThanOrEqual(29_000); // allow 1s margin
+    expect(deltaMs).toBeLessThanOrEqual(62_000);
   });
 });
 
@@ -227,5 +256,80 @@ describe("syncPolicy — isTransientError", () => {
     expect(isTransientError("PROVIDER_404")).toBe(false);
     expect(isTransientError("NETWORK_ERROR")).toBe(false);
     expect(isTransientError(null)).toBe(false);
+  });
+});
+
+describe("syncPolicy — retryJitterMs", () => {
+  it("returns value within 30-60s bounds (in ms)", () => {
+    for (let i = 0; i < 20; i++) {
+      const ms = retryJitterMs();
+      expect(ms).toBeGreaterThanOrEqual(30_000);
+      expect(ms).toBeLessThanOrEqual(60_000);
+    }
+  });
+});
+
+// ════════════════ Integration-style Tests ════════════════
+// These simulate the exact decision paths wired into the edge functions.
+
+describe("Integration: scraping_initiated=true flow", () => {
+  it("does NOT count as success, does NOT trigger pub sync, DOES enqueue retry", () => {
+    const syncResult: SyncResult = {
+      ok: false,
+      scraping_initiated: true,
+      scraping_job_id: "job_123",
+      scraping_provider: "cpnu",
+      code: "SCRAPING_INITIATED",
+      message: "Retry sync in 30-60 seconds",
+    };
+
+    // Step 1: Not success
+    expect(shouldCountAsSuccess(syncResult)).toBe(false);
+
+    // Step 2: Pub sync NOT triggered
+    expect(shouldRunPublicaciones(syncResult)).toBe(false);
+
+    // Step 3: Scraping is pending
+    expect(isScrapingPending(syncResult)).toBe(true);
+
+    // Step 4: Retry should be enqueued (no existing row)
+    const retryDecision = shouldEnqueueRetry(syncResult, null);
+    expect(retryDecision.enqueue).toBe(true);
+    expect(retryDecision.kind).toBe("ACT_SCRAPE_RETRY");
+  });
+});
+
+describe("Integration: ok=true flow", () => {
+  it("counts as success, triggers pub sync, does NOT enqueue retry", () => {
+    const syncResult: SyncResult = {
+      ok: true,
+      inserted_count: 5,
+    };
+
+    expect(shouldCountAsSuccess(syncResult)).toBe(true);
+    expect(shouldRunPublicaciones(syncResult)).toBe(true);
+    expect(isScrapingPending(syncResult)).toBe(false);
+    expect(shouldEnqueueRetry(syncResult, null).enqueue).toBe(false);
+  });
+});
+
+describe("Integration: demonitor candidate blocked by pending retry", () => {
+  it("does NOT demonitor when retry row exists even with high 404 count", () => {
+    const item: WorkItem = {
+      id: "wi_001",
+      radicado: "11001310300320230012300",
+      consecutive_404_count: 10,
+      last_error_code: "PROVIDER_404",
+      last_synced_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    // With pending retry
+    const result = shouldDemonitor(item, 5, true);
+    expect(result.demonitor).toBe(false);
+    expect(result.blockedBy).toContain("PENDING_RETRY");
+
+    // Without pending retry — should demonitor
+    const result2 = shouldDemonitor(item, 5, false);
+    expect(result2.demonitor).toBe(true);
   });
 });
