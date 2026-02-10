@@ -473,6 +473,7 @@ export function CourthouseEmailDisplay({ workItem }: CourthouseEmailDisplayProps
 
   // ─── Verified / Resolved ───
   const methodLabel =
+    method === "auto_radicado" ? "Verificado con radicado" :
     method === "auto_code" ? "Código exacto" :
     method === "auto_fuzzy" ? "Resolución automática" :
     method === "exact_code" ? "Código exacto" :

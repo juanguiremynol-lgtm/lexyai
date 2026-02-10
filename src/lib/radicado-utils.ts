@@ -17,6 +17,130 @@ export interface NormalizeResult {
   };
 }
 
+/**
+ * Parsed radicado blocks from a 23-digit radicado
+ * 
+ * Structure: DDDDD-CC-EE-DDD-YYYY-CCCCC-RR
+ *   DANE(5)  = dept(2) + municipality(3)
+ *   CORP(2)  = corporation/judicial body code
+ *   ESP(2)   = specialty/area code
+ *   DESP(3)  = consecutive office number
+ *   YEAR(4)  = filing year
+ *   CONSEC(5)= annual filing sequence
+ *   RECURSO(2)= appeal/resource sequence
+ */
+export interface RadicadoBlocks {
+  dane: string;       // 5 digits: dept(2) + municipality(3)
+  dept: string;       // 2 digits (from dane)
+  municipality: string; // 3 digits (from dane)
+  corp: string;       // 2 digits
+  esp: string;        // 2 digits
+  desp: string;       // 3 digits
+  year: string;       // 4 digits
+  consec: string;     // 5 digits
+  recurso: string;    // 2 digits
+}
+
+export interface ParseRadicadoResult {
+  valid: boolean;
+  blocks?: RadicadoBlocks;
+  radicado23?: string;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Parse a 23-digit radicado into its component blocks with validation.
+ */
+export function parseRadicadoBlocks(input: string): ParseRadicadoResult {
+  if (!input) {
+    return { valid: false, errors: ['El radicado no puede estar vacío'], warnings: [] };
+  }
+
+  const cleaned = normalizeRadicadoInput(input);
+  
+  if (cleaned.length === 0) {
+    return { valid: false, errors: ['El radicado no contiene dígitos válidos'], warnings: [] };
+  }
+  
+  if (cleaned.length !== 23) {
+    return {
+      valid: false,
+      errors: [`El radicado debe tener exactamente 23 dígitos (tiene ${cleaned.length})`],
+      warnings: [],
+    };
+  }
+
+  if (!/^\d{23}$/.test(cleaned)) {
+    return { valid: false, errors: ['El radicado debe contener solo dígitos numéricos'], warnings: [] };
+  }
+
+  const blocks: RadicadoBlocks = {
+    dane: cleaned.slice(0, 5),
+    dept: cleaned.slice(0, 2),
+    municipality: cleaned.slice(2, 5),
+    corp: cleaned.slice(5, 7),
+    esp: cleaned.slice(7, 9),
+    desp: cleaned.slice(9, 12),
+    year: cleaned.slice(12, 16),
+    consec: cleaned.slice(16, 21),
+    recurso: cleaned.slice(21, 23),
+  };
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate year (1990 to current+1)
+  const yearNum = parseInt(blocks.year, 10);
+  const currentYear = new Date().getFullYear();
+  if (yearNum < 1990 || yearNum > currentYear + 1) {
+    errors.push(`Año inválido: ${blocks.year} (esperado 1990–${currentYear + 1})`);
+  }
+
+  // Validate DANE is not all zeros
+  if (blocks.dane === '00000') {
+    errors.push('Código DANE inválido (00000)');
+  }
+
+  // Warn on unusual recurso values
+  const recursoNum = parseInt(blocks.recurso, 10);
+  if (recursoNum > 10) {
+    warnings.push(`Recurso ${blocks.recurso} es inusualmente alto`);
+  }
+
+  // Warn if desp is 000 (typically collegiate bodies)
+  if (blocks.desp === '000') {
+    warnings.push('Despacho 000 indica cuerpo colegiado (Tribunal/Corte)');
+  }
+
+  return {
+    valid: errors.length === 0,
+    blocks: errors.length === 0 ? blocks : undefined,
+    radicado23: cleaned,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Format radicado with block labels for display
+ */
+export function formatRadicadoWithLabels(radicado23: string): Array<{ label: string; value: string; code: string }> {
+  if (!radicado23 || radicado23.length !== 23) return [];
+  const parsed = parseRadicadoBlocks(radicado23);
+  if (!parsed.blocks) return [];
+  const b = parsed.blocks;
+  return [
+    { label: 'DANE (Depto + Muni)', value: b.dane, code: 'dane' },
+    { label: 'Corporación', value: b.corp, code: 'corp' },
+    { label: 'Especialidad', value: b.esp, code: 'esp' },
+    { label: 'Despacho', value: b.desp, code: 'desp' },
+    { label: 'Año', value: b.year, code: 'year' },
+    { label: 'Consecutivo', value: b.consec, code: 'consec' },
+    { label: 'Recurso', value: b.recurso, code: 'recurso' },
+  ];
+}
+
 export interface CompletenessValidation {
   isComplete: boolean;
   missingFields: string[];

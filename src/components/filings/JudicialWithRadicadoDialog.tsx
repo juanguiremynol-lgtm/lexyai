@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import type { WorkflowType } from "@/lib/workflow-constants";
 
 // ── Config per workflow type ────────────────────────────────────
@@ -409,7 +410,12 @@ export function JudicialWithRadicadoDialog({
                   {isLooking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                   Buscar
                 </Button>
-              </div>
+            </div>
+
+            {/* Inline radicado analysis */}
+            {formData.radicado.replace(/\D/g, '').length >= 20 && (
+              <RadicadoAnalyzer radicado={formData.radicado} compact />
+            )}
             </div>
 
             {isLooking && (
