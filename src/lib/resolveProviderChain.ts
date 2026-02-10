@@ -29,6 +29,7 @@ export interface CategoryRoute {
   priority: number;
   provider_instance_id: string;
   enabled: boolean;
+  is_authoritative?: boolean;
   provider_name?: string; // for display
 }
 

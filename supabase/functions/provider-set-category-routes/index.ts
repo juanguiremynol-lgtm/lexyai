@@ -23,6 +23,7 @@ interface RouteInput {
   priority: number;
   provider_instance_id: string;
   enabled: boolean;
+  is_authoritative?: boolean;
 }
 
 const VALID_WORKFLOWS = ["CGP", "CPACA", "TUTELA", "PENAL_906", "LABORAL", "PETICION", "GOV_PROCEDURE", "ADMIN"];
@@ -150,6 +151,19 @@ Deno.serve(async (req) => {
       );
     }
 
+    // If any route is marked authoritative, clear existing authoritative for same org/workflow/scope
+    for (const r of routes) {
+      if (r.is_authoritative) {
+        await adminClient
+          .from("provider_category_routes")
+          .update({ is_authoritative: false })
+          .eq("organization_id", organization_id)
+          .eq("workflow", r.workflow)
+          .eq("scope", r.scope)
+          .eq("is_authoritative", true);
+      }
+    }
+
     // Upsert routes
     for (const r of routes) {
       if (r.id) {
@@ -163,11 +177,12 @@ Deno.serve(async (req) => {
             priority: r.priority,
             provider_instance_id: r.provider_instance_id,
             enabled: r.enabled,
+            is_authoritative: r.is_authoritative ?? false,
           })
           .eq("id", r.id)
           .eq("organization_id", organization_id);
       } else {
-        // Insert new — handle priority conflict by shifting
+        // Insert new
         await adminClient
           .from("provider_category_routes")
           .insert({
@@ -178,6 +193,7 @@ Deno.serve(async (req) => {
             priority: r.priority,
             provider_instance_id: r.provider_instance_id,
             enabled: r.enabled,
+            is_authoritative: r.is_authoritative ?? false,
           });
       }
     }

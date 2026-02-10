@@ -1,6 +1,6 @@
 /**
  * PlatformExternalProvidersSetup — Top-level page for super admin provider configuration.
- * Wizard-like flow: Connector → Instance → Preflight → E2E → Routing → Traces.
+ * Wizard-like flow: Connector → Instance → Preflight → E2E → Routing → Merge → Coverage → Traces.
  */
 
 import { useState } from "react";
@@ -11,6 +11,8 @@ import { ProviderE2EValidationPanel } from "./ProviderE2EValidationPanel";
 import { ProviderTracesViewer } from "./ProviderTracesViewer";
 import { CategoryRoutingCard } from "./CategoryRoutingCard";
 import { EffectiveRoutingPreview } from "./EffectiveRoutingPreview";
+import { MergePolicyCard } from "./MergePolicyCard";
+import { ProviderCoveragePanel } from "./ProviderCoveragePanel";
 import { Separator } from "@/components/ui/separator";
 import { Cable } from "lucide-react";
 
@@ -30,7 +32,7 @@ export function PlatformExternalProvidersSetup() {
           External Providers Setup
         </h1>
         <p className="text-slate-400 mt-1">
-          Configuración guiada de proveedores externos. Paneles A → B → C → D → E → F.
+          Configuración guiada de proveedores externos. Paneles A → B → C → D → E → F → G → H.
         </p>
       </div>
 
@@ -62,6 +64,17 @@ export function PlatformExternalProvidersSetup() {
 
       {/* Panel F: Effective Routing Preview */}
       <EffectiveRoutingPreview organizationId={selectedOrgId} />
+
+      <Separator className="bg-slate-800" />
+
+      {/* Panel G: Merge Policies */}
+      <MergePolicyCard organizationId={selectedOrgId} />
+
+      {/* Panel H: Coverage + Conflicts */}
+      <ProviderCoveragePanel
+        organizationId={selectedOrgId}
+        instanceId={selectedInstance?.id}
+      />
 
       <Separator className="bg-slate-800" />
 

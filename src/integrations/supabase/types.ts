@@ -14,6 +14,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      act_provenance: {
+        Row: {
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          provider_event_id: string | null
+          provider_instance_id: string
+          work_item_act_id: string
+        }
+        Insert: {
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          provider_event_id?: string | null
+          provider_instance_id: string
+          work_item_act_id: string
+        }
+        Update: {
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          provider_event_id?: string | null
+          provider_instance_id?: string
+          work_item_act_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "act_provenance_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       actuaciones: {
         Row: {
           act_date: string | null
@@ -5225,11 +5260,62 @@ export type Database = {
           },
         ]
       }
+      provider_category_policies: {
+        Row: {
+          allow_merge_on_empty: boolean
+          created_at: string
+          id: string
+          merge_budget_max_ms: number
+          merge_budget_max_providers: number
+          merge_mode: string
+          organization_id: string
+          scope: string
+          strategy: string
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          id?: string
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          organization_id: string
+          scope?: string
+          strategy?: string
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          id?: string
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          organization_id?: string
+          scope?: string
+          strategy?: string
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_category_policies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_category_routes: {
         Row: {
           created_at: string
           enabled: boolean
           id: string
+          is_authoritative: boolean
           organization_id: string
           priority: number
           provider_instance_id: string
@@ -5242,6 +5328,7 @@ export type Database = {
           created_at?: string
           enabled?: boolean
           id?: string
+          is_authoritative?: boolean
           organization_id: string
           priority?: number
           provider_instance_id: string
@@ -5254,6 +5341,7 @@ export type Database = {
           created_at?: string
           enabled?: boolean
           id?: string
+          is_authoritative?: boolean
           organization_id?: string
           priority?: number
           provider_instance_id?: string
@@ -5428,6 +5516,76 @@ export type Database = {
           },
         ]
       }
+      provider_merge_conflicts: {
+        Row: {
+          created_at: string
+          dedupe_key: string
+          field_name: string
+          id: string
+          organization_id: string
+          primary_provider_instance_id: string | null
+          primary_value: string | null
+          resolved: boolean
+          resolved_at: string | null
+          scope: string
+          secondary_provider_instance_id: string | null
+          secondary_value: string | null
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          dedupe_key: string
+          field_name: string
+          id?: string
+          organization_id: string
+          primary_provider_instance_id?: string | null
+          primary_value?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          scope: string
+          secondary_provider_instance_id?: string | null
+          secondary_value?: string | null
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          dedupe_key?: string
+          field_name?: string
+          id?: string
+          organization_id?: string
+          primary_provider_instance_id?: string | null
+          primary_value?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          scope?: string
+          secondary_provider_instance_id?: string | null
+          secondary_value?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_merge_conflicts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_merge_conflicts_primary_provider_instance_id_fkey"
+            columns: ["primary_provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_merge_conflicts_secondary_provider_instance_id_fkey"
+            columns: ["secondary_provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_sync_traces: {
         Row: {
           created_at: string
@@ -5477,6 +5635,41 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pub_provenance: {
+        Row: {
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          provider_event_id: string | null
+          provider_instance_id: string
+          work_item_pub_id: string
+        }
+        Insert: {
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          provider_event_id?: string | null
+          provider_instance_id: string
+          work_item_pub_id: string
+        }
+        Update: {
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          provider_event_id?: string | null
+          provider_instance_id?: string
+          work_item_pub_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pub_provenance_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
             referencedColumns: ["id"]
           },
         ]

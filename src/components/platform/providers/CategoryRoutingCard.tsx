@@ -46,6 +46,7 @@ interface RouteRow {
   priority: number;
   provider_instance_id: string;
   enabled: boolean;
+  is_authoritative: boolean;
   provider_instances: Instance | null;
 }
 
@@ -265,6 +266,11 @@ export function CategoryRoutingCard({ organizationId }: CategoryRoutingCardProps
                             <span className="text-slate-200">
                               {route.provider_instances?.name || route.provider_instance_id.slice(0, 8)}
                             </span>
+                            {route.is_authoritative && (
+                              <Badge variant="outline" className="text-[10px] text-violet-400 border-violet-500/50 bg-violet-500/10">
+                                👑 AUTH
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1">
                             <Switch
