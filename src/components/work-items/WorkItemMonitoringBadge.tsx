@@ -96,29 +96,56 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
   };
 
   const handleRadicadoUpdate = async () => {
-    const cleaned = newRadicado.replace(/[\s_\-]/g, '');
-    if (!/^\d{23}$/.test(cleaned)) {
-      toast.error('El radicado debe tener exactamente 23 dígitos');
+    // Normalize: strip underscores, dashes, spaces, dots, tabs, non-digits
+    const cleaned = newRadicado.replace(/[^0-9]/g, '');
+    if (cleaned.length !== 23) {
+      toast.error('El radicado debe tener exactamente 23 dígitos después de normalizar');
       return;
     }
 
     setIsLoading(true);
     try {
-      await (supabase.from('work_items') as any)
+      const { error } = await supabase
+        .from('work_items')
         .update({
           radicado: cleaned,
+          radicado_verified: false,
           monitoring_enabled: true,
           demonitor_reason: null,
           demonitor_at: null,
           consecutive_404_count: 0,
           provider_reachable: true,
           scrape_status: 'NOT_ATTEMPTED',
+          updated_at: new Date().toISOString(),
         })
         .eq('id', workItem.id);
 
-      toast.success('Radicado actualizado. Se buscará información en la próxima sincronización.');
+      if (error) throw error;
+
+      toast.success('Radicado actualizado. Iniciando sincronización automática...');
       setEditingRadicado(false);
       onUpdate?.();
+
+      // Fire-and-forget: trigger hydration from external APIs
+      Promise.allSettled([
+        supabase.functions.invoke('sync-by-work-item', {
+          body: { work_item_id: workItem.id },
+        }),
+        supabase.functions.invoke('sync-publicaciones-by-work-item', {
+          body: { work_item_id: workItem.id },
+        }),
+      ]).then(([actsResult, pubsResult]) => {
+        const actsOk = actsResult.status === 'fulfilled' && !actsResult.value.error;
+        const pubsOk = pubsResult.status === 'fulfilled' && !pubsResult.value.error;
+        if (actsOk || pubsOk) {
+          toast.success('Sincronización completada. Los datos del proceso se han actualizado.');
+          onUpdate?.();
+        } else {
+          toast.warning('La sincronización se ejecutó pero no encontró datos aún. Se reintentará automáticamente.');
+        }
+      }).catch(() => {
+        // Silently fail — scheduled sync will pick it up
+      });
     } catch {
       toast.error('Error al actualizar el radicado');
     } finally {
