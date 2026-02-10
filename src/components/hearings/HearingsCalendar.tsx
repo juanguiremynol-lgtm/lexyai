@@ -18,6 +18,7 @@ export interface CalendarHearing {
   location: string | null;
   is_virtual: boolean;
   virtual_link: string | null;
+  teams_link?: string | null;
   notes: string | null;
   work_item_id: string | null;
   work_item_title?: string | null;
@@ -231,6 +232,13 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
                         className="flex items-center gap-1 text-primary hover:underline">
                         <Video className="h-3 w-3" />
                         Enlace
+                      </a>
+                    )}
+                    {h.teams_link && (
+                      <a href={h.teams_link} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-primary hover:underline">
+                        <Video className="h-3 w-3" />
+                        Teams
                       </a>
                     )}
                   </div>

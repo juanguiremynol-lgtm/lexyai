@@ -3131,6 +3131,7 @@ export type Database = {
           owner_id: string
           reminder_sent: boolean | null
           scheduled_at: string
+          teams_link: string | null
           title: string
           updated_at: string
           virtual_link: string | null
@@ -3151,6 +3152,7 @@ export type Database = {
           owner_id: string
           reminder_sent?: boolean | null
           scheduled_at: string
+          teams_link?: string | null
           title: string
           updated_at?: string
           virtual_link?: string | null
@@ -3171,6 +3173,7 @@ export type Database = {
           owner_id?: string
           reminder_sent?: boolean | null
           scheduled_at?: string
+          teams_link?: string | null
           title?: string
           updated_at?: string
           virtual_link?: string | null

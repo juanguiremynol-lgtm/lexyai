@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, Video as TeamsIcon } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -41,6 +41,7 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
   const [location, setLocation] = useState("");
   const [isVirtual, setIsVirtual] = useState(false);
   const [virtualLink, setVirtualLink] = useState("");
+  const [teamsLink, setTeamsLink] = useState("");
   const [notes, setNotes] = useState("");
   const [emailAlerts, setEmailAlerts] = useState(false);
 
@@ -97,6 +98,7 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
           location: location.trim() || null,
           is_virtual: isVirtual,
           virtual_link: isVirtual ? virtualLink.trim() || null : null,
+          teams_link: teamsLink.trim() || null,
           notes: notes.trim() || null,
           work_item_id: workItemId || null,
           organization_id: orgId,
@@ -146,6 +148,7 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
     setLocation("");
     setIsVirtual(false);
     setVirtualLink("");
+    setTeamsLink("");
     setNotes("");
     setEmailAlerts(false);
   };
@@ -257,6 +260,24 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
                 onChange={(e) => setLocation(e.target.value)} />
             </div>
           )}
+
+          {/* Microsoft Teams Link */}
+          <div className="space-y-2">
+            <Label htmlFor="teams-link" className="flex items-center gap-2">
+              <TeamsIcon className="h-4 w-4" />
+              Enlace Microsoft Teams
+            </Label>
+            <Input
+              id="teams-link"
+              type="url"
+              placeholder="https://teams.microsoft.com/l/meetup-join/..."
+              value={teamsLink}
+              onChange={(e) => setTeamsLink(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Se mostrará un aviso en el dashboard cuando llegue el día y hora de la audiencia.
+            </p>
+          </div>
 
           {/* Notes */}
           <div className="space-y-2">

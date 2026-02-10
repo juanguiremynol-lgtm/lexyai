@@ -10,6 +10,7 @@ import { TutelasPipeline } from "@/components/tutelas";
 import { CpacaPipeline } from "@/components/cpaca";
 import { CreateWorkItemWizard } from "@/components/workflow";
 import { LexyDailyCard } from "@/components/lexy/LexyDailyCard";
+import { HearingTeamsNotice } from "@/components/dashboard/HearingTeamsNotice";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -107,6 +108,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 main-content-glass">
+      {/* Hearing Teams Notice — shows when a hearing with Teams link is today */}
+      <HearingTeamsNotice />
       {/* Lexy Daily Message */}
       <LexyDailyCard />
       {/* Header - always visible, never scrolls horizontally */}
