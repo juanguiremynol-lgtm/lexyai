@@ -6490,6 +6490,7 @@ export type Database = {
           provider_reachable: boolean | null
           provider_sources: Json | null
           radicado: string | null
+          radicado_raw: string | null
           radicado_verified: boolean | null
           samai_consultado_en: string | null
           samai_fuente: string | null
@@ -6607,6 +6608,7 @@ export type Database = {
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
+          radicado_raw?: string | null
           radicado_verified?: boolean | null
           samai_consultado_en?: string | null
           samai_fuente?: string | null
@@ -6724,6 +6726,7 @@ export type Database = {
           provider_reachable?: boolean | null
           provider_sources?: Json | null
           radicado?: string | null
+          radicado_raw?: string | null
           radicado_verified?: boolean | null
           samai_consultado_en?: string | null
           samai_fuente?: string | null
