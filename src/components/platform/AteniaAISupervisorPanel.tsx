@@ -13,6 +13,7 @@ import { AteniaActionsLog } from "./atenia-ai/AteniaActionsLog";
 import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
 import { AteniaAutonomousSyncPanel } from "./atenia-ai/AteniaAutonomousSyncPanel";
+import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -463,6 +464,9 @@ export function AteniaAISupervisorPanel() {
               </CardContent>
             </Card>
           )}
+
+          {/* Autopilot Control Plane */}
+          <AutopilotDashboard organizationId={PLATFORM_ORG_ID} />
 
           {/* Autonomous Sync Controls */}
           <AteniaAutonomousSyncPanel organizationId={PLATFORM_ORG_ID} />

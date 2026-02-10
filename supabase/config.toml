@@ -128,3 +128,6 @@ verify_jwt = false
 
 [functions.process-retry-queue]
 verify_jwt = false
+
+[functions.atenia-ai-autopilot]
+verify_jwt = false
