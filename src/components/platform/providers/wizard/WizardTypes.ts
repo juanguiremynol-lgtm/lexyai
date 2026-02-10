@@ -65,7 +65,9 @@ export interface WizardState {
   e2eResult: any;
   e2ePassed: boolean;
   wildcardAcknowledged: boolean;
+  globalAcknowledged: boolean;
   organizationId: string | null;
+  instanceCoverageCount: number | null;
 }
 
 export const initialWizardState = (mode: WizardMode): WizardState => ({
@@ -80,5 +82,7 @@ export const initialWizardState = (mode: WizardMode): WizardState => ({
   e2eResult: null,
   e2ePassed: false,
   wildcardAcknowledged: false,
+  globalAcknowledged: false,
   organizationId: null,
+  instanceCoverageCount: null,
 });

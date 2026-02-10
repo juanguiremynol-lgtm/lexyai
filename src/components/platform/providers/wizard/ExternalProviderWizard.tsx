@@ -58,7 +58,14 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
   const renderStep = () => {
     switch (state.step) {
       case 0:
-        return <StepWelcome mode={mode} onNext={next} />;
+        return (
+          <StepWelcome
+            mode={mode}
+            globalAcknowledged={state.globalAcknowledged}
+            onGlobalAcknowledged={(v) => setState((s) => ({ ...s, globalAcknowledged: v }))}
+            onNext={next}
+          />
+        );
       case 1:
         return (
           <StepTemplate
@@ -88,7 +95,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             connector={state.connector}
             instance={state.instance}
             organizationId={orgId}
-            onInstanceSaved={(i) => setState((s) => ({ ...s, instance: i, organizationId: i.organization_id }))}
+            onInstanceSaved={(i, coverageCount) => setState((s) => ({ ...s, instance: i, organizationId: i.organization_id, instanceCoverageCount: coverageCount ?? s.instanceCoverageCount }))}
             onNext={next}
           />
         ) : null;
@@ -135,6 +142,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             instance={state.instance}
             routingConfigured={state.routingConfigured}
             e2eResult={state.e2eResult}
+            instanceCoverageCount={state.instanceCoverageCount}
           />
         );
       default:

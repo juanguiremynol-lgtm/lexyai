@@ -5,7 +5,7 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Globe, Building2, RefreshCw, List, Settings, Key, Copy, AlertTriangle, Info, ArrowRight } from "lucide-react";
+import { CheckCircle2, Globe, Building2, RefreshCw, List, Settings, Key, Copy, AlertTriangle, Info, ArrowRight, Server } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import type { WizardMode, WizardConnector, WizardInstance } from "../WizardTypes";
@@ -16,9 +16,10 @@ interface StepSuccessProps {
   instance: WizardInstance | null;
   routingConfigured: boolean;
   e2eResult: any;
+  instanceCoverageCount: number | null;
 }
 
-export function StepSuccess({ mode, connector, instance, routingConfigured, e2eResult }: StepSuccessProps) {
+export function StepSuccess({ mode, connector, instance, routingConfigured, e2eResult, instanceCoverageCount }: StepSuccessProps) {
   const navigate = useNavigate();
   const isPlatform = mode === "PLATFORM";
 
@@ -91,6 +92,17 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
                 {summary.e2e}
               </Badge>
             </div>
+            {instanceCoverageCount != null && (
+              <div className="col-span-2 bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center gap-2">
+                <Server className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <div>
+                  <span className="text-xs text-muted-foreground">Cobertura de Instancias</span>
+                  <p className="text-foreground font-medium text-sm">
+                    {instanceCoverageCount} {instanceCoverageCount === 1 ? "organización activada" : "organizaciones activadas"}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

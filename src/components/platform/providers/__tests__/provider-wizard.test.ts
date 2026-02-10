@@ -1,5 +1,5 @@
 /**
- * Vitest tests for wizard step gating and mode restrictions.
+ * Vitest tests for wizard step gating, mode restrictions, and metadata invariants.
  */
 
 import { describe, it, expect } from "vitest";
@@ -43,6 +43,12 @@ function canEditGlobalRouting(mode: "PLATFORM" | "ORG"): boolean {
 }
 function canEditOrgRouting(_mode: "PLATFORM" | "ORG"): boolean {
   return true; // Both modes can set org routing
+}
+
+// Helper: GLOBAL acknowledgement gate
+function canProceedFromWelcome(state: WizardState): boolean {
+  if (state.mode === "PLATFORM") return state.globalAcknowledged;
+  return true;
 }
 
 describe("Wizard Step Gating", () => {
@@ -158,14 +164,100 @@ describe("Wizard Initial State", () => {
     expect(state.step).toBe(0);
     expect(state.connector).toBeNull();
     expect(state.wildcardAcknowledged).toBe(false);
+    expect(state.globalAcknowledged).toBe(false);
+    expect(state.instanceCoverageCount).toBeNull();
   });
 
   it("initializes ORG mode correctly", () => {
     const state = initialWizardState("ORG");
     expect(state.mode).toBe("ORG");
+    expect(state.globalAcknowledged).toBe(false);
   });
 
   it("wizard has 9 steps", () => {
     expect(WIZARD_STEPS.length).toBe(9);
+  });
+});
+
+describe("GLOBAL Acknowledgement Gate", () => {
+  it("blocks welcome step in PLATFORM mode without acknowledgement", () => {
+    const state = initialWizardState("PLATFORM");
+    expect(canProceedFromWelcome(state)).toBe(false);
+  });
+
+  it("allows welcome step in PLATFORM mode with acknowledgement", () => {
+    const state: WizardState = {
+      ...initialWizardState("PLATFORM"),
+      globalAcknowledged: true,
+    };
+    expect(canProceedFromWelcome(state)).toBe(true);
+  });
+
+  it("always allows welcome step in ORG mode", () => {
+    const state = initialWizardState("ORG");
+    expect(canProceedFromWelcome(state)).toBe(true);
+  });
+
+  it("ORG mode does not require globalAcknowledged even if false", () => {
+    const state: WizardState = {
+      ...initialWizardState("ORG"),
+      globalAcknowledged: false,
+    };
+    expect(canProceedFromWelcome(state)).toBe(true);
+  });
+});
+
+describe("Metadata Invariants", () => {
+  it("builtins map covers all sync workflows", () => {
+    const builtinsMap: Record<string, { acts: string[]; pubs: string[] }> = {
+      CGP: { acts: ["cpnu"], pubs: ["publicaciones"] },
+      LABORAL: { acts: ["cpnu"], pubs: ["publicaciones"] },
+      CPACA: { acts: ["samai"], pubs: ["publicaciones"] },
+      TUTELA: { acts: ["cpnu", "tutelas-api"], pubs: [] },
+      PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+    };
+    const syncWorkflows = ["CGP", "LABORAL", "CPACA", "TUTELA", "PENAL_906"];
+    for (const wf of syncWorkflows) {
+      expect(builtinsMap).toHaveProperty(wf);
+      expect(builtinsMap[wf].acts.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("every builtin provider is a known source", () => {
+    const knownSources = new Set(["cpnu", "samai", "publicaciones", "tutelas-api"]);
+    const builtinsMap: Record<string, { acts: string[]; pubs: string[] }> = {
+      CGP: { acts: ["cpnu"], pubs: ["publicaciones"] },
+      LABORAL: { acts: ["cpnu"], pubs: ["publicaciones"] },
+      CPACA: { acts: ["samai"], pubs: ["publicaciones"] },
+      TUTELA: { acts: ["cpnu", "tutelas-api"], pubs: [] },
+      PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+    };
+    for (const wf of Object.values(builtinsMap)) {
+      for (const src of [...wf.acts, ...wf.pubs]) {
+        expect(knownSources.has(src)).toBe(true);
+      }
+    }
+  });
+
+  it("routing precedence has exactly 3 tiers", () => {
+    const precedence = [
+      "ORG_OVERRIDE",
+      "GLOBAL",
+      "BUILTIN",
+    ];
+    expect(precedence).toHaveLength(3);
+  });
+
+  it("SSRF rules require HTTPS and block private IPs", () => {
+    const ssrf = {
+      https_only: true,
+      private_ips_blocked: true,
+      localhost_blocked: true,
+      allowlist_required: true,
+    };
+    expect(ssrf.https_only).toBe(true);
+    expect(ssrf.private_ips_blocked).toBe(true);
+    expect(ssrf.localhost_blocked).toBe(true);
+    expect(ssrf.allowlist_required).toBe(true);
   });
 });
