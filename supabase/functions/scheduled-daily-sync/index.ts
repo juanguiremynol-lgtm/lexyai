@@ -554,6 +554,51 @@ async function syncOrganization(
       }
     }
 
+    // ============= GHOST ITEM DETECTION =============
+    // Ghost items = eligible items that were skipped due to timeout and never processed
+    const processedItemIds = new Set<string>();
+    // Collect all processed item IDs from batches (track which items we actually touched)
+    for (let idx = 0; idx < sortedItems.length && idx < (sortedItems.length - itemsSkipped); idx++) {
+      processedItemIds.add(sortedItems[idx].id);
+    }
+    const ghostItems = sortedItems.filter((item: any) => !processedItemIds.has(item.id));
+    
+    if (ghostItems.length > 0) {
+      console.log(`[scheduled-daily-sync] ${ghostItems.length} ghost items detected (never processed this run)`);
+      
+      // Create a single summary alert for ghost items (avoid alert spam)
+      try {
+        const { data: membership } = await supabase
+          .from('organization_memberships')
+          .select('user_id')
+          .eq('organization_id', orgId)
+          .eq('role', 'admin')
+          .limit(1)
+          .maybeSingle();
+
+        if (membership?.user_id && ghostItems.length >= 3) {
+          const ghostRadicados = ghostItems.slice(0, 5).map((g: any) => g.radicado || 'sin radicado').join(', ');
+          await supabase.from('alert_instances').insert({
+            owner_id: membership.user_id,
+            organization_id: orgId,
+            entity_type: 'SYSTEM',
+            entity_id: orgId,
+            severity: 'INFO',
+            status: 'PENDING',
+            title: `${ghostItems.length} procesos no sincronizados hoy`,
+            message: `Estos procesos tienen monitoreo activo pero no fueron consultados por tiempo limitado: ${ghostRadicados}${ghostItems.length > 5 ? '...' : ''}. Se priorizarán en la próxima ejecución.`,
+            fingerprint: `ghost_items_${orgId}_${new Date().toISOString().slice(0, 10)}`,
+            payload: {
+              ghost_count: ghostItems.length,
+              ghost_ids: ghostItems.slice(0, 20).map((g: any) => g.id),
+            },
+          });
+        }
+      } catch (ghostAlertErr) {
+        console.warn(`[scheduled-daily-sync] Ghost alert creation error:`, ghostAlertErr);
+      }
+    }
+
     // Determine final status (accounting for skipped items)
     const totalProcessed = successCount + scrapingInitiated + errorCount;
     const totalItems = sortedItems.length;
@@ -580,6 +625,7 @@ async function syncOrganization(
         publicaciones_synced: publicacionesSynced,
         scraping_initiated: scrapingInitiated,
         items_skipped: itemsSkipped,
+        ghost_items: ghostItems.length,
         total_inserted: totalInserted,
         total_pub_inserted: totalPubInserted,
         success_rate: successRate,

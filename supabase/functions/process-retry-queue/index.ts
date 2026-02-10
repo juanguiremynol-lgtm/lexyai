@@ -136,6 +136,8 @@ Deno.serve(async (req) => {
             .update({
               scrape_status: 'SUCCESS',
               last_synced_at: new Date().toISOString(),
+              consecutive_failures: 0,
+              last_error_code: null,
             })
             .eq('id', task.work_item_id);
 
@@ -154,6 +156,8 @@ Deno.serve(async (req) => {
             .update({
               scrape_status: 'FAILED',
               last_checked_at: new Date().toISOString(),
+              last_error_code: task.last_error_code || 'RETRY_EXHAUSTED',
+              last_error_at: new Date().toISOString(),
             })
             .eq('id', task.work_item_id);
 
