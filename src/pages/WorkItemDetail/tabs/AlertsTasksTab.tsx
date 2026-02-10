@@ -4,6 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,7 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
   const { data: tasks, isLoading: tasksLoading } = useQuery({
     queryKey: ["work-item-tasks", workItem.id],
     queryFn: async () => {
+      await ensureValidSession();
       const legacyFilingId = workItem.legacy_filing_id;
       
       if (!legacyFilingId) return [];
@@ -111,6 +113,7 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
   const { data: alerts, isLoading: alertsLoading } = useQuery({
     queryKey: ["work-item-alerts", workItem.id],
     queryFn: async () => {
+      await ensureValidSession();
       const { data, error } = await supabase
         .from("alert_instances")
         .select("*")

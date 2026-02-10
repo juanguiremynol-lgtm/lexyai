@@ -4,6 +4,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,7 @@ export function DeadlinesTab({ workItem }: DeadlinesTabProps) {
   const { data: dbDeadlines, isLoading: isDbLoading } = useQuery({
     queryKey: ["work-item-deadlines", workItem.id],
     queryFn: async () => {
+      await ensureValidSession();
       const { data, error } = await supabase
         .from("work_item_deadlines")
         .select("*")
