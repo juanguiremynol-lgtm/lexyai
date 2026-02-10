@@ -468,6 +468,7 @@ export type Database = {
       atenia_ai_config: {
         Row: {
           alert_ai_enrichment: boolean | null
+          allow_fallback_on_empty: boolean | null
           auto_demonitor_after_404s: number | null
           auto_sync_cooldown_minutes: number
           autonomy_paused: boolean | null
@@ -479,6 +480,7 @@ export type Database = {
           id: string
           last_auto_sync_at: string | null
           max_auto_syncs_per_heartbeat: number | null
+          max_provider_attempts_per_run: number | null
           organization_id: string
           paused_until: string | null
           provider_error_rate_threshold: number | null
@@ -488,6 +490,7 @@ export type Database = {
         }
         Insert: {
           alert_ai_enrichment?: boolean | null
+          allow_fallback_on_empty?: boolean | null
           auto_demonitor_after_404s?: number | null
           auto_sync_cooldown_minutes?: number
           autonomy_paused?: boolean | null
@@ -499,6 +502,7 @@ export type Database = {
           id?: string
           last_auto_sync_at?: string | null
           max_auto_syncs_per_heartbeat?: number | null
+          max_provider_attempts_per_run?: number | null
           organization_id: string
           paused_until?: string | null
           provider_error_rate_threshold?: number | null
@@ -508,6 +512,7 @@ export type Database = {
         }
         Update: {
           alert_ai_enrichment?: boolean | null
+          allow_fallback_on_empty?: boolean | null
           auto_demonitor_after_404s?: number | null
           auto_sync_cooldown_minutes?: number
           autonomy_paused?: boolean | null
@@ -519,6 +524,7 @@ export type Database = {
           id?: string
           last_auto_sync_at?: string | null
           max_auto_syncs_per_heartbeat?: number | null
+          max_provider_attempts_per_run?: number | null
           organization_id?: string
           paused_until?: string | null
           provider_error_rate_threshold?: number | null
@@ -5215,6 +5221,60 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_category_routes: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          organization_id: string
+          priority: number
+          provider_instance_id: string
+          route_kind: string
+          scope: string
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          organization_id: string
+          priority?: number
+          provider_instance_id: string
+          route_kind: string
+          scope?: string
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          organization_id?: string
+          priority?: number
+          provider_instance_id?: string
+          route_kind?: string
+          scope?: string
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_category_routes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_category_routes_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
             referencedColumns: ["id"]
           },
         ]
