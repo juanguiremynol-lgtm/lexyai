@@ -3588,6 +3588,10 @@ Deno.serve(async (req) => {
           scrape_status: 'SUCCESS',
           last_crawled_at: new Date().toISOString(),
           last_checked_at: new Date().toISOString(),
+          // Clear transient error state so UI badge resets correctly
+          last_error_code: null,
+          consecutive_failures: 0,
+          provider_reachable: true,
         })
         .eq('id', work_item_id);
       

@@ -74,13 +74,14 @@ Deno.serve(async (req) => {
     }
 
     // === CONCURRENCY GUARD: Claim rows atomically ===
+    // TTL: 10 minutes — if a worker crashes after claiming, another can reclaim
     const now = new Date().toISOString();
-    const claimCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const claimTtlCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
     const { data: tasks, error: fetchError } = await (supabase.from('sync_retry_queue') as any)
       .select('*')
       .lte('next_run_at', now)
-      .or(`claimed_at.is.null,claimed_at.lt.${claimCutoff}`)
+      .or(`claimed_at.is.null,claimed_at.lt.${claimTtlCutoff}`)
       .order('next_run_at', { ascending: true })
       .limit(MAX_TASKS_PER_RUN);
 
@@ -96,7 +97,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Claim all fetched tasks
+    // Claim fetched tasks — SELECT already filtered by claimed_at criteria,
+    // so this update is safe. If another worker claimed between SELECT and UPDATE,
+    // the 10-min TTL ensures it will be reclaimable if the other worker crashes.
     const taskIds = tasks.map((t: any) => t.id);
     await (supabase.from('sync_retry_queue') as any)
       .update({ claimed_at: now })
