@@ -1498,6 +1498,55 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============= CASCADE: COURTHOUSE EMAIL RESOLUTION =============
+    // If we have despacho data from the API, store it as raw_courthouse_input
+    // and trigger resolve-courthouse-email to auto-resolve the courthouse email
+    if (workItemId && foundInSource && processData.despacho) {
+      try {
+        console.log(`[sync-by-radicado] Triggering courthouse email resolution for ${workItemId}`);
+        
+        // Store despacho data into raw_courthouse_input on the work item
+        await supabase
+          .from('work_items')
+          .update({
+            raw_courthouse_input: {
+              name: processData.despacho || '',
+              city: processData.ciudad || '',
+              department: processData.departamento || '',
+              source: 'sync-by-radicado',
+            },
+          })
+          .eq('id', workItemId);
+
+        // Invoke resolver
+        const resolveResponse = await fetch(
+          `${supabaseUrl}/functions/v1/resolve-courthouse-email`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              work_item_id: workItemId,
+              courthouse_name: processData.despacho,
+              city: processData.ciudad,
+              department: processData.departamento,
+            }),
+          }
+        );
+        const resolveResult = await resolveResponse.json();
+        console.log(`[sync-by-radicado] Courthouse resolution result:`, {
+          ok: resolveResult.ok,
+          method: resolveResult.method,
+          needs_review: resolveResult.needs_review,
+        });
+      } catch (resolveErr) {
+        // Non-blocking — courthouse resolution failure shouldn't block creation
+        console.warn(`[sync-by-radicado] Courthouse resolution failed (non-blocking):`, resolveErr);
+      }
+    }
+
     const response: SyncResponse = {
       ok: true,
       work_item_id: workItemId,

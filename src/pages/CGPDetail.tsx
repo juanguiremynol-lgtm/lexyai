@@ -161,6 +161,10 @@ export default function CGPDetail() {
           phase: 'cgp_phase',
         };
         
+        // Track if authority fields changed for courthouse re-resolution
+        const authorityFields = ['court_name', 'court_city', 'court_department'];
+        const authorityChanged = authorityFields.some(f => updates[f] !== undefined);
+        
         for (const [key, value] of Object.entries(updates)) {
           const mappedKey = fieldMap[key] || key;
           if (key === 'phase') {
@@ -175,6 +179,23 @@ export default function CGPDetail() {
           .update(workItemUpdates)
           .eq("id", id!);
         if (error) throw error;
+
+        // Trigger courthouse email re-resolution if authority fields changed
+        if (authorityChanged && id) {
+          try {
+            await supabase.functions.invoke("resolve-courthouse-email", {
+              body: {
+                work_item_id: id,
+                courthouse_name: (updates.court_name as string) || cgpItem?.court_name || '',
+                city: (updates.court_city as string) || cgpItem?.court_city || '',
+                department: (updates.court_department as string) || cgpItem?.court_department || '',
+              },
+            });
+          } catch {
+            // Non-blocking — resolution failure shouldn't block save
+            console.warn('[CGPDetail] Courthouse re-resolution failed (non-blocking)');
+          }
+        }
       } else {
         const { error } = await supabase
           .from("cgp_items")
