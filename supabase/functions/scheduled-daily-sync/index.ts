@@ -599,6 +599,103 @@ async function syncOrganization(
       }
     }
 
+    // ============= AUTO-DEMONITOR POLICY =============
+    // Disable monitoring for items with consecutive 404s exceeding org threshold
+    let demonitored = 0;
+    try {
+      // Get org-level threshold (default 5)
+      const { data: aiConfig } = await supabase
+        .from('atenia_ai_config')
+        .select('auto_demonitor_after_404s')
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      
+      const threshold = aiConfig?.auto_demonitor_after_404s ?? 5;
+      
+      if (threshold > 0) {
+        // Find items exceeding threshold
+        const { data: chronic404s } = await supabase
+          .from('work_items')
+          .select('id, radicado, consecutive_404_count, consecutive_failures')
+          .eq('organization_id', orgId)
+          .eq('monitoring_enabled', true)
+          .gte('consecutive_404_count', threshold);
+        
+        if (chronic404s && chronic404s.length > 0) {
+          console.log(`[scheduled-daily-sync] Auto-demonitor: ${chronic404s.length} items exceed ${threshold} consecutive 404s`);
+          
+          const demonitorIds = chronic404s.map((item: any) => item.id);
+          const now = new Date().toISOString();
+          
+          // Batch update: disable monitoring
+          await supabase
+            .from('work_items')
+            .update({
+              monitoring_enabled: false,
+              demonitor_reason: `Auto-demonitored: ${threshold}+ consecutive 404 errors`,
+              demonitor_at: now,
+            })
+            .in('id', demonitorIds);
+          
+          demonitored = chronic404s.length;
+          
+          // Create audit trail via atenia_ai_actions
+          for (const item of chronic404s.slice(0, 10)) {
+            try {
+              await supabase.from('atenia_ai_actions').insert({
+                organization_id: orgId,
+                action_type: 'AUTO_DEMONITOR',
+                autonomy_tier: 'ACT',
+                reasoning: `Radicado ${item.radicado || 'desconocido'} tuvo ${item.consecutive_404_count} errores 404 consecutivos (umbral: ${threshold}). Monitoreo suspendido automáticamente.`,
+                target_entity_type: 'WORK_ITEM',
+                target_entity_id: item.id,
+                action_taken: 'monitoring_disabled',
+                action_result: 'SUCCESS',
+                evidence: {
+                  consecutive_404_count: item.consecutive_404_count,
+                  consecutive_failures: item.consecutive_failures,
+                  threshold,
+                },
+              });
+            } catch {
+              // Non-blocking
+            }
+          }
+          
+          // Create a single summary alert
+          const { data: membership } = await supabase
+            .from('organization_memberships')
+            .select('user_id')
+            .eq('organization_id', orgId)
+            .eq('role', 'admin')
+            .limit(1)
+            .maybeSingle();
+
+          if (membership?.user_id) {
+            const demonitoredRadicados = chronic404s.slice(0, 5).map((i: any) => i.radicado || 'N/A').join(', ');
+            await supabase.from('alert_instances').insert({
+              owner_id: membership.user_id,
+              organization_id: orgId,
+              entity_type: 'SYSTEM',
+              entity_id: orgId,
+              severity: 'WARNING',
+              status: 'PENDING',
+              title: `${chronic404s.length} proceso(s) suspendido(s) automáticamente`,
+              message: `Se suspendió el monitoreo de ${chronic404s.length} proceso(s) con ${threshold}+ errores 404 consecutivos: ${demonitoredRadicados}${chronic404s.length > 5 ? '...' : ''}. Puede reactivarlos manualmente desde el detalle del proceso.`,
+              fingerprint: `auto_demonitor_${orgId}_${new Date().toISOString().slice(0, 10)}`,
+              payload: {
+                demonitored_count: chronic404s.length,
+                demonitored_ids: demonitorIds.slice(0, 20),
+                threshold,
+              },
+            });
+          }
+        }
+      }
+    } catch (demonitorErr) {
+      console.warn(`[scheduled-daily-sync] Auto-demonitor error:`, demonitorErr);
+    }
+
     // Determine final status (accounting for skipped items)
     const totalProcessed = successCount + scrapingInitiated + errorCount;
     const totalItems = sortedItems.length;
@@ -626,6 +723,7 @@ async function syncOrganization(
         scraping_initiated: scrapingInitiated,
         items_skipped: itemsSkipped,
         ghost_items: ghostItems.length,
+        demonitored,
         total_inserted: totalInserted,
         total_pub_inserted: totalPubInserted,
         success_rate: successRate,
