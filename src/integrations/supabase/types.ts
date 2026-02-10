@@ -5219,6 +5219,208 @@ export type Database = {
           },
         ]
       }
+      provider_connectors: {
+        Row: {
+          allowed_domains: string[]
+          capabilities: string[]
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_enabled: boolean
+          key: string
+          name: string
+          schema_version: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_domains?: string[]
+          capabilities?: string[]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean
+          key: string
+          name: string
+          schema_version?: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_domains?: string[]
+          capabilities?: string[]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_enabled?: boolean
+          key?: string
+          name?: string
+          schema_version?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      provider_instance_secrets: {
+        Row: {
+          cipher_text: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          key_version: number
+          nonce: string
+          organization_id: string
+          provider_instance_id: string
+          rotated_at: string | null
+        }
+        Insert: {
+          cipher_text: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          key_version?: number
+          nonce: string
+          organization_id: string
+          provider_instance_id: string
+          rotated_at?: string | null
+        }
+        Update: {
+          cipher_text?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          key_version?: number
+          nonce?: string
+          organization_id?: string
+          provider_instance_id?: string
+          rotated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_instance_secrets_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_instances: {
+        Row: {
+          auth_type: Database["public"]["Enums"]["provider_auth_type"]
+          base_url: string
+          connector_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          is_enabled: boolean
+          name: string
+          organization_id: string
+          rpm_limit: number
+          timeout_ms: number
+          updated_at: string
+        }
+        Insert: {
+          auth_type: Database["public"]["Enums"]["provider_auth_type"]
+          base_url: string
+          connector_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_enabled?: boolean
+          name: string
+          organization_id: string
+          rpm_limit?: number
+          timeout_ms?: number
+          updated_at?: string
+        }
+        Update: {
+          auth_type?: Database["public"]["Enums"]["provider_auth_type"]
+          base_url?: string
+          connector_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_enabled?: boolean
+          name?: string
+          organization_id?: string
+          rpm_limit?: number
+          timeout_ms?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_instances_connector_id_fkey"
+            columns: ["connector_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connectors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_instances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_sync_traces: {
+        Row: {
+          created_at: string
+          id: string
+          latency_ms: number | null
+          ok: boolean
+          organization_id: string
+          payload: Json
+          provider_instance_id: string | null
+          result_code: string | null
+          run_id: string
+          stage: string
+          work_item_id: string | null
+          work_item_source_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          ok?: boolean
+          organization_id: string
+          payload?: Json
+          provider_instance_id?: string | null
+          result_code?: string | null
+          run_id?: string
+          stage: string
+          work_item_id?: string | null
+          work_item_source_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          latency_ms?: number | null
+          ok?: boolean
+          organization_id?: string
+          payload?: Json
+          provider_instance_id?: string | null
+          result_code?: string | null
+          run_id?: string
+          stage?: string
+          work_item_id?: string | null
+          work_item_source_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_sync_traces_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limits: {
         Row: {
           count: number
@@ -6057,6 +6259,9 @@ export type Database = {
           owner_id: string
           parsing_errors: string[] | null
           phase_inferred: number | null
+          provenance: Json | null
+          provider_case_id: string | null
+          provider_instance_id: string | null
           raw_data: Json | null
           raw_schema_version: string | null
           scrape_date: string | null
@@ -6100,6 +6305,9 @@ export type Database = {
           owner_id: string
           parsing_errors?: string[] | null
           phase_inferred?: number | null
+          provenance?: Json | null
+          provider_case_id?: string | null
+          provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
           scrape_date?: string | null
@@ -6143,6 +6351,9 @@ export type Database = {
           owner_id?: string
           parsing_errors?: string[] | null
           phase_inferred?: number | null
+          provenance?: Json | null
+          provider_case_id?: string | null
+          provider_instance_id?: string | null
           raw_data?: Json | null
           raw_schema_version?: string | null
           scrape_date?: string | null
@@ -6254,6 +6465,54 @@ export type Database = {
           },
         ]
       }
+      work_item_external_links: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          label: string | null
+          organization_id: string
+          url: string
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          label?: string | null
+          organization_id: string
+          url: string
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          label?: string | null
+          organization_id?: string
+          url?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_external_links_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_publicaciones: {
         Row: {
           annotation: string | null
@@ -6278,6 +6537,9 @@ export type Database = {
           organization_id: string
           pdf_available: boolean | null
           pdf_url: string | null
+          provenance: Json | null
+          provider_case_id: string | null
+          provider_instance_id: string | null
           published_at: string | null
           raw_data: Json | null
           raw_json: Json | null
@@ -6312,6 +6574,9 @@ export type Database = {
           organization_id: string
           pdf_available?: boolean | null
           pdf_url?: string | null
+          provenance?: Json | null
+          provider_case_id?: string | null
+          provider_instance_id?: string | null
           published_at?: string | null
           raw_data?: Json | null
           raw_json?: Json | null
@@ -6346,6 +6611,9 @@ export type Database = {
           organization_id?: string
           pdf_available?: boolean | null
           pdf_url?: string | null
+          provenance?: Json | null
+          provider_case_id?: string | null
+          provider_instance_id?: string | null
           published_at?: string | null
           raw_data?: Json | null
           raw_json?: Json | null
@@ -6432,6 +6700,94 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "work_item_reminders_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_item_sources: {
+        Row: {
+          consecutive_404_count: number
+          consecutive_failures: number
+          created_at: string
+          created_by: string | null
+          id: string
+          last_error_code: string | null
+          last_error_message: string | null
+          last_provider_latency_ms: number | null
+          last_synced_at: string | null
+          organization_id: string
+          provider_case_id: string | null
+          provider_instance_id: string
+          scrape_status: Database["public"]["Enums"]["work_item_source_scrape_status"]
+          source_input_type: string
+          source_input_value: string
+          source_url: string | null
+          status: Database["public"]["Enums"]["work_item_source_status"]
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          consecutive_404_count?: number
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_provider_latency_ms?: number | null
+          last_synced_at?: string | null
+          organization_id: string
+          provider_case_id?: string | null
+          provider_instance_id: string
+          scrape_status?: Database["public"]["Enums"]["work_item_source_scrape_status"]
+          source_input_type: string
+          source_input_value: string
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["work_item_source_status"]
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          consecutive_404_count?: number
+          consecutive_failures?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_provider_latency_ms?: number | null
+          last_synced_at?: string | null
+          organization_id?: string
+          provider_case_id?: string | null
+          provider_instance_id?: string
+          scrape_status?: Database["public"]["Enums"]["work_item_source_scrape_status"]
+          source_input_type?: string
+          source_input_value?: string
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["work_item_source_status"]
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_sources_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_sources_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"
@@ -7329,6 +7685,7 @@ export type Database = {
         | "PENDIENTE_AUDIENCIA_INSTRUCCION"
         | "PENDIENTE_ALEGATOS_SENTENCIA"
         | "PENDIENTE_SUSTENTAR_APELACION"
+      provider_auth_type: "API_KEY" | "HMAC_SHARED_SECRET"
       radicado_verification_status:
         | "NOT_PROVIDED"
         | "PROVIDED_NOT_VERIFIED"
@@ -7364,6 +7721,12 @@ export type Database = {
         | "REVIEW_PROCESS"
         | "REVIEW_FILING"
         | "IMPORT_ESTADOS"
+      work_item_source_scrape_status:
+        | "OK"
+        | "SCRAPING_PENDING"
+        | "EMPTY"
+        | "ERROR"
+      work_item_source_status: "ACTIVE" | "DISABLED"
       workflow_type:
         | "CGP"
         | "PETICION"
@@ -7673,6 +8036,7 @@ export const Constants = {
         "PENDIENTE_ALEGATOS_SENTENCIA",
         "PENDIENTE_SUSTENTAR_APELACION",
       ],
+      provider_auth_type: ["API_KEY", "HMAC_SHARED_SECRET"],
       radicado_verification_status: [
         "NOT_PROVIDED",
         "PROVIDED_NOT_VERIFIED",
@@ -7713,6 +8077,13 @@ export const Constants = {
         "REVIEW_FILING",
         "IMPORT_ESTADOS",
       ],
+      work_item_source_scrape_status: [
+        "OK",
+        "SCRAPING_PENDING",
+        "EMPTY",
+        "ERROR",
+      ],
+      work_item_source_status: ["ACTIVE", "DISABLED"],
       workflow_type: [
         "CGP",
         "PETICION",
