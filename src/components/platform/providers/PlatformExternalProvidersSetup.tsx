@@ -1,6 +1,6 @@
 /**
  * PlatformExternalProvidersSetup — Top-level page for super admin provider configuration.
- * Wizard-like flow: Connector → Instance → Preflight → E2E Validation.
+ * Wizard-like flow: Connector → Instance → Preflight → E2E → Routing → Traces.
  */
 
 import { useState } from "react";
@@ -9,12 +9,17 @@ import { InstanceProvisionerCard } from "./InstanceProvisionerCard";
 import { ProviderPreflightPanel } from "./ProviderPreflightPanel";
 import { ProviderE2EValidationPanel } from "./ProviderE2EValidationPanel";
 import { ProviderTracesViewer } from "./ProviderTracesViewer";
+import { CategoryRoutingCard } from "./CategoryRoutingCard";
+import { EffectiveRoutingPreview } from "./EffectiveRoutingPreview";
 import { Separator } from "@/components/ui/separator";
 import { Cable } from "lucide-react";
 
 export function PlatformExternalProvidersSetup() {
   const [selectedConnector, setSelectedConnector] = useState<any>(null);
   const [selectedInstance, setSelectedInstance] = useState<any>(null);
+
+  // Derive organization_id from selected instance for routing panels
+  const selectedOrgId = selectedInstance?.organization_id || null;
 
   return (
     <div className="space-y-6">
@@ -25,7 +30,7 @@ export function PlatformExternalProvidersSetup() {
           External Providers Setup
         </h1>
         <p className="text-slate-400 mt-1">
-          Configuración guiada de proveedores externos. Siga los paneles A → B → C → D para una configuración completa y segura.
+          Configuración guiada de proveedores externos. Paneles A → B → C → D → E → F.
         </p>
       </div>
 
@@ -49,6 +54,14 @@ export function PlatformExternalProvidersSetup() {
 
       {/* Panel D: E2E Validation */}
       <ProviderE2EValidationPanel instance={selectedInstance} />
+
+      <Separator className="bg-slate-800" />
+
+      {/* Panel E: Category Routing */}
+      <CategoryRoutingCard organizationId={selectedOrgId} />
+
+      {/* Panel F: Effective Routing Preview */}
+      <EffectiveRoutingPreview organizationId={selectedOrgId} />
 
       <Separator className="bg-slate-800" />
 
