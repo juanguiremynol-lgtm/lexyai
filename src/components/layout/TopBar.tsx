@@ -6,6 +6,7 @@ import { ColombianClock } from "./ColombianClock";
 import { ThemeToggle } from "./ThemeToggle";
 import { GlobalSearch } from "./GlobalSearch";
 import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
+import { SuperAdminToolbar } from "./SuperAdminToolbar";
 import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
 import logo from "@/assets/atenia-logo.png";
 
@@ -38,6 +39,9 @@ export function TopBar() {
         <ColombianClock />
 
         <ThemeToggle />
+
+        {/* Super Admin Exclusive Tools (only for platform admins) */}
+        <SuperAdminToolbar />
 
         {/* Admin Notification Bell (only shows for admins/owners) */}
         <AdminNotificationBell />
