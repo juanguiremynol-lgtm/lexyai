@@ -6621,6 +6621,7 @@ export type Database = {
           clase_proceso: string | null
           client_id: string | null
           consecutive_404_count: number | null
+          consecutive_failures: number
           corte_status: string | null
           courthouse_directory_id: number | null
           courthouse_needs_review: boolean | null
@@ -6648,6 +6649,8 @@ export type Database = {
           last_action_description: string | null
           last_checked_at: string | null
           last_crawled_at: string | null
+          last_error_at: string | null
+          last_error_code: string | null
           last_event_at: string | null
           last_event_summary: string | null
           last_inference_date: string | null
@@ -6751,6 +6754,7 @@ export type Database = {
           clase_proceso?: string | null
           client_id?: string | null
           consecutive_404_count?: number | null
+          consecutive_failures?: number
           corte_status?: string | null
           courthouse_directory_id?: number | null
           courthouse_needs_review?: boolean | null
@@ -6778,6 +6782,8 @@ export type Database = {
           last_action_description?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
           last_event_at?: string | null
           last_event_summary?: string | null
           last_inference_date?: string | null
@@ -6881,6 +6887,7 @@ export type Database = {
           clase_proceso?: string | null
           client_id?: string | null
           consecutive_404_count?: number | null
+          consecutive_failures?: number
           corte_status?: string | null
           courthouse_directory_id?: number | null
           courthouse_needs_review?: boolean | null
@@ -6908,6 +6915,8 @@ export type Database = {
           last_action_description?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
+          last_error_at?: string | null
+          last_error_code?: string | null
           last_event_at?: string | null
           last_event_summary?: string | null
           last_inference_date?: string | null

@@ -677,6 +677,51 @@ function inferStageFromActuacion(
 }
 
 
+// ============= ERROR CLASSIFICATION =============
+
+/**
+ * Classify provider errors into standardized error codes.
+ * Used for work_items.last_error_code and sync_traces.error_code.
+ */
+function classifyProviderError(
+  fetchResult: FetchResult | null | undefined,
+  fallbackCode: string
+): string {
+  if (!fetchResult) return 'UNKNOWN_ERROR';
+
+  const httpStatus = fetchResult.httpStatus;
+  const errorMsg = (fetchResult.error || '').toLowerCase();
+
+  // HTTP status-based classification
+  if (httpStatus) {
+    if (httpStatus === 401 || httpStatus === 403) return 'PROVIDER_AUTH_FAILED';
+    if (httpStatus === 404) {
+      // Distinguish route vs record 404 using memory/observability/404-semantic-classification-v2
+      if (errorMsg.includes('not found') && (errorMsg.includes('html') || errorMsg.includes('detail'))) {
+        return 'PROVIDER_ROUTE_NOT_FOUND';
+      }
+      return 'PROVIDER_404';
+    }
+    if (httpStatus === 429) return 'PROVIDER_RATE_LIMITED';
+    if (httpStatus >= 500) return 'PROVIDER_SERVER_ERROR';
+  }
+
+  // Message-based classification
+  if (errorMsg.includes('timeout') || errorMsg.includes('timed out') || errorMsg.includes('aborted')) {
+    return 'PROVIDER_TIMEOUT';
+  }
+  if (errorMsg.includes('network') || errorMsg.includes('fetch failed') || errorMsg.includes('econnrefused')) {
+    return 'NETWORK_ERROR';
+  }
+  if (errorMsg.includes('rate limit') || errorMsg.includes('too many requests')) {
+    return 'PROVIDER_RATE_LIMITED';
+  }
+  if (fetchResult.isEmpty) return 'PROVIDER_404';
+  if (errorMsg.includes('scraping')) return 'SCRAPING_TIMEOUT';
+
+  return fallbackCode || 'PROVIDER_ERROR';
+}
+
 function jsonResponse(data: object, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -3494,19 +3539,27 @@ Deno.serve(async (req) => {
         },
       });
       
-      // Update scrape status to FAILED + track consecutive 404s
+      // Update scrape status to FAILED + track consecutive failures & 404s
       const isNotFound = fetchResult?.isEmpty || errorCode === 'PROVIDER_NOT_FOUND';
+      
+      // Classify the error for diagnostics
+      const classifiedErrorCode = classifyProviderError(fetchResult, errorCode);
+      
+      // Fetch current counters for increment
+      const { data: currentItem } = await supabase
+        .from('work_items')
+        .select('consecutive_404_count, consecutive_failures')
+        .eq('id', work_item_id)
+        .single();
+      
       const update404Payload: Record<string, unknown> = {
         scrape_status: 'FAILED',
         last_checked_at: new Date().toISOString(),
+        last_error_code: classifiedErrorCode,
+        last_error_at: new Date().toISOString(),
+        consecutive_failures: ((currentItem as any)?.consecutive_failures || 0) + 1,
       };
       if (isNotFound) {
-        // Increment consecutive 404 counter
-        const { data: currentItem } = await supabase
-          .from('work_items')
-          .select('consecutive_404_count')
-          .eq('id', work_item_id)
-          .single();
         update404Payload.consecutive_404_count = ((currentItem as any)?.consecutive_404_count || 0) + 1;
         update404Payload.provider_reachable = false;
       }
@@ -3812,8 +3865,10 @@ Deno.serve(async (req) => {
       last_synced_at: new Date().toISOString(),
       total_actuaciones: fetchResult.actuaciones.length,
       scrape_provider: fetchResult.provider,
-      // Reset 404 counter on success
+      // Reset all failure counters on success
       consecutive_404_count: 0,
+      consecutive_failures: 0,
+      last_error_code: null,
       provider_reachable: true,
     };
 
