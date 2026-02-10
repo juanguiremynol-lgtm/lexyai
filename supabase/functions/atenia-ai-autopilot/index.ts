@@ -205,7 +205,9 @@ interface HealthSnapshot {
     skipped_today: number;
     failures_today: number;
     scraping_pending_today: number;
-    transient_without_retry: number; // items with transient error but no retry row — should be ~0
+    transient_without_retry: number;
+    empty_result_count: number;   // items with PROVIDER_EMPTY_RESULT in last 24h
+    empty_result_rate: number;    // empty_result_count / total_monitored (0-100%)
   };
   retry_queue: {
     pending_count: number;
@@ -485,6 +487,20 @@ async function buildHealthSnapshot(
     transientWithoutRetryCount = tIds.filter((id: string) => !retrySetTransient.has(id)).length;
   }
 
+  // 9. Empty result rate (last 24h) — detect provider coverage gaps vs ingestion bugs
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count: emptyResultCount } = await supabase
+    .from("sync_traces")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgId)
+    .eq("error_code", "PROVIDER_EMPTY_RESULT")
+    .gte("created_at", twentyFourHoursAgo);
+
+  const emptyCount = emptyResultCount || 0;
+  const emptyRate = (totalMonitored || 0) > 0
+    ? Math.round((emptyCount / (totalMonitored || 1)) * 100)
+    : 0;
+
   return {
     provider_status: providerStatus,
     sync: {
@@ -494,6 +510,8 @@ async function buildHealthSnapshot(
       failures_today: failuresToday || 0,
       scraping_pending_today: retryList.filter((r: any) => r.kind === "ACT_SCRAPE_RETRY").length,
       transient_without_retry: transientWithoutRetryCount,
+      empty_result_count: emptyCount,
+      empty_result_rate: emptyRate,
     },
     retry_queue: {
       pending_count: retryList.length,
