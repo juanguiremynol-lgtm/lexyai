@@ -104,7 +104,8 @@ export function CreateWorkItemWizard({
   const [stage, setStage] = useState<string>('');
   
   // Radicado lookup
-  const [radicado, setRadicado] = useState('');
+  const [radicadoRaw, setRadicadoRaw] = useState('');
+  const [radicado, setRadicado] = useState(''); // normalized 23-digit
   const [radicadoError, setRadicadoError] = useState<string | null>(null);
   const [useRadicadoInput, setUseRadicadoInput] = useState<'lookup' | 'manual'>('lookup');
   const { status: lookupStatus, result: lookupResult, error: lookupError, lookup, reset: resetLookup, validateRadicado } = useRadicadoLookup();
@@ -160,8 +161,8 @@ export function CreateWorkItemWizard({
       setWorkflowType(defaultWorkflowType || null);
       setCgpPhase('FILING');
       setStage('');
+      setRadicadoRaw('');
       setRadicado('');
-      setUseRadicadoInput('lookup');
       resetLookup();
       setTitle('');
       setAuthorityName('');
@@ -191,27 +192,58 @@ export function CreateWorkItemWizard({
     }
   }, [workflowType, cgpPhase]);
   
-  // Apply lookup data to form fields
+  // Apply lookup data to form fields (expanded autopopulation)
   useEffect(() => {
     if (lookupResult?.process_data && lookupStatus === 'success') {
       const data = lookupResult.process_data;
       setAuthorityName(data.despacho || '');
       setAuthorityCity(data.ciudad || '');
+      if (data.departamento) setAuthorityDepartment(data.departamento);
       setDemandantes(data.demandante || '');
       setDemandados(data.demandado || '');
+      
+      // Auto-generate title from provider data
+      if (!title) {
+        const parts: string[] = [];
+        if (workflowType) parts.push(WORKFLOW_TYPES[workflowType]?.shortLabel || workflowType);
+        const plaintiff = data.demandante?.split(',')[0]?.trim();
+        const defendant = data.demandado?.split(',')[0]?.trim();
+        if (plaintiff && defendant) {
+          parts.push(`${plaintiff} vs ${defendant}`);
+        } else if (plaintiff) {
+          parts.push(plaintiff);
+        } else if (defendant) {
+          parts.push(`vs ${defendant}`);
+        }
+        if (parts.length > 0) setTitle(parts.join(' — '));
+      }
       
       // Set CGP phase based on classification
       if (workflowType === 'CGP' && lookupResult.cgp_phase) {
         setCgpPhase(lookupResult.cgp_phase);
       }
+      
+      // Set filing date if available
+      if (data.fecha_radicacion) {
+        if (workflowType === 'TUTELA') {
+          setTutelaFilingDate(data.fecha_radicacion);
+        } else if (workflowType === 'PETICION') {
+          setFilingDate(data.fecha_radicacion);
+        }
+      }
+      
+      // Set accionado for Tutelas
+      if (workflowType === 'TUTELA' && data.demandado) {
+        setAccionado(data.demandado);
+      }
     }
-  }, [lookupResult, lookupStatus, workflowType]);
+  }, [lookupResult, lookupStatus, workflowType, title]);
   
   const handleWorkflowSelect = (wf: WorkflowType) => {
     setWorkflowType(wf);
     resetLookup();
+    setRadicadoRaw('');
     setRadicado('');
-    
     // Workflows that use radicado go to radicado step
     if (workflowUsesRadicado(wf)) {
       setStep('radicado');
@@ -235,13 +267,17 @@ export function CreateWorkItemWizard({
   };
   
   const handleRadicadoChange = (value: string) => {
-    // Normalize input - strip non-digits, keep as string to preserve leading zeros
-    const digits = normalizeRadicadoInput(value).slice(0, 23);
+    // Preserve raw input for display and DB storage
+    setRadicadoRaw(value);
+    // Normalize: strip ALL non-digit characters
+    const digits = normalizeRadicadoInput(value);
     setRadicado(digits);
     setRadicadoError(null);
     
     if (digits.length !== 23) {
       resetLookup();
+    } else if (digits.length > 23) {
+      setRadicadoError(`El radicado tiene ${digits.length} dígitos, se requieren exactamente 23`);
     }
   };
   
@@ -353,12 +389,16 @@ export function CreateWorkItemWizard({
       client_id: finalClientId,
       title: title || undefined,
       radicado: radicado || undefined,
+      radicado_raw: radicadoRaw !== radicado ? radicadoRaw : undefined,
       authority_name: authorityName || entityName || undefined,
       authority_city: authorityCity || undefined,
       authority_department: authorityDepartment || undefined,
       demandantes: demandantes || undefined,
       demandados: demandados || accionado || undefined,
       notes: notes || undefined,
+      // Provider metadata from lookup
+      source: lookupResult?.found_in_source ? 'SCRAPE_API' as const : 'MANUAL' as const,
+      source_reference: lookupResult?.source_used || undefined,
     };
     
     // Workflow-specific fields
@@ -550,12 +590,10 @@ export function CreateWorkItemWizard({
                     <div className="flex gap-2">
                       <Input
                         type="text"
-                        inputMode="numeric"
-                        value={formatRadicado(radicado)}
+                        value={radicadoRaw}
                         onChange={(e) => handleRadicadoChange(e.target.value)}
-                        placeholder="05-001-400-302-3202-50063-800"
+                        placeholder="110013337043_2026_0004700 o 05001400302320250063800"
                         className={`font-mono flex-1 ${radicadoError ? 'border-destructive' : ''}`}
-                        maxLength={30}
                       />
                       <Badge variant={radicado.length === 23 ? "default" : "secondary"} className="shrink-0 self-center">
                         {radicado.length}/23
@@ -563,9 +601,16 @@ export function CreateWorkItemWizard({
                     </div>
                     {radicadoError ? (
                       <p className="text-xs text-destructive">{radicadoError}</p>
+                    ) : radicado.length > 0 && radicadoRaw !== radicado ? (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Normalizado:</span>{' '}
+                        <span className="font-mono">{formatRadicadoDisplay(radicado)}</span>
+                        {radicado.length === 23 && <CheckCircle2 className="inline h-3 w-3 ml-1 text-primary" />}
+                        {radicado.length !== 23 && <span className="text-destructive ml-1">({radicado.length} dígitos, se requieren 23)</span>}
+                      </p>
                     ) : (
                       <p className="text-xs text-muted-foreground">
-                        Ejemplo: 05001400302320250063800 (Depto-Mpio-Entidad-Espec-Año-Consec-Ctrl)
+                        Acepta formatos con guiones, espacios, guiones bajos o dígitos puros. Se normalizará automáticamente.
                       </p>
                     )}
                   </div>
@@ -659,13 +704,16 @@ export function CreateWorkItemWizard({
                     <Label>Radicado (opcional){workflowType === 'CGP' && radicado.length === 23 && <span className="text-muted-foreground"> - debe terminar en 00 o 01</span>}</Label>
                     <Input
                       type="text"
-                      inputMode="numeric"
-                      value={formatRadicado(radicado)}
+                      value={radicadoRaw}
                       onChange={(e) => handleRadicadoChange(e.target.value)}
-                      placeholder="05-001-400-302-3202-50063-800"
+                      placeholder="110013337043_2026_0004700"
                       className="font-mono"
-                      maxLength={30}
                     />
+                    {radicado.length > 0 && radicadoRaw !== radicado && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">Normalizado:</span> <span className="font-mono">{formatRadicadoDisplay(radicado)}</span>
+                      </p>
+                    )}
                   </div>
                   
                   {/* Manual CGP phase selection */}

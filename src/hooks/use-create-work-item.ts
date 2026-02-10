@@ -25,9 +25,11 @@ export interface CreateWorkItemData {
   // Basic metadata
   title?: string;
   radicado?: string;
+  radicado_raw?: string;
   authority_name?: string;
   authority_city?: string;
   authority_department?: string;
+  source_reference?: string;
   
   // Parties
   demandantes?: string;
@@ -94,6 +96,7 @@ export function useCreateWorkItem() {
         // Basic metadata
         title: data.title || null,
         radicado: data.radicado || null,
+        radicado_raw: data.radicado_raw || data.radicado || null,
         authority_name: data.authority_name || null,
         authority_city: data.authority_city || null,
         authority_department: data.authority_department || null,
@@ -120,10 +123,11 @@ export function useCreateWorkItem() {
         // Notes
         notes: data.notes || null,
         description: data.description || null,
+        source_reference: data.source_reference || null,
         
         // Defaults
         is_flagged: false,
-        monitoring_enabled: data.workflow_type === 'CGP' || data.workflow_type === 'CPACA',
+        monitoring_enabled: data.workflow_type === 'CGP' || data.workflow_type === 'CPACA' || data.workflow_type === 'LABORAL' || data.workflow_type === 'PENAL_906',
         email_linking_enabled: true,
       };
 
