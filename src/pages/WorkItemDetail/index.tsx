@@ -219,18 +219,8 @@ export default function WorkItemDetail() {
             workItemRadicado={workItem.radicado || undefined}
           />
 
-          {/* Electronic File Button */}
+          {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />
-          
-          {/* Legacy expediente_url if different from onedrive */}
-          {workItem.expediente_url && !extendedWorkItem.onedrive_url && (
-            <Button variant="outline" asChild>
-              <a href={workItem.expediente_url} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Ver expediente
-              </a>
-            </Button>
-          )}
         </div>
       </div>
 

@@ -67,6 +67,9 @@ interface Milestone {
 
 type MilestoneModalType = 'acta_reparto' | 'radicado' | 'auto_admisorio' | 'expediente' | null;
 
+// Milestones that can be toggled with one click (no required data entry)
+const ONE_CLICK_MILESTONES = new Set(['acta_reparto', 'auto_admisorio']);
+
 export function MilestonesChecklist({ workItem, compact = false }: MilestonesChecklistProps) {
   const queryClient = useQueryClient();
   const [activeModal, setActiveModal] = useState<MilestoneModalType>(null);
@@ -358,6 +361,26 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
     );
   }
 
+  // Quick-toggle milestone with one click (defaults to today's date)
+  const handleQuickToggle = (milestoneId: string, currentlyCompleted: boolean) => {
+    if (currentlyCompleted) {
+      // Uncheck: clear the field
+      if (milestoneId === 'acta_reparto') {
+        updateMilestoneMutation.mutate({ acta_reparto_received_at: null, acta_reparto_notes: null });
+      } else if (milestoneId === 'auto_admisorio') {
+        updateMilestoneMutation.mutate({ auto_admisorio_date: null });
+      }
+    } else {
+      // Check: set to today
+      const today = new Date().toISOString();
+      if (milestoneId === 'acta_reparto') {
+        updateMilestoneMutation.mutate({ acta_reparto_received_at: today });
+      } else if (milestoneId === 'auto_admisorio') {
+        updateMilestoneMutation.mutate({ auto_admisorio_date: today });
+      }
+    }
+  };
+
   const openMilestoneModal = (milestoneId: string) => {
     if (milestoneId === 'acta_reparto') setActiveModal('acta_reparto');
     else if (milestoneId === 'radicado') setActiveModal('radicado');
@@ -410,8 +433,25 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                     : "bg-muted/30 border-dashed"
               )}
             >
-              {/* Status icon */}
-              {milestone.completed ? (
+              {/* Status icon - clickable for one-click milestones */}
+              {ONE_CLICK_MILESTONES.has(milestone.id) ? (
+                <button
+                  type="button"
+                  onClick={() => handleQuickToggle(milestone.id, milestone.completed)}
+                  disabled={updateMilestoneMutation.isPending}
+                  className="shrink-0 mt-0.5 cursor-pointer hover:scale-110 transition-transform disabled:opacity-50"
+                  title={milestone.completed ? "Desmarcar" : "Marcar como completado (hoy)"}
+                >
+                  {milestone.completed ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Circle className={cn(
+                      "h-5 w-5",
+                      milestone.importance === "critical" ? "text-amber-500" : "text-muted-foreground"
+                    )} />
+                  )}
+                </button>
+              ) : milestone.completed ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               ) : (
                 <Circle className={cn(
@@ -443,7 +483,7 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                 </div>
                 
                 {milestone.completed ? (
-                  <div className="mt-1">
+                  <div className="mt-1 flex items-center gap-2">
                     {milestone.linkUrl ? (
                       <a
                         href={milestone.linkUrl}
@@ -461,13 +501,24 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                     ) : (
                       <span className="text-xs text-muted-foreground">Completado</span>
                     )}
+                    {/* Allow editing details even when completed */}
+                    {ONE_CLICK_MILESTONES.has(milestone.id) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 text-[10px] px-1.5"
+                        onClick={() => openMilestoneModal(milestone.id)}
+                      >
+                        Editar fecha
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="mt-1 flex items-center gap-2">
                     <p className="text-xs text-muted-foreground">
                       {milestone.description}
                     </p>
-                    {milestone.editable && (
+                    {milestone.editable && !ONE_CLICK_MILESTONES.has(milestone.id) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -476,6 +527,16 @@ export function MilestonesChecklist({ workItem, compact = false }: MilestonesChe
                       >
                         <Plus className="h-3 w-3 mr-1" />
                         Registrar
+                      </Button>
+                    )}
+                    {milestone.editable && ONE_CLICK_MILESTONES.has(milestone.id) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[10px]"
+                        onClick={() => openMilestoneModal(milestone.id)}
+                      >
+                        Con fecha específica
                       </Button>
                     )}
                   </div>

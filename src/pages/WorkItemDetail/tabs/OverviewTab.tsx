@@ -45,7 +45,7 @@ import { toast } from "sonner";
 import type { WorkItem } from "@/types/work-item";
 import { WORKFLOW_TYPES, getStageLabel, getStagesForWorkflow, getStageOrderForWorkflow } from "@/lib/workflow-constants";
 import { EntityClientLink } from "@/components/shared";
-import { MilestonesChecklist, ElectronicFileCard } from "@/components/work-items";
+import { MilestonesChecklist } from "@/components/work-items";
 import { cn } from "@/lib/utils";
 
 // Extended WorkItem type with SAMAI fields
@@ -142,10 +142,8 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
     toast.success("Copiado al portapapeles");
   };
 
-  // Show milestones for judicial workflows
-  const showMilestones = ["CGP", "CPACA", "TUTELA"].includes(workItem.workflow_type);
-  // Show electronic file card for judicial workflows  
-  const showElectronicFile = ["CGP", "CPACA", "TUTELA"].includes(workItem.workflow_type);
+  // Show milestones for judicial workflows (LABORAL included per requirement D)
+  const showMilestones = ["CGP", "CPACA", "TUTELA", "LABORAL"].includes(workItem.workflow_type);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -174,10 +172,7 @@ export function OverviewTab({ workItem }: OverviewTabProps) {
           <MilestonesChecklist workItem={workItem} />
         )}
 
-        {/* Electronic File Card (for CGP/CPACA/TUTELA) */}
-        {showElectronicFile && (
-          <ElectronicFileCard workItem={workItem} />
-        )}
+
 
         {/* CPACA Process Metadata Card (from SAMAI) */}
         {workItem.workflow_type === "CPACA" && hasCpacaMetadata(workItem) && (
