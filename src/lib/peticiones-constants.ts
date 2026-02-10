@@ -3,7 +3,7 @@
  * Based on Colombian Right of Petition (Derecho de Petición) regulations
  */
 
-export type PeticionPhase = "PETICION_RADICADA" | "CONSTANCIA_RADICACION" | "RESPUESTA";
+export type PeticionPhase = "PETICION_RADICADA" | "CONSTANCIA_RADICACION" | "PRORROGA" | "RESPUESTA";
 
 export const PETICION_PHASES: Record<PeticionPhase, { 
   label: string; 
@@ -23,6 +23,12 @@ export const PETICION_PHASES: Record<PeticionPhase, {
     color: "amber",
     description: "Se ha recibido constancia de radicación",
   },
+  PRORROGA: {
+    label: "Prórroga",
+    shortLabel: "Prórroga",
+    color: "orange",
+    description: "La entidad solicitó o se concedió prórroga para responder",
+  },
   RESPUESTA: {
     label: "Respuesta",
     shortLabel: "Respuesta",
@@ -33,7 +39,8 @@ export const PETICION_PHASES: Record<PeticionPhase, {
 
 export const PETICION_PHASES_ORDER: PeticionPhase[] = [
   "PETICION_RADICADA",
-  "CONSTANCIA_RADICACION", 
+  "CONSTANCIA_RADICACION",
+  "PRORROGA",
   "RESPUESTA",
 ];
 

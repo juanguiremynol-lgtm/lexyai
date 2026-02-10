@@ -32,6 +32,7 @@ import { EscalateToTutelaDialog } from "./EscalateToTutelaDialog";
 const STAGE_COLORS: Record<PeticionPhase, string> = {
   PETICION_RADICADA: "blue",
   CONSTANCIA_RADICACION: "amber",
+  PRORROGA: "orange",
   RESPUESTA: "emerald",
 };
 
@@ -147,6 +148,9 @@ export function PeticionesPipeline() {
 
       if (newPhase === "CONSTANCIA_RADICACION") {
         updates.constancia_received_at = new Date().toISOString();
+      }
+      if (newPhase === "PRORROGA") {
+        updates.prorogation_requested = true;
       }
       if (newPhase === "RESPUESTA") {
         updates.response_received_at = new Date().toISOString();
