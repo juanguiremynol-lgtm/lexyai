@@ -62,7 +62,24 @@ import {
   PlatformCourthouseDirectoryPage,
 } from "./pages/platform";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      staleTime: 2 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      retry: (failureCount, error: unknown) => {
+        if (error instanceof Error && error.message === 'AUTH_TOKEN_EXPIRED') {
+          return failureCount < 2;
+        }
+        return failureCount < 3;
+      },
+      retryDelay: (attemptIndex) => {
+        return attemptIndex === 0 ? 2000 : Math.min(1000 * 2 ** attemptIndex, 10000);
+      },
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

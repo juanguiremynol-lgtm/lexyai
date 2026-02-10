@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,6 +37,9 @@ export function ActsTab({ workItem }: ActsTabProps) {
   const { data: acts, isLoading } = useQuery({
     queryKey: ["work-item-actuaciones", workItem.id],
     queryFn: async () => {
+      // Guard: ensure valid auth before querying to prevent empty results from expired JWT
+      await ensureValidSession();
+
       const { data, error } = await supabase
         .from("work_item_acts")
         .select("*")
@@ -56,8 +60,8 @@ export function ActsTab({ workItem }: ActsTabProps) {
       return sorted as WorkItemAct[];
     },
     enabled: !!workItem.id,
-    staleTime: 30000,
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   // Get unique sources for filter

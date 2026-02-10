@@ -16,6 +16,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -114,6 +115,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   const { data: estados, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["work-item-publicaciones", workItem.id],
     queryFn: async () => {
+      // Guard: ensure valid auth before querying
+      await ensureValidSession();
+
       // Query ONLY work_item_publicaciones - this tab shows estados/publicaciones ONLY
       // FIX 4.1: Filter out archived records
       // FIX 4.2: Add proper ORDER BY with fallback
@@ -146,6 +150,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       return estadosList;
     },
     enabled: !!workItem.id,
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   // NOTE: Manual sync buttons removed - syncing happens automatically via useLoginSync + daily cron
