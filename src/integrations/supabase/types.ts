@@ -469,6 +469,7 @@ export type Database = {
         Row: {
           alert_ai_enrichment: boolean | null
           auto_demonitor_after_404s: number | null
+          auto_sync_cooldown_minutes: number
           autonomy_paused: boolean | null
           created_at: string | null
           email_alert_min_severity: string | null
@@ -476,8 +477,10 @@ export type Database = {
           gemini_enabled: boolean | null
           heartbeat_interval_minutes: number | null
           id: string
+          last_auto_sync_at: string | null
           max_auto_syncs_per_heartbeat: number | null
           organization_id: string
+          paused_until: string | null
           provider_error_rate_threshold: number | null
           provider_slow_threshold_ms: number | null
           stage_inference_mode: string | null
@@ -486,6 +489,7 @@ export type Database = {
         Insert: {
           alert_ai_enrichment?: boolean | null
           auto_demonitor_after_404s?: number | null
+          auto_sync_cooldown_minutes?: number
           autonomy_paused?: boolean | null
           created_at?: string | null
           email_alert_min_severity?: string | null
@@ -493,8 +497,10 @@ export type Database = {
           gemini_enabled?: boolean | null
           heartbeat_interval_minutes?: number | null
           id?: string
+          last_auto_sync_at?: string | null
           max_auto_syncs_per_heartbeat?: number | null
           organization_id: string
+          paused_until?: string | null
           provider_error_rate_threshold?: number | null
           provider_slow_threshold_ms?: number | null
           stage_inference_mode?: string | null
@@ -503,6 +509,7 @@ export type Database = {
         Update: {
           alert_ai_enrichment?: boolean | null
           auto_demonitor_after_404s?: number | null
+          auto_sync_cooldown_minutes?: number
           autonomy_paused?: boolean | null
           created_at?: string | null
           email_alert_min_severity?: string | null
@@ -510,8 +517,10 @@ export type Database = {
           gemini_enabled?: boolean | null
           heartbeat_interval_minutes?: number | null
           id?: string
+          last_auto_sync_at?: string | null
           max_auto_syncs_per_heartbeat?: number | null
           organization_id?: string
+          paused_until?: string | null
           provider_error_rate_threshold?: number | null
           provider_slow_threshold_ms?: number | null
           stage_inference_mode?: string | null
