@@ -313,6 +313,42 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Strategy 2b: dept/city might be swapped (common data quality issue)
+    // Try matching deptNorm as city or cityNorm as dept
+    if (candidates.length === 0 && deptNorm) {
+      // Try: user's "department" is actually a city name
+      const { data } = await supabase
+        .from("courthouse_directory")
+        .select(selectFields)
+        .eq("city_norm", deptNorm)
+        .limit(200);
+      if (data && data.length > 0) {
+        candidates = data
+          .map((r) => ({ ...r, score: 0 }))
+          .filter((c) => {
+            if (!nameNormSoft) return true;
+            return trigramSimilarity(c.name_norm_soft, nameNormSoft) >= 0.2;
+          });
+      }
+    }
+
+    // Strategy 2c: use radicado DANE to find candidates when text-based geo fails
+    if (candidates.length === 0 && radParsed.valid && radBlocks) {
+      const { data } = await supabase
+        .from("courthouse_directory")
+        .select(selectFields)
+        .eq("dane_code", radBlocks.dane)
+        .limit(200);
+      if (data && data.length > 0) {
+        candidates = data
+          .map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_fallback" } }))
+          .filter((c) => {
+            if (!nameNormSoft) return true;
+            return trigramSimilarity(c.name_norm_soft, nameNormSoft) >= 0.15;
+          });
+      }
+    }
+
     // Strategy 3: broader search with just department
     if (candidates.length === 0 && deptNorm && nameNormSoft) {
       const { data } = await supabase
@@ -359,9 +395,28 @@ Deno.serve(async (req) => {
     }
 
     // ─── Hard gating (radicado-aware) ───
+    // When radicado is valid and DANE matches, trust radicado codes over text fields
+    // (work items often have city/dept swapped or incorrect text)
     const gated = candidates.filter((c) => {
-      if (deptNorm && c.dept_norm !== deptNorm) return false;
-      if (cityNorm && c.city_norm !== cityNorm) return false;
+      // If candidate was matched via radicado DANE, skip dept/city text gating
+      // The radicado DANE is a deterministic geographic code — more reliable than free text
+      const candidateMatchedByDane = radParsed.valid && radBlocks && c.dane_code === radBlocks.dane;
+
+      if (!candidateMatchedByDane) {
+        // For non-radicado matches, apply text-based geo gating but allow partial matches
+        // Check dept OR city (not both required) — handles swapped dept/city values
+        if (deptNorm && cityNorm) {
+          const deptMatch = c.dept_norm === deptNorm || c.city_norm === deptNorm;
+          const cityMatch = c.city_norm === cityNorm || c.dept_norm === cityNorm;
+          if (!deptMatch && !cityMatch) return false;
+        } else if (deptNorm) {
+          // dept could actually be a city name (common data quality issue)
+          if (c.dept_norm !== deptNorm && c.city_norm !== deptNorm) return false;
+        } else if (cityNorm) {
+          if (c.city_norm !== cityNorm && c.dept_norm !== cityNorm) return false;
+        }
+      }
+
       if (inputCourtNumber !== null && c.court_number !== null && inputCourtNumber !== c.court_number) return false;
       if (courtClassNorm && c.court_class && normalizeBase(c.court_class) !== courtClassNorm) return false;
       if (specialtyNorm && c.specialty_norm && !c.specialty_norm.includes(specialtyNorm)) return false;
@@ -519,10 +574,18 @@ Deno.serve(async (req) => {
     let needsReview = false;
 
     if (hasRadicado) {
-      // With radicado: require radicado gating + high score + strong margin
-      if (radicadoGatingPassed && top1.score >= 0.88 && margin >= 0.08) {
+      // Check if all available radicado codes matched exactly
+      const radDetails = top1.radicado_match_details || {};
+      const radCodeFields = ["dane", "corp", "esp", "desp"].filter((k) => radDetails[k]);
+      const allRadCodesMatch = radCodeFields.length >= 3 && radCodeFields.every((k) => radDetails[k] === "match");
+      const isSingleCandidate = scorable.length === 1 || margin >= 0.15;
+
+      if (radicadoGatingPassed && allRadCodesMatch && isSingleCandidate && top1.score >= 0.55) {
+        // All radicado codes match + single/clear candidate = deterministic match
         method = "auto_radicado";
-      } else if (radicadoGatingPassed && top1.score >= 0.75 && margin >= 0.05) {
+      } else if (radicadoGatingPassed && top1.score >= 0.80 && margin >= 0.08) {
+        method = "auto_radicado";
+      } else if (radicadoGatingPassed && top1.score >= 0.65 && margin >= 0.05) {
         method = "fuzzy_radicado";
         needsReview = true;
       } else {
