@@ -28,7 +28,7 @@ import { NotesTab } from "./tabs/NotesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 
 // Import work item components
-import { CaseSetupChecklist } from "@/components/work-items/CaseSetupChecklist";
+import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { ReportToAteniaDialog } from "@/components/atenia/ReportToAteniaDialog";
@@ -224,8 +224,8 @@ export default function WorkItemDetail() {
         </div>
       </div>
 
-      {/* Case Setup Checklist - for early stages */}
-      <CaseSetupChecklist workItem={extendedWorkItem} onUpdate={refetch} />
+      {/* Milestones Checklist - replaces legacy CaseSetupChecklist */}
+      <MilestonesChecklist workItem={extendedWorkItem} />
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
