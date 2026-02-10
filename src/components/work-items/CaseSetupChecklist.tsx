@@ -120,8 +120,9 @@ export function CaseSetupChecklist({ workItem, onUpdate }: CaseSetupChecklistPro
 
   // Check if this work item should show the checklist
   const shouldShow = () => {
-    // If milestones have been cleared, this checklist is superseded
-    if ((workItem as any).milestones_cleared_at) {
+    // MilestonesChecklist now handles CGP/CPACA/LABORAL/TUTELA milestones — hide this legacy checklist for those
+    const MILESTONE_WORKFLOWS = ["CGP", "CPACA", "TUTELA", "LABORAL"];
+    if (MILESTONE_WORKFLOWS.includes(workItem.workflow_type)) {
       return false;
     }
     
