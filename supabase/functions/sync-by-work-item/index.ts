@@ -3577,24 +3577,52 @@ Deno.serve(async (req) => {
     result.provider_used = fetchResult.provider;
     console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
-    // Handle empty actuaciones (success but no data)
+    // Handle empty actuaciones — settled empty, NOT success.
+    // Provider responded correctly but returned zero records.
+    // This is non-transient (no retry needed) and non-404 (no demonitor).
     if (fetchResult.actuaciones.length === 0) {
-      result.ok = true;
-      result.warnings.push('No actuaciones found in external source');
+      result.ok = false;
+      result.code = 'PROVIDER_EMPTY_RESULT';
+      result.warnings.push('Provider returned valid response with zero actuaciones');
+      
+      // Fetch current consecutive_failures for increment
+      const { data: currentItemEmpty } = await supabase
+        .from('work_items')
+        .select('consecutive_failures')
+        .eq('id', work_item_id)
+        .single();
       
       await supabase
         .from('work_items')
         .update({
-          scrape_status: 'SUCCESS',
+          scrape_status: 'EMPTY',
           last_crawled_at: new Date().toISOString(),
           last_checked_at: new Date().toISOString(),
-          // Clear transient error state so UI badge resets correctly
-          last_error_code: null,
-          consecutive_failures: 0,
+          // Clear transient error codes so UI badge resets (no "retry scheduled" spinner)
+          last_error_code: 'PROVIDER_EMPTY_RESULT',
+          // Increment consecutive_failures to surface patterns, but NOT consecutive_404_count
+          consecutive_failures: ((currentItemEmpty as any)?.consecutive_failures || 0) + 1,
           provider_reachable: true,
         })
         .eq('id', work_item_id);
       
+      // Log trace for forensics
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'SYNC_EMPTY',
+        provider: fetchResult.provider,
+        http_status: fetchResult.httpStatus || 200,
+        latency_ms: fetchResult.latencyMs || null,
+        success: false,
+        error_code: 'PROVIDER_EMPTY_RESULT',
+        message: `Provider ${fetchResult.provider} returned valid response with 0 actuaciones`,
+        meta: { radicado_preview: workItem.radicado?.slice(0, 10) + '...' },
+      });
+      
+      result.trace_id = traceId;
       return jsonResponse(result);
     }
 

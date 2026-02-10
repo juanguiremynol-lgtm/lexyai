@@ -49,6 +49,7 @@ interface AutopilotSnapshot {
       skipped_today: number;
       failures_today: number;
       scraping_pending_today: number;
+      transient_without_retry: number;
     };
     retry_queue: {
       pending_count: number;
@@ -164,12 +165,17 @@ export function AutopilotDashboard({ organizationId }: Props) {
         ) : (
           <>
             {/* Sync Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
               <MetricBox label="Monitoreados" value={health!.sync.total_monitored} />
               <MetricBox label="Sincronizados hoy" value={health!.sync.synced_today} />
               <MetricBox label="Fallos hoy" value={health!.sync.failures_today} variant="destructive" />
               <MetricBox label="Scraping pendiente" value={health!.sync.scraping_pending_today} variant="warning" />
               <MetricBox label="Omitidos" value={health!.sync.skipped_today} />
+              <MetricBox
+                label="Transient sin retry"
+                value={health!.sync.transient_without_retry}
+                variant={health!.sync.transient_without_retry > 0 ? "destructive" : undefined}
+              />
             </div>
 
             <Separator />

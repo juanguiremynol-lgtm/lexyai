@@ -371,4 +371,24 @@ describe("404 counter inflation guard", () => {
     const result = shouldDemonitor(item, 5, false);
     expect(result.demonitor).toBe(false);
   });
+
+  it("PROVIDER_EMPTY_RESULT must NOT inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("PROVIDER_EMPTY_RESULT")).toBe(false);
+  });
+
+  it("PROVIDER_EMPTY_RESULT is not transient (no retry spinner)", () => {
+    expect(isTransientError("PROVIDER_EMPTY_RESULT")).toBe(false);
+  });
+
+  it("PROVIDER_EMPTY_RESULT does not trigger demonitor", () => {
+    const item = {
+      id: "wi_empty",
+      consecutive_404_count: 10,
+      last_error_code: "PROVIDER_EMPTY_RESULT",
+      last_synced_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    const result = shouldDemonitor(item, 5, false);
+    expect(result.demonitor).toBe(false);
+    expect(result.blockedBy).toContain("TRANSIENT_ERROR"); // reused label for non-404 codes
+  });
 });
