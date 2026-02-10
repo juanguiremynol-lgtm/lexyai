@@ -262,14 +262,14 @@ async function syncOrganization(
     // Get all active work items for this org
     const { data: workItems, error: fetchError } = await supabase
       .from("work_items")
-      .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones")
+      .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
       .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
       .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
       .not("radicado", "is", null)
       .order("last_synced_at", { ascending: true, nullsFirst: true })
-      .limit(50); // Increased from 30 — parallel batching handles throughput
+      .limit(100); // Fetch more — cursor ensures we process them across runs
 
     if (fetchError) {
       throw fetchError;
@@ -281,7 +281,6 @@ async function syncOrganization(
     );
 
     // === SKIP items with pending retries in sync_retry_queue ===
-    // These are already being handled by process-retry-queue
     let sortedItems = [...eligibleItems];
     if (sortedItems.length > 0) {
       const itemIds = sortedItems.map((w: any) => w.id);
@@ -297,7 +296,12 @@ async function syncOrganization(
         console.log(`[scheduled-daily-sync] Skipped ${beforeCount - sortedItems.length} items with pending retries`);
       }
 
-      // === 404 COOLDOWN: deprioritize items that got PROVIDER_404 in last 48h ===
+      // === PRIORITY SORT ===
+      // 1. Items with FAILED scrape_status or consecutive failures first (at-risk / ghost items)
+      // 2. Items never synced (last_synced_at is null)
+      // 3. Items with oldest last_synced_at (stale first)
+      // 4. 404 cooldown items pushed to end
+      let cooldownIds = new Set<string>();
       if (sortedItems.length > 0) {
         const remainingIds = sortedItems.map((w: any) => w.id);
         const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -309,15 +313,66 @@ async function syncOrganization(
           .gte("created_at", fortyEightHoursAgo);
 
         if (recent404s && recent404s.length > 0) {
-          const cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
-          const priorityItems = sortedItems.filter((w: any) => !cooldownIds.has(w.id));
-          const cooldownItems = sortedItems.filter((w: any) => cooldownIds.has(w.id));
-          sortedItems = [...priorityItems, ...cooldownItems];
-          if (cooldownItems.length > 0) {
-            console.log(`[scheduled-daily-sync] ${cooldownItems.length} items in 404 cooldown (deprioritized)`);
-          }
+          cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
         }
       }
+
+      sortedItems.sort((a: any, b: any) => {
+        // Cooldown items always last
+        const aCooldown = cooldownIds.has(a.id) ? 1 : 0;
+        const bCooldown = cooldownIds.has(b.id) ? 1 : 0;
+        if (aCooldown !== bCooldown) return aCooldown - bCooldown;
+
+        // Failed/at-risk items first
+        const aFailed = (a.scrape_status === 'FAILED' || (a.consecutive_failures || 0) > 0) ? 0 : 1;
+        const bFailed = (b.scrape_status === 'FAILED' || (b.consecutive_failures || 0) > 0) ? 0 : 1;
+        if (aFailed !== bFailed) return aFailed - bFailed;
+
+        // Never-synced items next
+        const aNull = a.last_synced_at ? 1 : 0;
+        const bNull = b.last_synced_at ? 1 : 0;
+        if (aNull !== bNull) return aNull - bNull;
+
+        // Oldest synced first
+        const aDate = a.last_synced_at || '';
+        const bDate = b.last_synced_at || '';
+        if (aDate !== bDate) return aDate.localeCompare(bDate);
+
+        // Stable tie-break
+        return a.id.localeCompare(b.id);
+      });
+
+      if (cooldownIds.size > 0) {
+        console.log(`[scheduled-daily-sync] ${cooldownIds.size} items in 404 cooldown (deprioritized)`);
+      }
+    }
+
+    // === RESUME CURSOR: Start from where we left off last run ===
+    const cursorKey = `daily_sync_cursor_${orgId}`;
+    let cursorItemId: string | null = null;
+
+    try {
+      const { data: cursorRow } = await (supabase.from('cron_state') as any)
+        .select('value')
+        .eq('key', cursorKey)
+        .maybeSingle();
+      
+      if (cursorRow?.value?.cursor_work_item_id) {
+        cursorItemId = cursorRow.value.cursor_work_item_id;
+        const cursorIdx = sortedItems.findIndex((w: any) => w.id === cursorItemId);
+        if (cursorIdx > 0) {
+          // Rotate: move items before cursor to the end so we start from cursor position
+          const beforeCursor = sortedItems.slice(0, cursorIdx);
+          const fromCursor = sortedItems.slice(cursorIdx);
+          sortedItems = [...fromCursor, ...beforeCursor];
+          console.log(`[scheduled-daily-sync] Resuming from cursor (idx=${cursorIdx}/${sortedItems.length})`);
+        } else if (cursorIdx === -1) {
+          // Cursor item no longer eligible — reset
+          console.log(`[scheduled-daily-sync] Cursor item no longer eligible, starting from top`);
+        }
+      }
+    } catch (cursorErr) {
+      console.warn(`[scheduled-daily-sync] Cursor read error:`, cursorErr);
     }
 
     console.log(`[scheduled-daily-sync] Org ${orgId}: ${sortedItems.length} eligible items (batch size ${BATCH_SIZE})`);
@@ -478,6 +533,25 @@ async function syncOrganization(
         p_items_succeeded: successCount + scrapingInitiated,
         p_items_failed: errorCount
       });
+
+      // === PERSIST CURSOR: Save last processed item so next run resumes here ===
+      const lastItemInBatch = batch[batch.length - 1];
+      if (lastItemInBatch) {
+        try {
+          await (supabase.from('cron_state') as any).upsert({
+            key: cursorKey,
+            value: { 
+              cursor_work_item_id: lastItemInBatch.id,
+              updated_at: new Date().toISOString(),
+              items_processed_this_run: i + batch.length,
+              items_total: sortedItems.length,
+            },
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'key' });
+        } catch (cursorSaveErr) {
+          console.warn(`[scheduled-daily-sync] Cursor save error:`, cursorSaveErr);
+        }
+      }
     }
 
     // Determine final status (accounting for skipped items)
