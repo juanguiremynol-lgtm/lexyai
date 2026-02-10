@@ -32,6 +32,7 @@ import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { ReportToAteniaDialog } from "@/components/atenia/ReportToAteniaDialog";
+import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -239,7 +240,11 @@ export default function WorkItemDetail() {
             <CardContent className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Radicado</p>
-                <p className="font-medium">{workItem.radicado || "—"}</p>
+                <AddRadicadoInline
+                  workItemId={workItem.id}
+                  currentRadicado={workItem.radicado}
+                  onUpdate={refetch}
+                />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Autoridad</p>
