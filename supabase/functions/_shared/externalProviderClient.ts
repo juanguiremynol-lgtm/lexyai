@@ -74,6 +74,9 @@ export function hostMatchesAllowlist(host: string, allowlist: string[]): boolean
 }
 
 export function validateUrl(urlStr: string, allowlist: string[]): URL {
+  if (allowlist.length === 0) {
+    throw new Error("Connector has no allowed_domains configured — cannot make external calls");
+  }
   const { url, host } = parseHost(urlStr);
   if (isIpLiteral(host)) throw new Error(`Blocked: IP literal host "${host}"`);
   if (isBlockedHost(host)) throw new Error(`Blocked: forbidden host "${host}"`);
