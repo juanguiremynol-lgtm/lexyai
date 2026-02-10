@@ -4,6 +4,7 @@ import {
   safeFetchProvider,
   buildAuthHeaders,
   type ProviderInstanceInfo,
+  type ProviderSecurityWarning,
 } from "../_shared/externalProviderClient.ts";
 
 const corsHeaders = {
@@ -120,7 +121,7 @@ Deno.serve(async (req) => {
     };
 
     const results: Record<string, unknown> = {};
-
+    const securityWarnings: ProviderSecurityWarning[] = [];
     // Test /health
     try {
       const healthUrl = `${instance.base_url.replace(/\/$/, "")}/health`;
@@ -139,6 +140,7 @@ Deno.serve(async (req) => {
         allowlist: providerInfo.allowed_domains,
         init: { method: "GET", headers: healthHeaders },
         timeoutMs: providerInfo.timeout_ms,
+        onSecurityWarning: (w) => securityWarnings.push(w),
       });
       const healthLatency = Date.now() - healthStart;
       const healthBody = await healthRes.text();
@@ -171,6 +173,7 @@ Deno.serve(async (req) => {
         allowlist: providerInfo.allowed_domains,
         init: { method: "GET", headers: capHeaders },
         timeoutMs: providerInfo.timeout_ms,
+        onSecurityWarning: (w) => securityWarnings.push(w),
       });
       const capLatency = Date.now() - capStart;
       const capBody = await capRes.text();
@@ -183,6 +186,19 @@ Deno.serve(async (req) => {
       };
     } catch (e: unknown) {
       results.capabilities = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+
+    // Write security warning trace if any
+    if (securityWarnings.length > 0) {
+      await adminClient.from("provider_sync_traces").insert({
+        organization_id: instance.organization_id,
+        provider_instance_id: instance.id,
+        stage: "SECURITY",
+        result_code: "WARN",
+        ok: true,
+        latency_ms: 0,
+        payload: { warnings: securityWarnings },
+      });
     }
 
     // Write trace

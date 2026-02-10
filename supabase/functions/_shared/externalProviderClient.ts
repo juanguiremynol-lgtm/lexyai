@@ -9,11 +9,18 @@
  *  - API_KEY header mode
  *  - HMAC_SHARED_SECRET request signing mode (anti-replay with timestamp + nonce)
  *  - Configurable timeout via AbortController
+ *  - Production wildcard-allowlist warning (observable via trace/audit)
  */
 
 // ────────────────────────────── Types ──────────────────────────────
 
 export type AuthType = "API_KEY" | "HMAC_SHARED_SECRET";
+
+export type ProviderSecurityWarning = {
+  code: "WILDCARD_ALLOWLIST_IN_PROD";
+  message: string;
+  allowlist: string[];
+};
 
 export interface ProviderInstanceInfo {
   id: string;
@@ -143,6 +150,42 @@ export async function buildAuthHeaders(params: {
   return headers;
 }
 
+// ────────────────────────────── Environment helpers ──────────────────────────────
+
+function isProdEnv(): boolean {
+  const env = (Deno.env.get("ATENIA_ENV") ?? Deno.env.get("NODE_ENV") ?? "").toLowerCase();
+  return env === "production" || env === "prod";
+}
+
+function hasWildcardAllowlist(allowlist: string[]): boolean {
+  return allowlist.some((p) => {
+    const pat = (p ?? "").trim().toLowerCase();
+    if (!pat) return false;
+    return pat.includes("*");
+  });
+}
+
+function summarizeAllowlist(allowlist: string[]): string {
+  return allowlist.map((x) => (x ?? "").trim()).filter(Boolean).join(", ");
+}
+
+/**
+ * Returns a security warning if the allowlist contains wildcard patterns
+ * and the environment is production. Returns null otherwise.
+ */
+export function validateAllowlistPolicy(allowlist: string[]): ProviderSecurityWarning | null {
+  if (!isProdEnv()) return null;
+  if (!hasWildcardAllowlist(allowlist)) return null;
+
+  return {
+    code: "WILDCARD_ALLOWLIST_IN_PROD",
+    message:
+      `Wildcard allowlist detected in production. ` +
+      `Prefer exact hostnames to reduce SSRF surface. allowlist=[${summarizeAllowlist(allowlist)}]`,
+    allowlist,
+  };
+}
+
 // ────────────────────────────── Safe fetch ──────────────────────────────
 
 export async function safeFetchProvider(params: {
@@ -150,7 +193,14 @@ export async function safeFetchProvider(params: {
   allowlist: string[];
   init: RequestInit;
   timeoutMs: number;
+  onSecurityWarning?: (w: ProviderSecurityWarning) => void;
 }): Promise<Response> {
+  // Check allowlist policy and emit warning if applicable
+  const warning = validateAllowlistPolicy(params.allowlist);
+  if (warning) {
+    params.onSecurityWarning?.(warning);
+  }
+
   // Validate URL against allowlist + SSRF checks
   validateUrl(params.url, params.allowlist);
 
