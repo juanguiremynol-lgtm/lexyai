@@ -111,16 +111,16 @@ Deno.serve(async (req) => {
       // All active work items
       supabase
         .from("work_items")
-        .select("id, radicado, title, workflow_type, stage, authority_name, last_synced_at, monitoring_enabled, total_actuaciones, created_at, latest_event_date")
+        .select("id, radicado, title, workflow_type, stage, authority_name, last_synced_at, monitoring_enabled, total_actuaciones, created_at, last_event_at")
         .eq("organization_id", orgId)
         .eq("status", "ACTIVE")
-        .order("latest_event_date", { ascending: false, nullsFirst: true })
+        .order("last_event_at", { ascending: false, nullsFirst: true })
         .limit(100),
 
       // Recent actuaciones (last 7 days)
       supabase
         .from("work_item_acts")
-        .select("id, work_item_id, description, annotation, act_date, source, created_at, work_items!inner(radicado, title, authority_name)")
+        .select("id, work_item_id, description, act_date, source, created_at, work_items!inner(radicado, title, authority_name)")
         .eq("organization_id", orgId)
         .eq("is_archived", false)
         .gte("act_date", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
       // Recent publicaciones (last 7 days)
       supabase
         .from("work_item_publicaciones")
-        .select("id, work_item_id, title, tipo_publicacion, fecha_fijacion, fecha_desfijacion, terminos_inician, work_items!inner(radicado, title)")
+        .select("id, work_item_id, title, tipo_publicacion, fecha_fijacion, fecha_desfijacion, work_items!inner(radicado, title)")
         .eq("organization_id", orgId)
         .eq("is_archived", false)
         .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
@@ -173,6 +173,12 @@ Deno.serve(async (req) => {
         .limit(20),
     ]);
 
+    // Log errors for debugging
+    if (workItemsRes.error) console.error("[superadmin-lexy] work_items error:", workItemsRes.error.message);
+    if (recentActsRes.error) console.error("[superadmin-lexy] acts error:", recentActsRes.error.message);
+    if (recentPubsRes.error) console.error("[superadmin-lexy] pubs error:", recentPubsRes.error.message);
+    if (alertsRes.error) console.error("[superadmin-lexy] alerts error:", alertsRes.error.message);
+
     const workItems = workItemsRes.data || [];
     const recentActs = recentActsRes.data || [];
     const recentPubs = recentPubsRes.data || [];
@@ -180,6 +186,8 @@ Deno.serve(async (req) => {
     const terms = termsRes.data || [];
     const deadlines = deadlinesRes.data || [];
     const milestones = milestonesRes.data || [];
+
+    console.log(`[superadmin-lexy] Data: ${workItems.length} items, ${recentActs.length} acts, ${recentPubs.length} pubs, ${alerts.length} alerts`);
 
     // ─── Build comprehensive prompt ───
     const nowCOT = new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" });
@@ -191,13 +199,13 @@ Fecha/hora actual (Colombia): ${nowCOT}
 ## RESUMEN DE PORTAFOLIO
 
 Total asuntos activos: ${workItems.length}
-${workItems.map((w: any) => `- [${w.workflow_type}] ${w.radicado || 'Sin radicado'} — "${w.title}" — Etapa: ${w.stage} — Autoridad: ${w.authority_name || 'N/A'} — Última actividad: ${w.latest_event_date || 'N/A'} — Total actuaciones: ${w.total_actuaciones || 0}`).join("\n")}
+${workItems.map((w: any) => `- [${w.workflow_type}] ${w.radicado || 'Sin radicado'} — "${w.title}" — Etapa: ${w.stage} — Autoridad: ${w.authority_name || 'N/A'} — Última actividad: ${w.last_event_at || 'N/A'} — Total actuaciones: ${w.total_actuaciones || 0}`).join("\n")}
 
 ## ACTUACIONES RECIENTES (últimos 7 días): ${recentActs.length}
-${recentActs.map((a: any) => `- [${a.act_date}] Rad: ${(a as any).work_items?.radicado} — ${a.description || a.annotation || 'Actuación'}`).join("\n") || "Ninguna"}
+${recentActs.map((a: any) => `- [${a.act_date}] Rad: ${(a as any).work_items?.radicado} — ${a.description || 'Actuación'}`).join("\n") || "Ninguna"}
 
 ## ESTADOS/PUBLICACIONES RECIENTES (últimos 7 días): ${recentPubs.length}
-${recentPubs.map((p: any) => `- [${p.fecha_fijacion}] Rad: ${(p as any).work_items?.radicado} — ${p.tipo_publicacion} — Términos inician: ${p.terminos_inician || 'N/A'}`).join("\n") || "Ninguno"}
+${recentPubs.map((p: any) => `- [${p.fecha_fijacion}] Rad: ${(p as any).work_items?.radicado} — ${p.tipo_publicacion} — Desfijación: ${p.fecha_desfijacion || 'N/A'}`).join("\n") || "Ninguno"}
 
 ## ALERTAS PENDIENTES: ${alerts.length}
 ${alerts.map((a: any) => `- [${a.severity}] ${a.title}: ${a.message}`).join("\n") || "Ninguna"}
