@@ -367,7 +367,7 @@ Deno.serve(async (req) => {
         last_error_message: null,
         last_provider_latency_ms: snapLatency,
         consecutive_failures: 0,
-        // Do NOT reset consecutive_404_count (only demonitor logic uses it)
+        consecutive_404_count: 0,
       })
       .eq("id", source.id);
 
