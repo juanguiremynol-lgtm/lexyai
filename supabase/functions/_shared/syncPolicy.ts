@@ -24,6 +24,14 @@ export const DEMONITOR_ELIGIBLE_ERROR_CODES = [
   'UPSTREAM_ROUTE_MISSING',
 ] as const;
 
+/**
+ * Non-transient, non-404 "settled empty" code.
+ * Provider returned a valid (non-error) response but with zero actuaciones.
+ * Does NOT increment consecutive_404_count, does NOT trigger demonitor,
+ * and DOES increment consecutive_failures so admins can track patterns.
+ */
+export const PROVIDER_EMPTY_RESULT = 'PROVIDER_EMPTY_RESULT' as const;
+
 /** Default staleness guard for demonitoring (days) */
 export const DEFAULT_STALENESS_GUARD_DAYS = 14;
 

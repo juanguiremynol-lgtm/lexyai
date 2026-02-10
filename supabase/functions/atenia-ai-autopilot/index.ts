@@ -205,6 +205,7 @@ interface HealthSnapshot {
     skipped_today: number;
     failures_today: number;
     scraping_pending_today: number;
+    transient_without_retry: number; // items with transient error but no retry row — should be ~0
   };
   retry_queue: {
     pending_count: number;
@@ -462,6 +463,28 @@ async function buildHealthSnapshot(
 
   const skippedToday = (totalMonitored || 0) - (syncedToday || 0) - (failuresToday || 0);
 
+  // 8. Transient-pending-without-retry counter (should be ~0 if autopilot is healthy)
+  // Items that have a transient error code but NO retry row — indicates a gap in self-healing
+  const transientItemIds = (transientItems?.length ? transientItems : []).map((t: any) => t.id);
+  // We already computed transientItems in validateAndHeal context, but buildHealthSnapshot runs first.
+  // Query directly here for accuracy:
+  const { data: transientNoRetryItems } = await supabase
+    .from("work_items")
+    .select("id")
+    .eq("organization_id", orgId)
+    .eq("monitoring_enabled", true)
+    .in("last_error_code", [...TRANSIENT_ERROR_CODES]);
+
+  let transientWithoutRetryCount = 0;
+  if (transientNoRetryItems && transientNoRetryItems.length > 0) {
+    const tIds = transientNoRetryItems.map((t: any) => t.id);
+    const { data: existingRetriesForTransient } = await (supabase.from("sync_retry_queue") as any)
+      .select("work_item_id")
+      .in("work_item_id", tIds);
+    const retrySetTransient = new Set((existingRetriesForTransient || []).map((r: any) => r.work_item_id));
+    transientWithoutRetryCount = tIds.filter((id: string) => !retrySetTransient.has(id)).length;
+  }
+
   return {
     provider_status: providerStatus,
     sync: {
@@ -470,6 +493,7 @@ async function buildHealthSnapshot(
       skipped_today: skippedToday > 0 ? skippedToday : 0,
       failures_today: failuresToday || 0,
       scraping_pending_today: retryList.filter((r: any) => r.kind === "ACT_SCRAPE_RETRY").length,
+      transient_without_retry: transientWithoutRetryCount,
     },
     retry_queue: {
       pending_count: retryList.length,
