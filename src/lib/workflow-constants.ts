@@ -174,16 +174,13 @@ export const CPACA_STAGES = {
   DEMANDA_POR_RADICAR: { label: 'Demanda por Radicar', order: 1 },
   DEMANDA_RADICADA: { label: 'Demanda Radicada', order: 2 },
   AUTO_ADMISORIO: { label: 'Auto Admisorio', order: 3 },
-  NOTIFICACION_TRASLADOS: { label: 'Notificación', order: 4 },
-  TRASLADO_DEMANDA: { label: 'Traslado Demanda', order: 5 },
-  REFORMA_DEMANDA: { label: 'Reforma Demanda', order: 6 },
-  TRASLADO_EXCEPCIONES: { label: 'Traslado Excepciones', order: 7 },
-  AUDIENCIA_INICIAL: { label: 'Audiencia Inicial', order: 8 },
-  AUDIENCIA_PRUEBAS: { label: 'Audiencia Pruebas', order: 9 },
-  ALEGATOS_SENTENCIA: { label: 'Alegatos y Sentencia', order: 10 },
-  RECURSOS: { label: 'Recursos', order: 11 },
-  EJECUCION_CUMPLIMIENTO: { label: 'Ejecución / Cumplimiento', order: 12 },
-  ARCHIVADO: { label: 'Archivado', order: 13 },
+  TRASLADO_DEMANDA: { label: 'Traslado Demanda', order: 4 },
+  TRASLADO_EXCEPCIONES: { label: 'Traslado Excepciones', order: 5 },
+  AUDIENCIA_INICIAL: { label: 'Audiencia Inicial', order: 6 },
+  AUDIENCIA_PRUEBAS: { label: 'Audiencia Pruebas', order: 7 },
+  ALEGATOS_SENTENCIA: { label: 'Alegatos y Sentencia', order: 8 },
+  RECURSOS: { label: 'Recursos', order: 9 },
+  EJECUCION_CUMPLIMIENTO: { label: 'Ejecución / Cumplimiento', order: 10 },
 } as const;
 
 export type CpacaStage = keyof typeof CPACA_STAGES;
