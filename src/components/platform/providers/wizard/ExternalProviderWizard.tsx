@@ -1,5 +1,6 @@
 /**
  * ExternalProviderWizard — Main wizard component supporting PLATFORM and ORG modes.
+ * Includes AI Guide panel for Gemini-powered contextual assistance.
  */
 
 import { useState, useCallback } from "react";
@@ -7,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, X } from "lucide-react";
 import { WizardStepper } from "./WizardStepper";
+import { WizardAIGuidePanel } from "./WizardAIGuidePanel";
 import { StepWelcome } from "./steps/StepWelcome";
 import { StepTemplate } from "./steps/StepTemplate";
 import { StepConnector } from "./steps/StepConnector";
@@ -175,9 +177,18 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
       {/* Stepper */}
       <WizardStepper currentStep={state.step} onStepClick={(step) => goTo(step)} />
 
-      {/* Step Content */}
-      <div className="min-h-[500px]">
-        {renderStep()}
+      {/* Step Content + AI Guide */}
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <div className="xl:col-span-3 min-h-[500px]">
+          {renderStep()}
+        </div>
+        <div className="xl:col-span-1">
+          <WizardAIGuidePanel
+            mode={mode}
+            wizardState={state}
+            stepId={WIZARD_STEPS[state.step]?.key || "unknown"}
+          />
+        </div>
       </div>
     </div>
   );

@@ -155,3 +155,9 @@ verify_jwt = false
 
 [functions.provider-wizard-run-e2e]
 verify_jwt = false
+
+[functions.provider-wizard-ai-guide]
+verify_jwt = false
+
+[functions.provider-infer-mapping]
+verify_jwt = false
