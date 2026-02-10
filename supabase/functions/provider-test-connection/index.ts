@@ -3,6 +3,7 @@ import { decryptSecret } from "../_shared/secretsCrypto.ts";
 import {
   safeFetchProvider,
   buildAuthHeaders,
+  validateAllowlistPolicy,
   type ProviderInstanceInfo,
   type ProviderSecurityWarning,
 } from "../_shared/externalProviderClient.ts";
@@ -120,8 +121,12 @@ Deno.serve(async (req) => {
       allowed_domains: connector?.allowed_domains || [],
     };
 
+    // Eagerly check allowlist policy for warnings (independent of fetch)
+    const allowlistWarning = validateAllowlistPolicy(providerInfo.allowed_domains);
+
     const results: Record<string, unknown> = {};
     const securityWarnings: ProviderSecurityWarning[] = [];
+    if (allowlistWarning) securityWarnings.push(allowlistWarning);
     // Test /health
     try {
       const healthUrl = `${instance.base_url.replace(/\/$/, "")}/health`;
@@ -228,7 +233,12 @@ Deno.serve(async (req) => {
     });
 
     return new Response(
-      JSON.stringify({ ok: true, results, duration_ms: Date.now() - startTime }),
+      JSON.stringify({
+        ok: true,
+        results,
+        warnings: securityWarnings,
+        duration_ms: Date.now() - startTime,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {

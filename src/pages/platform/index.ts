@@ -16,3 +16,4 @@ export { default as PlatformSystemPage } from "./PlatformSystemPage";
 export { default as PlatformApiDebugPage } from "./PlatformApiDebugPage";
 export { default as PlatformAteniaAIPage } from "./PlatformAteniaAIPage";
 export { default as PlatformCourthouseDirectoryPage } from "./PlatformCourthouseDirectoryPage";
+export { default as PlatformExternalProvidersPage } from "./PlatformExternalProvidersPage";

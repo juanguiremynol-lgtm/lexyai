@@ -60,6 +60,7 @@ import {
   PlatformApiDebugPage,
   PlatformAteniaAIPage,
   PlatformCourthouseDirectoryPage,
+  PlatformExternalProvidersPage,
 } from "./pages/platform";
 
 const queryClient = new QueryClient({
@@ -207,6 +208,7 @@ const App = () => (
             <Route path="api-debug" element={<ErrorBoundary><PlatformApiDebugPage /></ErrorBoundary>} />
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
+            <Route path="external-providers" element={<ErrorBoundary><PlatformExternalProvidersPage /></ErrorBoundary>} />
           </Route>
           
           {/* 404 */}
