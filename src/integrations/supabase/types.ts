@@ -2034,6 +2034,93 @@ export type Database = {
           },
         ]
       }
+      courthouse_directory: {
+        Row: {
+          account_type_norm: string
+          canonical_key: string
+          chamber_norm: string | null
+          city_norm: string
+          ciudad_raw: string | null
+          codigo_despacho_norm: string | null
+          codigo_despacho_raw: string | null
+          corp_area_norm: string
+          corporacion_area_raw: string | null
+          court_class: string
+          court_number: number | null
+          court_number_padded: string | null
+          departamento_raw: string | null
+          dept_norm: string
+          email: string
+          especialidad_area_raw: string | null
+          id: number
+          imported_at: string
+          level_norm: string | null
+          name_norm_hard: string
+          name_norm_soft: string
+          nombre_raw: string
+          source_name: string
+          source_row_hash: string
+          specialty_norm: string
+          tipo_cuenta_raw: string | null
+        }
+        Insert: {
+          account_type_norm?: string
+          canonical_key?: string
+          chamber_norm?: string | null
+          city_norm?: string
+          ciudad_raw?: string | null
+          codigo_despacho_norm?: string | null
+          codigo_despacho_raw?: string | null
+          corp_area_norm?: string
+          corporacion_area_raw?: string | null
+          court_class?: string
+          court_number?: number | null
+          court_number_padded?: string | null
+          departamento_raw?: string | null
+          dept_norm?: string
+          email: string
+          especialidad_area_raw?: string | null
+          id?: number
+          imported_at?: string
+          level_norm?: string | null
+          name_norm_hard?: string
+          name_norm_soft?: string
+          nombre_raw: string
+          source_name?: string
+          source_row_hash: string
+          specialty_norm?: string
+          tipo_cuenta_raw?: string | null
+        }
+        Update: {
+          account_type_norm?: string
+          canonical_key?: string
+          chamber_norm?: string | null
+          city_norm?: string
+          ciudad_raw?: string | null
+          codigo_despacho_norm?: string | null
+          codigo_despacho_raw?: string | null
+          corp_area_norm?: string
+          corporacion_area_raw?: string | null
+          court_class?: string
+          court_number?: number | null
+          court_number_padded?: string | null
+          departamento_raw?: string | null
+          dept_norm?: string
+          email?: string
+          especialidad_area_raw?: string | null
+          id?: number
+          imported_at?: string
+          level_norm?: string | null
+          name_norm_hard?: string
+          name_norm_soft?: string
+          nombre_raw?: string
+          source_name?: string
+          source_row_hash?: string
+          specialty_norm?: string
+          tipo_cuenta_raw?: string | null
+        }
+        Relationships: []
+      }
       cpaca_processes: {
         Row: {
           acto_administrativo_fecha: string | null
@@ -6430,6 +6517,8 @@ export type Database = {
           client_id: string | null
           consecutive_404_count: number | null
           corte_status: string | null
+          courthouse_directory_id: number | null
+          courthouse_needs_review: boolean | null
           created_at: string
           delete_reason: string | null
           deleted_at: string | null
@@ -6494,6 +6583,11 @@ export type Database = {
           radicado: string | null
           radicado_raw: string | null
           radicado_verified: boolean | null
+          raw_courthouse_input: Json | null
+          resolution_confidence: number | null
+          resolution_method: string | null
+          resolved_at: string | null
+          resolved_email: string | null
           samai_consultado_en: string | null
           samai_fuente: string | null
           samai_guid: string | null
@@ -6550,6 +6644,8 @@ export type Database = {
           client_id?: string | null
           consecutive_404_count?: number | null
           corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_needs_review?: boolean | null
           created_at?: string
           delete_reason?: string | null
           deleted_at?: string | null
@@ -6614,6 +6710,11 @@ export type Database = {
           radicado?: string | null
           radicado_raw?: string | null
           radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
           samai_consultado_en?: string | null
           samai_fuente?: string | null
           samai_guid?: string | null
@@ -6670,6 +6771,8 @@ export type Database = {
           client_id?: string | null
           consecutive_404_count?: number | null
           corte_status?: string | null
+          courthouse_directory_id?: number | null
+          courthouse_needs_review?: boolean | null
           created_at?: string
           delete_reason?: string | null
           deleted_at?: string | null
@@ -6734,6 +6837,11 @@ export type Database = {
           radicado?: string | null
           radicado_raw?: string | null
           radicado_verified?: boolean | null
+          raw_courthouse_input?: Json | null
+          resolution_confidence?: number | null
+          resolution_method?: string | null
+          resolved_at?: string | null
+          resolved_email?: string | null
           samai_consultado_en?: string | null
           samai_fuente?: string | null
           samai_guid?: string | null
@@ -6772,6 +6880,13 @@ export type Database = {
             columns: ["client_id"]
             isOneToOne: false
             referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_items_courthouse_directory_id_fkey"
+            columns: ["courthouse_directory_id"]
+            isOneToOne: false
+            referencedRelation: "courthouse_directory"
             referencedColumns: ["id"]
           },
           {
@@ -6905,7 +7020,10 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
+      unaccent: { Args: { "": string }; Returns: string }
       update_daily_sync_ledger: {
         Args: {
           p_error?: string
