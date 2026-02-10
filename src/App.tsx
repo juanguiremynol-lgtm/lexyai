@@ -59,6 +59,7 @@ import {
   PlatformSystemPage,
   PlatformApiDebugPage,
   PlatformAteniaAIPage,
+  PlatformCourthouseDirectoryPage,
 } from "./pages/platform";
 
 const queryClient = new QueryClient();
@@ -188,6 +189,7 @@ const App = () => (
             <Route path="system" element={<ErrorBoundary><PlatformSystemPage /></ErrorBoundary>} />
             <Route path="api-debug" element={<ErrorBoundary><PlatformApiDebugPage /></ErrorBoundary>} />
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
+            <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
           </Route>
           
           {/* 404 */}
