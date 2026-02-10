@@ -62,6 +62,7 @@ import {
   PlatformCourthouseDirectoryPage,
   PlatformExternalProvidersPage,
 } from "./pages/platform";
+import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -209,6 +210,7 @@ const App = () => (
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
             <Route path="external-providers" element={<ErrorBoundary><PlatformExternalProvidersPage /></ErrorBoundary>} />
+            <Route path="external-providers/wizard" element={<ErrorBoundary><PlatformProviderWizardPage /></ErrorBoundary>} />
           </Route>
           
           {/* 404 */}

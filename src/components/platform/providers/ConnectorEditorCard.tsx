@@ -40,9 +40,9 @@ function getConnectorStatus(connector: Connector | null): ConnectorStatus {
 
 function StatusBadge({ status }: { status: ConnectorStatus }) {
   const map = {
-    NOT_CONFIGURED: { label: "No configurado", variant: "outline" as const, className: "text-slate-400 border-slate-600" },
-    NEEDS_REVIEW: { label: "Necesita revisión", variant: "outline" as const, className: "text-amber-400 border-amber-500/50 bg-amber-500/10" },
-    READY: { label: "Listo", variant: "outline" as const, className: "text-emerald-400 border-emerald-500/50 bg-emerald-500/10" },
+    NOT_CONFIGURED: { label: "No configurado", variant: "outline" as const, className: "text-muted-foreground" },
+    NEEDS_REVIEW: { label: "Necesita revisión", variant: "outline" as const, className: "text-accent-foreground" },
+    READY: { label: "Listo", variant: "outline" as const, className: "text-primary" },
     ERROR: { label: "Error", variant: "destructive" as const, className: "" },
   };
   const s = map[status];
@@ -188,11 +188,11 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
   const saving = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <Card className="border-slate-700 bg-slate-900/50">
+    <Card className="border-border bg-card">
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Shield className="h-5 w-5 text-amber-400" />
+            <Shield className="h-5 w-5 text-primary" />
             A) Conector Template (Global)
           </CardTitle>
           <CardDescription>Define el template de conector con dominios permitidos y capacidades</CardDescription>
@@ -208,20 +208,19 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
         {/* Connector selector */}
         {connectors && connectors.length > 0 && (
           <div className="space-y-2">
-            <Label className="text-slate-300">Conectores existentes</Label>
+            <Label className="text-muted-foreground">Conectores existentes</Label>
             <div className="flex flex-wrap gap-2">
               {connectors.map((c) => (
                 <Button
                   key={c.id}
                   size="sm"
                   variant={selectedConnector?.id === c.id ? "default" : "outline"}
-                  className={selectedConnector?.id === c.id ? "bg-amber-600 hover:bg-amber-700" : "border-slate-600"}
                   onClick={() => onConnectorChange(c)}
                 >
                   {c.name} ({c.key})
                 </Button>
               ))}
-              <Button size="sm" variant="outline" className="border-dashed border-slate-600" onClick={resetForm}>
+              <Button size="sm" variant="outline" className="border-dashed" onClick={resetForm}>
                 <Plus className="h-3 w-3 mr-1" /> Nuevo
               </Button>
             </div>
@@ -230,65 +229,61 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label className="text-slate-300">Key (único)</Label>
+            <Label className="text-muted-foreground">Key (único)</Label>
             <Input
               value={key}
               onChange={(e) => setKey(e.target.value)}
               placeholder="my_provider_v1"
               disabled={isEditing}
-              className="bg-slate-800 border-slate-600"
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-300">Nombre</Label>
+            <Label className="text-muted-foreground">Nombre</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Mi Proveedor API"
-              className="bg-slate-800 border-slate-600"
             />
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label className="text-slate-300">Descripción</Label>
+          <Label className="text-muted-foreground">Descripción</Label>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Descripción del conector..."
-            className="bg-slate-800 border-slate-600 min-h-[60px]"
+            className="min-h-[60px]"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label className="text-slate-300">Capabilities (comma-sep)</Label>
+            <Label className="text-muted-foreground">Capabilities (comma-sep)</Label>
             <Input
               value={capabilities}
               onChange={(e) => setCapabilities(e.target.value)}
               placeholder="ACTUACIONES, PUBLICACIONES"
-              className="bg-slate-800 border-slate-600"
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-slate-300">Schema Version</Label>
+            <Label className="text-muted-foreground">Schema Version</Label>
             <Input
               value={schemaVersion}
               onChange={(e) => setSchemaVersion(e.target.value)}
-              className="bg-slate-800 border-slate-600"
             />
           </div>
         </div>
 
         {/* Allowed Domains */}
         <div className="space-y-2">
-          <Label className="text-slate-300 flex items-center gap-2">
+          <Label className="text-muted-foreground flex items-center gap-2">
             Dominios Permitidos (SSRF allowlist)
             {domainsEmpty && (
               <Badge variant="destructive" className="text-xs">Requerido</Badge>
             )}
             {hasWildcard && !domainsEmpty && (
-              <Badge variant="outline" className="text-amber-400 border-amber-500/50 bg-amber-500/10 text-xs">
+              <Badge variant="outline" className="text-xs">
                 <AlertTriangle className="h-3 w-3 mr-1" />
                 Wildcard detectado
               </Badge>
@@ -300,20 +295,19 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
                 value={domain}
                 onChange={(e) => updateDomain(idx, e.target.value)}
                 placeholder="my-api.example.com"
-                className="bg-slate-800 border-slate-600"
               />
               {allowedDomains.length > 1 && (
                 <Button size="icon" variant="ghost" onClick={() => removeDomain(idx)}>
-                  <Trash2 className="h-4 w-4 text-red-400" />
+                  <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               )}
             </div>
           ))}
-          <Button size="sm" variant="outline" className="border-slate-600" onClick={addDomain}>
+          <Button size="sm" variant="outline" className="border-dashed" onClick={addDomain}>
             <Plus className="h-3 w-3 mr-1" /> Agregar dominio
           </Button>
           {hasWildcard && (
-            <p className="text-xs text-amber-400 flex items-center gap-1">
+            <p className="text-xs text-destructive flex items-center gap-1">
               <AlertTriangle className="h-3 w-3" />
               Los wildcards (e.g. *.run.app) amplían la superficie SSRF. Prefiera hostnames exactos en producción.
             </p>
@@ -323,14 +317,13 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Switch checked={isEnabled} onCheckedChange={setIsEnabled} />
-            <Label className="text-slate-300">Habilitado</Label>
+            <Label className="text-muted-foreground">Habilitado</Label>
           </div>
           <div className="flex gap-2">
             {isEditing && (
               <Button
                 onClick={() => updateMutation.mutate()}
                 disabled={saving || domainsEmpty || !name.trim()}
-                className="bg-amber-600 hover:bg-amber-700"
               >
                 {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                 Actualizar
@@ -340,7 +333,6 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
               <Button
                 onClick={() => createMutation.mutate()}
                 disabled={saving || domainsEmpty || !key.trim() || !name.trim()}
-                className="bg-amber-600 hover:bg-amber-700"
               >
                 {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                 Crear Conector
