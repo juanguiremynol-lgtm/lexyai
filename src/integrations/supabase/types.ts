@@ -2480,6 +2480,24 @@ export type Database = {
           },
         ]
       }
+      cron_state: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       daily_welcome_log: {
         Row: {
           activity_count: number | null
