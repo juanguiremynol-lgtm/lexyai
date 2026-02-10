@@ -214,18 +214,18 @@ export function HearingPromptDialog({
             </div>
           )}
 
-          {/* Microsoft Teams Link */}
+          {/* Videoconference Link */}
           <div className="space-y-2">
             <Label htmlFor="teams_link" className="flex items-center gap-2">
-              <TeamsIcon className="h-4 w-4" />
-              Enlace Microsoft Teams
+              <Video className="h-4 w-4" />
+              Enlace de audiencia virtual (Teams, Meet, Zoom, etc.)
             </Label>
             <Input
               id="teams_link"
               type="url"
               value={formData.teams_link}
               onChange={(e) => setFormData({ ...formData, teams_link: e.target.value })}
-              placeholder="https://teams.microsoft.com/l/meetup-join/..."
+              placeholder="https://teams.microsoft.com/... o meet.google.com/... o zoom.us/..."
             />
             <p className="text-xs text-muted-foreground">
               Se mostrará un aviso en el dashboard cuando llegue el día y hora.

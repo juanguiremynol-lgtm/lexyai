@@ -238,7 +238,7 @@ export function HearingsCalendar({ hearings, onDelete }: HearingsCalendarProps) 
                       <a href={h.teams_link} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1 text-primary hover:underline">
                         <Video className="h-3 w-3" />
-                        Teams
+                        {h.teams_link.includes('teams.microsoft') ? 'Teams' : h.teams_link.includes('meet.google') ? 'Meet' : h.teams_link.includes('zoom') ? 'Zoom' : 'Unirse'}
                       </a>
                     )}
                   </div>

@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Loader2, Video as TeamsIcon } from "lucide-react";
+import { CalendarIcon, Loader2, Video } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -261,16 +261,16 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
             </div>
           )}
 
-          {/* Microsoft Teams Link */}
+          {/* Videoconference Link (Teams, Meet, Zoom, etc.) */}
           <div className="space-y-2">
             <Label htmlFor="teams-link" className="flex items-center gap-2">
-              <TeamsIcon className="h-4 w-4" />
-              Enlace Microsoft Teams
+              <Video className="h-4 w-4" />
+              Enlace de audiencia virtual (Teams, Meet, Zoom, etc.)
             </Label>
             <Input
               id="teams-link"
               type="url"
-              placeholder="https://teams.microsoft.com/l/meetup-join/..."
+              placeholder="https://teams.microsoft.com/... o meet.google.com/... o zoom.us/..."
               value={teamsLink}
               onChange={(e) => setTeamsLink(e.target.value)}
             />

@@ -1,6 +1,6 @@
 /**
  * HearingTeamsNotice — Dashboard banner that shows when a hearing with a
- * Microsoft Teams link is scheduled for today (or is happening right now).
+ * videoconference link (Teams, Meet, Zoom, etc.) is scheduled for today.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -19,6 +19,13 @@ interface TodayHearing {
   work_item_id: string | null;
   location: string | null;
   is_virtual: boolean;
+}
+
+function detectPlatformLabel(url: string): string {
+  if (url.includes("teams.microsoft")) return "Unirse a Teams";
+  if (url.includes("meet.google")) return "Unirse a Meet";
+  if (url.includes("zoom.us") || url.includes("zoom.com")) return "Unirse a Zoom";
+  return "Unirse a audiencia";
 }
 
 export function HearingTeamsNotice() {
@@ -114,7 +121,7 @@ export function HearingTeamsNotice() {
             >
               <a href={h.teams_link} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-3.5 w-3.5" />
-                Unirse a Teams
+                {detectPlatformLabel(h.teams_link)}
               </a>
             </Button>
 
