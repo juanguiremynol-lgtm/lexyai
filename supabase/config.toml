@@ -122,3 +122,6 @@ verify_jwt = false
 
 [functions.lexy-daily-message]
 verify_jwt = false
+
+[functions.superadmin-lexy-analysis]
+verify_jwt = false
