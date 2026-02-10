@@ -3,6 +3,7 @@
  * 
  * States:
  * 1. monitoring_enabled=true, provider_reachable=true → Green "Monitoreado"
+ * 1b. scrape_status='SCRAPING' or transient error → Blue "Scraping en progreso"
  * 2. monitoring_enabled=true, provider_reachable=false → Yellow "Sin respuesta"
  * 3. monitoring_enabled=false, demonitor_reason set → Orange "Suspendido" (AI or user)
  * 4. monitoring_enabled=false, no reason → Gray "Monitoreo inactivo"
@@ -32,12 +33,16 @@ import {
   Pencil,
   Check,
   X,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { suspendMonitoring, reactivateMonitoring } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+
+const TRANSIENT_SCRAPE_STATUSES = ['SCRAPING', 'SCRAPING_PENDING'];
+const TRANSIENT_ERROR_CODES = ['SCRAPING_TIMEOUT', 'SCRAPING_PENDING', 'SCRAPING_TIMEOUT_RETRY_SCHEDULED'];
 
 interface WorkItemMonitoringProps {
   workItem: {
@@ -49,6 +54,7 @@ interface WorkItemMonitoringProps {
     consecutive_404_count?: number;
     provider_reachable?: boolean;
     scrape_status?: string;
+    last_error_code?: string | null;
     radicado?: string | null;
   };
   onUpdate?: () => void;
@@ -63,8 +69,12 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
   const isAIDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason?.startsWith('Atenia AI');
   const isUserDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason && !isAIDemonitored;
   const isManuallyDisabled = !workItem.monitoring_enabled && !workItem.demonitor_reason;
-  const isUnreachable = workItem.monitoring_enabled && workItem.provider_reachable === false;
-  const isHealthy = workItem.monitoring_enabled && workItem.provider_reachable !== false;
+  const isScrapingInProgress = workItem.monitoring_enabled && (
+    TRANSIENT_SCRAPE_STATUSES.includes(workItem.scrape_status || '') ||
+    TRANSIENT_ERROR_CODES.includes(workItem.last_error_code || '')
+  );
+  const isUnreachable = workItem.monitoring_enabled && !isScrapingInProgress && workItem.provider_reachable === false;
+  const isHealthy = workItem.monitoring_enabled && !isScrapingInProgress && workItem.provider_reachable !== false;
 
   const handleSuspend = async () => {
     if (!workItem.organization_id) return;
@@ -181,6 +191,18 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
       </Button>
     </div>
   );
+
+  // State 1b: Scraping in progress (transient state, retry scheduled)
+  if (isScrapingInProgress) {
+    return (
+      <div className="flex items-center gap-1">
+        <Badge variant="outline" className="gap-1 border-blue-500/50 text-blue-600">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Sincronizando — reintento programado
+        </Badge>
+      </div>
+    );
+  }
 
   // State 1: Healthy
   if (isHealthy) {
