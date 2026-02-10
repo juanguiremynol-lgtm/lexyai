@@ -5310,6 +5310,54 @@ export type Database = {
           },
         ]
       }
+      provider_category_policies_global: {
+        Row: {
+          allow_merge_on_empty: boolean
+          created_at: string
+          enabled: boolean
+          id: string
+          max_provider_attempts_per_run: number
+          merge_budget_max_ms: number
+          merge_budget_max_providers: number
+          merge_mode: string
+          override_mode: string
+          scope: string
+          strategy: string
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          max_provider_attempts_per_run?: number
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          override_mode?: string
+          scope?: string
+          strategy?: string
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          max_provider_attempts_per_run?: number
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          override_mode?: string
+          scope?: string
+          strategy?: string
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: []
+      }
       provider_category_routes: {
         Row: {
           created_at: string
@@ -5363,6 +5411,50 @@ export type Database = {
             columns: ["provider_instance_id"]
             isOneToOne: false
             referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_category_routes_global: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          is_authoritative: boolean
+          priority: number
+          provider_connector_id: string
+          route_kind: string
+          scope: string
+          workflow: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_authoritative?: boolean
+          priority?: number
+          provider_connector_id: string
+          route_kind?: string
+          scope?: string
+          workflow: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_authoritative?: boolean
+          priority?: number
+          provider_connector_id?: string
+          route_kind?: string
+          scope?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_category_routes_global_provider_connector_id_fkey"
+            columns: ["provider_connector_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connectors"
             referencedColumns: ["id"]
           },
         ]
