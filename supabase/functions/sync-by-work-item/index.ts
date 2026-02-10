@@ -71,6 +71,9 @@ interface WorkItem {
   scrape_status: string | null;
   last_crawled_at: string | null;
   expediente_url: string | null;
+  authority_name: string | null;
+  authority_city: string | null;
+  authority_department: string | null;
 }
 
 interface ActuacionRaw {
@@ -2540,7 +2543,7 @@ Deno.serve(async (req) => {
     // Fetch work item
     const { data: workItem, error: workItemError } = await supabase
       .from('work_items')
-      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date')
+      .select('id, owner_id, organization_id, workflow_type, radicado, tutela_code, scrape_status, last_crawled_at, expediente_url, stage_inference_enabled, last_inference_date, authority_name, authority_city, authority_department')
       .eq('id', work_item_id)
       .maybeSingle();
 
@@ -3817,6 +3820,61 @@ Deno.serve(async (req) => {
     // The UI should call sync-publicaciones-by-work-item separately for deadline tracking.
     if (['CGP', 'LABORAL'].includes(workItem.workflow_type) && workItem.radicado) {
       console.log(`[sync-by-work-item] ${workItem.workflow_type}: Publicaciones sync is handled by sync-publicaciones-by-work-item (call separately)`);
+    }
+
+    // ============= CASCADE: COURTHOUSE EMAIL RESOLUTION =============
+    // If new despacho data arrived from the provider and differs from what we had,
+    // trigger courthouse email resolution to auto-resolve/update the email.
+    const newDespacho = fetchResult.caseMetadata?.despacho;
+    const previousDespacho = workItem.authority_name;
+    
+    if (newDespacho && newDespacho !== previousDespacho) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        
+        console.log(`[sync-by-work-item] Despacho changed ("${previousDespacho}" → "${newDespacho}"), triggering courthouse resolution`);
+        
+        // Update raw_courthouse_input with new data
+        await supabase
+          .from('work_items')
+          .update({
+            raw_courthouse_input: {
+              name: newDespacho,
+              city: fetchResult.caseMetadata?.ciudad || workItem.authority_city || '',
+              department: fetchResult.caseMetadata?.departamento || workItem.authority_department || '',
+              source: 'sync-by-work-item',
+            },
+          } as any)
+          .eq('id', work_item_id);
+
+        // Invoke resolver (non-blocking)
+        const resolveResponse = await fetch(
+          `${supabaseUrl}/functions/v1/resolve-courthouse-email`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              work_item_id: work_item_id,
+              courthouse_name: newDespacho,
+              city: fetchResult.caseMetadata?.ciudad || workItem.authority_city || '',
+              department: fetchResult.caseMetadata?.departamento || workItem.authority_department || '',
+            }),
+          }
+        );
+        const resolveResult = await resolveResponse.json();
+        console.log(`[sync-by-work-item] Courthouse resolution:`, {
+          ok: resolveResult.ok,
+          method: resolveResult.method,
+          needs_review: resolveResult.needs_review,
+        });
+      } catch (resolveErr) {
+        // Non-blocking — courthouse resolution failure shouldn't block sync
+        console.warn(`[sync-by-work-item] Courthouse resolution failed (non-blocking):`, resolveErr);
+      }
     }
 
     result.ok = true;
