@@ -51,13 +51,13 @@ export function MembershipManagement() {
       // Get profiles for all members
       const { data } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, email, avatar_url, auth_provider')
         .in('id', memberships.map(m => m.user_id));
 
-      const detailsMap: Record<string, { full_name: string | null; email: string | null }> = {};
+      const detailsMap: Record<string, { full_name: string | null; email: string | null; avatar_url: string | null; auth_provider: string | null }> = {};
       
       (data || []).forEach((p) => {
-        detailsMap[p.id] = { full_name: p.full_name, email: null };
+        detailsMap[p.id] = { full_name: p.full_name, email: p.email, avatar_url: p.avatar_url, auth_provider: p.auth_provider };
       });
 
       return detailsMap;
@@ -128,24 +128,36 @@ export function MembershipManagement() {
                 const canRemove = canModify && !isCurrentUser && membership.role !== 'OWNER';
 
                 return (
-                  <TableRow key={membership.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div>
-                          <p className="font-medium">
-                            {details?.full_name || 'Usuario'}
-                            {isCurrentUser && (
-                              <span className="text-muted-foreground ml-2 text-sm">(tú)</span>
-                            )}
-                          </p>
-                          {details?.email && (
-                            <p className="text-sm text-muted-foreground">{details.email}</p>
+                    <TableRow key={membership.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          {details?.avatar_url ? (
+                            <img
+                              src={details.avatar_url}
+                              alt=""
+                              className="h-8 w-8 rounded-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                            </div>
                           )}
+                          <div>
+                            <p className="font-medium">
+                              {details?.full_name || 'Usuario'}
+                              {isCurrentUser && (
+                                <span className="text-muted-foreground ml-2 text-sm">(tú)</span>
+                              )}
+                            </p>
+                            {details?.email && (
+                              <p className="text-sm text-muted-foreground">{details.email}</p>
+                            )}
+                            {details?.auth_provider && details.auth_provider !== 'email' && (
+                              <span className="text-xs text-muted-foreground capitalize">vía {details.auth_provider}</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
                     </TableCell>
                     <TableCell>
                       {canModify && membership.role !== 'OWNER' ? (

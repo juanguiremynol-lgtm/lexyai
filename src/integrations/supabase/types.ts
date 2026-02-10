@@ -5006,8 +5006,11 @@ export type Database = {
       }
       profiles: {
         Row: {
+          auth_provider: string | null
+          avatar_url: string | null
           created_at: string
           default_alert_email: string | null
+          email: string | null
           email_reminders_enabled: boolean | null
           estados_import_interval_days: number | null
           firm_name: string | null
@@ -5031,8 +5034,11 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auth_provider?: string | null
+          avatar_url?: string | null
           created_at?: string
           default_alert_email?: string | null
+          email?: string | null
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
@@ -5056,8 +5062,11 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auth_provider?: string | null
+          avatar_url?: string | null
           created_at?: string
           default_alert_email?: string | null
+          email?: string | null
           email_reminders_enabled?: boolean | null
           estados_import_interval_days?: number | null
           firm_name?: string | null
