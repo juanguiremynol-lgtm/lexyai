@@ -393,7 +393,7 @@ export function getStageOptionsForWorkflow(workflowType: string): StageOption[] 
       { value: 'ALEGATOS', label: 'Alegatos', description: 'Alegatos de conclusión' },
       { value: 'SENTENCIA', label: 'Sentencia', description: 'Fallo' },
       { value: 'RECURSO', label: 'Recurso', description: 'Recurso' },
-      { value: 'ARCHIVADO', label: 'Archivado', description: 'Archivado' },
+      { value: 'EJECUCION_CUMPLIMIENTO', label: 'Ejecución / Cumplimiento', description: 'Cumplimiento de sentencia' },
     ],
     TUTELA: [
       { value: 'REPARTO', label: 'Reparto', description: 'Asignación del proceso' },

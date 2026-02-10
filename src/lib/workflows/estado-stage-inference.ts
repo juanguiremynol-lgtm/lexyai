@@ -617,8 +617,7 @@ const PATTERN_RULES: PatternRule[] = [
     tutelaStage: null,
     laboralStage: null,
     confidence: 'HIGH',
-    milestoneType: 'REFORMA_DEMANDA',
-    triggersMilestone: true,
+    triggersMilestone: false,
   },
 ];
 

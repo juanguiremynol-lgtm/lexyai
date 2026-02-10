@@ -149,17 +149,6 @@ export async function calculateVencimientoTrasladoDemanda(
 }
 
 /**
- * Calculate reforma de demanda deadline
- * @param fechaVencimientoTraslado - Date when traslado expires
- * @returns Due date for reforma
- */
-export async function calculateVencimientoReforma(
-  fechaVencimientoTraslado: Date
-): Promise<Date> {
-  return addBusinessDays(fechaVencimientoTraslado, CPACA_TERMS.REFORMA_DEMANDA_DIAS);
-}
-
-/**
  * Calculate traslado de excepciones deadline
  * @param fechaNotificacionExcepciones - Date when exceptions were notified
  * @returns Due date for response
@@ -266,7 +255,6 @@ export async function calculateAllCpacaDates(process: {
 }): Promise<{
   fechaInicioTermino?: Date;
   fechaVencimientoTraslado?: Date;
-  fechaVencimientoReforma?: Date;
   fechaVencimientoExcepciones?: Date;
   fechaVencimientoApelacionSentencia?: Date;
   fechaVencimientoApelacionAuto?: Date;
@@ -291,10 +279,6 @@ export async function calculateAllCpacaDates(process: {
       process.prorroga_traslado_demanda || false
     );
     
-    // Calculate reforma
-    if (result.fechaVencimientoTraslado) {
-      result.fechaVencimientoReforma = await calculateVencimientoReforma(result.fechaVencimientoTraslado);
-    }
   }
   
   // Calculate excepciones
