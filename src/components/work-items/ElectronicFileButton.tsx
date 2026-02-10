@@ -33,6 +33,7 @@ import type { WorkItem } from "@/types/work-item";
 interface ElectronicFileButtonProps {
   workItem: WorkItem & { 
     onedrive_url?: string | null;
+    sharepoint_url?: string | null;
   };
   className?: string;
 }
@@ -53,17 +54,18 @@ export function ElectronicFileButton({ workItem, className }: ElectronicFileButt
   const [inputValue, setInputValue] = useState("");
   const [inputError, setInputError] = useState<string | null>(null);
 
-  // Get the URL - prefer onedrive_url, fallback to sharepoint_url, then expediente_url
-  const electronicFileUrl = workItem.onedrive_url || workItem.sharepoint_url || workItem.expediente_url;
-  const hasUrl = !!electronicFileUrl;
+  // Get the URL - prefer sharepoint_url, fallback to onedrive_url, then expediente_url
+  const electronicFileUrl = workItem.sharepoint_url || workItem.onedrive_url || workItem.expediente_url;
+  const hasUrl = !!electronicFileUrl && isValidUrl(electronicFileUrl);
 
-  // Save mutation
+  // Save mutation - stores in sharepoint_url (primary) and also expediente_url for backward compat
   const saveMutation = useMutation({
     mutationFn: async (url: string | null) => {
       const { error } = await supabase
         .from("work_items")
         .update({ 
-          onedrive_url: url, 
+          sharepoint_url: url,
+          expediente_url: url,
           updated_at: new Date().toISOString() 
         })
         .eq("id", workItem.id);

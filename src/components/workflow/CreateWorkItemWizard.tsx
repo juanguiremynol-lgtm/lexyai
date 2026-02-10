@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -94,6 +95,7 @@ export function CreateWorkItemWizard({
   defaultWorkflowType,
 }: CreateWorkItemWizardProps) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   
   // Wizard state
   const [step, setStep] = useState<WizardStep>('workflow');
@@ -390,6 +392,7 @@ export function CreateWorkItemWizard({
       title: title || undefined,
       radicado: radicado || undefined,
       radicado_raw: radicadoRaw !== radicado ? radicadoRaw : undefined,
+      radicado_verified: !!(lookupResult?.found_in_source && radicado),
       authority_name: authorityName || entityName || undefined,
       authority_city: authorityCity || undefined,
       authority_department: authorityDepartment || undefined,
@@ -426,7 +429,7 @@ export function CreateWorkItemWizard({
     }
     
     createWorkItem.mutate(data, {
-      onSuccess: () => {
+      onSuccess: (workItem) => {
         // Invalidate queries to refresh pipelines
         queryClient.invalidateQueries({ queryKey: ["work-items"] });
         queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
@@ -435,6 +438,11 @@ export function CreateWorkItemWizard({
         
         onOpenChange(false);
         onSuccess?.();
+        
+        // Navigate to the newly created work item detail page
+        if (workItem?.id) {
+          navigate(`/app/work-items/${workItem.id}`);
+        }
       },
     });
   };

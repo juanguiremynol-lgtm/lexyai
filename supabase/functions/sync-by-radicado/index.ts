@@ -980,9 +980,32 @@ Deno.serve(async (req) => {
     // Validate radicado with workflow-specific rules
     const validation = validateRadicado(payload.radicado, payload.workflow_type);
     if (!validation.valid) {
-      console.log(`[sync-by-radicado] Validation failed: ${validation.error}`);
+      console.log(`[sync-by-radicado] Validation failed: raw="${payload.radicado}", normalized="${validation.normalized}", error="${validation.error}"`);
+      
+      // Log RADICADO_INVALID trace for diagnostics
+      try {
+        await supabase.from('sync_traces').insert({
+          step: 'RADICADO_INVALID',
+          provider: 'validation',
+          success: false,
+          error_code: validation.errorCode || 'INVALID_RADICADO',
+          error_message: validation.error,
+          metadata: {
+            raw_input: payload.radicado,
+            normalized_attempt: validation.normalized,
+            raw_length: payload.radicado?.length,
+            normalized_length: validation.normalized?.length,
+            workflow_type: payload.workflow_type,
+          },
+          organization_id: null,
+          created_at: new Date().toISOString(),
+        });
+      } catch (traceErr) {
+        console.warn('[sync-by-radicado] Failed to log sync trace:', traceErr);
+      }
+      
       return errorResponse(
-        validation.errorCode || 'INVALID_RADICADO', 
+        validation.errorCode || 'RADICADO_INVALID', 
         validation.error || 'Invalid radicado', 
         400
       );
