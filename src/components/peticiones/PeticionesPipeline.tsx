@@ -1,47 +1,64 @@
+/**
+ * PeticionesPipeline - Peticiones Kanban pipeline with full feature parity with Tutela/CGP/CPACA
+ * 
+ * KEY ARCHITECTURE:
+ * - Uses UnifiedKanbanBoard for consistent DnD behavior (same as CGP/CPACA/Tutela)
+ * - Stages correspond to PETICION_PHASES from peticiones-constants
+ * - Includes drag-drop, bulk selection, keyboard navigation
+ * - Preserves Peticion-specific features: deadline tracking, escalation to tutela
+ */
+
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragStartEvent,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, CheckSquare, RefreshCw, Keyboard } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { RefreshCw, Keyboard, CheckSquare, FileText, AlertCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { addBusinessDays } from "@/lib/colombian-holidays";
+import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
+import { WorkItemBulkActionsBar } from "@/components/pipeline/WorkItemBulkActionsBar";
+import { WorkItemBulkDeleteDialog } from "@/components/pipeline/WorkItemBulkDeleteDialog";
 import {
   PETICION_PHASES,
   PETICION_PHASES_ORDER,
-  PETICION_DEADLINE_DAYS,
-  PETICION_PROROGATION_DAYS,
   type PeticionPhase,
 } from "@/lib/peticiones-constants";
-import { PeticionColumn, PeticionStageConfig } from "./PeticionColumn";
 import { PeticionCard, PeticionItem } from "./PeticionCard";
 import { EscalateToTutelaDialog } from "./EscalateToTutelaDialog";
-import { PeticionesBulkActionsBar } from "./PeticionesBulkActionsBar";
-import { PeticionesBulkDeleteDialog } from "./PeticionesBulkDeleteDialog";
-import { useBatchSelection } from "@/hooks/use-batch-selection";
-import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
 
-// Build stages configuration
-const PETICION_STAGES: PeticionStageConfig[] = PETICION_PHASES_ORDER.map((phase) => ({
-  id: `peticion:${phase}`,
-  label: PETICION_PHASES[phase].label,
-  shortLabel: PETICION_PHASES[phase].shortLabel,
-  color: PETICION_PHASES[phase].color,
-  phase,
-}));
+// Color mapping for peticion stages
+const STAGE_COLORS: Record<PeticionPhase, string> = {
+  PETICION_RADICADA: "blue",
+  CONSTANCIA_RADICACION: "amber",
+  RESPUESTA: "emerald",
+};
+
+// Convert peticion phase to Kanban stage format
+function toKanbanStage(phase: PeticionPhase): KanbanStage {
+  const config = PETICION_PHASES[phase];
+  return {
+    id: phase,
+    label: config.label,
+    shortLabel: config.shortLabel,
+    color: STAGE_COLORS[phase] || "blue",
+    description: config.description,
+    phase,
+  };
+}
+
+// Extend PeticionItem with stage field for KanbanItem compatibility
+interface PeticionKanbanItem extends PeticionItem {
+  stage: string;
+}
+
+// Query keys for global invalidation
+const INVALIDATE_QUERIES = [
+  ["peticiones"],
+  ["dashboard-stats"],
+  ["dashboard"],
+];
 
 interface RawPeticion {
   id: string;
@@ -61,9 +78,10 @@ interface RawPeticion {
   clients: { id: string; name: string } | null;
 }
 
-function rawToPeticionItem(raw: RawPeticion): PeticionItem {
+function rawToPeticionKanbanItem(raw: RawPeticion): PeticionKanbanItem {
   return {
     id: raw.id,
+    stage: raw.phase, // Map phase → stage for UnifiedKanbanBoard
     entityName: raw.entity_name,
     entityType: raw.entity_type,
     subject: raw.subject,
@@ -83,18 +101,20 @@ function rawToPeticionItem(raw: RawPeticion): PeticionItem {
 
 export function PeticionesPipeline() {
   const queryClient = useQueryClient();
-  const [activeItem, setActiveItem] = useState<PeticionItem | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
   const [escalateDialog, setEscalateDialog] = useState<{
     open: boolean;
     peticion: PeticionItem | null;
   }>({ open: false, peticion: null });
-  const [deleteDialog, setDeleteDialog] = useState(false);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor)
+  // Get all peticion stages as Kanban stages
+  const allStages = useMemo(() =>
+    PETICION_PHASES_ORDER.map(toKanbanStage),
+    []
   );
 
   // Fetch peticiones
@@ -116,21 +136,7 @@ export function PeticionesPipeline() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return (data as unknown as RawPeticion[]).map(rawToPeticionItem);
-    },
-  });
-
-  // Toggle flag mutation
-  const toggleFlagMutation = useMutation({
-    mutationFn: async ({ id, isFlagged }: { id: string; isFlagged: boolean }) => {
-      const { error } = await supabase
-        .from("peticiones")
-        .update({ is_flagged: !isFlagged })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["peticiones"] });
+      return (data as unknown as RawPeticion[]).map(rawToPeticionKanbanItem);
     },
   });
 
@@ -139,12 +145,9 @@ export function PeticionesPipeline() {
     mutationFn: async ({ peticionId, newPhase }: { peticionId: string; newPhase: PeticionPhase }) => {
       const updates: Record<string, unknown> = { phase: newPhase };
 
-      // If moving to CONSTANCIA_RADICACION, set constancia_received_at
       if (newPhase === "CONSTANCIA_RADICACION") {
         updates.constancia_received_at = new Date().toISOString();
       }
-      
-      // If moving to RESPUESTA, set response_received_at
       if (newPhase === "RESPUESTA") {
         updates.response_received_at = new Date().toISOString();
       }
@@ -153,17 +156,36 @@ export function PeticionesPipeline() {
         .from("peticiones")
         .update(updates)
         .eq("id", peticionId);
-      
+
       if (error) throw error;
+      return { peticionId, newPhase };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      toast.success("Estado actualizado");
+    onSuccess: ({ newPhase }) => {
+      const stageConfig = PETICION_PHASES[newPhase];
+      toast.success(`Movido a: ${stageConfig?.label || newPhase}`);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
     },
     onError: () => toast.error("Error al actualizar estado"),
   });
 
-  // Bulk delete mutation using edge function
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async (item: PeticionKanbanItem) => {
+      const { error } = await supabase
+        .from("peticiones")
+        .update({ is_flagged: !item.isFlagged })
+        .eq("id", item.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["peticiones"] });
+    },
+    onError: () => toast.error("Error al actualizar bandera"),
+  });
+
+  // Bulk delete mutation
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const { data, error } = await supabase.functions.invoke("delete-work-items", {
@@ -173,254 +195,208 @@ export function PeticionesPipeline() {
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      queryClient.invalidateQueries({ queryKey: ["tasks"] });
-      clearSelection();
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
       setDeleteDialog(false);
       toast.success(`${result?.deleted_count || 0} peticion${result?.deleted_count !== 1 ? "es" : ""} eliminada${result?.deleted_count !== 1 ? "s" : ""}`);
     },
-    onError: () => {
-      toast.error("Error al eliminar peticiones");
-    },
+    onError: () => toast.error("Error al eliminar peticiones"),
   });
 
-  // Drag handlers
-  const handleDragStart = (event: DragStartEvent) => {
-    const itemId = event.active.id as string;
-    const [, id] = itemId.split(":");
-    const item = peticiones?.find(p => p.id === id);
-    setActiveItem(item || null);
-  };
+  // Handle stage drop from Kanban
+  const handleStageDrop = useCallback(async (
+    itemId: string,
+    newStageId: string,
+    _item: PeticionKanbanItem
+  ) => {
+    await updatePhaseMutation.mutateAsync({ peticionId: itemId, newPhase: newStageId as PeticionPhase });
+  }, [updatePhaseMutation]);
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveItem(null);
-
-    if (!over) return;
-
-    const activeId = active.id as string;
-    const [, itemId] = activeId.split(":");
-    const [, targetPhase] = (over.id as string).split(":");
-
-    const item = peticiones?.find(p => p.id === itemId);
-    if (!item) return;
-
-    if (item.phase !== targetPhase) {
-      updatePhaseMutation.mutate({ peticionId: itemId, newPhase: targetPhase as PeticionPhase });
-    }
-  }, [peticiones, updatePhaseMutation]);
-
-  const handleDragCancel = () => {
-    setActiveItem(null);
-  };
-
-  // Group items by stage
-  const itemsByStage = useMemo(() => {
-    const result: Record<string, PeticionItem[]> = {};
-    PETICION_STAGES.forEach(stage => {
-      result[stage.id] = [];
-    });
-
-    peticiones?.forEach(item => {
-      const stageId = `peticion:${item.phase}`;
-      if (result[stageId]) {
-        result[stageId].push(item);
-      } else {
-        // Fallback to first stage
-        result[PETICION_STAGES[0].id].push(item);
-      }
-    });
-
-    return result;
-  }, [peticiones]);
-
-  // Flatten items for batch selection
-  const allItemsFlat = useMemo(() => {
-    const items: { id: string; type: "peticion" }[] = [];
-    PETICION_STAGES.forEach(stage => {
-      itemsByStage[stage.id]?.forEach(item => {
-        items.push({ id: item.id, type: "peticion" as const });
-      });
-    });
-    return items;
-  }, [itemsByStage]);
-
-  // Batch selection - now supports peticion type natively
-  const {
-    isSelectionMode,
-    toggleSelection,
-    isSelected,
-    selectAll,
-    clearSelection,
-    getSelectedItems,
-    selectedCount,
-  } = useBatchSelection({ allItems: allItemsFlat });
-
-  // Wrapper to adapt selection
-  const isItemSelected = useCallback((item: { id: string; type: "peticion" }) => {
-    return isSelected(item);
-  }, [isSelected]);
-
-  const toggleItemSelection = useCallback((item: { id: string; type: "peticion" }, shiftKey: boolean) => {
-    toggleSelection(item, shiftKey);
-  }, [toggleSelection]);
-
-  const toggleSelectionMode = useCallback(() => {
+  // Selection handlers
+  const toggleSelectionMode = () => {
     if (isSelectionMode) {
-      clearSelection();
-    } else {
-      toast.info("Modo selección activado", {
-        description: "Shift+click para seleccionar rango",
-        duration: 3000,
-      });
+      setSelectedIds(new Set());
     }
-  }, [isSelectionMode, clearSelection]);
+    setIsSelectionMode(!isSelectionMode);
+  };
 
-  // Handle toggle flag
-  const handleToggleFlag = useCallback((item: PeticionItem) => {
-    toggleFlagMutation.mutate({ id: item.id, isFlagged: item.isFlagged ?? false });
-  }, [toggleFlagMutation]);
-
-  // Keyboard navigation - memoize stages for hook
-  const stagesForKeyboard = useMemo(() => 
-    PETICION_STAGES.map(s => ({ id: s.id, type: "peticion" as const })), 
-    []
-  );
-  
-  // Create items with proper type for keyboard nav
-  const itemsByStageForKeyboard = useMemo(() => {
-    const result: Record<string, { id: string; type: "peticion"; radicado?: string }[]> = {};
-    PETICION_STAGES.forEach(stage => {
-      result[stage.id] = (itemsByStage[stage.id] || []).map(item => ({
-        id: item.id,
-        type: "peticion" as const,
-        radicado: item.radicado || undefined,
-      }));
+  const toggleItemSelection = useCallback((item: PeticionKanbanItem, shiftKey: boolean) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(item.id)) {
+        newSet.delete(item.id);
+      } else {
+        newSet.add(item.id);
+      }
+      return newSet;
     });
-    return result;
-  }, [itemsByStage]);
-  
-  const { 
-    isNavigating, 
-    startNavigation, 
-    getFocusedItemId 
-  } = usePipelineKeyboard({
-    stages: stagesForKeyboard,
-    itemsByStage: itemsByStageForKeyboard,
-    onReclassify: () => {},
-    enabled: !isSelectionMode,
-  });
+  }, []);
 
-  const focusedItemId = getFocusedItemId();
+  const selectAll = () => {
+    setSelectedIds(new Set((peticiones || []).map(i => i.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  };
+
+  // Sort items: flagged first, then by deadline
+  const sortItems = useCallback((a: PeticionKanbanItem, b: PeticionKanbanItem) => {
+    if (a.isFlagged && !b.isFlagged) return -1;
+    if (!a.isFlagged && b.isFlagged) return 1;
+    const dateA = a.deadlineAt ? new Date(a.deadlineAt).getTime() : Infinity;
+    const dateB = b.deadlineAt ? new Date(b.deadlineAt).getTime() : Infinity;
+    return dateA - dateB; // Urgent (closer deadline) first
+  }, []);
+
+  // Render card function for Kanban
+  const renderCard = useCallback((
+    item: PeticionKanbanItem,
+    options: { isDragging?: boolean; isFocused?: boolean; isSelected?: boolean; isSelectionMode?: boolean }
+  ) => (
+    <PeticionCard
+      item={item}
+      isDragging={options.isDragging}
+      isFocused={options.isFocused}
+      isSelected={options.isSelected}
+      isSelectionMode={options.isSelectionMode}
+      onToggleSelection={(petItem, shiftKey) => toggleItemSelection(item, shiftKey)}
+      onEscalateToTutela={(peticion) => setEscalateDialog({ open: true, peticion })}
+      onToggleFlag={() => toggleFlagMutation.mutate(item)}
+    />
+  ), [toggleItemSelection, toggleFlagMutation]);
 
   if (isLoading) {
     return (
-      <div className="flex gap-4">
-        {PETICION_STAGES.map((_, i) => (
-          <Skeleton key={i} className="h-[400px] w-64 flex-shrink-0" />
-        ))}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-24" />
+          </div>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {PETICION_PHASES_ORDER.map((_, i) => (
+            <Skeleton key={i} className="h-[500px] min-w-[280px]" />
+          ))}
+        </div>
       </div>
     );
   }
 
-  const totalPeticiones = peticiones?.length || 0;
+  const totalItems = peticiones?.length || 0;
 
   return (
-    <>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="space-y-4">
+      {/* Header — aligned with Tutela/CGP/CPACA */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">Pipeline Peticiones</h2>
-          <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 px-3 py-1">
-            <FileText className="h-3.5 w-3.5 mr-1.5" />
-            {totalPeticiones} Peticion{totalPeticiones !== 1 ? "es" : ""}
+          <div>
+            <h2 className="text-xl font-semibold">Pipeline Peticiones</h2>
+            <p className="text-sm text-muted-foreground">{totalItems} peticiones activas • {PETICION_PHASES_ORDER.length} fases</p>
+          </div>
+          <Badge
+            variant="secondary"
+            className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30"
+          >
+            <FileText className="h-3 w-3 mr-1" />
+            {totalItems} Total
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Actualizar
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => refetch()}
+            title="Actualizar"
+          >
+            <RefreshCw className="h-4 w-4" />
           </Button>
           <Button
-            variant="outline"
+            variant={isSelectionMode ? "default" : "outline"}
             size="sm"
             onClick={toggleSelectionMode}
-            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
           >
             <CheckSquare className="h-4 w-4 mr-2" />
             {isSelectionMode ? "Cancelar" : "Seleccionar"}
           </Button>
           <Button
-            variant="outline"
+            variant={isKeyboardMode ? "default" : "outline"}
             size="sm"
-            onClick={startNavigation}
-            className={isNavigating ? "ring-2 ring-primary" : ""}
-            disabled={isSelectionMode}
+            onClick={() => setIsKeyboardMode(!isKeyboardMode)}
+            title="Navegación con teclado"
           >
-            <Keyboard className="h-4 w-4 mr-2" />
-            {isNavigating ? "Navegando" : "Tab"}
+            <Keyboard className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Pipeline */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <ScrollArea className="w-full whitespace-nowrap">
-          <div className="flex gap-3 pb-4">
-            {PETICION_STAGES.map((stage) => (
-              <PeticionColumn
-                key={stage.id}
-                stage={stage}
-                items={itemsByStage[stage.id] || []}
-                focusedItemId={focusedItemId}
-                isSelectionMode={isSelectionMode}
-                isItemSelected={isItemSelected}
-                onToggleSelection={toggleItemSelection}
-                onEscalateToTutela={(peticion) => setEscalateDialog({ open: true, peticion })}
-                onToggleFlag={handleToggleFlag}
-              />
-            ))}
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+      {/* Empty state */}
+      {totalItems === 0 && !isLoading && (
+        <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20">
+          <AlertCircle className="h-4 w-4 text-blue-500" />
+          <AlertDescription className="text-blue-700 dark:text-blue-300">
+            No hay peticiones activas. Crea una nueva petición desde el botón "+".
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <DragOverlay>
-          {activeItem ? <PeticionCard item={activeItem} isDragging /> : null}
-        </DragOverlay>
-      </DndContext>
+      {/* Phase explanation */}
+      <div className="text-xs text-muted-foreground flex items-center gap-2 px-2 flex-wrap">
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-blue-500" />
+          Fases del derecho de petición
+        </span>
+        <span className="text-muted-foreground/30 mx-2">|</span>
+        <span className="italic">Arrastra tarjetas para cambiar de fase. Las peticiones vencidas pueden escalarse a tutela.</span>
+      </div>
 
-      {/* Dialogs */}
+      {/* Unified Kanban Board — same component as CGP/CPACA/Tutela */}
+      <UnifiedKanbanBoard<PeticionKanbanItem, KanbanStage>
+        stages={allStages}
+        items={peticiones || []}
+        isLoading={isLoading}
+        onStageDrop={handleStageDrop}
+        renderCard={renderCard}
+        invalidateQueries={INVALIDATE_QUERIES}
+        minColumnHeight="500px"
+        sortItems={sortItems}
+        isSelectionMode={isSelectionMode}
+        selectedIds={selectedIds}
+        focusedItemId={focusedItemId}
+        onToggleSelection={toggleItemSelection}
+      />
+
+      {/* Bulk actions */}
+      {isSelectionMode && selectedIds.size > 0 && (
+        <WorkItemBulkActionsBar
+          selectedCount={selectedIds.size}
+          onSelectAll={selectAll}
+          onClearSelection={clearSelection}
+          onBulkDelete={() => setDeleteDialog(true)}
+          isDeleting={bulkDeleteMutation.isPending}
+        />
+      )}
+
+      <WorkItemBulkDeleteDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        selectedCount={selectedIds.size}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        isDeleting={bulkDeleteMutation.isPending}
+      />
+
+      {/* Escalate to tutela dialog */}
       <EscalateToTutelaDialog
         open={escalateDialog.open}
         onOpenChange={(open) => setEscalateDialog(prev => ({ ...prev, open }))}
         peticion={escalateDialog.peticion}
       />
-
-      <PeticionesBulkActionsBar
-        selectedCount={selectedCount}
-        onSelectAll={selectAll}
-        onClearSelection={clearSelection}
-        onBulkDelete={() => setDeleteDialog(true)}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
-
-      <PeticionesBulkDeleteDialog
-        open={deleteDialog}
-        onOpenChange={setDeleteDialog}
-        count={selectedCount}
-        onConfirm={() => {
-          const ids = getSelectedItems().map(i => i.id);
-          bulkDeleteMutation.mutate(ids);
-        }}
-        isDeleting={bulkDeleteMutation.isPending}
-      />
-    </>
+    </div>
   );
 }
