@@ -149,3 +149,9 @@ verify_jwt = false
 
 [functions.provider-rotate-secret]
 verify_jwt = false
+
+[functions.provider-wizard-metadata]
+verify_jwt = false
+
+[functions.provider-wizard-run-e2e]
+verify_jwt = false

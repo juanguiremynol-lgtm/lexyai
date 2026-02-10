@@ -33,14 +33,14 @@ export function WizardStepper({ currentStep, onStepClick }: WizardStepperProps) 
               className={cn(
                 "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap",
                 isCurrent && "bg-primary/10 text-primary border border-primary/30 shadow-sm",
-                isComplete && "text-emerald-400 hover:bg-emerald-500/10 cursor-pointer",
+                isComplete && "text-primary hover:bg-primary/10 cursor-pointer",
                 !isCurrent && !isComplete && "text-muted-foreground/50",
               )}
             >
               <span className={cn(
                 "flex items-center justify-center h-5 w-5 rounded-full text-[10px] font-bold shrink-0",
                 isCurrent && "bg-primary text-primary-foreground",
-                isComplete && "bg-emerald-500/20 text-emerald-400",
+                isComplete && "bg-primary/20 text-primary",
                 !isCurrent && !isComplete && "bg-muted text-muted-foreground/50",
               )}>
                 {isComplete ? <Check className="h-3 w-3" /> : idx}
@@ -50,7 +50,7 @@ export function WizardStepper({ currentStep, onStepClick }: WizardStepperProps) 
             {idx < WIZARD_STEPS.length - 1 && (
               <div className={cn(
                 "w-4 h-px mx-0.5",
-                isComplete ? "bg-emerald-500/40" : "bg-border/50",
+                isComplete ? "bg-primary/40" : "bg-border/50",
               )} />
             )}
           </div>

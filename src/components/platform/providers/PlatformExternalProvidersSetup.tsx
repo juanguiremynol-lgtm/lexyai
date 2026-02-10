@@ -15,26 +15,35 @@ import { GlobalEffectiveRoutingPreview } from "./GlobalEffectiveRoutingPreview";
 import { GlobalMergePolicyCard } from "./GlobalMergePolicyCard";
 import { GlobalCoveragePanel } from "./GlobalCoveragePanel";
 import { Separator } from "@/components/ui/separator";
-import { Cable } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Cable, Wand2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export function PlatformExternalProvidersSetup() {
+  const navigate = useNavigate();
   const [selectedConnector, setSelectedConnector] = useState<any>(null);
   const [selectedInstance, setSelectedInstance] = useState<any>(null);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
-          <Cable className="h-7 w-7 text-amber-400" />
-          External Providers Setup
-        </h1>
-        <p className="text-slate-400 mt-1">
-          Configuración platform-wide de proveedores externos. Paneles A → B → C → D → E → F → G → H.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
+            <Cable className="h-7 w-7 text-primary" />
+            External Providers Setup
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Configuración platform-wide de proveedores externos. Paneles A → B → C → D → E → F → G → H.
+          </p>
+        </div>
+        <Button onClick={() => navigate("/platform/external-providers/wizard")} className="gap-2">
+          <Wand2 className="h-4 w-4" />
+          Add Provider (Wizard)
+        </Button>
       </div>
 
-      <Separator className="bg-slate-800" />
+      <Separator className="bg-border" />
 
       {/* Panel A: Connector */}
       <ConnectorEditorCard
@@ -55,7 +64,7 @@ export function PlatformExternalProvidersSetup() {
       {/* Panel D: E2E Validation */}
       <ProviderE2EValidationPanel instance={selectedInstance} />
 
-      <Separator className="bg-slate-800" />
+      <Separator className="bg-border" />
 
       {/* Panel E: Global Category Routing */}
       <GlobalRoutingCard />
@@ -63,7 +72,7 @@ export function PlatformExternalProvidersSetup() {
       {/* Panel F: Global Effective Routing Preview */}
       <GlobalEffectiveRoutingPreview />
 
-      <Separator className="bg-slate-800" />
+      <Separator className="bg-border" />
 
       {/* Panel G: Global Merge Policies */}
       <GlobalMergePolicyCard />
@@ -71,7 +80,7 @@ export function PlatformExternalProvidersSetup() {
       {/* Panel H: Global Coverage */}
       <GlobalCoveragePanel />
 
-      <Separator className="bg-slate-800" />
+      <Separator className="bg-border" />
 
       {/* Traces Timeline */}
       <ProviderTracesViewer instance={selectedInstance} />
