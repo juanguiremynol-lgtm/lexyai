@@ -5260,6 +5260,76 @@ export type Database = {
           },
         ]
       }
+      provider_ai_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          metadata: Json
+          role: string
+          session_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          role: string
+          session_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          metadata?: Json
+          role?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_ai_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "provider_ai_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_ai_sessions: {
+        Row: {
+          actor_user_id: string
+          created_at: string
+          id: string
+          mode: string
+          organization_id: string | null
+          wizard_run_id: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          created_at?: string
+          id?: string
+          mode: string
+          organization_id?: string | null
+          wizard_run_id?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          created_at?: string
+          id?: string
+          mode?: string
+          organization_id?: string | null
+          wizard_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_ai_sessions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_category_policies: {
         Row: {
           allow_merge_on_empty: boolean
@@ -5738,6 +5808,60 @@ export type Database = {
           },
         ]
       }
+      provider_mapping_specs: {
+        Row: {
+          created_at: string
+          id: string
+          organization_id: string | null
+          provider_connector_id: string
+          schema_version: string
+          scope: string
+          spec: Json
+          status: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          provider_connector_id: string
+          schema_version?: string
+          scope: string
+          spec: Json
+          status?: string
+          updated_at?: string
+          visibility: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          provider_connector_id?: string
+          schema_version?: string
+          scope?: string
+          spec?: Json
+          status?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_mapping_specs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_mapping_specs_provider_connector_id_fkey"
+            columns: ["provider_connector_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connectors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_merge_conflicts: {
         Row: {
           created_at: string
@@ -5802,6 +5926,63 @@ export type Database = {
           {
             foreignKeyName: "provider_merge_conflicts_secondary_provider_instance_id_fkey"
             columns: ["secondary_provider_instance_id"]
+            isOneToOne: false
+            referencedRelation: "provider_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      provider_raw_snapshots: {
+        Row: {
+          fetched_at: string
+          id: string
+          normalized_error_code: string | null
+          organization_id: string
+          payload: Json
+          payload_hash: string
+          provider_case_id: string
+          provider_instance_id: string
+          scope: string
+          status: string
+          work_item_id: string
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          normalized_error_code?: string | null
+          organization_id: string
+          payload: Json
+          payload_hash: string
+          provider_case_id: string
+          provider_instance_id: string
+          scope: string
+          status: string
+          work_item_id: string
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          normalized_error_code?: string | null
+          organization_id?: string
+          payload?: Json
+          payload_hash?: string
+          provider_case_id?: string
+          provider_instance_id?: string
+          scope?: string
+          status?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_raw_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_raw_snapshots_provider_instance_id_fkey"
+            columns: ["provider_instance_id"]
             isOneToOne: false
             referencedRelation: "provider_instances"
             referencedColumns: ["id"]
@@ -6702,6 +6883,35 @@ export type Database = {
         }
         Relationships: []
       }
+      work_item_act_extras: {
+        Row: {
+          created_at: string
+          extras: Json
+          updated_at: string
+          work_item_act_id: string
+        }
+        Insert: {
+          created_at?: string
+          extras?: Json
+          updated_at?: string
+          work_item_act_id: string
+        }
+        Update: {
+          created_at?: string
+          extras?: Json
+          updated_at?: string
+          work_item_act_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_act_extras_work_item_act_id_fkey"
+            columns: ["work_item_act_id"]
+            isOneToOne: true
+            referencedRelation: "work_item_acts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_acts: {
         Row: {
           act_date: string | null
@@ -6984,6 +7194,35 @@ export type Database = {
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_item_pub_extras: {
+        Row: {
+          created_at: string
+          extras: Json
+          updated_at: string
+          work_item_pub_id: string
+        }
+        Insert: {
+          created_at?: string
+          extras?: Json
+          updated_at?: string
+          work_item_pub_id: string
+        }
+        Update: {
+          created_at?: string
+          extras?: Json
+          updated_at?: string
+          work_item_pub_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_pub_extras_work_item_pub_id_fkey"
+            columns: ["work_item_pub_id"]
+            isOneToOne: true
+            referencedRelation: "work_item_publicaciones"
             referencedColumns: ["id"]
           },
         ]
