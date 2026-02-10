@@ -20,6 +20,9 @@ export interface AteniaConfig {
   email_alert_min_severity: string;
   provider_slow_threshold_ms: number;
   provider_error_rate_threshold: number;
+  autonomy_paused: boolean;
+  max_auto_syncs_per_heartbeat: number;
+  heartbeat_interval_minutes: number;
 }
 
 const DEFAULT_CONFIG: AteniaConfig = {
@@ -31,6 +34,9 @@ const DEFAULT_CONFIG: AteniaConfig = {
   email_alert_min_severity: 'CRITICAL',
   provider_slow_threshold_ms: 5000,
   provider_error_rate_threshold: 0.30,
+  autonomy_paused: false,
+  max_auto_syncs_per_heartbeat: 3,
+  heartbeat_interval_minutes: 30,
 };
 
 export async function loadConfig(organizationId: string): Promise<AteniaConfig> {
@@ -51,6 +57,9 @@ export async function loadConfig(organizationId: string): Promise<AteniaConfig> 
     email_alert_min_severity: data.email_alert_min_severity ?? DEFAULT_CONFIG.email_alert_min_severity,
     provider_slow_threshold_ms: data.provider_slow_threshold_ms ?? DEFAULT_CONFIG.provider_slow_threshold_ms,
     provider_error_rate_threshold: data.provider_error_rate_threshold ?? DEFAULT_CONFIG.provider_error_rate_threshold,
+    autonomy_paused: data.autonomy_paused ?? DEFAULT_CONFIG.autonomy_paused,
+    max_auto_syncs_per_heartbeat: data.max_auto_syncs_per_heartbeat ?? DEFAULT_CONFIG.max_auto_syncs_per_heartbeat,
+    heartbeat_interval_minutes: data.heartbeat_interval_minutes ?? DEFAULT_CONFIG.heartbeat_interval_minutes,
   };
 }
 

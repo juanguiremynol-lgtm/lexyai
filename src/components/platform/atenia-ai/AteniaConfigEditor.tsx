@@ -13,11 +13,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Settings, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { loadConfig, saveConfig, type AteniaConfig } from "@/lib/services/atenia-ai-engine";
+import { Separator } from "@/components/ui/separator";
+import { AlertTriangle, PauseCircle, PlayCircle } from "lucide-react";
 
 interface Props {
   organizationId: string;
 }
 
+// AteniaConfig now includes autonomy fields natively
 export function AteniaConfigEditor({ organizationId }: Props) {
   const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
@@ -68,6 +71,62 @@ export function AteniaConfigEditor({ organizationId }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Autonomy Pause Toggle */}
+        <div className="space-y-2 p-3 rounded-lg border-2 border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {form.autonomy_paused ? (
+                <PauseCircle className="h-4 w-4 text-amber-500" />
+              ) : (
+                <PlayCircle className="h-4 w-4 text-green-500" />
+              )}
+              <Label className="font-medium">Autonomía de Atenia AI</Label>
+            </div>
+            <Switch
+              checked={!form.autonomy_paused}
+              onCheckedChange={(v) => setForm({ ...form, autonomy_paused: !v })}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {form.autonomy_paused
+              ? '⏸️ PAUSADA — Atenia AI observa y registra pero NO ejecuta syncs correctivos ni acciones autónomas.'
+              : '▶️ ACTIVA — Atenia AI puede ejecutar syncs correctivos y acciones autónomas dentro de los límites configurados.'}
+          </p>
+        </div>
+
+        {/* Heartbeat settings */}
+        {!form.autonomy_paused && (
+          <div className="space-y-2">
+            <Label>Configuración del Heartbeat</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Intervalo (minutos)</span>
+                <Input
+                  type="number"
+                  min={15}
+                  max={120}
+                  className="h-8"
+                  value={form.heartbeat_interval_minutes ?? 30}
+                  onChange={(e) => setForm({ ...form, heartbeat_interval_minutes: parseInt(e.target.value) || 30 })}
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Max syncs por heartbeat</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  className="h-8"
+                  value={form.max_auto_syncs_per_heartbeat ?? 3}
+                  onChange={(e) => setForm({ ...form, max_auto_syncs_per_heartbeat: parseInt(e.target.value) || 3 })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <Separator />
+
         {/* Gemini Kill Switch */}
         <div className="space-y-2 p-3 rounded-lg border-2 border-destructive/20 bg-destructive/5">
           <div className="flex items-center justify-between">

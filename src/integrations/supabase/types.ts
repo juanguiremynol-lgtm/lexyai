@@ -469,11 +469,14 @@ export type Database = {
         Row: {
           alert_ai_enrichment: boolean | null
           auto_demonitor_after_404s: number | null
+          autonomy_paused: boolean | null
           created_at: string | null
           email_alert_min_severity: string | null
           email_alerts_enabled: boolean | null
           gemini_enabled: boolean | null
+          heartbeat_interval_minutes: number | null
           id: string
+          max_auto_syncs_per_heartbeat: number | null
           organization_id: string
           provider_error_rate_threshold: number | null
           provider_slow_threshold_ms: number | null
@@ -483,11 +486,14 @@ export type Database = {
         Insert: {
           alert_ai_enrichment?: boolean | null
           auto_demonitor_after_404s?: number | null
+          autonomy_paused?: boolean | null
           created_at?: string | null
           email_alert_min_severity?: string | null
           email_alerts_enabled?: boolean | null
           gemini_enabled?: boolean | null
+          heartbeat_interval_minutes?: number | null
           id?: string
+          max_auto_syncs_per_heartbeat?: number | null
           organization_id: string
           provider_error_rate_threshold?: number | null
           provider_slow_threshold_ms?: number | null
@@ -497,11 +503,14 @@ export type Database = {
         Update: {
           alert_ai_enrichment?: boolean | null
           auto_demonitor_after_404s?: number | null
+          autonomy_paused?: boolean | null
           created_at?: string | null
           email_alert_min_severity?: string | null
           email_alerts_enabled?: boolean | null
           gemini_enabled?: boolean | null
+          heartbeat_interval_minutes?: number | null
           id?: string
+          max_auto_syncs_per_heartbeat?: number | null
           organization_id?: string
           provider_error_rate_threshold?: number | null
           provider_slow_threshold_ms?: number | null
@@ -579,6 +588,72 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_user_reports: {
+        Row: {
+          ai_diagnosis: string | null
+          auto_diagnosis: Json | null
+          created_at: string
+          description: string
+          id: string
+          organization_id: string
+          report_type: string
+          reporter_user_id: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          ai_diagnosis?: string | null
+          auto_diagnosis?: Json | null
+          created_at?: string
+          description: string
+          id?: string
+          organization_id: string
+          report_type?: string
+          reporter_user_id: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          ai_diagnosis?: string | null
+          auto_diagnosis?: Json | null
+          created_at?: string
+          description?: string
+          id?: string
+          organization_id?: string
+          report_type?: string
+          reporter_user_id?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_user_reports_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
