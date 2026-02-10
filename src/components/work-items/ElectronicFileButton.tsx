@@ -86,7 +86,7 @@ export function ElectronicFileButton({ workItem, className }: ElectronicFileButt
   });
 
   const handleOpen = () => {
-    setInputValue(workItem.onedrive_url || "");
+    setInputValue(electronicFileUrl || "");
     setInputError(null);
     setIsOpen(true);
   };
