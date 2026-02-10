@@ -19,6 +19,7 @@ import {
   BarChart3,
   Bug,
   Brain,
+  Cable,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -55,6 +56,7 @@ const platformNavItems = [
   { title: "API Debug", url: "/platform/api-debug", icon: Bug },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
+  { title: "Proveedores Ext.", url: "/platform/external-providers", icon: Cable },
 ];
 
 export function PlatformSidebar() {
