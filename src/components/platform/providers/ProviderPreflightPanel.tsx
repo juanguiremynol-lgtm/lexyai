@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Activity } from "lucide-react";
+import { Copy, Loader2, ShieldCheck, AlertTriangle, CheckCircle2, XCircle, Activity, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -19,6 +19,7 @@ interface Instance {
   auth_type: string;
   timeout_ms: number;
   rpm_limit: number;
+  is_enabled: boolean;
 }
 
 interface PreflightResult {
@@ -33,11 +34,18 @@ interface PreflightResult {
 
 type PreflightStatus = "NOT_CONFIGURED" | "NEEDS_REVIEW" | "READY" | "ERROR";
 
-interface ProviderPreflightPanelProps {
-  instance: Instance | null;
+interface Connector {
+  id: string;
+  allowed_domains: string[];
+  is_enabled: boolean;
 }
 
-export function ProviderPreflightPanel({ instance }: ProviderPreflightPanelProps) {
+interface ProviderPreflightPanelProps {
+  instance: Instance | null;
+  connector: Connector | null;
+}
+
+export function ProviderPreflightPanel({ instance, connector }: ProviderPreflightPanelProps) {
   const [result, setResult] = useState<PreflightResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +71,24 @@ export function ProviderPreflightPanel({ instance }: ProviderPreflightPanelProps
   };
 
   const getStatus = (): PreflightStatus => {
-    if (!instance) return "NOT_CONFIGURED";
+    if (!instance || !connector) return "NOT_CONFIGURED";
+    // Structural gates: these must pass regardless of test results
+    const allowlist = connector.allowed_domains || [];
+    if (allowlist.length === 0) return "ERROR";
+    let baseHost: string | null = null;
+    try { baseHost = new URL(instance.base_url).hostname.toLowerCase(); } catch { /* */ }
+    if (!baseHost) return "ERROR";
+    const hostOk = allowlist.some((p) => {
+      const pat = p.toLowerCase().trim();
+      if (pat.startsWith("*.")) {
+        const suffix = pat.slice(1);
+        return baseHost === pat.slice(2) || baseHost!.endsWith(suffix);
+      }
+      return baseHost === pat;
+    });
+    if (!hostOk) return "ERROR";
+    if (!connector.is_enabled || !instance.is_enabled) return "NEEDS_REVIEW";
+    // Test result gates
     if (!result) return "NOT_CONFIGURED";
     if (error) return "ERROR";
     const warnings = result.warnings || [];
@@ -225,6 +250,49 @@ export function ProviderPreflightPanel({ instance }: ProviderPreflightPanelProps
                 ))}
               </div>
             )}
+
+            {/* Copy cURL block */}
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400 flex items-center gap-1">
+                  <Terminal className="h-3 w-3" /> cURL equivalente (sin secretos)
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2"
+                  onClick={() => {
+                    const healthUrl = `${instance.base_url.replace(/\/$/, "")}/health`;
+                    let resolvedHost = "unknown";
+                    try { resolvedHost = new URL(healthUrl).hostname; } catch { /* */ }
+                    const curl = [
+                      `curl -X GET "${healthUrl}"`,
+                      `  -H "Content-Type: application/json"`,
+                      `  -H "x-atenia-org-id: ${instance.organization_id}"`,
+                      instance.auth_type === "API_KEY"
+                        ? `  -H "x-api-key: <REDACTED>"`
+                        : `  -H "x-atenia-signature: <HMAC_REDACTED>"`,
+                      ``,
+                      `# Resolved host: ${resolvedHost}`,
+                      `# Allowlist: [${(connector?.allowed_domains || []).join(", ")}]`,
+                      `# Auth: ${instance.auth_type} | Timeout: ${instance.timeout_ms}ms`,
+                    ].join(" \\\n");
+                    navigator.clipboard.writeText(curl);
+                    toast.success("cURL copiado al portapapeles");
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <pre className="text-xs text-slate-400 font-mono overflow-auto max-h-24 whitespace-pre-wrap">
+{`curl -X GET "${instance.base_url.replace(/\/$/, "")}/health" \\
+  -H "Content-Type: application/json" \\
+  -H "x-atenia-org-id: ${instance.organization_id}" \\
+  -H "${instance.auth_type === "API_KEY" ? "x-api-key: <REDACTED>" : "x-atenia-signature: <HMAC_REDACTED>"}"
+# Host: ${(() => { try { return new URL(instance.base_url).hostname; } catch { return "invalid"; } })()}
+# Allowlist: [${(connector?.allowed_domains || []).join(", ")}]`}
+              </pre>
+            </div>
 
             <div className="text-xs text-slate-500 text-right">Duración total: {result.duration_ms}ms</div>
           </div>

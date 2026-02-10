@@ -268,12 +268,37 @@ export function ProviderE2EValidationPanel({ instance }: ProviderE2EValidationPa
           <div className={`rounded-lg p-4 border ${syncResult.ok ? "bg-emerald-900/10 border-emerald-800/50" : "bg-red-900/10 border-red-800/50"}`}>
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium flex items-center gap-2">
-                {syncResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <XCircle className="h-4 w-4 text-red-400" />}
+                {(() => {
+                  const code = syncResult.code || (syncResult.ok ? "OK" : "ERROR");
+                  const entry = scrapeStatusIcons[code] || (syncResult.ok ? scrapeStatusIcons.OK : scrapeStatusIcons.ERROR);
+                  const Icon = entry.icon;
+                  return <Icon className={`h-4 w-4 ${entry.color}`} />;
+                })()}
                 Sync Result
               </span>
-              {syncResult.duration_ms && (
-                <Badge variant="outline" className="text-slate-400 border-slate-600 text-xs">{syncResult.duration_ms}ms</Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {/* Scrape status badge */}
+                {(() => {
+                  const code = syncResult.code || (syncResult.ok ? "OK" : "ERROR");
+                  const colorMap: Record<string, string> = {
+                    OK: "text-emerald-400 border-emerald-500/50 bg-emerald-500/10",
+                    SCRAPING_PENDING: "text-blue-400 border-blue-500/50 bg-blue-500/10",
+                    PROVIDER_EMPTY_RESULT: "text-amber-400 border-amber-500/50 bg-amber-500/10",
+                    EMPTY: "text-amber-400 border-amber-500/50 bg-amber-500/10",
+                    SCRAPING_STUCK: "text-red-400 border-red-500/50 bg-red-500/10",
+                    ERROR: "text-red-400 border-red-500/50 bg-red-500/10",
+                  };
+                  const label = code === "PROVIDER_EMPTY_RESULT" ? "EMPTY" : code;
+                  return (
+                    <Badge variant="outline" className={`text-xs ${colorMap[code] || colorMap.ERROR}`}>
+                      {label}
+                    </Badge>
+                  );
+                })()}
+                {syncResult.duration_ms && (
+                  <Badge variant="outline" className="text-slate-400 border-slate-600 text-xs">{syncResult.duration_ms}ms</Badge>
+                )}
+              </div>
             </div>
             {syncResult.ok ? (
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -289,8 +314,11 @@ export function ProviderE2EValidationPanel({ instance }: ProviderE2EValidationPa
             ) : (
               <div>
                 <p className="text-sm text-red-300 font-mono">{syncResult.code || syncResult.error || "Sync failed"}</p>
-                {syncResult.scraping_pending && (
-                  <p className="text-xs text-amber-400 mt-1">Estado: SCRAPING_PENDING — se reintentará automáticamente</p>
+                {(syncResult.code === "SCRAPING_PENDING" || syncResult.scraping_pending) && (
+                  <p className="text-xs text-blue-400 mt-1">⏳ SCRAPING_PENDING — encolado para reintento. last_synced_at NO se actualiza.</p>
+                )}
+                {(syncResult.code === "PROVIDER_EMPTY_RESULT") && (
+                  <p className="text-xs text-amber-400 mt-1">⚠ EMPTY — no hay datos del proveedor. No se encola reintento.</p>
                 )}
               </div>
             )}

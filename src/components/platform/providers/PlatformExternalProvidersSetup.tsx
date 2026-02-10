@@ -45,7 +45,7 @@ export function PlatformExternalProvidersSetup() {
       />
 
       {/* Panel C: Preflight */}
-      <ProviderPreflightPanel instance={selectedInstance} />
+      <ProviderPreflightPanel instance={selectedInstance} connector={selectedConnector} />
 
       {/* Panel D: E2E Validation */}
       <ProviderE2EValidationPanel instance={selectedInstance} />
