@@ -1,18 +1,15 @@
 /**
  * resolveProviderChain.ts — Shared utility for category-aware provider routing.
  *
- * Supports TWO resolution modes:
+ * Supports THREE resolution modes:
  *   1. Global routing (platform-wide): routes reference provider_connectors,
  *      resolved at runtime to org-specific instances.
- *   2. Legacy org-scoped routing: routes reference provider_instances directly.
+ *   2. Org override routing: org-specific routes that take precedence over global.
+ *   3. Legacy org-scoped routing: routes reference provider_instances directly.
+ *
+ * Resolution precedence: Org Override → Global → Built-in defaults
  *
  * Chain order: External PRIMARY → Built-in defaults → External FALLBACK
- *
- * Fallback semantics:
- *   - STOP on: OK, SCRAPING_PENDING (enqueue retry)
- *   - STOP on EMPTY (unless allow_fallback_on_empty=true for workflow)
- *   - CONTINUE on: SCRAPING_STUCK, PROVIDER_RATE_LIMITED, PROVIDER_NOT_FOUND,
- *                  UPSTREAM errors, timeouts, generic errors
  */
 
 // ────────────────────── Types ──────────────────────
@@ -46,7 +43,10 @@ export interface GlobalRoute {
   connector_name?: string;
 }
 
-/** Resolved instance for a global route */
+/** Org override route (same shape as global, but org-scoped) */
+export type OrgOverrideRoute = GlobalRoute;
+
+/** Resolved instance for a global/org route */
 export interface ResolvedInstance {
   provider_connector_id: string;
   provider_instance_id: string;
@@ -60,6 +60,7 @@ export interface ProviderCandidate {
   source: "EXTERNAL_PRIMARY" | "BUILTIN" | "EXTERNAL_FALLBACK";
   attempt_index: number;
   skip_reason?: string; // populated when connector lacks an org instance
+  route_source?: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN"; // where the route came from
 }
 
 export type FallbackDecision =
@@ -68,6 +69,17 @@ export type FallbackDecision =
   | "STOP_PENDING"
   | "STOP_EMPTY"
   | "STOP_ERROR";
+
+/** Policy for a workflow/scope */
+export interface EffectivePolicy {
+  strategy: string;
+  merge_mode: string;
+  merge_budget_max_providers: number;
+  merge_budget_max_ms: number;
+  allow_merge_on_empty: boolean;
+  max_provider_attempts_per_run: number;
+  source: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN";
+}
 
 // ────────────────────── Built-in defaults ──────────────────────
 
@@ -79,12 +91,18 @@ const BUILTIN_PROVIDERS: Record<string, { acts: string[]; pubs: string[] }> = {
   PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
 };
 
+const DEFAULT_POLICY: EffectivePolicy = {
+  strategy: "SELECT",
+  merge_mode: "UNION_PREFER_PRIMARY",
+  merge_budget_max_providers: 2,
+  merge_budget_max_ms: 15000,
+  allow_merge_on_empty: false,
+  max_provider_attempts_per_run: 2,
+  source: "BUILTIN",
+};
+
 // ────────────────────── Legacy chain resolver ──────────────────────
 
-/**
- * Resolve chain from org-scoped routes (legacy).
- * Used when no global routes are configured.
- */
 export function resolveProviderChain(
   workflow: string,
   scope: "ACTS" | "PUBS",
@@ -143,18 +161,14 @@ export function resolveProviderChain(
   return chain;
 }
 
-// ────────────────────── Global chain resolver ──────────────────────
+// ────────────────────── Connector→Instance chain builder ──────────────────────
 
-/**
- * Resolve chain from global routes + org instance lookup.
- * For each global route, finds the org's enabled instance for that connector.
- * If no instance exists, the route is skipped (with skip_reason in trace).
- */
-export function resolveGlobalProviderChain(
+function buildConnectorChain(
   workflow: string,
   scope: "ACTS" | "PUBS",
-  globalRoutes: GlobalRoute[],
+  routes: GlobalRoute[],
   orgInstances: ResolvedInstance[],
+  routeSource: "ORG_OVERRIDE" | "GLOBAL",
 ): ProviderCandidate[] {
   const chain: ProviderCandidate[] = [];
   let attemptIndex = 0;
@@ -164,7 +178,7 @@ export function resolveGlobalProviderChain(
     instanceMap.set(inst.provider_connector_id, inst);
   }
 
-  const primaryRoutes = globalRoutes
+  const primaryRoutes = routes
     .filter((r) =>
       r.workflow === workflow &&
       r.route_kind === "PRIMARY" &&
@@ -182,9 +196,9 @@ export function resolveGlobalProviderChain(
         provider_name: inst.provider_name,
         source: "EXTERNAL_PRIMARY",
         attempt_index: attemptIndex++,
+        route_source: routeSource,
       });
     } else {
-      // Skip — org has no instance for this connector
       chain.push({
         provider_instance_id: null,
         provider_connector_id: r.provider_connector_id,
@@ -192,6 +206,7 @@ export function resolveGlobalProviderChain(
         source: "EXTERNAL_PRIMARY",
         attempt_index: attemptIndex++,
         skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+        route_source: routeSource,
       });
     }
   }
@@ -204,10 +219,11 @@ export function resolveGlobalProviderChain(
       provider_name: b,
       source: "BUILTIN",
       attempt_index: attemptIndex++,
+      route_source: "BUILTIN",
     });
   }
 
-  const fallbackRoutes = globalRoutes
+  const fallbackRoutes = routes
     .filter((r) =>
       r.workflow === workflow &&
       r.route_kind === "FALLBACK" &&
@@ -225,6 +241,7 @@ export function resolveGlobalProviderChain(
         provider_name: inst.provider_name,
         source: "EXTERNAL_FALLBACK",
         attempt_index: attemptIndex++,
+        route_source: routeSource,
       });
     } else {
       chain.push({
@@ -234,11 +251,88 @@ export function resolveGlobalProviderChain(
         source: "EXTERNAL_FALLBACK",
         attempt_index: attemptIndex++,
         skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+        route_source: routeSource,
       });
     }
   }
 
   return chain;
+}
+
+// ────────────────────── Global chain resolver (backward compat) ──────────────────────
+
+export function resolveGlobalProviderChain(
+  workflow: string,
+  scope: "ACTS" | "PUBS",
+  globalRoutes: GlobalRoute[],
+  orgInstances: ResolvedInstance[],
+): ProviderCandidate[] {
+  return buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL");
+}
+
+// ────────────────────── Effective resolver (org override → global → builtin) ──────────────────────
+
+export interface EffectiveResolutionInput {
+  workflow: string;
+  scope: "ACTS" | "PUBS";
+  orgOverrideRoutes: GlobalRoute[];
+  globalRoutes: GlobalRoute[];
+  orgInstances: ResolvedInstance[];
+  orgOverridePolicy?: Partial<EffectivePolicy> | null;
+  globalPolicy?: Partial<EffectivePolicy> | null;
+}
+
+export interface EffectiveResolutionResult {
+  chain: ProviderCandidate[];
+  policy: EffectivePolicy;
+  routeSource: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN";
+}
+
+export function resolveEffectivePolicyAndChain(
+  input: EffectiveResolutionInput,
+): EffectiveResolutionResult {
+  const { workflow, scope, orgOverrideRoutes, globalRoutes, orgInstances, orgOverridePolicy, globalPolicy } = input;
+
+  // 1) Determine effective policy
+  let policy: EffectivePolicy;
+  if (orgOverridePolicy && orgOverridePolicy.strategy) {
+    policy = { ...DEFAULT_POLICY, ...orgOverridePolicy, source: "ORG_OVERRIDE" };
+  } else if (globalPolicy && globalPolicy.strategy) {
+    policy = { ...DEFAULT_POLICY, ...globalPolicy, source: "GLOBAL" };
+  } else {
+    policy = { ...DEFAULT_POLICY };
+  }
+
+  // 2) Determine effective routes
+  const enabledOrgRoutes = orgOverrideRoutes.filter(
+    (r) => r.workflow === workflow && r.enabled && (r.scope === scope || r.scope === "BOTH")
+  );
+
+  let chain: ProviderCandidate[];
+  let routeSource: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN";
+
+  if (enabledOrgRoutes.length > 0) {
+    // Org override takes full precedence
+    chain = buildConnectorChain(workflow, scope, orgOverrideRoutes, orgInstances, "ORG_OVERRIDE");
+    routeSource = "ORG_OVERRIDE";
+  } else {
+    const enabledGlobalRoutes = globalRoutes.filter(
+      (r) => r.workflow === workflow && r.enabled && (r.scope === scope || r.scope === "BOTH")
+    );
+    if (enabledGlobalRoutes.length > 0) {
+      chain = buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL");
+      routeSource = "GLOBAL";
+    } else {
+      // Built-in defaults only
+      chain = buildConnectorChain(workflow, scope, [], orgInstances, "GLOBAL");
+      routeSource = "BUILTIN";
+    }
+  }
+
+  // Re-index attempt_index sequentially
+  chain.forEach((c, i) => { c.attempt_index = i; });
+
+  return { chain, policy, routeSource };
 }
 
 // ────────────────────── Fallback decision ──────────────────────
