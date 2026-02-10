@@ -583,9 +583,10 @@ Deno.serve(async (req) => {
       if (radicadoGatingPassed && allRadCodesMatch && isSingleCandidate && top1.score >= 0.55) {
         // All radicado codes match + single/clear candidate = deterministic match
         method = "auto_radicado";
-      } else if (radicadoGatingPassed && top1.score >= 0.80 && margin >= 0.08) {
+      } else if (radicadoGatingPassed && top1.score >= 0.80 && margin >= 0.05) {
+        // 80%+ confidence with radicado gating = auto-resolve
         method = "auto_radicado";
-      } else if (radicadoGatingPassed && top1.score >= 0.65 && margin >= 0.05) {
+      } else if (radicadoGatingPassed && top1.score >= 0.65 && margin >= 0.03) {
         method = "fuzzy_radicado";
         needsReview = true;
       } else {
