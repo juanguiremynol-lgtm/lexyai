@@ -1,7 +1,9 @@
 /**
- * NewCGPWithRadicadoDialog — CGP creation wizard when user already has a radicado.
+ * JudicialWithRadicadoDialog — Generic "with radicado" creation wizard
+ * for CGP, LABORAL, CPACA, and TUTELA workflows.
+ *
  * Uses useRadicadoLookup to auto-populate despacho/party data,
- * then creates a work_item with stage=PROCESS and triggers sync + courthouse resolution.
+ * creates a work_item with stage=PROCESS and triggers sync + courthouse resolution.
  */
 
 import { useState, useEffect } from "react";
@@ -42,57 +44,78 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { WorkflowType } from "@/lib/workflow-constants";
 
-interface NewCGPWithRadicadoDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onBack?: () => void;
-  onSuccess?: () => void;
-  defaultClientId?: string;
+// ── Config per workflow type ────────────────────────────────────
+interface WorkflowConfig {
+  label: string;
+  dialogTitle: string;
+  dialogDescription: string;
+  workflowType: WorkflowType;
+  defaultStage: string;
+  subtypeLabel?: string;
+  subtypes?: string[];
+  partyLabels: { plaintiff: string; defendant: string };
+  queryKeysToInvalidate: string[];
 }
 
-type WizardStep = "radicado" | "form";
-
-interface CGPFormData {
-  radicado: string;
-  clientId: string;
-  title: string;
-  demandantes: string;
-  demandados: string;
-  authorityName: string;
-  authorityCity: string;
-  authorityDepartment: string;
-  cgpSubtype: string;
-  description: string;
-}
-
-const INITIAL_FORM: CGPFormData = {
-  radicado: "",
-  clientId: "",
-  title: "",
-  demandantes: "",
-  demandados: "",
-  authorityName: "",
-  authorityCity: "",
-  authorityDepartment: "",
-  cgpSubtype: "",
-  description: "",
+const WORKFLOW_CONFIGS: Record<string, WorkflowConfig> = {
+  CGP: {
+    label: "CGP",
+    dialogTitle: "Nuevo Proceso CGP (con radicado)",
+    dialogDescription: "Ingrese el radicado para buscar datos automáticamente",
+    workflowType: "CGP" as WorkflowType,
+    defaultStage: "PROCESS",
+    subtypeLabel: "Tipo de Proceso",
+    subtypes: [
+      "Demanda Declarativa", "Demanda Ejecutiva", "Verbal Sumario", "Verbal",
+      "Ejecutivo con Título Hipotecario", "Monitorio", "Divisorio", "Sucesión",
+      "Expropiación", "Deslinde y Amojonamiento", "Otro CGP",
+    ],
+    partyLabels: { plaintiff: "Demandante(s)", defendant: "Demandado(s)" },
+    queryKeysToInvalidate: ["work-items", "cgp-work-items"],
+  },
+  LABORAL: {
+    label: "Laboral",
+    dialogTitle: "Nuevo Proceso Laboral (con radicado)",
+    dialogDescription: "Ingrese el radicado para buscar datos automáticamente",
+    workflowType: "LABORAL" as WorkflowType,
+    defaultStage: "RADICACION",
+    subtypeLabel: "Tipo de Proceso",
+    subtypes: [
+      "Ordinario Laboral", "Ejecutivo Laboral", "Fuero Sindical",
+      "Proceso Especial de Cese de Actividades", "Otro Laboral",
+    ],
+    partyLabels: { plaintiff: "Demandante(s)", defendant: "Demandado(s)" },
+    queryKeysToInvalidate: ["work-items", "laboral-work-items"],
+  },
+  CPACA: {
+    label: "CPACA",
+    dialogTitle: "Nuevo Proceso CPACA (con radicado)",
+    dialogDescription: "Ingrese el radicado para buscar datos automáticamente",
+    workflowType: "CPACA" as WorkflowType,
+    defaultStage: "ADMISION",
+    subtypeLabel: "Medio de Control",
+    subtypes: [
+      "Nulidad", "Nulidad y Restablecimiento del Derecho",
+      "Reparación Directa", "Controversias Contractuales",
+      "Acción de Grupo", "Acción Popular", "Repetición", "Otro CPACA",
+    ],
+    partyLabels: { plaintiff: "Demandante(s)", defendant: "Demandado(s)" },
+    queryKeysToInvalidate: ["work-items", "cpaca-work-items"],
+  },
+  TUTELA: {
+    label: "Tutela",
+    dialogTitle: "Nueva Tutela (con radicado)",
+    dialogDescription: "Ingrese el radicado para buscar datos automáticamente",
+    workflowType: "TUTELA" as WorkflowType,
+    defaultStage: "PRESENTADA",
+    partyLabels: { plaintiff: "Accionante", defendant: "Accionado" },
+    queryKeysToInvalidate: ["work-items", "tutelas-work-items"],
+  },
 };
 
-const CGP_SUBTYPES = [
-  "Demanda Declarativa",
-  "Demanda Ejecutiva",
-  "Verbal Sumario",
-  "Verbal",
-  "Ejecutivo con Título Hipotecario",
-  "Monitorio",
-  "Divisorio",
-  "Sucesión",
-  "Expropiación",
-  "Deslinde y Amojonamiento",
-  "Otro CGP",
-];
-
+// ── Shared components ───────────────────────────────────────────
 function AutoField({ label, value, onChange, autoPopulated, className }: {
   label: string;
   value: string;
@@ -152,19 +175,61 @@ function ProviderStatusLine({ label, status }: {
   );
 }
 
-export function NewCGPWithRadicadoDialog({
+// ── Props ───────────────────────────────────────────────────────
+interface JudicialWithRadicadoDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onBack?: () => void;
+  onSuccess?: () => void;
+  defaultClientId?: string;
+  /** Which judicial workflow to create */
+  workflowKey: "CGP" | "LABORAL" | "CPACA" | "TUTELA";
+}
+
+type WizardStep = "radicado" | "form";
+
+interface FormData {
+  radicado: string;
+  clientId: string;
+  title: string;
+  plaintiff: string;
+  defendant: string;
+  authorityName: string;
+  authorityCity: string;
+  authorityDepartment: string;
+  subtype: string;
+  description: string;
+}
+
+const INITIAL_FORM: FormData = {
+  radicado: "",
+  clientId: "",
+  title: "",
+  plaintiff: "",
+  defendant: "",
+  authorityName: "",
+  authorityCity: "",
+  authorityDepartment: "",
+  subtype: "",
+  description: "",
+};
+
+// ── Component ───────────────────────────────────────────────────
+export function JudicialWithRadicadoDialog({
   open,
   onOpenChange,
   onBack,
   onSuccess,
   defaultClientId,
-}: NewCGPWithRadicadoDialogProps) {
+  workflowKey,
+}: JudicialWithRadicadoDialogProps) {
+  const config = WORKFLOW_CONFIGS[workflowKey];
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { lookup, status: lookupStatus, result: lookupResult, reset: resetLookup } = useRadicadoLookup();
 
   const [step, setStep] = useState<WizardStep>("radicado");
-  const [formData, setFormData] = useState<CGPFormData>({ ...INITIAL_FORM, clientId: defaultClientId || "" });
+  const [formData, setFormData] = useState<FormData>({ ...INITIAL_FORM, clientId: defaultClientId || "" });
   const [autoPopulatedFields, setAutoPopulatedFields] = useState<Set<string>>(new Set());
   const [providerSummary, setProviderSummary] = useState<ProcessData["provider_summary"]>();
 
@@ -187,43 +252,38 @@ export function NewCGPWithRadicadoDialog({
     }
   }, [open, defaultClientId, resetLookup]);
 
-  const updateField = (field: keyof CGPFormData, value: string) => {
+  const updateField = (field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    setAutoPopulatedFields(prev => {
-      const next = new Set(prev);
-      next.delete(field);
-      return next;
-    });
+    setAutoPopulatedFields(prev => { const n = new Set(prev); n.delete(field); return n; });
   };
 
   const handleLookup = async () => {
     if (!formData.radicado.trim()) return;
-    const result = await lookup(formData.radicado, "CGP");
+    const result = await lookup(formData.radicado, config.workflowType);
     if (!result) { setStep("form"); return; }
-
     const pd = result.process_data;
     if (!pd) { setStep("form"); return; }
 
-    const newAutoFields = new Set<string>();
-    const updates: Partial<CGPFormData> = {};
+    const auto = new Set<string>();
+    const updates: Partial<FormData> = {};
 
-    if (pd.despacho) { updates.authorityName = pd.despacho; newAutoFields.add("authorityName"); }
-    if (pd.ciudad) { updates.authorityCity = pd.ciudad; newAutoFields.add("authorityCity"); }
-    if (pd.departamento) { updates.authorityDepartment = pd.departamento; newAutoFields.add("authorityDepartment"); }
-    if (pd.demandante) { updates.demandantes = pd.demandante; newAutoFields.add("demandantes"); }
-    if (pd.demandado) { updates.demandados = pd.demandado; newAutoFields.add("demandados"); }
-    if (pd.tipo_proceso) { updates.cgpSubtype = pd.tipo_proceso; newAutoFields.add("cgpSubtype"); }
+    if (pd.despacho) { updates.authorityName = pd.despacho; auto.add("authorityName"); }
+    if (pd.ciudad) { updates.authorityCity = pd.ciudad; auto.add("authorityCity"); }
+    if (pd.departamento) { updates.authorityDepartment = pd.departamento; auto.add("authorityDepartment"); }
+    if (pd.demandante) { updates.plaintiff = pd.demandante; auto.add("plaintiff"); }
+    if (pd.demandado) { updates.defendant = pd.demandado; auto.add("defendant"); }
+    if (pd.tipo_proceso) { updates.subtype = pd.tipo_proceso; auto.add("subtype"); }
 
-    // Auto title
     if (pd.demandante && pd.demandado) {
       const d1 = pd.demandante.split(/[,|]/)[0].trim().split(" ").slice(0, 2).join(" ");
       const d2 = pd.demandado.split(/[,|]/)[0].trim().split(" ").slice(0, 3).join(" ");
-      updates.title = `CGP ${d1} vs ${d2}`;
-      newAutoFields.add("title");
+      const prefix = workflowKey === "TUTELA" ? "Tutela" : config.label;
+      updates.title = `${prefix} ${d1} vs ${d2}`;
+      auto.add("title");
     }
 
     setFormData(prev => ({ ...prev, ...updates }));
-    setAutoPopulatedFields(newAutoFields);
+    setAutoPopulatedFields(auto);
     setProviderSummary(pd.provider_summary);
     setStep("form");
   };
@@ -239,38 +299,48 @@ export function NewCGPWithRadicadoDialog({
         .eq("id", user.user.id)
         .maybeSingle();
 
+      const cgpFields = workflowKey === "CGP" ? {
+        cgp_phase: "PROCESS" as const,
+        cgp_phase_source: "MANUAL" as const,
+        cgp_class: formData.subtype || null,
+      } : {};
+
+      const cpacaFields = workflowKey === "CPACA" ? {
+        cpaca_medio_control: formData.subtype || null,
+        cpaca_phase: config.defaultStage,
+      } : {};
+
       const { data: workItem, error } = await (supabase
         .from("work_items") as any)
         .insert({
           owner_id: user.user.id,
           organization_id: profile?.organization_id,
-          workflow_type: "CGP",
-          stage: "PROCESS",
-          cgp_phase: "PROCESS",
-          cgp_phase_source: "MANUAL",
+          workflow_type: config.workflowType,
+          stage: config.defaultStage,
           status: "ACTIVE",
           source: lookupResult?.found_in_source ? "SCRAPE_API" : "MANUAL",
           radicado: formData.radicado || null,
           radicado_verified: !!lookupResult?.found_in_source,
-          title: formData.title || `CGP - ${formData.demandantes || "Demandante"}`,
-          demandantes: formData.demandantes || null,
-          demandados: formData.demandados || null,
+          title: formData.title || `${config.label} - ${formData.plaintiff || "Demandante"}`,
+          demandantes: formData.plaintiff || null,
+          demandados: formData.defendant || null,
           authority_name: formData.authorityName || null,
           authority_city: formData.authorityCity || null,
           authority_department: formData.authorityDepartment || null,
           client_id: formData.clientId || null,
-          cgp_class: formData.cgpSubtype || null,
           description: formData.description || null,
           monitoring_enabled: true,
           email_linking_enabled: true,
           is_flagged: false,
+          ...cgpFields,
+          ...cpacaFields,
         })
         .select("id")
         .single();
 
       if (error) throw error;
 
-      // Trigger sync + courthouse resolution in background
+      // Trigger sync in background
       if (workItem?.id && formData.radicado) {
         supabase.functions.invoke("sync-by-work-item", {
           body: { work_item_id: workItem.id },
@@ -280,17 +350,16 @@ export function NewCGPWithRadicadoDialog({
       return workItem;
     },
     onSuccess: (workItem) => {
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
-      toast.success("Proceso CGP creado exitosamente");
+      for (const key of config.queryKeysToInvalidate) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      toast.success(`${config.label} creado exitosamente`);
       onOpenChange(false);
       onSuccess?.();
-      if (workItem?.id) {
-        navigate(`/work-items/${workItem.id}`);
-      }
+      if (workItem?.id) navigate(`/work-items/${workItem.id}`);
     },
     onError: (error) => {
-      toast.error("Error al crear proceso: " + error.message);
+      toast.error("Error al crear: " + error.message);
     },
   });
 
@@ -312,10 +381,9 @@ export function NewCGPWithRadicadoDialog({
               </Button>
             )}
             <div>
-              <DialogTitle>Nuevo Proceso CGP (con radicado)</DialogTitle>
+              <DialogTitle>{config.dialogTitle}</DialogTitle>
               <DialogDescription>
-                {step === "radicado" && "Ingrese el radicado para buscar datos automáticamente"}
-                {step === "form" && "Verifique la información y complete los datos"}
+                {step === "radicado" ? config.dialogDescription : "Verifique la información y complete los datos"}
               </DialogDescription>
             </div>
           </div>
@@ -352,6 +420,7 @@ export function NewCGPWithRadicadoDialog({
                 </p>
                 <ProviderStatusLine label="CPNU" />
                 <ProviderStatusLine label="SAMAI" />
+                {workflowKey === "TUTELA" && <ProviderStatusLine label="TUTELAS (Corte Constitucional)" />}
               </div>
             )}
 
@@ -377,6 +446,7 @@ export function NewCGPWithRadicadoDialog({
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Fuentes consultadas</p>
                 {providerSummary.CPNU && <ProviderStatusLine label="CPNU" status={providerSummary.CPNU} />}
                 {providerSummary.SAMAI && <ProviderStatusLine label="SAMAI" status={providerSummary.SAMAI} />}
+                {providerSummary.TUTELAS && <ProviderStatusLine label="TUTELAS" status={providerSummary.TUTELAS} />}
               </div>
             )}
 
@@ -410,21 +480,23 @@ export function NewCGPWithRadicadoDialog({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <AutoField label="Demandante(s)" value={formData.demandantes} onChange={(v) => updateField("demandantes", v)} autoPopulated={autoPopulatedFields.has("demandantes")} />
-              <AutoField label="Demandado(s)" value={formData.demandados} onChange={(v) => updateField("demandados", v)} autoPopulated={autoPopulatedFields.has("demandados")} />
+              <AutoField label={config.partyLabels.plaintiff} value={formData.plaintiff} onChange={(v) => updateField("plaintiff", v)} autoPopulated={autoPopulatedFields.has("plaintiff")} />
+              <AutoField label={config.partyLabels.defendant} value={formData.defendant} onChange={(v) => updateField("defendant", v)} autoPopulated={autoPopulatedFields.has("defendant")} />
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">Tipo de Proceso</Label>
-              <Select value={formData.cgpSubtype} onValueChange={(v) => updateField("cgpSubtype", v)}>
-                <SelectTrigger><SelectValue placeholder="Seleccionar tipo" /></SelectTrigger>
-                <SelectContent>
-                  {CGP_SUBTYPES.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {config.subtypes && config.subtypeLabel && (
+              <div className="space-y-1.5">
+                <Label className="text-sm">{config.subtypeLabel}</Label>
+                <Select value={formData.subtype} onValueChange={(v) => updateField("subtype", v)}>
+                  <SelectTrigger><SelectValue placeholder="Seleccionar tipo" /></SelectTrigger>
+                  <SelectContent>
+                    {config.subtypes.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label className="text-sm">Descripción</Label>
@@ -444,7 +516,7 @@ export function NewCGPWithRadicadoDialog({
               {createMutation.isPending ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creando...</>
               ) : (
-                <><Plus className="mr-2 h-4 w-4" /> Crear Proceso CGP</>
+                <><Plus className="mr-2 h-4 w-4" /> Crear {config.label}</>
               )}
             </Button>
           </form>
