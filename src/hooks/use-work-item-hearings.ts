@@ -17,6 +17,7 @@ export interface Hearing {
   location: string | null;
   is_virtual: boolean | null;
   virtual_link: string | null;
+  teams_link: string | null;
   notes: string | null;
   auto_detected: boolean | null;
   reminder_sent: boolean | null;
@@ -33,6 +34,7 @@ export interface CreateHearingInput {
   location?: string;
   is_virtual?: boolean;
   virtual_link?: string;
+  teams_link?: string;
   notes?: string;
 }
 
@@ -43,6 +45,7 @@ export interface UpdateHearingInput {
   location?: string;
   is_virtual?: boolean;
   virtual_link?: string;
+  teams_link?: string;
   notes?: string;
 }
 
@@ -95,6 +98,7 @@ export function useCreateHearing() {
           notes: input.notes || null,
           is_virtual: input.is_virtual || false,
           virtual_link: input.virtual_link || null,
+          teams_link: input.teams_link || null,
           auto_detected: false,
         })
         .select("id")
@@ -175,6 +179,7 @@ export function useUpdateHearing() {
       if (input.location !== undefined) updateData.location = input.location || null;
       if (input.is_virtual !== undefined) updateData.is_virtual = input.is_virtual;
       if (input.virtual_link !== undefined) updateData.virtual_link = input.virtual_link || null;
+      if (input.teams_link !== undefined) updateData.teams_link = input.teams_link || null;
       if (input.notes !== undefined) updateData.notes = input.notes || null;
       
       const { error } = await supabase

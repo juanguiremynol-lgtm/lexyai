@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Calendar, Clock, Video, MapPin, AlertTriangle } from "lucide-react";
+import { Calendar, Clock, Video, MapPin, AlertTriangle, Video as TeamsIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { ProcessPhase } from "@/lib/constants";
 
@@ -56,6 +56,7 @@ export function HearingPromptDialog({
     notes: "",
     is_virtual: false,
     virtual_link: "",
+    teams_link: "",
   });
 
   const createHearingMutation = useMutation({
@@ -75,6 +76,7 @@ export function HearingPromptDialog({
         notes: formData.notes || null,
         is_virtual: formData.is_virtual,
         virtual_link: formData.virtual_link || null,
+        teams_link: formData.teams_link || null,
         auto_detected: false,
         reminder_sent: false,
       });
@@ -211,6 +213,24 @@ export function HearingPromptDialog({
               />
             </div>
           )}
+
+          {/* Microsoft Teams Link */}
+          <div className="space-y-2">
+            <Label htmlFor="teams_link" className="flex items-center gap-2">
+              <TeamsIcon className="h-4 w-4" />
+              Enlace Microsoft Teams
+            </Label>
+            <Input
+              id="teams_link"
+              type="url"
+              value={formData.teams_link}
+              onChange={(e) => setFormData({ ...formData, teams_link: e.target.value })}
+              placeholder="https://teams.microsoft.com/l/meetup-join/..."
+            />
+            <p className="text-xs text-muted-foreground">
+              Se mostrará un aviso en el dashboard cuando llegue el día y hora.
+            </p>
+          </div>
 
           <div className="space-y-2">
             <Label htmlFor="notes">Notas</Label>
