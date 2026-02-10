@@ -1,19 +1,18 @@
 /**
  * resolveProviderChain.ts — Shared utility for category-aware provider routing.
  *
- * Given a workflow type and scope (ACTS/PUBS), resolves the ordered list of
- * provider candidates by combining:
- *   1. External PRIMARY routes (priority asc)
- *   2. Built-in default providers
- *   3. External FALLBACK routes (priority asc)
+ * Supports TWO resolution modes:
+ *   1. Global routing (platform-wide): routes reference provider_connectors,
+ *      resolved at runtime to org-specific instances.
+ *   2. Legacy org-scoped routing: routes reference provider_instances directly.
+ *
+ * Chain order: External PRIMARY → Built-in defaults → External FALLBACK
  *
  * Fallback semantics:
  *   - STOP on: OK, SCRAPING_PENDING (enqueue retry)
  *   - STOP on EMPTY (unless allow_fallback_on_empty=true for workflow)
  *   - CONTINUE on: SCRAPING_STUCK, PROVIDER_RATE_LIMITED, PROVIDER_NOT_FOUND,
  *                  UPSTREAM errors, timeouts, generic errors
- *
- * This file is used by both frontend (preview) and backend (edge functions).
  */
 
 // ────────────────────── Types ──────────────────────
@@ -21,6 +20,7 @@
 export type RouteKind = "PRIMARY" | "FALLBACK";
 export type RouteScope = "ACTS" | "PUBS" | "BOTH";
 
+/** Legacy org-scoped route (references provider_instance directly) */
 export interface CategoryRoute {
   id: string;
   workflow: string;
@@ -30,22 +30,44 @@ export interface CategoryRoute {
   provider_instance_id: string;
   enabled: boolean;
   is_authoritative?: boolean;
-  provider_name?: string; // for display
+  provider_name?: string;
+}
+
+/** Global route (references provider_connector, resolved to instance at runtime) */
+export interface GlobalRoute {
+  id: string;
+  workflow: string;
+  scope: RouteScope;
+  route_kind: RouteKind;
+  priority: number;
+  provider_connector_id: string;
+  is_authoritative: boolean;
+  enabled: boolean;
+  connector_name?: string;
+}
+
+/** Resolved instance for a global route */
+export interface ResolvedInstance {
+  provider_connector_id: string;
+  provider_instance_id: string;
+  provider_name: string;
 }
 
 export interface ProviderCandidate {
   provider_instance_id: string | null; // null = built-in
+  provider_connector_id?: string | null;
   provider_name: string;
   source: "EXTERNAL_PRIMARY" | "BUILTIN" | "EXTERNAL_FALLBACK";
   attempt_index: number;
+  skip_reason?: string; // populated when connector lacks an org instance
 }
 
 export type FallbackDecision =
-  | "CONTINUE"       // try next provider
-  | "STOP_OK"        // success, stop chain
-  | "STOP_PENDING"   // scraping pending, enqueue retry
-  | "STOP_EMPTY"     // empty result, stop (unless allow_fallback)
-  | "STOP_ERROR";    // terminal error, stop
+  | "CONTINUE"
+  | "STOP_OK"
+  | "STOP_PENDING"
+  | "STOP_EMPTY"
+  | "STOP_ERROR";
 
 // ────────────────────── Built-in defaults ──────────────────────
 
@@ -57,8 +79,12 @@ const BUILTIN_PROVIDERS: Record<string, { acts: string[]; pubs: string[] }> = {
   PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
 };
 
-// ────────────────────── Chain resolver ──────────────────────
+// ────────────────────── Legacy chain resolver ──────────────────────
 
+/**
+ * Resolve chain from org-scoped routes (legacy).
+ * Used when no global routes are configured.
+ */
 export function resolveProviderChain(
   workflow: string,
   scope: "ACTS" | "PUBS",
@@ -67,14 +93,12 @@ export function resolveProviderChain(
   const chain: ProviderCandidate[] = [];
   let attemptIndex = 0;
 
-  // 1. External PRIMARY routes (priority asc, matching scope)
   const primaryRoutes = routes
-    .filter(
-      (r) =>
-        r.workflow === workflow &&
-        r.route_kind === "PRIMARY" &&
-        r.enabled &&
-        (r.scope === scope || r.scope === "BOTH"),
+    .filter((r) =>
+      r.workflow === workflow &&
+      r.route_kind === "PRIMARY" &&
+      r.enabled &&
+      (r.scope === scope || r.scope === "BOTH")
     )
     .sort((a, b) => a.priority - b.priority);
 
@@ -87,7 +111,6 @@ export function resolveProviderChain(
     });
   }
 
-  // 2. Built-in defaults
   const builtins = BUILTIN_PROVIDERS[workflow] || { acts: ["cpnu"], pubs: [] };
   const builtinList = scope === "ACTS" ? builtins.acts : builtins.pubs;
   for (const b of builtinList) {
@@ -99,14 +122,12 @@ export function resolveProviderChain(
     });
   }
 
-  // 3. External FALLBACK routes (priority asc, matching scope)
   const fallbackRoutes = routes
-    .filter(
-      (r) =>
-        r.workflow === workflow &&
-        r.route_kind === "FALLBACK" &&
-        r.enabled &&
-        (r.scope === scope || r.scope === "BOTH"),
+    .filter((r) =>
+      r.workflow === workflow &&
+      r.route_kind === "FALLBACK" &&
+      r.enabled &&
+      (r.scope === scope || r.scope === "BOTH")
     )
     .sort((a, b) => a.priority - b.priority);
 
@@ -122,9 +143,106 @@ export function resolveProviderChain(
   return chain;
 }
 
+// ────────────────────── Global chain resolver ──────────────────────
+
+/**
+ * Resolve chain from global routes + org instance lookup.
+ * For each global route, finds the org's enabled instance for that connector.
+ * If no instance exists, the route is skipped (with skip_reason in trace).
+ */
+export function resolveGlobalProviderChain(
+  workflow: string,
+  scope: "ACTS" | "PUBS",
+  globalRoutes: GlobalRoute[],
+  orgInstances: ResolvedInstance[],
+): ProviderCandidate[] {
+  const chain: ProviderCandidate[] = [];
+  let attemptIndex = 0;
+
+  const instanceMap = new Map<string, ResolvedInstance>();
+  for (const inst of orgInstances) {
+    instanceMap.set(inst.provider_connector_id, inst);
+  }
+
+  const primaryRoutes = globalRoutes
+    .filter((r) =>
+      r.workflow === workflow &&
+      r.route_kind === "PRIMARY" &&
+      r.enabled &&
+      (r.scope === scope || r.scope === "BOTH")
+    )
+    .sort((a, b) => a.priority - b.priority);
+
+  for (const r of primaryRoutes) {
+    const inst = instanceMap.get(r.provider_connector_id);
+    if (inst) {
+      chain.push({
+        provider_instance_id: inst.provider_instance_id,
+        provider_connector_id: r.provider_connector_id,
+        provider_name: inst.provider_name,
+        source: "EXTERNAL_PRIMARY",
+        attempt_index: attemptIndex++,
+      });
+    } else {
+      // Skip — org has no instance for this connector
+      chain.push({
+        provider_instance_id: null,
+        provider_connector_id: r.provider_connector_id,
+        provider_name: r.connector_name || "unknown",
+        source: "EXTERNAL_PRIMARY",
+        attempt_index: attemptIndex++,
+        skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+      });
+    }
+  }
+
+  const builtins = BUILTIN_PROVIDERS[workflow] || { acts: ["cpnu"], pubs: [] };
+  const builtinList = scope === "ACTS" ? builtins.acts : builtins.pubs;
+  for (const b of builtinList) {
+    chain.push({
+      provider_instance_id: null,
+      provider_name: b,
+      source: "BUILTIN",
+      attempt_index: attemptIndex++,
+    });
+  }
+
+  const fallbackRoutes = globalRoutes
+    .filter((r) =>
+      r.workflow === workflow &&
+      r.route_kind === "FALLBACK" &&
+      r.enabled &&
+      (r.scope === scope || r.scope === "BOTH")
+    )
+    .sort((a, b) => a.priority - b.priority);
+
+  for (const r of fallbackRoutes) {
+    const inst = instanceMap.get(r.provider_connector_id);
+    if (inst) {
+      chain.push({
+        provider_instance_id: inst.provider_instance_id,
+        provider_connector_id: r.provider_connector_id,
+        provider_name: inst.provider_name,
+        source: "EXTERNAL_FALLBACK",
+        attempt_index: attemptIndex++,
+      });
+    } else {
+      chain.push({
+        provider_instance_id: null,
+        provider_connector_id: r.provider_connector_id,
+        provider_name: r.connector_name || "unknown",
+        source: "EXTERNAL_FALLBACK",
+        attempt_index: attemptIndex++,
+        skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+      });
+    }
+  }
+
+  return chain;
+}
+
 // ────────────────────── Fallback decision ──────────────────────
 
-/** Codes that warrant continuing to next provider */
 const RETRYABLE_CODES = new Set([
   "SCRAPING_STUCK",
   "PROVIDER_RATE_LIMITED",
