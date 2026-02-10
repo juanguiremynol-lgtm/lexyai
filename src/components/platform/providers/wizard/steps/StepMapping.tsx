@@ -80,7 +80,7 @@ export function StepMapping({ connector, onNext }: StepMappingProps) {
                   <tr key={f.field} className="border-b border-border/30 last:border-0">
                     <td className="px-3 py-1.5 font-mono text-foreground">{f.field}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{f.type}</td>
-                    <td className="px-3 py-1.5">{f.required ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : "—"}</td>
+                    <td className="px-3 py-1.5">{f.required ? <CheckCircle2 className="h-3 w-3 text-primary" /> : "—"}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{f.desc}</td>
                   </tr>
                 ))}
@@ -114,7 +114,7 @@ export function StepMapping({ connector, onNext }: StepMappingProps) {
                   <tr key={f.field} className="border-b border-border/30 last:border-0">
                     <td className="px-3 py-1.5 font-mono text-foreground">{f.field}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{f.type}</td>
-                    <td className="px-3 py-1.5">{f.required ? <CheckCircle2 className="h-3 w-3 text-emerald-500" /> : "—"}</td>
+                    <td className="px-3 py-1.5">{f.required ? <CheckCircle2 className="h-3 w-3 text-primary" /> : "—"}</td>
                     <td className="px-3 py-1.5 text-muted-foreground">{f.desc}</td>
                   </tr>
                 ))}
@@ -123,10 +123,10 @@ export function StepMapping({ connector, onNext }: StepMappingProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+          <CheckCircle2 className="h-4 w-4 text-primary" />
           <span className="text-sm text-foreground/80">
-            Conector <strong>{connector.name}</strong> usa schema <strong>{connector.schema_version}</strong> — compatible con esquema canónico v1.
+            Conector <strong>{connector.name}</strong> usa schema <strong>{connector.schema_version}</strong> — compatible con esquema canónico v1. No se requieren cambios de esquema por proveedor.
           </span>
         </div>
 

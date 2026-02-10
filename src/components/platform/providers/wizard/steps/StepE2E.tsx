@@ -144,9 +144,9 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
         )}
 
         {resolveResult && (
-          <div className={`rounded-lg p-4 border ${resolveResult.ok ? "bg-emerald-500/5 border-emerald-500/20" : "bg-destructive/5 border-destructive/20"}`}>
+          <div className={`rounded-lg p-4 border ${resolveResult.ok ? "bg-primary/5 border-primary/20" : "bg-destructive/5 border-destructive/20"}`}>
             <span className="flex items-center gap-2 font-medium text-sm mb-1">
-              {resolveResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+              {resolveResult.ok ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <XCircle className="h-4 w-4 text-destructive" />}
               Resolve {resolveResult.ok ? "OK" : "FAIL"}
             </span>
             {resolveResult.provider_case_id && (
@@ -162,15 +162,15 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
         )}
 
         {syncResult && (
-          <div className={`rounded-lg p-4 border ${syncResult.ok ? "bg-emerald-500/5 border-emerald-500/20" : "bg-destructive/5 border-destructive/20"}`}>
+          <div className={`rounded-lg p-4 border ${syncResult.ok ? "bg-primary/5 border-primary/20" : "bg-destructive/5 border-destructive/20"}`}>
             <span className="flex items-center gap-2 font-medium text-sm mb-2">
-              {syncResult.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+              {syncResult.ok ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <XCircle className="h-4 w-4 text-destructive" />}
               Sync {syncResult.ok ? "OK" : syncResult.code || "FAIL"}
             </span>
             {syncResult.ok && (
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-muted/30 rounded p-2"><span className="text-muted-foreground">Actuaciones</span><p className="font-mono text-emerald-600">{syncResult.inserted_actuaciones ?? 0}</p></div>
-                <div className="bg-muted/30 rounded p-2"><span className="text-muted-foreground">Publicaciones</span><p className="font-mono text-emerald-600">{syncResult.inserted_publicaciones ?? 0}</p></div>
+                <div className="bg-muted/30 rounded p-2"><span className="text-muted-foreground">Actuaciones</span><p className="font-mono text-primary">{syncResult.inserted_actuaciones ?? 0}</p></div>
+                <div className="bg-muted/30 rounded p-2"><span className="text-muted-foreground">Publicaciones</span><p className="font-mono text-primary">{syncResult.inserted_publicaciones ?? 0}</p></div>
               </div>
             )}
             {!syncResult.ok && (

@@ -111,7 +111,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           <div className="flex items-start gap-2 text-xs bg-primary/5 border border-primary/20 rounded-lg p-3">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
             <span className="text-foreground/80">
-              Como Super Admin, crea una instancia de prueba bajo tu organización. Cada org creará la suya con sus propios secretos.
+              Los secretos son <strong>siempre org-scoped</strong>. Como Super Admin, provisiona una instancia de prueba bajo tu organización. Las demás organizaciones crearán su propia instancia con sus propias credenciales para activar el uso del conector.
             </span>
           </div>
         )}
@@ -148,7 +148,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
               </Badge>
             )}
             {baseUrlValid && (
-              <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30 bg-emerald-500/10">
+              <Badge variant="outline" className="text-[10px] text-primary border-primary/30 bg-primary/10">
                 <Check className="h-3 w-3 mr-1" /> SSRF OK
               </Badge>
             )}
@@ -194,9 +194,9 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
         )}
 
         {alreadySaved && (
-          <div className="flex items-center gap-2 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-            <Check className="h-4 w-4 text-emerald-500" />
-            <span className="text-sm text-emerald-700">Instancia guardada: {instance.name}</span>
+          <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+            <Check className="h-4 w-4 text-primary" />
+            <span className="text-sm text-foreground/80">Instancia guardada: {instance.name}</span>
           </div>
         )}
 

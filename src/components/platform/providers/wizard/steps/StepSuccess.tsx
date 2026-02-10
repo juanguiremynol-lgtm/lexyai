@@ -38,19 +38,25 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
   return (
     <div className="max-w-2xl mx-auto space-y-8">
       <div className="text-center space-y-4">
-        <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 mx-auto">
-          <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+        <div className="inline-flex items-center justify-center h-20 w-20 rounded-full bg-primary/10 border-2 border-primary/30 mx-auto">
+          <CheckCircle2 className="h-10 w-10 text-primary" />
         </div>
         <h2 className="text-2xl font-display font-bold text-foreground">
           ¡Integración Completada!
         </h2>
-        <p className="text-muted-foreground">
-          El proveedor está configurado y listo para sincronizar datos.
+        <p className="text-muted-foreground max-w-md mx-auto">
+          {isPlatform
+            ? "El proveedor GLOBAL está configurado y mejorará la cobertura, confiabilidad y enriquecimiento de datos para toda la plataforma."
+            : "El proveedor PRIVADO está configurado y enriquecerá los datos exclusivamente para tu organización."
+          }
         </p>
+        <Badge variant="outline" className={`text-xs ${isPlatform ? "border-destructive/30 text-destructive" : "border-primary/30 text-primary"}`}>
+          {isPlatform ? <><Globe className="h-3 w-3 mr-1" /> Impacto: Toda la Plataforma</> : <><Building2 className="h-3 w-3 mr-1" /> Impacto: Solo tu Organización</>}
+        </Badge>
       </div>
 
       {/* Summary */}
-      <Card className="border-2 border-emerald-500/20">
+      <Card className="border-2 border-primary/20">
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-foreground">Resumen</h3>
@@ -75,13 +81,13 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
             </div>
             <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
               <span className="text-xs text-muted-foreground">Routing</span>
-              <Badge variant="outline" className={routingConfigured ? "text-emerald-600 border-emerald-500/30" : "text-muted-foreground"}>
+              <Badge variant="outline" className={routingConfigured ? "text-primary border-primary/30" : "text-muted-foreground"}>
                 {summary.routing}
               </Badge>
             </div>
             <div className="col-span-2 bg-muted/30 rounded-lg p-3 border border-border/50">
               <span className="text-xs text-muted-foreground">E2E Validation</span>
-              <Badge variant="outline" className={e2eResult?.sync?.ok ? "text-emerald-600 border-emerald-500/30" : "text-muted-foreground"}>
+              <Badge variant="outline" className={e2eResult?.sync?.ok ? "text-primary border-primary/30" : "text-muted-foreground"}>
                 {summary.e2e}
               </Badge>
             </div>
