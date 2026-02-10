@@ -133,7 +133,23 @@ Deno.serve(async (req) => {
     }
 
     // Encrypt and store secret
-    const { cipher, nonce } = await encryptSecret(secret_value);
+    let encResult: { cipher: Uint8Array; nonce: Uint8Array };
+    try {
+      encResult = await encryptSecret(secret_value);
+    } catch (encErr: unknown) {
+      const msg = encErr instanceof Error ? encErr.message : String(encErr);
+      const isMissingKey = msg.includes("Missing env") || msg.includes("ATENIA_SECRETS_KEY_B64");
+      return new Response(
+        JSON.stringify({
+          error: isMissingKey
+            ? "Server misconfigured: missing encryption key (ATENIA_SECRETS_KEY_B64). Contact platform admin."
+            : `Encryption failed: ${msg}`,
+          code: isMissingKey ? "MISSING_ENCRYPTION_KEY" : "ENCRYPTION_ERROR",
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const { cipher, nonce } = encResult;
     const { error: secErr } = await adminClient
       .from("provider_instance_secrets")
       .insert({

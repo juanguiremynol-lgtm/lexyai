@@ -3,7 +3,7 @@
  * Filter by stage and result_code. Highlight important codes.
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,11 +85,28 @@ export function ProviderTracesViewer({ instance }: ProviderTracesViewerProps) {
     return true;
   });
 
-  // Stats
-  const total = traces?.length || 0;
-  const errorCount = (traces || []).filter((t) => !t.ok).length;
-  const warnCount = (traces || []).filter((t) => HIGHLIGHT_CODES.includes(t.result_code)).length;
-  const avgLatency = total > 0 ? Math.round((traces || []).reduce((s, t) => s + (t.latency_ms || 0), 0) / total) : 0;
+  // Stats — deduplicated by run_id so multi-stage traces don't inflate rates
+  const dedupedTraces = useMemo(() => {
+    const allTraces = traces || [];
+    // Group by run_id; traces without run_id count individually
+    const byRun = new Map<string, Trace>();
+    for (const t of allTraces) {
+      const key = t.run_id || t.id; // fallback to row id if no run_id
+      const existing = byRun.get(key);
+      // Keep the "worst" outcome per run: !ok beats ok, highlight codes beat normal
+      if (!existing || (!t.ok && existing.ok) || (HIGHLIGHT_CODES.includes(t.result_code) && !HIGHLIGHT_CODES.includes(existing.result_code))) {
+        byRun.set(key, t);
+      }
+    }
+    return Array.from(byRun.values());
+  }, [traces]);
+
+  const total = dedupedTraces.length;
+  const errorCount = dedupedTraces.filter((t) => !t.ok).length;
+  const warnCount = dedupedTraces.filter((t) => HIGHLIGHT_CODES.includes(t.result_code)).length;
+  // Avg latency uses all rows (not deduped) to reflect true wall-clock time
+  const allTotal = traces?.length || 0;
+  const avgLatency = allTotal > 0 ? Math.round((traces || []).reduce((s, t) => s + (t.latency_ms || 0), 0) / allTotal) : 0;
 
   if (!instance) {
     return (
@@ -121,7 +138,7 @@ export function ProviderTracesViewer({ instance }: ProviderTracesViewerProps) {
         {/* Stats bar */}
         <div className="grid grid-cols-4 gap-2 text-center text-xs">
           <div className="bg-slate-800/50 rounded p-2 border border-slate-700">
-            <span className="text-slate-400">Total</span>
+            <span className="text-slate-400">Runs</span>
             <p className="text-slate-200 font-mono text-lg">{total}</p>
           </div>
           <div className="bg-slate-800/50 rounded p-2 border border-slate-700">
