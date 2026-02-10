@@ -50,6 +50,8 @@ interface AutopilotSnapshot {
       failures_today: number;
       scraping_pending_today: number;
       transient_without_retry: number;
+      empty_result_count: number;
+      empty_result_rate: number;
     };
     retry_queue: {
       pending_count: number;
@@ -165,7 +167,7 @@ export function AutopilotDashboard({ organizationId }: Props) {
         ) : (
           <>
             {/* Sync Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <MetricBox label="Monitoreados" value={health!.sync.total_monitored} />
               <MetricBox label="Sincronizados hoy" value={health!.sync.synced_today} />
               <MetricBox label="Fallos hoy" value={health!.sync.failures_today} variant="destructive" />
@@ -175,6 +177,11 @@ export function AutopilotDashboard({ organizationId }: Props) {
                 label="Transient sin retry"
                 value={health!.sync.transient_without_retry}
                 variant={health!.sync.transient_without_retry > 0 ? "destructive" : undefined}
+              />
+              <MetricBox
+                label={`Vacíos 24h (${health!.sync.empty_result_rate}%)`}
+                value={health!.sync.empty_result_count}
+                variant={health!.sync.empty_result_rate > 20 ? "warning" : undefined}
               />
             </div>
 

@@ -295,10 +295,15 @@ async function syncOrganization(
       }
 
       // === PRIORITY SORT ===
+      // Cooldown sets: deprioritize items with recent 404s (48h) or recent empties (24h)
       let cooldownIds = new Set<string>();
+      let emptyCooldownIds = new Set<string>();
       if (sortedItems.length > 0) {
         const remainingIds = sortedItems.map((w: any) => w.id);
         const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+        // 404 cooldown (48h)
         const { data: recent404s } = await supabase
           .from("sync_traces")
           .select("work_item_id")
@@ -309,11 +314,24 @@ async function syncOrganization(
         if (recent404s && recent404s.length > 0) {
           cooldownIds = new Set(recent404s.map((r: any) => r.work_item_id));
         }
+
+        // PROVIDER_EMPTY_RESULT cooldown (24h) — avoid burning sync budget on non-digitized cases
+        const { data: recentEmpties } = await supabase
+          .from("sync_traces")
+          .select("work_item_id")
+          .in("work_item_id", remainingIds)
+          .eq("error_code", "PROVIDER_EMPTY_RESULT")
+          .gte("created_at", twentyFourHoursAgo);
+
+        if (recentEmpties && recentEmpties.length > 0) {
+          emptyCooldownIds = new Set(recentEmpties.map((r: any) => r.work_item_id));
+        }
       }
 
       sortedItems.sort((a: any, b: any) => {
-        const aCooldown = cooldownIds.has(a.id) ? 1 : 0;
-        const bCooldown = cooldownIds.has(b.id) ? 1 : 0;
+        // Items in any cooldown go to the back
+        const aCooldown = (cooldownIds.has(a.id) || emptyCooldownIds.has(a.id)) ? 1 : 0;
+        const bCooldown = (cooldownIds.has(b.id) || emptyCooldownIds.has(b.id)) ? 1 : 0;
         if (aCooldown !== bCooldown) return aCooldown - bCooldown;
 
         const aFailed = (a.scrape_status === 'FAILED' || (a.consecutive_failures || 0) > 0) ? 0 : 1;
@@ -331,8 +349,9 @@ async function syncOrganization(
         return a.id.localeCompare(b.id);
       });
 
-      if (cooldownIds.size > 0) {
-        console.log(`[scheduled-daily-sync] ${cooldownIds.size} items in 404 cooldown (deprioritized)`);
+      const totalCooldown = new Set([...cooldownIds, ...emptyCooldownIds]).size;
+      if (totalCooldown > 0) {
+        console.log(`[scheduled-daily-sync] ${cooldownIds.size} items in 404 cooldown, ${emptyCooldownIds.size} in empty-result cooldown (deprioritized)`);
       }
     }
 

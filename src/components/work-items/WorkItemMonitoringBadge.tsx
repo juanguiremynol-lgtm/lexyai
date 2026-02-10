@@ -69,12 +69,13 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
   const isAIDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason?.startsWith('Atenia AI');
   const isUserDemonitored = !workItem.monitoring_enabled && !!workItem.demonitor_reason && !isAIDemonitored;
   const isManuallyDisabled = !workItem.monitoring_enabled && !workItem.demonitor_reason;
-  const isScrapingInProgress = workItem.monitoring_enabled && (
+  const isEmptyResult = workItem.monitoring_enabled && workItem.last_error_code === 'PROVIDER_EMPTY_RESULT';
+  const isScrapingInProgress = workItem.monitoring_enabled && !isEmptyResult && (
     TRANSIENT_SCRAPE_STATUSES.includes(workItem.scrape_status || '') ||
     TRANSIENT_ERROR_CODES.includes(workItem.last_error_code || '')
   );
-  const isUnreachable = workItem.monitoring_enabled && !isScrapingInProgress && workItem.provider_reachable === false;
-  const isHealthy = workItem.monitoring_enabled && !isScrapingInProgress && workItem.provider_reachable !== false;
+  const isUnreachable = workItem.monitoring_enabled && !isScrapingInProgress && !isEmptyResult && workItem.provider_reachable === false;
+  const isHealthy = workItem.monitoring_enabled && !isScrapingInProgress && !isEmptyResult && workItem.provider_reachable !== false;
 
   const handleSuspend = async () => {
     if (!workItem.organization_id) return;
@@ -191,6 +192,21 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
       </Button>
     </div>
   );
+
+  // State 1c: Provider returned empty — not a bug, case may not be digitized yet
+  if (isEmptyResult) {
+    return (
+      <div className="flex items-center gap-1">
+        <Badge variant="outline" className="gap-1 border-slate-400/50 text-muted-foreground">
+          <Activity className="h-3 w-3" />
+          Sin eventos digitales
+        </Badge>
+        <span className="text-[10px] text-muted-foreground max-w-[220px]">
+          El portal judicial no registra eventos digitales para este radicado aún. Se verificará periódicamente.
+        </span>
+      </div>
+    );
+  }
 
   // State 1b: Scraping in progress (transient state, retry scheduled)
   if (isScrapingInProgress) {
