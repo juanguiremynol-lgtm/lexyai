@@ -20,7 +20,7 @@ interface StepInstanceProps {
   connector: WizardConnector;
   instance: WizardInstance | null;
   organizationId: string | null;
-  onInstanceSaved: (i: WizardInstance) => void;
+  onInstanceSaved: (i: WizardInstance, coverageCount?: number) => void;
   onNext: () => void;
 }
 
@@ -59,7 +59,20 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       const { data } = await supabase.from("organizations").select("id, name").order("name");
       return data || [];
     },
-    enabled: isPlatform, // Only platform admins need the full list
+    enabled: isPlatform,
+  });
+
+  // Instance coverage: how many orgs have instances for this connector
+  const { data: coverageCount } = useQuery({
+    queryKey: ["wizard-instance-coverage", connector.id],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("provider_instances")
+        .select("id", { count: "exact", head: true })
+        .eq("connector_id", connector.id)
+        .eq("is_enabled", true);
+      return count ?? 0;
+    },
   });
 
   const baseUrlHost = getBaseUrlHost(baseUrl);
@@ -94,7 +107,8 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       toast.success("Instancia creada");
       setSecretValue("");
       queryClient.invalidateQueries({ queryKey: ["provider-instances"] });
-      onInstanceSaved(inst);
+      queryClient.invalidateQueries({ queryKey: ["wizard-instance-coverage"] });
+      onInstanceSaved(inst, (coverageCount ?? 0) + 1);
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -197,6 +211,16 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
             <Check className="h-4 w-4 text-primary" />
             <span className="text-sm text-foreground/80">Instancia guardada: {instance.name}</span>
+          </div>
+        )}
+
+        {/* Instance coverage */}
+        {coverageCount != null && (
+          <div className="flex items-center gap-2 text-xs bg-muted/30 border border-border/50 rounded-lg p-3">
+            <Server className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-muted-foreground">
+              <strong className="text-foreground">{coverageCount}</strong> {coverageCount === 1 ? "organización tiene" : "organizaciones tienen"} instancia(s) activa(s) de este conector.
+            </span>
           </div>
         )}
 

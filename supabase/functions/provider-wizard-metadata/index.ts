@@ -54,9 +54,59 @@ Deno.serve(async (req) => {
     const mergeModes = ["UNION_PREFER_PRIMARY", "UNION", "VERIFY_ONLY"];
     const authModes = ["API_KEY", "HMAC_SHARED_SECRET"];
 
+    // Built-in provider defaults per workflow
+    const builtinsMap: Record<string, { acts: string[]; pubs: string[] }> = {
+      CGP:       { acts: ["cpnu"],  pubs: ["publicaciones"] },
+      LABORAL:   { acts: ["cpnu"],  pubs: ["publicaciones"] },
+      CPACA:     { acts: ["samai"], pubs: ["publicaciones"] },
+      TUTELA:    { acts: ["cpnu", "tutelas-api"], pubs: [] },
+      PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+    };
+
+    // Effective routing preview for the user's org (if available)
+    let effectiveRoutingPreview: any = null;
+    const orgId = profile?.organization_id;
+    if (orgId) {
+      const [globalRoutesRes, orgRoutesRes] = await Promise.all([
+        supabase.from("provider_category_routes_global")
+          .select("workflow, scope, route_kind, priority, enabled, provider_connector_id, provider_connectors(name)")
+          .eq("enabled", true)
+          .order("workflow").order("scope").order("priority"),
+        supabase.from("provider_category_routes_org_override")
+          .select("workflow, scope, route_kind, priority, enabled, provider_connector_id, provider_connectors(name)")
+          .eq("organization_id", orgId)
+          .eq("enabled", true)
+          .order("workflow").order("scope").order("priority"),
+      ]);
+
+      effectiveRoutingPreview = {
+        organization_id: orgId,
+        global_route_count: (globalRoutesRes.data || []).length,
+        org_override_count: (orgRoutesRes.data || []).length,
+        has_org_overrides: (orgRoutesRes.data || []).length > 0,
+        sample_workflows: [...new Set((globalRoutesRes.data || []).map((r: any) => r.workflow))].slice(0, 5),
+      };
+    }
+
+    // Instance coverage: how many orgs have provisioned instances per connector
+    const { data: instanceCoverage } = await supabase
+      .from("provider_instances")
+      .select("connector_id, organization_id")
+      .eq("is_enabled", true);
+
+    const coverageMap: Record<string, Set<string>> = {};
+    for (const inst of instanceCoverage || []) {
+      if (!coverageMap[inst.connector_id]) coverageMap[inst.connector_id] = new Set();
+      coverageMap[inst.connector_id].add(inst.organization_id);
+    }
+    const instanceCoverageSummary = Object.entries(coverageMap).map(([connectorId, orgs]) => ({
+      connector_id: connectorId,
+      org_count: orgs.size,
+    }));
+
     const metadata = {
       is_platform_admin: !!adminRec,
-      user_organization_id: profile?.organization_id || null,
+      user_organization_id: orgId || null,
       workflows,
       scopes,
       strategies,
@@ -64,6 +114,8 @@ Deno.serve(async (req) => {
       auth_modes: authModes,
       canonical_schema_versions: ["atenia.v1"],
       environment: "production",
+      builtins_fallback_enabled: true,
+      builtins_map: builtinsMap,
       routing_precedence: [
         "1. ORG_OVERRIDE — org-specific policy/routes (highest priority)",
         "2. GLOBAL — platform-wide policy/routes",
@@ -75,6 +127,8 @@ Deno.serve(async (req) => {
         localhost_blocked: true,
         allowlist_required: true,
       },
+      effective_routing_preview: effectiveRoutingPreview,
+      instance_coverage: instanceCoverageSummary,
     };
 
     return new Response(JSON.stringify(metadata), {

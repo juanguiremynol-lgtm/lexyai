@@ -1,17 +1,21 @@
 /**
  * Step 0 — Welcome + Scope Selection
  * Explains the PURPOSE of External Providers and asks "Who does this affect?"
+ * PLATFORM mode requires explicit acknowledgement of global impact before proceeding.
  */
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Building2, ArrowRight, Cable, Sparkles, ShieldCheck, Target, Layers, TrendingUp } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Globe, Building2, ArrowRight, Cable, Sparkles, ShieldCheck, Target, Layers, TrendingUp, AlertTriangle } from "lucide-react";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardMode } from "../WizardTypes";
 
 interface StepWelcomeProps {
   mode: WizardMode;
+  globalAcknowledged: boolean;
+  onGlobalAcknowledged: (v: boolean) => void;
   onNext: () => void;
 }
 
@@ -22,8 +26,9 @@ const GOALS = [
   { icon: TrendingUp, title: "Enriquecer timelines", desc: "Más actuaciones, publicaciones, y evidencia en la UI." },
 ];
 
-export function StepWelcome({ mode, onNext }: StepWelcomeProps) {
+export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, onNext }: StepWelcomeProps) {
   const isPlatform = mode === "PLATFORM";
+  const canProceed = !isPlatform || globalAcknowledged;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -104,8 +109,33 @@ export function StepWelcome({ mode, onNext }: StepWelcomeProps) {
           </div>
         </div>
 
+        {/* GLOBAL acknowledgement gate */}
+        {isPlatform && (
+          <div className="max-w-lg mx-auto bg-destructive/5 border border-destructive/20 rounded-lg p-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+              <div className="text-xs text-foreground/80">
+                <p className="font-semibold text-destructive">Impacto Global</p>
+                <p className="mt-1">
+                  Este asistente creará un conector y routing que afecta a <strong>TODAS las organizaciones</strong> de la plataforma.
+                  Cada organización deberá provisionar su propia instancia con secretos para activarlo.
+                </p>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={globalAcknowledged}
+                onCheckedChange={(v) => onGlobalAcknowledged(!!v)}
+              />
+              <span className="text-xs text-foreground">
+                Confirmo que entiendo el impacto global de esta configuración.
+              </span>
+            </label>
+          </div>
+        )}
+
         <div className="flex justify-center pt-4">
-          <Button onClick={onNext} size="lg" className="gap-2">
+          <Button onClick={onNext} size="lg" className="gap-2" disabled={!canProceed}>
             Comenzar <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
