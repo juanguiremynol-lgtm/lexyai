@@ -139,7 +139,7 @@ export default function PublicLandingPage() {
                   <Link to="/auth">Iniciar sesión</Link>
                 </Button>
                 <Button asChild>
-                  <Link to="/join">Solicitar acceso</Link>
+                  <Link to="/auth">Registrarse</Link>
                 </Button>
               </>
             )}
