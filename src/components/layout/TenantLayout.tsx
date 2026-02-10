@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
 import { useLoginSync } from "@/hooks/useLoginSync";
+import { useAteniaHeartbeat } from "@/hooks/useAteniaHeartbeat";
 
 export function TenantLayout() {
   const { theme } = useTheme();
@@ -22,6 +23,9 @@ export function TenantLayout() {
 
   // Trigger automatic sync on login
   useLoginSync();
+
+  // Atenia AI autonomous heartbeat (OBSERVE → SUGGEST → ACT)
+  useAteniaHeartbeat();
 
   // Ensure user has an organization on first load
   useEffect(() => {
