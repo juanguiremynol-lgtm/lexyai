@@ -371,17 +371,25 @@ async function buildHealthSnapshot(
   }
 
   // 6. Provider health from recent sync_traces (last 2 hours)
+  //    IMPORTANT: Only count terminal step rows to avoid double-counting intermediate stages per run.
+  //    Terminal steps: DB_WRITE_RESULT, SYNC_COMPLETE, DONE, ERROR (final), EMPTY_RESULT
   const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
   const { data: traces } = await supabase
     .from("sync_traces")
-    .select("provider, latency_ms, error_code, created_at")
+    .select("trace_id, provider, latency_ms, error_code, step, created_at")
     .eq("organization_id", orgId)
     .gte("created_at", twoHoursAgo)
+    .in("step", ["DB_WRITE_RESULT", "SYNC_COMPLETE", "DONE", "EMPTY_RESULT"])
     .limit(500);
 
   const providerStatus: HealthSnapshot["provider_status"] = {};
+  // Deduplicate by trace_id to ensure one count per sync run
+  const seenTraceIds = new Set<string>();
   const providerGroups: Record<string, { latencies: number[]; errors: number; total: number }> = {};
   for (const t of traces || []) {
+    const traceKey = t.trace_id || t.id;
+    if (seenTraceIds.has(traceKey)) continue;
+    seenTraceIds.add(traceKey);
     const p = t.provider || "unknown";
     if (!providerGroups[p]) providerGroups[p] = { latencies: [], errors: 0, total: 0 };
     providerGroups[p].total++;
@@ -488,15 +496,19 @@ async function buildHealthSnapshot(
   }
 
   // 9. Empty result rate (last 24h) — detect provider coverage gaps vs ingestion bugs
+  //    Count distinct trace_ids to avoid inflating rate with multi-step traces
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: emptyResultCount } = await supabase
+  const { data: emptyTraces } = await supabase
     .from("sync_traces")
-    .select("id", { count: "exact", head: true })
+    .select("trace_id")
     .eq("organization_id", orgId)
     .eq("error_code", "PROVIDER_EMPTY_RESULT")
-    .gte("created_at", twentyFourHoursAgo);
+    .gte("created_at", twentyFourHoursAgo)
+    .limit(500);
+  const uniqueEmptyTraceIds = new Set((emptyTraces || []).map((t: any) => t.trace_id));
+  const emptyResultCountFinal = uniqueEmptyTraceIds.size;
 
-  const emptyCount = emptyResultCount || 0;
+  const emptyCount = emptyResultCountFinal;
   const emptyRate = (totalMonitored || 0) > 0
     ? Math.round((emptyCount / (totalMonitored || 1)) * 100)
     : 0;

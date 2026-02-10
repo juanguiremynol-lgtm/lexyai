@@ -14,6 +14,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   shouldCountAsSuccess,
   retryJitterMs,
+  SCRAPING_STUCK,
 } from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
             .from('work_items')
             .update({
               scrape_status: 'FAILED',
-              last_error_code: zombie.last_error_code || 'RETRY_ZOMBIE_CLEANED',
+              last_error_code: SCRAPING_STUCK,
               last_error_at: new Date().toISOString(),
             })
             .eq('id', zombie.work_item_id);
@@ -177,6 +178,7 @@ Deno.serve(async (req) => {
               scrape_status: 'SUCCESS',
               last_synced_at: new Date().toISOString(),
               consecutive_failures: 0,
+              consecutive_404_count: 0,
               last_error_code: null,
             })
             .eq('id', task.work_item_id);
@@ -195,7 +197,7 @@ Deno.serve(async (req) => {
             .update({
               scrape_status: 'FAILED',
               last_checked_at: new Date().toISOString(),
-              last_error_code: task.last_error_code || 'RETRY_EXHAUSTED',
+              last_error_code: SCRAPING_STUCK,
               last_error_at: new Date().toISOString(),
             })
             .eq('id', task.work_item_id);
