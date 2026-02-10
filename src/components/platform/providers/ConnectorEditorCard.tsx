@@ -65,6 +65,7 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
   const [schemaVersion, setSchemaVersion] = useState("atenia.v1");
   const [isEnabled, setIsEnabled] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [visibility, setVisibility] = useState<"GLOBAL" | "ORG_PRIVATE">("GLOBAL");
 
   // Load existing connectors
   const { data: connectors, isLoading } = useQuery({
@@ -89,6 +90,7 @@ export function ConnectorEditorCard({ selectedConnector, onConnectorChange }: Co
       setAllowedDomains(selectedConnector.allowed_domains?.length ? selectedConnector.allowed_domains : [""]);
       setSchemaVersion(selectedConnector.schema_version || "atenia.v1");
       setIsEnabled(selectedConnector.is_enabled);
+      setVisibility(((selectedConnector as any).visibility as "GLOBAL" | "ORG_PRIVATE") || "GLOBAL");
       setIsEditing(true);
     }
   }, [selectedConnector]);

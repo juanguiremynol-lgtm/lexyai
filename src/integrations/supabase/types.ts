@@ -5358,6 +5358,65 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_category_policies_org_override: {
+        Row: {
+          allow_merge_on_empty: boolean
+          created_at: string
+          enabled: boolean
+          id: string
+          max_provider_attempts_per_run: number
+          merge_budget_max_ms: number
+          merge_budget_max_providers: number
+          merge_mode: string
+          organization_id: string
+          override_mode: string
+          scope: string
+          strategy: string
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          max_provider_attempts_per_run?: number
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          organization_id: string
+          override_mode?: string
+          scope: string
+          strategy?: string
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          allow_merge_on_empty?: boolean
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          max_provider_attempts_per_run?: number
+          merge_budget_max_ms?: number
+          merge_budget_max_providers?: number
+          merge_mode?: string
+          organization_id?: string
+          override_mode?: string
+          scope?: string
+          strategy?: string
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_category_policies_org_override_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_category_routes: {
         Row: {
           created_at: string
@@ -5459,6 +5518,63 @@ export type Database = {
           },
         ]
       }
+      provider_category_routes_org_override: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          is_authoritative: boolean
+          organization_id: string
+          priority: number
+          provider_connector_id: string
+          route_kind: string
+          scope: string
+          updated_at: string
+          workflow: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_authoritative?: boolean
+          organization_id: string
+          priority?: number
+          provider_connector_id: string
+          route_kind: string
+          scope: string
+          updated_at?: string
+          workflow: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_authoritative?: boolean
+          organization_id?: string
+          priority?: number
+          provider_connector_id?: string
+          route_kind?: string
+          scope?: string
+          updated_at?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_category_routes_org_overrid_provider_connector_id_fkey"
+            columns: ["provider_connector_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connectors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "provider_category_routes_org_override_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_connectors: {
         Row: {
           allowed_domains: string[]
@@ -5470,8 +5586,10 @@ export type Database = {
           is_enabled: boolean
           key: string
           name: string
+          organization_id: string | null
           schema_version: string
           updated_at: string
+          visibility: string
         }
         Insert: {
           allowed_domains?: string[]
@@ -5483,8 +5601,10 @@ export type Database = {
           is_enabled?: boolean
           key: string
           name: string
+          organization_id?: string | null
           schema_version?: string
           updated_at?: string
+          visibility?: string
         }
         Update: {
           allowed_domains?: string[]
@@ -5496,10 +5616,20 @@ export type Database = {
           is_enabled?: boolean
           key?: string
           name?: string
+          organization_id?: string | null
           schema_version?: string
           updated_at?: string
+          visibility?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "provider_connectors_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       provider_instance_secrets: {
         Row: {

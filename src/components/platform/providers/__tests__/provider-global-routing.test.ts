@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveProviderChain,
   resolveGlobalProviderChain,
+  resolveEffectivePolicyAndChain,
   decideFallback,
   type CategoryRoute,
   type GlobalRoute,
