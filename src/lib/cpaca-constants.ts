@@ -297,9 +297,6 @@ export const CPACA_TERMS = {
   TRASLADO_DEMANDA_DIAS: 30,
   TRASLADO_DEMANDA_PRORROGA_DIAS: 15,
   
-  // Reforma demanda
-  REFORMA_DEMANDA_DIAS: 10,
-  
   // Traslado excepciones
   TRASLADO_EXCEPCIONES_DIAS: 3,
   
