@@ -1,34 +1,33 @@
+/**
+ * AdminPipeline - GOV_PROCEDURE Kanban pipeline
+ * 
+ * KEY ARCHITECTURE:
+ * - Single source of truth: work_items table with workflow_type = 'GOV_PROCEDURE'
+ * - Uses unified Kanban engine (UnifiedKanbanBoard) for consistent DnD behavior
+ * - Uses WorkItemPipelineCard for card consistency across all pipelines
+ * - Identical UX to CGP, CPACA, Laboral, Penal, and Tutelas pipelines
+ */
+
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  DndContext,
-  DragOverlay,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragStartEvent,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Building2, Keyboard, CheckSquare } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { RefreshCw, Keyboard, CheckSquare, Building2, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { 
+import { toast } from "sonner";
+import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
+import { WorkItemPipelineCard, WorkItemPipelineItem } from "./WorkItemPipelineCard";
+import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
+import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
+import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import {
   GOV_PROCEDURE_STAGES,
   getStageOrderForWorkflow,
   type GovProcedureStage,
 } from "@/lib/workflow-constants";
-import { toast } from "sonner";
-import { AdminPipelineColumn, AdminStageConfig } from "./AdminPipelineColumn";
-import { AdminPipelineCard, AdminItem } from "./AdminPipelineCard";
-import { BulkActionsBar } from "./BulkActionsBar";
-import { BulkDeleteDialog } from "./BulkDeleteDialog";
-import { usePipelineKeyboard } from "@/hooks/use-pipeline-keyboard";
-import { useBatchSelection } from "@/hooks/use-batch-selection";
 
 // Column colors for Gov Procedure stages
 const STAGE_COLORS: Record<string, string> = {
@@ -43,73 +42,47 @@ const STAGE_COLORS: Record<string, string> = {
   ARCHIVADO: "slate",
 };
 
-// Build admin stages configuration from GOV_PROCEDURE_STAGES
-const ADMIN_STAGES: AdminStageConfig[] = getStageOrderForWorkflow("GOV_PROCEDURE").map((stageKey) => {
+// Build admin stages as KanbanStage format
+const ADMIN_KANBAN_STAGES: KanbanStage[] = getStageOrderForWorkflow("GOV_PROCEDURE").map((stageKey) => {
   const stageConfig = GOV_PROCEDURE_STAGES[stageKey as GovProcedureStage];
   return {
-    id: `admin:${stageKey}`,
+    id: stageKey,
     label: stageConfig.label,
-    shortLabel: stageConfig.label.length > 12 ? stageConfig.label.substring(0, 10) + "…" : stageConfig.label,
+    shortLabel: stageConfig.label.length > 14 ? stageConfig.label.substring(0, 12) + "…" : stageConfig.label,
     color: STAGE_COLORS[stageKey] || "slate",
   };
 });
 
-interface RawWorkItem {
-  id: string;
-  radicado: string | null;
-  stage: string;
-  authority_name: string | null;
-  authority_city: string | null;
-  authority_department: string | null;
-  authority_email: string | null;
-  demandantes: string | null;
-  demandados: string | null;
-  title: string | null;
-  notes: string | null;
-  last_checked_at: string | null;
-  updated_at: string;
-  client_id: string | null;
-  clients: { id: string; name: string } | null;
-}
-
-function rawToAdminItem(raw: RawWorkItem): AdminItem {
-  return {
-    id: raw.id,
-    radicado: raw.radicado || raw.title || "Sin identificador",
-    expedienteAdmin: null,
-    autoridad: raw.authority_name,
-    entidad: raw.authority_name,
-    dependencia: null,
-    tipoActuacion: null,
-    correoAutoridad: raw.authority_email,
-    department: raw.authority_department,
-    municipality: raw.authority_city,
-    demandantes: raw.demandantes,
-    demandados: raw.demandados,
-    clientId: raw.client_id,
-    clientName: raw.clients?.name || null,
-    adminPhase: raw.stage as GovProcedureStage | null,
-    lastCheckedAt: raw.last_checked_at,
-    notes: raw.notes,
-  };
-}
+// Query keys for global invalidation
+const INVALIDATE_QUERIES = [
+  ["gov-procedure-work-items"],
+  ["work-items"],
+  ["work-items-list"],
+  ["dashboard-stats"],
+  ["work-item-mappings"],
+];
 
 export function AdminPipeline() {
   const queryClient = useQueryClient();
-  const [activeItem, setActiveItem] = useState<AdminItem | null>(null);
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [singleDeleteItem, setSingleDeleteItem] = useState<WorkItemPipelineItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor)
-  );
+  // Use secure delete hook
+  const { deleteSingle, isDeleting: isSingleDeleting } = useDeleteWorkItems({
+    onSuccess: () => {
+      setSingleDeleteItem(null);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+  });
 
-  // Fetch GOV_PROCEDURE work items from work_items table
-  const { data: adminProcesses, isLoading } = useQuery({
+  // Fetch GOV_PROCEDURE work items
+  const { data: workItems, isLoading, refetch } = useQuery({
     queryKey: ["gov-procedure-work-items"],
     queryFn: async () => {
       const { data: user } = await supabase.auth.getUser();
@@ -118,42 +91,92 @@ export function AdminPipeline() {
       const { data, error } = await supabase
         .from("work_items")
         .select(`
-          id, radicado, stage, authority_name, authority_city, authority_department,
-          authority_email, demandantes, demandados, title, notes,
-          last_checked_at, updated_at, client_id,
-          clients:client_id(id, name)
+          id, workflow_type, stage, cgp_phase, status,
+          radicado, title, authority_name, demandantes, demandados,
+          is_flagged, last_action_date, last_checked_at, monitoring_enabled,
+          auto_admisorio_date, created_at,
+          client_id, clients(id, name)
         `)
         .eq("workflow_type", "GOV_PROCEDURE")
         .is("deleted_at", null)
+        .neq("status", "CLOSED")
+        .neq("status", "ARCHIVED")
         .order("updated_at", { ascending: false });
 
       if (error) throw error;
-      return (data as unknown as RawWorkItem[]).map(rawToAdminItem);
+
+      return (data || []).map((item): WorkItemPipelineItem => ({
+        id: item.id,
+        workflow_type: item.workflow_type as any,
+        stage: item.stage || "INICIO_APERTURA",
+        cgp_phase: null, // GOV_PROCEDURE doesn't use CGP phases
+        radicado: item.radicado,
+        title: item.title,
+        client_id: item.client_id,
+        client_name: (item.clients as any)?.name || null,
+        authority_name: item.authority_name,
+        demandantes: item.demandantes,
+        demandados: item.demandados,
+        is_flagged: item.is_flagged ?? false,
+        last_action_date: item.last_action_date,
+        last_checked_at: item.last_checked_at,
+        monitoring_enabled: item.monitoring_enabled ?? false,
+        auto_admisorio_date: item.auto_admisorio_date,
+        created_at: item.created_at,
+      }));
     },
   });
 
-  // Mutation for updating work item stage
-  const updatePhaseMutation = useMutation({
-    mutationFn: async ({ workItemId, newStage }: { workItemId: string; newStage: string }) => {
+  // Stage update mutation
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ itemId, newStage }: { itemId: string; newStage: string }) => {
       const { error } = await supabase
         .from("work_items")
-        .update({ stage: newStage, updated_at: new Date().toISOString() })
-        .eq("id", workItemId);
+        .update({ 
+          stage: newStage, 
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
       if (error) throw error;
+      return { itemId, newStage };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
-      toast.success("Etapa actualizada");
+    onSuccess: ({ newStage }) => {
+      const stageConfig = GOV_PROCEDURE_STAGES[newStage as GovProcedureStage];
+      toast.success(`Movido a: ${stageConfig?.label || newStage}`);
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
     },
     onError: () => toast.error("Error al actualizar etapa"),
   });
 
-  // Bulk delete mutation using edge function
+  // Handle stage drop from Kanban
+  const handleStageDrop = useCallback(async (
+    itemId: string,
+    newStageId: string,
+    item: WorkItemPipelineItem
+  ) => {
+    await updateStageMutation.mutateAsync({ itemId, newStage: newStageId });
+  }, [updateStageMutation]);
+
+  // Mutation for toggling flag
+  const toggleFlagMutation = useMutation({
+    mutationFn: async (item: WorkItemPipelineItem) => {
+      const { error } = await supabase
+        .from("work_items")
+        .update({ is_flagged: !item.is_flagged })
+        .eq("id", item.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
+    },
+    onError: () => toast.error("Error al actualizar bandera"),
+  });
+
+  // Bulk delete mutation
   const bulkDeleteMutation = useMutation({
-    mutationFn: async (items: { id: string; type: string }[]) => {
-      const ids = items.map(i => i.id);
+    mutationFn: async (ids: string[]) => {
       const { data, error } = await supabase.functions.invoke("delete-work-items", {
         body: { work_item_ids: ids, mode: "SOFT_DELETE" },
       });
@@ -161,244 +184,219 @@ export function AdminPipeline() {
       return data;
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["gov-procedure-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["work-items-list"] });
-      queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      clearSelection();
+      INVALIDATE_QUERIES.forEach(queryKey => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
       setDeleteDialog(false);
       toast.success(`${result?.deleted_count || 0} proceso${result?.deleted_count !== 1 ? "s" : ""} archivado${result?.deleted_count !== 1 ? "s" : ""}`);
     },
     onError: () => toast.error("Error al archivar elementos"),
   });
 
-  const allProcesses = adminProcesses || [];
-
-  // Memoize itemsByStage
-  const itemsByStage = useMemo(() => {
-    const result: Record<string, AdminItem[]> = {};
-    ADMIN_STAGES.forEach((stage) => {
-      result[stage.id] = [];
-    });
-
-    allProcesses.forEach((process) => {
-      const phase = process.adminPhase || "INICIO_APERTURA";
-      const stageId = `admin:${phase}`;
-      if (result[stageId]) {
-        result[stageId].push(process);
-      } else {
-        // Fallback to first stage if stage is unrecognized
-        const firstStage = ADMIN_STAGES[0];
-        if (firstStage && result[firstStage.id]) {
-          result[firstStage.id].push(process);
-        }
-      }
-    });
-
-    return result;
-  }, [allProcesses]);
-
-  // Flatten for batch selection
-  const allItemsFlat = useMemo(() => {
-    const items: AdminItem[] = [];
-    ADMIN_STAGES.forEach(stage => {
-      items.push(...(itemsByStage[stage.id] || []));
-    });
-    return items.map(item => ({ id: item.id, type: "process" as const }));
-  }, [itemsByStage]);
-
-  // Batch selection
-  const {
-    isSelectionMode,
-    toggleSelection,
-    isSelected,
-    clearSelection,
-    getSelectionCounts,
-    getSelectedItems,
-    selectedCount,
-  } = useBatchSelection({ allItems: allItemsFlat });
-
-  const selectionCounts = getSelectionCounts();
-
-  // Keyboard navigation
-  const stagesForKeyboard = useMemo(() => 
-    ADMIN_STAGES.map(s => ({ id: s.id, type: "process" as const })), 
-    []
-  );
-  
-  const itemsByStageForKeyboard = useMemo(() => {
-    const result: Record<string, { id: string; type: "process"; radicado?: string }[]> = {};
-    ADMIN_STAGES.forEach(stage => {
-      result[stage.id] = (itemsByStage[stage.id] || []).map(item => ({
-        id: item.id,
-        type: "process" as const,
-        radicado: item.radicado,
-      }));
-    });
-    return result;
-  }, [itemsByStage]);
-  
-  const { 
-    isNavigating, 
-    startNavigation, 
-    getFocusedItemId 
-  } = usePipelineKeyboard({
-    stages: stagesForKeyboard,
-    itemsByStage: itemsByStageForKeyboard,
-    onReclassify: () => {},
-    enabled: !isSelectionMode,
-  });
-
-  const focusedItemId = getFocusedItemId();
-
-  const toggleSelectionMode = useCallback(() => {
+  // Selection handlers
+  const toggleSelectionMode = () => {
     if (isSelectionMode) {
-      clearSelection();
-    } else {
-      toast.info("Modo selección activado", {
-        description: "Shift+click para seleccionar rango",
-        duration: 3000,
-      });
+      setSelectedIds(new Set());
     }
-  }, [isSelectionMode, clearSelection]);
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const itemId = event.active.id as string;
-    const id = itemId.replace("admin:", "");
-    const item = allProcesses.find(i => i.id === id);
-    setActiveItem(item || null);
+    setIsSelectionMode(!isSelectionMode);
   };
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveItem(null);
+  const toggleItemSelection = useCallback((item: WorkItemPipelineItem, shiftKey: boolean) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(item.id)) {
+        newSet.delete(item.id);
+      } else {
+        newSet.add(item.id);
+      }
+      return newSet;
+    });
+  }, []);
 
-    if (!over) return;
-
-    const activeId = active.id as string;
-    const itemId = activeId.replace("admin:", "");
-    const targetStage = (over.id as string).replace("admin:", "");
-
-    const item = allProcesses.find(i => i.id === itemId);
-    if (!item) return;
-
-    const currentPhase = item.adminPhase || "INICIO_APERTURA";
-    if (currentPhase !== targetStage) {
-      updatePhaseMutation.mutate({ workItemId: itemId, newStage: targetStage });
-    }
-  }, [allProcesses, updatePhaseMutation]);
-
-  const handleDragCancel = () => {
-    setActiveItem(null);
+  const selectAll = () => {
+    setSelectedIds(new Set((workItems || []).map(i => i.id)));
   };
 
-  const handleToggleSelection = useCallback((item: AdminItem, shiftKey: boolean) => {
-    toggleSelection({ id: item.id, type: "process" }, shiftKey);
-  }, [toggleSelection]);
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  };
 
-  const isItemSelected = useCallback((item: AdminItem) => {
-    return isSelected({ id: item.id, type: "process" });
-  }, [isSelected]);
+  // Sort items: flagged first, then by last action date
+  const sortItems = useCallback((a: WorkItemPipelineItem, b: WorkItemPipelineItem) => {
+    if (a.is_flagged && !b.is_flagged) return -1;
+    if (!a.is_flagged && b.is_flagged) return 1;
+    const dateA = a.last_action_date ? new Date(a.last_action_date).getTime() : 0;
+    const dateB = b.last_action_date ? new Date(b.last_action_date).getTime() : 0;
+    return dateB - dateA;
+  }, []);
 
-  // Loading state - AFTER all hooks
+  // Render card function for Kanban
+  const renderCard = useCallback((
+    item: WorkItemPipelineItem,
+    options: { isDragging?: boolean; isFocused?: boolean; isSelected?: boolean; isSelectionMode?: boolean }
+  ) => (
+    <WorkItemPipelineCard
+      item={item}
+      isDragging={options.isDragging}
+      isFocused={options.isFocused}
+      isSelected={options.isSelected}
+      isSelectionMode={options.isSelectionMode}
+      onToggleSelection={toggleItemSelection}
+      onToggleFlag={(item) => toggleFlagMutation.mutate(item)}
+      onDelete={(item) => setSingleDeleteItem(item)}
+    />
+  ), [toggleItemSelection, toggleFlagMutation]);
+
   if (isLoading) {
     return (
-      <div className="flex gap-4">
-        {[...Array(9)].map((_, i) => (
-          <Skeleton key={i} className="h-[400px] w-64 flex-shrink-0" />
-        ))}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-24" />
+          </div>
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} className="h-[500px] min-w-[280px]" />
+          ))}
+        </div>
       </div>
     );
   }
 
+  const totalItems = workItems?.length || 0;
+
   return (
-    <>
-      {/* Pipeline Header */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold">Vía Gubernativa / Administrativos</h2>
-          <Badge variant="secondary" className="bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/50 dark:text-orange-300 px-3 py-1">
-            <Building2 className="h-3.5 w-3.5 mr-1.5" />
-            {allProcesses.length} Procesos
-          </Badge>
+          <div>
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-orange-500" />
+              Vía Gubernativa / Administrativos
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {totalItems} proceso{totalItems !== 1 ? "s" : ""} activo{totalItems !== 1 ? "s" : ""} • {ADMIN_KANBAN_STAGES.length} etapas
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
+            variant="ghost"
+            size="sm"
+            onClick={() => refetch()}
+            title="Actualizar"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isSelectionMode ? "default" : "outline"}
             size="sm"
             onClick={toggleSelectionMode}
-            className={isSelectionMode ? "ring-2 ring-primary bg-primary/10" : ""}
           >
             <CheckSquare className="h-4 w-4 mr-2" />
             {isSelectionMode ? "Cancelar" : "Seleccionar"}
           </Button>
           <Button
-            variant="outline"
+            variant={isKeyboardMode ? "default" : "outline"}
             size="sm"
-            onClick={startNavigation}
-            className={isNavigating ? "ring-2 ring-primary" : ""}
-            disabled={isSelectionMode}
+            onClick={() => setIsKeyboardMode(!isKeyboardMode)}
+            title="Navegación con teclado"
           >
-            <Keyboard className="h-4 w-4 mr-2" />
-            {isNavigating ? "Navegando" : "Teclado"}
+            <Keyboard className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <ScrollArea className="w-full whitespace-nowrap">
-          <div className="flex gap-3 pb-4">
-            {ADMIN_STAGES.map((stage) => (
-              <AdminPipelineColumn
-                key={stage.id}
-                stage={stage}
-                items={itemsByStage[stage.id] || []}
-                focusedItemId={focusedItemId}
-                isSelectionMode={isSelectionMode}
-                isItemSelected={isItemSelected}
-                onToggleSelection={handleToggleSelection}
-              />
-            ))}
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+      {/* Empty state */}
+      {totalItems === 0 && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            No hay procesos administrativos activos. Puedes crearlos manualmente usando el botón + 
+            en el Dashboard o importarlos desde fuentes externas.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <DragOverlay>
-          {activeItem ? (
-            <AdminPipelineCard item={activeItem} isDragging />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      {/* Stage legend */}
+      <div className="text-xs text-muted-foreground flex items-center gap-2 px-2 flex-wrap">
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-orange-500" />
+          Inicio / Apertura
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-green-500" />
+          Trámite / Pruebas
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-teal-500" />
+          Decisión / Recursos
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-slate-500" />
+          Archivado
+        </span>
+        <span className="text-muted-foreground/30 mx-2">|</span>
+        <span className="italic">Arrastra tarjetas para cambiar etapa.</span>
+      </div>
 
-      <BulkActionsBar
-        selectedCount={selectedCount}
-        filingsCount={0}
-        processesCount={selectionCounts.processes}
-        onSelectAllFilings={() => {}}
-        onSelectAllProcesses={() => {}}
-        onClearSelection={clearSelection}
-        onBulkReclassify={() => toast.info("Usa arrastrar y soltar para cambiar etapa")}
-        onBulkDelete={() => setDeleteDialog(true)}
-        isDeleting={bulkDeleteMutation.isPending}
+      {/* Unified Kanban Board */}
+      <UnifiedKanbanBoard<WorkItemPipelineItem, KanbanStage>
+        stages={ADMIN_KANBAN_STAGES}
+        items={workItems || []}
+        isLoading={isLoading}
+        onStageDrop={handleStageDrop}
+        renderCard={renderCard}
+        invalidateQueries={INVALIDATE_QUERIES}
+        minColumnHeight="500px"
+        sortItems={sortItems}
+        isSelectionMode={isSelectionMode}
+        selectedIds={selectedIds}
+        focusedItemId={focusedItemId}
+        onToggleSelection={toggleItemSelection}
       />
 
-      <BulkDeleteDialog
+      {/* Bulk actions */}
+      {isSelectionMode && selectedIds.size > 0 && (
+        <WorkItemBulkActionsBar
+          selectedCount={selectedIds.size}
+          onSelectAll={selectAll}
+          onClearSelection={clearSelection}
+          onBulkDelete={() => setDeleteDialog(true)}
+          isDeleting={bulkDeleteMutation.isPending}
+        />
+      )}
+
+      <WorkItemBulkDeleteDialog
         open={deleteDialog}
         onOpenChange={setDeleteDialog}
-        filingsCount={0}
-        processesCount={selectedCount}
-        onConfirm={() => {
-          const selected = getSelectedItems();
-          bulkDeleteMutation.mutate(selected);
-        }}
+        selectedCount={selectedIds.size}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
         isDeleting={bulkDeleteMutation.isPending}
       />
-    </>
+
+      {/* Single delete dialog */}
+      <DeleteWorkItemDialog
+        open={!!singleDeleteItem}
+        onOpenChange={(open) => !open && setSingleDeleteItem(null)}
+        onConfirm={() => singleDeleteItem && deleteSingle(singleDeleteItem.id)}
+        isDeleting={isSingleDeleting}
+        itemInfo={{
+          title: singleDeleteItem?.title,
+          radicado: singleDeleteItem?.radicado,
+          workflowType: "GOV_PROCEDURE",
+        }}
+      />
+    </div>
   );
 }
