@@ -43,10 +43,54 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch due retry tasks
+    // === ZOMBIE CLEANUP: Dead-letter stuck retry rows ===
+    // If a row has attempt >= max_attempts AND hasn't been updated in 15 minutes, it's a zombie.
+    // This prevents stuck rows from permanently suppressing demonitoring or ghost detection.
+    const zombieCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    try {
+      const { data: zombies } = await (supabase.from('sync_retry_queue') as any)
+        .select('id, work_item_id, radicado, organization_id, kind, attempt, max_attempts, last_error_code')
+        .lte('next_run_at', zombieCutoff)
+        .filter('attempt', 'gte', 'max_attempts');
+      
+      // Supabase PostgREST can't compare columns directly, so filter in JS
+      const actualZombies = (zombies || []).filter((z: any) => z.attempt >= z.max_attempts);
+      
+      if (actualZombies.length > 0) {
+        console.warn(`[process-retry-queue] Found ${actualZombies.length} zombie retry rows, cleaning up`);
+        for (const zombie of actualZombies) {
+          await (supabase.from('sync_retry_queue') as any)
+            .delete()
+            .eq('id', zombie.id);
+          
+          // Mark work item as failed
+          await supabase
+            .from('work_items')
+            .update({
+              scrape_status: 'FAILED',
+              last_error_code: zombie.last_error_code || 'RETRY_ZOMBIE_CLEANED',
+              last_error_at: new Date().toISOString(),
+            })
+            .eq('id', zombie.work_item_id);
+          
+          console.log(`[process-retry-queue] Cleaned zombie: ${zombie.radicado} (${zombie.kind}, attempt ${zombie.attempt}/${zombie.max_attempts})`);
+        }
+      }
+    } catch (zombieErr) {
+      console.warn('[process-retry-queue] Zombie cleanup error:', zombieErr);
+    }
+
+    // === CONCURRENCY GUARD: Claim rows atomically ===
+    // Set claimed_at on rows we're about to process to prevent double-processing
+    // from overlapping pg_cron invocations or manual triggers.
+    const now = new Date().toISOString();
+    const claimCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // Re-claimable after 5 min
+
+    // Fetch unclaimed (or stale-claimed) due tasks
     const { data: tasks, error: fetchError } = await (supabase.from('sync_retry_queue') as any)
       .select('*')
-      .lte('next_run_at', new Date().toISOString())
+      .lte('next_run_at', now)
+      .or(`claimed_at.is.null,claimed_at.lt.${claimCutoff}`)
       .order('next_run_at', { ascending: true })
       .limit(MAX_TASKS_PER_RUN);
 
@@ -61,6 +105,12 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Claim all fetched tasks
+    const taskIds = tasks.map((t: any) => t.id);
+    await (supabase.from('sync_retry_queue') as any)
+      .update({ claimed_at: now })
+      .in('id', taskIds);
 
     console.log(`[process-retry-queue] Found ${tasks.length} due tasks`);
 
@@ -207,6 +257,7 @@ Deno.serve(async (req) => {
             .update({
               attempt: task.attempt + 1,
               next_run_at: nextRunAt,
+              claimed_at: null, // Release claim so next run can pick it up
               last_error_code: 'SCRAPING_TIMEOUT',
               last_error_message: `Attempt ${task.attempt} failed, rescheduled`,
             })
@@ -225,6 +276,7 @@ Deno.serve(async (req) => {
               .update({
                 attempt: task.attempt + 1,
                 next_run_at: new Date(Date.now() + jitterMs(30_000, 60_000)).toISOString(),
+                claimed_at: null, // Release claim
                 last_error_code: 'INVOCATION_FAILED',
                 last_error_message: taskErr?.message || 'Unknown error',
               })

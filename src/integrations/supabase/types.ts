@@ -5551,6 +5551,7 @@ export type Database = {
       sync_retry_queue: {
         Row: {
           attempt: number
+          claimed_at: string | null
           created_at: string
           id: string
           kind: string
@@ -5569,6 +5570,7 @@ export type Database = {
         }
         Insert: {
           attempt?: number
+          claimed_at?: string | null
           created_at?: string
           id?: string
           kind: string
@@ -5587,6 +5589,7 @@ export type Database = {
         }
         Update: {
           attempt?: number
+          claimed_at?: string | null
           created_at?: string
           id?: string
           kind?: string

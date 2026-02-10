@@ -464,12 +464,12 @@ async function syncOrganization(
               }
             }
 
-            // Update last_synced_at ALWAYS after a successful sync attempt
-            // (sync-by-work-item already updates it too, but this is the safety net)
+            // Update last_synced_at ONLY on true success (ok=true).
+            // Do NOT set last_synced_at on scraping_initiated — that would hide the real pending state
+            // and defeat the staleness guard used by demonitor and priority sorting.
             const syncWasSuccessful = syncResult?.ok === true;
-            const scrapingWasInitiated = syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED';
 
-            if (syncWasSuccessful || scrapingWasInitiated) {
+            if (syncWasSuccessful) {
               const { error: tsError } = await supabase
                 .from("work_items")
                 .update({ last_synced_at: new Date().toISOString() })
@@ -555,18 +555,31 @@ async function syncOrganization(
     }
 
     // ============= GHOST ITEM DETECTION =============
-    // Ghost items = eligible items that were skipped due to timeout and never processed
+    // Ghost items = eligible items that were skipped due to timeout and never processed.
+    // Exclude items with active retry rows — they are being handled by process-retry-queue.
     const processedItemIds = new Set<string>();
-    // Collect all processed item IDs from batches (track which items we actually touched)
     for (let idx = 0; idx < sortedItems.length && idx < (sortedItems.length - itemsSkipped); idx++) {
       processedItemIds.add(sortedItems[idx].id);
     }
-    const ghostItems = sortedItems.filter((item: any) => !processedItemIds.has(item.id));
+    let ghostItems = sortedItems.filter((item: any) => !processedItemIds.has(item.id));
+    
+    // Exclude items with pending retries from ghost count
+    if (ghostItems.length > 0) {
+      const ghostIds = ghostItems.map((g: any) => g.id);
+      const { data: ghostRetries } = await (supabase.from('sync_retry_queue') as any)
+        .select('work_item_id')
+        .in('work_item_id', ghostIds);
+      if (ghostRetries && ghostRetries.length > 0) {
+        const retryGhostIds = new Set(ghostRetries.map((r: any) => r.work_item_id));
+        const beforeGhost = ghostItems.length;
+        ghostItems = ghostItems.filter((g: any) => !retryGhostIds.has(g.id));
+        console.log(`[scheduled-daily-sync] Excluded ${beforeGhost - ghostItems.length} pending-retry items from ghost count`);
+      }
+    }
     
     if (ghostItems.length > 0) {
       console.log(`[scheduled-daily-sync] ${ghostItems.length} ghost items detected (never processed this run)`);
       
-      // Create a single summary alert for ghost items (avoid alert spam)
       try {
         const { data: membership } = await supabase
           .from('organization_memberships')
@@ -618,6 +631,8 @@ async function syncOrganization(
       
       if (threshold > 0) {
         // Find candidate items exceeding 404 threshold
+        // STRICT: Only use consecutive_404_count, NOT consecutive_failures.
+        // This ensures rate-limiting, timeouts, or provider degradation don't trigger demonitoring.
         const { data: candidates } = await supabase
           .from('work_items')
           .select('id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at')
@@ -633,11 +648,26 @@ async function syncOrganization(
             .in('work_item_id', candidateIds);
           const retryingIds = new Set((pendingRetries || []).map((r: any) => r.work_item_id));
 
-          // Transient scraping error codes that should NOT trigger demonitoring
-          const TRANSIENT_ERROR_CODES = [
+          // Error codes that should NOT trigger demonitoring:
+          // - Transient scraping states (item may resolve itself)
+          // - Generic failures (rate limits, timeouts) — demonitor is strictly for 404/NOT_FOUND
+          const NON_DEMONITOR_ERROR_CODES = [
             'SCRAPING_TIMEOUT',
             'SCRAPING_PENDING',
             'SCRAPING_TIMEOUT_RETRY_SCHEDULED',
+            'PROVIDER_TIMEOUT',
+            'PROVIDER_RATE_LIMITED',
+            'NETWORK_ERROR',
+            'INVOCATION_FAILED',
+            'RETRY_EXHAUSTED', // may have been a transient chain
+          ];
+
+          // Only these error codes are considered "true 404 / not found" for demonitor purposes
+          const DEMONITOR_ELIGIBLE_ERROR_CODES = [
+            'PROVIDER_404',
+            'RECORD_NOT_FOUND',
+            'PROVIDER_NOT_FOUND',
+            'UPSTREAM_ROUTE_MISSING',
           ];
 
           // Staleness guard: only demonitor if last success was >14 days ago (or never)
@@ -649,9 +679,9 @@ async function syncOrganization(
               console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: pending retry`);
               return false;
             }
-            // Gate 2: transient scraping error → skip
-            if (TRANSIENT_ERROR_CODES.includes(item.last_error_code)) {
-              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: transient error ${item.last_error_code}`);
+            // Gate 2: last_error_code must be a true 404/NOT_FOUND signal, not a transient failure
+            if (item.last_error_code && !DEMONITOR_ELIGIBLE_ERROR_CODES.includes(item.last_error_code)) {
+              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: error code ${item.last_error_code} is not a 404-type signal`);
               return false;
             }
             // Gate 3: staleness guard → only demonitor if last success is stale or null
