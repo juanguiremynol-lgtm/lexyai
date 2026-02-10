@@ -215,25 +215,61 @@ Deno.serve(async (req) => {
               body: { work_item_id: item.id, _scheduled: true }
             });
 
-            const syncOk = syncResult?.ok === true || syncResult?.scraping_initiated === true;
+            const isSuccess = syncResult?.ok === true;
+            const isScrapingPending = syncResult?.scraping_initiated === true || 
+              syncResult?.code === 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
 
-            // Publicaciones (skip for items with recent errors)
-            if (syncOk && ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
-              try {
-                await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-                  body: { work_item_id: item.id, _scheduled: true }
-                });
-              } catch {
-                // Non-blocking
+            if (isSuccess) {
+              // True success: update timestamp, trigger pub sync
+              if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
+                try {
+                  await supabase.functions.invoke("sync-publicaciones-by-work-item", {
+                    body: { work_item_id: item.id, _scheduled: true }
+                  });
+                } catch {
+                  // Non-blocking
+                }
               }
-            }
 
-            if (syncOk) {
               await supabase
                 .from("work_items")
                 .update({ last_synced_at: new Date().toISOString() })
                 .eq("id", item.id);
               syncedCount++;
+            } else if (isScrapingPending) {
+              // Scraping in progress — do NOT mark as success, do NOT clear failure counters.
+              // Ensure a retry task exists so process-retry-queue picks it up.
+              console.log(`[fallback-sync-check] ${item.radicado}: scraping pending, ensuring retry enqueued`);
+              try {
+                const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
+                  .select('id')
+                  .eq('work_item_id', item.id)
+                  .eq('kind', 'ACT_SCRAPE_RETRY')
+                  .maybeSingle();
+                
+                if (!existingRetry) {
+                  // No retry row exists — enqueue one
+                  const nextRunAt = new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString();
+                  await (supabase.from('sync_retry_queue') as any).insert({
+                    work_item_id: item.id,
+                    organization_id: pendingOrg.organization_id,
+                    radicado: item.radicado,
+                    workflow_type: item.workflow_type,
+                    kind: 'ACT_SCRAPE_RETRY',
+                    provider: syncResult?.scraping_provider || 'cpnu',
+                    attempt: 1,
+                    max_attempts: 3,
+                    next_run_at: nextRunAt,
+                    last_error_code: 'SCRAPING_TIMEOUT',
+                    last_error_message: 'Enqueued by fallback-sync-check',
+                    scraping_job_id: syncResult?.scraping_job_id || null,
+                  });
+                  console.log(`[fallback-sync-check] Retry enqueued for ${item.radicado}`);
+                }
+              } catch (retryEnqueueErr) {
+                console.warn(`[fallback-sync-check] Failed to enqueue retry:`, retryEnqueueErr);
+              }
+              // Count as "pending" — not success, not error
             } else {
               errorCount++;
             }
