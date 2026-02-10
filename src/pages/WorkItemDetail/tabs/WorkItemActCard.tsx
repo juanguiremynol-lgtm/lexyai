@@ -1,359 +1,279 @@
 /**
- * WorkItemActCard - Displays a single actuación from work_item_acts table
- * Collapsible card showing full details from CPNU/SAMAI data
- * Resilient to missing/partial data
+ * WorkItemActCard - Unified actuación card from work_item_acts table
+ * Consistent layout regardless of data source (CPNU, SAMAI, manual)
+ * Missing fields show graceful placeholders, never collapse the layout
  */
 
 import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
-import {
-  Calendar,
-  FileText,
-  ExternalLink,
-  ChevronDown,
-  ChevronUp,
-  Tag,
-  CheckCircle2,
-  Building2,
-  Database,
-} from "lucide-react";
-import { format, formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
-// Act type styling based on common patterns
-const ACT_TYPE_CONFIG: Record<string, { color: string; bgColor: string }> = {
-  AUTO_ADMISORIO: { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
-  "AUTO ADMISORIO": { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
-  "AUTO ADMITE": { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
-  ADMITE: { color: "text-emerald-600", bgColor: "bg-emerald-500/10" },
-  FALLO: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
-  SENTENCIA: { color: "text-blue-600", bgColor: "bg-blue-500/10" },
-  NOTIFICACION: { color: "text-amber-600", bgColor: "bg-amber-500/10" },
-  "FIJACION ESTADO": { color: "text-amber-600", bgColor: "bg-amber-500/10" },
-  FIJACION: { color: "text-amber-600", bgColor: "bg-amber-500/10" },
-  AUDIENCIA: { color: "text-purple-600", bgColor: "bg-purple-500/10" },
-  MEMORIAL: { color: "text-indigo-600", bgColor: "bg-indigo-500/10" },
-  TRASLADO: { color: "text-cyan-600", bgColor: "bg-cyan-500/10" },
-  RECURSO: { color: "text-orange-600", bgColor: "bg-orange-500/10" },
-  REPARTO: { color: "text-pink-600", bgColor: "bg-pink-500/10" },
-  RADICACION: { color: "text-pink-600", bgColor: "bg-pink-500/10" },
-  EXPEDIENTE: { color: "text-slate-600", bgColor: "bg-slate-500/10" },
-  "EXPEDIENTE DIGITAL": { color: "text-slate-600", bgColor: "bg-slate-500/10" },
-  DEFAULT: { color: "text-muted-foreground", bgColor: "bg-muted/50" },
-};
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-// Source platform styling
-const SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
-  CPNU: { label: "CPNU", color: "text-purple-600" },
-  SAMAI: { label: "SAMAI", color: "text-blue-600" },
-  TUTELAS: { label: "Tutelas", color: "text-emerald-600" },
-  DEFAULT: { label: "Sistema", color: "text-muted-foreground" },
-};
-
-// Interface matching work_item_acts table schema
 export interface WorkItemAct {
   id: string;
   owner_id: string;
   work_item_id: string;
-  // Core actuación data
   description: string;
   event_summary: string | null;
   act_date: string | null;
   act_date_raw: string | null;
   event_date: string | null;
   act_type: string | null;
-  // Source tracking
   source: string | null;
   source_platform: string | null;
   source_url: string | null;
   source_reference: string | null;
-  // Additional metadata
   despacho: string | null;
   workflow_type: string | null;
   scrape_date: string | null;
   hash_fingerprint: string;
   created_at: string;
-  // Raw data for debugging
+  date_confidence: string | null;
   raw_data?: Record<string, unknown> | null;
 }
+
+// ─── Category classification ─────────────────────────────────────────────────
+
+interface ActCategory {
+  borderColor: string;
+  bgColor: string;
+  icon: string;
+}
+
+const getActuacionCategory = (description: string): ActCategory => {
+  const desc = (description || "").toUpperCase();
+
+  if (desc.includes("SENTENCIA") || desc.includes("FALLO"))
+    return { borderColor: "border-l-red-500", bgColor: "bg-red-50 dark:bg-red-950/20", icon: "⚖️" };
+
+  if (desc.includes("AUTO ") || desc.startsWith("AUTO"))
+    return { borderColor: "border-l-blue-500", bgColor: "bg-blue-50 dark:bg-blue-950/20", icon: "📋" };
+
+  if (desc.includes("NOTIFICACI") || desc.includes("FIJACIÓN") || desc.includes("FIJACION") || desc.includes("ESTADO") || desc.includes("EDICTO"))
+    return { borderColor: "border-l-amber-500", bgColor: "bg-amber-50 dark:bg-amber-950/20", icon: "🔔" };
+
+  if (desc.includes("AUDIENCIA") || desc.includes("DILIGENCIA") || desc.includes("FECHA PARA"))
+    return { borderColor: "border-l-green-500", bgColor: "bg-green-50 dark:bg-green-950/20", icon: "📅" };
+
+  if (desc.includes("RECURSO") || desc.includes("APELACI") || desc.includes("REPOSICI") || desc.includes("CASACI"))
+    return { borderColor: "border-l-purple-500", bgColor: "bg-purple-50 dark:bg-purple-950/20", icon: "📤" };
+
+  if (desc.includes("TRASLADO") || desc.includes("REQUERIMIENTO") || desc.includes("CORRER TRASLADO"))
+    return { borderColor: "border-l-teal-500", bgColor: "bg-teal-50 dark:bg-teal-950/20", icon: "📨" };
+
+  if (desc.includes("PRUEBA") || desc.includes("PERICIAL") || desc.includes("TESTIMONIAL") || desc.includes("DECRETO DE PRUEBAS"))
+    return { borderColor: "border-l-indigo-500", bgColor: "bg-indigo-50 dark:bg-indigo-950/20", icon: "🔍" };
+
+  if (desc.includes("RADICACI") || desc.includes("REPARTO") || desc.includes("ADMISI") || desc.includes("DEMANDA"))
+    return { borderColor: "border-l-cyan-500", bgColor: "bg-cyan-50 dark:bg-cyan-950/20", icon: "📄" };
+
+  return { borderColor: "border-l-slate-400", bgColor: "bg-slate-50 dark:bg-slate-900/30", icon: "📌" };
+};
+
+// ─── Description parser ──────────────────────────────────────────────────────
+// Descriptions come as "Action Type - Annotation detail" or just "Action Type"
+
+const parseDescription = (description: string): { actionType: string; annotation: string | null } => {
+  if (!description) return { actionType: "Actuación sin descripción", annotation: null };
+
+  const separatorIndex = description.indexOf(" - ");
+  if (separatorIndex > 0 && separatorIndex < 80) {
+    const actionType = description.substring(0, separatorIndex).trim();
+    const annotation = description.substring(separatorIndex + 3).trim();
+    return {
+      actionType: actionType || "Actuación sin descripción",
+      annotation: annotation || null,
+    };
+  }
+
+  return { actionType: description, annotation: null };
+};
+
+// ─── Source badge ─────────────────────────────────────────────────────────────
+
+const SOURCE_CONFIG: Record<string, { label: string; icon: string; bg: string; text: string }> = {
+  cpnu:    { label: "CPNU",    icon: "📡", bg: "bg-blue-100 dark:bg-blue-900/40",   text: "text-blue-700 dark:text-blue-300" },
+  samai:   { label: "SAMAI",   icon: "📡", bg: "bg-purple-100 dark:bg-purple-900/40", text: "text-purple-700 dark:text-purple-300" },
+  tutelas: { label: "TUTELAS", icon: "📡", bg: "bg-teal-100 dark:bg-teal-900/40",   text: "text-teal-700 dark:text-teal-300" },
+  manual:  { label: "Manual",  icon: "✏️", bg: "bg-gray-100 dark:bg-gray-800",   text: "text-gray-600 dark:text-gray-400" },
+};
+
+function SourceBadge({ source }: { source: string | null }) {
+  const key = (source || "").toLowerCase();
+  const cfg = SOURCE_CONFIG[key] || { label: "Sistema", icon: "📡", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-500 dark:text-gray-400" };
+
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", cfg.bg, cfg.text)}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
+}
+
+// ─── Date helpers ────────────────────────────────────────────────────────────
+
+function formatActDate(dateStr: string): string {
+  try {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function humanizeCreatedAt(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+
+    const formatter = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", year: "numeric", month: "numeric", day: "numeric" });
+    const dateDay = formatter.format(date);
+    const todayDay = formatter.format(now);
+
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayDay = formatter.format(yesterday);
+
+    const timeStr = date.toLocaleTimeString("es-CO", {
+      timeZone: "America/Bogota",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    if (dateDay === todayDay) return `hoy, ${timeStr}`;
+    if (dateDay === yesterdayDay) return `ayer, ${timeStr}`;
+
+    return date.toLocaleDateString("es-CO", {
+      timeZone: "America/Bogota",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }) + `, ${timeStr}`;
+  } catch {
+    return isoString;
+  }
+}
+
+// ─── Summary helper (exported for ActsTab) ───────────────────────────────────
+
+export function getActuacionesSummary(actuaciones: WorkItemAct[]) {
+  const categoryMap: Record<string, { icon: string; label: string; count: number }> = {};
+
+  const labelForIcon: Record<string, string> = {
+    "⚖️": "sentencias",
+    "📋": "autos",
+    "🔔": "notificaciones",
+    "📅": "audiencias",
+    "📤": "recursos",
+    "📨": "traslados",
+    "🔍": "pruebas",
+    "📄": "admisiones",
+    "📌": "otras",
+  };
+
+  for (const act of actuaciones) {
+    const cat = getActuacionCategory(act.description || "");
+    if (!categoryMap[cat.icon]) {
+      categoryMap[cat.icon] = { icon: cat.icon, label: labelForIcon[cat.icon] || "otras", count: 0 };
+    }
+    categoryMap[cat.icon].count++;
+  }
+
+  const newestDate = actuaciones.reduce((max, a) => {
+    const d = a.act_date || "";
+    return d > max ? d : max;
+  }, "");
+
+  return {
+    categories: Object.values(categoryMap).filter((c) => c.count > 0),
+    total: actuaciones.length,
+    newestDate: newestDate || null,
+  };
+}
+
+// ─── Main Card Component ─────────────────────────────────────────────────────
 
 interface WorkItemActCardProps {
   act: WorkItemAct;
   despacho?: string | null;
 }
 
-export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+export function WorkItemActCard({ act }: WorkItemActCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const category = getActuacionCategory(act.description);
+  const { actionType, annotation } = parseDescription(act.description);
 
-  const getActTypeConfig = (description: string) => {
-    const searchText = (description || "").toUpperCase();
-    for (const [key, config] of Object.entries(ACT_TYPE_CONFIG)) {
-      if (key !== "DEFAULT" && searchText.includes(key)) return config;
-    }
-    return ACT_TYPE_CONFIG.DEFAULT;
-  };
-
-  const getSourceConfig = (source: string | null) => {
-    if (!source) return SOURCE_CONFIG.DEFAULT;
-    return SOURCE_CONFIG[source.toUpperCase()] || SOURCE_CONFIG.DEFAULT;
-  };
-
-  // Parse various date formats safely
-  const parseDate = (dateStr: string | null): Date | null => {
-    if (!dateStr) return null;
-
-    try {
-      // Handle DD/MM/YYYY HH:mm:ss format
-      const parts = dateStr.split(" ");
-      const dateParts = parts[0].split("/");
-
-      if (dateParts.length === 3) {
-        const day = parseInt(dateParts[0], 10);
-        const month = parseInt(dateParts[1], 10) - 1;
-        const year = parseInt(dateParts[2], 10);
-
-        let hours = 0, minutes = 0, seconds = 0;
-        if (parts[1]) {
-          const timeParts = parts[1].split(":");
-          hours = parseInt(timeParts[0] || "0", 10);
-          minutes = parseInt(timeParts[1] || "0", 10);
-          seconds = parseInt(timeParts[2] || "0", 10);
-        }
-
-        const date = new Date(year, month, day, hours, minutes, seconds);
-        if (!isNaN(date.getTime())) return date;
-      }
-
-      // Fallback: try parsing as ISO or standard date
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) return date;
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Format date for display
-  const formatDisplayDate = (dateStr: string | null): string | null => {
-    const date = parseDate(dateStr);
-    if (!date) return dateStr; // Return raw string as fallback
-    return format(date, "d MMM yyyy", { locale: es });
-  };
-
-  // Get relative time for date
-  const getRelativeTime = (dateStr: string | null): string | null => {
-    const date = parseDate(dateStr);
-    if (!date) return null;
-    return formatDistanceToNow(date, { addSuffix: true, locale: es });
-  };
-
-  // Get the best available date for display
-  const getBestDate = (): { date: string | null; label: string; isInferred: boolean } => {
-    if (act.act_date) {
-      return { date: act.act_date, label: "Fecha Actuación", isInferred: false };
-    }
-    if (act.event_date) {
-      return { date: act.event_date, label: "Fecha Evento", isInferred: false };
-    }
-    if (act.act_date_raw) {
-      return { date: act.act_date_raw, label: "Fecha (original)", isInferred: true };
-    }
-    return { date: null, label: "", isInferred: false };
-  };
-
-  const typeConfig = getActTypeConfig(act.description);
-  const sourceConfig = getSourceConfig(act.source_platform);
-  const bestDate = getBestDate();
-  const displayDespacho = act.despacho || despacho;
-
-  // Check if there's additional content to show in expanded view
-  const hasDetailedContent =
-    act.event_summary ||
-    act.source_url ||
-    act.raw_data ||
-    displayDespacho;
+  // Use event_summary as annotation fallback if parsed annotation is empty
+  const displayAnnotation = annotation || (act.event_summary && act.event_summary !== act.description ? act.event_summary : null);
+  const hasAnnotation = !!displayAnnotation?.trim();
 
   return (
-    <Card
+    <div
       className={cn(
-        "transition-all duration-200 hover:shadow-md border-l-4",
-        typeConfig.bgColor,
-        typeConfig.color.replace("text-", "border-l-")
+        "rounded-lg border border-l-4 p-4 shadow-sm transition-all hover:shadow-md",
+        category.borderColor,
+        category.bgColor
       )}
     >
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-        <CardContent className="p-4">
-          {/* Row 1: Badges - Type, Source, Expand */}
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            {/* Act type */}
-            {act.act_type && (
-              <Badge
-                variant="outline"
-                className={cn("text-xs font-medium", typeConfig.color)}
-              >
-                <Tag className="h-3 w-3 mr-1" />
-                {act.act_type}
-              </Badge>
-            )}
+      {/* Row 1: Header — Action type + Date */}
+      <div className="flex items-start justify-between gap-3">
+        <h4 className="text-sm font-semibold text-foreground leading-tight flex-1 min-w-0">
+          <span className="mr-1.5">{category.icon}</span>
+          {actionType}
+        </h4>
+        <time className="text-xs text-muted-foreground whitespace-nowrap shrink-0 mt-0.5">
+          {act.act_date ? formatActDate(act.act_date) : (
+            <span className="italic">Fecha no disponible</span>
+          )}
+        </time>
+      </div>
 
-            {/* Source platform */}
-            {act.source_platform && (
-              <Badge
-                variant="outline"
-                className={cn("text-xs gap-1", sourceConfig.color)}
-              >
-                <Database className="h-3 w-3" />
-                {sourceConfig.label}
-              </Badge>
-            )}
+      {/* Row 2: Divider */}
+      <hr className="my-2.5 border-border/40" />
 
-            {/* Expand/Collapse button */}
-            {hasDetailedContent && (
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 ml-auto">
-                  {isExpanded ? (
-                    <ChevronUp className="h-4 w-4" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4" />
-                  )}
-                </Button>
-              </CollapsibleTrigger>
-            )}
-          </div>
+      {/* Row 3: Annotation body */}
+      {hasAnnotation ? (
+        <div className="relative">
+          <p className={cn(
+            "text-sm text-muted-foreground leading-relaxed",
+            !expanded && "line-clamp-4"
+          )}>
+            {displayAnnotation}
+          </p>
+          {displayAnnotation!.length > 250 && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-xs text-primary hover:text-primary/80 mt-1 font-medium"
+            >
+              {expanded ? "Ver menos" : "Ver más..."}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground/50 italic leading-relaxed">
+          Sin detalle registrado para esta actuación.
+        </p>
+      )}
 
-          <Separator className="mb-3" />
-
-          {/* Row 2: Main content grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Left side: Actuación description */}
-            <div className="lg:col-span-3 space-y-2">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Actuación</p>
-                <p className="font-medium text-sm">{act.description || "(Sin descripción)"}</p>
-              </div>
-              
-              {/* Despacho (court name) - shown in collapsed view for quick reference */}
-              {displayDespacho && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Building2 className="h-3 w-3" />
-                  <span>{displayDespacho}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Right side: Date */}
-            <div className="space-y-2">
-              {bestDate.date ? (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {bestDate.label}
-                  </p>
-                  <p className={cn("text-sm font-medium", bestDate.isInferred && "italic text-muted-foreground")}>
-                    {formatDisplayDate(bestDate.date)}
-                  </p>
-                  {!bestDate.isInferred && getRelativeTime(bestDate.date) && (
-                    <p className="text-xs text-muted-foreground">
-                      {getRelativeTime(bestDate.date)}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Fecha
-                  </p>
-                  <p className="text-sm text-muted-foreground italic">(No disponible)</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Expanded Content */}
-          <CollapsibleContent>
-            <Separator className="my-3" />
-
-            {/* Event summary - detailed notes */}
-            {act.event_summary && act.event_summary !== act.description && (
-              <div className="mb-4">
-                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                  <FileText className="h-3 w-3" />
-                  Resumen / Detalle
-                </p>
-                <div className="bg-muted/30 rounded-md p-3 text-sm text-muted-foreground whitespace-pre-wrap">
-                  {act.event_summary}
-                </div>
-              </div>
-            )}
-
-            {/* Additional metadata grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {/* Original date if different */}
-              {act.act_date_raw && act.act_date_raw !== act.act_date && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Fecha Original
-                  </p>
-                  <p className="text-sm italic">{act.act_date_raw}</p>
-                </div>
-              )}
-
-              {/* Source */}
-              {act.source && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Fuente</p>
-                  <p className="text-sm">{act.source}</p>
-                </div>
-              )}
-
-              {/* Scrape date */}
-              {act.scrape_date && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Fecha Scraping</p>
-                  <p className="text-sm">{act.scrape_date}</p>
-                </div>
-              )}
-
-              {/* Created at */}
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">
-                  Sincronizado
-                </p>
-                <p className="text-sm">
-                  {format(new Date(act.created_at), "d MMM yyyy, HH:mm", {
-                    locale: es,
-                  })}
-                </p>
-              </div>
-            </div>
-
-            {/* Source URL if available */}
-            {act.source_url && (
-              <div className="flex items-center gap-2">
-                <a
-                  href={act.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-primary hover:underline flex items-center gap-1"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Ver en fuente original
-                </a>
-              </div>
-            )}
-          </CollapsibleContent>
-        </CardContent>
-      </Collapsible>
-    </Card>
+      {/* Row 4: Metadata footer */}
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          <SourceBadge source={act.source} />
+          <span className="hidden sm:inline">·</span>
+          <span className="hidden sm:inline">Descubierta: {humanizeCreatedAt(act.created_at)}</span>
+        </div>
+        {act.date_confidence && act.date_confidence !== "high" && (
+          <span className={cn(
+            "text-xs px-2 py-0.5 rounded-full shrink-0",
+            act.date_confidence === "low"
+              ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+              : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+          )}>
+            ⚠️ {act.date_confidence === "low" ? "Fecha incierta" : "Fecha aproximada"}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
