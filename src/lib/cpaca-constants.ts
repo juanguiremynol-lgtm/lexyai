@@ -9,16 +9,13 @@ export type CpacaPhase =
   | "DEMANDA_POR_RADICAR"
   | "DEMANDA_RADICADA"
   | "AUTO_ADMISORIO"
-  | "NOTIFICACION_TRASLADOS"
   | "TRASLADO_DEMANDA"
-  | "REFORMA_DEMANDA"
   | "TRASLADO_EXCEPCIONES"
   | "AUDIENCIA_INICIAL"
   | "AUDIENCIA_PRUEBAS"
   | "ALEGATOS_SENTENCIA"
   | "RECURSOS"
-  | "EJECUCION_CUMPLIMIENTO"
-  | "ARCHIVADO";
+  | "EJECUCION_CUMPLIMIENTO";
 
 // Medio de Control type
 export type MedioDeControl =
@@ -82,26 +79,12 @@ export const CPACA_PHASES: Record<CpacaPhase, {
     description: "Pronunciamiento inicial del despacho sobre la demanda",
     keyDates: ["Fecha auto admisorio", "Fecha auto inadmisión"],
   },
-  NOTIFICACION_TRASLADOS: {
-    label: "Notificación y Traslados (Art. 199)",
-    shortLabel: "Notificación",
-    color: "purple",
-    description: "Notificación electrónica: 2 días hábiles + día siguiente para inicio términos",
-    keyDates: ["Fecha envío notificación", "Fecha inicio términos"],
-  },
   TRASLADO_DEMANDA: {
     label: "Traslado de la Demanda (30 días)",
     shortLabel: "Traslado 30d",
     color: "fuchsia",
     description: "Traslado para contestación y excepciones (+15 días si prórroga)",
     keyDates: ["Fecha vencimiento traslado", "Fecha contestación"],
-  },
-  REFORMA_DEMANDA: {
-    label: "Reforma de la Demanda (10 días)",
-    shortLabel: "Reforma 10d",
-    color: "pink",
-    description: "Oportunidad para reformar la demanda después del traslado",
-    keyDates: ["Fecha vencimiento reforma"],
   },
   TRASLADO_EXCEPCIONES: {
     label: "Traslado de Excepciones (3 días)",
@@ -145,13 +128,6 @@ export const CPACA_PHASES: Record<CpacaPhase, {
     description: "Cumplimiento de la sentencia, liquidación de condenas",
     keyDates: ["Fecha ejecutoria", "Fecha inicio ejecución"],
   },
-  ARCHIVADO: {
-    label: "Archivado / Terminado",
-    shortLabel: "Archivado",
-    color: "stone",
-    description: "Proceso terminado",
-    keyDates: [],
-  },
 };
 
 // Ordered array of phases for pipeline display
@@ -160,16 +136,13 @@ export const CPACA_PHASES_ORDER: CpacaPhase[] = [
   "DEMANDA_POR_RADICAR",
   "DEMANDA_RADICADA",
   "AUTO_ADMISORIO",
-  "NOTIFICACION_TRASLADOS",
   "TRASLADO_DEMANDA",
-  "REFORMA_DEMANDA",
   "TRASLADO_EXCEPCIONES",
   "AUDIENCIA_INICIAL",
   "AUDIENCIA_PRUEBAS",
   "ALEGATOS_SENTENCIA",
   "RECURSOS",
   "EJECUCION_CUMPLIMIENTO",
-  "ARCHIVADO",
 ];
 
 // Medio de Control definitions
@@ -345,5 +318,5 @@ export const PHASES_REQUIRING_CONCILIACION: CpacaPhase[] = [
 
 // Final phases
 export const CPACA_FINAL_PHASES: CpacaPhase[] = [
-  "ARCHIVADO",
+  "EJECUCION_CUMPLIMIENTO",
 ];

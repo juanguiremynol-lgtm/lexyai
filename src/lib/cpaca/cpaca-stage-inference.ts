@@ -39,20 +39,7 @@ export function normalizeText(text: string): string {
 // Classification rules ordered by priority (higher = more specific)
 const CLASSIFICATION_RULES: PatternRule[] = [
   // Terminal state - highest priority
-  {
-    stage: 'ARCHIVADO',
-    patterns: [
-      /archivo\s+(definitivo|del\s+proceso)/i,
-      /terminacion\s+(del\s+proceso|anticipada)/i,
-      /desistimiento\s+(aprobado|aceptado)/i,
-      /perencion\s+(decretada|declarada)/i,
-      /conciliacion\s+aprobada/i,
-    ],
-    confidence: 'HIGH',
-    priority: 100,
-  },
-
-  // Ejecución/Cumplimiento
+  // Ejecución/Cumplimiento - terminal state now
   {
     stage: 'EJECUCION_CUMPLIMIENTO',
     patterns: [
@@ -146,20 +133,7 @@ const CLASSIFICATION_RULES: PatternRule[] = [
     priority: 70,
   },
 
-  // Reforma de la Demanda
-  {
-    stage: 'REFORMA_DEMANDA',
-    patterns: [
-      /reforma\s+(de\s+la\s+)?demanda/i,
-      /reformar\s+demanda/i,
-      /admite\s+reforma/i,
-      /auto\s+que\s+admite\s+reforma/i,
-    ],
-    confidence: 'MEDIUM',
-    priority: 65,
-  },
-
-  // Traslado de la Demanda
+  // Traslado de la Demanda (absorbs reforma patterns too)
   {
     stage: 'TRASLADO_DEMANDA',
     patterns: [
@@ -169,27 +143,15 @@ const CLASSIFICATION_RULES: PatternRule[] = [
       /contesta\s+demanda/i,
       /vencimiento\s+traslado/i,
       /termino\s+para\s+contestar/i,
+      /reforma\s+(de\s+la\s+)?demanda/i,
+      /reformar\s+demanda/i,
+      /admite\s+reforma/i,
     ],
     confidence: 'HIGH',
     priority: 60,
   },
 
-  // Notificación y Traslados (Art. 199)
-  {
-    stage: 'NOTIFICACION_TRASLADOS',
-    patterns: [
-      /notificacion\s+(electronica|personal|por\s+estado)/i,
-      /se\s+notifica/i,
-      /notifica\s+(a\s+la\s+parte|al\s+demandado)/i,
-      /art\.?\s*199/i,
-      /emplazamiento/i,
-      /curador\s+ad\s+litem/i,
-    ],
-    confidence: 'HIGH',
-    priority: 55,
-  },
-
-  // Auto Admisorio
+  // Auto Admisorio (notification patterns now map here since NOTIFICACION_TRASLADOS was removed)
   {
     stage: 'AUTO_ADMISORIO',
     patterns: [
@@ -201,6 +163,14 @@ const CLASSIFICATION_RULES: PatternRule[] = [
       /avoca\s+conocimiento/i,
       /inadmite\s+demanda/i,
       /auto\s+inadmisorio/i,
+      /rechaza\s+demanda/i,
+      /auto\s+de\s+rechazo/i,
+      /notificacion\s+(electronica|personal|por\s+estado)/i,
+      /se\s+notifica/i,
+      /notifica\s+(a\s+la\s+parte|al\s+demandado)/i,
+      /art\.?\s*199/i,
+      /emplazamiento/i,
+      /curador\s+ad\s+litem/i,
       /rechaza\s+demanda/i,
       /auto\s+de\s+rechazo/i,
     ],
@@ -306,7 +276,7 @@ export function classifyCpacaActuacion(
     confidence_level: bestMatch?.confidence ?? 'UNKNOWN',
     keywords_matched: matchedKeywords,
     allows_progression: isValidTransition(currentStage, inferredStage),
-    is_terminal: inferredStage === 'ARCHIVADO',
+    is_terminal: inferredStage === 'EJECUCION_CUMPLIMIENTO',
   };
 }
 

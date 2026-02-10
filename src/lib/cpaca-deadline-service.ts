@@ -21,7 +21,6 @@ import { es } from "date-fns/locale";
 
 export type DeadlineType = 
   | 'TRASLADO_DEMANDA'
-  | 'REFORMA_DEMANDA'
   | 'TRASLADO_EXCEPCIONES'
   | 'APELACION_SENTENCIA'
   | 'APELACION_AUTO'
@@ -125,24 +124,7 @@ export async function generateCpacaDeadlines(
       },
     });
     
-    // 2. Calculate reforma demanda deadline (follows traslado)
-    const fechaVencimientoReforma = await calculateVencimientoReforma(fechaVencimientoTraslado);
-    
-    deadlines.push({
-      owner_id: ownerId,
-      work_item_id: workItemId,
-      deadline_type: 'REFORMA_DEMANDA',
-      label: `Reforma Demanda (${CPACA_TERMS.REFORMA_DEMANDA_DIAS} días)`,
-      description: 'Plazo para reformar la demanda después del traslado',
-      trigger_event: 'VENCIMIENTO_TRASLADO',
-      trigger_date: format(fechaVencimientoTraslado, 'yyyy-MM-dd'),
-      deadline_date: format(fechaVencimientoReforma, 'yyyy-MM-dd'),
-      business_days_count: CPACA_TERMS.REFORMA_DEMANDA_DIAS,
-      status: 'PENDING',
-      calculation_meta: {
-        depends_on: 'TRASLADO_DEMANDA',
-      },
-    });
+    // Reforma deadline removed — stage no longer exists
   }
   
   // 3. Calculate excepciones deadline
@@ -379,7 +361,6 @@ export async function recalculateCpacaDeadlines(
       'DEMANDA_POR_RADICAR': 'DEMANDA_POR_RADICAR',
       'DEMANDA_RADICADA': 'DEMANDA_RADICADA',
       'AUTO_ADMISORIO': 'AUTO_ADMISORIO',
-      'NOTIFICACION_TRASLADOS': 'NOTIFICACION_TRASLADOS',
       'TRASLADO_DEMANDA': 'TRASLADO_DEMANDA',
     };
     return mapping[stage] || 'PRECONTENCIOSO';
