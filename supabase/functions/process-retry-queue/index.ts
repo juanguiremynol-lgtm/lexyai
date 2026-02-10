@@ -4,16 +4,17 @@
  * Runs every 2 minutes via pg_cron. Picks up due retry tasks from sync_retry_queue
  * and re-invokes the appropriate sync function.
  * 
- * Handles:
- * - ACT_SCRAPE_RETRY: Re-calls sync-by-work-item with force_refresh=true
- * - PUB_RETRY: Re-calls sync-publicaciones-by-work-item
- * 
- * On success: deletes the retry row.
- * On retryable failure: increments attempt, reschedules 30-60s out.
- * On max attempts exceeded: deletes row, creates critical alert.
+ * Uses syncPolicy.ts for:
+ * - shouldCountAsSuccess() to determine true success
+ * - retryJitterMs() for jitter calculation
+ * - isTransientError() for error classification
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  shouldCountAsSuccess,
+  retryJitterMs,
+} from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,10 +22,6 @@ const corsHeaders = {
 };
 
 const MAX_TASKS_PER_RUN = 5;
-
-function jitterMs(minMs: number, maxMs: number): number {
-  return Math.floor(minMs + Math.random() * (maxMs - minMs + 1));
-}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -44,8 +41,6 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // === ZOMBIE CLEANUP: Dead-letter stuck retry rows ===
-    // If a row has attempt >= max_attempts AND hasn't been updated in 15 minutes, it's a zombie.
-    // This prevents stuck rows from permanently suppressing demonitoring or ghost detection.
     const zombieCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     try {
       const { data: zombies } = await (supabase.from('sync_retry_queue') as any)
@@ -53,7 +48,6 @@ Deno.serve(async (req) => {
         .lte('next_run_at', zombieCutoff)
         .filter('attempt', 'gte', 'max_attempts');
       
-      // Supabase PostgREST can't compare columns directly, so filter in JS
       const actualZombies = (zombies || []).filter((z: any) => z.attempt >= z.max_attempts);
       
       if (actualZombies.length > 0) {
@@ -63,7 +57,6 @@ Deno.serve(async (req) => {
             .delete()
             .eq('id', zombie.id);
           
-          // Mark work item as failed
           await supabase
             .from('work_items')
             .update({
@@ -81,12 +74,9 @@ Deno.serve(async (req) => {
     }
 
     // === CONCURRENCY GUARD: Claim rows atomically ===
-    // Set claimed_at on rows we're about to process to prevent double-processing
-    // from overlapping pg_cron invocations or manual triggers.
     const now = new Date().toISOString();
-    const claimCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // Re-claimable after 5 min
+    const claimCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
-    // Fetch unclaimed (or stale-claimed) due tasks
     const { data: tasks, error: fetchError } = await (supabase.from('sync_retry_queue') as any)
       .select('*')
       .lte('next_run_at', now)
@@ -134,7 +124,6 @@ Deno.serve(async (req) => {
         let syncOk = false;
 
         if (task.kind === 'ACT_SCRAPE_RETRY') {
-          // Re-invoke sync-by-work-item with force_refresh
           const { data: syncResult, error: syncError } = await supabase.functions.invoke(
             'sync-by-work-item',
             { body: { work_item_id: task.work_item_id, force_refresh: true, _scheduled: true } }
@@ -143,20 +132,19 @@ Deno.serve(async (req) => {
           if (syncError) {
             console.error(`[process-retry-queue] sync-by-work-item invoke error:`, syncError);
           } else {
-            syncOk = syncResult?.ok === true;
+            // ── Policy-driven success check ──
+            syncOk = shouldCountAsSuccess(syncResult);
             const stillScraping = syncResult?.scraping_initiated === true;
 
             if (syncOk) {
               console.log(`[process-retry-queue] ✅ ACT retry succeeded for ${task.radicado}: inserted=${syncResult?.inserted_count}`);
             } else if (stillScraping) {
               console.log(`[process-retry-queue] ⏳ Scraping still in progress for ${task.radicado}`);
-              // Treat as retryable
             } else {
               console.log(`[process-retry-queue] ❌ ACT retry failed for ${task.radicado}: ${syncResult?.code || syncResult?.message || 'unknown'}`);
             }
           }
         } else if (task.kind === 'PUB_RETRY') {
-          // Re-invoke sync-publicaciones-by-work-item
           const { data: pubResult, error: pubError } = await supabase.functions.invoke(
             'sync-publicaciones-by-work-item',
             { body: { work_item_id: task.work_item_id, _scheduled: true } }
@@ -180,7 +168,6 @@ Deno.serve(async (req) => {
             .delete()
             .eq('id', task.id);
 
-          // Clear any PENDING_RETRY scrape status
           await supabase
             .from('work_items')
             .update({
@@ -200,7 +187,6 @@ Deno.serve(async (req) => {
             .delete()
             .eq('id', task.id);
 
-          // Mark work item as permanently failed
           await supabase
             .from('work_items')
             .update({
@@ -249,15 +235,14 @@ Deno.serve(async (req) => {
 
           exhausted++;
         } else {
-          // Reschedule with jitter
-          const nextDelay = jitterMs(30_000, 60_000);
-          const nextRunAt = new Date(Date.now() + nextDelay).toISOString();
+          // Reschedule with policy-driven jitter
+          const nextRunAt = new Date(Date.now() + retryJitterMs()).toISOString();
 
           await (supabase.from('sync_retry_queue') as any)
             .update({
               attempt: task.attempt + 1,
               next_run_at: nextRunAt,
-              claimed_at: null, // Release claim so next run can pick it up
+              claimed_at: null,
               last_error_code: 'SCRAPING_TIMEOUT',
               last_error_message: `Attempt ${task.attempt} failed, rescheduled`,
             })
@@ -275,8 +260,8 @@ Deno.serve(async (req) => {
             await (supabase.from('sync_retry_queue') as any)
               .update({
                 attempt: task.attempt + 1,
-                next_run_at: new Date(Date.now() + jitterMs(30_000, 60_000)).toISOString(),
-                claimed_at: null, // Release claim
+                next_run_at: new Date(Date.now() + retryJitterMs()).toISOString(),
+                claimed_at: null,
                 last_error_code: 'INVOCATION_FAILED',
                 last_error_message: taskErr?.message || 'Unknown error',
               })

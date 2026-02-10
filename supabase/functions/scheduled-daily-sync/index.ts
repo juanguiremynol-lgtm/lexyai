@@ -1,22 +1,21 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  shouldCountAsSuccess,
+  shouldRunPublicaciones,
+  isScrapingPending,
+  shouldDemonitor,
+  buildAuditEvidence,
+  retryJitterMs,
+  SYNC_ENABLED_WORKFLOWS,
+  TERMINAL_STAGES,
+  PUBLICACIONES_WORKFLOWS,
+  DEFAULT_STALENESS_GUARD_DAYS,
+} from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Workflows that support external API sync
-const SYNC_ENABLED_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'];
-
-// Terminal stages that don't need syncing
-const TERMINAL_STAGES = [
-  'ARCHIVADO',
-  'FINALIZADO',
-  'EJECUTORIADO',
-  'PRECLUIDO_ARCHIVADO',
-  'FINALIZADO_ABSUELTO',
-  'FINALIZADO_CONDENADO'
-];
 
 // Success threshold for PARTIAL vs SUCCESS
 const SUCCESS_THRESHOLD = 0.9; // 90%
@@ -53,8 +52,8 @@ Deno.serve(async (req) => {
       .from("work_items")
       .select("organization_id")
       .eq("monitoring_enabled", true)
-      .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
-      .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
+      .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
+      .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
       .not("radicado", "is", null)
       .not("organization_id", "is", null);
 
@@ -256,7 +255,6 @@ async function syncOrganization(
   const syncStartTime = Date.now();
 
   const BATCH_SIZE = 3;
-  const PUBLICACIONES_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'];
 
   try {
     // Get all active work items for this org
@@ -265,11 +263,11 @@ async function syncOrganization(
       .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
-      .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
-      .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
+      .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
+      .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
       .not("radicado", "is", null)
       .order("last_synced_at", { ascending: true, nullsFirst: true })
-      .limit(100); // Fetch more — cursor ensures we process them across runs
+      .limit(100);
 
     if (fetchError) {
       throw fetchError;
@@ -297,10 +295,6 @@ async function syncOrganization(
       }
 
       // === PRIORITY SORT ===
-      // 1. Items with FAILED scrape_status or consecutive failures first (at-risk / ghost items)
-      // 2. Items never synced (last_synced_at is null)
-      // 3. Items with oldest last_synced_at (stale first)
-      // 4. 404 cooldown items pushed to end
       let cooldownIds = new Set<string>();
       if (sortedItems.length > 0) {
         const remainingIds = sortedItems.map((w: any) => w.id);
@@ -318,27 +312,22 @@ async function syncOrganization(
       }
 
       sortedItems.sort((a: any, b: any) => {
-        // Cooldown items always last
         const aCooldown = cooldownIds.has(a.id) ? 1 : 0;
         const bCooldown = cooldownIds.has(b.id) ? 1 : 0;
         if (aCooldown !== bCooldown) return aCooldown - bCooldown;
 
-        // Failed/at-risk items first
         const aFailed = (a.scrape_status === 'FAILED' || (a.consecutive_failures || 0) > 0) ? 0 : 1;
         const bFailed = (b.scrape_status === 'FAILED' || (b.consecutive_failures || 0) > 0) ? 0 : 1;
         if (aFailed !== bFailed) return aFailed - bFailed;
 
-        // Never-synced items next
         const aNull = a.last_synced_at ? 1 : 0;
         const bNull = b.last_synced_at ? 1 : 0;
         if (aNull !== bNull) return aNull - bNull;
 
-        // Oldest synced first
         const aDate = a.last_synced_at || '';
         const bDate = b.last_synced_at || '';
         if (aDate !== bDate) return aDate.localeCompare(bDate);
 
-        // Stable tie-break
         return a.id.localeCompare(b.id);
       });
 
@@ -361,13 +350,11 @@ async function syncOrganization(
         cursorItemId = cursorRow.value.cursor_work_item_id;
         const cursorIdx = sortedItems.findIndex((w: any) => w.id === cursorItemId);
         if (cursorIdx > 0) {
-          // Rotate: move items before cursor to the end so we start from cursor position
           const beforeCursor = sortedItems.slice(0, cursorIdx);
           const fromCursor = sortedItems.slice(cursorIdx);
           sortedItems = [...fromCursor, ...beforeCursor];
           console.log(`[scheduled-daily-sync] Resuming from cursor (idx=${cursorIdx}/${sortedItems.length})`);
         } else if (cursorIdx === -1) {
-          // Cursor item no longer eligible — reset
           console.log(`[scheduled-daily-sync] Cursor item no longer eligible, starting from top`);
         }
       }
@@ -386,7 +373,6 @@ async function syncOrganization(
 
     // === PARALLEL BATCH PROCESSING ===
     for (let i = 0; i < sortedItems.length; i += BATCH_SIZE) {
-      // Check if we're approaching the function timeout (keep 10s buffer)
       const elapsedMs = Date.now() - syncStartTime;
       if (elapsedMs > 48000) {
         console.warn(`[scheduled-daily-sync] Timeout approaching after ${i}/${sortedItems.length} items, stopping batch`);
@@ -394,7 +380,6 @@ async function syncOrganization(
         break;
       }
 
-      // Also check global timeout
       if (Date.now() - globalStartTime > 48000) {
         console.log("[scheduled-daily-sync] Global timeout, stopping batch");
         itemsSkipped += (sortedItems.length - i);
@@ -417,12 +402,13 @@ async function syncOrganization(
               throw syncError;
             }
 
-            // Sync publicaciones (only for eligible workflows)
+            // ── Policy-driven pub sync gating ──
             let pubResult: any = null;
             let pubInserted = 0;
-            if (PUBLICACIONES_WORKFLOWS.includes(workItem.workflow_type)) {
-              // PENAL_906: Isolate pub sync to avoid timeout starvation.
-              // Enqueue PUB_RETRY so process-retry-queue handles it with its own time budget.
+            if (
+              shouldRunPublicaciones(syncResult) &&
+              (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(workItem.workflow_type)
+            ) {
               if (workItem.workflow_type === 'PENAL_906') {
                 try {
                   console.log(`[scheduled-daily-sync] PENAL_906: Enqueueing PUB_RETRY for ${workItem.radicado} (isolated invocation)`);
@@ -445,7 +431,6 @@ async function syncOrganization(
                 }
               } else {
                 try {
-                  // Non-PENAL workflows: call pub sync inline (typically fast)
                   const isHeavy = (workItem.total_actuaciones || 0) >= 100;
                   if (isHeavy) {
                     console.log(`[scheduled-daily-sync] Heavy item ${workItem.radicado} (${workItem.total_actuaciones} acts), adding delay before pub sync`);
@@ -464,10 +449,8 @@ async function syncOrganization(
               }
             }
 
-            // Update last_synced_at ONLY on true success (ok=true).
-            // Do NOT set last_synced_at on scraping_initiated — that would hide the real pending state
-            // and defeat the staleness guard used by demonitor and priority sorting.
-            const syncWasSuccessful = syncResult?.ok === true;
+            // ── Policy-driven success check ──
+            const syncWasSuccessful = shouldCountAsSuccess(syncResult);
 
             if (syncWasSuccessful) {
               const { error: tsError } = await supabase
@@ -482,8 +465,8 @@ async function syncOrganization(
             return {
               work_item_id: workItem.id,
               radicado: workItem.radicado,
-              actSuccess: syncResult?.ok === true,
-              scrapingInitiated: syncResult?.scraping_initiated || syncResult?.code === 'SCRAPING_INITIATED',
+              actSuccess: syncWasSuccessful,
+              scrapingInitiated: isScrapingPending(syncResult),
               pubSuccess: pubResult?.ok === true || pubResult === null,
               latencyMs: Date.now() - itemStart,
               inserted_count: syncResult?.inserted_count || 0,
@@ -534,7 +517,7 @@ async function syncOrganization(
         p_items_failed: errorCount
       });
 
-      // === PERSIST CURSOR: Save last processed item so next run resumes here ===
+      // === PERSIST CURSOR ===
       const lastItemInBatch = batch[batch.length - 1];
       if (lastItemInBatch) {
         try {
@@ -555,8 +538,6 @@ async function syncOrganization(
     }
 
     // ============= GHOST ITEM DETECTION =============
-    // Ghost items = eligible items that were skipped due to timeout and never processed.
-    // Exclude items with active retry rows — they are being handled by process-retry-queue.
     const processedItemIds = new Set<string>();
     for (let idx = 0; idx < sortedItems.length && idx < (sortedItems.length - itemsSkipped); idx++) {
       processedItemIds.add(sortedItems[idx].id);
@@ -612,15 +593,9 @@ async function syncOrganization(
       }
     }
 
-    // ============= AUTO-DEMONITOR POLICY =============
-    // Disable monitoring for items with chronic 404s exceeding org threshold.
-    // Safety gates:
-    //  1. No pending retry in sync_retry_queue (item still in retry lifecycle)
-    //  2. last_error_code is NOT a transient scraping state
-    //  3. Staleness guard: last successful sync > 14 days ago (or never synced)
+    // ============= AUTO-DEMONITOR POLICY (via syncPolicy) =============
     let demonitored = 0;
     try {
-      // Get org-level threshold (default 5)
       const { data: aiConfig } = await supabase
         .from('atenia_ai_config')
         .select('auto_demonitor_after_404s')
@@ -630,66 +605,28 @@ async function syncOrganization(
       const threshold = aiConfig?.auto_demonitor_after_404s ?? 5;
       
       if (threshold > 0) {
-        // Find candidate items exceeding 404 threshold
-        // STRICT: Only use consecutive_404_count, NOT consecutive_failures.
-        // This ensures rate-limiting, timeouts, or provider degradation don't trigger demonitoring.
         const { data: candidates } = await supabase
           .from('work_items')
-          .select('id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at')
+          .select('id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at, monitoring_enabled')
           .eq('organization_id', orgId)
           .eq('monitoring_enabled', true)
           .gte('consecutive_404_count', threshold);
         
         if (candidates && candidates.length > 0) {
-          // Gate 1: Exclude items with pending retries
+          // Check which candidates have pending retries
           const candidateIds = candidates.map((c: any) => c.id);
           const { data: pendingRetries } = await (supabase.from('sync_retry_queue') as any)
             .select('work_item_id')
             .in('work_item_id', candidateIds);
           const retryingIds = new Set((pendingRetries || []).map((r: any) => r.work_item_id));
 
-          // Error codes that should NOT trigger demonitoring:
-          // - Transient scraping states (item may resolve itself)
-          // - Generic failures (rate limits, timeouts) — demonitor is strictly for 404/NOT_FOUND
-          const NON_DEMONITOR_ERROR_CODES = [
-            'SCRAPING_TIMEOUT',
-            'SCRAPING_PENDING',
-            'SCRAPING_TIMEOUT_RETRY_SCHEDULED',
-            'PROVIDER_TIMEOUT',
-            'PROVIDER_RATE_LIMITED',
-            'NETWORK_ERROR',
-            'INVOCATION_FAILED',
-            'RETRY_EXHAUSTED', // may have been a transient chain
-          ];
-
-          // Only these error codes are considered "true 404 / not found" for demonitor purposes
-          const DEMONITOR_ELIGIBLE_ERROR_CODES = [
-            'PROVIDER_404',
-            'RECORD_NOT_FOUND',
-            'PROVIDER_NOT_FOUND',
-            'UPSTREAM_ROUTE_MISSING',
-          ];
-
-          // Staleness guard: only demonitor if last success was >14 days ago (or never)
-          const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
-
+          // Apply policy-driven demonitor decision
           const chronic404s = candidates.filter((item: any) => {
-            // Gate 1: pending retry → skip
-            if (retryingIds.has(item.id)) {
-              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: pending retry`);
-              return false;
+            const decision = shouldDemonitor(item, threshold, retryingIds.has(item.id));
+            if (!decision.demonitor) {
+              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: ${decision.reason}`);
             }
-            // Gate 2: last_error_code must be a true 404/NOT_FOUND signal, not a transient failure
-            if (item.last_error_code && !DEMONITOR_ELIGIBLE_ERROR_CODES.includes(item.last_error_code)) {
-              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: error code ${item.last_error_code} is not a 404-type signal`);
-              return false;
-            }
-            // Gate 3: staleness guard → only demonitor if last success is stale or null
-            if (item.last_synced_at && item.last_synced_at > fourteenDaysAgo) {
-              console.log(`[scheduled-daily-sync] Demonitor skip ${item.radicado}: last success ${item.last_synced_at} is recent`);
-              return false;
-            }
-            return true;
+            return decision.demonitor;
           });
 
           if (chronic404s.length > 0) {
@@ -698,19 +635,18 @@ async function syncOrganization(
             const demonitorIds = chronic404s.map((item: any) => item.id);
             const now = new Date().toISOString();
             
-            // Batch update: disable monitoring
             await supabase
               .from('work_items')
               .update({
                 monitoring_enabled: false,
-                demonitor_reason: `Auto-demonitored: ${threshold}+ consecutive 404 errors, stale >14d`,
+                demonitor_reason: `Auto-demonitored: ${threshold}+ consecutive 404 errors, stale >${DEFAULT_STALENESS_GUARD_DAYS}d`,
                 demonitor_at: now,
               })
               .in('id', demonitorIds);
             
             demonitored = chronic404s.length;
             
-            // Create audit trail via atenia_ai_actions
+            // Audit trail via atenia_ai_actions
             for (const item of chronic404s.slice(0, 10)) {
               try {
                 await supabase.from('atenia_ai_actions').insert({
@@ -722,21 +658,18 @@ async function syncOrganization(
                   target_entity_id: item.id,
                   action_taken: 'monitoring_disabled',
                   action_result: 'SUCCESS',
-                  evidence: {
-                    consecutive_404_count: item.consecutive_404_count,
-                    consecutive_failures: item.consecutive_failures,
-                    last_error_code: item.last_error_code,
-                    last_synced_at: item.last_synced_at,
+                  evidence: buildAuditEvidence({
+                    item,
+                    retryRowPresent: false,
                     threshold,
-                    staleness_guard_days: 14,
-                  },
+                  }),
                 });
               } catch {
                 // Non-blocking
               }
             }
             
-            // Create a single summary alert
+            // Summary alert
             const { data: membership } = await supabase
               .from('organization_memberships')
               .select('user_id')
@@ -755,13 +688,13 @@ async function syncOrganization(
                 severity: 'WARNING',
                 status: 'PENDING',
                 title: `${chronic404s.length} proceso(s) suspendido(s) automáticamente`,
-                message: `Se suspendió el monitoreo de ${chronic404s.length} proceso(s) con ${threshold}+ errores 404 consecutivos y sin éxito en 14+ días: ${demonitoredRadicados}${chronic404s.length > 5 ? '...' : ''}. Puede reactivarlos manualmente desde el detalle del proceso.`,
+                message: `Se suspendió el monitoreo de ${chronic404s.length} proceso(s) con ${threshold}+ errores 404 consecutivos y sin éxito en ${DEFAULT_STALENESS_GUARD_DAYS}+ días: ${demonitoredRadicados}${chronic404s.length > 5 ? '...' : ''}. Puede reactivarlos manualmente desde el detalle del proceso.`,
                 fingerprint: `auto_demonitor_${orgId}_${new Date().toISOString().slice(0, 10)}`,
                 payload: {
                   demonitored_count: chronic404s.length,
                   demonitored_ids: demonitorIds.slice(0, 20),
                   threshold,
-                  staleness_guard_days: 14,
+                  staleness_guard_days: DEFAULT_STALENESS_GUARD_DAYS,
                 },
               });
             }
@@ -774,7 +707,7 @@ async function syncOrganization(
       console.warn(`[scheduled-daily-sync] Auto-demonitor error:`, demonitorErr);
     }
 
-    // Determine final status (accounting for skipped items)
+    // Determine final status
     const totalProcessed = successCount + scrapingInitiated + errorCount;
     const totalItems = sortedItems.length;
     const successRate = totalProcessed > 0 ? (successCount + scrapingInitiated) / totalProcessed : 0;
@@ -790,7 +723,6 @@ async function syncOrganization(
       finalStatus = 'FAILED';
     }
 
-    // Update ledger with final status
     await supabase.rpc('update_daily_sync_ledger', {
       p_ledger_id: ledgerId,
       p_status: finalStatus,
@@ -818,7 +750,6 @@ async function syncOrganization(
     };
 
   } catch (error: any) {
-    // Update ledger with error
     await supabase.rpc('update_daily_sync_ledger', {
       p_ledger_id: ledgerId,
       p_status: 'FAILED',

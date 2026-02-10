@@ -1,22 +1,19 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  shouldCountAsSuccess,
+  shouldRunPublicaciones,
+  isScrapingPending,
+  shouldEnqueueRetry,
+  retryJitterMs,
+  SYNC_ENABLED_WORKFLOWS,
+  TERMINAL_STAGES,
+  PUBLICACIONES_WORKFLOWS,
+} from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Workflows that support external API sync
-const SYNC_ENABLED_WORKFLOWS = ['CGP', 'LABORAL', 'CPACA', 'TUTELA', 'PENAL_906'];
-
-// Terminal stages that don't need syncing
-const TERMINAL_STAGES = [
-  'ARCHIVADO',
-  'FINALIZADO',
-  'EJECUTORIADO',
-  'PRECLUIDO_ARCHIVADO',
-  'FINALIZADO_ABSUELTO',
-  'FINALIZADO_CONDENADO'
-];
 
 // Retry schedule (hours after 07:00 COT when to retry)
 const RETRY_HOURS = [2, 4, 7, 10, 13]; // 09:00, 11:00, 14:00, 17:00, 20:00 COT
@@ -98,7 +95,6 @@ Deno.serve(async (req) => {
       if (missedOrgs.length > 0) {
         console.log(`[fallback-sync-check] Found ${missedOrgs.length} orgs with no sync today`);
         
-        // Trigger full sync for missed orgs by invoking scheduled-daily-sync
         const { data, error } = await supabase.functions.invoke("scheduled-daily-sync");
 
         if (error) {
@@ -144,13 +140,11 @@ Deno.serve(async (req) => {
     let retriesSucceeded = 0;
 
     for (const pendingOrg of pendingList) {
-      // Check for timeout
       if (Date.now() - startTime > 50000) {
         console.log("[fallback-sync-check] Approaching timeout, stopping retries");
         break;
       }
 
-      // Apply backoff based on retry count
       if (pendingOrg.retry_count > 0) {
         const backoffMs = Math.min(pendingOrg.retry_count * 2000, 10000);
         console.log(`[fallback-sync-check] Backoff ${backoffMs}ms for org ${pendingOrg.organization_id}`);
@@ -161,10 +155,6 @@ Deno.serve(async (req) => {
         console.log(`[fallback-sync-check] Retrying org ${pendingOrg.organization_id} (attempt ${pendingOrg.retry_count + 1})`);
         retriesAttempted++;
 
-        // Get work items for this org
-        // Only retry items that weren't reached in the original run
-        // Skip items with high consecutive_failures (at-risk, let daily cron handle with priority)
-        // Skip items already auto-demonitored
         const { data: ledgerEntry } = await supabase
           .from("auto_sync_daily_ledger")
           .select("started_at")
@@ -178,8 +168,8 @@ Deno.serve(async (req) => {
           .select("id, radicado, workflow_type, consecutive_failures, consecutive_404_count, last_error_code")
           .eq("organization_id", pendingOrg.organization_id)
           .eq("monitoring_enabled", true)
-          .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
-          .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
+          .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
+          .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
           .not("radicado", "is", null)
           .or(`last_synced_at.is.null,last_synced_at.lt.${ledgerStartedAt}`)
           .limit(30);
@@ -188,15 +178,12 @@ Deno.serve(async (req) => {
           throw fetchError;
         }
 
-        // Filter: valid radicados + skip chronic failures + skip rate-limited items
         const eligibleItems = (workItems || []).filter((item: any) => {
           if (!item.radicado || item.radicado.replace(/\D/g, '').length !== 23) return false;
-          // Skip items with 3+ consecutive failures (let daily cron prioritize them)
           if ((item.consecutive_failures || 0) >= 3) {
             console.log(`[fallback-sync-check] Skipping ${item.radicado}: ${item.consecutive_failures} consecutive failures`);
             return false;
           }
-          // Skip items whose last error was rate limiting (don't hammer the provider)
           if (item.last_error_code === 'PROVIDER_RATE_LIMITED') {
             console.log(`[fallback-sync-check] Skipping ${item.radicado}: rate limited`);
             return false;
@@ -215,13 +202,11 @@ Deno.serve(async (req) => {
               body: { work_item_id: item.id, _scheduled: true }
             });
 
-            const isSuccess = syncResult?.ok === true;
-            const isScrapingPending = syncResult?.scraping_initiated === true || 
-              syncResult?.code === 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
-
-            if (isSuccess) {
-              // True success: update timestamp, trigger pub sync
-              if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
+            // ── Policy-driven success/pending/failure classification ──
+            if (shouldCountAsSuccess(syncResult)) {
+              // True success: trigger pub sync via policy gate, update timestamp
+              if (shouldRunPublicaciones(syncResult) &&
+                  (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)) {
                 try {
                   await supabase.functions.invoke("sync-publicaciones-by-work-item", {
                     body: { work_item_id: item.id, _scheduled: true }
@@ -236,26 +221,26 @@ Deno.serve(async (req) => {
                 .update({ last_synced_at: new Date().toISOString() })
                 .eq("id", item.id);
               syncedCount++;
-            } else if (isScrapingPending) {
+            } else if (isScrapingPending(syncResult)) {
               // Scraping in progress — do NOT mark as success, do NOT clear failure counters.
-              // Ensure a retry task exists so process-retry-queue picks it up.
-              console.log(`[fallback-sync-check] ${item.radicado}: scraping pending, ensuring retry enqueued`);
+              // Use policy engine to decide retry enqueue.
+              console.log(`[fallback-sync-check] ${item.radicado}: scraping pending, checking retry enqueue`);
               try {
                 const { data: existingRetry } = await (supabase.from('sync_retry_queue') as any)
-                  .select('id')
+                  .select('id, work_item_id, kind, attempt, max_attempts')
                   .eq('work_item_id', item.id)
                   .eq('kind', 'ACT_SCRAPE_RETRY')
                   .maybeSingle();
-                
-                if (!existingRetry) {
-                  // No retry row exists — enqueue one
-                  const nextRunAt = new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString();
+
+                const decision = shouldEnqueueRetry(syncResult, existingRetry);
+                if (decision.enqueue) {
+                  const nextRunAt = new Date(Date.now() + retryJitterMs()).toISOString();
                   await (supabase.from('sync_retry_queue') as any).insert({
                     work_item_id: item.id,
                     organization_id: pendingOrg.organization_id,
                     radicado: item.radicado,
                     workflow_type: item.workflow_type,
-                    kind: 'ACT_SCRAPE_RETRY',
+                    kind: decision.kind,
                     provider: syncResult?.scraping_provider || 'cpnu',
                     attempt: 1,
                     max_attempts: 3,
@@ -264,7 +249,7 @@ Deno.serve(async (req) => {
                     last_error_message: 'Enqueued by fallback-sync-check',
                     scraping_job_id: syncResult?.scraping_job_id || null,
                   });
-                  console.log(`[fallback-sync-check] Retry enqueued for ${item.radicado}`);
+                  console.log(`[fallback-sync-check] Retry enqueued for ${item.radicado}: ${decision.reason}`);
                 }
               } catch (retryEnqueueErr) {
                 console.warn(`[fallback-sync-check] Failed to enqueue retry:`, retryEnqueueErr);
@@ -277,10 +262,9 @@ Deno.serve(async (req) => {
             errorCount++;
           }
 
-          // Rate limit — longer delay between items to avoid provider rate limiting
+          // Rate limit
           await new Promise(r => setTimeout(r, 1200));
 
-          // Timeout check
           if (Date.now() - startTime > 48000) break;
         }
 
@@ -357,16 +341,14 @@ async function findMissedOrganizations(
   supabase: any,
   todayStr: string
 ): Promise<string[]> {
-  // Get orgs with eligible items
   const { data: orgsWithItems } = await supabase
     .from("work_items")
     .select("organization_id")
     .eq("monitoring_enabled", true)
-    .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
-    .not("stage", "in", `(${TERMINAL_STAGES.join(",")})`)
+    .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
+    .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
     .not("radicado", "is", null)
     .not("organization_id", "is", null);
-
 
   const rawOrgIds = (orgsWithItems || [])
     .map((i: { organization_id: string | null }) => i.organization_id)
@@ -376,7 +358,6 @@ async function findMissedOrganizations(
 
   if (allOrgIds.length === 0) return [];
 
-  // Get orgs with ledger entries today
   const { data: ledgerEntries } = await supabase
     .from("auto_sync_daily_ledger")
     .select("organization_id")
@@ -386,6 +367,5 @@ async function findMissedOrganizations(
     (ledgerEntries || []).map((e: { organization_id: string }) => e.organization_id)
   );
 
-  // Return orgs without ledger entry
   return allOrgIds.filter((orgId) => !orgsWithLedger.has(orgId));
 }

@@ -85,6 +85,28 @@ Deno.serve(async (req) => {
     // Process first org (platform admin usually targets the default org)
     const orgId = orgIds[0];
 
+    // ── Advisory lock: prevent overlap with scheduled-daily-sync ──
+    let lockAcquired = true;
+    if (mode === "SCHEDULED") {
+      try {
+        const { data: lockResult } = await supabase.rpc("run_sql", {
+          sql: `SELECT pg_try_advisory_lock(hashtext('atenia_autopilot_' || '${orgId}')) AS acquired`,
+        });
+        // Fallback: if rpc doesn't exist, skip lock
+        if (lockResult && Array.isArray(lockResult) && lockResult[0]?.acquired === false) {
+          lockAcquired = false;
+        }
+      } catch {
+        // If advisory lock RPC unavailable, proceed without lock
+      }
+
+      if (!lockAcquired) {
+        console.log(`[autopilot] Advisory lock not acquired for org ${orgId}, skipping to avoid overlap`);
+        return jsonResponse({ ok: true, message: "Skipped: concurrent sync running", mode, org_id: orgId });
+      }
+    }
+
+    try {
     // ── Load config ──
     const config = await loadOrgConfig(supabase, orgId);
 
@@ -139,6 +161,18 @@ Deno.serve(async (req) => {
     };
 
     return jsonResponse(snapshot);
+    } finally {
+      // Release advisory lock
+      if (mode === "SCHEDULED" && lockAcquired) {
+        try {
+          await supabase.rpc("run_sql", {
+            sql: `SELECT pg_advisory_unlock(hashtext('atenia_autopilot_' || '${orgId}'))`,
+          });
+        } catch {
+          // best effort
+        }
+      }
+    }
   } catch (error: any) {
     console.error("[autopilot] Fatal error:", error);
     return jsonResponse(
