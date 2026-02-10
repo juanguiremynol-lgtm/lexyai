@@ -162,8 +162,9 @@ Deno.serve(async (req) => {
         retriesAttempted++;
 
         // Get work items for this org
-        // FIX E1c: Only retry items that weren't reached in the original run
-        // Items with last_synced_at < ledger start time were not synced today
+        // Only retry items that weren't reached in the original run
+        // Skip items with high consecutive_failures (at-risk, let daily cron handle with priority)
+        // Skip items already auto-demonitored
         const { data: ledgerEntry } = await supabase
           .from("auto_sync_daily_ledger")
           .select("started_at")
@@ -174,7 +175,7 @@ Deno.serve(async (req) => {
 
         const { data: workItems, error: fetchError } = await supabase
           .from("work_items")
-          .select("id, radicado, workflow_type")
+          .select("id, radicado, workflow_type, consecutive_failures, consecutive_404_count, last_error_code")
           .eq("organization_id", pendingOrg.organization_id)
           .eq("monitoring_enabled", true)
           .in("workflow_type", SYNC_ENABLED_WORKFLOWS)
@@ -187,38 +188,61 @@ Deno.serve(async (req) => {
           throw fetchError;
         }
 
-        const eligibleItems = (workItems || []).filter((item: any) =>
-          item.radicado && item.radicado.replace(/\D/g, '').length === 23
-        );
+        // Filter: valid radicados + skip chronic failures + skip rate-limited items
+        const eligibleItems = (workItems || []).filter((item: any) => {
+          if (!item.radicado || item.radicado.replace(/\D/g, '').length !== 23) return false;
+          // Skip items with 3+ consecutive failures (let daily cron prioritize them)
+          if ((item.consecutive_failures || 0) >= 3) {
+            console.log(`[fallback-sync-check] Skipping ${item.radicado}: ${item.consecutive_failures} consecutive failures`);
+            return false;
+          }
+          // Skip items whose last error was rate limiting (don't hammer the provider)
+          if (item.last_error_code === 'PROVIDER_RATE_LIMITED') {
+            console.log(`[fallback-sync-check] Skipping ${item.radicado}: rate limited`);
+            return false;
+          }
+          return true;
+        });
+
+        console.log(`[fallback-sync-check] Org ${pendingOrg.organization_id}: ${eligibleItems.length} eligible items (of ${(workItems || []).length} total)`);
 
         let syncedCount = 0;
         let errorCount = 0;
 
         for (const item of eligibleItems) {
           try {
-            await supabase.functions.invoke("sync-by-work-item", {
+            const { data: syncResult } = await supabase.functions.invoke("sync-by-work-item", {
               body: { work_item_id: item.id, _scheduled: true }
             });
 
-            // Publicaciones
-            if (['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
-              await supabase.functions.invoke("sync-publicaciones-by-work-item", {
-                body: { work_item_id: item.id }
-              });
+            const syncOk = syncResult?.ok === true || syncResult?.scraping_initiated === true;
+
+            // Publicaciones (skip for items with recent errors)
+            if (syncOk && ['CGP', 'LABORAL', 'CPACA', 'PENAL_906'].includes(item.workflow_type)) {
+              try {
+                await supabase.functions.invoke("sync-publicaciones-by-work-item", {
+                  body: { work_item_id: item.id, _scheduled: true }
+                });
+              } catch {
+                // Non-blocking
+              }
             }
 
-            await supabase
-              .from("work_items")
-              .update({ last_synced_at: new Date().toISOString() })
-              .eq("id", item.id);
-
-            syncedCount++;
+            if (syncOk) {
+              await supabase
+                .from("work_items")
+                .update({ last_synced_at: new Date().toISOString() })
+                .eq("id", item.id);
+              syncedCount++;
+            } else {
+              errorCount++;
+            }
           } catch {
             errorCount++;
           }
 
-          // Rate limit
-          await new Promise(r => setTimeout(r, 800));
+          // Rate limit — longer delay between items to avoid provider rate limiting
+          await new Promise(r => setTimeout(r, 1200));
 
           // Timeout check
           if (Date.now() - startTime > 48000) break;
