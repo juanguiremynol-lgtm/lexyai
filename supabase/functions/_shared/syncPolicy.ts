@@ -25,12 +25,101 @@ export const DEMONITOR_ELIGIBLE_ERROR_CODES = [
 ] as const;
 
 /**
+ * Normalize external provider error codes to canonical ATENIA error codes.
+ *
+ * This is the ONLY place where provider-specific codes are mapped to ATENIA
+ * internal codes. Only the normalized codes should drive counter increments.
+ *
+ * Rules:
+ *  - Only codes in DEMONITOR_ELIGIBLE_ERROR_CODES increment consecutive_404_count.
+ *  - Empty arrays / missing fields must NEVER be classified as strict-404.
+ *  - Unknown codes fall through as PROVIDER_ERROR (non-404, non-transient).
+ */
+export function normalizeProviderErrorCode(
+  providerCode: string | null | undefined,
+  httpStatus?: number,
+): string {
+  if (!providerCode && httpStatus === 404) return 'PROVIDER_404';
+  if (!providerCode) return 'PROVIDER_ERROR';
+
+  const upper = providerCode.toUpperCase().replace(/[\s-]+/g, '_');
+
+  // Strict-404 mappings (provider variants → canonical)
+  const STRICT_404_MAP: Record<string, string> = {
+    '404': 'PROVIDER_404',
+    'NOT_FOUND': 'RECORD_NOT_FOUND',
+    'RECORD_NOT_FOUND': 'RECORD_NOT_FOUND',
+    'PROVIDER_NOT_FOUND': 'PROVIDER_NOT_FOUND',
+    'CASE_NOT_FOUND': 'RECORD_NOT_FOUND',
+    'EXPEDIENTE_NOT_FOUND': 'RECORD_NOT_FOUND',
+    'UPSTREAM_ROUTE_MISSING': 'UPSTREAM_ROUTE_MISSING',
+    'PROVIDER_ROUTE_NOT_FOUND': 'UPSTREAM_ROUTE_MISSING',
+    'ROUTE_NOT_FOUND': 'UPSTREAM_ROUTE_MISSING',
+  };
+  if (STRICT_404_MAP[upper]) return STRICT_404_MAP[upper];
+
+  // Transient mappings (provider variants → canonical)
+  const TRANSIENT_MAP: Record<string, string> = {
+    'SCRAPING_INITIATED': 'SCRAPING_PENDING',
+    'SCRAPING_PENDING': 'SCRAPING_PENDING',
+    'SCRAPING_TIMEOUT': 'SCRAPING_TIMEOUT',
+    'SCRAPING_TIMEOUT_RETRY_SCHEDULED': 'SCRAPING_TIMEOUT_RETRY_SCHEDULED',
+    'SCRAPING_IN_PROGRESS': 'SCRAPING_PENDING',
+    'JOB_PENDING': 'SCRAPING_PENDING',
+    'JOB_IN_PROGRESS': 'SCRAPING_PENDING',
+  };
+  if (TRANSIENT_MAP[upper]) return TRANSIENT_MAP[upper];
+
+  // Empty result — never strict-404
+  const EMPTY_MAP: Record<string, string> = {
+    'EMPTY': 'PROVIDER_EMPTY_RESULT',
+    'NO_RECORDS': 'PROVIDER_EMPTY_RESULT',
+    'PROVIDER_EMPTY_RESULT': 'PROVIDER_EMPTY_RESULT',
+    'ZERO_RESULTS': 'PROVIDER_EMPTY_RESULT',
+  };
+  if (EMPTY_MAP[upper]) return EMPTY_MAP[upper];
+
+  // Known non-404 errors
+  const NON_404_MAP: Record<string, string> = {
+    'RATE_LIMITED': 'PROVIDER_RATE_LIMITED',
+    'PROVIDER_RATE_LIMITED': 'PROVIDER_RATE_LIMITED',
+    'TOO_MANY_REQUESTS': 'PROVIDER_RATE_LIMITED',
+    'TIMEOUT': 'PROVIDER_TIMEOUT',
+    'PROVIDER_TIMEOUT': 'PROVIDER_TIMEOUT',
+    'NETWORK_ERROR': 'NETWORK_ERROR',
+    'CONNECTION_REFUSED': 'NETWORK_ERROR',
+    'FETCH_ERROR': 'FETCH_ERROR',
+    'UNAUTHORIZED': 'PROVIDER_AUTH_ERROR',
+    'FORBIDDEN': 'PROVIDER_AUTH_ERROR',
+    'AUTH_ERROR': 'PROVIDER_AUTH_ERROR',
+  };
+  if (NON_404_MAP[upper]) return NON_404_MAP[upper];
+
+  // Unknown — generic provider error, never strict-404
+  return 'PROVIDER_ERROR';
+}
+
+/**
+ * Returns true if a normalized code is a strict-404 signal
+ * that should increment consecutive_404_count.
+ */
+export function isStrict404Code(normalizedCode: string): boolean {
+  return (DEMONITOR_ELIGIBLE_ERROR_CODES as readonly string[]).includes(normalizedCode);
+}
+
+/**
  * Non-transient, non-404 "settled empty" code.
  * Provider returned a valid (non-error) response but with zero actuaciones.
  * Does NOT increment consecutive_404_count, does NOT trigger demonitor,
  * and DOES increment consecutive_failures so admins can track patterns.
  */
 export const PROVIDER_EMPTY_RESULT = 'PROVIDER_EMPTY_RESULT' as const;
+
+/**
+ * Terminal code for retry rows that exhaust max_attempts.
+ * Replaces indefinite SCRAPING_PENDING to prevent permanent spinner.
+ */
+export const SCRAPING_STUCK = 'SCRAPING_STUCK' as const;
 
 /** Default staleness guard for demonitoring (days) */
 export const DEFAULT_STALENESS_GUARD_DAYS = 14;

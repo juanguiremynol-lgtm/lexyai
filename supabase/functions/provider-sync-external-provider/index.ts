@@ -12,6 +12,7 @@ import {
   retryJitterMs,
 } from "../_shared/syncPolicy.ts";
 import { normalizeActuaciones, normalizePublicaciones } from "../_shared/providerNormalize.ts";
+import { normalizeProviderErrorCode, isStrict404Code } from "../_shared/syncPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -193,18 +194,15 @@ Deno.serve(async (req) => {
 
     // ── Outcome routing ──
 
-    // D) Strict 404
-    const errorCode = snapData.code || snapData.error_code || null;
-    if (
-      snapRes.status === 404 ||
-      (errorCode && (DEMONITOR_ELIGIBLE_ERROR_CODES as readonly string[]).includes(errorCode))
-    ) {
-      const code = errorCode || "PROVIDER_404";
+    // D) Strict 404 — use normalizer to map provider codes to canonical ATENIA codes
+    const rawErrorCode = snapData.code || snapData.error_code || null;
+    const normalizedCode = normalizeProviderErrorCode(rawErrorCode, snapRes.status);
+    if (isStrict404Code(normalizedCode)) {
       await db
         .from("work_item_sources")
         .update({
           scrape_status: "ERROR",
-          last_error_code: code,
+          last_error_code: normalizedCode,
           last_error_message: snapData.message || snapData.error || "Not found",
           last_provider_latency_ms: snapLatency,
           consecutive_failures: (source.consecutive_failures || 0) + 1,
@@ -212,23 +210,20 @@ Deno.serve(async (req) => {
         })
         .eq("id", source.id);
 
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", code, false, snapLatency, snapData);
+      await writeTrace(db, runId, source, instance, "SNAPSHOT", normalizedCode, false, snapLatency, snapData);
       return new Response(
-        JSON.stringify({ ok: false, code, duration_ms: Date.now() - startTime }),
+        JSON.stringify({ ok: false, code: normalizedCode, duration_ms: Date.now() - startTime }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // C) Scraping pending / transient
+    // C) Scraping pending / transient — use normalized code
     const isPending =
       snapData.scraping_initiated === true ||
-      snapData.code === "SCRAPING_INITIATED" ||
-      snapData.code === "SCRAPING_PENDING" ||
-      snapData.code === "SCRAPING_TIMEOUT_RETRY_SCHEDULED" ||
-      (errorCode && isTransientError(errorCode));
+      isTransientError(normalizedCode);
 
     if (isPending) {
-      const transientCode = errorCode || snapData.code || "SCRAPING_PENDING";
+      const transientCode = isTransientError(normalizedCode) ? normalizedCode : "SCRAPING_PENDING";
       await db
         .from("work_item_sources")
         .update({
@@ -272,8 +267,8 @@ Deno.serve(async (req) => {
 
     // A/B) ok=true
     if (!snapRes.ok || snapData.ok !== true) {
-      // Generic error
-      const errCode = errorCode || "PROVIDER_ERROR";
+      // Generic error — use normalized code
+      const errCode = normalizedCode !== 'PROVIDER_ERROR' ? normalizedCode : (rawErrorCode || "PROVIDER_ERROR");
       await updateSourceError(db, source.id, errCode, snapData.message || `HTTP ${snapRes.status}`);
       await writeTrace(db, runId, source, instance, "SNAPSHOT", errCode, false, snapLatency, snapData);
       return new Response(
