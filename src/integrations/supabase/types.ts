@@ -6584,6 +6584,7 @@ export type Database = {
           radicado_raw: string | null
           radicado_verified: boolean | null
           raw_courthouse_input: Json | null
+          resolution_candidates: Json | null
           resolution_confidence: number | null
           resolution_method: string | null
           resolved_at: string | null
@@ -6711,6 +6712,7 @@ export type Database = {
           radicado_raw?: string | null
           radicado_verified?: boolean | null
           raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
           resolution_confidence?: number | null
           resolution_method?: string | null
           resolved_at?: string | null
@@ -6838,6 +6840,7 @@ export type Database = {
           radicado_raw?: string | null
           radicado_verified?: boolean | null
           raw_courthouse_input?: Json | null
+          resolution_candidates?: Json | null
           resolution_confidence?: number | null
           resolution_method?: string | null
           resolved_at?: string | null
