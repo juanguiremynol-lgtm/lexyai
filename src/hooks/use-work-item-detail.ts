@@ -61,6 +61,15 @@ interface WorkItemDetail {
   provider_sources: Record<string, unknown> | null;
   milestones_cleared_at: string | null;
   milestones_cleared_status: string | null;
+  // Courthouse email resolution fields
+  courthouse_directory_id: number | null;
+  resolved_email: string | null;
+  resolution_method: string | null;
+  resolution_confidence: number | null;
+  courthouse_needs_review: boolean | null;
+  resolution_candidates: unknown[] | null;
+  resolved_at: string | null;
+  raw_courthouse_input: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   clients: { id: string; name: string } | null;
