@@ -1,210 +1,398 @@
 /**
  * Penal 906 Pipeline - Kanban board for criminal proceedings under Ley 906 de 2004
  * 
- * Uses UnifiedKanbanBoard engine with 14 phases from PENAL_906_PHASES
+ * Unified with the standard pipeline architecture:
+ * - Uses WorkItemPipelineCard for consistent card layout
+ * - Includes bulk actions, delete dialogs, selection mode, keyboard nav
+ * - Matches LaboralPipeline / CpacaPipeline UX patterns
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { RefreshCw, Keyboard, CheckSquare, Shield, Info } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { UnifiedKanbanBoard, type KanbanStage, type KanbanItem } from "@/components/kanban/UnifiedKanbanBoard";
-import { KanbanCard } from "@/components/kanban/KanbanCard";
-import { PENAL_906_PHASES, phaseName } from "@/lib/penal906";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
-import { Shield, Calendar } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
+import { WorkItemPipelineCard, WorkItemPipelineItem } from "./WorkItemPipelineCard";
+import { WorkItemBulkActionsBar } from "./WorkItemBulkActionsBar";
+import { WorkItemBulkDeleteDialog } from "./WorkItemBulkDeleteDialog";
+import { DeleteWorkItemDialog } from "@/components/shared/DeleteWorkItemDialog";
+import { useDeleteWorkItems } from "@/hooks/use-delete-work-items";
+import { PENAL_906_PHASES, phaseName } from "@/lib/penal906";
 
-// Map PENAL_906_PHASES to KanbanStage format
+// Map PENAL_906_PHASES to KanbanStage format using string keys
 const PENAL_STAGES: KanbanStage[] = PENAL_906_PHASES.map((phase) => ({
-  id: phase.id.toString(),
+  id: phase.key,
   label: phase.label,
   shortLabel: phase.shortLabel,
   color: phase.color,
   description: phase.description,
 }));
 
-// Extended interface for Penal items
-interface PenalWorkItem extends KanbanItem {
-  radicado: string | null;
-  title: string | null;
-  authority_name: string | null;
-  client_name: string | null;
-  is_flagged: boolean;
-  last_event_summary: string | null;
-  last_event_at: string | null;
-  pipeline_stage: number;
-  scraping_enabled: boolean;
+// Map numeric pipeline_stage → string key
+function numericToKey(stage: number): string {
+  const phase = PENAL_906_PHASES.find((p) => p.id === stage);
+  return phase?.key || "PENDIENTE_CLASIFICACION";
 }
+
+// Map string key → numeric pipeline_stage
+function keyToNumeric(key: string): number {
+  const phase = PENAL_906_PHASES.find((p) => p.key === key);
+  return phase?.id ?? 0;
+}
+
+// Query keys for global invalidation
+const INVALIDATE_QUERIES = [
+  ["work-items-penal-pipeline"],
+  ["work-items"],
+  ["dashboard-stats"],
+  ["work-item-mappings"],
+];
 
 export function PenalPipeline() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const [deleteDialog, setDeleteDialog] = useState(false);
+  const [singleDeleteItem, setSingleDeleteItem] = useState<WorkItemPipelineItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isKeyboardMode, setIsKeyboardMode] = useState(false);
   const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
 
+  // Use secure delete hook
+  const { deleteSingle, isDeleting: isSingleDeleting } = useDeleteWorkItems({
+    onSuccess: () => {
+      setSingleDeleteItem(null);
+      INVALIDATE_QUERIES.forEach((queryKey) => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+  });
+
   // Fetch PENAL_906 work items
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["work-items", "PENAL_906"],
+  const { data: workItems, isLoading, refetch } = useQuery({
+    queryKey: ["work-items-penal-pipeline"],
     queryFn: async () => {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) throw new Error("No user");
+
       const { data, error } = await supabase
         .from("work_items")
         .select(`
-          id,
-          radicado,
-          title,
-          description,
-          authority_name,
-          is_flagged,
-          pipeline_stage,
-          last_event_at,
-          last_event_summary,
-          scraping_enabled,
-          created_at,
-          updated_at,
-          clients(id, name)
+          id, workflow_type, stage, pipeline_stage, cgp_phase, status,
+          radicado, title, authority_name, demandantes, demandados,
+          is_flagged, last_action_date, last_checked_at, monitoring_enabled,
+          auto_admisorio_date, created_at,
+          client_id, clients(id, name)
         `)
-        .eq("workflow_type", "PENAL_906")
-        .is("deleted_at", null)
-        .order("is_flagged", { ascending: false })
-        .order("updated_at", { ascending: false });
-      
+        .eq("owner_id", user.user.id)
+        .eq("workflow_type", "PENAL_906" as any)
+        .neq("status", "CLOSED")
+        .neq("status", "ARCHIVED")
+        .is("deleted_at", null);
+
       if (error) throw error;
-      
-      // Map to KanbanItem format
-      return (data || []).map((item): PenalWorkItem => ({
+
+      return (data || []).map((item): WorkItemPipelineItem => ({
         id: item.id,
-        stage: (item.pipeline_stage ?? 0).toString(),
+        workflow_type: item.workflow_type as any,
+        stage: numericToKey(item.pipeline_stage ?? 0),
+        cgp_phase: null, // Penal doesn't use phases
         radicado: item.radicado,
         title: item.title,
+        client_id: item.client_id,
+        client_name: (item.clients as any)?.name || null,
         authority_name: item.authority_name,
-        client_name: (item.clients as { name: string } | null)?.name || null,
-        is_flagged: item.is_flagged || false,
-        last_event_summary: item.last_event_summary,
-        last_event_at: item.last_event_at,
-        pipeline_stage: item.pipeline_stage ?? 0,
-        scraping_enabled: item.scraping_enabled ?? false,
+        demandantes: item.demandantes,
+        demandados: item.demandados,
+        is_flagged: item.is_flagged ?? false,
+        last_action_date: item.last_action_date,
+        last_checked_at: item.last_checked_at,
+        monitoring_enabled: item.monitoring_enabled ?? false,
+        auto_admisorio_date: item.auto_admisorio_date,
+        created_at: item.created_at,
       }));
     },
   });
 
-  // Move mutation - updates pipeline_stage
-  const handleStageDrop = useCallback(async (itemId: string, newStageId: string) => {
-    const newStage = parseInt(newStageId, 10);
-    
-    const { error } = await supabase
-      .from("work_items")
-      .update({ 
-        pipeline_stage: newStage,
-        last_phase_change_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", itemId);
-    
-    if (error) {
-      toast.error(`Error al actualizar: ${error.message}`);
-      throw error;
+  // Stage update mutation — converts string key back to numeric pipeline_stage
+  const updateStageMutation = useMutation({
+    mutationFn: async ({ itemId, newStage }: { itemId: string; newStage: string }) => {
+      const numericStage = keyToNumeric(newStage);
+      const { error } = await supabase
+        .from("work_items")
+        .update({
+          pipeline_stage: numericStage,
+          stage: newStage,
+          last_phase_change_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
+
+      if (error) throw error;
+      return { itemId, newStage };
+    },
+    onSuccess: ({ newStage }) => {
+      const numericStage = keyToNumeric(newStage);
+      toast.success(`Movido a: ${phaseName(numericStage)}`);
+      INVALIDATE_QUERIES.forEach((queryKey) => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+    },
+    onError: (error) => {
+      console.error("Error updating stage:", error);
+      toast.error("Error al actualizar etapa");
+    },
+  });
+
+  // Handle stage drop from Kanban
+  const handleStageDrop = useCallback(
+    async (itemId: string, newStageId: string) => {
+      await updateStageMutation.mutateAsync({ itemId, newStage: newStageId });
+    },
+    [updateStageMutation]
+  );
+
+  // Toggle flag mutation
+  const toggleFlagMutation = useMutation({
+    mutationFn: async (item: WorkItemPipelineItem) => {
+      const { error } = await supabase
+        .from("work_items")
+        .update({ is_flagged: !item.is_flagged })
+        .eq("id", item.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work-items-penal-pipeline"] });
+    },
+    onError: () => toast.error("Error al actualizar bandera"),
+  });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      await supabase.from("work_item_acts").delete().in("work_item_id", ids);
+      const { error } = await supabase.from("work_items").delete().in("id", ids);
+      if (error) throw error;
+      return ids;
+    },
+    onSuccess: (ids) => {
+      INVALIDATE_QUERIES.forEach((queryKey) => {
+        queryClient.invalidateQueries({ queryKey });
+      });
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
+      setDeleteDialog(false);
+      toast.success(
+        `${ids.length} elemento${ids.length !== 1 ? "s" : ""} eliminado${ids.length !== 1 ? "s" : ""}`
+      );
+    },
+    onError: () => toast.error("Error al eliminar elementos"),
+  });
+
+  // Selection handlers
+  const toggleSelectionMode = () => {
+    if (isSelectionMode) {
+      setSelectedIds(new Set());
     }
-    
-    toast.success(`Etapa actualizada a ${phaseName(newStage)}`);
+    setIsSelectionMode(!isSelectionMode);
+  };
+
+  const toggleItemSelection = useCallback((item: WorkItemPipelineItem, shiftKey: boolean) => {
+    setSelectedIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(item.id)) {
+        newSet.delete(item.id);
+      } else {
+        newSet.add(item.id);
+      }
+      return newSet;
+    });
   }, []);
 
-  // Toggle flag
-  const handleToggleFlag = useCallback(async (itemId: string) => {
-    const item = items.find((w) => w.id === itemId);
-    if (!item) return;
-    
-    const { error } = await supabase
-      .from("work_items")
-      .update({ is_flagged: !item.is_flagged })
-      .eq("id", itemId);
-    
-    if (!error) {
-      queryClient.invalidateQueries({ queryKey: ["work-items", "PENAL_906"] });
-    }
-  }, [items, queryClient]);
+  const selectAll = () => {
+    setSelectedIds(new Set((workItems || []).map((i) => i.id)));
+  };
 
-  // Sort items: flagged first, then by updated
-  const sortItems = useCallback((a: PenalWorkItem, b: PenalWorkItem) => {
-    if (a.is_flagged !== b.is_flagged) {
-      return a.is_flagged ? -1 : 1;
-    }
-    return 0;
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
+  };
+
+  // Sort: flagged first, then by last action date
+  const sortItems = useCallback((a: WorkItemPipelineItem, b: WorkItemPipelineItem) => {
+    if (a.is_flagged && !b.is_flagged) return -1;
+    if (!a.is_flagged && b.is_flagged) return 1;
+    const dateA = a.last_action_date ? new Date(a.last_action_date).getTime() : 0;
+    const dateB = b.last_action_date ? new Date(b.last_action_date).getTime() : 0;
+    return dateB - dateA;
   }, []);
 
-  // Render card
-  const renderCard = useCallback((item: PenalWorkItem, options: {
-    isDragging?: boolean;
-    isFocused?: boolean;
-    isSelected?: boolean;
-    isSelectionMode?: boolean;
-  }) => {
+  // Render card using shared component
+  const renderCard = useCallback(
+    (
+      item: WorkItemPipelineItem,
+      options: { isDragging?: boolean; isFocused?: boolean; isSelected?: boolean; isSelectionMode?: boolean }
+    ) => (
+      <WorkItemPipelineCard
+        item={item}
+        isDragging={options.isDragging}
+        isFocused={options.isFocused}
+        isSelected={options.isSelected}
+        isSelectionMode={options.isSelectionMode}
+        onToggleSelection={toggleItemSelection}
+        onToggleFlag={(item) => toggleFlagMutation.mutate(item)}
+        onDelete={(item) => setSingleDeleteItem(item)}
+      />
+    ),
+    [toggleItemSelection, toggleFlagMutation]
+  );
+
+  if (isLoading) {
     return (
-      <div
-        className={cn(
-          "bg-card rounded-lg border p-3 shadow-sm cursor-pointer hover:border-primary/50 transition-colors",
-          options.isDragging && "opacity-50 ring-2 ring-primary",
-          options.isFocused && "ring-2 ring-primary",
-          options.isSelected && "border-primary bg-primary/5",
-          item.is_flagged && "border-l-4 border-l-amber-500"
-        )}
-        onClick={() => navigate(`/app/work-items/${item.id}`)}
-      >
-        <div className="space-y-2">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Shield className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />
-              <span className="text-sm font-medium truncate">
-                {item.radicado || item.title || "Sin radicado"}
-              </span>
-            </div>
-            <Badge variant="outline" className="text-xs flex-shrink-0">
-              {phaseName(item.pipeline_stage).split(" ")[0]}
-            </Badge>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-8 w-48" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-24" />
           </div>
-          
-          {/* Client / Authority */}
-          {(item.client_name || item.authority_name) && (
-            <p className="text-xs text-muted-foreground truncate">
-              {item.client_name || item.authority_name}
-            </p>
-          )}
-          
-          {/* Last event summary */}
-          {item.last_event_summary && (
-            <p className="text-xs text-muted-foreground line-clamp-2">
-              {item.last_event_summary}
-            </p>
-          )}
-          
-          {/* Footer */}
-          {item.last_event_at && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
-              <span>{new Date(item.last_event_at).toLocaleDateString("es-CO")}</span>
-            </div>
-          )}
+        </div>
+        <div className="flex gap-3 overflow-x-auto pb-4">
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} className="h-[500px] min-w-[280px]" />
+          ))}
         </div>
       </div>
     );
-  }, [navigate]);
+  }
+
+  const totalItems = workItems?.length || 0;
 
   return (
-    <UnifiedKanbanBoard<PenalWorkItem, KanbanStage>
-      stages={PENAL_STAGES}
-      items={items}
-      isLoading={isLoading}
-      onStageDrop={handleStageDrop}
-      renderCard={renderCard}
-      sortItems={sortItems}
-      invalidateQueries={[["work-items", "PENAL_906"]]}
-      minColumnHeight="400px"
-      isSelectionMode={isSelectionMode}
-      selectedIds={selectedIds}
-      focusedItemId={focusedItemId}
-    />
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <Shield className="h-5 w-5 text-red-600" />
+              Pipeline Penal (Ley 906)
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {totalItems} caso{totalItems !== 1 ? "s" : ""} activo{totalItems !== 1 ? "s" : ""} • 14 etapas
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => refetch()} title="Actualizar">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isSelectionMode ? "default" : "outline"}
+            size="sm"
+            onClick={toggleSelectionMode}
+          >
+            <CheckSquare className="h-4 w-4 mr-2" />
+            {isSelectionMode ? "Cancelar" : "Seleccionar"}
+          </Button>
+          <Button
+            variant={isKeyboardMode ? "default" : "outline"}
+            size="sm"
+            onClick={() => setIsKeyboardMode(!isKeyboardMode)}
+            title="Navegación con teclado"
+          >
+            <Keyboard className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {totalItems === 0 && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            No hay procesos penales activos. Los procesos penales se pueden importar desde ICARUS 
+            o crear manualmente usando el botón + en el Dashboard. Los casos con juzgados penales 
+            se clasifican automáticamente bajo Ley 906 de 2004.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Stage legend */}
+      <div className="text-xs text-muted-foreground flex items-center gap-2 px-2 flex-wrap">
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          Fases 0-2: Investigación
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-orange-500" />
+          Fases 3-5: Acusación y Preparatoria
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-red-500" />
+          Fases 6-8: Juicio Oral y Sentencia
+        </span>
+        <span className="text-muted-foreground/50">→</span>
+        <span className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+          Fases 9+: Recursos y Terminal
+        </span>
+        <span className="text-muted-foreground/30 mx-2">|</span>
+        <span className="italic">Arrastra tarjetas para cambiar etapa.</span>
+      </div>
+
+      {/* Unified Kanban Board */}
+      <UnifiedKanbanBoard<WorkItemPipelineItem, KanbanStage>
+        stages={PENAL_STAGES}
+        items={workItems || []}
+        isLoading={isLoading}
+        onStageDrop={handleStageDrop}
+        renderCard={renderCard}
+        invalidateQueries={INVALIDATE_QUERIES}
+        minColumnHeight="500px"
+        sortItems={sortItems}
+        isSelectionMode={isSelectionMode}
+        selectedIds={selectedIds}
+        focusedItemId={focusedItemId}
+        onToggleSelection={toggleItemSelection}
+      />
+
+      {/* Bulk actions bar */}
+      {isSelectionMode && selectedIds.size > 0 && (
+        <WorkItemBulkActionsBar
+          selectedCount={selectedIds.size}
+          onSelectAll={selectAll}
+          onClearSelection={clearSelection}
+          onBulkDelete={() => setDeleteDialog(true)}
+          isDeleting={bulkDeleteMutation.isPending}
+        />
+      )}
+
+      <WorkItemBulkDeleteDialog
+        open={deleteDialog}
+        onOpenChange={setDeleteDialog}
+        selectedCount={selectedIds.size}
+        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+        isDeleting={bulkDeleteMutation.isPending}
+      />
+
+      {/* Single delete dialog */}
+      <DeleteWorkItemDialog
+        open={!!singleDeleteItem}
+        onOpenChange={(open) => !open && setSingleDeleteItem(null)}
+        onConfirm={() => singleDeleteItem && deleteSingle(singleDeleteItem.id)}
+        isDeleting={isSingleDeleting}
+        itemInfo={{
+          title: singleDeleteItem?.title,
+          radicado: singleDeleteItem?.radicado,
+          workflowType: "PENAL_906",
+        }}
+      />
+    </div>
   );
 }
