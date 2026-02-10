@@ -198,7 +198,7 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
         <WizardExplanation
           title="Contrato + Allowlist"
           whatItDoes="Define los dominios donde este proveedor puede hacer llamadas (SSRF allowlist), las capacidades que expone, y la versión de esquema para garantizar compatibilidad."
-          whyItMatters="La allowlist previene ataques SSRF al restringir las URLs que el sistema puede consultar. Sin ella, un atacante podría redirigir llamadas a recursos internos."
+          whyItMatters="La allowlist previene ataques SSRF al restringir las URLs que el sistema puede consultar. Los proveedores deben exponer /health, /capabilities, /resolve y /snapshot — no se permite scraping arbitrario."
           commonMistakes={[
             "Allowlist vacía — el conector no podrá hacer ninguna llamada",
             "Usar *.run.app en producción — demasiado permisivo",

@@ -93,12 +93,14 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
           Configurar Routing
         </h2>
 
-        <div className="flex items-start gap-2 text-xs bg-primary/5 border border-primary/20 rounded-lg p-3">
-          {isPlatform ? <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" /> : <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />}
+        <div className={`flex items-start gap-2 text-xs rounded-lg p-3 border ${
+          isPlatform ? "bg-destructive/5 border-destructive/20" : "bg-primary/5 border-primary/20"
+        }`}>
+          {isPlatform ? <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" /> : <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />}
           <span className="text-foreground/80">
             {isPlatform
-              ? "Esta ruta será GLOBAL — aplica a todas las organizaciones que tengan una instancia de este conector."
-              : "Esta ruta es un OVERRIDE solo para tu organización."}
+              ? "⚠️ Esta ruta será GLOBAL — mejorará la plataforma para TODAS las organizaciones que provisionen una instancia. Los secretos son org-scoped."
+              : "Esta ruta es un OVERRIDE que solo afecta a tu organización. La configuración global permanece intacta para los demás."}
           </span>
         </div>
 
@@ -192,8 +194,8 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
         </Collapsible>
 
         {routingConfigured && (
-          <div className="flex items-center gap-2 p-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-            <Route className="h-4 w-4 text-emerald-500" />
+          <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+            <Route className="h-4 w-4 text-primary" />
             <span className="text-sm text-foreground/80">Routing configurado exitosamente.</span>
           </div>
         )}
@@ -215,16 +217,18 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
       <div className="lg:col-span-2">
         <WizardExplanation
           title="Routing por Categoría"
-          whatItDoes="Define para qué workflows (CGP, CPACA, etc.) y scopes (actuaciones, publicaciones) se usará este proveedor, y en qué orden."
-          whyItMatters={`PRIMARY = se consulta primero; si falla, el sistema usa los built-in (CPNU/SAMAI). FALLBACK = solo se usa si todo lo demás falla. ${strategy === "MERGE" ? "MERGE = consulta múltiples proveedores y fusiona los resultados." : ""}`}
+          whatItDoes="Define para qué workflows (CGP, CPACA, etc.) y scopes (actuaciones, publicaciones) se usará este proveedor, y en qué orden de precedencia."
+          whyItMatters={`PRIMARY = se consulta primero, complementando los built-in (CPNU/SAMAI). FALLBACK = solo se activa si las fuentes principales fallan, mejorando la confiabilidad. ${strategy === "MERGE" ? "MERGE = consulta múltiples proveedores y fusiona los resultados para verificar y enriquecer datos." : ""}`}
           commonMistakes={[
             "Configurar como PRIMARY sin probar E2E primero",
-            "Prioridades duplicadas causan comportamiento indefinido",
+            "Los proveedores externos NO reemplazan los built-in, los complementan",
             "MERGE con budget muy bajo (< 10s) puede truncar resultados",
+            "Prioridades duplicadas causan comportamiento indefinido",
           ]}
-          warnings={strategy === "MERGE" ? [
-            "MERGE consulta múltiples proveedores y puede aumentar el tiempo de sincronización."
-          ] : undefined}
+          warnings={isPlatform
+            ? ["⚠️ Las rutas GLOBALES afectan a TODAS las organizaciones. Cada org debe provisionar su propia instancia para activar el uso."]
+            : ["ℹ️ Este override solo afecta a tu organización. La configuración global permanece intacta."]
+          }
         />
       </div>
     </div>

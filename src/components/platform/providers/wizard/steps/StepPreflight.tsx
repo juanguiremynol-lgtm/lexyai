@@ -83,10 +83,10 @@ export function StepPreflight({ instance, connector, preflightResult, onPrefligh
 
         {preflightResult && (
           <div className="space-y-3">
-            <div className={`rounded-lg p-4 border ${healthOk ? "bg-emerald-500/5 border-emerald-500/20" : "bg-destructive/5 border-destructive/20"}`}>
+            <div className={`rounded-lg p-4 border ${healthOk ? "bg-primary/5 border-primary/20" : "bg-destructive/5 border-destructive/20"}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="flex items-center gap-2 font-medium text-sm">
-                  {healthOk ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                  {healthOk ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <XCircle className="h-4 w-4 text-destructive" />}
                   /health
                 </span>
                 {preflightResult.results.health?.latency_ms && (
@@ -98,10 +98,10 @@ export function StepPreflight({ instance, connector, preflightResult, onPrefligh
               </pre>
             </div>
 
-            <div className={`rounded-lg p-4 border ${capOk ? "bg-emerald-500/5 border-emerald-500/20" : "bg-primary/5 border-primary/20"}`}>
+            <div className={`rounded-lg p-4 border ${capOk ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-border/50"}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="flex items-center gap-2 font-medium text-sm">
-                  {capOk ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <AlertTriangle className="h-4 w-4 text-primary" />}
+                  {capOk ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <AlertTriangle className="h-4 w-4 text-primary" />}
                   /capabilities
                 </span>
               </div>
