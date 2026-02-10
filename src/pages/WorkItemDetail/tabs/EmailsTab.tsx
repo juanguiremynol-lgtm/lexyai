@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,7 @@ export function EmailsTab({ workItem }: EmailsTabProps) {
   const { data: linkedEmails, isLoading } = useQuery({
     queryKey: ["work-item-emails", workItem.id],
     queryFn: async () => {
+      await ensureValidSession();
       const { data, error } = await supabase
         .from("message_links")
         .select(`

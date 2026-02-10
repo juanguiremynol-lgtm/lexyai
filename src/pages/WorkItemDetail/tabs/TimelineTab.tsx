@@ -6,6 +6,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,7 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
   const { data: events, isLoading } = useQuery({
     queryKey: ["work-item-events", workItem.id],
     queryFn: async () => {
+      await ensureValidSession();
       // Fetch events using work_item_id
       const { data } = await supabase
         .from("process_events")
@@ -127,6 +129,7 @@ export function TimelineTab({ workItem }: TimelineTabProps) {
   const { data: evidenceSnapshots } = useQuery({
     queryKey: ["evidence-snapshots", eventIds],
     queryFn: async () => {
+      await ensureValidSession();
       if (eventIds.length === 0) return {};
       
       const { data } = await supabase
