@@ -16,11 +16,9 @@ import {
   History,
   Lock,
   Bell,
-  Building2,
 } from "lucide-react";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
-import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 // Admin Console Tab Components
 import { AdminMembersTab } from "./tabs/AdminMembersTab";
@@ -33,12 +31,10 @@ import { AdminSecurityTab } from "./tabs/AdminSecurityTab";
 import { AdminSupportToolsTab } from "./tabs/AdminSupportToolsTab";
 import { AdminAuditLogsTab } from "./tabs/AdminAuditLogsTab";
 import { AdminAlertsTab } from "./tabs/AdminAlertsTab";
-import { AdminCourthouseDirectoryTab } from "./tabs/AdminCourthouseDirectoryTab";
 
 export function AdminConsole() {
   const { organization } = useOrganization();
   const { isOwner, isAdmin } = useOrganizationMembership(organization?.id || null);
-  const { isPlatformAdmin } = usePlatformAdmin();
 
   // Access denied for non-admins
   if (!isAdmin && !isOwner) {
@@ -113,12 +109,6 @@ export function AdminConsole() {
             <Wrench className="h-4 w-4" />
             <span className="hidden sm:inline">Soporte</span>
           </TabsTrigger>
-          {isPlatformAdmin && (
-            <TabsTrigger value="courthouse" className="gap-2">
-              <Building2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Directorio</span>
-            </TabsTrigger>
-          )}
         </TabsList>
 
         <TabsContent value="members">
@@ -161,11 +151,6 @@ export function AdminConsole() {
           <AdminSupportToolsTab />
         </TabsContent>
 
-        {isPlatformAdmin && (
-          <TabsContent value="courthouse">
-            <AdminCourthouseDirectoryTab />
-          </TabsContent>
-        )}
       </Tabs>
     </div>
   );

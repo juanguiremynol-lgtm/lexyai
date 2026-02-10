@@ -54,6 +54,7 @@ const platformNavItems = [
   { title: "Sistema", url: "/platform/system", icon: Activity },
   { title: "API Debug", url: "/platform/api-debug", icon: Bug },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
+  { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
 ];
 
 export function PlatformSidebar() {
