@@ -110,7 +110,7 @@ export function AdminPipeline() {
         workflow_type: item.workflow_type as any,
         stage: item.stage || "INICIO_APERTURA",
         cgp_phase: null, // GOV_PROCEDURE doesn't use CGP phases
-        radicado: item.radicado,
+        radicado: item.radicado || item.title || "Sin identificador",
         title: item.title,
         client_id: item.client_id,
         client_name: (item.clients as any)?.name || null,
