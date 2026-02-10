@@ -6475,6 +6475,8 @@ export type Database = {
           matter_id: string | null
           medida_cautelar: string | null
           migration_note: string | null
+          milestones_cleared_at: string | null
+          milestones_cleared_status: string | null
           ministerio_publico: string | null
           monitoring_enabled: boolean | null
           naturaleza_proceso: string | null
@@ -6593,6 +6595,8 @@ export type Database = {
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
           ministerio_publico?: string | null
           monitoring_enabled?: boolean | null
           naturaleza_proceso?: string | null
@@ -6711,6 +6715,8 @@ export type Database = {
           matter_id?: string | null
           medida_cautelar?: string | null
           migration_note?: string | null
+          milestones_cleared_at?: string | null
+          milestones_cleared_status?: string | null
           ministerio_publico?: string | null
           monitoring_enabled?: boolean | null
           naturaleza_proceso?: string | null

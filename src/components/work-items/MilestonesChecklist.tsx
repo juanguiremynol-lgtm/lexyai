@@ -1,16 +1,15 @@
 /**
- * MilestonesChecklist - Visual checklist of key legal milestones
+ * MilestonesChecklist - Fillable checklist for key legal milestones
  * 
- * Shows completion status for critical milestones:
- * - Filing proof (Acta/Constancia de radicación)
- * - Radicado assigned (23-digit)
- * - Auto Admisorio (when applicable)
- * - Electronic file link (OneDrive/SharePoint)
+ * Three milestones:
+ * 1. Acta de Radicación - one-click checkable, NO link input
+ * 2. Auto Admisorio - one-click checkable, NO link input
+ * 3. Acceso / Expediente Electrónico - requires URL OR "Not available" toggle
  * 
- * Enhanced with "Set Now" buttons to complete milestones and auto-complete reminders.
+ * Once cleared, hides and shows a compact badge with "Edit" action.
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,702 +17,506 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { 
   CheckCircle2, 
   Circle, 
   FileText, 
-  Hash, 
   Gavel, 
   Link2,
   Target,
   ExternalLink,
-  Plus,
-  Calendar as CalendarIcon,
+  Pencil,
+  Loader2,
+  AlertCircle,
+  Ban,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
 import type { WorkItem } from "@/types/work-item";
-import { useCompleteReminder, useSyncReminders } from "@/hooks/use-work-item-reminders";
-import { isValidRadicado } from "@/lib/reminders/reminder-service";
 
 interface MilestonesChecklistProps {
-  workItem: WorkItem;
+  workItem: WorkItem & {
+    milestones_cleared_at?: string | null;
+    milestones_cleared_status?: string | null;
+    sharepoint_url?: string | null;
+    onedrive_url?: string | null;
+    acta_reparto_received_at?: string | null;
+  };
   compact?: boolean;
 }
 
-interface Milestone {
-  id: string;
-  label: string;
-  description: string;
-  completed: boolean;
-  value?: string | null;
-  linkUrl?: string | null;
-  icon: typeof FileText;
-  importance: "critical" | "high" | "medium";
-  editable?: boolean;
-  reminderType?: string;
+// Workflow types that show milestones
+const MILESTONE_WORKFLOWS = ["CGP", "CPACA", "TUTELA", "LABORAL"];
+
+type ClearedStatus = "COMPLETE_WITH_ACCESS" | "COMPLETE_NO_ACCESS" | "PARTIAL";
+
+function isValidUrl(url: string): boolean {
+  if (!url || url.trim() === "") return false;
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
-
-type MilestoneModalType = 'acta_reparto' | 'radicado' | 'auto_admisorio' | 'expediente' | null;
-
-// Milestones that can be toggled with one click (no required data entry)
-const ONE_CLICK_MILESTONES = new Set(['acta_reparto', 'auto_admisorio']);
 
 export function MilestonesChecklist({ workItem, compact = false }: MilestonesChecklistProps) {
   const queryClient = useQueryClient();
-  const [activeModal, setActiveModal] = useState<MilestoneModalType>(null);
+  const [isEditing, setIsEditing] = useState(false);
   
-  // Form state
-  const [actaDate, setActaDate] = useState('');
-  const [actaNotes, setActaNotes] = useState('');
-  const [radicado, setRadicado] = useState('');
-  const [autoAdmisorioDate, setAutoAdmisorioDate] = useState('');
-  const [autoAdmisorioRef, setAutoAdmisorioRef] = useState('');
-  const [expedienteUrl, setExpedienteUrl] = useState('');
+  // Local state for the access milestone
+  const [accessUrl, setAccessUrl] = useState("");
+  const [accessUrlError, setAccessUrlError] = useState<string | null>(null);
+  const [accessNotAvailable, setAccessNotAvailable] = useState(false);
+
+  // Determine milestone states from work_items fields
+  const actaCompleted = !!(workItem as any).acta_reparto_received_at || !!workItem.filing_date;
+  const autoAdmisorioCompleted = !!workItem.auto_admisorio_date || workItem.cgp_phase === "PROCESS";
+  const expedienteUrl = workItem.sharepoint_url || workItem.onedrive_url || workItem.expediente_url;
+  const hasExpedienteUrl = !!expedienteUrl && isValidUrl(expedienteUrl);
   
-  const syncReminders = useSyncReminders();
-  
-  // Mutation to update work item
-  const updateMilestoneMutation = useMutation({
+  // Access milestone: completed if URL exists OR cleared as NOT_AVAILABLE
+  const clearedStatus = workItem.milestones_cleared_status as ClearedStatus | null;
+  const accessMarkedNotAvailable = clearedStatus === "COMPLETE_NO_ACCESS";
+  const accessCompleted = hasExpedienteUrl || accessMarkedNotAvailable;
+
+  const isCleared = !!workItem.milestones_cleared_at;
+
+  // Don't show for non-applicable workflow types
+  if (!MILESTONE_WORKFLOWS.includes(workItem.workflow_type)) return null;
+
+  const milestones = [
+    {
+      id: "acta",
+      label: "Acta de Radicación",
+      description: "Constancia de radicación ante el despacho",
+      completed: actaCompleted,
+      icon: FileText,
+      value: workItem.filing_date 
+        ? format(new Date(workItem.filing_date), "dd/MM/yyyy")
+        : (workItem as any).acta_reparto_received_at 
+          ? format(new Date((workItem as any).acta_reparto_received_at), "dd/MM/yyyy")
+          : null,
+    },
+    {
+      id: "auto_admisorio",
+      label: "Auto Admisorio",
+      description: "Auto que admite la demanda",
+      completed: autoAdmisorioCompleted,
+      icon: Gavel,
+      value: workItem.auto_admisorio_date 
+        ? format(new Date(workItem.auto_admisorio_date), "dd/MM/yyyy")
+        : null,
+    },
+    {
+      id: "expediente",
+      label: "Acceso / Expediente Electrónico",
+      description: "Enlace al expediente digital del despacho",
+      completed: accessCompleted,
+      icon: Link2,
+      value: accessMarkedNotAvailable 
+        ? "No disponible" 
+        : hasExpedienteUrl 
+          ? expedienteUrl 
+          : null,
+    },
+  ];
+
+  const completedCount = milestones.filter(m => m.completed).length;
+  const totalCount = milestones.length;
+
+  // Mutation for toggling simple milestones
+  const toggleMutation = useMutation({
     mutationFn: async (updates: Record<string, any>) => {
-      const source = (workItem as any)._source || 'work_items';
-      
-      // Update based on source table
-      if (source === 'work_items') {
-        const { error } = await supabase
-          .from('work_items')
-          .update(updates)
-          .eq('id', workItem.id);
-        if (error) throw error;
-      } else if (source === 'cgp_items') {
-        // Map fields for legacy table
-        const legacyUpdates: Record<string, any> = {};
-        if (updates.authority_name) legacyUpdates.court_name = updates.authority_name;
-        if (updates.radicado) legacyUpdates.radicado = updates.radicado;
-        if (updates.auto_admisorio_date) legacyUpdates.auto_admisorio_date = updates.auto_admisorio_date;
-        if (updates.expediente_url) legacyUpdates.expediente_url = updates.expediente_url;
-        if (updates.acta_reparto_received_at) legacyUpdates.acta_reparto_received_at = updates.acta_reparto_received_at;
-        
-        const { error } = await supabase
-          .from('cgp_items')
-          .update(legacyUpdates)
-          .eq('id', workItem.id);
-        if (error) throw error;
-      } else if (source === 'cpaca_processes') {
-        const legacyUpdates: Record<string, any> = {};
-        if (updates.radicado) legacyUpdates.radicado = updates.radicado;
-        if (updates.auto_admisorio_date) legacyUpdates.fecha_auto_admisorio = updates.auto_admisorio_date;
-        
-        const { error } = await supabase
-          .from('cpaca_processes')
-          .update(legacyUpdates)
-          .eq('id', workItem.id);
-        if (error) throw error;
-      }
-      
-      return updates;
+      const { error } = await supabase
+        .from("work_items")
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq("id", workItem.id);
+      if (error) throw error;
     },
-    onSuccess: async (updates) => {
-      toast.success("Hito actualizado correctamente");
-      
-      // Invalidate queries
+    onSuccess: () => {
+      toast.success("Hito actualizado");
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
-      queryClient.invalidateQueries({ queryKey: ["work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
-      queryClient.invalidateQueries({ queryKey: ["tutelas-work-items"] });
-      
-      // Sync reminders to auto-complete if milestone is now done
-      const updatedWorkItem = {
-        ...workItem,
-        ...updates,
-      };
-      await syncReminders.mutateAsync(updatedWorkItem);
-      
-      setActiveModal(null);
-      resetForms();
     },
-    onError: (error: Error) => {
-      toast.error("Error al actualizar: " + error.message);
+    onError: (err: Error) => {
+      toast.error("Error: " + err.message);
     },
   });
-  
-  const resetForms = () => {
-    setActaDate('');
-    setActaNotes('');
-    setRadicado('');
-    setAutoAdmisorioDate('');
-    setAutoAdmisorioRef('');
-    setExpedienteUrl('');
-  };
-  
-  const handleSubmitActaReparto = () => {
-    if (!actaDate) {
-      toast.error("Ingresa la fecha del acta de reparto");
+
+  // Mutation for clearing milestones
+  const clearMutation = useMutation({
+    mutationFn: async (status: ClearedStatus) => {
+      const updates: Record<string, any> = {
+        milestones_cleared_at: new Date().toISOString(),
+        milestones_cleared_status: status,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase
+        .from("work_items")
+        .update(updates)
+        .eq("id", workItem.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Hitos confirmados");
+      setIsEditing(false);
+      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+    },
+    onError: (err: Error) => {
+      toast.error("Error: " + err.message);
+    },
+  });
+
+  // Mutation to reopen (unclear) milestones
+  const reopenMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("work_items")
+        .update({ 
+          milestones_cleared_at: null, 
+          milestones_cleared_status: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", workItem.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setIsEditing(true);
+      queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItem.id] });
+    },
+    onError: (err: Error) => {
+      toast.error("Error: " + err.message);
+    },
+  });
+
+  // Save access URL
+  const saveAccessUrl = () => {
+    const trimmed = accessUrl.trim();
+    if (!trimmed) {
+      setAccessUrlError("Ingresa una URL válida");
       return;
     }
-    updateMilestoneMutation.mutate({
-      acta_reparto_received_at: new Date(actaDate).toISOString(),
-      acta_reparto_notes: actaNotes || null,
+    if (!isValidUrl(trimmed)) {
+      setAccessUrlError("URL inválida. Debe comenzar con https://");
+      return;
+    }
+    toggleMutation.mutate({
+      sharepoint_url: trimmed,
+      expediente_url: trimmed,
     });
-  };
-  
-  const handleSubmitRadicado = () => {
-    if (!radicado) {
-      toast.error("Ingresa el número de radicado");
-      return;
-    }
-    if (!isValidRadicado(radicado)) {
-      toast.error("El radicado debe tener 23 dígitos y terminar en 00 o 01");
-      return;
-    }
-    updateMilestoneMutation.mutate({
-      radicado,
-      radicado_verified: true,
-    });
-  };
-  
-  const handleSubmitAutoAdmisorio = () => {
-    if (!autoAdmisorioDate) {
-      toast.error("Ingresa la fecha del auto admisorio");
-      return;
-    }
-    updateMilestoneMutation.mutate({
-      auto_admisorio_date: new Date(autoAdmisorioDate).toISOString(),
-    });
-  };
-  
-  const handleSubmitExpediente = () => {
-    if (!expedienteUrl) {
-      toast.error("Ingresa el enlace del expediente");
-      return;
-    }
-    // Basic URL validation
-    try {
-      new URL(expedienteUrl);
-    } catch {
-      toast.error("Ingresa un enlace válido (URL completa)");
-      return;
-    }
-    updateMilestoneMutation.mutate({
-      expediente_url: expedienteUrl,
-    });
-  };
-  
-  // Define milestones based on workflow type
-  const getMilestones = (): Milestone[] => {
-    const baseMilestones: Milestone[] = [];
-    const wt = workItem.workflow_type;
-    
-    // Acta de Reparto - for judicial workflows
-    if (wt === "CGP" || wt === "CPACA" || wt === "TUTELA" || wt === "LABORAL") {
-      const hasActa = !!(workItem as any).acta_reparto_received_at || !!workItem.authority_name;
-      baseMilestones.push({
-        id: "acta_reparto",
-        label: "Acta de Reparto",
-        description: "Constancia de radicación ante el juzgado",
-        completed: hasActa,
-        value: workItem.authority_name || ((workItem as any).acta_reparto_received_at 
-          ? `Recibida ${format(new Date((workItem as any).acta_reparto_received_at), 'dd/MM/yyyy')}`
-          : null),
-        icon: FileText,
-        importance: "critical",
-        editable: !hasActa,
-        reminderType: 'ACTA_REPARTO_PENDING',
-      });
-    }
-    
-    // Radicado - critical for CGP/CPACA/TUTELA/LABORAL
-    if (wt === "CGP" || wt === "CPACA" || wt === "TUTELA" || wt === "LABORAL") {
-      const hasRadicado = isValidRadicado(workItem.radicado);
-      baseMilestones.push({
-        id: "radicado",
-        label: "Número de Radicado",
-        description: "23 dígitos del proceso judicial",
-        completed: hasRadicado,
-        value: workItem.radicado,
-        icon: Hash,
-        importance: "critical",
-        editable: !hasRadicado,
-        reminderType: 'RADICADO_PENDING',
-      });
-    }
-
-    // Electronic file - for judicial workflows
-    if (wt === "CGP" || wt === "CPACA" || wt === "TUTELA" || wt === "LABORAL") {
-      baseMilestones.push({
-        id: "expediente",
-        label: "Expediente Electrónico",
-        description: "Enlace al expediente digital",
-        completed: !!workItem.expediente_url,
-        linkUrl: workItem.expediente_url,
-        icon: Link2,
-        importance: "high",
-        editable: !workItem.expediente_url,
-        reminderType: 'EXPEDIENTE_PENDING',
-      });
-    }
-
-    // Auto Admisorio - for CGP/CPACA/TUTELA/LABORAL
-    if (wt === "CGP" || wt === "CPACA" || wt === "TUTELA" || wt === "LABORAL") {
-      const hasAutoAdmisorio = workItem.cgp_phase === "PROCESS" || !!workItem.auto_admisorio_date;
-      baseMilestones.push({
-        id: "auto_admisorio",
-        label: "Auto Admisorio",
-        description: hasAutoAdmisorio ? "Demanda admitida" : "Pendiente de admisión",
-        completed: hasAutoAdmisorio,
-        value: workItem.auto_admisorio_date 
-          ? format(new Date(workItem.auto_admisorio_date), 'dd/MM/yyyy')
-          : null,
-        icon: Gavel,
-        importance: "critical",
-        editable: !hasAutoAdmisorio,
-        reminderType: 'AUTO_ADMISORIO_PENDING',
-      });
-    }
-
-    // For PETICION - different milestones (no reminders)
-    if (wt === "PETICION") {
-      baseMilestones.push({
-        id: "filed",
-        label: "Petición Radicada",
-        description: "Constancia de radicación",
-        completed: !!workItem.filing_date || !!workItem.radicado,
-        value: workItem.radicado,
-        icon: FileText,
-        importance: "critical",
-      });
-      
-      baseMilestones.push({
-        id: "entity",
-        label: "Entidad Receptora",
-        description: "Entidad a la que se dirige",
-        completed: !!workItem.authority_name,
-        value: workItem.authority_name,
-        icon: Gavel,
-        importance: "high",
-      });
-    }
-
-    // For GOV_PROCEDURE
-    if (wt === "GOV_PROCEDURE") {
-      baseMilestones.push({
-        id: "authority",
-        label: "Autoridad",
-        description: "Autoridad administrativa",
-        completed: !!workItem.authority_name,
-        value: workItem.authority_name,
-        icon: Gavel,
-        importance: "critical",
-      });
-      
-      baseMilestones.push({
-        id: "reference",
-        label: "Número de Expediente",
-        description: "Referencia del trámite",
-        completed: !!workItem.radicado,
-        value: workItem.radicado,
-        icon: Hash,
-        importance: "high",
-      });
-    }
-
-    return baseMilestones;
+    setAccessUrl("");
+    setAccessUrlError(null);
   };
 
-  const milestones = getMilestones();
-  const completedCount = milestones.filter(m => m.completed).length;
-  const allComplete = milestones.length > 0 && completedCount === milestones.length;
-  const progress = milestones.length > 0 ? (completedCount / milestones.length) * 100 : 0;
+  // Mark access as not available
+  const markAccessNotAvailable = () => {
+    setAccessNotAvailable(true);
+    // We don't persist NOT_AVAILABLE immediately — it's captured when user clicks "Confirm"
+    toast.info("Marcado como no disponible. Confirma los hitos para guardar.");
+  };
 
-  if (milestones.length === 0) return null;
+  // Handle milestone toggle (one-click)
+  const handleToggle = (milestoneId: string, currentlyCompleted: boolean) => {
+    if (milestoneId === "acta") {
+      if (currentlyCompleted) {
+        toggleMutation.mutate({ acta_reparto_received_at: null });
+      } else {
+        toggleMutation.mutate({ acta_reparto_received_at: new Date().toISOString() });
+      }
+    } else if (milestoneId === "auto_admisorio") {
+      if (currentlyCompleted) {
+        toggleMutation.mutate({ auto_admisorio_date: null });
+      } else {
+        toggleMutation.mutate({ auto_admisorio_date: new Date().toISOString() });
+      }
+    }
+  };
 
+  // Handle "Confirm / Clear milestones"
+  const handleClearMilestones = () => {
+    const actaDone = actaCompleted;
+    const autoDone = autoAdmisorioCompleted;
+    const accessDone = hasExpedienteUrl || accessNotAvailable || accessMarkedNotAvailable;
+
+    if (actaDone && autoDone && accessDone) {
+      if (hasExpedienteUrl) {
+        clearMutation.mutate("COMPLETE_WITH_ACCESS");
+      } else {
+        clearMutation.mutate("COMPLETE_NO_ACCESS");
+      }
+    } else {
+      clearMutation.mutate("PARTIAL");
+    }
+  };
+
+  // Compact mode for lists
   if (compact) {
     return (
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
-          {milestones.map((milestone) => (
+          {milestones.map((m) => (
             <div
-              key={milestone.id}
+              key={m.id}
               className={cn(
                 "h-2 w-2 rounded-full",
-                milestone.completed ? "bg-emerald-500" : "bg-muted-foreground/30"
+                m.completed ? "bg-emerald-500" : "bg-muted-foreground/30"
               )}
-              title={`${milestone.label}: ${milestone.completed ? "✓" : "Pendiente"}`}
+              title={`${m.label}: ${m.completed ? "✓" : "Pendiente"}`}
             />
           ))}
         </div>
         <span className="text-xs text-muted-foreground">
-          {completedCount}/{milestones.length}
+          {completedCount}/{totalCount}
         </span>
       </div>
     );
   }
 
-  // Quick-toggle milestone with one click (defaults to today's date)
-  const handleQuickToggle = (milestoneId: string, currentlyCompleted: boolean) => {
-    if (currentlyCompleted) {
-      // Uncheck: clear the field
-      if (milestoneId === 'acta_reparto') {
-        updateMilestoneMutation.mutate({ acta_reparto_received_at: null, acta_reparto_notes: null });
-      } else if (milestoneId === 'auto_admisorio') {
-        updateMilestoneMutation.mutate({ auto_admisorio_date: null });
-      }
-    } else {
-      // Check: set to today
-      const today = new Date().toISOString();
-      if (milestoneId === 'acta_reparto') {
-        updateMilestoneMutation.mutate({ acta_reparto_received_at: today });
-      } else if (milestoneId === 'auto_admisorio') {
-        updateMilestoneMutation.mutate({ auto_admisorio_date: today });
-      }
-    }
-  };
+  // ─── CLEARED STATE: Show badge/button ───
+  if (isCleared && !isEditing) {
+    const statusLabel = clearedStatus === "COMPLETE_WITH_ACCESS"
+      ? "Hitos completados"
+      : clearedStatus === "COMPLETE_NO_ACCESS"
+        ? "Hitos completados (sin acceso electrónico)"
+        : `Hitos en progreso (${completedCount}/${totalCount})`;
+    
+    const statusIcon = clearedStatus === "PARTIAL" 
+      ? <Circle className="h-4 w-4" />
+      : <ShieldCheck className="h-4 w-4" />;
 
-  const openMilestoneModal = (milestoneId: string) => {
-    if (milestoneId === 'acta_reparto') setActiveModal('acta_reparto');
-    else if (milestoneId === 'radicado') setActiveModal('radicado');
-    else if (milestoneId === 'auto_admisorio') setActiveModal('auto_admisorio');
-    else if (milestoneId === 'expediente') setActiveModal('expediente');
-  };
+    const statusVariant = clearedStatus === "PARTIAL" ? "secondary" as const : "default" as const;
+
+    return (
+      <Card className="border-emerald-500/30 bg-emerald-50/30 dark:bg-emerald-950/10">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Badge variant={statusVariant} className={cn(
+                "gap-1",
+                clearedStatus !== "PARTIAL" && "bg-emerald-600 hover:bg-emerald-700"
+              )}>
+                {statusIcon}
+                {statusLabel}
+              </Badge>
+              {hasExpedienteUrl && (
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
+                  <a href={expedienteUrl!} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-3 w-3" />
+                    Abrir expediente
+                  </a>
+                </Button>
+              )}
+            </div>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-7 text-xs gap-1"
+              onClick={() => reopenMutation.mutate()}
+              disabled={reopenMutation.isPending}
+            >
+              <Pencil className="h-3 w-3" />
+              Editar hitos
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ─── EDITABLE CHECKLIST ───
+  const isPending = toggleMutation.isPending || clearMutation.isPending;
 
   return (
-    <>
-      <Card className={cn(
-        "transition-colors",
-        allComplete && "border-emerald-500/50 bg-emerald-50/30 dark:bg-emerald-950/10"
-      )}>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Target className="h-5 w-5" />
-              Hitos del Caso
-            </CardTitle>
-            <Badge 
-              variant={allComplete ? "default" : "secondary"}
-              className={cn(allComplete && "bg-emerald-500")}
-            >
-              {completedCount} / {milestones.length}
-            </Badge>
-          </div>
-          
-          {/* Progress bar */}
-          <div className="w-full bg-muted rounded-full h-2 mt-2">
-            <div 
-              className={cn(
-                "h-2 rounded-full transition-all",
-                allComplete ? "bg-emerald-500" : "bg-primary"
-              )}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-3">
-          {milestones.map((milestone) => (
-            <div
-              key={milestone.id}
-              className={cn(
-                "flex items-start gap-3 p-3 rounded-lg border transition-colors",
-                milestone.completed
-                  ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800"
-                  : milestone.importance === "critical"
-                    ? "bg-amber-50/50 border-amber-200/50 dark:bg-amber-950/10 dark:border-amber-800/30"
-                    : "bg-muted/30 border-dashed"
-              )}
-            >
-              {/* Status icon - clickable for one-click milestones */}
-              {ONE_CLICK_MILESTONES.has(milestone.id) ? (
-                <button
-                  type="button"
-                  onClick={() => handleQuickToggle(milestone.id, milestone.completed)}
-                  disabled={updateMilestoneMutation.isPending}
-                  className="shrink-0 mt-0.5 cursor-pointer hover:scale-110 transition-transform disabled:opacity-50"
-                  title={milestone.completed ? "Desmarcar" : "Marcar como completado (hoy)"}
-                >
-                  {milestone.completed ? (
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                  ) : (
-                    <Circle className={cn(
-                      "h-5 w-5",
-                      milestone.importance === "critical" ? "text-amber-500" : "text-muted-foreground"
-                    )} />
-                  )}
-                </button>
-              ) : milestone.completed ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-              ) : (
-                <Circle className={cn(
-                  "h-5 w-5 shrink-0 mt-0.5",
-                  milestone.importance === "critical" 
-                    ? "text-amber-500" 
-                    : "text-muted-foreground"
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Target className="h-5 w-5" />
+            Hitos del Caso
+          </CardTitle>
+          <Badge 
+            variant={completedCount === totalCount ? "default" : "secondary"}
+            className={cn(completedCount === totalCount && "bg-emerald-600")}
+          >
+            {completedCount} / {totalCount}
+          </Badge>
+        </div>
+        {/* Progress bar */}
+        <div className="w-full bg-muted rounded-full h-2 mt-2">
+          <div 
+            className={cn(
+              "h-2 rounded-full transition-all",
+              completedCount === totalCount ? "bg-emerald-500" : "bg-primary"
+            )}
+            style={{ width: `${(completedCount / totalCount) * 100}%` }}
+          />
+        </div>
+      </CardHeader>
+      
+      <CardContent className="space-y-3">
+        {milestones.map((milestone) => (
+          <div
+            key={milestone.id}
+            className={cn(
+              "flex items-start gap-3 p-3 rounded-lg border transition-colors",
+              milestone.completed
+                ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800"
+                : "bg-muted/30 border-dashed"
+            )}
+          >
+            {/* Checkbox - for acta and auto_admisorio: clickable toggle */}
+            {milestone.id !== "expediente" ? (
+              <button
+                type="button"
+                onClick={() => handleToggle(milestone.id, milestone.completed)}
+                disabled={isPending}
+                className="shrink-0 mt-0.5 cursor-pointer hover:scale-110 transition-transform disabled:opacity-50"
+                title={milestone.completed ? "Desmarcar" : "Marcar como completado (hoy)"}
+              >
+                {milestone.completed ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Circle className="h-5 w-5 text-muted-foreground" />
+                )}
+              </button>
+            ) : (
+              <div className="shrink-0 mt-0.5">
+                {milestone.completed ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Circle className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+            )}
+
+            {/* Content */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <milestone.icon className={cn(
+                  "h-4 w-4",
+                  milestone.completed ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
                 )} />
-              )}
-              
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <milestone.icon className={cn(
-                    "h-4 w-4",
-                    milestone.completed ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
-                  )} />
-                  <span className={cn(
-                    "font-medium text-sm",
-                    milestone.completed && "text-emerald-700 dark:text-emerald-300"
-                  )}>
-                    {milestone.label}
-                  </span>
-                  {!milestone.completed && milestone.importance === "critical" && (
-                    <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
-                      Requerido
-                    </Badge>
+                <span className={cn(
+                  "font-medium text-sm",
+                  milestone.completed && "text-emerald-700 dark:text-emerald-300"
+                )}>
+                  {milestone.label}
+                </span>
+              </div>
+
+              {milestone.completed ? (
+                <div className="mt-1">
+                  {milestone.id === "expediente" && hasExpedienteUrl ? (
+                    <a
+                      href={expedienteUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Abrir expediente
+                    </a>
+                  ) : milestone.id === "expediente" && accessMarkedNotAvailable ? (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Ban className="h-3 w-3" />
+                      Acceso electrónico no disponible
+                    </span>
+                  ) : milestone.value ? (
+                    <span className="text-xs text-muted-foreground">{milestone.value}</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Completado</span>
                   )}
                 </div>
-                
-                {milestone.completed ? (
-                  <div className="mt-1 flex items-center gap-2">
-                    {milestone.linkUrl ? (
-                      <a
-                        href={milestone.linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+              ) : (
+                <div className="mt-1">
+                  <p className="text-xs text-muted-foreground mb-2">{milestone.description}</p>
+                  
+                  {/* Only the expediente milestone gets URL input */}
+                  {milestone.id === "expediente" && !accessNotAvailable && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          value={accessUrl}
+                          onChange={(e) => {
+                            setAccessUrl(e.target.value);
+                            setAccessUrlError(null);
+                          }}
+                          placeholder="https://onedrive.live.com/... o https://sharepoint.com/..."
+                          className={cn("text-sm h-8", accessUrlError && "border-destructive")}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs shrink-0"
+                          onClick={saveAccessUrl}
+                          disabled={isPending || !accessUrl.trim()}
+                        >
+                          {toggleMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                          Guardar
+                        </Button>
+                      </div>
+                      {accessUrlError && (
+                        <p className="text-xs text-destructive flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          {accessUrlError}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={markAccessNotAvailable}
+                        className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 flex items-center gap-1"
                       >
-                        <ExternalLink className="h-3 w-3" />
-                        Abrir expediente
-                      </a>
-                    ) : milestone.value ? (
-                      <code className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                        {milestone.value}
-                      </code>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Completado</span>
-                    )}
-                    {/* Allow editing details even when completed */}
-                    {ONE_CLICK_MILESTONES.has(milestone.id) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 text-[10px] px-1.5"
-                        onClick={() => openMilestoneModal(milestone.id)}
-                      >
-                        Editar fecha
-                      </Button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-1 flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {milestone.description}
-                    </p>
-                    {milestone.editable && !ONE_CLICK_MILESTONES.has(milestone.id) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={() => openMilestoneModal(milestone.id)}
-                      >
-                        <Plus className="h-3 w-3 mr-1" />
-                        Registrar
-                      </Button>
-                    )}
-                    {milestone.editable && ONE_CLICK_MILESTONES.has(milestone.id) && (
+                        <Ban className="h-3 w-3" />
+                        Acceso no disponible
+                      </button>
+                      <p className="text-[10px] text-muted-foreground/70">
+                        Algunos despachos no ofrecen acceso electrónico permanente.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Show "not available" confirmed state */}
+                  {milestone.id === "expediente" && accessNotAvailable && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs gap-1">
+                        <Ban className="h-3 w-3" />
+                        Marcado como no disponible
+                      </Badge>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-6 text-[10px]"
-                        onClick={() => openMilestoneModal(milestone.id)}
+                        onClick={() => setAccessNotAvailable(false)}
                       >
-                        Con fecha específica
+                        Cambiar
                       </Button>
-                    )}
-                  </div>
-                )}
-              </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          ))}
+          </div>
+        ))}
 
-          {allComplete && (
-            <div className="text-center py-2 mt-2 border-t border-emerald-200 dark:border-emerald-800">
-              <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium flex items-center justify-center gap-1">
-                <CheckCircle2 className="h-4 w-4" />
-                Todos los hitos completados
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* Acta de Reparto Modal */}
-      <Dialog open={activeModal === 'acta_reparto'} onOpenChange={(open) => !open && setActiveModal(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar Acta de Reparto</DialogTitle>
-            <DialogDescription>
-              Ingresa la fecha en que recibiste la constancia de radicación.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="acta-date">Fecha del Acta *</Label>
-              <Input
-                id="acta-date"
-                type="date"
-                value={actaDate}
-                onChange={(e) => setActaDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="acta-notes">Notas (opcional)</Label>
-              <Textarea
-                id="acta-notes"
-                placeholder="Observaciones adicionales..."
-                value={actaNotes}
-                onChange={(e) => setActaNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActiveModal(null)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitActaReparto}
-              disabled={updateMilestoneMutation.isPending}
-            >
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Radicado Modal */}
-      <Dialog open={activeModal === 'radicado'} onOpenChange={(open) => !open && setActiveModal(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Agregar Número de Radicado</DialogTitle>
-            <DialogDescription>
-              Ingresa el número de radicado de 23 dígitos del proceso.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="radicado">Número de Radicado *</Label>
-              <Input
-                id="radicado"
-                placeholder="11001310300120230012300"
-                value={radicado}
-                onChange={(e) => setRadicado(e.target.value.replace(/[^0-9]/g, ''))}
-                maxLength={23}
-              />
-              <p className="text-xs text-muted-foreground">
-                23 dígitos, termina en 00 o 01
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActiveModal(null)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitRadicado}
-              disabled={updateMilestoneMutation.isPending}
-            >
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Auto Admisorio Modal */}
-      <Dialog open={activeModal === 'auto_admisorio'} onOpenChange={(open) => !open && setActiveModal(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar Auto Admisorio</DialogTitle>
-            <DialogDescription>
-              Ingresa la fecha del auto de admisión de la demanda.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="auto-date">Fecha del Auto *</Label>
-              <Input
-                id="auto-date"
-                type="date"
-                value={autoAdmisorioDate}
-                onChange={(e) => setAutoAdmisorioDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="auto-ref">Referencia (opcional)</Label>
-              <Input
-                id="auto-ref"
-                placeholder="Número o referencia del auto..."
-                value={autoAdmisorioRef}
-                onChange={(e) => setAutoAdmisorioRef(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActiveModal(null)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitAutoAdmisorio}
-              disabled={updateMilestoneMutation.isPending}
-            >
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      
-      {/* Expediente Modal */}
-      <Dialog open={activeModal === 'expediente'} onOpenChange={(open) => !open && setActiveModal(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Agregar Expediente Electrónico</DialogTitle>
-            <DialogDescription>
-              Ingresa el enlace al expediente digital (OneDrive, SharePoint, etc.).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="expediente-url">Enlace del Expediente *</Label>
-              <Input
-                id="expediente-url"
-                type="url"
-                placeholder="https://..."
-                value={expedienteUrl}
-                onChange={(e) => setExpedienteUrl(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setActiveModal(null)}>
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleSubmitExpediente}
-              disabled={updateMilestoneMutation.isPending}
-            >
-              Guardar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+        {/* Confirm / Clear button */}
+        <div className="pt-2 border-t">
+          <Button
+            onClick={handleClearMilestones}
+            disabled={isPending || clearMutation.isPending}
+            className="w-full gap-2"
+            variant={completedCount === totalCount || (actaCompleted && autoAdmisorioCompleted && (hasExpedienteUrl || accessNotAvailable)) ? "default" : "outline"}
+          >
+            {clearMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            <ShieldCheck className="h-4 w-4" />
+            {completedCount === totalCount || (actaCompleted && autoAdmisorioCompleted && (hasExpedienteUrl || accessNotAvailable))
+              ? "Confirmar hitos"
+              : `Guardar progreso (${completedCount}/${totalCount})`
+            }
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

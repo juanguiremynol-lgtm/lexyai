@@ -120,6 +120,11 @@ export function CaseSetupChecklist({ workItem, onUpdate }: CaseSetupChecklistPro
 
   // Check if this work item should show the checklist
   const shouldShow = () => {
+    // If milestones have been cleared, this checklist is superseded
+    if ((workItem as any).milestones_cleared_at) {
+      return false;
+    }
+    
     // Check workflow type
     if (!CHECKLIST_WORKFLOW_TYPES.includes(workItem.workflow_type)) {
       return false;

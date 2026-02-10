@@ -59,6 +59,8 @@ interface WorkItemDetail {
   corte_status: string | null;
   sentencia_ref: string | null;
   provider_sources: Record<string, unknown> | null;
+  milestones_cleared_at: string | null;
+  milestones_cleared_status: string | null;
   created_at: string;
   updated_at: string;
   clients: { id: string; name: string } | null;
