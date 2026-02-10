@@ -3540,10 +3540,12 @@ Deno.serve(async (req) => {
       });
       
       // Update scrape status to FAILED + track consecutive failures & 404s
-      const isNotFound = fetchResult?.isEmpty || errorCode === 'PROVIDER_NOT_FOUND';
-      
-      // Classify the error for diagnostics
+      // CRITICAL: Only increment consecutive_404_count on strict 404-type signals.
+      // SCRAPING_TIMEOUT, empty cache, and rate limits must NOT inflate this counter,
+      // as it drives auto-demonitoring decisions.
       const classifiedErrorCode = classifyProviderError(fetchResult, errorCode);
+      const STRICT_404_CODES = ['PROVIDER_404', 'RECORD_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'UPSTREAM_ROUTE_MISSING', 'PROVIDER_ROUTE_NOT_FOUND'];
+      const isStrict404 = STRICT_404_CODES.includes(classifiedErrorCode) || errorCode === 'PROVIDER_NOT_FOUND';
       
       // Fetch current counters for increment
       const { data: currentItem } = await supabase
@@ -3559,7 +3561,7 @@ Deno.serve(async (req) => {
         last_error_at: new Date().toISOString(),
         consecutive_failures: ((currentItem as any)?.consecutive_failures || 0) + 1,
       };
-      if (isNotFound) {
+      if (isStrict404) {
         update404Payload.consecutive_404_count = ((currentItem as any)?.consecutive_404_count || 0) + 1;
         update404Payload.provider_reachable = false;
       }

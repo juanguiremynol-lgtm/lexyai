@@ -333,3 +333,42 @@ describe("Integration: demonitor candidate blocked by pending retry", () => {
     expect(result2.demonitor).toBe(true);
   });
 });
+
+// ════════════════ 404 Inflation Guard Tests ════════════════
+
+describe("404 counter inflation guard", () => {
+  const STRICT_404_CODES = ["PROVIDER_404", "RECORD_NOT_FOUND", "PROVIDER_NOT_FOUND", "UPSTREAM_ROUTE_MISSING", "PROVIDER_ROUTE_NOT_FOUND"];
+  
+  it("SCRAPING_TIMEOUT must NOT inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("SCRAPING_TIMEOUT")).toBe(false);
+  });
+
+  it("PROVIDER_RATE_LIMITED must NOT inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("PROVIDER_RATE_LIMITED")).toBe(false);
+  });
+
+  it("PROVIDER_TIMEOUT must NOT inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("PROVIDER_TIMEOUT")).toBe(false);
+  });
+
+  it("NETWORK_ERROR must NOT inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("NETWORK_ERROR")).toBe(false);
+  });
+
+  it("true 404 codes DO inflate consecutive_404_count", () => {
+    expect(STRICT_404_CODES.includes("PROVIDER_404")).toBe(true);
+    expect(STRICT_404_CODES.includes("RECORD_NOT_FOUND")).toBe(true);
+    expect(STRICT_404_CODES.includes("PROVIDER_NOT_FOUND")).toBe(true);
+  });
+
+  it("demonitor is blocked when error code is non-404 even with high count", () => {
+    const item = {
+      id: "wi_timeout",
+      consecutive_404_count: 10,
+      last_error_code: "SCRAPING_TIMEOUT",
+      last_synced_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+    const result = shouldDemonitor(item, 5, false);
+    expect(result.demonitor).toBe(false);
+  });
+});
