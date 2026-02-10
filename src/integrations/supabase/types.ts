@@ -5530,6 +5530,78 @@ export type Database = {
           },
         ]
       }
+      sync_retry_queue: {
+        Row: {
+          attempt: number
+          created_at: string
+          id: string
+          kind: string
+          last_error_code: string | null
+          last_error_message: string | null
+          max_attempts: number
+          next_run_at: string
+          organization_id: string | null
+          provider: string
+          radicado: string
+          scraping_job_id: string | null
+          stage: string | null
+          updated_at: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Insert: {
+          attempt?: number
+          created_at?: string
+          id?: string
+          kind: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          max_attempts?: number
+          next_run_at: string
+          organization_id?: string | null
+          provider: string
+          radicado: string
+          scraping_job_id?: string | null
+          stage?: string | null
+          updated_at?: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          max_attempts?: number
+          next_run_at?: string
+          organization_id?: string | null
+          provider?: string
+          radicado?: string
+          scraping_job_id?: string | null
+          stage?: string | null
+          updated_at?: string
+          work_item_id?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_retry_queue_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_retry_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_traces: {
         Row: {
           created_at: string | null
