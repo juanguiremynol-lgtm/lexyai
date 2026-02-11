@@ -51,6 +51,7 @@ export interface ResolvedInstance {
   provider_connector_id: string;
   provider_instance_id: string;
   provider_name: string;
+  scope?: "PLATFORM" | "ORG";
 }
 
 export interface ProviderCandidate {
@@ -169,14 +170,39 @@ function buildConnectorChain(
   routes: GlobalRoute[],
   orgInstances: ResolvedInstance[],
   routeSource: "ORG_OVERRIDE" | "GLOBAL",
+  platformInstances?: ResolvedInstance[],
 ): ProviderCandidate[] {
   const chain: ProviderCandidate[] = [];
   let attemptIndex = 0;
 
-  const instanceMap = new Map<string, ResolvedInstance>();
+  // Build instance lookup maps
+  const orgInstanceMap = new Map<string, ResolvedInstance>();
   for (const inst of orgInstances) {
-    instanceMap.set(inst.provider_connector_id, inst);
+    orgInstanceMap.set(inst.provider_connector_id, inst);
   }
+  const platformInstanceMap = new Map<string, ResolvedInstance>();
+  if (platformInstances) {
+    for (const inst of platformInstances) {
+      platformInstanceMap.set(inst.provider_connector_id, inst);
+    }
+  }
+
+  // For GLOBAL routes, prefer PLATFORM instances; for ORG_OVERRIDE, use org instances
+  const resolveInstance = (connectorId: string): ResolvedInstance | undefined => {
+    if (routeSource === "GLOBAL") {
+      // GLOBAL routes: use PLATFORM instance first, fallback to org instance for backward compat
+      return platformInstanceMap.get(connectorId) || orgInstanceMap.get(connectorId);
+    }
+    // ORG_OVERRIDE: only use org instances
+    return orgInstanceMap.get(connectorId);
+  };
+
+  const missingSkipReason = (connectorName: string, connectorId: string): string => {
+    if (routeSource === "GLOBAL") {
+      return `No enabled PLATFORM instance for connector ${connectorName || connectorId}. Configure a platform instance via the wizard. (MISSING_PLATFORM_INSTANCE)`;
+    }
+    return `No enabled instance for connector ${connectorName || connectorId}`;
+  };
 
   const primaryRoutes = routes
     .filter((r) =>
@@ -188,7 +214,7 @@ function buildConnectorChain(
     .sort((a, b) => a.priority - b.priority);
 
   for (const r of primaryRoutes) {
-    const inst = instanceMap.get(r.provider_connector_id);
+    const inst = resolveInstance(r.provider_connector_id);
     if (inst) {
       chain.push({
         provider_instance_id: inst.provider_instance_id,
@@ -205,7 +231,7 @@ function buildConnectorChain(
         provider_name: r.connector_name || "unknown",
         source: "EXTERNAL_PRIMARY",
         attempt_index: attemptIndex++,
-        skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+        skip_reason: missingSkipReason(r.connector_name || "", r.provider_connector_id),
         route_source: routeSource,
       });
     }
@@ -233,7 +259,7 @@ function buildConnectorChain(
     .sort((a, b) => a.priority - b.priority);
 
   for (const r of fallbackRoutes) {
-    const inst = instanceMap.get(r.provider_connector_id);
+    const inst = resolveInstance(r.provider_connector_id);
     if (inst) {
       chain.push({
         provider_instance_id: inst.provider_instance_id,
@@ -250,7 +276,7 @@ function buildConnectorChain(
         provider_name: r.connector_name || "unknown",
         source: "EXTERNAL_FALLBACK",
         attempt_index: attemptIndex++,
-        skip_reason: `No enabled instance for connector ${r.connector_name || r.provider_connector_id}`,
+        skip_reason: missingSkipReason(r.connector_name || "", r.provider_connector_id),
         route_source: routeSource,
       });
     }
@@ -266,8 +292,9 @@ export function resolveGlobalProviderChain(
   scope: "ACTS" | "PUBS",
   globalRoutes: GlobalRoute[],
   orgInstances: ResolvedInstance[],
+  platformInstances?: ResolvedInstance[],
 ): ProviderCandidate[] {
-  return buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL");
+  return buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL", platformInstances);
 }
 
 // ────────────────────── Effective resolver (org override → global → builtin) ──────────────────────
@@ -278,6 +305,7 @@ export interface EffectiveResolutionInput {
   orgOverrideRoutes: GlobalRoute[];
   globalRoutes: GlobalRoute[];
   orgInstances: ResolvedInstance[];
+  platformInstances?: ResolvedInstance[];
   orgOverridePolicy?: Partial<EffectivePolicy> | null;
   globalPolicy?: Partial<EffectivePolicy> | null;
 }
@@ -291,7 +319,7 @@ export interface EffectiveResolutionResult {
 export function resolveEffectivePolicyAndChain(
   input: EffectiveResolutionInput,
 ): EffectiveResolutionResult {
-  const { workflow, scope, orgOverrideRoutes, globalRoutes, orgInstances, orgOverridePolicy, globalPolicy } = input;
+  const { workflow, scope, orgOverrideRoutes, globalRoutes, orgInstances, platformInstances, orgOverridePolicy, globalPolicy } = input;
 
   // 1) Determine effective policy
   let policy: EffectivePolicy;
@@ -312,7 +340,7 @@ export function resolveEffectivePolicyAndChain(
   let routeSource: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN";
 
   if (enabledOrgRoutes.length > 0) {
-    // Org override takes full precedence
+    // Org override takes full precedence — uses org instances only
     chain = buildConnectorChain(workflow, scope, orgOverrideRoutes, orgInstances, "ORG_OVERRIDE");
     routeSource = "ORG_OVERRIDE";
   } else {
@@ -320,11 +348,12 @@ export function resolveEffectivePolicyAndChain(
       (r) => r.workflow === workflow && r.enabled && (r.scope === scope || r.scope === "BOTH")
     );
     if (enabledGlobalRoutes.length > 0) {
-      chain = buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL");
+      // GLOBAL routes: prefer PLATFORM instances
+      chain = buildConnectorChain(workflow, scope, globalRoutes, orgInstances, "GLOBAL", platformInstances);
       routeSource = "GLOBAL";
     } else {
       // Built-in defaults only
-      chain = buildConnectorChain(workflow, scope, [], orgInstances, "GLOBAL");
+      chain = buildConnectorChain(workflow, scope, [], orgInstances, "GLOBAL", platformInstances);
       routeSource = "BUILTIN";
     }
   }

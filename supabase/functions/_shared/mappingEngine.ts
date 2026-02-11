@@ -307,13 +307,20 @@ export function computeDedupeKeys(
 function computeSingleDedupeKey(record: MappedRecord, scope: "ACTS" | "PUBS"): string {
   const dateField = scope === "ACTS" ? "event_date" : "pub_date";
   const date = String(record[dateField] || "unknown");
-  const desc = String(record.description || "").trim().toLowerCase().slice(0, 200);
+  // Normalize description: strip emoji, collapse whitespace, trim punctuation
+  const rawDesc = String(record.description || "");
+  const normalized = rawDesc
+    .replace(/[\u{1F600}-\u{1F9FF}\u{2600}-\u{2B55}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}✅📄⚖️📋🔔⚠️❌]/gu, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:!?]+$/g, "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 200);
   const provId = String(record.provider_event_id || "");
-  // Include indice for TEXT payloads where reg/idx disambiguates same-day entries
   const indice = String(record.indice || "");
-  // Stable key: scope + date + truncated description hash + provider ID + indice
-  // Never relies on "reg" alone — uses description content for robustness
-  return `${scope}:${date}:${simpleHash(desc)}:${provId}:${indice}`;
+  // Include document URL hash segment if present (strong signal for TEXT payloads)
+  const docHash = String((record as any).document_hash || "");
+  return `${scope}:${date}:${simpleHash(normalized)}:${provId}:${indice}:${docHash ? simpleHash(docHash) : ""}`;
 }
 
 function simpleHash(str: string): string {

@@ -49,7 +49,7 @@ describe("resolveGlobalProviderChain", () => {
     ];
     const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, []);
     expect(chain[0].provider_instance_id).toBeNull();
-    expect(chain[0].skip_reason).toContain("No enabled instance");
+    expect(chain[0].skip_reason).toContain("MISSING_PLATFORM_INSTANCE");
     // Built-in still follows
     expect(chain[1].provider_name).toBe("cpnu");
     expect(chain[1].source).toBe("BUILTIN");
