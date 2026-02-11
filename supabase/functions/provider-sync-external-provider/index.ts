@@ -1,3 +1,19 @@
+/**
+ * provider-sync-external-provider — Runtime ingestion pipeline for external providers.
+ *
+ * Pipeline stages (traced):
+ *   SNAPSHOT_FETCHED → RAW_SAVED → MAPPING_APPLIED → UPSERTED_CANONICAL →
+ *   PROVENANCE_WRITTEN → EXTRAS_WRITTEN → TERMINAL
+ *
+ * Invariants enforced:
+ *   - Raw snapshot saved for EVERY run (OK/PENDING/EMPTY/ERROR)
+ *   - SCRAPING_PENDING never sets last_synced_at
+ *   - EMPTY increments consecutive_failures, NOT consecutive_404_count
+ *   - OK resets both counters to 0
+ *   - Mapping spec loaded (ORG_PRIVATE > GLOBAL > identity); missing = BLOCK
+ *   - Extras from unmapped fields stored in work_item_act_extras / work_item_pub_extras
+ */
+
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { decryptSecret } from "../_shared/secretsCrypto.ts";
 import {
@@ -11,9 +27,17 @@ import {
   DEMONITOR_ELIGIBLE_ERROR_CODES,
   PROVIDER_EMPTY_RESULT,
   retryJitterMs,
+  normalizeProviderErrorCode,
+  isStrict404Code,
 } from "../_shared/syncPolicy.ts";
 import { normalizeActuaciones, normalizePublicaciones } from "../_shared/providerNormalize.ts";
-import { normalizeProviderErrorCode, isStrict404Code } from "../_shared/syncPolicy.ts";
+import {
+  validateSnapshotAgainstContract,
+  applyMappingSpec,
+  computeDedupeKeys,
+  IDENTITY_MAPPING_SPEC,
+  type MappingSpec,
+} from "../_shared/mappingEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +48,12 @@ const corsHeaders = {
 function hexToBytes(hex: string): Uint8Array {
   const clean = hex.replace(/^\\x/, "");
   return new Uint8Array(clean.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
+}
+
+async function hashPayload(payload: unknown): Promise<string> {
+  const text = JSON.stringify(payload);
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
 Deno.serve(async (req) => {
@@ -133,7 +163,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (!secretRow) {
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", "ERROR", false, 0, { error: "No active secret" });
+      await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", "ERROR", false, 0, { error: "No active secret" });
       return new Response(JSON.stringify({ error: "No active secret" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -155,7 +185,7 @@ Deno.serve(async (req) => {
       allowed_domains: connector?.allowed_domains || [],
     };
 
-    // Call /snapshot
+    // ── Stage 1: SNAPSHOT_FETCHED ──
     const snapshotUrl = `${instance.base_url.replace(/\/$/, "")}/snapshot`;
     const snapshotBody = JSON.stringify({
       provider_case_id: source.provider_case_id,
@@ -184,8 +214,11 @@ Deno.serve(async (req) => {
       });
     } catch (fetchErr: unknown) {
       const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      const snapLatency = Date.now() - snapStart;
+      // Save raw snapshot even on fetch error
+      await saveRawSnapshot(db, source, instance, connector, null, "ERROR", snapRes?.status ?? 0, snapLatency, "FETCH_ERROR");
       await updateSourceError(db, source.id, "FETCH_ERROR", errMsg);
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", "ERROR", false, Date.now() - snapStart, { error: errMsg });
+      await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", "ERROR", false, snapLatency, { error: errMsg });
       return new Response(
         JSON.stringify({ ok: false, error: errMsg, duration_ms: Date.now() - startTime }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -195,11 +228,31 @@ Deno.serve(async (req) => {
     const snapLatency = Date.now() - snapStart;
     const snapData = await snapRes.json().catch(() => ({}));
 
-    // ── Outcome routing ──
+    await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", String(snapRes.status), true, snapLatency, {
+      http_status: snapRes.status,
+      has_actuaciones: !!snapData.actuaciones,
+      has_publicaciones: !!snapData.publicaciones,
+    });
 
-    // D) Strict 404 — use normalizer to map provider codes to canonical ATENIA codes
+    // ── Stage 2: RAW_SAVED — always persist raw snapshot ──
     const rawErrorCode = snapData.code || snapData.error_code || null;
     const normalizedCode = normalizeProviderErrorCode(rawErrorCode, snapRes.status);
+
+    // Determine outcome for raw snapshot status
+    let rawStatus = "OK";
+    if (!snapRes.ok || snapData.ok !== true) rawStatus = "ERROR";
+    if (snapData.scraping_initiated || isTransientError(normalizedCode)) rawStatus = "PENDING";
+    const acts = snapData.actuaciones || [];
+    const pubs = snapData.publicaciones || [];
+    if (snapRes.ok && snapData.ok === true && acts.length === 0 && pubs.length === 0) rawStatus = "EMPTY";
+    if (isStrict404Code(normalizedCode)) rawStatus = "ERROR";
+
+    const snapshotId = await saveRawSnapshot(db, source, instance, connector, snapData, rawStatus, snapRes.status, snapLatency, rawStatus === "ERROR" ? normalizedCode : null);
+    await writeTrace(db, runId, source, instance, "RAW_SAVED", rawStatus, true, 0, { snapshot_id: snapshotId });
+
+    // ── Outcome routing ──
+
+    // D) Strict 404
     if (isStrict404Code(normalizedCode)) {
       await db
         .from("work_item_sources")
@@ -213,18 +266,15 @@ Deno.serve(async (req) => {
         })
         .eq("id", source.id);
 
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", normalizedCode, false, snapLatency, snapData);
+      await writeTrace(db, runId, source, instance, "TERMINAL", normalizedCode, false, Date.now() - startTime, { outcome: "STRICT_404" });
       return new Response(
         JSON.stringify({ ok: false, code: normalizedCode, duration_ms: Date.now() - startTime }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // C) Scraping pending / transient — use normalized code
-    const isPending =
-      snapData.scraping_initiated === true ||
-      isTransientError(normalizedCode);
-
+    // C) Scraping pending / transient
+    const isPending = snapData.scraping_initiated === true || isTransientError(normalizedCode);
     if (isPending) {
       const transientCode = isTransientError(normalizedCode) ? normalizedCode : "SCRAPING_PENDING";
       await db
@@ -234,10 +284,10 @@ Deno.serve(async (req) => {
           last_error_code: transientCode,
           last_error_message: snapData.message || "Scraping in progress",
           last_provider_latency_ms: snapLatency,
+          // Do NOT set last_synced_at
         })
         .eq("id", source.id);
 
-      // Enqueue retry with jitter (30-60s)
       const jitterMs = retryJitterMs();
       const nextRunAt = new Date(Date.now() + jitterMs).toISOString();
       await db.from("sync_retry_queue").upsert(
@@ -251,8 +301,8 @@ Deno.serve(async (req) => {
         { onConflict: "work_item_id,kind" },
       ).select();
 
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", transientCode, false, snapLatency, {
-        ...snapData,
+      await writeTrace(db, runId, source, instance, "TERMINAL", transientCode, false, Date.now() - startTime, {
+        outcome: "SCRAPING_PENDING",
         retry_next_run_at: nextRunAt,
       });
 
@@ -268,24 +318,19 @@ Deno.serve(async (req) => {
       );
     }
 
-    // A/B) ok=true
+    // Generic error
     if (!snapRes.ok || snapData.ok !== true) {
-      // Generic error — use normalized code
-      const errCode = normalizedCode !== 'PROVIDER_ERROR' ? normalizedCode : (rawErrorCode || "PROVIDER_ERROR");
+      const errCode = normalizedCode !== "PROVIDER_ERROR" ? normalizedCode : (rawErrorCode || "PROVIDER_ERROR");
       await updateSourceError(db, source.id, errCode, snapData.message || `HTTP ${snapRes.status}`);
-      await writeTrace(db, runId, source, instance, "SNAPSHOT", errCode, false, snapLatency, snapData);
+      await writeTrace(db, runId, source, instance, "TERMINAL", errCode, false, Date.now() - startTime, { outcome: "ERROR" });
       return new Response(
         JSON.stringify({ ok: false, code: errCode, duration_ms: Date.now() - startTime }),
         { status: snapRes.status >= 400 ? snapRes.status : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Check for empty results
-    const acts = snapData.actuaciones || [];
-    const pubs = snapData.publicaciones || [];
-
+    // B) Empty result
     if (acts.length === 0 && pubs.length === 0) {
-      // B) Empty result
       await db
         .from("work_item_sources")
         .update({
@@ -298,7 +343,8 @@ Deno.serve(async (req) => {
         })
         .eq("id", source.id);
 
-      await writeTrace(db, runId, source, instance, "UPSERT", PROVIDER_EMPTY_RESULT, false, snapLatency, {
+      await writeTrace(db, runId, source, instance, "TERMINAL", PROVIDER_EMPTY_RESULT, true, Date.now() - startTime, {
+        outcome: "EMPTY",
         actuaciones_count: 0,
         publicaciones_count: 0,
       });
@@ -314,7 +360,56 @@ Deno.serve(async (req) => {
       );
     }
 
-    // A) Data present — upsert
+    // ── Stage 3: MAPPING_APPLIED — resolve effective mapping spec ──
+    const connectorId = connector?.id;
+    const effectiveSpec = await resolveEffectiveMapping(db, connectorId, source.organization_id, connector);
+
+    if (!effectiveSpec) {
+      // BLOCK: No active mapping spec and connector doesn't emit canonical v1
+      await writeTrace(db, runId, source, instance, "MAPPING_APPLIED", "MAPPING_MISSING_BLOCK", false, 0, {
+        connector_id: connectorId,
+        connector_emits_canonical: connector?.emits_canonical_v1 ?? false,
+      });
+      await writeTrace(db, runId, source, instance, "TERMINAL", "MAPPING_MISSING_BLOCK", false, Date.now() - startTime, {
+        outcome: "BLOCK",
+        reason: "No active mapping spec. Raw snapshot saved.",
+      });
+
+      await db
+        .from("work_item_sources")
+        .update({
+          scrape_status: "ERROR",
+          last_error_code: "MAPPING_SPEC_MISSING",
+          last_error_message: "No active mapping spec found. Configure mapping before syncing.",
+          last_provider_latency_ms: snapLatency,
+        })
+        .eq("id", source.id);
+
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: "MAPPING_SPEC_MISSING",
+          message: "Raw snapshot saved but no mapping spec available to normalize data.",
+          snapshot_id: snapshotId,
+          duration_ms: Date.now() - startTime,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Validate + apply mapping
+    const validation = validateSnapshotAgainstContract(snapData, connector?.schema_version || "v1");
+    const mappingResult = applyMappingSpec(snapData, effectiveSpec);
+
+    await writeTrace(db, runId, source, instance, "MAPPING_APPLIED", "OK", true, 0, {
+      canonical_acts: mappingResult.canonicalActs.length,
+      canonical_pubs: mappingResult.canonicalPubs.length,
+      extras_keys: Object.keys(mappingResult.extrasByKey).length,
+      warnings: mappingResult.mappingWarnings.length,
+      validation_ok: validation.ok,
+    });
+
+    // ── Stage 4: UPSERTED_CANONICAL ──
     const provenance = {
       provider_instance_id: instance.id,
       provider_case_id: source.provider_case_id || "",
@@ -324,38 +419,81 @@ Deno.serve(async (req) => {
 
     let insertedActs = 0;
     let insertedPubs = 0;
+    const insertedActIds: string[] = [];
+    const insertedPubIds: string[] = [];
 
     if (acts.length > 0) {
       const normalized = await normalizeActuaciones(
-        acts,
-        provenance,
-        workItem.id,
-        workItem.owner_id,
-        workItem.organization_id,
+        acts, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
       const { data: inserted } = await db
         .from("work_item_acts")
         .upsert(normalized, { onConflict: "hash_fingerprint", ignoreDuplicates: true })
         .select("id");
       insertedActs = inserted?.length || 0;
+      if (inserted) insertedActIds.push(...inserted.map((r: any) => r.id));
     }
 
     if (pubs.length > 0) {
       const normalized = await normalizePublicaciones(
-        pubs,
-        provenance,
-        workItem.id,
-        workItem.owner_id,
-        workItem.organization_id,
+        pubs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
       const { data: inserted } = await db
         .from("work_item_publicaciones")
         .upsert(normalized, { onConflict: "hash_fingerprint", ignoreDuplicates: true })
         .select("id");
       insertedPubs = inserted?.length || 0;
+      if (inserted) insertedPubIds.push(...inserted.map((r: any) => r.id));
     }
 
-    // Update source: success
+    await writeTrace(db, runId, source, instance, "UPSERTED_CANONICAL", "OK", true, 0, {
+      acts_upserted: insertedActs,
+      pubs_upserted: insertedPubs,
+    });
+
+    // ── Stage 5: PROVENANCE_WRITTEN ──
+    const provenanceRows: any[] = [];
+    for (const actId of insertedActIds) {
+      provenanceRows.push({
+        work_item_act_id: actId,
+        provider_instance_id: instance.id,
+        provider_event_id: null,
+        first_seen_at: new Date().toISOString(),
+        last_seen_at: new Date().toISOString(),
+      });
+    }
+    if (provenanceRows.length > 0) {
+      await db.from("act_provenance").upsert(provenanceRows, {
+        onConflict: "work_item_act_id,provider_instance_id",
+        ignoreDuplicates: true,
+      });
+    }
+    await writeTrace(db, runId, source, instance, "PROVENANCE_WRITTEN", "OK", true, 0, {
+      act_provenance_rows: provenanceRows.length,
+    });
+
+    // ── Stage 6: EXTRAS_WRITTEN ──
+    const extrasKeys = Object.keys(mappingResult.extrasByKey);
+    let extrasWritten = 0;
+    if (extrasKeys.length > 0 && insertedActIds.length > 0) {
+      // Write extras for each act that has unmapped fields
+      const extrasRows = insertedActIds.slice(0, extrasKeys.length).map((actId, i) => ({
+        work_item_act_id: actId,
+        extras: mappingResult.extrasByKey[extrasKeys[i]] || {},
+      }));
+      if (extrasRows.length > 0) {
+        await db.from("work_item_act_extras").upsert(extrasRows, {
+          onConflict: "work_item_act_id",
+          ignoreDuplicates: false,
+        });
+        extrasWritten = extrasRows.length;
+      }
+    }
+    await writeTrace(db, runId, source, instance, "EXTRAS_WRITTEN", "OK", true, 0, {
+      extras_rows_written: extrasWritten,
+    });
+
+    // ── TERMINAL: OK ──
     await db
       .from("work_item_sources")
       .update({
@@ -369,19 +507,21 @@ Deno.serve(async (req) => {
       })
       .eq("id", source.id);
 
-    // Write security warning trace if any
     if (securityWarnings.length > 0) {
       await writeTrace(db, runId, source, instance, "SECURITY", "WARN", true, 0, { warnings: securityWarnings });
     }
 
-    await writeTrace(db, runId, source, instance, "DONE", "OK", true, Date.now() - startTime, {
+    await writeTrace(db, runId, source, instance, "TERMINAL", "OK", true, Date.now() - startTime, {
+      outcome: "OK",
       actuaciones_received: acts.length,
       actuaciones_inserted: insertedActs,
       publicaciones_received: pubs.length,
       publicaciones_inserted: insertedPubs,
+      extras_written: extrasWritten,
+      snapshot_id: snapshotId,
     });
 
-    // Audit
+    // Audit action
     await db.from("atenia_ai_actions").insert({
       organization_id: source.organization_id,
       action_type: "PROVIDER_SYNC_COMPLETED",
@@ -396,6 +536,7 @@ Deno.serve(async (req) => {
         actuaciones_inserted: insertedActs,
         publicaciones_received: pubs.length,
         publicaciones_inserted: insertedPubs,
+        extras_written: extrasWritten,
         latency_ms: snapLatency,
         duration_ms: Date.now() - startTime,
       },
@@ -406,6 +547,8 @@ Deno.serve(async (req) => {
         ok: true,
         inserted_actuaciones: insertedActs,
         inserted_publicaciones: insertedPubs,
+        extras_written: extrasWritten,
+        snapshot_id: snapshotId,
         duration_ms: Date.now() - startTime,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -421,6 +564,69 @@ Deno.serve(async (req) => {
 
 // ── Helpers ──
 
+async function saveRawSnapshot(
+  db: any, source: any, instance: any, connector: any, payload: unknown,
+  status: string, httpStatus: number, latencyMs: number, errorCode: string | null,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const payloadHash = payload ? await hashPayload(payload) : "empty";
+  await db.from("provider_raw_snapshots").insert({
+    id,
+    organization_id: source.organization_id,
+    work_item_id: source.work_item_id,
+    provider_instance_id: instance.id,
+    connector_id: connector?.id || null,
+    scope: "BOTH",
+    provider_case_id: source.provider_case_id || "",
+    fetched_at: new Date().toISOString(),
+    payload: payload || {},
+    payload_hash: payloadHash,
+    status,
+    normalized_error_code: errorCode,
+    http_status: httpStatus,
+    latency_ms: latencyMs,
+  });
+  return id;
+}
+
+async function resolveEffectiveMapping(
+  db: any, connectorId: string, orgId: string, connector: any,
+): Promise<MappingSpec | null> {
+  if (!connectorId) {
+    // No connector → check if it emits canonical v1
+    if (connector?.emits_canonical_v1) return IDENTITY_MAPPING_SPEC;
+    return null;
+  }
+
+  // 1. Try ORG_PRIVATE ACTIVE for this org
+  if (orgId) {
+    const { data: orgSpec } = await db
+      .from("provider_mapping_specs")
+      .select("spec")
+      .eq("provider_connector_id", connectorId)
+      .eq("visibility", "ORG_PRIVATE")
+      .eq("organization_id", orgId)
+      .eq("status", "ACTIVE")
+      .maybeSingle();
+    if (orgSpec) return orgSpec.spec as MappingSpec;
+  }
+
+  // 2. Try GLOBAL ACTIVE
+  const { data: globalSpec } = await db
+    .from("provider_mapping_specs")
+    .select("spec")
+    .eq("provider_connector_id", connectorId)
+    .eq("visibility", "GLOBAL")
+    .eq("status", "ACTIVE")
+    .maybeSingle();
+  if (globalSpec) return globalSpec.spec as MappingSpec;
+
+  // 3. Connector emits canonical v1 → use identity
+  if (connector?.emits_canonical_v1) return IDENTITY_MAPPING_SPEC;
+
+  return null;
+}
+
 async function updateSourceError(db: any, sourceId: string, code: string, message: string) {
   await db
     .from("work_item_sources")
@@ -428,21 +634,13 @@ async function updateSourceError(db: any, sourceId: string, code: string, messag
       scrape_status: "ERROR",
       last_error_code: code,
       last_error_message: message,
-      consecutive_failures: db.rpc ? undefined : undefined, // handled inline
     })
     .eq("id", sourceId);
 }
 
 async function writeTrace(
-  db: any,
-  runId: string,
-  source: any,
-  instance: any,
-  stage: string,
-  resultCode: string,
-  ok: boolean,
-  latencyMs: number,
-  payload: unknown,
+  db: any, runId: string, source: any, instance: any,
+  stage: string, resultCode: string, ok: boolean, latencyMs: number, payload: unknown,
 ) {
   await db.from("provider_sync_traces").insert({
     organization_id: source.organization_id,
