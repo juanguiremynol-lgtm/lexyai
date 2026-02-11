@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, Loader2, AlertTriangle, CheckCircle2, Info, Copy, ShieldAlert, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Bot, Send, Loader2, AlertTriangle, CheckCircle2, Info, Copy, ShieldAlert, Shield, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { WizardMode, WizardState } from "./WizardTypes";
@@ -285,6 +285,14 @@ export function WizardAIGuidePanel({ mode, wizardState, stepId }: WizardAIGuideP
               <div ref={scrollRef} />
             </div>
           </ScrollArea>
+
+          {/* Transparency notice */}
+          <div className="px-3 py-1.5 border-t border-border/20 bg-muted/20">
+            <p className="text-[9px] text-muted-foreground leading-tight">
+              <ShieldAlert className="h-2.5 w-2.5 inline mr-0.5 -mt-0.5" />
+              Gemini ve: configuración + traces + schemas. <strong>No ve secretos ni código fuente.</strong>
+            </p>
+          </div>
 
           {/* Input */}
           <div className="p-2 border-t border-border/30 flex gap-2">

@@ -113,7 +113,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
         ) : null;
       case 5:
         return state.connector ? (
-          <StepMapping connector={state.connector} onNext={next} />
+          <StepMapping connector={state.connector} onNext={next} partitionReport={state.e2eResult?.partition_report || null} />
         ) : null;
       case 6:
         return state.connector ? (
