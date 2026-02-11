@@ -43,7 +43,7 @@ describe("Platform instance resolution in chain builder", () => {
     expect(chain[0].skip_reason).toBeUndefined();
   });
 
-  it("GLOBAL route falls back to org instance when no PLATFORM instance exists (backward compat)", () => {
+  it("GLOBAL route with no PLATFORM instance produces skip even if org instance exists", () => {
     const routes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-1", connector_name: "Ext" }),
     ];
@@ -51,7 +51,9 @@ describe("Platform instance resolution in chain builder", () => {
       { provider_connector_id: "conn-1", provider_instance_id: "inst-org", provider_name: "OrgInst" },
     ];
     const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, orgInstances, []);
-    expect(chain[0].provider_instance_id).toBe("inst-org");
+    // GLOBAL routes no longer fall back to org instances — must skip with MISSING_PLATFORM_INSTANCE
+    expect(chain[0].provider_instance_id).toBeNull();
+    expect(chain[0].skip_reason).toContain("MISSING_PLATFORM_INSTANCE");
   });
 
   it("GLOBAL route with no instances gives MISSING_PLATFORM_INSTANCE skip_reason", () => {
@@ -186,39 +188,76 @@ describe("Missing PLATFORM instance warnings", () => {
 // ── Dedupe Key Normalization Tests ──
 
 describe("Dedupe key normalization", () => {
-  it("Same description with/without emoji produces same dedupe hash", () => {
-    // Simulate the normalization logic
-    const normalize = (s: string) => s
-      .replace(/[\u{1F600}-\u{1F9FF}\u{2600}-\u{2B55}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}✅📄⚖️📋🔔⚠️❌]/gu, "")
-      .replace(/\s+/g, " ")
-      .replace(/[.,;:!?]+$/g, "")
-      .trim()
-      .toLowerCase();
+  const normalize = (s: string) => s
+    .replace(/[\u{1F600}-\u{1F9FF}\u{2600}-\u{2B55}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}✅📄⚖️📋🔔⚠️❌]/gu, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:!?]+$/g, "")
+    .trim()
+    .toLowerCase();
 
+  it("Same description with/without emoji produces same dedupe hash", () => {
     const withEmoji = "✅ Auto que ordena poner en conocimiento...";
     const withoutEmoji = "Auto que ordena poner en conocimiento...";
     expect(normalize(withEmoji)).toBe(normalize(withoutEmoji));
   });
 
   it("Whitespace variations produce same normalized key", () => {
-    const normalize = (s: string) => s
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-
     const a = "Auto   que\tordena   poner";
     const b = "Auto que ordena poner";
     expect(normalize(a)).toBe(normalize(b));
   });
 
   it("Trailing punctuation is stripped", () => {
-    const normalize = (s: string) => s
-      .replace(/[.,;:!?]+$/g, "")
-      .trim();
+    expect(normalize("Auto que ordena...")).toBe("auto que ordena");
+    expect(normalize("Sentencia!!!")).toBe("sentencia");
+    expect(normalize("Normal text")).toBe("normal text");
+  });
 
-    expect(normalize("Auto que ordena...")).toBe("Auto que ordena");
-    expect(normalize("Sentencia!!!")).toBe("Sentencia");
-    expect(normalize("Normal text")).toBe("Normal text");
+  it("REGRESSION: Duplicate Reg values (Actuación 13/14 both Reg:13) produce distinct canonical rows", () => {
+    // Simulates the real production landmine: two actuaciones with different descriptions
+    // but identical "Reg" numbers from the provider TEXT payload.
+    // Dedupe must NOT rely on Reg alone.
+    const simpleHash = (str: string): string => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const ch = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + ch;
+        hash |= 0;
+      }
+      return Math.abs(hash).toString(36);
+    };
+
+    const computeKey = (date: string, desc: string, provId: string, indice: string, docHash: string) => {
+      const normalized = desc
+        .replace(/[\u{1F600}-\u{1F9FF}\u{2600}-\u{2B55}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}✅📄⚖️📋🔔⚠️❌]/gu, "")
+        .replace(/\s+/g, " ")
+        .replace(/[.,;:!?]+$/g, "")
+        .trim()
+        .toLowerCase()
+        .slice(0, 200);
+      return `ACTS:${date}:${simpleHash(normalized)}:${provId}:${indice}:${docHash ? simpleHash(docHash) : ""}`;
+    };
+
+    // Actuación 13 — Reg: 13, but different description
+    const key13 = computeKey(
+      "2025-03-15",
+      "Auto que ordena poner en conocimiento el dictamen pericial",
+      "",
+      "13",
+      ""
+    );
+
+    // Actuación 14 — also Reg: 13 (provider formatting bug), different description
+    const key14 = computeKey(
+      "2025-03-15",
+      "Constancia Secretarial de envío de comunicación electrónica",
+      "",
+      "13",  // Same Reg! Provider bug
+      ""
+    );
+
+    // They MUST produce different keys despite same date + same indice
+    expect(key13).not.toBe(key14);
   });
 });
 
@@ -230,7 +269,6 @@ describe("Blue/green PLATFORM instance selection", () => {
       { id: "old", scope: "PLATFORM", is_enabled: true, created_at: "2025-01-01" },
       { id: "new", scope: "PLATFORM", is_enabled: true, created_at: "2025-06-01" },
     ];
-    // Deterministic: pick first enabled (would be sorted by created_at in DB query)
     const selected = instances
       .filter(i => i.scope === "PLATFORM" && i.is_enabled)
       .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
@@ -246,5 +284,44 @@ describe("Blue/green PLATFORM instance selection", () => {
       .filter(i => i.scope === "PLATFORM" && i.is_enabled)
       .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
     expect(selected.id).toBe("new");
+  });
+});
+
+// ── GLOBAL route never falls back to org instance ──
+
+describe("GLOBAL route strict PLATFORM resolution (no org fallback)", () => {
+  it("GLOBAL route with no PLATFORM instance skips even if org instance exists", () => {
+    const routes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-1", connector_name: "Ext" }),
+    ];
+    const orgInstances: ResolvedInstance[] = [
+      { provider_connector_id: "conn-1", provider_instance_id: "inst-org", provider_name: "OrgInst" },
+    ];
+    // No platform instances provided
+    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, orgInstances, []);
+    const extCandidate = chain.find(c => c.source === "EXTERNAL_PRIMARY");
+    expect(extCandidate?.provider_instance_id).toBeNull();
+    expect(extCandidate?.skip_reason).toContain("MISSING_PLATFORM_INSTANCE");
+  });
+
+  it("ORG_OVERRIDE never falls back to PLATFORM instance when org instance missing", () => {
+    const orgOverrideRoutes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-1", connector_name: "Ext" }),
+    ];
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "conn-1", provider_instance_id: "inst-platform", provider_name: "PlatformInst", scope: "PLATFORM" },
+    ];
+    const result = resolveEffectivePolicyAndChain({
+      workflow: "CGP",
+      scope: "ACTS",
+      orgOverrideRoutes,
+      globalRoutes: [],
+      orgInstances: [], // No org instance
+      platformInstances,
+    });
+    const extCandidate = result.chain.find(c => c.source === "EXTERNAL_PRIMARY");
+    // Should skip — no org instance, even though PLATFORM exists
+    expect(extCandidate?.provider_instance_id).toBeNull();
+    expect(extCandidate?.skip_reason).toContain("No enabled ORG instance");
   });
 });

@@ -187,21 +187,20 @@ function buildConnectorChain(
     }
   }
 
-  // For GLOBAL routes, prefer PLATFORM instances; for ORG_OVERRIDE, use org instances
+  // For GLOBAL routes, use PLATFORM instances only. No fallback to org instances.
+  // For ORG_OVERRIDE, use org instances only. Never fall back to PLATFORM.
   const resolveInstance = (connectorId: string): ResolvedInstance | undefined => {
     if (routeSource === "GLOBAL") {
-      // GLOBAL routes: use PLATFORM instance first, fallback to org instance for backward compat
-      return platformInstanceMap.get(connectorId) || orgInstanceMap.get(connectorId);
+      return platformInstanceMap.get(connectorId);
     }
-    // ORG_OVERRIDE: only use org instances
     return orgInstanceMap.get(connectorId);
   };
 
   const missingSkipReason = (connectorName: string, connectorId: string): string => {
     if (routeSource === "GLOBAL") {
-      return `No enabled PLATFORM instance for connector ${connectorName || connectorId}. Configure a platform instance via the wizard. (MISSING_PLATFORM_INSTANCE)`;
+      return `MISSING_PLATFORM_INSTANCE: No enabled PLATFORM instance for connector ${connectorName || connectorId}. Configure a platform instance via the wizard.`;
     }
-    return `No enabled instance for connector ${connectorName || connectorId}`;
+    return `No enabled ORG instance for connector ${connectorName || connectorId}`;
   };
 
   const primaryRoutes = routes

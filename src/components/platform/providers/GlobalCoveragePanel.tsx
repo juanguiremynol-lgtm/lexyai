@@ -6,11 +6,14 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Globe, Layers, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Globe, Layers, CheckCircle2, AlertTriangle, Server } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 export function GlobalCoveragePanel() {
+  const navigate = useNavigate();
   const { data: globalData } = useQuery({
     queryKey: ["global-routes"],
     queryFn: async () => {
@@ -29,16 +32,21 @@ export function GlobalCoveragePanel() {
   const routes = globalData?.routes || [];
   const platformInstances = globalData?.platform_instances || {};
 
-  // Deduplicate connectors from routes
-  const connectorMap = new Map<string, { name: string; hasPlatformInstance: boolean }>();
+  // Deduplicate connectors from routes, collecting affected workflows/scopes
+  const connectorMap = new Map<string, { name: string; hasPlatformInstance: boolean; workflows: Set<string>; scopes: Set<string> }>();
   for (const r of routes) {
     const cid = r.provider_connector_id;
     if (!connectorMap.has(cid)) {
       connectorMap.set(cid, {
         name: r.provider_connectors?.name || "?",
         hasPlatformInstance: !!platformInstances[cid],
+        workflows: new Set(),
+        scopes: new Set(),
       });
     }
+    const entry = connectorMap.get(cid)!;
+    if (r.workflow) entry.workflows.add(r.workflow);
+    if (r.scope) entry.scopes.add(r.scope);
   }
 
   const connectors = Array.from(connectorMap.entries());
@@ -65,17 +73,32 @@ export function GlobalCoveragePanel() {
         {missingInstances.length > 0 && (
           <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-lg p-3">
             <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
-            <div className="text-xs text-foreground/80">
-              <p className="font-semibold text-destructive">Proveedores no activos</p>
-              <p className="mt-1">
+            <div className="text-xs text-foreground/80 space-y-2">
+              <p className="font-semibold text-destructive">⚠️ Proveedores configurados pero NO activos</p>
+              <p>
                 Las siguientes rutas GLOBALES están configuradas pero <strong>no tienen instancia de plataforma activa</strong>.
-                El proveedor NO se ejecutará hasta que se cree una instancia de plataforma vía el wizard.
+                El proveedor NO se ejecutará para ninguna organización hasta que se cree una instancia de plataforma.
               </p>
-              <ul className="mt-1 list-disc list-inside text-muted-foreground">
+              <ul className="list-disc list-inside text-muted-foreground space-y-1">
                 {missingInstances.map(([cid, info]) => (
-                  <li key={cid}>{info.name} <span className="font-mono text-[10px]">({cid.slice(0, 8)})</span></li>
+                  <li key={cid}>
+                    <strong className="text-foreground">{info.name}</strong>{" "}
+                    <span className="font-mono text-[10px]">({cid.slice(0, 8)})</span>
+                    {" — "}
+                    <span>Workflows: {Array.from(info.workflows).join(", ") || "—"}</span>
+                    {" · "}
+                    <span>Scopes: {Array.from(info.scopes).join(", ") || "—"}</span>
+                  </li>
                 ))}
               </ul>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="mt-1 gap-1"
+                onClick={() => navigate("/platform/external-providers/wizard")}
+              >
+                <Server className="h-3 w-3" /> Crear instancia de plataforma
+              </Button>
             </div>
           </div>
         )}
