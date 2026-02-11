@@ -161,3 +161,6 @@ verify_jwt = false
 
 [functions.provider-infer-mapping]
 verify_jwt = false
+
+[functions.provider-activate-mapping]
+verify_jwt = false

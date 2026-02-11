@@ -5810,7 +5810,10 @@ export type Database = {
       }
       provider_mapping_specs: {
         Row: {
+          approved_at: string | null
+          approved_by: string | null
           created_at: string
+          created_by: string | null
           id: string
           organization_id: string | null
           provider_connector_id: string
@@ -5822,7 +5825,10 @@ export type Database = {
           visibility: string
         }
         Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
           organization_id?: string | null
           provider_connector_id: string
@@ -5834,7 +5840,10 @@ export type Database = {
           visibility: string
         }
         Update: {
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
           organization_id?: string | null
           provider_connector_id?: string
@@ -5934,8 +5943,11 @@ export type Database = {
       }
       provider_raw_snapshots: {
         Row: {
+          connector_id: string | null
           fetched_at: string
+          http_status: number | null
           id: string
+          latency_ms: number | null
           normalized_error_code: string | null
           organization_id: string
           payload: Json
@@ -5947,8 +5959,11 @@ export type Database = {
           work_item_id: string
         }
         Insert: {
+          connector_id?: string | null
           fetched_at?: string
+          http_status?: number | null
           id?: string
+          latency_ms?: number | null
           normalized_error_code?: string | null
           organization_id: string
           payload: Json
@@ -5960,8 +5975,11 @@ export type Database = {
           work_item_id: string
         }
         Update: {
+          connector_id?: string | null
           fetched_at?: string
+          http_status?: number | null
           id?: string
+          latency_ms?: number | null
           normalized_error_code?: string | null
           organization_id?: string
           payload?: Json

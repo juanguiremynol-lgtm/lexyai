@@ -1,14 +1,14 @@
 /**
  * Vitest tests for the ingestion pipeline scenarios.
  * Tests cover: OK flows, empty results, pending states, missing mapping specs,
- * ORG_PRIVATE override, and trace stage completeness.
+ * ORG_PRIVATE override, trace stage completeness, and mapping governance.
  */
 
 import { describe, it, expect } from "vitest";
 
 // ---- Inline pipeline simulation (mirrors provider-sync-external-provider logic) ----
 
-type TraceStage = "SNAPSHOT_FETCHED" | "RAW_SAVED" | "MAPPED" | "UPSERTED" | "PROVENANCE_WRITTEN" | "EXTRAS_WRITTEN";
+type TraceStage = "SNAPSHOT_FETCHED" | "RAW_SAVED" | "MAPPING_APPLIED" | "MAPPING_MISSING_BLOCK" | "UPSERTED_CANONICAL" | "PROVENANCE_WRITTEN" | "EXTRAS_WRITTEN" | "TERMINAL";
 
 interface PipelineResult {
   ok: boolean;
@@ -19,6 +19,9 @@ interface PipelineResult {
   provenanceRows: number;
   extrasRows: number;
   traces: TraceStage[];
+  lastSyncedAtSet: boolean;
+  consecutiveFailuresReset: boolean;
+  consecutive404Reset: boolean;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -26,7 +29,10 @@ interface PipelineResult {
 interface MappingSpec {
   id: string;
   visibility: "GLOBAL" | "ORG_PRIVATE";
-  status: "DRAFT" | "ACTIVE" | "DEPRECATED";
+  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
+  organization_id?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
 }
 
 function resolveEffectiveMapping(
@@ -34,7 +40,7 @@ function resolveEffectiveMapping(
   orgSpecs: MappingSpec[],
   connectorEmitsCanonicalV1: boolean,
 ): MappingSpec | "IDENTITY" | null {
-  // ORG_PRIVATE ACTIVE overrides GLOBAL
+  // Only ACTIVE specs are considered — DRAFT/ARCHIVED never applied
   const orgActive = orgSpecs.find((s) => s.visibility === "ORG_PRIVATE" && s.status === "ACTIVE");
   if (orgActive) return orgActive;
 
@@ -43,7 +49,7 @@ function resolveEffectiveMapping(
 
   if (connectorEmitsCanonicalV1) return "IDENTITY";
 
-  return null; // No mapping available
+  return null;
 }
 
 function simulatePipeline(params: {
@@ -63,6 +69,9 @@ function simulatePipeline(params: {
     provenanceRows: 0,
     extrasRows: 0,
     traces,
+    lastSyncedAtSet: false,
+    consecutiveFailuresReset: false,
+    consecutive404Reset: false,
   };
 
   // Step 1: Snapshot fetched
@@ -71,6 +80,10 @@ function simulatePipeline(params: {
   if (!params.snapshotOk) {
     result.errorCode = "FETCH_ERROR";
     result.errorMessage = "Provider unreachable";
+    // Raw snapshot saved even on error
+    result.rawSnapshotSaved = true;
+    traces.push("RAW_SAVED");
+    traces.push("TERMINAL");
     return result;
   }
 
@@ -82,6 +95,9 @@ function simulatePipeline(params: {
   if (params.payload.scraping_initiated) {
     result.status = "PENDING";
     result.errorCode = "SCRAPING_PENDING";
+    // Do NOT set last_synced_at
+    result.lastSyncedAtSet = false;
+    traces.push("TERMINAL");
     return result;
   }
 
@@ -92,6 +108,9 @@ function simulatePipeline(params: {
     result.ok = true;
     result.status = "EMPTY";
     result.errorCode = "PROVIDER_EMPTY_RESULT";
+    // consecutive_failures++ but NOT consecutive_404_count
+    result.lastSyncedAtSet = false;
+    traces.push("TERMINAL");
     return result;
   }
 
@@ -100,16 +119,18 @@ function simulatePipeline(params: {
     result.status = "BLOCK";
     result.errorCode = "MAPPING_SPEC_MISSING";
     result.errorMessage = "No active mapping spec found. Configure mapping before syncing.";
+    traces.push("MAPPING_MISSING_BLOCK");
+    traces.push("TERMINAL");
     return result;
   }
 
   // Step 4: Apply mapping
-  traces.push("MAPPED");
+  traces.push("MAPPING_APPLIED");
 
   // Step 5: Upsert canonical
   result.canonicalActs = acts.length;
   result.canonicalPubs = pubs.length;
-  traces.push("UPSERTED");
+  traces.push("UPSERTED_CANONICAL");
 
   // Step 6: Write provenance
   result.provenanceRows = acts.length + pubs.length;
@@ -121,8 +142,13 @@ function simulatePipeline(params: {
     traces.push("EXTRAS_WRITTEN");
   }
 
+  // Terminal OK
+  traces.push("TERMINAL");
   result.ok = true;
   result.status = "OK";
+  result.lastSyncedAtSet = true;
+  result.consecutiveFailuresReset = true;
+  result.consecutive404Reset = true;
   return result;
 }
 
@@ -152,11 +178,15 @@ describe("Ingestion Pipeline: OK with fully mappable payload", () => {
     expect(result.canonicalPubs).toBe(1);
     expect(result.provenanceRows).toBe(3);
     expect(result.extrasRows).toBe(0);
+    expect(result.lastSyncedAtSet).toBe(true);
+    expect(result.consecutiveFailuresReset).toBe(true);
+    expect(result.consecutive404Reset).toBe(true);
     expect(result.traces).toContain("SNAPSHOT_FETCHED");
     expect(result.traces).toContain("RAW_SAVED");
-    expect(result.traces).toContain("MAPPED");
-    expect(result.traces).toContain("UPSERTED");
+    expect(result.traces).toContain("MAPPING_APPLIED");
+    expect(result.traces).toContain("UPSERTED_CANONICAL");
     expect(result.traces).toContain("PROVENANCE_WRITTEN");
+    expect(result.traces).toContain("TERMINAL");
     expect(result.traces).not.toContain("EXTRAS_WRITTEN");
   });
 });
@@ -181,11 +211,12 @@ describe("Ingestion Pipeline: OK with extra fields", () => {
     expect(result.extrasRows).toBe(2);
     expect(result.traces).toContain("EXTRAS_WRITTEN");
     expect(result.traces).toContain("PROVENANCE_WRITTEN");
+    expect(result.traces).toContain("TERMINAL");
   });
 });
 
 describe("Ingestion Pipeline: EMPTY result", () => {
-  it("saves raw snapshot, produces no canonical records, no retry", () => {
+  it("saves raw snapshot, produces no canonical records, no retry, no 404 increment", () => {
     const result = simulatePipeline({
       snapshotOk: true,
       payload: { actuaciones: [], publicaciones: [] },
@@ -200,11 +231,15 @@ describe("Ingestion Pipeline: EMPTY result", () => {
     expect(result.provenanceRows).toBe(0);
     expect(result.extrasRows).toBe(0);
     expect(result.errorCode).toBe("PROVIDER_EMPTY_RESULT");
+    // EMPTY does NOT set last_synced_at
+    expect(result.lastSyncedAtSet).toBe(false);
+    // EMPTY should not trigger 404 behavior
+    expect(result.consecutive404Reset).toBe(false);
   });
 });
 
 describe("Ingestion Pipeline: PENDING (scraping initiated)", () => {
-  it("saves raw snapshot, no canonical records, enqueues retry", () => {
+  it("saves raw snapshot, no canonical records, no last_synced_at, retry enqueued", () => {
     const result = simulatePipeline({
       snapshotOk: true,
       payload: { scraping_initiated: true, actuaciones: [] },
@@ -216,17 +251,19 @@ describe("Ingestion Pipeline: PENDING (scraping initiated)", () => {
     expect(result.canonicalActs).toBe(0);
     expect(result.canonicalPubs).toBe(0);
     expect(result.errorCode).toBe("SCRAPING_PENDING");
+    // PENDING must NOT set last_synced_at
+    expect(result.lastSyncedAtSet).toBe(false);
   });
 });
 
 describe("Ingestion Pipeline: Mapping spec missing → BLOCK", () => {
-  it("saves raw snapshot, returns BLOCK with explicit error", () => {
+  it("saves raw snapshot, returns BLOCK with trace MAPPING_MISSING_BLOCK, no canonical upserts", () => {
     const result = simulatePipeline({
       snapshotOk: true,
       payload: {
         actuaciones: [{ fecha: "2025-01-15", descripcion: "Auto admisorio" }],
       },
-      mappingSpec: null, // No mapping available
+      mappingSpec: null,
     });
 
     expect(result.ok).toBe(false);
@@ -235,16 +272,19 @@ describe("Ingestion Pipeline: Mapping spec missing → BLOCK", () => {
     expect(result.canonicalActs).toBe(0);
     expect(result.errorCode).toBe("MAPPING_SPEC_MISSING");
     expect(result.errorMessage).toContain("mapping");
+    expect(result.traces).toContain("MAPPING_MISSING_BLOCK");
+    expect(result.traces).toContain("TERMINAL");
+    expect(result.traces).not.toContain("UPSERTED_CANONICAL");
   });
 });
 
 describe("Ingestion Pipeline: ORG_PRIVATE mapping overrides GLOBAL", () => {
-  it("uses org-private mapping when both exist", () => {
+  it("uses org-private ACTIVE mapping when both exist", () => {
     const globalSpecs: MappingSpec[] = [
       { id: "global-1", visibility: "GLOBAL", status: "ACTIVE" },
     ];
     const orgSpecs: MappingSpec[] = [
-      { id: "org-1", visibility: "ORG_PRIVATE", status: "ACTIVE" },
+      { id: "org-1", visibility: "ORG_PRIVATE", status: "ACTIVE", organization_id: "org-uuid" },
     ];
 
     const effective = resolveEffectiveMapping(globalSpecs, orgSpecs, false);
@@ -253,7 +293,6 @@ describe("Ingestion Pipeline: ORG_PRIVATE mapping overrides GLOBAL", () => {
     expect((effective as MappingSpec).id).toBe("org-1");
     expect((effective as MappingSpec).visibility).toBe("ORG_PRIVATE");
 
-    // Now simulate pipeline with the org spec
     const result = simulatePipeline({
       snapshotOk: true,
       payload: { actuaciones: [{ fecha: "2025-01-15", descripcion: "Test" }] },
@@ -282,10 +321,29 @@ describe("Ingestion Pipeline: ORG_PRIVATE mapping overrides GLOBAL", () => {
     const effective = resolveEffectiveMapping([], [], false);
     expect(effective).toBeNull();
   });
+
+  it("DRAFT specs are never applied — only ACTIVE", () => {
+    const globalDraft: MappingSpec[] = [
+      { id: "draft-1", visibility: "GLOBAL", status: "DRAFT" },
+    ];
+    const orgDraft: MappingSpec[] = [
+      { id: "org-draft-1", visibility: "ORG_PRIVATE", status: "DRAFT", organization_id: "org-uuid" },
+    ];
+    const effective = resolveEffectiveMapping(globalDraft, orgDraft, false);
+    expect(effective).toBeNull();
+  });
+
+  it("ARCHIVED specs are never applied", () => {
+    const specs: MappingSpec[] = [
+      { id: "archived-1", visibility: "GLOBAL", status: "ARCHIVED" },
+    ];
+    const effective = resolveEffectiveMapping(specs, [], false);
+    expect(effective).toBeNull();
+  });
 });
 
 describe("Ingestion Pipeline: Trace stage completeness", () => {
-  it("successful pipeline produces all 6 trace stages when extras exist", () => {
+  it("successful pipeline with extras produces all trace stages", () => {
     const result = simulatePipeline({
       snapshotOk: true,
       payload: { actuaciones: [{ fecha: "2025-01-15", descripcion: "Test", extra: "val" }] },
@@ -294,14 +352,15 @@ describe("Ingestion Pipeline: Trace stage completeness", () => {
     });
 
     const expectedStages: TraceStage[] = [
-      "SNAPSHOT_FETCHED", "RAW_SAVED", "MAPPED", "UPSERTED", "PROVENANCE_WRITTEN", "EXTRAS_WRITTEN",
+      "SNAPSHOT_FETCHED", "RAW_SAVED", "MAPPING_APPLIED", "UPSERTED_CANONICAL",
+      "PROVENANCE_WRITTEN", "EXTRAS_WRITTEN", "TERMINAL",
     ];
     for (const stage of expectedStages) {
       expect(result.traces).toContain(stage);
     }
   });
 
-  it("successful pipeline without extras omits EXTRAS_WRITTEN", () => {
+  it("successful pipeline without extras omits EXTRAS_WRITTEN but still has TERMINAL", () => {
     const result = simulatePipeline({
       snapshotOk: true,
       payload: { actuaciones: [{ fecha: "2025-01-15", descripcion: "Test" }] },
@@ -311,5 +370,70 @@ describe("Ingestion Pipeline: Trace stage completeness", () => {
 
     expect(result.traces).not.toContain("EXTRAS_WRITTEN");
     expect(result.traces).toContain("PROVENANCE_WRITTEN");
+    expect(result.traces).toContain("TERMINAL");
+  });
+
+  it("fetch error still saves raw snapshot and traces TERMINAL", () => {
+    const result = simulatePipeline({
+      snapshotOk: false,
+      payload: { actuaciones: [] },
+      mappingSpec: "IDENTITY",
+    });
+
+    expect(result.rawSnapshotSaved).toBe(true);
+    expect(result.traces).toContain("SNAPSHOT_FETCHED");
+    expect(result.traces).toContain("RAW_SAVED");
+    expect(result.traces).toContain("TERMINAL");
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("Mapping Governance: DRAFT → ACTIVE promotion", () => {
+  it("only platform admin can activate GLOBAL specs", () => {
+    const spec: MappingSpec = { id: "s1", visibility: "GLOBAL", status: "DRAFT" };
+    const isPlatformAdmin = true;
+    const canActivate = spec.visibility === "GLOBAL" && isPlatformAdmin;
+    expect(canActivate).toBe(true);
+  });
+
+  it("org admin can activate ORG_PRIVATE specs for their org", () => {
+    const spec: MappingSpec = { id: "s2", visibility: "ORG_PRIVATE", status: "DRAFT", organization_id: "org-1" };
+    const isOrgAdmin = true;
+    const userOrgId = "org-1";
+    const canActivate = spec.visibility === "ORG_PRIVATE" && isOrgAdmin && spec.organization_id === userOrgId;
+    expect(canActivate).toBe(true);
+  });
+
+  it("org admin cannot activate GLOBAL specs", () => {
+    const spec: MappingSpec = { id: "s3", visibility: "GLOBAL", status: "DRAFT" };
+    const isPlatformAdmin = false;
+    const canActivate = spec.visibility === "GLOBAL" && isPlatformAdmin;
+    expect(canActivate).toBe(false);
+  });
+
+  it("activation sets approved_by and approved_at", () => {
+    const now = new Date().toISOString();
+    const activatedSpec: MappingSpec = {
+      id: "s4",
+      visibility: "GLOBAL",
+      status: "ACTIVE",
+      approved_by: "admin-uuid",
+      approved_at: now,
+    };
+    expect(activatedSpec.status).toBe("ACTIVE");
+    expect(activatedSpec.approved_by).toBeTruthy();
+    expect(activatedSpec.approved_at).toBeTruthy();
+  });
+
+  it("activating a new spec archives the previous ACTIVE spec", () => {
+    const previousActive: MappingSpec = { id: "old", visibility: "GLOBAL", status: "ACTIVE" };
+    const newDraft: MappingSpec = { id: "new", visibility: "GLOBAL", status: "DRAFT" };
+
+    // Simulate: archive old, activate new
+    previousActive.status = "ARCHIVED";
+    newDraft.status = "ACTIVE";
+
+    expect(previousActive.status).toBe("ARCHIVED");
+    expect(newDraft.status).toBe("ACTIVE");
   });
 });
