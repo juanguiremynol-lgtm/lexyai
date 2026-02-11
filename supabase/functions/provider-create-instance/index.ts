@@ -59,28 +59,60 @@ Deno.serve(async (req) => {
       secret_value,
       timeout_ms,
       rpm_limit,
+      scope: requestedScope,
     } = body;
 
-    if (!organization_id || !connector_id || !name || !base_url || !auth_type || !secret_value) {
+    const instanceScope = requestedScope || "ORG";
+
+    if (!connector_id || !name || !base_url || !auth_type || !secret_value) {
       return new Response(
-        JSON.stringify({ error: "organization_id, connector_id, name, base_url, auth_type, secret_value are required" }),
+        JSON.stringify({ error: "connector_id, name, base_url, auth_type, secret_value are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Verify org admin
-    const { data: membership } = await adminClient
-      .from("organization_memberships")
-      .select("role")
-      .eq("organization_id", organization_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // Scope-specific validation
+    if (instanceScope === "PLATFORM") {
+      // Platform admin only
+      const { data: platformAdmin } = await adminClient
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!platformAdmin) {
+        return new Response(JSON.stringify({ error: "Platform admin required for PLATFORM instances" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // organization_id must be null for PLATFORM
+      if (organization_id) {
+        return new Response(JSON.stringify({ error: "PLATFORM instances must not have organization_id" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      // ORG scope — require org admin
+      if (!organization_id) {
+        return new Response(
+          JSON.stringify({ error: "organization_id required for ORG instances" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const { data: membership } = await adminClient
+        .from("organization_memberships")
+        .select("role")
+        .eq("organization_id", organization_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return new Response(JSON.stringify({ error: "Must be org admin" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
+        return new Response(JSON.stringify({ error: "Must be org admin" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Load connector for domain allowlist
@@ -119,7 +151,7 @@ Deno.serve(async (req) => {
     const { data: instance, error: instErr } = await adminClient
       .from("provider_instances")
       .insert({
-        organization_id,
+        organization_id: instanceScope === "PLATFORM" ? null : organization_id,
         connector_id,
         name,
         base_url,
@@ -128,6 +160,8 @@ Deno.serve(async (req) => {
         rpm_limit: rpm_limit || 60,
         is_enabled: true,
         created_by: user.id,
+        scope: instanceScope,
+        created_by_role: instanceScope === "PLATFORM" ? "PLATFORM_ADMIN" : "ORG_ADMIN",
       })
       .select()
       .single();
@@ -162,12 +196,13 @@ Deno.serve(async (req) => {
       .from("provider_instance_secrets")
       .insert({
         provider_instance_id: instance.id,
-        organization_id,
+        organization_id: instanceScope === "PLATFORM" ? null : organization_id,
         key_version: 1,
         is_active: true,
         cipher_text: cipher,
         nonce,
         created_by: user.id,
+        scope: instanceScope,
       });
 
     if (secErr) {
@@ -181,7 +216,7 @@ Deno.serve(async (req) => {
 
     // Audit
     await adminClient.from("atenia_ai_actions").insert({
-      organization_id,
+      organization_id: organization_id || "a0000000-0000-0000-0000-000000000001",
       action_type: "PROVIDER_INSTANCE_CREATE",
       autonomy_tier: "USER",
       reasoning: `Org admin created provider instance "${name}" for connector "${connector.key}"`,

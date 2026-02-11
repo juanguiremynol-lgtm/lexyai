@@ -128,14 +128,36 @@ Deno.serve(async (req) => {
     }
 
     // Load instance + connector
-    const { data: instance } = await db
+    // First try direct instance from source
+    let instance: any;
+    const { data: directInstance } = await db
       .from("provider_instances")
       .select("*, provider_connectors(*)")
       .eq("id", source.provider_instance_id)
       .single();
 
+    instance = directInstance;
+
+    // If no direct instance found, try resolving PLATFORM instance for this connector
     if (!instance) {
-      return new Response(JSON.stringify({ error: "Instance not found" }), {
+      // Check if there's a platform-scoped instance for the connector referenced in this source
+      const { data: platformInstance } = await db
+        .from("provider_instances")
+        .select("*, provider_connectors(*)")
+        .eq("connector_id", source.connector_id || "")
+        .eq("scope", "PLATFORM")
+        .eq("is_enabled", true)
+        .maybeSingle();
+
+      instance = platformInstance;
+    }
+
+    if (!instance) {
+      await writeTrace(db, runId, source, { id: source.provider_instance_id || "unknown" }, "SNAPSHOT_FETCHED", "ERROR", false, 0, {
+        error: "Instance not found. For GLOBAL routes, ensure a PLATFORM instance exists.",
+        skip_reason: "MISSING_PLATFORM_INSTANCE",
+      });
+      return new Response(JSON.stringify({ error: "Instance not found", skip_reason: "MISSING_PLATFORM_INSTANCE" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -155,13 +177,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Decrypt secret
-    const { data: secretRow } = await db
+    // Decrypt secret — for PLATFORM instances, secrets have scope=PLATFORM and no org_id
+    const secretQuery = db
       .from("provider_instance_secrets")
       .select("cipher_text, nonce")
       .eq("provider_instance_id", instance.id)
-      .eq("is_active", true)
-      .single();
+      .eq("is_active", true);
+    const { data: secretRow } = await secretQuery.single();
 
     if (!secretRow) {
       await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", "ERROR", false, 0, { error: "No active secret" });

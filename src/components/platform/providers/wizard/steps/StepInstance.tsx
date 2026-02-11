@@ -1,5 +1,7 @@
 /**
- * Step 3 — Instance Provisioning (Org-scoped)
+ * Step 3 — Instance Provisioning
+ * PLATFORM mode: single platform-managed instance (no org selection, stored once).
+ * ORG mode: org-scoped instance as before.
  */
 
 import { useState } from "react";
@@ -8,10 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Check, Key, Loader2, Server, ShieldAlert, Info } from "lucide-react";
+import { ArrowRight, Check, Key, Loader2, Server, ShieldAlert, Info, Globe, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardConnector, WizardInstance, WizardMode } from "../WizardTypes";
 
@@ -46,34 +48,12 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
   const isPlatform = mode === "PLATFORM";
 
   const [orgId, setOrgId] = useState(organizationId || "");
-  const [instanceName, setInstanceName] = useState(instance?.name || `${connector.name} Instance`);
+  const [instanceName, setInstanceName] = useState(instance?.name || `${connector.name} ${isPlatform ? "Platform" : ""} Instance`);
   const [baseUrl, setBaseUrl] = useState(instance?.base_url || "https://");
   const [authType, setAuthType] = useState(instance?.auth_type || "API_KEY");
   const [secretValue, setSecretValue] = useState("");
   const [timeoutMs, setTimeoutMs] = useState(instance?.timeout_ms || 8000);
   const [rpmLimit, setRpmLimit] = useState(instance?.rpm_limit || 60);
-
-  const { data: organizations } = useQuery({
-    queryKey: ["wizard-orgs"],
-    queryFn: async () => {
-      const { data } = await supabase.from("organizations").select("id, name").order("name");
-      return data || [];
-    },
-    enabled: isPlatform,
-  });
-
-  // Instance coverage: how many orgs have instances for this connector
-  const { data: coverageCount } = useQuery({
-    queryKey: ["wizard-instance-coverage", connector.id],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("provider_instances")
-        .select("id", { count: "exact", head: true })
-        .eq("connector_id", connector.id)
-        .eq("is_enabled", true);
-      return count ?? 0;
-    },
-  });
 
   const baseUrlHost = getBaseUrlHost(baseUrl);
   const isHttps = baseUrl.startsWith("https://");
@@ -86,10 +66,11 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
     mutationFn: async () => {
       if (!baseUrlValid) throw new Error("base_url inválido o no en allowlist");
       if (!secretValue.trim()) throw new Error("Secreto requerido");
+      if (!isPlatform && !orgId) throw new Error("Organización requerida");
 
       const { data, error } = await supabase.functions.invoke("provider-create-instance", {
         body: {
-          organization_id: orgId,
+          organization_id: isPlatform ? null : orgId,
           connector_id: connector.id,
           name: instanceName.trim(),
           base_url: baseUrl.trim(),
@@ -97,6 +78,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           secret_value: secretValue,
           timeout_ms: timeoutMs,
           rpm_limit: rpmLimit,
+          scope: isPlatform ? "PLATFORM" : "ORG",
         },
       });
       if (error) throw error;
@@ -104,11 +86,10 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       return data.instance as WizardInstance;
     },
     onSuccess: (inst) => {
-      toast.success("Instancia creada");
+      toast.success(isPlatform ? "Instancia de plataforma creada — activa para todas las organizaciones" : "Instancia creada");
       setSecretValue("");
       queryClient.invalidateQueries({ queryKey: ["provider-instances"] });
-      queryClient.invalidateQueries({ queryKey: ["wizard-instance-coverage"] });
-      onInstanceSaved(inst, (coverageCount ?? 0) + 1);
+      onInstanceSaved(inst);
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -118,38 +99,36 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       <div className="lg:col-span-3 space-y-5">
         <h2 className="text-xl font-display font-semibold text-foreground flex items-center gap-2">
           <Server className="h-5 w-5 text-primary" />
-          Provisionar Instancia
+          {isPlatform ? "Instancia de Plataforma" : "Provisionar Instancia"}
         </h2>
 
-        {isPlatform && (
+        {isPlatform ? (
+          <div className="flex items-start gap-2 text-xs bg-primary/5 border border-primary/20 rounded-lg p-3">
+            <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
+            <span className="text-foreground/80">
+              Esta instancia se gestiona <strong>centralmente por el Super Admin</strong>. Las credenciales se almacenan una sola vez y se usan automáticamente para todas las organizaciones. Los administradores de organización y usuarios no necesitan configurar nada.
+            </span>
+          </div>
+        ) : (
           <div className="flex items-start gap-2 text-xs bg-primary/5 border border-primary/20 rounded-lg p-3">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
             <span className="text-foreground/80">
-              Los secretos son <strong>siempre org-scoped</strong>. Como Super Admin, provisiona una instancia de prueba bajo tu organización. Las demás organizaciones crearán su propia instancia con sus propias credenciales para activar el uso del conector.
+              Esta instancia es <strong>específica de tu organización</strong>. Las credenciales solo se usan para tu org.
             </span>
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
+        {/* Org selector — only for ORG mode */}
+        {!isPlatform && (
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Organización</Label>
-            {isPlatform ? (
-              <Select value={orgId} onValueChange={setOrgId}>
-                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
-                <SelectContent>
-                  {organizations?.map((org) => (
-                    <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input value="Mi Organización" disabled />
-            )}
+            <Input value="Mi Organización" disabled />
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Nombre de instancia</Label>
-            <Input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} />
-          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Nombre de instancia</Label>
+          <Input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">
@@ -214,13 +193,28 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           </div>
         )}
 
-        {/* Instance coverage */}
-        {coverageCount != null && (
-          <div className="flex items-center gap-2 text-xs bg-muted/30 border border-border/50 rounded-lg p-3">
-            <Server className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground">
-              <strong className="text-foreground">{coverageCount}</strong> {coverageCount === 1 ? "organización tiene" : "organizaciones tienen"} instancia(s) activa(s) de este conector.
-            </span>
+        {/* Activation status for PLATFORM */}
+        {isPlatform && (
+          <div className={`flex items-center gap-2 text-xs rounded-lg p-3 border ${
+            alreadySaved
+              ? "bg-primary/5 border-primary/20"
+              : "bg-muted/30 border-border/50"
+          }`}>
+            {alreadySaved ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="text-foreground/80">
+                  <strong className="text-primary">Activo</strong> — Esta instancia de plataforma aplica automáticamente a todas las organizaciones. Cobertura: 100% orgs.
+                </span>
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground">
+                  <strong>No activo</strong> — Cree la instancia de plataforma para activar el proveedor para todas las organizaciones.
+                </span>
+              </>
+            )}
           </div>
         )}
 
@@ -228,10 +222,10 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           {!alreadySaved ? (
             <Button
               onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !baseUrlValid || !orgId || !instanceName.trim() || !secretValue.trim()}
+              disabled={createMutation.isPending || !baseUrlValid || (!isPlatform && !orgId) || !instanceName.trim() || !secretValue.trim()}
             >
               {createMutation.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Crear Instancia
+              {isPlatform ? "Crear Instancia de Plataforma" : "Crear Instancia"}
             </Button>
           ) : <div />}
           <Button onClick={onNext} disabled={!alreadySaved && !createMutation.isSuccess} className="gap-2">
@@ -242,9 +236,15 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
 
       <div className="lg:col-span-2">
         <WizardExplanation
-          title="Instancia de Proveedor"
-          whatItDoes="Crea una conexión concreta con la API del proveedor: URL base, credenciales (encriptadas AES-256-GCM), y límites de rate."
-          whyItMatters="La instancia conecta el template abstracto con la API real. Los secretos se almacenan encriptados y nunca se exponen en la UI."
+          title={isPlatform ? "Instancia de Plataforma" : "Instancia de Proveedor"}
+          whatItDoes={isPlatform
+            ? "Crea una única instancia centralizada con credenciales que se usan automáticamente para todas las organizaciones. No requiere acción de los org admins."
+            : "Crea una conexión concreta con la API del proveedor: URL base, credenciales (encriptadas AES-256-GCM), y límites de rate."
+          }
+          whyItMatters={isPlatform
+            ? "Al centralizar la instancia, el Super Admin controla las credenciales, URL y rate limits. Las organizaciones se benefician sin configurar nada."
+            : "La instancia conecta el template abstracto con la API real. Los secretos se almacenan encriptados y nunca se exponen en la UI."
+          }
           commonMistakes={[
             "URL con HTTP en vez de HTTPS → rechazado por SSRF",
             "Host que no coincide con la allowlist del conector",

@@ -5710,9 +5710,10 @@ export type Database = {
           is_active: boolean
           key_version: number
           nonce: string
-          organization_id: string
+          organization_id: string | null
           provider_instance_id: string
           rotated_at: string | null
+          scope: string
         }
         Insert: {
           cipher_text: string
@@ -5722,9 +5723,10 @@ export type Database = {
           is_active?: boolean
           key_version?: number
           nonce: string
-          organization_id: string
+          organization_id?: string | null
           provider_instance_id: string
           rotated_at?: string | null
+          scope?: string
         }
         Update: {
           cipher_text?: string
@@ -5734,9 +5736,10 @@ export type Database = {
           is_active?: boolean
           key_version?: number
           nonce?: string
-          organization_id?: string
+          organization_id?: string | null
           provider_instance_id?: string
           rotated_at?: string | null
+          scope?: string
         }
         Relationships: [
           {
@@ -5755,11 +5758,13 @@ export type Database = {
           connector_id: string
           created_at: string
           created_by: string | null
+          created_by_role: string
           id: string
           is_enabled: boolean
           name: string
-          organization_id: string
+          organization_id: string | null
           rpm_limit: number
+          scope: string
           timeout_ms: number
           updated_at: string
         }
@@ -5769,11 +5774,13 @@ export type Database = {
           connector_id: string
           created_at?: string
           created_by?: string | null
+          created_by_role?: string
           id?: string
           is_enabled?: boolean
           name: string
-          organization_id: string
+          organization_id?: string | null
           rpm_limit?: number
+          scope?: string
           timeout_ms?: number
           updated_at?: string
         }
@@ -5783,11 +5790,13 @@ export type Database = {
           connector_id?: string
           created_at?: string
           created_by?: string | null
+          created_by_role?: string
           id?: string
           is_enabled?: boolean
           name?: string
-          organization_id?: string
+          organization_id?: string | null
           rpm_limit?: number
+          scope?: string
           timeout_ms?: number
           updated_at?: string
         }
