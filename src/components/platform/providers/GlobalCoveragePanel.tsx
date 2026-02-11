@@ -1,6 +1,7 @@
 /**
  * GlobalCoveragePanel — Shows per-connector instance coverage across orgs
  * and merge conflict summary (platform-wide view).
+ * Includes warning banner when GLOBAL routes lack a PLATFORM instance.
  */
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,26 +21,28 @@ export function GlobalCoveragePanel() {
         routes: any[];
         policies: any[];
         coverage: Record<string, number>;
+        platform_instances?: Record<string, boolean>;
       };
     },
   });
 
   const routes = globalData?.routes || [];
-  const coverage = globalData?.coverage || {};
+  const platformInstances = globalData?.platform_instances || {};
 
   // Deduplicate connectors from routes
-  const connectorMap = new Map<string, { name: string; orgCount: number }>();
+  const connectorMap = new Map<string, { name: string; hasPlatformInstance: boolean }>();
   for (const r of routes) {
     const cid = r.provider_connector_id;
     if (!connectorMap.has(cid)) {
       connectorMap.set(cid, {
         name: r.provider_connectors?.name || "?",
-        orgCount: coverage[cid] || 0,
+        hasPlatformInstance: !!platformInstances[cid],
       });
     }
   }
 
   const connectors = Array.from(connectorMap.entries());
+  const missingInstances = connectors.filter(([, info]) => !info.hasPlatformInstance);
 
   return (
     <Card className="border-slate-700 bg-slate-900/50">
@@ -52,12 +55,31 @@ export function GlobalCoveragePanel() {
               H) Cobertura de Instancias
             </CardTitle>
             <CardDescription>
-              Para cada conector en las rutas globales, cuántas orgs tienen una instancia habilitada
+              Para cada conector con ruta global, estado de la instancia de plataforma
             </CardDescription>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        {/* Warning banner for missing PLATFORM instances */}
+        {missingInstances.length > 0 && (
+          <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-lg p-3">
+            <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="text-xs text-foreground/80">
+              <p className="font-semibold text-destructive">Proveedores no activos</p>
+              <p className="mt-1">
+                Las siguientes rutas GLOBALES están configuradas pero <strong>no tienen instancia de plataforma activa</strong>.
+                El proveedor NO se ejecutará hasta que se cree una instancia de plataforma vía el wizard.
+              </p>
+              <ul className="mt-1 list-disc list-inside text-muted-foreground">
+                {missingInstances.map(([cid, info]) => (
+                  <li key={cid}>{info.name} <span className="font-mono text-[10px]">({cid.slice(0, 8)})</span></li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
         {connectors.length > 0 ? (
           <div className="space-y-2">
             {connectors.map(([cid, info]) => (
@@ -66,12 +88,21 @@ export function GlobalCoveragePanel() {
                   <span className="text-slate-200 font-medium">{info.name}</span>
                   <span className="text-xs text-slate-500 font-mono">{cid.slice(0, 8)}</span>
                 </div>
-                <Badge
-                  variant="outline"
-                  className="text-emerald-400 border-emerald-500/50 bg-emerald-500/10"
-                >
-                  <CheckCircle2 className="h-3 w-3 mr-1" />100% orgs (plataforma)
-                </Badge>
+                {info.hasPlatformInstance ? (
+                  <Badge
+                    variant="outline"
+                    className="text-emerald-400 border-emerald-500/50 bg-emerald-500/10"
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />100% orgs (plataforma)
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="text-destructive border-destructive/50 bg-destructive/10"
+                  >
+                    <AlertTriangle className="h-3 w-3 mr-1" />Sin instancia de plataforma
+                  </Badge>
+                )}
               </div>
             ))}
           </div>
