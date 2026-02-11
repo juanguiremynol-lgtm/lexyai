@@ -1,10 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { encryptSecret } from "../_shared/secretsCrypto.ts";
+import { requireWizardSession, isWizardError } from "../_shared/requireWizardSession.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session",
 };
 
 Deno.serve(async (req) => {
@@ -39,6 +40,12 @@ Deno.serve(async (req) => {
     }
 
     const db = createClient(supabaseUrl, serviceKey);
+
+    // Wizard session gate
+    const wizardResult = await requireWizardSession(req, user.id, corsHeaders, {
+      allowPlatformAdminOverride: true,
+    });
+    if (isWizardError(wizardResult)) return wizardResult;
 
     const body = await req.json();
     const { provider_instance_id, new_secret_value } = body;

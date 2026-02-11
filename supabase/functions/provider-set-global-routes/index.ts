@@ -6,10 +6,11 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireWizardSession, isWizardError } from "../_shared/requireWizardSession.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session",
 };
 
 interface GlobalRouteInput {
@@ -55,6 +56,12 @@ Deno.serve(async (req) => {
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
+
+    // Wizard session gate
+    const wizardResult = await requireWizardSession(req, user.id, corsHeaders, {
+      mode: "PLATFORM",
+    });
+    if (isWizardError(wizardResult)) return wizardResult;
 
     // Verify platform admin
     const { data: platformAdmin } = await adminClient

@@ -7,11 +7,12 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireWizardSession, isWizardError } from "../_shared/requireWizardSession.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const MAPPING_INFERENCE_PROMPT = `You are a data mapping specialist for ATENIA, a Colombian legal-tech platform.
@@ -79,6 +80,12 @@ Deno.serve(async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Wizard session gate
+    const wizardResult = await requireWizardSession(req, user.id, corsHeaders, {
+      allowPlatformAdminOverride: true,
+    });
+    if (isWizardError(wizardResult)) return wizardResult;
 
     const body = await req.json();
     const { sample_payload_id, provider_connector_id, schema_version, scope, dry_run } = body;
