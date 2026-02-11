@@ -22,10 +22,12 @@ import {
   Calendar,
   BarChart3,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  AlertTriangle
 } from "lucide-react";
 import { format, subMonths, startOfMonth, endOfMonth, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
+import { countMissingPlatformInstances } from "@/lib/provider-health-metrics";
 
 // Fallback pricing if DB config not available
 const FALLBACK_PRICING: Record<string, number> = {
@@ -37,6 +39,13 @@ const FALLBACK_PRICING: Record<string, number> = {
 
 export function PlatformSaaSMetricsTab() {
   const [periodMonths, setPeriodMonths] = useState(3);
+
+  // Fetch missing platform instances count
+  const { data: missingPlatformCount = 0 } = useQuery({
+    queryKey: ["missing-platform-instances"],
+    queryFn: countMissingPlatformInstances,
+    refetchInterval: 60000, // Refetch every 60s
+  });
 
   // Fetch all organizations with subscription data
   const { data: metricsData, isLoading } = useQuery({
@@ -195,7 +204,7 @@ export function PlatformSaaSMetricsTab() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -255,6 +264,20 @@ export function PlatformSaaSMetricsTab() {
               </div>
               <div className="p-2 rounded-full bg-blue-100 text-blue-600">
                 <Calendar className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Rutas Globales sin Instancia</p>
+                <div className="text-2xl font-bold">{missingPlatformCount}</div>
+              </div>
+              <div className={`p-2 rounded-full ${missingPlatformCount > 0 ? "bg-amber-100 text-amber-600" : "bg-green-100 text-green-600"}`}>
+                <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
           </CardContent>
