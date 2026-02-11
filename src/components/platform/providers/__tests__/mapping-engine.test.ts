@@ -42,11 +42,16 @@ function resolvePath(obj: unknown, path: string): unknown {
   return current;
 }
 
-// Redaction logic
-const SECRET_KEYS = new Set([
-  "secret_value", "secret", "api_key", "apikey", "hmac_secret", "token",
+// Redaction logic — uses substring matching to catch compound key names
+const SECRET_SUBSTRINGS = [
+  "secret", "api_key", "apikey", "hmac_secret", "token",
   "password", "authorization", "bearer", "credential", "private_key",
-]);
+];
+
+function isSecretKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return SECRET_SUBSTRINGS.some((s) => lower.includes(s));
+}
 
 function redactSecrets(obj: unknown): unknown {
   if (obj == null || typeof obj === "string") return obj;
@@ -54,7 +59,7 @@ function redactSecrets(obj: unknown): unknown {
   if (typeof obj === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
-      if (SECRET_KEYS.has(key.toLowerCase())) {
+      if (isSecretKey(key)) {
         result[key] = "[REDACTED]";
       } else if (typeof val === "string" && val.length > 20 && /^(sk_|pk_|Bearer |ey[A-Za-z0-9])/.test(val)) {
         result[key] = "[REDACTED_TOKEN]";
@@ -333,14 +338,11 @@ describe("AI Guide: Regression — Provider Payload Secrets Excluded from Contex
     // Secret field names are redacted
     expect(contextPayload.metadata.api_key).toBe("[REDACTED]");
     expect(contextPayload.actuaciones[0].password).toBe("[REDACTED]");
-    // provider_secret: "secret" substring matches SECRET_KEYS via partial check
-    // The key "provider_secret" contains "secret" but exact match is "secret" not "provider_secret"
-    // So it won't be redacted by key name, but the value is too short for pattern match
-    // This validates that raw snapshot preserves it while context pack keeps non-matching keys
-    expect(contextPayload.metadata.provider_secret).toBe("another_secret_that_should_be_redacted_long");
+    // provider_secret contains "secret" substring → redacted by key name
+    expect(contextPayload.metadata.provider_secret).toBe("[REDACTED]");
 
-    // Token-pattern values are redacted
-    expect(contextPayload.actuaciones[0].auth_token).toBe("[REDACTED_TOKEN]");
+    // auth_token contains "token" substring → redacted by key name (takes precedence over pattern)
+    expect(contextPayload.actuaciones[0].auth_token).toBe("[REDACTED]");
 
     // Non-secret data preserved
     expect(contextPayload.actuaciones[0].id).toBe("act-001");
@@ -348,10 +350,14 @@ describe("AI Guide: Regression — Provider Payload Secrets Excluded from Contex
     expect(contextPayload.actuaciones[0].descripcion).toBe("Auto admisorio de la demanda");
     expect(contextPayload.ok).toBe(true);
 
+    // internal_api_key contains "api_key" substring → redacted
+    expect(contextPayload.actuaciones[0].internal_api_key).toBe("[REDACTED]");
+
     // No raw secret content in serialized (token patterns + key-name matches)
     expect(serialized).not.toContain("sk_test_abc123");
     expect(serialized).not.toContain("db_password_for_internal");
     expect(serialized).not.toContain("eyJhbGciOiJSUzI1NiI");
+    expect(serialized).not.toContain("another_secret_that_should_be_redacted");
   });
 });
 
