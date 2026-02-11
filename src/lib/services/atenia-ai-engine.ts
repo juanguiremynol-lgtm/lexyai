@@ -190,6 +190,9 @@ export async function reactivateMonitoring(workItemId: string, organizationId: s
 // ============= TIER: OBSERVE — Platform Health =============
 
 export async function buildPlatformHealthPrompt(organizationId: string): Promise<string> {
+  // Import dynamically to avoid circular deps
+  const { buildExternalProviderContext, EXTERNAL_PROVIDER_GEMINI_SYSTEM_PROMPT } = await import('./atenia-ai-external-providers');
+
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -292,7 +295,13 @@ Genera un reporte de salud completo con estas secciones:
 4. 🤖 INTELIGENCIA ATENIA: ¿Las acciones autónomas son correctas?
 5. 🔧 ACCIONES RECOMENDADAS: Lista priorizada de lo que el administrador debería hacer HOY.
 6. 📈 TENDENCIA: Comparando los últimos 7 días de sync, ¿la plataforma está mejorando o degradándose?
-7. 🧑‍💻 PARA EL EQUIPO TÉCNICO: Si hay problemas que requieren intervención de código.`;
+7. 🧑‍💻 PARA EL EQUIPO TÉCNICO: Si hay problemas que requieren intervención de código.
+8. 🔌 PROVEEDORES EXTERNOS: Evalúa conectores externos, rutas GLOBAL sin instancia PLATFORM, mappings en DRAFT, y tasas de error de snapshots.
+
+${EXTERNAL_PROVIDER_GEMINI_SYSTEM_PROMPT}
+
+== CONTEXTO DE PROVEEDORES EXTERNOS ==
+${JSON.stringify(await buildExternalProviderContext(organizationId), null, 2)}`;
 }
 
 // ============= ACTIONS LOG =============

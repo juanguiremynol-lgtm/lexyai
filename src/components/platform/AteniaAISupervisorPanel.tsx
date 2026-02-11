@@ -13,6 +13,7 @@ import { AteniaActionsLog } from "./atenia-ai/AteniaActionsLog";
 import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
 import { AteniaAutonomousSyncPanel } from "./atenia-ai/AteniaAutonomousSyncPanel";
+import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProviderStatus";
 import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
@@ -467,6 +468,9 @@ export function AteniaAISupervisorPanel() {
 
           {/* Autopilot Control Plane */}
           <AutopilotDashboard organizationId={PLATFORM_ORG_ID} />
+
+          {/* External Provider Health */}
+          <AteniaExternalProviderStatus organizationId={PLATFORM_ORG_ID} />
 
           {/* Autonomous Sync Controls */}
           <AteniaAutonomousSyncPanel organizationId={PLATFORM_ORG_ID} />
