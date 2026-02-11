@@ -14,6 +14,13 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { loadConfig, type AteniaConfig } from './atenia-ai-engine';
+import {
+  evaluateExternalProviderHealth,
+  evaluateExternalProviderRetries,
+  gatherExternalProviderDiagnostics,
+  type ExternalProviderHealthResult,
+  type ExternalProviderDiagnostics,
+} from './atenia-ai-external-providers';
 
 // ============= TYPES =============
 
@@ -22,6 +29,7 @@ export interface HeartbeatResult {
   reason?: string;
   observations: ObservationResult[];
   actionsTriggered: number;
+  externalProviderHealth?: ExternalProviderHealthResult;
 }
 
 export interface ObservationResult {
@@ -55,6 +63,7 @@ export interface AutoDiagnosis {
   actuaciones_count: number;
   provider_health: CircuitBreakerState[];
   diagnosis_summary: string;
+  external_providers?: ExternalProviderDiagnostics | null;
 }
 
 // ============= COT WINDOW GUARD =============
@@ -267,8 +276,21 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
   // Load config
   const config = await loadConfig(organizationId);
 
-  // OBSERVE
-  const observations = await runObservations(organizationId);
+  // OBSERVE: built-in + external providers
+  const [observations, extHealth] = await Promise.all([
+    runObservations(organizationId),
+    evaluateExternalProviderHealth(organizationId),
+  ]);
+
+  // Merge external provider observations into the observation list
+  for (const obs of extHealth.observations) {
+    observations.push({
+      type: obs.type,
+      severity: obs.severity,
+      message: obs.detail,
+      data: obs,
+    });
+  }
 
   // Log observation
   if (observations.length > 0) {
@@ -277,7 +299,10 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
       action_type: 'heartbeat_observe',
       autonomy_tier: 'OBSERVE',
       reasoning: `Heartbeat detectó ${observations.length} observaciones: ${observations.map(o => o.type).join(', ')}`,
-      evidence: { observations },
+      evidence: {
+        observations,
+        external_provider_health: extHealth.issues_found > 0 ? extHealth : undefined,
+      },
       action_taken: 'observation_logged',
       action_result: 'logged',
     });
@@ -285,7 +310,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
 
   // If autonomy is paused, observe only
   if ((config as any).autonomy_paused) {
-    return { skipped: true, reason: 'autonomy_paused', observations, actionsTriggered: 0 };
+    return { skipped: true, reason: 'autonomy_paused', observations, actionsTriggered: 0, externalProviderHealth: extHealth };
   }
 
   // ACT: Check circuit breaker before syncing
@@ -295,10 +320,39 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
   let actionsTriggered = 0;
 
   if (!allProvidersDown) {
-    // Auto-sync stale items
+    // Auto-sync stale items (built-in)
     const maxSyncs = (config as any).max_auto_syncs_per_heartbeat ?? 3;
     const staleResult = await autoSyncStaleItems(organizationId, maxSyncs);
     actionsTriggered += staleResult.synced;
+
+    // ACT: External provider corrective retries
+    const extRetries = await evaluateExternalProviderRetries(organizationId);
+    if (extRetries.should_sync && extRetries.items.length > 0) {
+      await logAteniaAction({
+        organization_id: organizationId,
+        action_type: 'ext_provider_retry',
+        autonomy_tier: 'ACT',
+        reasoning: `Reintentando ${extRetries.items.length} sync(s) de proveedores externos`,
+        evidence: { items: extRetries.items },
+        action_taken: 'ext_sync_triggered',
+        action_result: 'triggered',
+      });
+
+      for (const item of extRetries.items) {
+        try {
+          await supabase.functions.invoke('provider-sync-external-provider', {
+            body: {
+              work_item_id: item.work_item_id,
+              connector_id: item.connector_id,
+              triggered_by: 'atenia_ai_corrective',
+            },
+          });
+          actionsTriggered++;
+        } catch (err) {
+          console.error(`[atenia-ai] External retry failed for ${item.work_item_id}:`, err);
+        }
+      }
+    }
   } else {
     await logAteniaAction({
       organization_id: organizationId,
@@ -311,7 +365,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
     });
   }
 
-  return { skipped: false, observations, actionsTriggered };
+  return { skipped: false, observations, actionsTriggered, externalProviderHealth: extHealth };
 }
 
 // ============= USER REPORT AUTO-DIAGNOSIS =============
@@ -374,6 +428,20 @@ export async function generateAutoDiagnosis(workItemId: string): Promise<AutoDia
     }
   }
 
+  // External provider diagnostics
+  const extDiag = await gatherExternalProviderDiagnostics(workItemId);
+  if (extDiag?.external_provider_involved) {
+    if (extDiag.recent_traces.some(t => !t.success)) {
+      summaryParts.push(`🔌 Proveedor externo: ${extDiag.recent_traces.filter(t => !t.success).length} fallo(s) recientes.`);
+    }
+    if (extDiag.mapping_specs_active === 0 && extDiag.connectors && extDiag.connectors.length > 0) {
+      summaryParts.push('⚠️ Proveedor externo sin mapping ACTIVE — datos crudos sin transformar.');
+    }
+    if (extDiag.has_unmapped_fields) {
+      summaryParts.push(`ℹ️ ${extDiag.unmapped_extras_count} campo(s) no mapeados del proveedor externo.`);
+    }
+  }
+
   return {
     work_item_id: workItemId,
     radicado: wi?.radicado || null,
@@ -384,6 +452,7 @@ export async function generateAutoDiagnosis(workItemId: string): Promise<AutoDia
     actuaciones_count: actCountResult.count || 0,
     provider_health: providerHealth,
     diagnosis_summary: summaryParts.join('\n'),
+    external_providers: extDiag,
   };
 }
 
