@@ -307,10 +307,13 @@ export function computeDedupeKeys(
 function computeSingleDedupeKey(record: MappedRecord, scope: "ACTS" | "PUBS"): string {
   const dateField = scope === "ACTS" ? "event_date" : "pub_date";
   const date = String(record[dateField] || "unknown");
-  const desc = String(record.description || "").trim().toLowerCase().slice(0, 100);
+  const desc = String(record.description || "").trim().toLowerCase().slice(0, 200);
   const provId = String(record.provider_event_id || "");
-  // Stable key: scope + date + truncated description + provider ID
-  return `${scope}:${date}:${simpleHash(desc)}:${provId}`;
+  // Include indice for TEXT payloads where reg/idx disambiguates same-day entries
+  const indice = String(record.indice || "");
+  // Stable key: scope + date + truncated description hash + provider ID + indice
+  // Never relies on "reg" alone — uses description content for robustness
+  return `${scope}:${date}:${simpleHash(desc)}:${provId}:${indice}`;
 }
 
 function simpleHash(str: string): string {
