@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, ArrowRight, Copy, Plus, Shield, Trash2, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,6 +34,9 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
   const [capabilities, setCapabilities] = useState(connector?.capabilities?.join(", ") || "ACTUACIONES, PUBLICACIONES");
   const [allowedDomains, setAllowedDomains] = useState<string[]>(connector?.allowed_domains?.length ? connector.allowed_domains : [""]);
   const [schemaVersion, setSchemaVersion] = useState(connector?.schema_version || "atenia.v1");
+  const [snapshotFormat, setSnapshotFormat] = useState<string>(
+    (connector?.capabilities as any)?.snapshot_format || "JSON"
+  );
   const [wildcardAck, setWildcardAck] = useState(false);
 
   useEffect(() => {
@@ -56,13 +60,19 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
       const cleanDomains = allowedDomains.map((d) => d.trim()).filter(Boolean);
       if (cleanDomains.length === 0) throw new Error("allowed_domains requerido");
 
+      const capsList = capabilities.split(",").map((c) => c.trim()).filter(Boolean);
+      // Merge capabilities as object with snapshot_format
+      const capsPayload = snapshotFormat !== "JSON"
+        ? { items: capsList, snapshot_format: snapshotFormat }
+        : capsList;
+
       const visibility = mode === "PLATFORM" ? "GLOBAL" : "ORG_PRIVATE";
       const { data, error } = await supabase.functions.invoke("provider-create-connector", {
         body: {
           key: key.trim(),
           name: name.trim(),
           description: description.trim() || null,
-          capabilities: capabilities.split(",").map((c) => c.trim()).filter(Boolean),
+          capabilities: capsPayload,
           allowed_domains: cleanDomains,
           schema_version: schemaVersion,
           visibility,
@@ -129,6 +139,29 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Schema Version</Label>
             <Input value={schemaVersion} onChange={(e) => setSchemaVersion(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Snapshot Format */}
+        <div className="space-y-2 border border-border/50 rounded-lg p-4 bg-muted/20">
+          <Label className="text-xs text-muted-foreground">Formato de Snapshot</Label>
+          <Select value={snapshotFormat} onValueChange={setSnapshotFormat}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="JSON">JSON (recomendado)</SelectItem>
+              <SelectItem value="TEXT">TEXT (parser determinístico)</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-2.5">
+            <Info className="h-3 w-3 mt-0.5 shrink-0" />
+            <span>
+              {snapshotFormat === "JSON"
+                ? "El proveedor retorna JSON estándar. Formato preferido."
+                : "El proveedor retorna texto con etiquetas en español (Radicado:, Fecha:, Actuación:, etc.). El parser lo normaliza a JSON automáticamente. Si el formato del texto cambia, la ingesta se detendrá con un error claro."
+              }
+            </span>
           </div>
         </div>
 

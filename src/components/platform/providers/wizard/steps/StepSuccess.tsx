@@ -111,17 +111,17 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
       <div className="space-y-3">
         <h3 className="font-semibold text-foreground text-sm">Siguientes Pasos</h3>
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers" : "/app/settings")}>
-            <Settings className="h-4 w-4" /> Editar Configuración
+          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers/wizard" : "/app/settings")}>
+            <Settings className="h-4 w-4" /> Nuevo Proveedor
           </Button>
-          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers" : "/app/settings")}>
-            <List className="h-4 w-4" /> Ver Traces
+          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate("/app/dashboard")}>
+            <List className="h-4 w-4" /> Ir al Dashboard
           </Button>
-          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers" : "/app/settings")}>
-            <Key className="h-4 w-4" /> Rotar Secreto
+          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers/wizard" : "/app/settings")}>
+            <Key className="h-4 w-4" /> Configurar Otro
           </Button>
-          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers" : "/app/settings")}>
-            <RefreshCw className="h-4 w-4" /> Sync Manual
+          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers/wizard" : "/app/settings")}>
+            <RefreshCw className="h-4 w-4" /> Volver al Wizard
           </Button>
         </div>
       </div>

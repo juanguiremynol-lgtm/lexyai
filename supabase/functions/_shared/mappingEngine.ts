@@ -34,6 +34,18 @@ const TRANSFORMS: Record<string, TransformFn> = {
     const d = new Date(s);
     return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   },
+  DATE_DDMMYYYY_CO: (v) => {
+    // Explicit DD/MM/YYYY Colombian format → ISO date string
+    if (!v) return null;
+    const s = String(v).trim();
+    const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (m) {
+      const [, dd, mm, yyyy] = m;
+      const d = new Date(`${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`);
+      return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    }
+    return null; // Strict: only DD/MM/YYYY accepted
+  },
   DATETIME_ISO: (v) => {
     if (!v) return null;
     const d = new Date(String(v));

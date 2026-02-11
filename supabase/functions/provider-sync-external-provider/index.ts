@@ -38,6 +38,7 @@ import {
   IDENTITY_MAPPING_SPEC,
   type MappingSpec,
 } from "../_shared/mappingEngine.ts";
+import { parseSnapshot } from "../_shared/snapshotParser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -226,29 +227,72 @@ Deno.serve(async (req) => {
     }
 
     const snapLatency = Date.now() - snapStart;
-    const snapData = await snapRes.json().catch(() => ({}));
+    // Read response as text first (supports both JSON and TEXT snapshots)
+    const rawBodyText = await snapRes.text().catch(() => "");
+    const contentTypeHeader = snapRes.headers.get("content-type") || "";
+
+    // Parse using schema-tolerant snapshot parser
+    const connectorCaps = connector?.capabilities || [];
+    const parsedResult = parseSnapshot(connectorCaps, rawBodyText, contentTypeHeader);
+    
+    // For backward compat: try to get JSON error codes from the raw body
+    let snapData: Record<string, unknown> = {};
+    try {
+      snapData = JSON.parse(rawBodyText);
+    } catch {
+      // TEXT response — use parsed snapshot
+      if (parsedResult.ok && parsedResult.snapshot) {
+        snapData = parsedResult.snapshot as unknown as Record<string, unknown>;
+      }
+    }
 
     await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", String(snapRes.status), true, snapLatency, {
       http_status: snapRes.status,
-      has_actuaciones: !!snapData.actuaciones,
-      has_publicaciones: !!snapData.publicaciones,
+      snapshot_format: parsedResult.format,
+      parse_ok: parsedResult.ok,
+      parse_warnings: parsedResult.warnings.length,
+      has_actuaciones: !!(snapData.actuaciones || parsedResult.snapshot?.actuaciones?.length),
+      has_publicaciones: !!(snapData.publicaciones || parsedResult.snapshot?.publicaciones),
     });
 
     // ── Stage 2: RAW_SAVED — always persist raw snapshot ──
+    // Store raw body as-is (text or json) in payload field
+    const rawPayloadForStorage = parsedResult.format === "JSON" ? snapData : { _raw_text: rawBodyText, _parsed: parsedResult.snapshot };
     const rawErrorCode = snapData.code || snapData.error_code || null;
-    const normalizedCode = normalizeProviderErrorCode(rawErrorCode, snapRes.status);
+    const normalizedCode = normalizeProviderErrorCode(rawErrorCode as string, snapRes.status);
+
+    // Handle unparseable TEXT snapshots
+    if (!parsedResult.ok && parsedResult.format === "UNKNOWN" && snapRes.ok) {
+      const snapshotId = await saveRawSnapshot(db, source, instance, connector, rawPayloadForStorage, "ERROR", snapRes.status, snapLatency, "PROVIDER_UNPARSABLE_SNAPSHOT");
+      await writeTrace(db, runId, source, instance, "RAW_SAVED", "ERROR", true, 0, { snapshot_id: snapshotId });
+      await writeTrace(db, runId, source, instance, "TERMINAL", "PROVIDER_UNPARSABLE_SNAPSHOT", false, Date.now() - startTime, {
+        outcome: "ERROR",
+        parse_warnings: parsedResult.warnings,
+        format_detected: parsedResult.format,
+      });
+      await updateSourceError(db, source.id, "PROVIDER_UNPARSABLE_SNAPSHOT", `Could not parse snapshot: ${parsedResult.warnings.join("; ")}`);
+      return new Response(
+        JSON.stringify({ ok: false, code: "PROVIDER_UNPARSABLE_SNAPSHOT", warnings: parsedResult.warnings, duration_ms: Date.now() - startTime }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Use parsed snapshot data for acts/pubs extraction
+    const effectiveData = parsedResult.ok && parsedResult.snapshot
+      ? parsedResult.snapshot
+      : snapData;
 
     // Determine outcome for raw snapshot status
     let rawStatus = "OK";
     if (!snapRes.ok || snapData.ok !== true) rawStatus = "ERROR";
     if (snapData.scraping_initiated || isTransientError(normalizedCode)) rawStatus = "PENDING";
-    const acts = snapData.actuaciones || [];
-    const pubs = snapData.publicaciones || [];
-    if (snapRes.ok && snapData.ok === true && acts.length === 0 && pubs.length === 0) rawStatus = "EMPTY";
+    const acts = (effectiveData as any).actuaciones || [];
+    const pubs = (effectiveData as any).publicaciones || [];
+    if (snapRes.ok && (snapData.ok === true || parsedResult.ok) && acts.length === 0 && pubs.length === 0) rawStatus = "EMPTY";
     if (isStrict404Code(normalizedCode)) rawStatus = "ERROR";
 
-    const snapshotId = await saveRawSnapshot(db, source, instance, connector, snapData, rawStatus, snapRes.status, snapLatency, rawStatus === "ERROR" ? normalizedCode : null);
-    await writeTrace(db, runId, source, instance, "RAW_SAVED", rawStatus, true, 0, { snapshot_id: snapshotId });
+    const snapshotId = await saveRawSnapshot(db, source, instance, connector, rawPayloadForStorage, rawStatus, snapRes.status, snapLatency, rawStatus === "ERROR" ? normalizedCode : null);
+    await writeTrace(db, runId, source, instance, "RAW_SAVED", rawStatus, true, 0, { snapshot_id: snapshotId, format: parsedResult.format, parse_warnings: parsedResult.warnings });
 
     // ── Outcome routing ──
 
