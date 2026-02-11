@@ -72,11 +72,16 @@ OUTPUT FORMAT: Always respond with valid JSON matching this structure:
 
 LANGUAGE: Respond in Spanish unless the admin explicitly writes in English.`;
 
-// ---- Secret redaction ----
-const SECRET_KEYS = new Set([
-  "secret_value", "secret", "api_key", "apikey", "hmac_secret", "token",
+// ---- Secret redaction (substring matching) ----
+const SECRET_SUBSTRINGS = [
+  "secret", "api_key", "apikey", "hmac_secret", "token",
   "password", "authorization", "bearer", "credential", "private_key",
-]);
+];
+
+function isSecretKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return SECRET_SUBSTRINGS.some((s) => lower.includes(s));
+}
 
 function redactSecrets(obj: unknown): unknown {
   if (obj == null) return obj;
@@ -85,7 +90,7 @@ function redactSecrets(obj: unknown): unknown {
   if (typeof obj === "object") {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
-      if (SECRET_KEYS.has(key.toLowerCase())) {
+      if (isSecretKey(key)) {
         result[key] = "[REDACTED]";
       } else if (typeof val === "string" && val.length > 20 && /^(sk_|pk_|Bearer |ey[A-Za-z0-9])/.test(val)) {
         result[key] = "[REDACTED_TOKEN]";
