@@ -47,7 +47,7 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto">
           {isPlatform
-            ? "El proveedor GLOBAL está configurado y mejorará la cobertura, confiabilidad y enriquecimiento de datos para toda la plataforma."
+            ? "El proveedor GLOBAL está activo y se aplica automáticamente a todas las organizaciones. Los administradores de organización y usuarios se benefician sin configurar nada."
             : "El proveedor PRIVADO está configurado y enriquecerá los datos exclusivamente para tu organización."
           }
         </p>
@@ -92,13 +92,13 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
                 {summary.e2e}
               </Badge>
             </div>
-            {instanceCoverageCount != null && (
-              <div className="col-span-2 bg-muted/30 rounded-lg p-3 border border-border/50 flex items-center gap-2">
-                <Server className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            {isPlatform && (
+              <div className="col-span-2 bg-primary/5 rounded-lg p-3 border border-primary/20 flex items-center gap-2">
+                <Globe className="h-3.5 w-3.5 text-primary shrink-0" />
                 <div>
-                  <span className="text-xs text-muted-foreground">Cobertura de Instancias</span>
+                  <span className="text-xs text-muted-foreground">Cobertura</span>
                   <p className="text-foreground font-medium text-sm">
-                    {instanceCoverageCount} {instanceCoverageCount === 1 ? "organización activada" : "organizaciones activadas"}
+                    100% organizaciones — activado automáticamente
                   </p>
                 </div>
               </div>

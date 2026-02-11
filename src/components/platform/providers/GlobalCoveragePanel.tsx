@@ -68,16 +68,9 @@ export function GlobalCoveragePanel() {
                 </div>
                 <Badge
                   variant="outline"
-                  className={info.orgCount > 0
-                    ? "text-emerald-400 border-emerald-500/50 bg-emerald-500/10"
-                    : "text-amber-400 border-amber-500/50 bg-amber-500/10"
-                  }
+                  className="text-emerald-400 border-emerald-500/50 bg-emerald-500/10"
                 >
-                  {info.orgCount > 0 ? (
-                    <><CheckCircle2 className="h-3 w-3 mr-1" />{info.orgCount} org(s)</>
-                  ) : (
-                    <><AlertTriangle className="h-3 w-3 mr-1" />0 orgs</>
-                  )}
+                  <CheckCircle2 className="h-3 w-3 mr-1" />100% orgs (plataforma)
                 </Badge>
               </div>
             ))}

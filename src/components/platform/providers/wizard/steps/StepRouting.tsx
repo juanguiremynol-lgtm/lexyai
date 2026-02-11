@@ -99,7 +99,7 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
           {isPlatform ? <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-destructive" /> : <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />}
           <span className="text-foreground/80">
             {isPlatform
-              ? "⚠️ Esta ruta será GLOBAL — mejorará la plataforma para TODAS las organizaciones que provisionen una instancia. Los secretos son org-scoped."
+              ? "⚠️ Esta ruta será GLOBAL — se activará automáticamente para TODAS las organizaciones usando la instancia de plataforma. Los org admins no necesitan hacer nada."
               : "Esta ruta es un OVERRIDE que solo afecta a tu organización. La configuración global permanece intacta para los demás."}
           </span>
         </div>
@@ -226,7 +226,7 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
             "Prioridades duplicadas causan comportamiento indefinido",
           ]}
           warnings={isPlatform
-            ? ["⚠️ Las rutas GLOBALES afectan a TODAS las organizaciones. Cada org debe provisionar su propia instancia para activar el uso."]
+            ? ["⚠️ Las rutas GLOBALES se activan automáticamente para TODAS las organizaciones usando la instancia de plataforma."]
             : ["ℹ️ Este override solo afecta a tu organización. La configuración global permanece intacta."]
           }
         />

@@ -72,11 +72,11 @@ export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, on
             }`}>
               <CardContent className="p-5 text-center space-y-3">
                 <Globe className={`h-8 w-8 mx-auto ${isPlatform ? "text-primary" : "text-muted-foreground"}`} />
-                <div>
-                  <h3 className="font-semibold text-sm">Toda la Plataforma</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Conector GLOBAL que mejora la plataforma para todas las organizaciones. Los secretos permanecen org-scoped.
-                  </p>
+                 <div>
+76:                   <h3 className="font-semibold text-sm">Toda la Plataforma</h3>
+                   <p className="text-xs text-muted-foreground mt-1">
+                     Conector GLOBAL que se activa automáticamente para todas las organizaciones. El Super Admin configura una sola instancia y credenciales — las organizaciones se benefician sin hacer nada.
+                   </p>
                 </div>
                 {isPlatform && (
                   <Badge className="bg-primary/10 text-primary border-primary/30">
@@ -116,10 +116,10 @@ export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, on
               <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
               <div className="text-xs text-foreground/80">
                 <p className="font-semibold text-destructive">Impacto Global</p>
-                <p className="mt-1">
-                  Este asistente creará un conector y routing que afecta a <strong>TODAS las organizaciones</strong> de la plataforma.
-                  Cada organización deberá provisionar su propia instancia con secretos para activarlo.
-                </p>
+               <p className="mt-1">
+                   Este asistente creará un conector, una instancia de plataforma con credenciales centralizadas, y routing que se activará <strong>automáticamente para TODAS las organizaciones</strong>.
+                   Los administradores de organización y usuarios no necesitan hacer nada — se benefician de forma transparente.
+                 </p>
               </div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
@@ -145,11 +145,11 @@ export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, on
         <WizardExplanation
           title="¿Por qué Proveedores Externos?"
           whatItDoes={isPlatform
-            ? "Crea un conector GLOBAL que complementa los proveedores built-in (CPNU, SAMAI) para TODAS las organizaciones. Los secretos son org-scoped: cada org provisiona su propia instancia."
+            ? "Crea un conector GLOBAL con una instancia de plataforma centralizada. Las credenciales se configuran una sola vez por el Super Admin y se aplican automáticamente a todas las organizaciones."
             : "Crea un conector PRIVADO para tu organización, con su propia API y configuración. No afecta a otras organizaciones."
           }
           whyItMatters={isPlatform
-            ? "Los proveedores externos mejoran cobertura (casos no digitalizados), confiabilidad (fallbacks), corrección (cross-check) y enriquecen timelines para toda la plataforma."
+            ? "Los proveedores externos mejoran cobertura, confiabilidad, corrección y enriquecen timelines para toda la plataforma — sin requerir acción de los administradores de organización."
             : "Tu organización puede integrar APIs propias para mejorar la cobertura de sus casos sin afectar al resto de la plataforma."
           }
           commonMistakes={[
@@ -158,7 +158,7 @@ export function StepWelcome({ mode, globalAcknowledged, onGlobalAcknowledged, on
             "Usar HTTP en vez de HTTPS",
           ]}
           warnings={isPlatform ? [
-            "⚠️ Los cambios GLOBALES afectan a TODAS las organizaciones de la plataforma. Los secretos permanecen org-scoped."
+            "⚠️ Los cambios GLOBALES se activan automáticamente para TODAS las organizaciones. Las credenciales se almacenan una sola vez a nivel de plataforma."
           ] : [
             "ℹ️ Los cambios en este modo solo afectan a tu organización."
           ]}
