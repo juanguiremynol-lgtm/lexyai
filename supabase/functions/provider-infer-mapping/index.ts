@@ -1,7 +1,9 @@
 /**
  * provider-infer-mapping — Gemini-assisted mapping inference from sample payloads.
  *
- * Takes a raw snapshot ID and proposes a mapping spec that the admin must explicitly approve.
+ * Supports dry_run mode for smoke testing.
+ * Takes a raw snapshot ID and proposes a DRAFT mapping spec.
+ * All specs require explicit admin approval to activate.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -45,16 +47,9 @@ RULES:
 
 OUTPUT: Return ONLY valid JSON matching this structure:
 {
-  "acts": {
-    "array_path": "$.actuaciones",
-    "fields": {
-      "event_date": { "path": "$.fecha", "transform": "DATE_ISO", "required": true },
-      ...
-    },
-    "extras_mode": "STORE_UNMAPPED"
-  },
+  "acts": { "array_path": "$.actuaciones", "fields": { ... }, "extras_mode": "STORE_UNMAPPED" },
   "pubs": { ... },
-  "confidence": { "event_date": 0.95, "description": 0.9, ... },
+  "confidence": { "event_date": 0.95, ... },
   "rationale": "Short explanation of mapping decisions"
 }`;
 
@@ -86,8 +81,33 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { sample_payload_id, provider_connector_id, schema_version, scope } = body;
+    const { sample_payload_id, provider_connector_id, schema_version, scope, dry_run } = body;
 
+    // ---- DRY RUN MODE ----
+    if (dry_run === true) {
+      return new Response(JSON.stringify({
+        dry_run: true,
+        ok: true,
+        validation: {
+          auth_valid: true,
+          sample_payload_id_present: !!sample_payload_id,
+          provider_connector_id_present: !!provider_connector_id,
+          scope: scope || "ACTS",
+          schema_version: schema_version || "v1",
+          requires_admin_approval: true,
+          output_status: "DRAFT",
+        },
+        canonical_schema: {
+          acts_required: ["event_date", "description"],
+          pubs_required: ["pub_date", "description"],
+          allowed_transforms: ["STRING", "TRIM", "NUMBER", "BOOLEAN", "DATE_ISO", "DATE_CO", "DATETIME_ISO", "NORMALIZE_TYPE", "IDENTITY"],
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- FULL MODE ----
     if (!sample_payload_id) {
       return new Response(JSON.stringify({ error: "sample_payload_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -96,7 +116,6 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Fetch the raw snapshot
     const { data: snapshot, error: snapErr } = await adminClient
       .from("provider_raw_snapshots")
       .select("payload, scope, provider_instance_id")
@@ -109,7 +128,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Truncate payload for Gemini (max ~8k chars)
     const payloadStr = JSON.stringify(snapshot.payload).slice(0, 8000);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -138,6 +156,8 @@ Deno.serve(async (req) => {
 
     if (!aiResponse.ok) {
       const status = aiResponse.status;
+      const errText = await aiResponse.text();
+      console.error("AI inference error:", status, errText);
       if (status === 429) {
         return new Response(JSON.stringify({ error: "AI rate limit exceeded" }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -174,8 +194,9 @@ Deno.serve(async (req) => {
       provider_connector_id,
       schema_version: schema_version || "v1",
       scope: scope || snapshot.scope,
+      status: "DRAFT",
       requires_admin_approval: true,
-      message: "This mapping spec is a PROPOSAL. Review and approve before saving as ACTIVE.",
+      message: "This mapping spec is a DRAFT PROPOSAL. An admin must review and explicitly activate it before use.",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

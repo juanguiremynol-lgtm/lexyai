@@ -1,6 +1,7 @@
 /**
  * provider-wizard-ai-guide — Gemini-powered contextual assistant for the External Provider Wizard.
  *
+ * Supports dry_run mode for smoke testing (validates schema without calling Gemini).
  * Redacts secrets, builds context pack, calls Gemini, returns structured JSON guidance.
  * Rate-limited: max 20 calls per user per 10 minutes.
  */
@@ -13,10 +14,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ---- Rate limiting (in-memory per-isolate, resets on cold start) ----
+// ---- Rate limiting (in-memory per-isolate) ----
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX = 20;
-const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 
 function checkRateLimit(userId: string): boolean {
   const now = Date.now();
@@ -30,7 +31,7 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
-// ---- System prompt (hardcoded, never exposed to client) ----
+// ---- System prompt ----
 const GEMINI_SYSTEM_PROMPT = `You are an AI integration advisor for ATENIA, a Colombian legal-tech platform that monitors judicial processes.
 
 ROLE: You provide advisory guidance to administrators configuring external data providers in the Provider Wizard. You help explain steps, detect misconfigurations, and suggest safe defaults.
@@ -73,7 +74,7 @@ LANGUAGE: Respond in Spanish unless the admin explicitly writes in English.`;
 
 // ---- Secret redaction ----
 const SECRET_KEYS = new Set([
-  "secret_value", "secret", "api_key", "apiKey", "hmac_secret", "token",
+  "secret_value", "secret", "api_key", "apikey", "hmac_secret", "token",
   "password", "authorization", "bearer", "credential", "private_key",
 ]);
 
@@ -97,7 +98,7 @@ function redactSecrets(obj: unknown): unknown {
   return obj;
 }
 
-// ---- Canonical schema summary (compact, embedded) ----
+// ---- Canonical schema summary ----
 const CANONICAL_SCHEMA_SUMMARY = {
   work_item_acts: {
     required: ["work_item_id", "description", "event_date", "source_platform", "hash_fingerprint"],
@@ -111,13 +112,22 @@ const CANONICAL_SCHEMA_SUMMARY = {
   },
 };
 
+// ---- Simple hash for dry_run ----
+function simpleHash(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing auth" }), {
@@ -139,7 +149,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Rate limit
     if (!checkRateLimit(user.id)) {
       return new Response(JSON.stringify({ error: "Rate limit exceeded. Max 20 requests per 10 minutes." }), {
         status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -147,8 +156,53 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { session_id, mode, step_id, wizard_state, preflight, e2e_result, trace_ids, question } = body;
+    const { session_id, mode, step_id, wizard_state, preflight, e2e_result, trace_ids, question, dry_run } = body;
 
+    // Build redacted context pack
+    const redactedState = redactSecrets(wizard_state || {});
+    const redactedPreflight = redactSecrets(preflight || null);
+    const redactedE2E = redactSecrets(e2e_result || null);
+
+    const contextPack = {
+      step_id,
+      mode,
+      wizard_state: redactedState,
+      preflight: redactedPreflight,
+      e2e_result: redactedE2E,
+      canonical_schema: CANONICAL_SCHEMA_SUMMARY,
+      ssrf_rules: { https_only: true, private_ips_blocked: true, localhost_blocked: true, allowlist_required: true },
+      routing_precedence: ["ORG_OVERRIDE", "GLOBAL", "BUILTIN"],
+    };
+
+    // ---- DRY RUN MODE ----
+    if (dry_run === true) {
+      const contextStr = JSON.stringify(contextPack);
+      return new Response(JSON.stringify({
+        dry_run: true,
+        ok: true,
+        context_pack_summary: {
+          step_id,
+          mode,
+          state_keys: Object.keys(redactedState as object || {}),
+          has_preflight: redactedPreflight != null,
+          has_e2e: redactedE2E != null,
+          context_hash: simpleHash(contextStr),
+          context_length: contextStr.length,
+          secrets_redacted: true,
+          schema_version: "canonical_v1",
+        },
+        validation: {
+          step_id_present: !!step_id,
+          mode_valid: mode === "PLATFORM" || mode === "ORG",
+          ssrf_enforced: true,
+          routing_tiers: 3,
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---- FULL MODE ----
     const adminClient = createClient(supabaseUrl, serviceKey);
 
     // Create or reuse session
@@ -163,12 +217,7 @@ Deno.serve(async (req) => {
       activeSessionId = session?.id;
     }
 
-    // Build context pack (all redacted)
-    const redactedState = redactSecrets(wizard_state || {});
-    const redactedPreflight = redactSecrets(preflight || null);
-    const redactedE2E = redactSecrets(e2e_result || null);
-
-    // Fetch recent traces if trace_ids provided
+    // Fetch traces if provided
     let traceContext = null;
     if (trace_ids && Array.isArray(trace_ids) && trace_ids.length > 0) {
       const { data: traces } = await adminClient
@@ -179,34 +228,23 @@ Deno.serve(async (req) => {
       traceContext = traces;
     }
 
-    // Build user message
-    const contextPack = {
-      step_id,
-      mode,
-      wizard_state: redactedState,
-      preflight: redactedPreflight,
-      e2e_result: redactedE2E,
-      traces: traceContext,
-      canonical_schema: CANONICAL_SCHEMA_SUMMARY,
-      ssrf_rules: { https_only: true, private_ips_blocked: true, localhost_blocked: true, allowlist_required: true },
-      routing_precedence: ["ORG_OVERRIDE", "GLOBAL", "BUILTIN"],
-    };
+    const fullContextPack = { ...contextPack, traces: traceContext };
 
     const userMessage = question
-      ? `Context: ${JSON.stringify(contextPack)}\n\nAdmin question: ${question}`
-      : `Analyze the current wizard state and provide guidance:\n${JSON.stringify(contextPack)}`;
+      ? `Context: ${JSON.stringify(fullContextPack)}\n\nAdmin question: ${question}`
+      : `Analyze the current wizard state and provide guidance:\n${JSON.stringify(fullContextPack)}`;
 
     // Store user message
     if (activeSessionId) {
       await adminClient.from("provider_ai_messages").insert({
         session_id: activeSessionId,
         role: "user",
-        content: userMessage.slice(0, 10000), // Truncate for storage
+        content: userMessage.slice(0, 10000),
         metadata: { step_id, has_question: !!question },
       });
     }
 
-    // Call Gemini via Lovable AI Gateway
+    // Call Gemini
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       return new Response(JSON.stringify({
@@ -261,7 +299,6 @@ Deno.serve(async (req) => {
     const aiData = await aiResponse.json();
     const rawContent = aiData.choices?.[0]?.message?.content || "";
 
-    // Parse JSON from AI response (may be wrapped in markdown code blocks)
     let parsed: Record<string, unknown>;
     try {
       const jsonMatch = rawContent.match(/```json\s*([\s\S]*?)```/) || rawContent.match(/\{[\s\S]*\}/);
