@@ -47,12 +47,12 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
         </h2>
         <p className="text-muted-foreground max-w-md mx-auto">
           {isPlatform
-            ? "El proveedor GLOBAL está activo y se aplica automáticamente a todas las organizaciones. Los administradores de organización y usuarios se benefician sin configurar nada."
+            ? "Activado a nivel de plataforma. No se requiere ninguna acción por parte de los administradores de organización ni los usuarios — se benefician de forma automática y transparente."
             : "El proveedor PRIVADO está configurado y enriquecerá los datos exclusivamente para tu organización."
           }
         </p>
         <Badge variant="outline" className={`text-xs ${isPlatform ? "border-destructive/30 text-destructive" : "border-primary/30 text-primary"}`}>
-          {isPlatform ? <><Globe className="h-3 w-3 mr-1" /> Impacto: Toda la Plataforma</> : <><Building2 className="h-3 w-3 mr-1" /> Impacto: Solo tu Organización</>}
+          {isPlatform ? <><Globe className="h-3 w-3 mr-1" /> Activado para toda la plataforma — sin acción de orgs</> : <><Building2 className="h-3 w-3 mr-1" /> Impacto: Solo tu Organización</>}
         </Badge>
       </div>
 
@@ -98,7 +98,10 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
                 <div>
                   <span className="text-xs text-muted-foreground">Cobertura</span>
                   <p className="text-foreground font-medium text-sm">
-                    100% organizaciones — activado automáticamente
+                    100% organizaciones — activado automáticamente (plataforma)
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    No se requiere acción de org admins ni usuarios.
                   </p>
                 </div>
               </div>
