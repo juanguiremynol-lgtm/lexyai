@@ -209,7 +209,7 @@ const App = () => (
             <Route path="api-debug" element={<ErrorBoundary><PlatformApiDebugPage /></ErrorBoundary>} />
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
-            <Route path="external-providers" element={<ErrorBoundary><PlatformExternalProvidersPage /></ErrorBoundary>} />
+            <Route path="external-providers" element={<Navigate to="/platform/external-providers/wizard" replace />} />
             <Route path="external-providers/wizard" element={<ErrorBoundary><PlatformProviderWizardPage /></ErrorBoundary>} />
           </Route>
           

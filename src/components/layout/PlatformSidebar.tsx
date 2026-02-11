@@ -56,7 +56,7 @@ const platformNavItems = [
   { title: "API Debug", url: "/platform/api-debug", icon: Bug },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
-  { title: "Proveedores Ext.", url: "/platform/external-providers", icon: Cable },
+  { title: "Proveedores Ext.", url: "/platform/external-providers/wizard", icon: Cable },
 ];
 
 export function PlatformSidebar() {

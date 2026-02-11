@@ -6060,6 +6060,44 @@ export type Database = {
           },
         ]
       }
+      provider_wizard_sessions: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          mode: string
+          organization_id: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_at?: string
+          id?: string
+          mode: string
+          organization_id?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          mode?: string
+          organization_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_wizard_sessions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pub_provenance: {
         Row: {
           first_seen_at: string
