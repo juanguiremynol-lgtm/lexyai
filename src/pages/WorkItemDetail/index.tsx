@@ -32,7 +32,6 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
-import { ReportToAteniaDialog } from "@/components/atenia/ReportToAteniaDialog";
 import { AteniaAssistantDrawer } from "@/components/atenia/AteniaAssistantDrawer";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
@@ -223,13 +222,7 @@ export default function WorkItemDetail() {
             )}
           </Button>
           
-          {/* Report to Atenia AI */}
-          <ReportToAteniaDialog
-            workItemId={workItem.id}
-            workItemRadicado={workItem.radicado || undefined}
-          />
-
-          {/* Ask Atenia AI Assistant */}
+          {/* Atenia AI — Unified assistant + report */}
           <Button
             variant="outline"
             size="sm"
@@ -237,7 +230,7 @@ export default function WorkItemDetail() {
             onClick={() => setAssistantOpen(true)}
           >
             <Bot className="h-4 w-4" />
-            Preguntar a Atenia
+            Atenia AI
           </Button>
 
           {/* Electronic File Button - single source of truth for expediente link */}
