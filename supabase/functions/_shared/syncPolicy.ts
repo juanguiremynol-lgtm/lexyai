@@ -16,12 +16,13 @@ export const TRANSIENT_ERROR_CODES = [
   'SCRAPING_TIMEOUT_RETRY_SCHEDULED',
 ] as const;
 
-/** Error codes that are true 404 / "record doesn't exist" signals */
+/** Error codes that are true 404 / "record doesn't exist" signals OR terminal dead-letters */
 export const DEMONITOR_ELIGIBLE_ERROR_CODES = [
   'PROVIDER_404',
   'RECORD_NOT_FOUND',
   'PROVIDER_NOT_FOUND',
   'UPSTREAM_ROUTE_MISSING',
+  'SCRAPING_STUCK',       // Terminal: max retries exhausted, no data ever retrieved
 ] as const;
 
 /**
