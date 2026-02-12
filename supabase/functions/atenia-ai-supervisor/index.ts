@@ -26,6 +26,11 @@ import {
   translateDiagnostic,
   type Diagnostic,
 } from "../_shared/ateniaAiSupervisor.ts";
+import {
+  normalizeTraceError,
+  getErrorLabelEs,
+  getRecommendedActionEs,
+} from "../_shared/normalizeError.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -515,75 +520,9 @@ Responde con:
 
 // ─── Normalized Error Labels (canonical, replaces "ERROR DESCONOCIDO") ─────
 
-const NORMALIZED_LABELS: Record<string, string> = {
-  PROVIDER_TIMEOUT: "TIEMPO DE ESPERA",
-  PROVIDER_NOT_FOUND: "RADICADO NO ENCONTRADO",
-  PROVIDER_404: "NO ENCONTRADO (404)",
-  PROVIDER_5XX: "ERROR DEL SERVIDOR",
-  PROVIDER_EMPTY_RESULT: "SIN EVENTOS DIGITALES",
-  NETWORK_ERROR: "ERROR DE RED",
-  SNAPSHOT_PARSE_FAILED: "SNAPSHOT NO PROCESABLE",
-  EMPTY_RESULTS: "SIN RESULTADOS",
-  EDGE_INVOCATION_FAILED: "FALLA DE INVOCACIÓN",
-  MISSING_PLATFORM_INSTANCE: "SIN INSTANCIA PLATAFORMA",
-  MAPPING_NOT_ACTIVE: "MAPPING EN BORRADOR",
-  SCRAPING_TIMEOUT: "SCRAPING EN PROGRESO",
-  SCRAPING_STUCK: "SCRAPING ATASCADO",
-  PROVIDER_RATE_LIMITED: "LÍMITE DE CONSULTAS",
-  UPSTREAM_AUTH: "AUTENTICACIÓN FALLIDA",
-  UPSTREAM_ROUTE_MISSING: "RUTA NO EXISTE",
-  UNKNOWN: "ERROR NO CLASIFICADO",
-};
-
-const NORMALIZED_ACTIONS: Record<string, string> = {
-  PROVIDER_TIMEOUT: "Se reintentará automáticamente. Para casos pesados, separar actuaciones y publicaciones.",
-  PROVIDER_NOT_FOUND: "Verificar radicado. Si persiste, considerar suspender monitoreo.",
-  PROVIDER_404: "Verificar radicado en el portal del proveedor.",
-  PROVIDER_5XX: "Reintentar. Si persiste, verificar estado del proveedor.",
-  PROVIDER_EMPTY_RESULT: "Sin acción. El juzgado no ha digitalizado eventos aún.",
-  NETWORK_ERROR: "Verificar conectividad. Reintento automático programado.",
-  SNAPSHOT_PARSE_FAILED: "Revisar formato de respuesta del proveedor. Puede requerir ajuste de parser.",
-  EMPTY_RESULTS: "Sin acción inmediata. Cooldown de 24h aplicado.",
-  EDGE_INVOCATION_FAILED: "Reintentar publicaciones como tarea separada.",
-  MISSING_PLATFORM_INSTANCE: "Super Admin debe crear instancia PLATFORM desde el wizard de proveedores.",
-  MAPPING_NOT_ACTIVE: "Activar mapping spec desde el wizard de proveedores.",
-  SCRAPING_TIMEOUT: "Esperar resultado del scraping. Reintento programado automáticamente.",
-  SCRAPING_STUCK: "Investigar con el proveedor. Considerar suspender monitoreo.",
-  PROVIDER_RATE_LIMITED: "Esperar cooldown. No reintentar inmediatamente.",
-  UPSTREAM_AUTH: "Verificar credenciales del proveedor. Escalar a Super Admin.",
-  UPSTREAM_ROUTE_MISSING: "Verificar configuración de ruta/endpoint del proveedor.",
-  UNKNOWN: "Investigar trazas manualmente. Escalar si se repite.",
-};
-
-/**
- * Maps raw error codes from sync_traces into canonical normalized codes.
- * Used by translateDiagnosticLegacy fallback to replace "ERROR DESCONOCIDO".
- */
-function normalizeTraceCode(
-  rawCode: string | null | undefined,
-  httpStatus: number | null | undefined,
-  message: string | null | undefined,
-): string {
-  const code = (rawCode || '').toUpperCase();
-  const msg = (message || '').toUpperCase();
-
-  if (code.includes('SCRAPING_STUCK')) return 'SCRAPING_STUCK';
-  if (code.includes('SCRAPING_TIMEOUT') || code.includes('SCRAPING_PENDING')) return 'SCRAPING_TIMEOUT';
-  if (code.includes('MISSING_PLATFORM_INSTANCE')) return 'MISSING_PLATFORM_INSTANCE';
-  if (code.includes('MAPPING_NOT_ACTIVE') || code.includes('MAPPING_SPEC_MISSING')) return 'MAPPING_NOT_ACTIVE';
-  if (code.includes('SNAPSHOT_PARSE') || code.includes('UNPARSABLE')) return 'SNAPSHOT_PARSE_FAILED';
-  if (code.includes('EMPTY_RESULT') || code.includes('EMPTY_SNAPSHOT') || code.includes('PROVIDER_EMPTY')) return 'PROVIDER_EMPTY_RESULT';
-  if (code.includes('RATE_LIMITED') || httpStatus === 429) return 'PROVIDER_RATE_LIMITED';
-  if (code.includes('UPSTREAM_AUTH') || code.includes('AUTH_FAILED') || httpStatus === 401 || httpStatus === 403) return 'UPSTREAM_AUTH';
-  if (code.includes('UPSTREAM_ROUTE_MISSING') || code.includes('ROUTE_NOT_FOUND') || code.includes('404_HTML')) return 'UPSTREAM_ROUTE_MISSING';
-  if (code.includes('RECORD_NOT_FOUND') || code === 'NOT_FOUND' || code === 'PROVIDER_404' || code === 'PROVIDER_NOT_FOUND') return 'PROVIDER_NOT_FOUND';
-  if (code.includes('TIMEOUT') || msg.includes('TIMEOUT') || msg.includes('ABORTED')) return 'PROVIDER_TIMEOUT';
-  if (code.includes('EDGE_FUNCTION_FAILED') || code.includes('FUNCTION_INVOKE_FAILED')) return 'EDGE_INVOCATION_FAILED';
-  if (code.includes('NETWORK') || msg.includes('ECONNREFUSED') || msg.includes('FETCH_FAILED')) return 'NETWORK_ERROR';
-  if (httpStatus === 404) return 'PROVIDER_NOT_FOUND';
-  if (httpStatus && httpStatus >= 500) return 'PROVIDER_5XX';
-  return 'UNKNOWN';
-}
+// Normalization now uses the canonical _shared/normalizeError.ts module.
+// NORMALIZED_LABELS, NORMALIZED_ACTIONS, and normalizeTraceCode are removed.
+// Use: normalizeTraceError(), getErrorLabelEs(), getRecommendedActionEs()
 
 // ─── Diagnostic Translator (Legacy format) ───────────────────────────
 
@@ -731,10 +670,10 @@ function translateDiagnosticLegacy(
     };
   }
 
-  // Use normalized_error_code from trace if available, fall back to inline classification
-  const normalizedCode = normalizeTraceCode(trace.error_code, trace.http_status, trace.message);
-  const normalizedLabel = NORMALIZED_LABELS[normalizedCode] || "ERROR NO CLASIFICADO";
-  const normalizedAction = NORMALIZED_ACTIONS[normalizedCode] || "Investigar trazas manualmente. Escalar si se repite.";
+  // Use canonical shared normalizer (single source of truth)
+  const normalizedCode = normalizeTraceError(trace.error_code, trace.http_status, trace.message);
+  const normalizedLabel = getErrorLabelEs(normalizedCode);
+  const normalizedAction = getRecommendedActionEs(normalizedCode);
 
   return {
     ...base,
