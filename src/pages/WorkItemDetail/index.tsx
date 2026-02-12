@@ -10,7 +10,7 @@
 
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Server, Bot } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,6 @@ import { AteniaAssistantDrawer } from "@/components/atenia/AteniaAssistantDrawer
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
 import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
-import { WorkItemSourcesTab } from "@/components/work-items/WorkItemSourcesTab";
 import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 
 import type { WorkItem } from "@/types/work-item";
@@ -304,7 +303,7 @@ export default function WorkItemDetail() {
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue="actuaciones" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -324,10 +323,6 @@ export default function WorkItemDetail() {
                 <StickyNote className="h-4 w-4" />
                 Notas
               </TabsTrigger>
-              <TabsTrigger value="fuentes" className="gap-2">
-                <Server className="h-4 w-4" />
-                Fuentes
-              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="actuaciones" className="mt-4">
@@ -344,12 +339,6 @@ export default function WorkItemDetail() {
 
             <TabsContent value="notas" className="mt-4">
               <NotesTab workItem={extendedWorkItem} />
-            </TabsContent>
-
-            <TabsContent value="fuentes" className="mt-4">
-              <WorkItemSourcesTab
-                workItemId={workItem.id}
-              />
             </TabsContent>
           </Tabs>
         </div>
