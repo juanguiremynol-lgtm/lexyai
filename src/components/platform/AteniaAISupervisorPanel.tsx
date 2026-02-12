@@ -14,6 +14,8 @@ import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
 import { AteniaAutonomousSyncPanel } from "./atenia-ai/AteniaAutonomousSyncPanel";
 import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProviderStatus";
+import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
+import { AteniaOperatorExplanation } from "./atenia-ai/AteniaOperatorExplanation";
 import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
@@ -578,6 +580,9 @@ export function AteniaAISupervisorPanel() {
             </Card>
           )}
 
+          {/* Ghost Items */}
+          <AteniaGhostItems />
+
           {/* Autopilot Control Plane */}
           <AutopilotDashboard organizationId={PLATFORM_ORG_ID} />
 
@@ -601,6 +606,9 @@ export function AteniaAISupervisorPanel() {
 
           {/* Master Sync Debug Tool */}
           <MasterSyncPanel />
+
+          {/* Operator Explanation */}
+          <AteniaOperatorExplanation />
         </>
       )}
     </div>
