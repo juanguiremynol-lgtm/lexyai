@@ -446,6 +446,8 @@ export type Database = {
           action_result: string | null
           action_taken: string | null
           action_type: string
+          actor: string | null
+          actor_user_id: string | null
           approved_at: string | null
           approved_by: string | null
           autonomy_tier: string
@@ -453,15 +455,21 @@ export type Database = {
           evidence: Json | null
           expires_at: string | null
           id: string
+          is_reversible: boolean | null
           organization_id: string
+          reason_code: string | null
           reasoning: string
+          summary: string | null
           target_entity_id: string | null
           target_entity_type: string | null
+          work_item_id: string | null
         }
         Insert: {
           action_result?: string | null
           action_taken?: string | null
           action_type: string
+          actor?: string | null
+          actor_user_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           autonomy_tier: string
@@ -469,15 +477,21 @@ export type Database = {
           evidence?: Json | null
           expires_at?: string | null
           id?: string
+          is_reversible?: boolean | null
           organization_id: string
+          reason_code?: string | null
           reasoning: string
+          summary?: string | null
           target_entity_id?: string | null
           target_entity_type?: string | null
+          work_item_id?: string | null
         }
         Update: {
           action_result?: string | null
           action_taken?: string | null
           action_type?: string
+          actor?: string | null
+          actor_user_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           autonomy_tier?: string
@@ -485,10 +499,14 @@ export type Database = {
           evidence?: Json | null
           expires_at?: string | null
           id?: string
+          is_reversible?: boolean | null
           organization_id?: string
+          reason_code?: string | null
           reasoning?: string
+          summary?: string | null
           target_entity_id?: string | null
           target_entity_type?: string | null
+          work_item_id?: string | null
         }
         Relationships: [
           {
@@ -496,6 +514,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_ai_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -577,6 +602,68 @@ export type Database = {
           },
         ]
       }
+      atenia_ai_remediation_queue: {
+        Row: {
+          action_type: string
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          organization_id: string | null
+          payload: Json
+          priority: number
+          provider: string | null
+          reason_code: string | null
+          run_after: string
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }
+        Insert: {
+          action_type: string
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          organization_id?: string | null
+          payload?: Json
+          priority?: number
+          provider?: string | null
+          reason_code?: string | null
+          run_after?: string
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Update: {
+          action_type?: string
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          organization_id?: string | null
+          payload?: Json
+          priority?: number
+          provider?: string | null
+          reason_code?: string | null
+          run_after?: string
+          status?: string
+          updated_at?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_remediation_queue_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       atenia_ai_reports: {
         Row: {
           ai_diagnosis: string | null
@@ -642,6 +729,39 @@ export type Database = {
           },
         ]
       }
+      atenia_ai_scheduled_tasks: {
+        Row: {
+          last_attempt_at: string | null
+          last_error: Json | null
+          last_success_at: string | null
+          locked_until: string | null
+          run_count: number
+          status: string
+          task_key: string
+          task_name: string
+        }
+        Insert: {
+          last_attempt_at?: string | null
+          last_error?: Json | null
+          last_success_at?: string | null
+          locked_until?: string | null
+          run_count?: number
+          status?: string
+          task_key: string
+          task_name: string
+        }
+        Update: {
+          last_attempt_at?: string | null
+          last_error?: Json | null
+          last_success_at?: string | null
+          locked_until?: string | null
+          run_count?: number
+          status?: string
+          task_key?: string
+          task_name?: string
+        }
+        Relationships: []
+      }
       atenia_ai_user_reports: {
         Row: {
           ai_diagnosis: string | null
@@ -703,6 +823,50 @@ export type Database = {
             foreignKeyName: "atenia_ai_user_reports_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_work_item_state: {
+        Row: {
+          consecutive_not_found: number
+          consecutive_other_errors: number
+          consecutive_timeouts: number
+          last_error_code: string | null
+          last_observed_at: string
+          last_provider: string | null
+          last_success_at: string | null
+          organization_id: string
+          work_item_id: string
+        }
+        Insert: {
+          consecutive_not_found?: number
+          consecutive_other_errors?: number
+          consecutive_timeouts?: number
+          last_error_code?: string | null
+          last_observed_at?: string
+          last_provider?: string | null
+          last_success_at?: string | null
+          organization_id: string
+          work_item_id: string
+        }
+        Update: {
+          consecutive_not_found?: number
+          consecutive_other_errors?: number
+          consecutive_timeouts?: number
+          last_error_code?: string | null
+          last_observed_at?: string
+          last_provider?: string | null
+          last_success_at?: string | null
+          organization_id?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_work_item_state_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
@@ -7813,6 +7977,10 @@ export type Database = {
           milestones_cleared_at: string | null
           milestones_cleared_status: string | null
           ministerio_publico: string | null
+          monitoring_disabled_at: string | null
+          monitoring_disabled_by: string | null
+          monitoring_disabled_meta: Json | null
+          monitoring_disabled_reason: string | null
           monitoring_enabled: boolean | null
           naturaleza_proceso: string | null
           notes: string | null
@@ -7946,6 +8114,10 @@ export type Database = {
           milestones_cleared_at?: string | null
           milestones_cleared_status?: string | null
           ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
           naturaleza_proceso?: string | null
           notes?: string | null
@@ -8079,6 +8251,10 @@ export type Database = {
           milestones_cleared_at?: string | null
           milestones_cleared_status?: string | null
           ministerio_publico?: string | null
+          monitoring_disabled_at?: string | null
+          monitoring_disabled_by?: string | null
+          monitoring_disabled_meta?: Json | null
+          monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
           naturaleza_proceso?: string | null
           notes?: string | null
@@ -8197,6 +8373,40 @@ export type Database = {
       admin_archive_record: {
         Args: { p_reason?: string; p_record_id: string; p_table: string }
         Returns: undefined
+      }
+      atenia_ai_claim_queue: {
+        Args: { _limit?: number }
+        Returns: {
+          action_type: string
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          organization_id: string | null
+          payload: Json
+          priority: number
+          provider: string | null
+          reason_code: string | null
+          run_after: string
+          status: string
+          updated_at: string
+          work_item_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "atenia_ai_remediation_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      atenia_ai_finish_task: {
+        Args: { _error?: Json; _status: string; _task_key: string }
+        Returns: undefined
+      }
+      atenia_ai_try_start_task: {
+        Args: { _task_key: string; _ttl_seconds?: number }
+        Returns: boolean
       }
       backfill_work_item_ids: {
         Args: never

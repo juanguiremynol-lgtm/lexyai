@@ -1,17 +1,31 @@
 /**
- * Atenia AI Supervisor — Post-Sync Analysis & Diagnostics
- *
- * Runs AFTER scheduled-daily-sync to audit results, diagnose failures,
- * trigger remediation, and prepare Lexy daily message data.
+ * Atenia AI Supervisor V2 — Autonomous Platform Administrator
  *
  * Modes:
- *   POST_DAILY_SYNC  — Full audit after daily cron
- *   POST_LOGIN_SYNC  — Lightweight audit after login sync
- *   MANUAL_AUDIT     — On-demand by super admin
- *   HEALTH_CHECK     — Quick provider connectivity check
+ *   POST_DAILY_SYNC   — Full audit after daily cron (existing)
+ *   POST_LOGIN_SYNC   — Lightweight audit after login sync (existing)
+ *   MANUAL_AUDIT       — On-demand by super admin (existing)
+ *   HEALTH_CHECK       — Quick provider connectivity (existing)
+ *   HEARTBEAT          — Scheduled: picks windows by Bogota time, processes queue
+ *   PROCESS_QUEUE      — Explicit queue worker run
+ *   MANUAL_RUN         — Manual trigger from UI
+ *
+ * V2 additions:
+ *   - Remediation queue with atomic claim (SKIP LOCKED)
+ *   - Auto-demonitor after N consecutive NOT_FOUND
+ *   - Work item state tracking (consecutive failures)
+ *   - Bogota time-of-day scheduling windows
+ *   - Exponential backoff for retries
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  bogotaDayBoundsUtc,
+  bogotaHour,
+  computeBackoffMinutes,
+  translateDiagnostic,
+  type Diagnostic,
+} from "../_shared/ateniaAiSupervisor.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,9 +36,17 @@ const corsHeaders = {
 // ─── Types ────────────────────────────────────────────────────────────
 
 interface AteniaAIInput {
-  mode: "POST_DAILY_SYNC" | "POST_LOGIN_SYNC" | "MANUAL_AUDIT" | "HEALTH_CHECK";
+  mode:
+    | "POST_DAILY_SYNC"
+    | "POST_LOGIN_SYNC"
+    | "MANUAL_AUDIT"
+    | "HEALTH_CHECK"
+    | "HEARTBEAT"
+    | "PROCESS_QUEUE"
+    | "MANUAL_RUN";
   organization_id?: string;
-  run_date?: string; // YYYY-MM-DD, defaults to today COT
+  run_date?: string;
+  dry_run?: boolean;
 }
 
 interface DiagnosticEntry {
@@ -70,7 +92,16 @@ interface SyncTrace {
   created_at: string;
 }
 
-// ─── Provider Name Translation ────────────────────────────────────────
+type SupabaseAdmin = ReturnType<typeof createClient>;
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 function providerName(provider: string | null): string {
   if (!provider) return "un proveedor desconocido";
@@ -83,156 +114,261 @@ function providerName(provider: string | null): string {
   return names[provider.toLowerCase()] || provider;
 }
 
-// ─── Diagnostic Translator ───────────────────────────────────────────
-
-function translateDiagnostic(
-  trace: SyncTrace,
-  radicado: string,
-  workItemId: string,
-): DiagnosticEntry {
-  const base = { work_item_id: workItemId, radicado };
-
-  // Provider unreachable
-  if (trace.error_code === "UPSTREAM_ROUTE_MISSING" || trace.http_status === 0) {
-    return {
-      ...base,
-      severity: "PROBLEMA",
-      category: "CONEXIÓN",
-      message_es: `No se pudo conectar con ${providerName(trace.provider)}. El servicio externo no respondió. Esto puede ser una caída temporal del sistema judicial.`,
-      technical_detail: `${trace.provider} returned HTTP ${trace.http_status} / error: ${trace.error_code} / latency: ${trace.latency_ms}ms`,
-      suggested_action: "Atenia AI reintentará automáticamente en la próxima ventana de sincronización.",
-    };
-  }
-
-  // Auth failure
-  if (trace.error_code === "UPSTREAM_AUTH" || trace.http_status === 401 || trace.http_status === 403) {
-    return {
-      ...base,
-      severity: "CRITICO",
-      category: "AUTENTICACIÓN",
-      message_es: `El servicio ${providerName(trace.provider)} rechazó nuestras credenciales. Es posible que la clave de acceso haya expirado o sido revocada.`,
-      technical_detail: `${trace.provider} returned HTTP ${trace.http_status}`,
-      suggested_action: "Verifique las claves de API en la configuración de secretos.",
-    };
-  }
-
-  // Record not found
-  if (trace.error_code === "RECORD_NOT_FOUND" || trace.error_code === "PROVIDER_404" ||
-      (trace.http_status === 404 && trace.error_code !== "UPSTREAM_ROUTE_MISSING")) {
-    return {
-      ...base,
-      severity: "AVISO",
-      category: "BÚSQUEDA",
-      message_es: `El radicado ${radicado} no fue encontrado en ${providerName(trace.provider)}. Puede que aún no esté registrado o que el número tenga un error.`,
-      technical_detail: `${trace.provider} returned 404 for ${radicado}`,
-      suggested_action: "Verifique que el número de radicado sea correcto (23 dígitos).",
-    };
-  }
-
-  // Timeout
-  if (trace.error_code === "TIMEOUT" || trace.error_code === "PROVIDER_TIMEOUT" ||
-      (trace.latency_ms && trace.latency_ms > 55000)) {
-    return {
-      ...base,
-      severity: "PROBLEMA",
-      category: "TIEMPO DE ESPERA",
-      message_es: `La consulta al servicio ${providerName(trace.provider)} tardó demasiado (${Math.round((trace.latency_ms || 60000) / 1000)} segundos) y fue cancelada.`,
-      technical_detail: `${trace.provider} timed out after ${trace.latency_ms}ms`,
-      suggested_action: "Se reintentará automáticamente. Si persiste, el proveedor puede estar caído.",
-    };
-  }
-
-  // Parse error
-  if (trace.error_code === "PARSER_ERROR" || trace.error_code === "INVALID_JSON_RESPONSE") {
-    return {
-      ...base,
-      severity: "PROBLEMA",
-      category: "FORMATO DE DATOS",
-      message_es: `Se recibió información de ${providerName(trace.provider)} pero no pudo ser procesada correctamente.`,
-      technical_detail: `Parse error on ${trace.provider}: ${trace.message}`,
-      suggested_action: "Revise la respuesta cruda en el panel de depuración.",
-    };
-  }
-
-  // Rate limited
-  if (trace.http_status === 429) {
-    return {
-      ...base,
-      severity: "AVISO",
-      category: "LÍMITE DE CONSULTAS",
-      message_es: `El servicio ${providerName(trace.provider)} indicó que se han realizado demasiadas consultas. Se pausará temporalmente.`,
-      technical_detail: `${trace.provider} returned 429 Too Many Requests`,
-      suggested_action: "Automático — Atenia AI ajustará el ritmo de consultas.",
-    };
-  }
-
-  // No new data (success, 0 inserted)
-  const insertedCount = (trace.meta?.inserted_count as number) || 0;
-  const skippedCount = (trace.meta?.skipped_count as number) || 0;
-  if (trace.success && insertedCount === 0 && skippedCount > 0) {
-    return {
-      ...base,
-      severity: "OK",
-      category: "SIN NOVEDADES",
-      message_es: `El radicado ${radicado} fue consultado exitosamente. No se encontraron actuaciones nuevas.`,
-      technical_detail: `${skippedCount} existing records matched by fingerprint`,
-    };
-  }
-
-  // Success with new data
-  if (trace.success && insertedCount > 0) {
-    return {
-      ...base,
-      severity: "OK",
-      category: "ACTUALIZADO",
-      message_es: `Se encontraron ${insertedCount} nuevas actuaciones para el radicado ${radicado} en ${providerName(trace.provider)}.`,
-      technical_detail: `Inserted ${insertedCount}, skipped ${skippedCount}`,
-    };
-  }
-
-  // DB write failure
-  if (trace.error_code === "DB_WRITE_FAILED" || trace.error_code === "DB_CONSTRAINT") {
-    return {
-      ...base,
-      severity: "PROBLEMA",
-      category: "BASE DE DATOS",
-      message_es: `Error al guardar datos del radicado ${radicado} en la base de datos.`,
-      technical_detail: `DB error: ${trace.error_code} / ${trace.message}`,
-      suggested_action: "Contacte soporte técnico si el error persiste.",
-    };
-  }
-
-  // Generic success
-  if (trace.success) {
-    return {
-      ...base,
-      severity: "OK",
-      category: "OK",
-      message_es: `Sincronización exitosa para ${radicado}.`,
-      technical_detail: `${trace.provider} completed in ${trace.latency_ms}ms`,
-    };
-  }
-
-  // Unknown error
-  return {
-    ...base,
-    severity: "PROBLEMA",
-    category: "ERROR DESCONOCIDO",
-    message_es: `Ocurrió un error inesperado al consultar ${providerName(trace.provider)} para el radicado ${radicado}.`,
-    technical_detail: `Unknown: ${trace.error_code} / HTTP ${trace.http_status} / ${trace.message}`,
-    suggested_action: "Consulte los registros detallados en el panel de depuración.",
-  };
+function hoursAgo(dateStr: string | null): number {
+  if (!dateStr) return 999;
+  return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60);
 }
 
-// ─── Provider Health Aggregation ─────────────────────────────────────
+function todayCOT(): string {
+  const now = new Date();
+  const cot = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+  return cot.toISOString().slice(0, 10);
+}
 
-function aggregateProviderHealth(traces: SyncTrace[]): Record<string, ProviderHealth> {
-  const providers: Record<string, { latencies: number[]; errors: number; total: number; errorCodes: string[] }> = {};
+// ─── Action Logging ──────────────────────────────────────────────────
+
+async function logAction(
+  supabase: SupabaseAdmin,
+  row: {
+    actor: "ATENIA" | "USER" | "SYSTEM";
+    actor_user_id?: string | null;
+    organization_id?: string | null;
+    work_item_id?: string | null;
+    action_type: string;
+    reason_code?: string | null;
+    summary?: string | null;
+    evidence?: Record<string, unknown>;
+    is_reversible?: boolean;
+    // Legacy columns for backward compat
+    autonomy_tier?: string;
+    reasoning?: string;
+  },
+) {
+  try {
+    await supabase.from("atenia_ai_actions").insert({
+      actor: row.actor,
+      actor_user_id: row.actor_user_id ?? null,
+      organization_id: row.organization_id ?? null,
+      work_item_id: row.work_item_id ?? null,
+      action_type: row.action_type,
+      reason_code: row.reason_code ?? null,
+      summary: row.summary ?? null,
+      evidence: row.evidence ?? {},
+      is_reversible: row.is_reversible ?? true,
+      // Legacy compat
+      autonomy_tier: row.autonomy_tier ?? "ACT",
+      reasoning: row.reasoning ?? row.summary ?? "",
+    });
+  } catch (e) {
+    console.warn("[atenia-ai] Failed to log action:", e);
+  }
+}
+
+// ─── Remediation Queue ───────────────────────────────────────────────
+
+async function enqueueJob(
+  supabase: SupabaseAdmin,
+  input: {
+    work_item_id: string;
+    organization_id?: string | null;
+    action_type: string;
+    reason_code?: string | null;
+    provider?: string | null;
+    priority?: number;
+    run_after?: Date;
+    max_attempts?: number;
+    payload?: Record<string, unknown>;
+  },
+) {
+  const base = {
+    work_item_id: input.work_item_id,
+    organization_id: input.organization_id ?? null,
+    action_type: input.action_type,
+    reason_code: input.reason_code ?? null,
+    provider: input.provider ?? null,
+    priority: input.priority ?? 0,
+    run_after: (input.run_after ?? new Date()).toISOString(),
+    max_attempts: input.max_attempts ?? 3,
+    payload: input.payload ?? {},
+    status: "PENDING",
+  };
+
+  const { error: insErr } = await supabase
+    .from("atenia_ai_remediation_queue")
+    .insert(base);
+
+  if (!insErr) return;
+
+  // Conflict on dedupe index — update existing active job
+  const { data: existing } = await supabase
+    .from("atenia_ai_remediation_queue")
+    .select("id")
+    .eq("work_item_id", input.work_item_id)
+    .eq("action_type", input.action_type)
+    .in("status", ["PENDING", "RUNNING"])
+    .limit(1);
+
+  if (existing && existing[0]?.id) {
+    await supabase
+      .from("atenia_ai_remediation_queue")
+      .update({
+        updated_at: new Date().toISOString(),
+        run_after: base.run_after,
+        priority: base.priority,
+        payload: base.payload,
+        reason_code: base.reason_code,
+        provider: base.provider,
+      })
+      .eq("id", existing[0].id);
+  }
+}
+
+// ─── Work Item State Tracking ────────────────────────────────────────
+
+async function updateWorkItemState(
+  supabase: SupabaseAdmin,
+  input: {
+    work_item_id: string;
+    organization_id: string;
+    provider?: string | null;
+    code?: string | null;
+    success: boolean;
+  },
+) {
+  const now = new Date().toISOString();
+  const code = (input.code ?? "").toUpperCase();
+
+  const isNotFound =
+    code.includes("RECORD_NOT_FOUND") ||
+    code === "NOT_FOUND" ||
+    code.includes("NO_RECORD") ||
+    code.includes("EMPTY_SNAPSHOT") ||
+    code.includes("PROVIDER_404");
+  const isTimeout =
+    code.includes("TIMEOUT") ||
+    code.includes("ETIMEDOUT") ||
+    code.includes("ABORT");
+
+  const { data: existing } = await supabase
+    .from("atenia_ai_work_item_state")
+    .select(
+      "consecutive_not_found, consecutive_timeouts, consecutive_other_errors",
+    )
+    .eq("work_item_id", input.work_item_id)
+    .maybeSingle();
+
+  const prevNF = existing?.consecutive_not_found ?? 0;
+  const prevTO = existing?.consecutive_timeouts ?? 0;
+  const prevOE = existing?.consecutive_other_errors ?? 0;
+
+  const next = (() => {
+    if (input.success) return { nf: 0, to: 0, oe: 0 };
+    if (isNotFound) return { nf: prevNF + 1, to: 0, oe: 0 };
+    if (isTimeout) return { nf: 0, to: prevTO + 1, oe: 0 };
+    return { nf: 0, to: 0, oe: prevOE + 1 };
+  })();
+
+  await supabase.from("atenia_ai_work_item_state").upsert({
+    work_item_id: input.work_item_id,
+    organization_id: input.organization_id,
+    last_observed_at: now,
+    consecutive_not_found: next.nf,
+    consecutive_timeouts: next.to,
+    consecutive_other_errors: next.oe,
+    last_error_code: input.success ? null : (input.code ?? null),
+    last_provider: input.provider ?? null,
+    last_success_at: input.success ? now : undefined,
+  });
+}
+
+// ─── Auto-Demonitor ──────────────────────────────────────────────────
+
+async function maybeAutoDemonitor(
+  supabase: SupabaseAdmin,
+  input: {
+    work_item_id: string;
+    threshold: number;
+  },
+): Promise<{ demonitor: boolean; meta?: Record<string, unknown> }> {
+  const { data: state } = await supabase
+    .from("atenia_ai_work_item_state")
+    .select("consecutive_not_found, last_error_code, last_provider")
+    .eq("work_item_id", input.work_item_id)
+    .maybeSingle();
+
+  const nf = state?.consecutive_not_found ?? 0;
+  if (nf < input.threshold) return { demonitor: false };
+
+  // Safety: check active retries — don't demonitor items being retried
+  const { count: activeRetries } = await supabase
+    .from("atenia_ai_remediation_queue")
+    .select("id", { count: "exact", head: true })
+    .eq("work_item_id", input.work_item_id)
+    .in("status", ["PENDING", "RUNNING"]);
+
+  if ((activeRetries ?? 0) > 0) return { demonitor: false };
+
+  // Check still enabled
+  const { data: wi } = await supabase
+    .from("work_items")
+    .select("id, organization_id, monitoring_enabled")
+    .eq("id", input.work_item_id)
+    .maybeSingle();
+
+  if (!wi?.monitoring_enabled) return { demonitor: false };
+
+  const meta = {
+    consecutive_not_found: nf,
+    last_provider: state?.last_provider ?? null,
+    last_error_code: state?.last_error_code ?? null,
+  };
+
+  await supabase
+    .from("work_items")
+    .update({
+      monitoring_enabled: false,
+      monitoring_disabled_reason: "AUTO_DEMONITOR_NOT_FOUND",
+      monitoring_disabled_by: "ATENIA",
+      monitoring_disabled_at: new Date().toISOString(),
+      monitoring_disabled_meta: meta,
+    })
+    .eq("id", input.work_item_id);
+
+  await logAction(supabase, {
+    actor: "ATENIA",
+    organization_id: wi.organization_id ?? null,
+    work_item_id: input.work_item_id,
+    action_type: "AUTO_DEMONITOR",
+    autonomy_tier: "ACT",
+    reason_code: "CONSECUTIVE_NOT_FOUND",
+    summary: `Auto-demonitor tras ${nf} NOT_FOUND consecutivos.`,
+    reasoning: `Auto-demonitor tras ${nf} NOT_FOUND consecutivos.`,
+    evidence: meta,
+    is_reversible: true,
+  });
+
+  return { demonitor: true, meta };
+}
+
+// ─── Provider Health ─────────────────────────────────────────────────
+
+function aggregateProviderHealth(
+  traces: SyncTrace[],
+): Record<string, ProviderHealth> {
+  const providers: Record<
+    string,
+    { latencies: number[]; errors: number; total: number; errorCodes: string[] }
+  > = {};
 
   for (const t of traces) {
     if (!t.provider) continue;
     if (!providers[t.provider]) {
-      providers[t.provider] = { latencies: [], errors: 0, total: 0, errorCodes: [] };
+      providers[t.provider] = {
+        latencies: [],
+        errors: 0,
+        total: 0,
+        errorCodes: [],
+      };
     }
     const p = providers[t.provider];
     p.total++;
@@ -245,16 +381,18 @@ function aggregateProviderHealth(traces: SyncTrace[]): Record<string, ProviderHe
 
   const result: Record<string, ProviderHealth> = {};
   for (const [name, data] of Object.entries(providers)) {
-    const avgLatency = data.latencies.length > 0
-      ? Math.round(data.latencies.reduce((a, b) => a + b, 0) / data.latencies.length)
-      : 0;
+    const avgLatency =
+      data.latencies.length > 0
+        ? Math.round(
+            data.latencies.reduce((a, b) => a + b, 0) / data.latencies.length,
+          )
+        : 0;
     const errorRate = data.total > 0 ? data.errors / data.total : 0;
 
     let status: ProviderHealth["status"] = "healthy";
     if (errorRate >= 0.8) status = "down";
     else if (errorRate >= 0.3 || avgLatency > 10000) status = "degraded";
 
-    // Find most common error
     const errorFreq: Record<string, number> = {};
     for (const code of data.errorCodes) {
       errorFreq[code] = (errorFreq[code] || 0) + 1;
@@ -295,13 +433,6 @@ async function quickHealthCheck(provider: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-// ─── Hours Ago Helper ────────────────────────────────────────────────
-
-function hoursAgo(dateStr: string | null): number {
-  if (!dateStr) return 999;
-  return (Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60);
 }
 
 // ─── Gemini AI Diagnosis ─────────────────────────────────────────────
@@ -349,24 +480,25 @@ Responde con:
 Sé conciso. No uses jerga técnica. Habla como un asistente legal inteligente.`;
 
   try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const resp = await fetch(
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 800,
+          temperature: 0.3,
+        }),
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 800,
-        temperature: 0.3,
-      }),
-    });
+    );
 
     if (!resp.ok) {
       console.warn(`[atenia-ai] Gemini call failed: HTTP ${resp.status}`);
-      const body = await resp.text();
-      console.warn(`[atenia-ai] Response: ${body.slice(0, 300)}`);
       return null;
     }
 
@@ -378,10 +510,166 @@ Sé conciso. No uses jerga técnica. Habla como un asistente legal inteligente.`
   }
 }
 
+// ─── Diagnostic Translator (Legacy format) ───────────────────────────
+
+function translateDiagnosticLegacy(
+  trace: SyncTrace,
+  radicado: string,
+  workItemId: string,
+): DiagnosticEntry {
+  const base = { work_item_id: workItemId, radicado };
+
+  if (
+    trace.error_code === "UPSTREAM_ROUTE_MISSING" ||
+    trace.http_status === 0
+  ) {
+    return {
+      ...base,
+      severity: "PROBLEMA",
+      category: "CONEXIÓN",
+      message_es: `No se pudo conectar con ${providerName(trace.provider)}. El servicio externo no respondió.`,
+      technical_detail: `${trace.provider} returned HTTP ${trace.http_status} / error: ${trace.error_code} / latency: ${trace.latency_ms}ms`,
+      suggested_action:
+        "Atenia AI reintentará automáticamente en la próxima ventana de sincronización.",
+    };
+  }
+
+  if (
+    trace.error_code === "UPSTREAM_AUTH" ||
+    trace.http_status === 401 ||
+    trace.http_status === 403
+  ) {
+    return {
+      ...base,
+      severity: "CRITICO",
+      category: "AUTENTICACIÓN",
+      message_es: `El servicio ${providerName(trace.provider)} rechazó nuestras credenciales.`,
+      technical_detail: `${trace.provider} returned HTTP ${trace.http_status}`,
+      suggested_action:
+        "Verifique las claves de API en la configuración de secretos.",
+    };
+  }
+
+  if (
+    trace.error_code === "RECORD_NOT_FOUND" ||
+    trace.error_code === "PROVIDER_404" ||
+    (trace.http_status === 404 &&
+      trace.error_code !== "UPSTREAM_ROUTE_MISSING")
+  ) {
+    return {
+      ...base,
+      severity: "AVISO",
+      category: "BÚSQUEDA",
+      message_es: `El radicado ${radicado} no fue encontrado en ${providerName(trace.provider)}.`,
+      technical_detail: `${trace.provider} returned 404 for ${radicado}`,
+      suggested_action:
+        "Verifique que el número de radicado sea correcto (23 dígitos).",
+    };
+  }
+
+  if (
+    trace.error_code === "TIMEOUT" ||
+    trace.error_code === "PROVIDER_TIMEOUT" ||
+    (trace.latency_ms && trace.latency_ms > 55000)
+  ) {
+    return {
+      ...base,
+      severity: "PROBLEMA",
+      category: "TIEMPO DE ESPERA",
+      message_es: `La consulta al servicio ${providerName(trace.provider)} tardó demasiado (${Math.round((trace.latency_ms || 60000) / 1000)} segundos).`,
+      technical_detail: `${trace.provider} timed out after ${trace.latency_ms}ms`,
+      suggested_action:
+        "Se reintentará automáticamente. Si persiste, el proveedor puede estar caído.",
+    };
+  }
+
+  if (
+    trace.error_code === "PARSER_ERROR" ||
+    trace.error_code === "INVALID_JSON_RESPONSE"
+  ) {
+    return {
+      ...base,
+      severity: "PROBLEMA",
+      category: "FORMATO DE DATOS",
+      message_es: `Se recibió información de ${providerName(trace.provider)} pero no pudo ser procesada.`,
+      technical_detail: `Parse error on ${trace.provider}: ${trace.message}`,
+      suggested_action:
+        "Revise la respuesta cruda en el panel de depuración.",
+    };
+  }
+
+  if (trace.http_status === 429) {
+    return {
+      ...base,
+      severity: "AVISO",
+      category: "LÍMITE DE CONSULTAS",
+      message_es: `El servicio ${providerName(trace.provider)} indicó demasiadas consultas.`,
+      technical_detail: `${trace.provider} returned 429`,
+      suggested_action:
+        "Automático — Atenia AI ajustará el ritmo de consultas.",
+    };
+  }
+
+  const insertedCount = (trace.meta?.inserted_count as number) || 0;
+  const skippedCount = (trace.meta?.skipped_count as number) || 0;
+  if (trace.success && insertedCount === 0 && skippedCount > 0) {
+    return {
+      ...base,
+      severity: "OK",
+      category: "SIN NOVEDADES",
+      message_es: `El radicado ${radicado} fue consultado exitosamente. No se encontraron actuaciones nuevas.`,
+      technical_detail: `${skippedCount} existing records matched`,
+    };
+  }
+
+  if (trace.success && insertedCount > 0) {
+    return {
+      ...base,
+      severity: "OK",
+      category: "ACTUALIZADO",
+      message_es: `Se encontraron ${insertedCount} nuevas actuaciones para el radicado ${radicado}.`,
+      technical_detail: `Inserted ${insertedCount}, skipped ${skippedCount}`,
+    };
+  }
+
+  if (
+    trace.error_code === "DB_WRITE_FAILED" ||
+    trace.error_code === "DB_CONSTRAINT"
+  ) {
+    return {
+      ...base,
+      severity: "PROBLEMA",
+      category: "BASE DE DATOS",
+      message_es: `Error al guardar datos del radicado ${radicado}.`,
+      technical_detail: `DB error: ${trace.error_code} / ${trace.message}`,
+      suggested_action: "Contacte soporte técnico si el error persiste.",
+    };
+  }
+
+  if (trace.success) {
+    return {
+      ...base,
+      severity: "OK",
+      category: "OK",
+      message_es: `Sincronización exitosa para ${radicado}.`,
+      technical_detail: `${trace.provider} completed in ${trace.latency_ms}ms`,
+    };
+  }
+
+  return {
+    ...base,
+    severity: "PROBLEMA",
+    category: "ERROR DESCONOCIDO",
+    message_es: `Error inesperado al consultar ${providerName(trace.provider)} para ${radicado}.`,
+    technical_detail: `Unknown: ${trace.error_code} / HTTP ${trace.http_status} / ${trace.message}`,
+    suggested_action: "Consulte los registros detallados en el panel de depuración.",
+  };
+}
+
 // ─── Remediation Engine ──────────────────────────────────────────────
 
 async function remediate(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseAdmin,
   diagnostics: DiagnosticEntry[],
   orgId: string,
 ): Promise<RemediationAction[]> {
@@ -390,41 +678,33 @@ async function remediate(
   for (const d of diagnostics) {
     if (d.severity === "OK") continue;
 
-    // Auto-retry: provider was temporarily unreachable
     if (d.category === "CONEXIÓN" || d.category === "TIEMPO DE ESPERA") {
-      // Extract provider from technical_detail
       const providerMatch = d.technical_detail.match(/^(\w+)\s/);
       const provider = providerMatch?.[1];
       if (provider) {
         const healthOk = await quickHealthCheck(provider);
         if (healthOk && d.work_item_id) {
-          try {
-            await supabase.functions.invoke("sync-by-work-item", {
-              body: { work_item_id: d.work_item_id, _scheduled: true },
-            });
-            actions.push({
-              action: "RETRY_SYNC",
-              work_item_id: d.work_item_id,
-              reason: "Proveedor recuperado después de falla temporal",
-              result: "TRIGGERED",
-            });
-            d.auto_remediated = true;
-          } catch (e) {
-            console.warn(`[atenia-ai] Retry failed for ${d.work_item_id}:`, e);
-            actions.push({
-              action: "RETRY_SYNC",
-              work_item_id: d.work_item_id,
-              reason: "Proveedor recuperado pero reintento falló",
-              result: "FAILED",
-            });
-          }
+          // V2: Enqueue instead of direct invoke
+          await enqueueJob(supabase, {
+            work_item_id: d.work_item_id,
+            organization_id: orgId,
+            action_type: "RETRY_ACTS",
+            reason_code: d.category === "CONEXIÓN" ? "PROVIDER_RECOVERED" : "TIMEOUT_RETRY",
+            provider,
+            priority: 60,
+          });
+          actions.push({
+            action: "ENQUEUE_RETRY",
+            work_item_id: d.work_item_id,
+            reason: "Proveedor recuperado — reintento encolado",
+            result: "QUEUED",
+          });
+          d.auto_remediated = true;
         }
       }
     }
 
-    // Escalate auth failures
     if (d.category === "AUTENTICACIÓN") {
-      // Find an admin for this org
       const { data: membership } = await supabase
         .from("organization_memberships")
         .select("user_id")
@@ -456,34 +736,505 @@ async function remediate(
       }
     }
 
-    // Flag stale data (>48h without sync)
-    if (d.work_item_id && (d.category === "CONEXIÓN" || d.category === "TIEMPO DE ESPERA")) {
-      const { data: wi } = await supabase
-        .from("work_items")
-        .select("last_synced_at")
-        .eq("id", d.work_item_id)
-        .single();
-
-      if (wi && hoursAgo(wi.last_synced_at) > 48) {
-        actions.push({
-          action: "FLAG_STALE",
-          work_item_id: d.work_item_id,
-          reason: "Datos sin actualizar por más de 48 horas",
-        });
-      }
+    // V2: OMITIDO items → enqueue both acts + pubs
+    if (d.category === "OMITIDO" && d.work_item_id) {
+      await enqueueJob(supabase, {
+        work_item_id: d.work_item_id,
+        organization_id: orgId,
+        action_type: "RETRY_ACTS",
+        reason_code: "OMITIDO",
+        priority: 50,
+      });
+      await enqueueJob(supabase, {
+        work_item_id: d.work_item_id,
+        organization_id: orgId,
+        action_type: "RETRY_PUBS",
+        reason_code: "OMITIDO",
+        priority: 40,
+      });
+      actions.push({
+        action: "ENQUEUE_RETRY",
+        work_item_id: d.work_item_id,
+        reason: "Item omitido — reintento encolado",
+        result: "QUEUED",
+      });
     }
   }
 
   return actions;
 }
 
-// ─── Today in COT ────────────────────────────────────────────────────
+// ─── V2: Queue Worker ────────────────────────────────────────────────
 
-function todayCOT(): string {
-  const now = new Date();
-  // COT = UTC-5
-  const cot = new Date(now.getTime() - 5 * 60 * 60 * 1000);
-  return cot.toISOString().slice(0, 10);
+async function runQueueWorker(
+  supabase: SupabaseAdmin,
+  dryRun: boolean,
+): Promise<{ claimed: number; results: unknown[] }> {
+  const { data: jobs, error } = await supabase.rpc("atenia_ai_claim_queue", {
+    _limit: 5,
+  });
+  if (error) {
+    console.warn("[atenia-ai] Queue claim error:", error.message);
+    return { claimed: 0, results: [{ error: error.message }] };
+  }
+
+  const results: unknown[] = [];
+
+  for (const job of jobs ?? []) {
+    if (dryRun) {
+      results.push({
+        id: job.id,
+        action_type: job.action_type,
+        status: "DRY_RUN",
+      });
+      continue;
+    }
+
+    try {
+      let invokeResult: { data?: unknown; error?: unknown } = {};
+
+      if (job.action_type === "RETRY_ACTS") {
+        invokeResult = await supabase.functions.invoke("sync-by-work-item", {
+          body: {
+            work_item_id: job.work_item_id,
+            force_refresh: false,
+            _scheduled: true,
+          },
+        });
+      } else if (
+        job.action_type === "RETRY_PUBS" ||
+        job.action_type === "RETRY_PUBS_HEAVY"
+      ) {
+        invokeResult = await supabase.functions.invoke(
+          "sync-publicaciones-by-work-item",
+          {
+            body: {
+              work_item_id: job.work_item_id,
+              _scheduled: true,
+              heavy: job.action_type === "RETRY_PUBS_HEAVY",
+            },
+          },
+        );
+      } else if (job.action_type === "RUN_INTEGRATION_HEALTH") {
+        invokeResult = await supabase.functions.invoke("integration-health", {
+          body: { _scheduled: true },
+        });
+      } else {
+        throw new Error(`Unknown action_type: ${job.action_type}`);
+      }
+
+      if (invokeResult?.error) throw invokeResult.error;
+
+      await supabase
+        .from("atenia_ai_remediation_queue")
+        .update({
+          status: "DONE",
+          updated_at: new Date().toISOString(),
+          last_error: null,
+        })
+        .eq("id", job.id);
+
+      await logAction(supabase, {
+        actor: "ATENIA",
+        organization_id: job.organization_id ?? null,
+        work_item_id: job.work_item_id ?? null,
+        action_type: "REMEDIATION_DONE",
+        autonomy_tier: "ACT",
+        reason_code: job.reason_code ?? null,
+        summary: `Job ${job.action_type} completado.`,
+        reasoning: `Job ${job.action_type} completado.`,
+        evidence: { job_id: job.id },
+        is_reversible: false,
+      });
+
+      results.push({ id: job.id, status: "DONE" });
+    } catch (e: unknown) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      const attempts = job.attempts ?? 1;
+      const maxAttempts = job.max_attempts ?? 3;
+      const backoffMin = computeBackoffMinutes(attempts);
+      const nextRun = new Date(Date.now() + backoffMin * 60 * 1000);
+      const terminal = attempts >= maxAttempts;
+
+      await supabase
+        .from("atenia_ai_remediation_queue")
+        .update({
+          status: terminal ? "FAILED" : "PENDING",
+          updated_at: new Date().toISOString(),
+          run_after: terminal ? job.run_after : nextRun.toISOString(),
+          last_error: errorMsg,
+        })
+        .eq("id", job.id);
+
+      await logAction(supabase, {
+        actor: "ATENIA",
+        organization_id: job.organization_id ?? null,
+        work_item_id: job.work_item_id ?? null,
+        action_type: terminal
+          ? "REMEDIATION_FAILED"
+          : "REMEDIATION_RETRY_SCHEDULED",
+        autonomy_tier: "ACT",
+        reason_code: job.reason_code ?? null,
+        summary: terminal
+          ? `Job ${job.action_type} falló definitivamente.`
+          : `Job ${job.action_type} reprogramado (+${backoffMin}m).`,
+        reasoning: terminal
+          ? `Job ${job.action_type} falló definitivamente.`
+          : `Job ${job.action_type} reprogramado (+${backoffMin}m).`,
+        evidence: { job_id: job.id, attempts, maxAttempts, error: errorMsg },
+        is_reversible: false,
+      });
+
+      results.push({
+        id: job.id,
+        status: terminal ? "FAILED" : "RETRY",
+        error: errorMsg,
+        backoffMin,
+      });
+    }
+  }
+
+  return { claimed: (jobs ?? []).length, results };
+}
+
+// ─── V2: Post-Daily Audit with State Tracking ────────────────────────
+
+async function runPostDailyAuditV2(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  runDate: string,
+  mode: string,
+  dryRun: boolean,
+): Promise<{
+  report: unknown;
+  autoDemonitored: number;
+  queued: number;
+}> {
+  // Use existing audit flow
+  const report = await auditOrganization(supabase, orgId, runDate, mode);
+
+  let autoDemonitored = 0;
+  let queued = 0;
+
+  if (dryRun) return { report, autoDemonitored: 0, queued: 0 };
+
+  // V2: Update work item state for each diagnostic and auto-demonitor
+  for (const d of (report.diagnostics || []) as DiagnosticEntry[]) {
+    if (!d.work_item_id) continue;
+
+    const isNotFound = d.category === "BÚSQUEDA";
+    const isSuccess = d.severity === "OK";
+    const errorCode = isNotFound
+      ? "RECORD_NOT_FOUND"
+      : isSuccess
+        ? null
+        : d.category;
+
+    await updateWorkItemState(supabase, {
+      work_item_id: d.work_item_id,
+      organization_id: orgId,
+      provider: d.technical_detail?.match(/^(\w+)\s/)?.[1] ?? null,
+      code: errorCode,
+      success: isSuccess,
+    });
+
+    // Auto-demonitor check
+    if (isNotFound) {
+      const dem = await maybeAutoDemonitor(supabase, {
+        work_item_id: d.work_item_id,
+        threshold: 5,
+      });
+      if (dem.demonitor) autoDemonitored++;
+    }
+
+    // V2: PENAL_906 heavy chaining fix
+    if (d.work_item_id && d.category === "TIEMPO DE ESPERA") {
+      // Check if it's a PENAL_906 heavy item
+      const { data: wi } = await supabase
+        .from("work_items")
+        .select("workflow_type, total_actuaciones")
+        .eq("id", d.work_item_id)
+        .maybeSingle();
+
+      if (
+        wi?.workflow_type === "PENAL_906" &&
+        (wi?.total_actuaciones ?? 0) > 100
+      ) {
+        await enqueueJob(supabase, {
+          work_item_id: d.work_item_id,
+          organization_id: orgId,
+          action_type: "RETRY_PUBS_HEAVY",
+          reason_code: "PENAL_906_HEAVY_CHAINING",
+          priority: 80,
+          run_after: new Date(Date.now() + 2 * 60 * 1000),
+        });
+        queued++;
+      }
+    }
+  }
+
+  return { report, autoDemonitored, queued };
+}
+
+// ─── Status Snapshot (for GET /atenia-ai-supervisor) ─────────────────
+
+async function getStatusSnapshot(supabase: SupabaseAdmin) {
+  const [reportsRes, tasksRes, queueRes, actionsRes] = await Promise.all([
+    supabase
+      .from("atenia_ai_reports")
+      .select("id, created_at, report_date, organization_id, total_work_items, items_synced_ok, items_failed, ai_diagnosis")
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("atenia_ai_scheduled_tasks")
+      .select(
+        "task_key, status, last_attempt_at, last_success_at, run_count, last_error",
+      )
+      .order("task_key", { ascending: true }),
+    supabase
+      .from("atenia_ai_remediation_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "PENDING"),
+    supabase
+      .from("atenia_ai_actions")
+      .select(
+        "id, created_at, actor, action_type, summary, reason_code, work_item_id",
+      )
+      .order("created_at", { ascending: false })
+      .limit(25),
+  ]);
+
+  return {
+    latestReport: reportsRes.data?.[0] ?? null,
+    tasks: tasksRes.data ?? [],
+    queuePending: queueRes.count ?? 0,
+    recentActions: actionsRes.data ?? [],
+  };
+}
+
+// ─── Scheduling Windows ──────────────────────────────────────────────
+
+function pickScheduledModes(
+  nowUtc: Date,
+): Array<"POST_DAILY_AUDIT" | "PROCESS_QUEUE"> {
+  const hour = bogotaHour(nowUtc);
+  const modes: Array<"POST_DAILY_AUDIT" | "PROCESS_QUEUE"> = [
+    "PROCESS_QUEUE",
+  ];
+  // Post-daily audit window: 7-9 AM Bogota
+  if (hour >= 7 && hour <= 9) modes.push("POST_DAILY_AUDIT");
+  return modes;
+}
+
+// ─── Per-Organization Audit (preserved from V1) ──────────────────────
+
+async function auditOrganization(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  runDate: string,
+  mode: string,
+) {
+  console.log(`[atenia-ai] Auditing org: ${orgId}`);
+
+  const dayStart = `${runDate}T00:00:00.000Z`;
+  const dayEnd = `${runDate}T23:59:59.999Z`;
+
+  const { data: traces, error: tracesError } = await supabase
+    .from("sync_traces")
+    .select("*")
+    .eq("organization_id", orgId)
+    .gte("created_at", dayStart)
+    .lte("created_at", dayEnd)
+    .order("created_at", { ascending: true })
+    .limit(1000);
+
+  if (tracesError) {
+    console.warn(
+      `[atenia-ai] Traces error for ${orgId}:`,
+      tracesError.message,
+    );
+  }
+
+  const traceData: SyncTrace[] = (traces || []) as unknown as SyncTrace[];
+
+  const { data: workItems } = await supabase
+    .from("work_items")
+    .select(
+      "id, radicado, workflow_type, last_synced_at, monitoring_enabled, title, total_actuaciones",
+    )
+    .eq("organization_id", orgId)
+    .eq("monitoring_enabled", true)
+    .not("radicado", "is", null);
+
+  const wiMap = new Map<string, Record<string, unknown>>();
+  for (const wi of workItems || []) {
+    wiMap.set(wi.id as string, wi);
+  }
+
+  const tracesByWI = new Map<string, SyncTrace[]>();
+  for (const t of traceData) {
+    if (!t.work_item_id) continue;
+    if (!tracesByWI.has(t.work_item_id))
+      tracesByWI.set(t.work_item_id, []);
+    tracesByWI.get(t.work_item_id)!.push(t);
+  }
+
+  const diagnostics: DiagnosticEntry[] = [];
+  let newActuaciones = 0;
+  let newPublicaciones = 0;
+  let itemsOk = 0;
+  let itemsPartial = 0;
+  let itemsFailed = 0;
+
+  for (const [wiId, wiTraces] of tracesByWI) {
+    const wi = wiMap.get(wiId);
+    const radicado = (wi?.radicado as string) || "desconocido";
+
+    const terminalTrace = wiTraces[wiTraces.length - 1];
+    const diag = translateDiagnosticLegacy(terminalTrace, radicado, wiId);
+    diagnostics.push(diag);
+
+    for (const t of wiTraces) {
+      const inserted = (t.meta?.inserted_count as number) || 0;
+      if (t.provider === "publicaciones") newPublicaciones += inserted;
+      else newActuaciones += inserted;
+    }
+
+    if (diag.severity === "OK") itemsOk++;
+    else if (diag.severity === "AVISO") itemsPartial++;
+    else itemsFailed++;
+  }
+
+  // Ghost items
+  const tracedItemIds = new Set([...tracesByWI.keys()]);
+  const ghostItems = (workItems || []).filter(
+    (wi: Record<string, unknown>) => !tracedItemIds.has(wi.id as string),
+  );
+
+  if (ghostItems.length > 0) {
+    for (const ghost of ghostItems) {
+      diagnostics.push({
+        work_item_id: ghost.id as string,
+        radicado: (ghost.radicado as string) || "desconocido",
+        severity: "AVISO",
+        category: "OMITIDO",
+        message_es: `El radicado ${(ghost.radicado as string) || "desconocido"} tiene monitoreo activo pero no fue consultado hoy.`,
+        technical_detail: `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
+        suggested_action:
+          "Se reintentará en la próxima ventana o vía cola de remediación.",
+      });
+    }
+  }
+
+  const providerStatus = aggregateProviderHealth(traceData);
+
+  let remediationActions: RemediationAction[] = [];
+  if (mode !== "HEALTH_CHECK") {
+    remediationActions = await remediate(supabase, diagnostics, orgId);
+  }
+
+  // Gemini
+  let aiDiagnosis: string | null = null;
+  const problems = diagnostics.filter(
+    (d) => d.severity !== "OK" && d.severity !== "AVISO",
+  );
+  const shouldUseGemini =
+    problems.length >= 3 ||
+    Object.values(providerStatus).some(
+      (p) => p.status === "degraded" || p.status === "down",
+    ) ||
+    mode === "MANUAL_AUDIT";
+
+  if (shouldUseGemini) {
+    const avgLatency =
+      traceData.length > 0
+        ? Math.round(
+            traceData.reduce((s, t) => s + (t.latency_ms || 0), 0) /
+              traceData.length,
+          )
+        : 0;
+
+    aiDiagnosis = await geminiDiagnosis({
+      diagnostics,
+      providerStatus,
+      totalTraces: traceData.length,
+      successTraces: traceData.filter((t) => t.success).length,
+      failedTraces: traceData.filter((t) => !t.success).length,
+      avgLatency,
+    });
+  }
+
+  const reportData = {
+    organization_id: orgId,
+    report_date: runDate,
+    report_type:
+      mode === "MANUAL_AUDIT"
+        ? "MANUAL_AUDIT"
+        : mode === "HEALTH_CHECK"
+          ? "HEALTH_CHECK"
+          : "DAILY_AUDIT",
+    total_work_items: wiMap.size,
+    items_synced_ok: itemsOk,
+    items_synced_partial: itemsPartial,
+    items_failed: itemsFailed,
+    new_actuaciones_found: newActuaciones,
+    new_publicaciones_found: newPublicaciones,
+    provider_status: providerStatus,
+    diagnostics: diagnostics.slice(0, 200),
+    remediation_actions: remediationActions,
+    ai_diagnosis: aiDiagnosis,
+    lexy_data_ready: true,
+  };
+
+  const { error: reportError } = await supabase
+    .from("atenia_ai_reports")
+    .upsert(reportData, {
+      onConflict: "organization_id,report_date,report_type",
+    });
+
+  if (reportError) {
+    console.error(
+      `[atenia-ai] Report write error for ${orgId}:`,
+      reportError.message,
+    );
+  }
+
+  // Critical failure alerts
+  const criticals = diagnostics.filter((d) => d.severity === "CRITICO");
+  if (criticals.length > 0) {
+    const { data: adminMember } = await supabase
+      .from("organization_memberships")
+      .select("user_id")
+      .eq("organization_id", orgId)
+      .eq("role", "admin")
+      .limit(1)
+      .maybeSingle();
+
+    if (adminMember?.user_id) {
+      const nonAuthCriticals = criticals.filter(
+        (d) => d.category !== "AUTENTICACIÓN",
+      );
+      for (const d of nonAuthCriticals) {
+        const fingerprint = `critico_${d.category}_${orgId}_${runDate}`;
+        await supabase.from("alert_instances").insert({
+          owner_id: adminMember.user_id,
+          organization_id: orgId,
+          entity_type: "SYSTEM",
+          entity_id: orgId,
+          severity: "CRITICAL",
+          title: `⚠️ Error crítico: ${d.category}`,
+          message: d.message_es,
+          status: "PENDING",
+          fired_at: new Date().toISOString(),
+          alert_type: "SYNC_FAILURE",
+          alert_source: "atenia_ai",
+          fingerprint,
+        });
+      }
+    }
+  }
+
+  return reportData;
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────
@@ -501,7 +1252,9 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !supabaseKey) throw new Error("Missing Supabase config");
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+    });
 
     let input: AteniaAIInput;
     try {
@@ -511,45 +1264,221 @@ Deno.serve(async (req) => {
     }
 
     const runDate = input.run_date || todayCOT();
-    console.log(`[atenia-ai-supervisor] Mode: ${input.mode}, Date: ${runDate}, Org: ${input.organization_id || "ALL"}`);
+    const dryRun = input.dry_run ?? false;
 
-    // ─── HEALTH_CHECK mode: quick provider status ───
+    console.log(
+      `[atenia-ai-supervisor] Mode: ${input.mode}, Date: ${runDate}, Org: ${input.organization_id || "ALL"}, DryRun: ${dryRun}`,
+    );
+
+    // ─── GET = status snapshot for UI ───
+    if (req.method === "GET") {
+      const snap = await getStatusSnapshot(supabase);
+      return json({ ok: true, ...snap });
+    }
+
+    // ─── HEALTH_CHECK mode ───
     if (input.mode === "HEALTH_CHECK") {
       const providers = ["cpnu", "samai", "tutelas", "publicaciones"];
       const checks: Record<string, boolean> = {};
       for (const p of providers) {
         checks[p] = await quickHealthCheck(p);
       }
-      return new Response(
-        JSON.stringify({ ok: true, mode: "HEALTH_CHECK", providers: checks, duration_ms: Date.now() - startTime }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      return json({
+        ok: true,
+        mode: "HEALTH_CHECK",
+        providers: checks,
+        duration_ms: Date.now() - startTime,
+      });
+    }
+
+    // ─── HEARTBEAT mode: pick windows by Bogota time ───
+    if (input.mode === "HEARTBEAT") {
+      const nowUtc = new Date();
+      const runModes = pickScheduledModes(nowUtc);
+      const outputs: unknown[] = [];
+
+      for (const m of runModes) {
+        const taskKey = `ATENIA_${m}`;
+        const { data: acquired, error: lockErr } = await supabase.rpc(
+          "atenia_ai_try_start_task",
+          {
+            _task_key: taskKey,
+            _ttl_seconds: m === "POST_DAILY_AUDIT" ? 1800 : 900,
+          },
+        );
+
+        if (lockErr || !acquired) {
+          outputs.push({ mode: m, locked: false, skipped: true });
+          continue;
+        }
+
+        try {
+          if (m === "POST_DAILY_AUDIT") {
+            // Get all orgs with monitored items
+            const { data: wiOrgs } = await supabase
+              .from("work_items")
+              .select("organization_id")
+              .eq("monitoring_enabled", true)
+              .not("organization_id", "is", null)
+              .not("radicado", "is", null);
+
+            const orgIds = [
+              ...new Set(
+                (wiOrgs || [])
+                  .map((w: Record<string, unknown>) => w.organization_id as string)
+                  .filter(Boolean),
+              ),
+            ];
+
+            let totalDemonitored = 0;
+            let totalQueued = 0;
+
+            for (const orgId of orgIds) {
+              if (Date.now() - startTime > 50000) break;
+              const res = await runPostDailyAuditV2(
+                supabase,
+                orgId,
+                runDate,
+                "POST_DAILY_SYNC",
+                dryRun,
+              );
+              totalDemonitored += res.autoDemonitored;
+              totalQueued += res.queued;
+            }
+
+            outputs.push({
+              mode: m,
+              locked: true,
+              orgs: orgIds.length,
+              autoDemonitored: totalDemonitored,
+              queued: totalQueued,
+            });
+          } else if (m === "PROCESS_QUEUE") {
+            const res = await runQueueWorker(supabase, dryRun);
+            outputs.push({ mode: m, locked: true, result: res });
+          }
+
+          await supabase.rpc("atenia_ai_finish_task", {
+            _task_key: taskKey,
+            _status: "OK",
+            _error: null,
+          });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await supabase.rpc("atenia_ai_finish_task", {
+            _task_key: taskKey,
+            _status: "ERROR",
+            _error: { message: msg },
+          });
+          outputs.push({ mode: m, locked: true, error: msg });
+        }
+      }
+
+      const snap = await getStatusSnapshot(supabase);
+      return json({
+        ok: true,
+        ran: runModes,
+        outputs,
+        snapshot: snap,
+        duration_ms: Date.now() - startTime,
+      });
+    }
+
+    // ─── PROCESS_QUEUE mode ───
+    if (input.mode === "PROCESS_QUEUE") {
+      const taskKey = "ATENIA_PROCESS_QUEUE";
+      const { data: acquired } = await supabase.rpc(
+        "atenia_ai_try_start_task",
+        { _task_key: taskKey, _ttl_seconds: 900 },
       );
+
+      if (!acquired) {
+        return json({ ok: true, mode: "PROCESS_QUEUE", skipped: true });
+      }
+
+      try {
+        const res = await runQueueWorker(supabase, dryRun);
+        await supabase.rpc("atenia_ai_finish_task", {
+          _task_key: taskKey,
+          _status: "OK",
+          _error: null,
+        });
+        const snap = await getStatusSnapshot(supabase);
+        return json({
+          ok: true,
+          mode: "PROCESS_QUEUE",
+          result: res,
+          snapshot: snap,
+          duration_ms: Date.now() - startTime,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await supabase.rpc("atenia_ai_finish_task", {
+          _task_key: taskKey,
+          _status: "ERROR",
+          _error: { message: msg },
+        });
+        return json({ ok: false, error: msg }, 500);
+      }
     }
 
-    // ─── Step 1: Read daily ledger ───
-    let ledgerQuery = supabase
-      .from("auto_sync_daily_ledger")
-      .select("*")
-      .eq("run_date", runDate);
+    // ─── MANUAL_RUN mode (same as HEARTBEAT but always runs both) ───
+    if (input.mode === "MANUAL_RUN") {
+      const outputs: unknown[] = [];
 
-    if (input.organization_id) {
-      ledgerQuery = ledgerQuery.eq("organization_id", input.organization_id);
+      // Process queue first
+      const qRes = await runQueueWorker(supabase, dryRun);
+      outputs.push({ mode: "PROCESS_QUEUE", result: qRes });
+
+      // Then audit if org specified
+      if (input.organization_id) {
+        const aRes = await runPostDailyAuditV2(
+          supabase,
+          input.organization_id,
+          runDate,
+          "MANUAL_AUDIT",
+          dryRun,
+        );
+        outputs.push({
+          mode: "POST_DAILY_AUDIT",
+          autoDemonitored: aRes.autoDemonitored,
+          queued: aRes.queued,
+        });
+      }
+
+      const snap = await getStatusSnapshot(supabase);
+      return json({
+        ok: true,
+        mode: "MANUAL_RUN",
+        outputs,
+        snapshot: snap,
+        duration_ms: Date.now() - startTime,
+      });
     }
 
-    const { data: ledgerEntries, error: ledgerError } = await ledgerQuery;
-    if (ledgerError) console.warn("[atenia-ai] Ledger read error:", ledgerError.message);
-
+    // ─── Legacy modes: POST_DAILY_SYNC, POST_LOGIN_SYNC, MANUAL_AUDIT ───
     let orgIds: string[];
     if (input.organization_id) {
       orgIds = [input.organization_id];
     } else {
-      // Get orgs from ledger first
-      orgIds = [...new Set((ledgerEntries || []).map((l: any) => l.organization_id))];
+      const ledgerQuery = supabase
+        .from("auto_sync_daily_ledger")
+        .select("organization_id")
+        .eq("run_date", runDate);
 
-      // For MANUAL_AUDIT: if no ledger entries exist (no daily sync ran today),
-      // fall back to all orgs that have monitored work items
-      if (orgIds.length === 0 && (input.mode === "MANUAL_AUDIT" || input.mode === "POST_LOGIN_SYNC")) {
-        console.log("[atenia-ai-supervisor] No ledger entries found, discovering orgs from work_items...");
+      const { data: ledgerEntries } = await ledgerQuery;
+      orgIds = [
+        ...new Set(
+          (ledgerEntries || []).map(
+            (l: Record<string, unknown>) => l.organization_id as string,
+          ),
+        ),
+      ];
+
+      if (
+        orgIds.length === 0 &&
+        (input.mode === "MANUAL_AUDIT" || input.mode === "POST_LOGIN_SYNC")
+      ) {
         const { data: wiOrgs } = await supabase
           .from("work_items")
           .select("organization_id")
@@ -557,261 +1486,64 @@ Deno.serve(async (req) => {
           .not("organization_id", "is", null)
           .not("radicado", "is", null);
 
-        orgIds = [...new Set((wiOrgs || []).map((w: any) => w.organization_id))];
-        console.log(`[atenia-ai-supervisor] Discovered ${orgIds.length} orgs from monitored work items`);
+        orgIds = [
+          ...new Set(
+            (wiOrgs || [])
+              .map((w: Record<string, unknown>) => w.organization_id as string)
+              .filter(Boolean),
+          ),
+        ];
       }
     }
 
-    console.log(`[atenia-ai-supervisor] Processing ${orgIds.length} organizations`);
+    console.log(
+      `[atenia-ai-supervisor] Processing ${orgIds.length} organizations`,
+    );
 
-    const allReports: any[] = [];
+    const allReports: unknown[] = [];
 
     for (const orgId of orgIds) {
       try {
-        const report = await auditOrganization(supabase, orgId as string, runDate, input.mode);
-        allReports.push(report);
+        const res = await runPostDailyAuditV2(
+          supabase,
+          orgId,
+          runDate,
+          input.mode,
+          dryRun,
+        );
+        allReports.push(res.report);
       } catch (err) {
         console.error(`[atenia-ai] Org ${orgId} audit failed:`, err);
       }
 
-      // Safety timeout at 50s
       if (Date.now() - startTime > 50000) {
         console.log("[atenia-ai-supervisor] Timeout, stopping org iteration");
         break;
       }
     }
 
-    const durationMs = Date.now() - startTime;
-    console.log(`[atenia-ai-supervisor] Complete in ${durationMs}ms. ${allReports.length} reports generated.`);
+    // Also process queue after audit
+    const queueResult = await runQueueWorker(supabase, dryRun);
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        mode: input.mode,
-        run_date: runDate,
-        organizations_audited: allReports.length,
-        reports: allReports.map((r) => ({
-          organization_id: r.organization_id,
-          total_work_items: r.total_work_items,
-          items_synced_ok: r.items_synced_ok,
-          items_failed: r.items_failed,
-          new_actuaciones: r.new_actuaciones_found,
-          new_publicaciones: r.new_publicaciones_found,
-          ai_diagnosis: r.ai_diagnosis ? true : false,
-          remediation_count: r.remediation_actions?.length || 0,
-        })),
-        duration_ms: durationMs,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    const durationMs = Date.now() - startTime;
+    console.log(
+      `[atenia-ai-supervisor] Complete in ${durationMs}ms. ${allReports.length} reports generated.`,
     );
-  } catch (error: any) {
-    console.error("[atenia-ai-supervisor] Fatal error:", error);
-    return new Response(
-      JSON.stringify({ ok: false, error: error.message, duration_ms: Date.now() - startTime }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+
+    return json({
+      ok: true,
+      mode: input.mode,
+      run_date: runDate,
+      organizations_audited: allReports.length,
+      queue_processed: queueResult,
+      duration_ms: durationMs,
+    });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("[atenia-ai-supervisor] Fatal error:", msg);
+    return json(
+      { ok: false, error: msg, duration_ms: Date.now() - startTime },
+      500,
     );
   }
 });
-
-// ─── Per-Organization Audit ──────────────────────────────────────────
-
-async function auditOrganization(
-  supabase: ReturnType<typeof createClient>,
-  orgId: string,
-  runDate: string,
-  mode: string,
-) {
-  console.log(`[atenia-ai] Auditing org: ${orgId}`);
-
-  // Step 2: Read sync traces for today
-  const dayStart = `${runDate}T00:00:00.000Z`;
-  const dayEnd = `${runDate}T23:59:59.999Z`;
-
-  const { data: traces, error: tracesError } = await supabase
-    .from("sync_traces")
-    .select("*")
-    .eq("organization_id", orgId)
-    .gte("created_at", dayStart)
-    .lte("created_at", dayEnd)
-    .order("created_at", { ascending: true })
-    .limit(1000);
-
-  if (tracesError) {
-    console.warn(`[atenia-ai] Traces error for ${orgId}:`, tracesError.message);
-  }
-
-  const traceData: SyncTrace[] = (traces || []) as any[];
-  console.log(`[atenia-ai] Found ${traceData.length} traces for org ${orgId}`);
-
-  // Get work items for this org
-  const { data: workItems } = await supabase
-    .from("work_items")
-    .select("id, radicado, workflow_type, last_synced_at, monitoring_enabled, title")
-    .eq("organization_id", orgId)
-    .eq("monitoring_enabled", true)
-    .not("radicado", "is", null);
-
-  const wiMap = new Map<string, any>();
-  for (const wi of workItems || []) {
-    wiMap.set(wi.id, wi);
-  }
-
-  // Step 3 & 4: Analyze & diagnose per work item
-  // Group traces by work_item_id, take the terminal trace per item
-  const tracesByWI = new Map<string, SyncTrace[]>();
-  for (const t of traceData) {
-    if (!t.work_item_id) continue;
-    if (!tracesByWI.has(t.work_item_id)) tracesByWI.set(t.work_item_id, []);
-    tracesByWI.get(t.work_item_id)!.push(t);
-  }
-
-  const diagnostics: DiagnosticEntry[] = [];
-  let newActuaciones = 0;
-  let newPublicaciones = 0;
-  let itemsOk = 0;
-  let itemsPartial = 0;
-  let itemsFailed = 0;
-
-  for (const [wiId, wiTraces] of tracesByWI) {
-    const wi = wiMap.get(wiId);
-    const radicado = wi?.radicado || "desconocido";
-
-    // Find the terminal trace (last one)
-    const terminalTrace = wiTraces[wiTraces.length - 1];
-    const diag = translateDiagnostic(terminalTrace, radicado, wiId);
-    diagnostics.push(diag);
-
-    // Count new data
-    for (const t of wiTraces) {
-      const inserted = (t.meta?.inserted_count as number) || 0;
-      if (t.provider === "publicaciones") {
-        newPublicaciones += inserted;
-      } else {
-        newActuaciones += inserted;
-      }
-    }
-
-    if (diag.severity === "OK") itemsOk++;
-    else if (diag.severity === "AVISO") itemsPartial++;
-    else itemsFailed++;
-  }
-
-  // Step 3c: Ghost item detection — monitored items with zero traces
-  const tracedItemIds = new Set([...tracesByWI.keys()]);
-  const ghostItems = (workItems || []).filter((wi: any) => !tracedItemIds.has(wi.id));
-  
-  if (ghostItems.length > 0) {
-    console.log(`[atenia-ai] ${ghostItems.length} monitored items had no traces (ghost items)`);
-    for (const ghost of ghostItems) {
-      diagnostics.push({
-        work_item_id: ghost.id,
-        radicado: ghost.radicado || 'desconocido',
-        severity: "AVISO",
-        category: "OMITIDO",
-        message_es: `El radicado ${ghost.radicado || 'desconocido'} tiene monitoreo activo pero no fue consultado en la sincronización de hoy. Puede haber sido omitido por tiempo de espera del sistema.`,
-        technical_detail: `No sync_traces found for work_item ${ghost.id} on ${runDate}`,
-        suggested_action: "Se reintentará en la próxima ventana de sincronización.",
-      });
-    }
-  }
-
-  // Step 3b: Provider health aggregation
-  const providerStatus = aggregateProviderHealth(traceData);
-
-  // Step 5: Remediate
-  let remediationActions: RemediationAction[] = [];
-  if (mode !== "HEALTH_CHECK") {
-    remediationActions = await remediate(supabase, diagnostics, orgId);
-  }
-
-  // Step 6a: Gemini diagnosis for complex failures
-  let aiDiagnosis: string | null = null;
-  const problems = diagnostics.filter((d) => d.severity !== "OK" && d.severity !== "AVISO");
-  const shouldUseGemini =
-    problems.length >= 3 ||
-    diagnostics.length > 0 ||
-    Object.values(providerStatus).some((p) => p.status === "degraded" || p.status === "down") ||
-    mode === "MANUAL_AUDIT";
-
-  if (shouldUseGemini) {
-    const avgLatency = traceData.length > 0
-      ? Math.round(traceData.reduce((s, t) => s + (t.latency_ms || 0), 0) / traceData.length)
-      : 0;
-
-    aiDiagnosis = await geminiDiagnosis({
-      diagnostics,
-      providerStatus,
-      totalTraces: traceData.length,
-      successTraces: traceData.filter((t) => t.success).length,
-      failedTraces: traceData.filter((t) => !t.success).length,
-      avgLatency,
-    });
-  }
-
-  // Step 6b: Write report
-  const reportData = {
-    organization_id: orgId,
-    report_date: runDate,
-    report_type: mode === "MANUAL_AUDIT" ? "MANUAL_AUDIT" : mode === "HEALTH_CHECK" ? "HEALTH_CHECK" : "DAILY_AUDIT",
-    total_work_items: wiMap.size,
-    items_synced_ok: itemsOk,
-    items_synced_partial: itemsPartial,
-    items_failed: itemsFailed,
-    new_actuaciones_found: newActuaciones,
-    new_publicaciones_found: newPublicaciones,
-    provider_status: providerStatus,
-    diagnostics: diagnostics.slice(0, 200), // Cap at 200 entries
-    remediation_actions: remediationActions,
-    ai_diagnosis: aiDiagnosis,
-    lexy_data_ready: true,
-  };
-
-  const { error: reportError } = await supabase
-    .from("atenia_ai_reports")
-    .upsert(reportData, { onConflict: "organization_id,report_date,report_type" });
-
-  if (reportError) {
-    console.error(`[atenia-ai] Report write error for ${orgId}:`, reportError.message);
-  } else {
-    console.log(`[atenia-ai] Report saved for org ${orgId}: ${itemsOk} OK, ${itemsFailed} failed, ${newActuaciones} new acts, ${newPublicaciones} new pubs`);
-  }
-
-    // Step 8: Critical failure alerts for ALL CRITICO diagnostics (not just AUTH)
-    const criticals = diagnostics.filter((d) => d.severity === "CRITICO");
-    if (criticals.length > 0) {
-      console.log(`[atenia-ai] ${criticals.length} CRITICAL issues for org ${orgId}`);
-
-      // Find an admin to notify
-      const { data: adminMember } = await supabase
-        .from("organization_memberships")
-        .select("user_id")
-        .eq("organization_id", orgId)
-        .eq("role", "admin")
-        .limit(1)
-        .maybeSingle();
-
-      if (adminMember?.user_id) {
-        // Only create alerts for non-AUTH criticals (AUTH already handled in remediate())
-        const nonAuthCriticals = criticals.filter((d) => d.category !== "AUTENTICACIÓN");
-        for (const d of nonAuthCriticals) {
-          const fingerprint = `critico_${d.category}_${orgId}_${runDate}`;
-          await supabase.from("alert_instances").insert({
-            owner_id: adminMember.user_id,
-            organization_id: orgId,
-            entity_type: "SYSTEM",
-            entity_id: orgId,
-            severity: "CRITICAL",
-            title: `⚠️ Error crítico: ${d.category}`,
-            message: d.message_es,
-            status: "PENDING",
-            fired_at: new Date().toISOString(),
-            alert_type: "SYNC_FAILURE",
-            alert_source: "atenia_ai",
-            fingerprint,
-          });
-        }
-      }
-    }
-
-  return reportData;
-}
