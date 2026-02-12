@@ -475,9 +475,6 @@ async function buildHealthSnapshot(
 
   // 8. Transient-pending-without-retry counter (should be ~0 if autopilot is healthy)
   // Items that have a transient error code but NO retry row — indicates a gap in self-healing
-  const transientItemIds = (transientItems?.length ? transientItems : []).map((t: any) => t.id);
-  // We already computed transientItems in validateAndHeal context, but buildHealthSnapshot runs first.
-  // Query directly here for accuracy:
   const { data: transientNoRetryItems } = await supabase
     .from("work_items")
     .select("id")
