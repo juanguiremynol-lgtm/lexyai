@@ -604,7 +604,62 @@ async function validateAndHeal(
     }
   }
 
-  // (b) Create alerts for invariant violations
+  // (b) Execute auto-demonitor for eligible items
+  if (health.demonitors.eligible_count > 0 && config.auto_demonitor_after_404s > 0) {
+    const threshold = config.auto_demonitor_after_404s;
+    const { data: demonitorCandidates } = await supabase
+      .from("work_items")
+      .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at")
+      .eq("organization_id", orgId)
+      .eq("monitoring_enabled", true)
+      .gte("consecutive_404_count", threshold);
+
+    if (demonitorCandidates && demonitorCandidates.length > 0) {
+      const candIds = demonitorCandidates.map((c: any) => c.id);
+      const { data: retries } = await (supabase.from("sync_retry_queue") as any)
+        .select("work_item_id")
+        .in("work_item_id", candIds);
+      const retrySet = new Set((retries || []).map((r: any) => r.work_item_id));
+
+      const toDemons = demonitorCandidates.filter((item: any) => {
+        const decision = shouldDemonitor(item, threshold, retrySet.has(item.id));
+        return decision.demonitor;
+      });
+
+      if (toDemons.length > 0) {
+        const demonIds = toDemons.map((d: any) => d.id);
+        const now = new Date().toISOString();
+        await supabase
+          .from("work_items")
+          .update({
+            monitoring_enabled: false,
+            demonitor_reason: `Auto-demonitored by autopilot: ${threshold}+ consecutive 404/stuck errors`,
+            demonitor_at: now,
+          })
+          .in("id", demonIds);
+
+        health.demonitors.executed_count = toDemons.length;
+
+        for (const item of toDemons.slice(0, 10)) {
+          actions.push({
+            type: "AUTO_DEMONITOR",
+            work_item_id: item.id,
+            radicado: item.radicado,
+            reason: `${item.consecutive_404_count} consecutive 404/stuck errors (threshold: ${threshold}). Monitoring suspended.`,
+            evidence: buildAuditEvidence({
+              item,
+              retryRowPresent: retrySet.has(item.id),
+              threshold,
+            }),
+          });
+        }
+
+        console.log(`[autopilot] Auto-demonitored ${toDemons.length} items: ${toDemons.map((d: any) => d.radicado).join(', ')}`);
+      }
+    }
+  }
+
+  // (c) Create alerts for invariant violations
   for (const v of health.invariants.violations) {
     try {
       const { data: membership } = await supabase
