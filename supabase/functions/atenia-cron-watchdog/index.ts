@@ -267,18 +267,20 @@ Deno.serve(async (req) => {
         if (missingRaw && Array.isArray(missingRaw)) {
           const today = new Date().toISOString().slice(0, 10);
           for (const item of missingRaw.slice(0, 50)) {
-            await admin.from("atenia_ai_remediation_queue").upsert(
-              {
-                action_type: "SYNC_WORK_ITEM",
-                work_item_id: item.id,
-                organization_id: item.organization_id,
-                status: "PENDING",
-                priority: 5,
-                payload: { source: "watchdog_coverage_invariant" },
-                dedupe_key: `COVERAGE:${today}:${item.id}`,
-              },
-              { onConflict: "dedupe_key" }
-            ).then(() => {}).catch(() => {});
+            try {
+              await admin.from("atenia_ai_remediation_queue").upsert(
+                {
+                  action_type: "SYNC_WORK_ITEM",
+                  work_item_id: item.id,
+                  organization_id: item.organization_id,
+                  status: "PENDING",
+                  priority: 5,
+                  payload: { source: "watchdog_coverage_invariant" },
+                  dedupe_key: `COVERAGE:${today}:${item.id}`,
+                },
+                { onConflict: "dedupe_key" }
+              );
+            } catch (_) { /* non-fatal */ }
           }
           results.coverage_enqueued = missingRaw.length;
         }
@@ -286,23 +288,100 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
-    // 6) Write alerts
+    // 6) Log watchdog actions into atenia_ai_actions for audit trail
     // ================================================================
     for (const alert of alerts) {
-      // Use platform-level alert (no specific work_item)
-      await admin.from("alert_instances").insert({
-        entity_type: "platform",
-        entity_id: "00000000-0000-0000-0000-000000000000",
-        owner_id: "00000000-0000-0000-0000-000000000000",
-        severity: alert.severity,
-        title: alert.title,
-        message: alert.message,
-        status: "PENDING",
-        fired_at: new Date().toISOString(),
-        alert_type: "WATCHDOG_INVARIANT",
-        alert_source: "atenia-cron-watchdog",
-        fingerprint: `watchdog_${alert.title.slice(0, 30)}_${new Date().toISOString().slice(0, 13)}`,
-      }).catch(() => {});
+      // Write AI action for each alert (audit trail)
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_ALERT",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: alert.message,
+          action_taken: alert.title,
+          action_result: alert.severity,
+          evidence: {
+            source: "atenia-cron-watchdog",
+            alert_title: alert.title,
+            alert_severity: alert.severity,
+            watchdog_window: windowKey,
+          },
+        });
+      } catch (_) { /* non-fatal */ }
+
+      // Also create alert_instance
+      try {
+        await admin.from("alert_instances").insert({
+          entity_type: "platform",
+          entity_id: "00000000-0000-0000-0000-000000000000",
+          owner_id: "00000000-0000-0000-0000-000000000000",
+          severity: alert.severity,
+          title: alert.title,
+          message: alert.message,
+          status: "PENDING",
+          fired_at: new Date().toISOString(),
+          alert_type: "WATCHDOG_INVARIANT",
+          alert_source: "atenia-cron-watchdog",
+          fingerprint: `watchdog_${alert.title.slice(0, 30)}_${new Date().toISOString().slice(0, 13)}`,
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+
+    // Log corrective actions as AI actions
+    if (results.daily_enqueue && (results.daily_enqueue as any).triggered) {
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_CORRECTIVE",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: "DAILY_ENQUEUE no se había ejecutado para el día Bogotá. Watchdog lo disparó.",
+          action_taken: "TRIGGER_DAILY_ENQUEUE",
+          action_result: (results.daily_enqueue as any).ok ? "OK" : "FAILED",
+          evidence: { daily_enqueue: results.daily_enqueue },
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+
+    if (results.heartbeat && (results.heartbeat as any).triggered) {
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_CORRECTIVE",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: `Heartbeat no se registraba en ${(results.heartbeat as any).gap_minutes}min. Watchdog lo disparó.`,
+          action_taken: "TRIGGER_HEARTBEAT",
+          action_result: (results.heartbeat as any).ok ? "OK" : "FAILED",
+          evidence: { heartbeat: results.heartbeat },
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+
+    if (Array.isArray(results.stale_cleaned) && (results.stale_cleaned as any[]).length > 0) {
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_CORRECTIVE",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: `${(results.stale_cleaned as any[]).length} runs RUNNING con lease expirado marcados como FAILED.`,
+          action_taken: "CLEAN_STALE_RUNS",
+          action_result: "OK",
+          evidence: { stale_cleaned: results.stale_cleaned },
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+
+    if (results.coverage_enqueued && Number(results.coverage_enqueued) > 0) {
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_CORRECTIVE",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: `${results.coverage_enqueued} items monitoreados sin sync en 24h encolados para remediación.`,
+          action_taken: "ENQUEUE_MISSING_COVERAGE",
+          action_result: "OK",
+          evidence: { coverage: results.coverage, enqueued: results.coverage_enqueued },
+        });
+      } catch (_) { /* non-fatal */ }
     }
     results.alerts_fired = alerts.length;
 
