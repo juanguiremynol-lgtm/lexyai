@@ -150,9 +150,12 @@ export default function Alerts() {
     selectedCount,
   } = useAlertSelection({ allItems: selectableItems });
 
-  // Get selected alert instance IDs only (reminders use different API)
+  // Split selected IDs by entity type so each uses the correct dismiss API
   const selectedAlertIds = Array.from(selectedIds).filter(id => 
     alertInstances?.some(a => a.id === id)
+  );
+  const selectedReminderIds = Array.from(selectedIds).filter(id =>
+    allReminders.some(r => r.id === id)
   );
 
   const acknowledgeInstance = useMutation({
@@ -399,10 +402,43 @@ export default function Alerts() {
 
   // Bulk action handlers
   const handleBulkDismiss = () => {
-    if (selectedAlertIds.length > 10) {
+    const totalSelected = selectedAlertIds.length + selectedReminderIds.length;
+    if (totalSelected > 10) {
       setShowDismissConfirm(true);
     } else {
+      executeBulkDismiss();
+    }
+  };
+
+  /**
+   * Execute bulk dismiss for both alert_instances and work_item_reminders.
+   * Single row X for hitos calls dismissMutation (useDismissReminder) which targets
+   * work_item_reminders. Bulk must do the same for each selected reminder ID.
+   */
+  const executeBulkDismiss = () => {
+    // Dismiss alert_instances via bulk API
+    if (selectedAlertIds.length > 0) {
       bulkDismissMutation.mutate(selectedAlertIds);
+    }
+    // Dismiss reminders (hitos) one-by-one using the same hook as the row X button
+    if (selectedReminderIds.length > 0) {
+      // Optimistically remove all selected reminders from cache immediately
+      queryClient.cancelQueries({ queryKey: ["all-active-reminders"] });
+      queryClient.setQueryData<any[]>(["all-active-reminders"], (old) =>
+        old ? old.filter((r: any) => !selectedReminderIds.includes(r.id)) : []
+      );
+      // Fire all dismiss mutations
+      const promises = selectedReminderIds.map(id => dismissMutation.mutateAsync(id));
+      Promise.all(promises).then(() => {
+        clearSelection();
+      }).catch(() => {
+        // Rollback handled by individual mutation onError + invalidation
+        queryClient.invalidateQueries({ queryKey: ["all-active-reminders"] });
+      });
+    }
+    // If only reminders were selected (no alerts), clear selection after firing
+    if (selectedAlertIds.length === 0 && selectedReminderIds.length > 0) {
+      // Selection cleared in the promise above
     }
   };
 
@@ -859,10 +895,10 @@ export default function Alerts() {
       <AlertBulkConfirmDialog
         open={showDismissConfirm}
         onOpenChange={setShowDismissConfirm}
-        count={selectedAlertIds.length}
+        count={selectedAlertIds.length + selectedReminderIds.length}
         action="dismiss"
-        onConfirm={() => bulkDismissMutation.mutate(selectedAlertIds)}
-        isProcessing={bulkDismissMutation.isPending}
+        onConfirm={() => executeBulkDismiss()}
+        isProcessing={bulkDismissMutation.isPending || dismissMutation.isPending}
       />
 
       {/* Bulk Mark Read Confirmation */}
