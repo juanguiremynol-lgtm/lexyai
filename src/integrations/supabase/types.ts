@@ -1100,8 +1100,14 @@ export type Database = {
         Row: {
           completed_at: string | null
           created_at: string
+          cursor_last_work_item_id: string | null
+          error_summary: Json | null
+          expected_total_items: number | null
+          failure_reason: string | null
+          finished_at: string | null
           id: string
           items_failed: number | null
+          items_skipped: number | null
           items_succeeded: number | null
           items_targeted: number | null
           last_error: string | null
@@ -1119,8 +1125,14 @@ export type Database = {
         Insert: {
           completed_at?: string | null
           created_at?: string
+          cursor_last_work_item_id?: string | null
+          error_summary?: Json | null
+          expected_total_items?: number | null
+          failure_reason?: string | null
+          finished_at?: string | null
           id?: string
           items_failed?: number | null
+          items_skipped?: number | null
           items_succeeded?: number | null
           items_targeted?: number | null
           last_error?: string | null
@@ -1138,8 +1150,14 @@ export type Database = {
         Update: {
           completed_at?: string | null
           created_at?: string
+          cursor_last_work_item_id?: string | null
+          error_summary?: Json | null
+          expected_total_items?: number | null
+          failure_reason?: string | null
+          finished_at?: string | null
           id?: string
           items_failed?: number | null
+          items_skipped?: number | null
           items_succeeded?: number | null
           items_targeted?: number | null
           last_error?: string | null
