@@ -5,7 +5,7 @@
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bot, ShieldCheck } from "lucide-react";
+import { Bot, ShieldCheck, Zap } from "lucide-react";
 
 export function AteniaOperatorExplanation() {
   return (
@@ -29,6 +29,8 @@ export function AteniaOperatorExplanation() {
             <li>Detecta proveedores degradados (tasa de error &gt;30%) y suprime reintentos masivos para no empeorar la situación.</li>
             <li>Monitorea proveedores externos: instancias PLATFORM faltantes, mappings en borrador, snapshots fallidos.</li>
             <li>Registra todas las decisiones en la bitácora de acciones con evidencia y razón en español.</li>
+            <li>Continúa sincronización diaria cuando se agota presupuesto de tiempo (máx 3 continuaciones/día).</li>
+            <li>Reintentos de fuentes huérfanas con errores transitorios (máx 30/día, respeta cooldowns por objetivo).</li>
           </ul>
         </div>
 
@@ -45,11 +47,36 @@ export function AteniaOperatorExplanation() {
             <li>No ejecuta acciones durante la ventana del cron diario (6:50–7:30 AM COT).</li>
             <li>No ejecuta acciones destructivas basadas únicamente en sugerencias de LLM.</li>
             <li>No envía comunicaciones a usuarios finales ni tribunales.</li>
+            <li>No modifica código, migraciones, políticas RLS, ni configuración del sistema.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="font-semibold text-foreground flex items-center gap-1.5 mb-1">
+            <Zap className="h-4 w-4 text-primary" />
+            Acciones que REQUIEREN CONFIRMACIÓN (propone, no ejecuta)
+          </h4>
+          <ul className="space-y-1 text-muted-foreground ml-4 list-disc">
+            <li>Degradar ruta de proveedor por alta tasa de error (temporal, auto-expira en 2h).</li>
+            <li>Reactivación masiva de monitoreo en lote.</li>
+            <li>Escalada a modelo de lenguaje (Gemini) para diagnóstico avanzado.</li>
+          </ul>
+        </div>
+
+        <div className="rounded-lg bg-muted/50 p-3 space-y-2">
+          <h4 className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
+            📊 Presupuestos actuales (configurables en panel de autonomía)
+          </h4>
+          <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
+            <li><strong>Reintentos:</strong> máx. 10/hora, 30/día</li>
+            <li><strong>Suspensiones:</strong> máx. 5/hora, 15/día</li>
+            <li><strong>Continuaciones de sync:</strong> máx. 3/hora, 6/día</li>
+            <li><strong>Degradación de proveedor:</strong> máx. 2/hora, 4/día (con confirmación)</li>
           </ul>
         </div>
 
         <p className="text-xs text-muted-foreground border-t pt-3">
-          Todas las acciones autónomas son reversibles, están limitadas por frecuencia (máx. 5 por ciclo), y respetan la configuración de pausa de autonomía por organización.
+          Todas las acciones autónomas son reversibles, están limitadas por frecuencia, respetan la configuración de pausa de autonomía por organización, y dejan un rastro de auditoría completo con evidencia y razonamiento.
         </p>
       </CardContent>
     </Card>

@@ -19,8 +19,12 @@ import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProvider
 import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
 import { AteniaOperatorExplanation } from "./atenia-ai/AteniaOperatorExplanation";
 import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
+import { AteniaAutonomyControlPanel } from "./atenia-ai/AteniaAutonomyControlPanel";
+import { AteniaActionFeed } from "./atenia-ai/AteniaActionFeed";
+import { AteniaProviderHealthDashboard } from "./atenia-ai/AteniaProviderHealthDashboard";
 // AteniaCronHealthPanel is now integrated into AutopilotDashboard
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
+import { runAutonomyCycle } from "@/lib/services/atenia-ai-autonomy-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,6 +129,7 @@ const PLATFORM_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 
 export function AteniaAISupervisorPanel() {
   const [isAuditing, setIsAuditing] = useState(false);
+  const [isRunningAutonomy, setIsRunningAutonomy] = useState(false);
   const today = todayCOT();
 
   // Load Atenia AI config for gemini_enabled check
@@ -244,6 +249,21 @@ export function AteniaAISupervisorPanel() {
     }
   };
 
+  const handleRunAutonomyCycle = async () => {
+    setIsRunningAutonomy(true);
+    try {
+      const result = await runAutonomyCycle(PLATFORM_ORG_ID);
+      toast.success(`Ciclo completado: ${result.plans.length} acción(es) generada(s)`);
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (err: any) {
+      toast.error("Error al ejecutar ciclo de autonomía: " + (err.message || "Error desconocido"));
+    } finally {
+      setIsRunningAutonomy(false);
+    }
+  };
+
   // Aggregate across all orgs
   const totalItems = reports?.reduce((s, r) => s + r.total_work_items, 0) || 0;
   const totalOk = reports?.reduce((s, r) => s + r.items_synced_ok, 0) || 0;
@@ -315,6 +335,10 @@ export function AteniaAISupervisorPanel() {
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-1" />
             Recargar
+          </Button>
+          <Button size="sm" onClick={handleRunAutonomyCycle} disabled={isRunningAutonomy}>
+            {isRunningAutonomy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Zap className="h-4 w-4 mr-1" />}
+            Ciclo autonomía
           </Button>
           <Button size="sm" onClick={handleManualAudit} disabled={isAuditing}>
             {isAuditing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Activity className="h-4 w-4 mr-1" />}
@@ -599,6 +623,15 @@ export function AteniaAISupervisorPanel() {
           <AteniaExternalProviderStatus organizationId={PLATFORM_ORG_ID} />
 
           {/* Cron Health is now integrated into AutopilotDashboard above */}
+
+          {/* Autonomy Control Panel */}
+          <AteniaAutonomyControlPanel organizationId={PLATFORM_ORG_ID} />
+
+          {/* Autonomy Action Feed */}
+          <AteniaActionFeed organizationId={PLATFORM_ORG_ID} />
+
+          {/* Provider Health Dashboard */}
+          <AteniaProviderHealthDashboard organizationId={PLATFORM_ORG_ID} />
 
           {/* Autonomous Sync Controls */}
           <AteniaAutonomousSyncPanel organizationId={PLATFORM_ORG_ID} />
