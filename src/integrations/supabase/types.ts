@@ -8595,6 +8595,7 @@ export type Database = {
         Args: { _task_key: string; _ttl_seconds?: number }
         Returns: boolean
       }
+      atenia_assurance_gates: { Args: never; Returns: Json }
       atenia_finish_cron: {
         Args: { p_details?: Json; p_run_id: string; p_status: string }
         Returns: undefined
