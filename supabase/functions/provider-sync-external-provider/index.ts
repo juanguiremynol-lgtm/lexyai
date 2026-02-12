@@ -29,6 +29,7 @@ import {
   retryJitterMs,
   normalizeProviderErrorCode,
   isStrict404Code,
+  reclassifyWithContext,
 } from "../_shared/syncPolicy.ts";
 import { normalizeActuaciones, normalizePublicaciones } from "../_shared/providerNormalize.ts";
 import {
@@ -281,7 +282,16 @@ Deno.serve(async (req) => {
     // Store raw body as-is (text or json) in payload field
     const rawPayloadForStorage = parsedResult.format === "JSON" ? snapData : { _raw_text: rawBodyText, _parsed: parsedResult.snapshot };
     const rawErrorCode = snapData.code || snapData.error_code || null;
-    const normalizedCode = normalizeProviderErrorCode(rawErrorCode as string, snapRes.status);
+    const rawNormalized = normalizeProviderErrorCode(rawErrorCode as string, snapRes.status);
+
+    // Context-aware reclassification: downgrade strict-404 to EMPTY when message/data
+    // indicates the case exists but returned no events (e.g. CPNU "no actuaciones found")
+    const reclassification = reclassifyWithContext(
+      rawNormalized,
+      (snapData.message || snapData.error) as string,
+      snapData,
+    );
+    const normalizedCode = reclassification.code;
 
     // Handle unparseable TEXT snapshots
     if (!parsedResult.ok && parsedResult.format === "UNKNOWN" && snapRes.ok) {
@@ -314,7 +324,15 @@ Deno.serve(async (req) => {
     if (isStrict404Code(normalizedCode)) rawStatus = "ERROR";
 
     const snapshotId = await saveRawSnapshot(db, source, instance, connector, rawPayloadForStorage, rawStatus, snapRes.status, snapLatency, rawStatus === "ERROR" ? normalizedCode : null);
-    await writeTrace(db, runId, source, instance, "RAW_SAVED", rawStatus, true, 0, { snapshot_id: snapshotId, format: parsedResult.format, parse_warnings: parsedResult.warnings });
+    await writeTrace(db, runId, source, instance, "RAW_SAVED", rawStatus, true, 0, {
+      snapshot_id: snapshotId,
+      format: parsedResult.format,
+      parse_warnings: parsedResult.warnings,
+      reclassified: reclassification.reclassified,
+      classification_reason: reclassification.reason,
+      raw_normalized_code: rawNormalized,
+      final_normalized_code: normalizedCode,
+    });
 
     // ── Outcome routing ──
 

@@ -101,6 +101,52 @@ export function normalizeProviderErrorCode(
 }
 
 /**
+ * Context-aware reclassification: downgrades a strict-404 code to PROVIDER_EMPTY_RESULT
+ * when contextual signals indicate the case exists but returned no events.
+ *
+ * This prevents false AUTO_DEMONITOR triggers when CPNU returns "no actuaciones found"
+ * with a PROVIDER_NOT_FOUND code (provider confirmed the case exists but has no events).
+ *
+ * Call AFTER normalizeProviderErrorCode and BEFORE isStrict404Code checks.
+ */
+export function reclassifyWithContext(
+  normalizedCode: string,
+  message: string | null | undefined,
+  dataPayload: Record<string, unknown> | null | undefined,
+): { code: string; reclassified: boolean; reason: string } {
+  // Only reclassify codes that are currently strict-404
+  if (!isStrict404Code(normalizedCode)) {
+    return { code: normalizedCode, reclassified: false, reason: 'not_strict_404' };
+  }
+
+  const msg = (message || '').toLowerCase();
+  const data = dataPayload || {};
+
+  // CPNU pattern: code is PROVIDER_NOT_FOUND but message says "no actuaciones found"
+  // or actuacionesCount is explicitly 0 — the case exists but has no events
+  const emptySignals = [
+    msg.includes('no actuaciones found'),
+    msg.includes('no actuaciones'),
+    msg.includes('sin actuaciones'),
+    msg.includes('0 actuaciones'),
+    msg.includes('scraping completed but no'),
+    msg.includes('no se encontraron actuaciones'),
+    (data.actuacionesCount === 0 || data.actuaciones_count === 0),
+    (Array.isArray(data.actuaciones) && data.actuaciones.length === 0 && data.ok !== false),
+  ];
+
+  if (emptySignals.some(Boolean)) {
+    return {
+      code: PROVIDER_EMPTY_RESULT,
+      reclassified: true,
+      reason: `Downgraded ${normalizedCode} → PROVIDER_EMPTY_RESULT: message/data indicates empty results, not missing case`,
+    };
+  }
+
+  return { code: normalizedCode, reclassified: false, reason: 'no_empty_signals' };
+}
+
+/**
  * Returns true if a normalized code is a strict-404 signal
  * that should increment consecutive_404_count.
  */
