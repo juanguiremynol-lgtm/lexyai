@@ -87,8 +87,10 @@ export function ArchiveWorkItemDialog({
                   <p className="font-medium">Esta acción:</p>
                   <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
                     <li>Ocultará {isBulk ? "los elementos" : "el elemento"} de los pipelines y listas</li>
-                    <li>Mantendrá todos los datos intactos</li>
-                    <li>Podrás restaurar{isBulk ? "los" : "lo"} en cualquier momento desde Configuración</li>
+                    <li>Detendrá la sincronización automática</li>
+                    <li>Mantendrá todos los datos intactos por <strong>10 días</strong></li>
+                    <li>Podrás recuperar{isBulk ? "los" : "lo"} solicitándoselo a <strong>Atenia AI</strong></li>
+                    <li>Después de 10 días, será eliminado permanentemente</li>
                   </ul>
                 </div>
               </div>

@@ -63,6 +63,7 @@ export async function getEligibleWorkItems(
       .in('workflow_type', SYNC_ENABLED_WORKFLOWS)
       .not('stage', 'in', `(${TERMINAL_STAGES.join(',')})`)
       .not('radicado', 'is', null)
+      .is('deleted_at', null)
       .neq('monitoring_enabled', false) // Use existing monitoring_enabled column
       .or(`last_synced_at.is.null,last_synced_at.lt.${cutoffTime.toISOString()}`)
       .order('last_synced_at', { ascending: true, nullsFirst: true })

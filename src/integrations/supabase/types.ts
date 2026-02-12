@@ -8231,6 +8231,81 @@ export type Database = {
           },
         ]
       }
+      work_item_soft_deletes: {
+        Row: {
+          created_at: string | null
+          delete_reason: string | null
+          deleted_at: string
+          deleted_by_user_id: string
+          despacho: string | null
+          id: string
+          item_snapshot: Json | null
+          organization_id: string
+          purge_after: string
+          purged_at: string | null
+          purged_by_action_id: string | null
+          radicado: string
+          restored_at: string | null
+          restored_by_action_id: string | null
+          status: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string
+          deleted_by_user_id: string
+          despacho?: string | null
+          id?: string
+          item_snapshot?: Json | null
+          organization_id: string
+          purge_after: string
+          purged_at?: string | null
+          purged_by_action_id?: string | null
+          radicado: string
+          restored_at?: string | null
+          restored_by_action_id?: string | null
+          status?: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string | null
+          delete_reason?: string | null
+          deleted_at?: string
+          deleted_by_user_id?: string
+          despacho?: string | null
+          id?: string
+          item_snapshot?: Json | null
+          organization_id?: string
+          purge_after?: string
+          purged_at?: string | null
+          purged_by_action_id?: string | null
+          radicado?: string
+          restored_at?: string | null
+          restored_by_action_id?: string | null
+          status?: string
+          work_item_id?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_soft_deletes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_soft_deletes_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_sources: {
         Row: {
           consecutive_404_count: number
@@ -8581,6 +8656,7 @@ export type Database = {
           ponente: string | null
           provider_reachable: boolean | null
           provider_sources: Json | null
+          purge_after: string | null
           radicado: string | null
           radicado_blocks: Json | null
           radicado_raw: string | null
@@ -8724,6 +8800,7 @@ export type Database = {
           ponente?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
+          purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null
           radicado_raw?: string | null
@@ -8867,6 +8944,7 @@ export type Database = {
           ponente?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
+          purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null
           radicado_raw?: string | null
@@ -9119,6 +9197,14 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      purge_work_item_acts_and_pubs: {
+        Args: { p_work_item_id: string }
+        Returns: undefined
+      }
+      purge_work_item_related_data: {
+        Args: { p_work_item_id: string }
+        Returns: undefined
+      }
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
