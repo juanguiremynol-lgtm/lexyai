@@ -246,12 +246,22 @@ interface TraceEvent {
 }
 
 // Log a trace event to the database (non-blocking, fail-safe)
+// Enriches with normalized_error_code and body_preview for autonomy engine consumption.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function logTrace(
   supabase: any,
   event: Partial<TraceEvent> & { trace_id: string; step: string }
 ): Promise<void> {
   try {
+    // Compute normalized_error_code from available signals
+    const normalizedCode = !event.success && event.error_code
+      ? normalizeTraceErrorCode(event.error_code, event.http_status, event.message)
+      : null;
+    // Extract body_preview from meta if present
+    const bodyPreview = (event.meta?.response_preview as string)?.slice(0, 200)
+      || (event.meta?.body_preview as string)?.slice(0, 200)
+      || null;
+
     // Use 'any' cast since sync_traces table may not be in generated types yet
     await (supabase.from('sync_traces') as any).insert({
       trace_id: event.trace_id,
@@ -264,6 +274,8 @@ async function logTrace(
       latency_ms: event.latency_ms || null,
       success: event.success ?? false,
       error_code: event.error_code || null,
+      normalized_error_code: normalizedCode,
+      body_preview: bodyPreview,
       message: event.message?.slice(0, 500) || null, // Truncate messages
       meta: event.meta || {},
     });
@@ -676,6 +688,39 @@ function inferStageFromActuacion(
   return null;
 }
 
+
+// ============= TRACE ERROR NORMALIZATION =============
+
+/**
+ * Maps raw error_code + http_status + message into a canonical normalized code
+ * for the normalized_error_code column in sync_traces.
+ * Mirrors the frontend NormalizedErrorCode enum.
+ */
+function normalizeTraceErrorCode(
+  rawCode: string | null | undefined,
+  httpStatus: number | null | undefined,
+  message: string | null | undefined,
+): string {
+  const code = (rawCode || '').toUpperCase();
+  const msg = (message || '').toUpperCase();
+
+  if (code.includes('SCRAPING_STUCK')) return 'SCRAPING_STUCK';
+  if (code.includes('SCRAPING_TIMEOUT') || code.includes('SCRAPING_PENDING')) return 'SCRAPING_TIMEOUT';
+  if (code.includes('MISSING_PLATFORM_INSTANCE')) return 'MISSING_PLATFORM_INSTANCE';
+  if (code.includes('MAPPING_NOT_ACTIVE') || code.includes('MAPPING_SPEC_MISSING')) return 'MAPPING_NOT_ACTIVE';
+  if (code.includes('SNAPSHOT_PARSE') || code.includes('UNPARSABLE')) return 'SNAPSHOT_PARSE_FAILED';
+  if (code.includes('EMPTY_RESULT') || code.includes('EMPTY_SNAPSHOT') || code.includes('PROVIDER_EMPTY')) return 'EMPTY_RESULTS';
+  if (code.includes('RATE_LIMITED') || code === 'PROVIDER_RATE_LIMITED' || httpStatus === 429) return 'PROVIDER_RATE_LIMITED';
+  if (code.includes('UPSTREAM_AUTH') || code.includes('AUTH_FAILED') || httpStatus === 401 || httpStatus === 403) return 'UPSTREAM_AUTH';
+  if (code.includes('UPSTREAM_ROUTE_MISSING') || code.includes('ROUTE_NOT_FOUND') || code.includes('404_HTML')) return 'UPSTREAM_ROUTE_MISSING';
+  if (code.includes('RECORD_NOT_FOUND') || code === 'NOT_FOUND' || code === 'PROVIDER_404' || code === 'PROVIDER_NOT_FOUND') return 'PROVIDER_NOT_FOUND';
+  if (code.includes('TIMEOUT') || msg.includes('TIMEOUT') || msg.includes('ABORTED') || msg.includes('ETIMEDOUT')) return 'PROVIDER_TIMEOUT';
+  if (code.includes('EDGE_FUNCTION_FAILED') || code.includes('FUNCTION_INVOKE_FAILED') || code.includes('FAILED_TO_SEND')) return 'EDGE_INVOCATION_FAILED';
+  if (code.includes('NETWORK') || msg.includes('ECONNREFUSED') || msg.includes('FETCH_FAILED') || msg.includes('DNS')) return 'NETWORK_ERROR';
+  if (httpStatus && httpStatus === 404) return 'PROVIDER_NOT_FOUND';
+  if (httpStatus && httpStatus >= 500) return 'PROVIDER_5XX';
+  return 'UNKNOWN';
+}
 
 // ============= ERROR CLASSIFICATION =============
 

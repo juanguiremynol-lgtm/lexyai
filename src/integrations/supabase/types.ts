@@ -6712,6 +6712,7 @@ export type Database = {
       }
       sync_traces: {
         Row: {
+          body_preview: string | null
           created_at: string | null
           error_code: string | null
           http_status: number | null
@@ -6719,6 +6720,7 @@ export type Database = {
           latency_ms: number | null
           message: string | null
           meta: Json | null
+          normalized_error_code: string | null
           organization_id: string | null
           owner_id: string | null
           provider: string | null
@@ -6729,6 +6731,7 @@ export type Database = {
           workflow_type: string | null
         }
         Insert: {
+          body_preview?: string | null
           created_at?: string | null
           error_code?: string | null
           http_status?: number | null
@@ -6736,6 +6739,7 @@ export type Database = {
           latency_ms?: number | null
           message?: string | null
           meta?: Json | null
+          normalized_error_code?: string | null
           organization_id?: string | null
           owner_id?: string | null
           provider?: string | null
@@ -6746,6 +6750,7 @@ export type Database = {
           workflow_type?: string | null
         }
         Update: {
+          body_preview?: string | null
           created_at?: string | null
           error_code?: string | null
           http_status?: number | null
@@ -6753,6 +6758,7 @@ export type Database = {
           latency_ms?: number | null
           message?: string | null
           meta?: Json | null
+          normalized_error_code?: string | null
           organization_id?: string | null
           owner_id?: string | null
           provider?: string | null
