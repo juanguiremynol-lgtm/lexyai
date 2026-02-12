@@ -14,6 +14,7 @@ import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
 import { AteniaAssuranceGates } from "./atenia-ai/AteniaAssuranceGates";
 import { AteniaAutonomousSyncPanel } from "./atenia-ai/AteniaAutonomousSyncPanel";
+import { DailySyncHealthGate } from "./atenia-ai/DailySyncHealthGate";
 import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProviderStatus";
 import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
 import { AteniaOperatorExplanation } from "./atenia-ai/AteniaOperatorExplanation";
@@ -581,6 +582,9 @@ export function AteniaAISupervisorPanel() {
               </CardContent>
             </Card>
           )}
+
+          {/* Daily Sync Health Gate */}
+          <DailySyncHealthGate />
 
           {/* Assurance Gates — 6 invariants */}
           <AteniaAssuranceGates />
