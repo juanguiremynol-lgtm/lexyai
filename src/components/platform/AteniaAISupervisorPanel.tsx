@@ -22,6 +22,8 @@ import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
 import { AteniaAutonomyControlPanel } from "./atenia-ai/AteniaAutonomyControlPanel";
 import { AteniaActionFeed } from "./atenia-ai/AteniaActionFeed";
 import { AteniaProviderHealthDashboard } from "./atenia-ai/AteniaProviderHealthDashboard";
+import { AteniaOperationsInbox } from "./atenia-ai/AteniaOperationsInbox";
+import { AteniaThreadView } from "./atenia-ai/AteniaThreadView";
 // AteniaCronHealthPanel is now integrated into AutopilotDashboard
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { runAutonomyCycle } from "@/lib/services/atenia-ai-autonomy-engine";
@@ -130,7 +132,18 @@ const PLATFORM_ORG_ID = 'a0000000-0000-0000-0000-000000000001';
 export function AteniaAISupervisorPanel() {
   const [isAuditing, setIsAuditing] = useState(false);
   const [isRunningAutonomy, setIsRunningAutonomy] = useState(false);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const today = todayCOT();
+
+  // Get current user ID for thread view
+  const { data: currentUser } = useQuery({
+    queryKey: ['current-user-id'],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getUser();
+      return data.user?.id ?? '';
+    },
+    staleTime: 1000 * 60 * 30,
+  });
 
   // Load Atenia AI config for gemini_enabled check
   const { data: ateniaConfig } = useQuery({
@@ -605,6 +618,20 @@ export function AteniaAISupervisorPanel() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Operations Log */}
+          {selectedConversationId ? (
+            <AteniaThreadView
+              conversationId={selectedConversationId}
+              onBack={() => setSelectedConversationId(null)}
+              currentUserId={currentUser || ''}
+            />
+          ) : (
+            <AteniaOperationsInbox
+              organizationId={PLATFORM_ORG_ID}
+              onSelectConversation={setSelectedConversationId}
+            />
           )}
 
           {/* Daily Sync Health Gate */}
