@@ -107,7 +107,8 @@ export default function Alerts() {
         .order("fired_at", { ascending: false })
         .limit(100);
       if (error) throw error;
-      return (data || []).map(d => ({
+      // Double-check dismissed alerts are filtered (defensive against stale refetches)
+      return ((data || []).filter(d => !['DISMISSED', 'RESOLVED', 'CANCELLED'].includes(d.status))).map(d => ({
         ...d,
         actions: Array.isArray(d.actions) ? d.actions as AlertInstanceAction[] : [],
       })) as AlertInstance[];
