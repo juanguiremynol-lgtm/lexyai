@@ -451,6 +451,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           autonomy_tier: string
+          conversation_id: string | null
           created_at: string | null
           evidence: Json | null
           expires_at: string | null
@@ -480,6 +481,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           autonomy_tier: string
+          conversation_id?: string | null
           created_at?: string | null
           evidence?: Json | null
           expires_at?: string | null
@@ -509,6 +511,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           autonomy_tier?: string
+          conversation_id?: string | null
           created_at?: string | null
           evidence?: Json | null
           expires_at?: string | null
@@ -530,6 +533,13 @@ export type Database = {
           workflow_type?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "atenia_ai_actions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_ai_conversations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "atenia_ai_actions_organization_id_fkey"
             columns: ["organization_id"]
@@ -658,6 +668,201 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: true
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_conversations: {
+        Row: {
+          action_count: number | null
+          channel: string
+          created_at: string | null
+          created_by_user_id: string | null
+          id: string
+          last_activity_at: string | null
+          message_count: number | null
+          observation_count: number | null
+          organization_id: string | null
+          related_providers: string[] | null
+          related_work_item_ids: string[] | null
+          related_workflows: string[] | null
+          resolved_at: string | null
+          resolved_by_user_id: string | null
+          scope: string
+          severity: string | null
+          status: string
+          summary: string | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          action_count?: number | null
+          channel?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          last_activity_at?: string | null
+          message_count?: number | null
+          observation_count?: number | null
+          organization_id?: string | null
+          related_providers?: string[] | null
+          related_work_item_ids?: string[] | null
+          related_workflows?: string[] | null
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          scope?: string
+          severity?: string | null
+          status?: string
+          summary?: string | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          action_count?: number | null
+          channel?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          last_activity_at?: string | null
+          message_count?: number | null
+          observation_count?: number | null
+          organization_id?: string | null
+          related_providers?: string[] | null
+          related_work_item_ids?: string[] | null
+          related_workflows?: string[] | null
+          resolved_at?: string | null
+          resolved_by_user_id?: string | null
+          scope?: string
+          severity?: string | null
+          status?: string
+          summary?: string | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      atenia_ai_exports: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string | null
+          created_by_user_id: string
+          format: string
+          id: string
+          token_estimate: number | null
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string | null
+          created_by_user_id: string
+          format: string
+          id?: string
+          token_estimate?: number | null
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string | null
+          created_by_user_id?: string
+          format?: string
+          id?: string
+          token_estimate?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_exports_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_ai_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_observations: {
+        Row: {
+          conversation_id: string | null
+          created_at: string | null
+          id: string
+          kind: string
+          links: Json | null
+          organization_id: string | null
+          payload: Json | null
+          severity: string
+          title: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          kind: string
+          links?: Json | null
+          organization_id?: string | null
+          payload?: Json | null
+          severity?: string
+          title: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string | null
+          id?: string
+          kind?: string
+          links?: Json | null
+          organization_id?: string | null
+          payload?: Json | null
+          severity?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_observations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_ai_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_ai_op_messages: {
+        Row: {
+          content_structured: Json | null
+          content_text: string
+          conversation_id: string
+          created_at: string | null
+          created_by_user_id: string | null
+          id: string
+          related_action_ids: string[] | null
+          related_work_item_ids: string[] | null
+          role: string
+        }
+        Insert: {
+          content_structured?: Json | null
+          content_text: string
+          conversation_id: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          related_action_ids?: string[] | null
+          related_work_item_ids?: string[] | null
+          role: string
+        }
+        Update: {
+          content_structured?: Json | null
+          content_text?: string
+          conversation_id?: string
+          created_at?: string | null
+          created_by_user_id?: string | null
+          id?: string
+          related_action_ids?: string[] | null
+          related_work_item_ids?: string[] | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_ai_op_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_ai_conversations"
             referencedColumns: ["id"]
           },
         ]
