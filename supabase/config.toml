@@ -167,3 +167,6 @@ verify_jwt = false
 
 [functions.atenia-assistant]
 verify_jwt = false
+
+[functions.atenia-cron-watchdog]
+verify_jwt = false

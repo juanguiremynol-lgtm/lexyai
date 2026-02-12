@@ -607,6 +607,7 @@ export type Database = {
           action_type: string
           attempts: number
           created_at: string
+          dedupe_key: string | null
           id: string
           last_error: string | null
           max_attempts: number
@@ -624,6 +625,7 @@ export type Database = {
           action_type: string
           attempts?: number
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           last_error?: string | null
           max_attempts?: number
@@ -641,6 +643,7 @@ export type Database = {
           action_type?: string
           attempts?: number
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           last_error?: string | null
           max_attempts?: number
@@ -1018,6 +1021,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      atenia_cron_runs: {
+        Row: {
+          details: Json
+          finished_at: string | null
+          id: string
+          job_name: string
+          scheduled_for: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          job_name: string
+          scheduled_for: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          job_name?: string
+          scheduled_for?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
       }
       audit_logs: {
         Row: {
@@ -8533,6 +8566,7 @@ export type Database = {
           action_type: string
           attempts: number
           created_at: string
+          dedupe_key: string | null
           id: string
           last_error: string | null
           max_attempts: number
@@ -8560,6 +8594,37 @@ export type Database = {
       atenia_ai_try_start_task: {
         Args: { _task_key: string; _ttl_seconds?: number }
         Returns: boolean
+      }
+      atenia_finish_cron: {
+        Args: { p_details?: Json; p_run_id: string; p_status: string }
+        Returns: undefined
+      }
+      atenia_get_missing_sync_coverage: {
+        Args: never
+        Returns: {
+          attempted_24h: number
+          coverage_pct: number
+          missing_attempts: number
+          total_monitored: number
+        }[]
+      }
+      atenia_get_missing_sync_items: {
+        Args: never
+        Returns: {
+          id: string
+          organization_id: string
+        }[]
+      }
+      atenia_try_start_cron: {
+        Args: {
+          p_job_name: string
+          p_lease_seconds?: number
+          p_scheduled_for: string
+        }
+        Returns: {
+          ok: boolean
+          run_id: string
+        }[]
       }
       backfill_work_item_ids: {
         Args: never

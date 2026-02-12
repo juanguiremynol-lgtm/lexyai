@@ -17,6 +17,7 @@ import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProvider
 import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
 import { AteniaOperatorExplanation } from "./atenia-ai/AteniaOperatorExplanation";
 import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
+import { AteniaCronHealthPanel } from "./atenia-ai/AteniaCronHealthPanel";
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -588,6 +589,9 @@ export function AteniaAISupervisorPanel() {
 
           {/* External Provider Health */}
           <AteniaExternalProviderStatus organizationId={PLATFORM_ORG_ID} />
+
+          {/* Cron Health — Proof-based assurance */}
+          <AteniaCronHealthPanel />
 
           {/* Autonomous Sync Controls */}
           <AteniaAutonomousSyncPanel organizationId={PLATFORM_ORG_ID} />
