@@ -173,134 +173,215 @@ Deno.serve(async (req) => {
     // Extract plan_code from session (stored in tier field for backward compat)
     const planCode = session.tier;
 
-    // Upsert billing_subscription_state
-    const { error: stateError } = await supabaseService
-      .from("billing_subscription_state")
-      .upsert({
+    // =========================================================================
+    // Create payment_transaction and trigger Atenia AI verification
+    // =========================================================================
+    const transactionId = crypto.randomUUID();
+    const { error: txnError } = await supabaseService
+      .from("payment_transactions")
+      .insert({
+        id: transactionId,
         organization_id: session.organization_id,
+        checkout_session_id: session_id,
         plan_code: planCode,
-        billing_cycle_months: billingCycleMonths,
+        amount_cop: session.amount_cop_incl_iva || 0,
         currency: "COP",
-        current_price_cop_incl_iva: session.amount_cop_incl_iva || 0,
-        intro_offer_applied: isIntroOffer,
-        price_lock_end_at: priceLockEndAt,
-        trial_end_at: null, // Clear trial on paid plan
-        updated_at: now,
-      }, { onConflict: "organization_id" });
+        billing_cycle_months: billingCycleMonths,
+        transaction_type: "SUBSCRIPTION",
+        gateway: session.provider || "mock",
+        gateway_transaction_id: `mock_txn_${Date.now()}`,
+        gateway_reference: `checkout_${session_id}`,
+        gateway_response: { checkout_session_id: session_id, provider: session.provider },
+        gateway_status: "APPROVED",
+        status: "PROCESSING",
+        initiated_by_user_id: userId,
+      });
 
-    if (stateError) {
-      console.error("Failed to upsert billing_subscription_state:", stateError);
-      // Non-fatal, continue
+    if (txnError) {
+      console.error("Failed to create payment transaction:", txnError);
+      // Non-fatal, proceed with legacy flow
     }
 
-    // Map plan_code to subscription_plans.name for core subscriptions table
-    const planName = PLAN_CODE_TO_PLAN_NAME[planCode] || "basic";
+    // Log checkout completed event
+    await supabaseService.from("subscription_events").insert({
+      organization_id: session.organization_id,
+      event_type: "CHECKOUT_COMPLETED",
+      description: `Checkout completado. Plan: ${planCode}, Monto: $${(session.amount_cop_incl_iva || 0).toLocaleString("es-CO")} COP, Ciclo: ${billingCycleMonths}m.`,
+      payload: {
+        checkout_session_id: session_id,
+        plan_code: planCode,
+        amount_cop: session.amount_cop_incl_iva,
+        billing_cycle_months: billingCycleMonths,
+        transaction_id: transactionId,
+      },
+      triggered_by: "USER",
+      triggered_by_user_id: userId,
+    });
 
-    // Get plan_id from subscription_plans
-    const { data: planRow, error: planError } = await supabaseService
-      .from("subscription_plans")
-      .select("id")
-      .eq("name", planName)
-      .single();
-
-    if (planError || !planRow) {
-      console.error(`Plan not found for name: ${planName}`, planError);
-      return new Response(
-        JSON.stringify({ ok: false, code: "PLAN_NOT_FOUND", message: `Plan not found: ${planName}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Trigger Atenia AI verification (which handles activation)
+    let verificationResult: Record<string, unknown> | null = null;
+    if (!txnError) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const verifyResponse = await fetch(
+          `${supabaseUrl}/functions/v1/atenia-ai-verify-payment`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({ transaction_id: transactionId }),
+          }
+        );
+        verificationResult = await verifyResponse.json();
+        console.log("[billing-complete-checkout] Verification result:", verificationResult);
+      } catch (verifyErr) {
+        console.error("[billing-complete-checkout] Verification call failed:", verifyErr);
+      }
     }
 
-    const newPlanId = planRow.id;
+    // =========================================================================
+    // Legacy fallback: If verification didn't activate, do it directly
+    // (ensures backward compatibility during transition)
+    // =========================================================================
+    const activated = verificationResult && (verificationResult as Record<string, unknown>).activated === true;
 
-    // Get existing subscription
-    const { data: existingSub, error: subQueryError } = await supabaseService
-      .from("subscriptions")
-      .select("id, plan_id")
-      .eq("organization_id", session.organization_id)
-      .single();
-
-    if (subQueryError && subQueryError.code !== "PGRST116") {
-      console.error("Failed to query subscription:", subQueryError);
-    }
-
-    const oldPlanId = existingSub?.plan_id || null;
-
-    if (existingSub) {
-      // Update existing subscription with new plan_id
-      const { error: subUpdateError } = await supabaseService
-        .from("subscriptions")
-        .update({
-          plan_id: newPlanId,
-          status: "active",
+    if (!activated) {
+      // Upsert billing_subscription_state
+      const { error: stateError } = await supabaseService
+        .from("billing_subscription_state")
+        .upsert({
+          organization_id: session.organization_id,
+          plan_code: planCode,
+          billing_cycle_months: billingCycleMonths,
+          currency: "COP",
+          current_price_cop_incl_iva: session.amount_cop_incl_iva || 0,
+          intro_offer_applied: isIntroOffer,
+          price_lock_end_at: priceLockEndAt,
+          trial_end_at: null,
+          status: "ACTIVE",
           current_period_start: now,
           current_period_end: periodEnd,
-          trial_ends_at: null, // Clear trial on paid plan
+          next_billing_at: periodEnd,
+          last_payment_id: transactionId,
+          consecutive_payment_failures: 0,
           updated_at: now,
-        })
-        .eq("id", existingSub.id);
+        }, { onConflict: "organization_id" });
 
-      if (subUpdateError) {
-        console.error("Failed to update subscription:", subUpdateError);
+      if (stateError) {
+        console.error("Failed to upsert billing_subscription_state:", stateError);
+      }
+
+      // Map plan_code to subscription_plans.name for core subscriptions table
+      const planName = PLAN_CODE_TO_PLAN_NAME[planCode] || "basic";
+
+      // Get plan_id from subscription_plans
+      const { data: planRow, error: planError } = await supabaseService
+        .from("subscription_plans")
+        .select("id")
+        .eq("name", planName)
+        .single();
+
+      if (planError || !planRow) {
+        console.error(`Plan not found for name: ${planName}`, planError);
         return new Response(
-          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to update subscription" }),
+          JSON.stringify({ ok: false, code: "PLAN_NOT_FOUND", message: `Plan not found: ${planName}` }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-    } else {
-      // Create new subscription
-      const { error: subInsertError } = await supabaseService
+
+      const newPlanId = planRow.id;
+
+      // Get existing subscription
+      const { data: existingSub } = await supabaseService
         .from("subscriptions")
+        .select("id, plan_id")
+        .eq("organization_id", session.organization_id)
+        .maybeSingle();
+
+      if (existingSub) {
+        await supabaseService
+          .from("subscriptions")
+          .update({
+            plan_id: newPlanId,
+            status: "active",
+            current_period_start: now,
+            current_period_end: periodEnd,
+            trial_ends_at: null,
+            updated_at: now,
+          })
+          .eq("id", existingSub.id);
+      } else {
+        await supabaseService
+          .from("subscriptions")
+          .insert({
+            organization_id: session.organization_id,
+            plan_id: newPlanId,
+            status: "active",
+            current_period_start: now,
+            current_period_end: periodEnd,
+          });
+      }
+
+      // Log activation event
+      await supabaseService.from("subscription_events").insert({
+        organization_id: session.organization_id,
+        event_type: "PLAN_ACTIVATED",
+        description: `Plan ${planCode} activado (fallback directo). Período hasta ${periodEndDate.toLocaleDateString("es-CO")}.`,
+        payload: {
+          plan_code: planCode,
+          period_end: periodEnd,
+          amount_cop: session.amount_cop_incl_iva,
+          source: "legacy_fallback",
+        },
+        triggered_by: "SYSTEM",
+        triggered_by_user_id: userId,
+      });
+    }
+
+    // Ensure billing customer exists
+    const { data: existingCustomer } = await supabaseService
+      .from("billing_customers")
+      .select("id")
+      .eq("organization_id", session.organization_id)
+      .maybeSingle();
+
+    if (!existingCustomer) {
+      await supabaseService
+        .from("billing_customers")
         .insert({
           organization_id: session.organization_id,
-          plan_id: newPlanId,
-          status: "active",
-          current_period_start: now,
-          current_period_end: periodEnd,
+          provider: "mock",
+          provider_customer_id: `mock_cus_${session.organization_id}`,
         });
-
-      if (subInsertError) {
-        console.error("Failed to create subscription:", subInsertError);
-        return new Response(
-          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to create subscription" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
     }
 
-    // Create invoice record with COP amount
+    // Create invoice record
     const invoiceId = crypto.randomUUID();
-    const { error: invoiceError } = await supabaseService
+    await supabaseService
       .from("billing_invoices")
       .insert({
         id: invoiceId,
         organization_id: session.organization_id,
         provider: "mock",
         provider_invoice_id: `mock_inv_${Date.now()}`,
-        amount_usd: null, // No USD for COP invoices
         amount_cop_incl_iva: session.amount_cop_incl_iva,
         currency: "COP",
         status: "PAID",
         period_start: now,
         period_end: periodEnd,
-        metadata: { 
+        metadata: {
           checkout_session_id: session_id,
           plan_code: planCode,
-          plan_id: newPlanId,
           billing_cycle_months: billingCycleMonths,
           price_type: priceType,
-          includes_tax: true,
-          vat_included: true,
+          transaction_id: transactionId,
         },
       });
 
-    if (invoiceError) {
-      console.error("Failed to create invoice:", invoiceError);
-      // Non-fatal - continue
-    }
-
     // Audit logs
-    const { error: auditError } = await supabaseService.from("audit_logs").insert([
+    await supabaseService.from("audit_logs").insert([
       {
         organization_id: session.organization_id,
         actor_user_id: userId,
@@ -308,59 +389,26 @@ Deno.serve(async (req) => {
         action: "BILLING_CHECKOUT_COMPLETED",
         entity_type: "billing_checkout_session",
         entity_id: session_id,
-        metadata: { 
-          plan_code: planCode, 
-          amount_cop: session.amount_cop_incl_iva, 
-          billing_cycle_months: billingCycleMonths,
-          price_type: priceType,
-          plan_id: newPlanId 
-        },
-      },
-      {
-        organization_id: session.organization_id,
-        actor_user_id: userId,
-        actor_type: "USER",
-        action: "BILLING_TIER_CHANGED",
-        entity_type: "subscription",
-        entity_id: existingSub?.id || null,
-        metadata: { 
-          new_plan_code: planCode, 
-          new_plan_id: newPlanId,
-          old_plan_id: oldPlanId,
-          source: "checkout",
-          intro_offer: isIntroOffer,
-        },
-      },
-      {
-        organization_id: session.organization_id,
-        actor_user_id: userId,
-        actor_type: "USER",
-        action: "BILLING_INVOICE_CREATED",
-        entity_type: "billing_invoice",
-        entity_id: invoiceId,
-        metadata: { 
-          amount_cop: session.amount_cop_incl_iva, 
-          status: "PAID", 
+        metadata: {
           plan_code: planCode,
-          includes_tax: true,
+          amount_cop: session.amount_cop_incl_iva,
+          billing_cycle_months: billingCycleMonths,
+          transaction_id: transactionId,
+          verified_by_ai: !!activated,
         },
       },
     ]);
 
-    if (auditError) {
-      console.warn("Audit log insert failed:", auditError);
-      // Non-fatal
-    }
-
-    console.log(`[billing-complete-checkout] Completed session ${session_id}, plan ${planCode}, cycle ${billingCycleMonths}m, org ${session.organization_id}`);
+    console.log(`[billing-complete-checkout] Completed session ${session_id}, plan ${planCode}, cycle ${billingCycleMonths}m, org ${session.organization_id}, verified_by_ai=${!!activated}`);
 
     return new Response(
-      JSON.stringify({ 
-        ok: true, 
-        plan_id: newPlanId, 
+      JSON.stringify({
+        ok: true,
         plan_code: planCode,
         intro_offer_applied: isIntroOffer,
         price_lock_end_at: priceLockEndAt,
+        transaction_id: transactionId,
+        verified_by_ai: !!activated,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
