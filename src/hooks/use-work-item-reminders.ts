@@ -89,6 +89,7 @@ export function useDueReminders({ workItemId, enabled = true }: UseWorkItemRemin
 
 /**
  * Snooze a reminder (defer for 3 business days)
+ * Uses optimistic cache update to instantly remove the snoozed item from all lists.
  */
 export function useSnoozeReminder() {
   const queryClient = useQueryClient();
@@ -101,9 +102,21 @@ export function useSnoozeReminder() {
       }
       return result;
     },
-    onSuccess: (_, variables) => {
-      toast.success("Recordatorio pospuesto");
-      // Invalidate all reminder queries
+    onMutate: async ({ reminderId }) => {
+      await queryClient.cancelQueries({ queryKey: ["all-active-reminders"] });
+      const previous = queryClient.getQueryData<any[]>(["all-active-reminders"]);
+      queryClient.setQueryData<any[]>(["all-active-reminders"], (old) =>
+        old ? old.filter((r: any) => r.id !== reminderId) : []
+      );
+      return { previous };
+    },
+    onError: (error: Error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["all-active-reminders"], context.previous);
+      }
+      toast.error("Error al posponer: " + error.message);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-active"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-due"] });
@@ -111,14 +124,18 @@ export function useSnoozeReminder() {
       queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
     },
-    onError: (error: Error) => {
-      toast.error("Error al posponer: " + error.message);
+    onSuccess: () => {
+      toast.success("Recordatorio pospuesto");
     },
   });
 }
 
 /**
- * Dismiss a reminder permanently
+ * Dismiss a reminder permanently.
+ * ROOT CAUSE FIX: Previously used only invalidateQueries (in onSuccess), which
+ * marks the query stale but doesn't synchronously remove items from the cache.
+ * The stale-while-revalidate window caused dismissed hitos to flash back.
+ * Fix: onMutate optimistically removes the item, onSettled reconciles with server.
  */
 export function useDismissReminder() {
   const queryClient = useQueryClient();
@@ -131,8 +148,21 @@ export function useDismissReminder() {
       }
       return result;
     },
-    onSuccess: () => {
-      toast.success("Recordatorio descartado");
+    onMutate: async (reminderId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["all-active-reminders"] });
+      const previous = queryClient.getQueryData<any[]>(["all-active-reminders"]);
+      queryClient.setQueryData<any[]>(["all-active-reminders"], (old) =>
+        old ? old.filter((r: any) => r.id !== reminderId) : []
+      );
+      return { previous };
+    },
+    onError: (error: Error, _id, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["all-active-reminders"], context.previous);
+      }
+      toast.error("Error al descartar: " + error.message);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-active"] });
       queryClient.invalidateQueries({ queryKey: ["work-item-reminders-due"] });
@@ -140,8 +170,8 @@ export function useDismissReminder() {
       queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
       queryClient.invalidateQueries({ queryKey: ["process-events"] });
     },
-    onError: (error: Error) => {
-      toast.error("Error al descartar: " + error.message);
+    onSuccess: () => {
+      toast.success("Recordatorio descartado");
     },
   });
 }
