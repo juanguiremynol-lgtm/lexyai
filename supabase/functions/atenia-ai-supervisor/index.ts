@@ -1314,7 +1314,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ─── HEARTBEAT mode: pick windows by Bogota time ───
+    // ─── HEARTBEAT mode: pick windows by Bogota time + watchdog-light ───
     if (input.mode === "HEARTBEAT") {
       const nowUtc = new Date();
       const runModes = pickScheduledModes(nowUtc);
@@ -1337,7 +1337,6 @@ Deno.serve(async (req) => {
 
         try {
           if (m === "POST_DAILY_AUDIT") {
-            // Get all orgs with monitored items
             const { data: wiOrgs } = await supabase
               .from("work_items")
               .select("organization_id")
@@ -1397,11 +1396,98 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ─── Watchdog-light: enforce coverage invariant from heartbeat ───
+      // Only run if we have time left (< 45s elapsed)
+      let watchdogLightResult: unknown = null;
+      if (Date.now() - startTime < 45000) {
+        try {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+          const resp = await fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ light: true }),
+          });
+          const body = await resp.json().catch(() => ({ status: resp.status }));
+          watchdogLightResult = { ok: resp.ok, result: body };
+
+          // Track consecutive watchdog failures for auto-escalation
+          if (!resp.ok) {
+            // Check how many consecutive failures
+            const { data: recentWdRuns } = await supabase
+              .from("atenia_cron_runs")
+              .select("status")
+              .eq("job_name", "WATCHDOG")
+              .order("started_at", { ascending: false })
+              .limit(3);
+
+            const consecutiveFailures = (recentWdRuns || [])
+              .filter((r: any) => r.status === "FAILED").length;
+
+            if (consecutiveFailures >= 2) {
+              // Auto-escalate: create CRITICAL alert
+              await logAction(supabase, {
+                actor: "ATENIA",
+                organization_id: "a0000000-0000-0000-0000-000000000001",
+                action_type: "WATCHDOG_ESCALATION",
+                autonomy_tier: "ACT",
+                reason_code: "CONSECUTIVE_WATCHDOG_FAILURES",
+                summary: `Watchdog ha fallado ${consecutiveFailures + 1} veces consecutivas. Escalación automática.`,
+                reasoning: `Watchdog ha fallado ${consecutiveFailures + 1} veces consecutivas. Escalación automática.`,
+                evidence: { consecutive_failures: consecutiveFailures + 1, last_result: body },
+                is_reversible: false,
+              });
+
+              // Create critical alert instance
+              try {
+                await supabase.from("alert_instances").insert({
+                  entity_type: "platform",
+                  entity_id: "00000000-0000-0000-0000-000000000000",
+                  owner_id: "00000000-0000-0000-0000-000000000000",
+                  severity: "CRITICAL",
+                  title: "🚨 Watchdog con fallos consecutivos",
+                  message: `El watchdog ha fallado ${consecutiveFailures + 1} veces seguidas. Requiere intervención manual.`,
+                  status: "PENDING",
+                  fired_at: new Date().toISOString(),
+                  alert_type: "WATCHDOG_ESCALATION",
+                  alert_source: "atenia-ai-supervisor",
+                  fingerprint: `watchdog_escalation_${new Date().toISOString().slice(0, 13)}`,
+                });
+              } catch (_) { /* non-fatal */ }
+            }
+          }
+        } catch (e: unknown) {
+          watchdogLightResult = { ok: false, error: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
+        }
+      }
+
+      // Record HEARTBEAT in cron_runs
+      try {
+        const hbScheduledFor = new Date(
+          Math.floor(Date.now() / (30 * 60 * 1000)) * (30 * 60 * 1000)
+        ).toISOString();
+        await supabase.from("atenia_cron_runs").upsert(
+          {
+            job_name: "HEARTBEAT",
+            scheduled_for: hbScheduledFor,
+            started_at: new Date(startTime).toISOString(),
+            finished_at: new Date().toISOString(),
+            status: "OK",
+            details: { ran: runModes, watchdog_light: watchdogLightResult },
+          },
+          { onConflict: "job_name,scheduled_for" }
+        );
+      } catch (_) { /* non-fatal */ }
+
       const snap = await getStatusSnapshot(supabase);
       return json({
         ok: true,
         ran: runModes,
         outputs,
+        watchdog_light: watchdogLightResult,
         snapshot: snap,
         duration_ms: Date.now() - startTime,
       });

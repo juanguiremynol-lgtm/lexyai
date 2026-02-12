@@ -12,6 +12,7 @@ import { MasterSyncPanel } from "./master-sync/MasterSyncPanel";
 import { AteniaActionsLog } from "./atenia-ai/AteniaActionsLog";
 import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
+import { AteniaAssuranceGates } from "./atenia-ai/AteniaAssuranceGates";
 import { AteniaAutonomousSyncPanel } from "./atenia-ai/AteniaAutonomousSyncPanel";
 import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProviderStatus";
 import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
@@ -580,6 +581,9 @@ export function AteniaAISupervisorPanel() {
               </CardContent>
             </Card>
           )}
+
+          {/* Assurance Gates — 6 invariants */}
+          <AteniaAssuranceGates />
 
           {/* Ghost Items */}
           <AteniaGhostItems />
