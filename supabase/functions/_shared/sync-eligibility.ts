@@ -55,6 +55,7 @@ export async function selectEligibleWorkItems(
     .select("id, radicado, workflow_type, stage, last_synced_at, total_actuaciones, scrape_status, consecutive_failures")
     .eq("organization_id", orgId)
     .eq("monitoring_enabled", true)
+    .is("deleted_at", null)
     .in("workflow_type", [...SYNC_ENABLED_WORKFLOWS])
     .not("stage", "in", `(${[...TERMINAL_STAGES].join(",")})`)
     .not("radicado", "is", null)

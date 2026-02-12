@@ -10,7 +10,8 @@
 
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Bot } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Bot, Trash2 } from "lucide-react";
+import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -235,6 +236,17 @@ export default function WorkItemDetail() {
 
           {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />
+
+          {/* Soft Delete Button */}
+          <SoftDeleteButton
+            workItemId={workItem.id}
+            radicado={workItem.radicado}
+            variant="button"
+            onDeleted={() => {
+              queryClient.invalidateQueries({ queryKey: ["work-item-detail", id] });
+              navigate(-1);
+            }}
+          />
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { logSoftDelete } from "@/lib/audit-log";
+import { softDeleteWorkItem } from "@/lib/services/work-item-delete-service";
 
 interface SoftDeleteResult {
   success: boolean;
@@ -19,6 +19,11 @@ interface UseSoftDeleteWorkItemsOptions {
 const INVALIDATE_QUERIES = [
   "work-items",
   "work-item-detail",
+  "work-items-cgp-pipeline",
+  "work-items-laboral-pipeline",
+  "work-items-penal-pipeline",
+  "gov-procedure-work-items",
+  "tutelas-work-items",
   "cgp-items",
   "cgp-work-items",
   "peticiones",
@@ -33,6 +38,7 @@ const INVALIDATE_QUERIES = [
   "documents",
   "process-events",
   "archived-work-items",
+  "dashboard-stats",
 ];
 
 export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) {
@@ -50,37 +56,15 @@ export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) 
         errors: [],
       };
 
-      // Soft delete each work item
+      // Soft delete each work item using the full service
       for (const id of workItemIds) {
-        const { error } = await supabase
-          .from("work_items")
-          .update({
-            deleted_at: new Date().toISOString(),
-            deleted_by: user.id,
-          })
-          .eq("id", id)
-          .eq("owner_id", user.id)
-          .is("deleted_at", null); // Only delete if not already deleted
+        const deleteResult = await softDeleteWorkItem(supabase, id, user.id);
 
-        if (error) {
-          result.errors.push({ id, error: error.message });
-        } else {
+        if (deleteResult.success) {
           result.archived_count++;
           result.archived_ids.push(id);
-
-          // Get org ID for audit log
-          const { data: item } = await supabase
-            .from("work_items")
-            .select("organization_id")
-            .eq("id", id)
-            .single();
-
-          if (item?.organization_id) {
-            await logSoftDelete(item.organization_id, "work_item", id, {
-              deleted_at: new Date().toISOString(),
-              deleted_by: user.id,
-            });
-          }
+        } else {
+          result.errors.push({ id, error: deleteResult.error ?? "Error desconocido" });
         }
       }
 
@@ -96,19 +80,19 @@ export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) 
       // Show success message
       if (result.archived_count > 0) {
         toast.success(
-          `${result.archived_count} elemento${result.archived_count !== 1 ? "s" : ""} archivado${result.archived_count !== 1 ? "s" : ""}`
+          `${result.archived_count} asunto${result.archived_count !== 1 ? "s" : ""} eliminado${result.archived_count !== 1 ? "s" : ""}. Recuperable con Atenia AI por 10 días.`
         );
       }
 
       // Show partial errors if any
       if (result.errors.length > 0) {
-        toast.warning(`${result.errors.length} elemento(s) no pudieron ser archivados`);
+        toast.warning(`${result.errors.length} elemento(s) no pudieron ser eliminados`);
       }
 
       options?.onSuccess?.(result);
     },
     onError: (error: Error) => {
-      toast.error(`Error al archivar: ${error.message}`);
+      toast.error(`Error al eliminar: ${error.message}`);
       options?.onError?.(error);
     },
   });
