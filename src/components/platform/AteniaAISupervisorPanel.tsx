@@ -31,6 +31,7 @@ import {
   Clock,
   Activity,
   Loader2,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -186,6 +187,40 @@ export function AteniaAISupervisorPanel() {
       return { total: totalAlerts || 0, critical: criticalAlerts || 0 };
     },
     staleTime: 1000 * 60 * 2,
+  });
+
+  // Remediation queue preview
+  const { data: remediationQueue } = useQuery({
+    queryKey: ["atenia-remediation-queue"],
+    queryFn: async () => {
+      const { data, error } = await (supabase
+        .from("atenia_ai_remediation_queue") as any)
+        .select(`
+          id,
+          created_at,
+          updated_at,
+          status,
+          action_type,
+          reason_code,
+          attempts,
+          max_attempts,
+          priority,
+          run_after,
+          work_item_id,
+          organization_id
+        `)
+        .in("status", ["PENDING", "RUNNING"])
+        .order("priority", { ascending: false })
+        .order("run_after", { ascending: true })
+        .limit(25);
+
+      if (error) {
+        console.warn("[AteniaAI] Error fetching queue:", error.message);
+        return [];
+      }
+      return data || [];
+    },
+    staleTime: 1000 * 30, // 30s refresh
   });
 
   const handleManualAudit = async () => {
@@ -424,9 +459,86 @@ export function AteniaAISupervisorPanel() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+               </CardContent>
+             </Card>
+           )}
+
+          {/* Remediation Queue */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  Cola de Remediación
+                </CardTitle>
+                <Badge variant="outline" className="text-xs">
+                  {remediationQueue?.filter(q => q.status === 'PENDING').length || 0} pendientes
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!remediationQueue || remediationQueue.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Cola vacía</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-2 px-2 font-medium">Acción</th>
+                        <th className="text-left py-2 px-2 font-medium">Radicado</th>
+                        <th className="text-left py-2 px-2 font-medium">Razón</th>
+                        <th className="text-center py-2 px-2 font-medium">Intento</th>
+                        <th className="text-center py-2 px-2 font-medium">Prioridad</th>
+                        <th className="text-left py-2 px-2 font-medium">Ejecutar en</th>
+                        <th className="text-center py-2 px-2 font-medium">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {remediationQueue.map((job: any) => (
+                        <tr key={job.id} className="border-b hover:bg-muted/50">
+                          <td className="py-2 px-2 font-mono text-xs">{job.action_type}</td>
+                          <td className="py-2 px-2 text-xs text-muted-foreground">
+                            {job.work_item_id ? job.work_item_id.slice(0, 8) : "—"}
+                          </td>
+                          <td className="py-2 px-2 text-xs">
+                            {job.reason_code ? (
+                              <Badge variant="outline" className="text-xs">
+                                {job.reason_code}
+                              </Badge>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="py-2 px-2 text-center text-xs">
+                            {job.attempts}/{job.max_attempts}
+                          </td>
+                          <td className="py-2 px-2 text-center">
+                            <Badge 
+                              variant={job.priority >= 80 ? "destructive" : job.priority >= 50 ? "secondary" : "outline"}
+                              className="text-xs"
+                            >
+                              {job.priority}
+                            </Badge>
+                          </td>
+                          <td className="py-2 px-2 text-xs text-muted-foreground">
+                            {job.run_after ? new Date(job.run_after).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : "—"}
+                          </td>
+                           <td className="py-2 px-2 text-center">
+                             <Badge 
+                               variant={job.status === "RUNNING" ? "default" : job.status === "PENDING" ? "secondary" : "outline"}
+                               className="text-xs"
+                             >
+                               {job.status === "RUNNING" ? "▶️ Ejecutando" : job.status === "PENDING" ? "⏳ Pendiente" : job.status}
+                             </Badge>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                 </div>
+               )}
+             </CardContent>
+           </Card>
 
           {/* AI Diagnosis */}
           {aiDiagnosis && (
