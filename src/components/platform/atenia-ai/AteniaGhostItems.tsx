@@ -199,8 +199,9 @@ export function AteniaGhostItems() {
                           className="h-6 text-xs gap-1"
                           onClick={() => {
                             if (action.label === "Reintentar") handleRetry(item);
-                            else toast.info(`Acción "${action.label}" requiere intervención manual.`);
+                            else toast.info(`Acción "${action.label}" requiere intervención manual. Radicado: ${item.radicado || item.work_item_id.slice(0, 8)}`);
                           }}
+                          title={`${action.label}: ${getRecommendedAction(item.last_error_code as NormalizedErrorCode)}`}
                         >
                           {action.icon}
                           {action.label}

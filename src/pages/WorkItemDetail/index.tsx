@@ -32,6 +32,7 @@ import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
+import { WorkItemMonitoringControls } from "@/components/work-items/WorkItemMonitoringControls";
 import { AteniaAssistantDrawer } from "@/components/atenia/AteniaAssistantDrawer";
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
@@ -430,23 +431,21 @@ export default function WorkItemDetail() {
             </CardContent>
           </Card>
 
-          {/* Monitoring Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Monitoreo</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <WorkItemMonitoringToggle
-                workItemId={workItem.id}
-                monitoringEnabled={workItem.monitoring_enabled}
-                monitoringDisabledReason={workItem.monitoring_disabled_reason}
-                monitoringDisabledBy={workItem.monitoring_disabled_by}
-                monitoringDisabledAt={workItem.monitoring_disabled_at}
-                monitoringDisabledMeta={workItem.monitoring_disabled_meta}
-                onChanged={refetch}
-              />
-            </CardContent>
-          </Card>
+          {/* Monitoring Status & Controls */}
+          <WorkItemMonitoringControls
+            workItem={{
+              id: workItem.id,
+              radicado: workItem.radicado || undefined,
+              monitoring_enabled: workItem.monitoring_enabled,
+              monitoring_suspended_at: (workItem as any).monitoring_suspended_at || null,
+              monitoring_suspended_reason: (workItem as any).monitoring_suspended_reason || null,
+              consecutive_failures: (workItem as any).consecutive_failures || 0,
+              consecutive_not_found: (workItem as any).consecutive_not_found || 0,
+              last_error_code: (workItem as any).last_error_code || null,
+              last_attempted_sync_at: (workItem as any).last_attempted_sync_at || null,
+            }}
+            onUpdate={refetch}
+          />
         </div>
       </div>
 

@@ -15,6 +15,7 @@ import { useEffect, useRef } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { supabase } from '@/integrations/supabase/client';
 import { runHeartbeat, isInCronGuardWindow } from '@/lib/services/atenia-ai-autonomous';
+import { runAutonomyCycle } from '@/lib/services/atenia-ai-autonomy-engine';
 
 const HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes default
 const LOCK_KEY = 'atenia-ai-heartbeat-lock';
@@ -93,6 +94,16 @@ export function useAteniaHeartbeat() {
             );
           } else {
             console.log(`[atenia-heartbeat] Skipped: ${result.reason}`);
+          }
+          
+          // Run autonomy cycle if enabled
+          try {
+            const cycleResult = await runAutonomyCycle(orgId);
+            if (cycleResult.plans.length > 0) {
+              console.log(`[atenia-autonomy] Cycle generated ${cycleResult.plans.length} action(s)`);
+            }
+          } catch (err) {
+            console.warn('[atenia-autonomy] Cycle error:', err);
           }
         } catch (err) {
           console.warn('[atenia-heartbeat] Error:', err);
