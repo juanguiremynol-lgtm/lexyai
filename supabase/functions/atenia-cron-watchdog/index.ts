@@ -288,6 +288,126 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
+    // 5b) Convergence: remediate stuck/omitted items
+    // Items in SCRAPING_PENDING for > 30 min with no active retry must converge
+    // ================================================================
+    const STUCK_TTL_MINUTES = 30;
+    const stuckCutoff = new Date(Date.now() - STUCK_TTL_MINUTES * 60 * 1000).toISOString();
+
+    const { data: stuckSources } = await admin
+      .from("work_item_sources")
+      .select("id, work_item_id, organization_id, scrape_status, last_error_code, updated_at, consecutive_failures")
+      .eq("scrape_status", "SCRAPING_PENDING")
+      .lt("updated_at", stuckCutoff)
+      .limit(50);
+
+    let stuckRemediated = 0;
+    let stuckMarkedTerminal = 0;
+
+    if (stuckSources && stuckSources.length > 0) {
+      for (const src of stuckSources) {
+        // Check if there's an active retry queued
+        const { data: retryRow } = await admin
+          .from("sync_retry_queue")
+          .select("id, next_run_at, attempt, max_attempts")
+          .eq("work_item_id", src.work_item_id)
+          .gt("next_run_at", new Date().toISOString())
+          .maybeSingle();
+
+        if (retryRow && retryRow.attempt < retryRow.max_attempts) {
+          // Active retry exists — skip, it will converge
+          continue;
+        }
+
+        // Check if retry is exhausted
+        const { data: exhaustedRetry } = await admin
+          .from("sync_retry_queue")
+          .select("id, attempt, max_attempts")
+          .eq("work_item_id", src.work_item_id)
+          .gte("attempt", 3) // max_attempts typically 3
+          .maybeSingle();
+
+        if (exhaustedRetry || (src.consecutive_failures || 0) >= 5) {
+          // Terminal: mark SCRAPING_STUCK
+          await admin
+            .from("work_item_sources")
+            .update({
+              scrape_status: "ERROR",
+              last_error_code: "SCRAPING_STUCK",
+              last_error_message: "Watchdog convergence: max retries exhausted, marking terminal",
+            })
+            .eq("id", src.id);
+
+          // Write trace
+          try {
+            await admin.from("provider_sync_traces").insert({
+              organization_id: src.organization_id,
+              work_item_id: src.work_item_id,
+              work_item_source_id: src.id,
+              provider_instance_id: "00000000-0000-0000-0000-000000000000",
+              run_id: crypto.randomUUID(),
+              stage: "TERMINAL",
+              result_code: "SCRAPING_STUCK",
+              ok: false,
+              latency_ms: 0,
+              payload: {
+                terminal_reason: "WATCHDOG_CONVERGENCE",
+                consecutive_failures: src.consecutive_failures,
+                stuck_since: src.updated_at,
+              },
+            });
+          } catch (_) { /* non-fatal */ }
+
+          stuckMarkedTerminal++;
+        } else {
+          // Enqueue remediation retry
+          const today = new Date().toISOString().slice(0, 10);
+          try {
+            await admin.from("atenia_ai_remediation_queue").upsert(
+              {
+                action_type: "ACT_SCRAPE_RETRY",
+                work_item_id: src.work_item_id,
+                organization_id: src.organization_id,
+                status: "PENDING",
+                priority: 3,
+                payload: { source: "watchdog_stuck_convergence", stuck_since: src.updated_at },
+                dedupe_key: `STUCK:${today}:${src.work_item_id}`,
+              },
+              { onConflict: "dedupe_key" }
+            );
+            stuckRemediated++;
+          } catch (_) { /* non-fatal */ }
+        }
+      }
+
+      // Log corrective action
+      if (stuckRemediated > 0 || stuckMarkedTerminal > 0) {
+        try {
+          await admin.from("atenia_ai_actions").insert({
+            organization_id: "a0000000-0000-0000-0000-000000000001",
+            action_type: "WATCHDOG_CORRECTIVE",
+            autonomy_tier: "AUTONOMOUS",
+            reasoning: `${stuckSources.length} items en SCRAPING_PENDING estancados. Remediados: ${stuckRemediated}, Terminales (STUCK): ${stuckMarkedTerminal}.`,
+            action_taken: "CONVERGENCE_STUCK_ITEMS",
+            action_result: "OK",
+            evidence: {
+              total_stuck: stuckSources.length,
+              remediated: stuckRemediated,
+              marked_terminal: stuckMarkedTerminal,
+              ttl_minutes: STUCK_TTL_MINUTES,
+            },
+          });
+        } catch (_) { /* non-fatal */ }
+      }
+    }
+
+    results.stuck_convergence = {
+      found: stuckSources?.length ?? 0,
+      remediated: stuckRemediated,
+      marked_terminal: stuckMarkedTerminal,
+    };
+
+    // ================================================================
     // 6) Log watchdog actions into atenia_ai_actions for audit trail
     // ================================================================
     for (const alert of alerts) {

@@ -146,9 +146,20 @@ export function AteniaAssuranceGates() {
                       </Badge>
                     )}
                     {key === "E_omitido_backlog" && !gateTyped.ok && (
-                      <Badge variant="destructive" className="text-[10px] mt-1">
-                        {(gateTyped as any).count} omitidos
-                      </Badge>
+                      <div>
+                        <Badge variant="destructive" className="text-[10px] mt-1">
+                          {(gateTyped as any).count} omitidos
+                        </Badge>
+                        {Array.isArray((gateTyped as any).top_stuck) && (gateTyped as any).top_stuck.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {((gateTyped as any).top_stuck as Array<{ work_item_id: string; scrape_status: string; stuck_minutes: number }>).map((item, i) => (
+                              <p key={i} className="text-[9px] text-muted-foreground font-mono truncate">
+                                {item.work_item_id?.slice(0, 8)}… {item.scrape_status} ({item.stuck_minutes}min)
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     )}
                     {(key === "B_watchdog_liveness" || key === "F_heartbeat_liveness") && (gateTyped as any).gap_minutes != null && (
                       <Badge variant={gateTyped.ok ? "outline" : "destructive"} className="text-[10px] mt-1">
