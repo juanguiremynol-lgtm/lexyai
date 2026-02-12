@@ -1,0 +1,550 @@
+/**
+ * atenia-ai-autonomy-engine.ts — Client-side orchestrator for Atenia AI Control Plane
+ *
+ * Called by the heartbeat (every 30 min) and manually from the Supervisor Panel.
+ * Evaluates 7 sub-systems and returns an array of ActionPlans (executed or proposed).
+ *
+ * Safety: ALL actions check the autonomy policy before execution.
+ * This module NEVER modifies code, schema, RLS, or config. Only operational control plane.
+ */
+
+import { supabase } from '@/integrations/supabase/client';
+
+// ============= TYPES =============
+
+export interface ActionPlan {
+  action_type: string;
+  status: 'EXECUTED' | 'PLANNED' | 'SKIPPED';
+  reason: string;
+  work_item_id?: string;
+  provider?: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface AutonomyPolicy {
+  id: string;
+  is_enabled: boolean;
+  allowed_actions: string[];
+  require_confirmation_actions: string[];
+  budgets: Record<string, { max_per_hour: number; max_per_day: number }>;
+  cooldowns: Record<string, number>;
+}
+
+export interface AutonomyCycleResult {
+  plans: ActionPlan[];
+  policy_enabled: boolean;
+  duration_ms: number;
+}
+
+// ============= POLICY LOADER =============
+
+export async function loadAutonomyPolicy(): Promise<AutonomyPolicy> {
+  const { data } = await (supabase
+    .from('atenia_ai_autonomy_policy') as any)
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) {
+    return {
+      id: '',
+      is_enabled: false,
+      allowed_actions: [],
+      require_confirmation_actions: [],
+      budgets: {},
+      cooldowns: {},
+    };
+  }
+
+  return {
+    id: data.id,
+    is_enabled: data.is_enabled ?? false,
+    allowed_actions: data.allowed_actions ?? [],
+    require_confirmation_actions: data.require_confirmation_actions ?? [],
+    budgets: data.budgets ?? {},
+    cooldowns: data.cooldowns ?? {},
+  };
+}
+
+export async function saveAutonomyPolicy(
+  updates: Partial<AutonomyPolicy> & { id: string },
+): Promise<void> {
+  const { id, ...rest } = updates;
+  await (supabase
+    .from('atenia_ai_autonomy_policy') as any)
+    .update({ ...rest, updated_at: new Date().toISOString() })
+    .eq('id', id);
+}
+
+// ============= BUDGET CHECK (client-side) =============
+
+async function checkBudget(
+  actionType: string,
+  policy: AutonomyPolicy,
+  targetId?: string,
+): Promise<{ allowed: boolean; reason?: string; requiresConfirmation?: boolean }> {
+  if (!policy.is_enabled) return { allowed: false, reason: 'AUTONOMY_DISABLED' };
+  if (!policy.allowed_actions.includes(actionType)) {
+    if (policy.require_confirmation_actions.includes(actionType)) {
+      return { allowed: true, requiresConfirmation: true };
+    }
+    return { allowed: false, reason: 'ACTION_NOT_ALLOWED' };
+  }
+  if (policy.require_confirmation_actions.includes(actionType)) {
+    return { allowed: true, requiresConfirmation: true };
+  }
+
+  const budget = policy.budgets[actionType];
+  if (budget) {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: hourCount } = await (supabase
+      .from('atenia_ai_actions') as any)
+      .select('*', { count: 'exact', head: true })
+      .eq('action_type', actionType)
+      .gte('created_at', hourAgo)
+      .in('action_result', ['applied', 'triggered', 'SUCCESS']);
+
+    if ((hourCount ?? 0) >= budget.max_per_hour) {
+      return { allowed: false, reason: 'HOURLY_BUDGET_EXHAUSTED' };
+    }
+
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: dayCount } = await (supabase
+      .from('atenia_ai_actions') as any)
+      .select('*', { count: 'exact', head: true })
+      .eq('action_type', actionType)
+      .gte('created_at', dayAgo)
+      .in('action_result', ['applied', 'triggered', 'SUCCESS']);
+
+    if ((dayCount ?? 0) >= budget.max_per_day) {
+      return { allowed: false, reason: 'DAILY_BUDGET_EXHAUSTED' };
+    }
+  }
+
+  if (targetId) {
+    const cooldownMin = policy.cooldowns[actionType] ?? 0;
+    if (cooldownMin > 0) {
+      const cutoff = new Date(Date.now() - cooldownMin * 60 * 1000).toISOString();
+      const { count } = await (supabase
+        .from('atenia_ai_actions') as any)
+        .select('*', { count: 'exact', head: true })
+        .eq('action_type', actionType)
+        .eq('work_item_id', targetId)
+        .gte('created_at', cutoff)
+        .in('action_result', ['applied', 'triggered', 'SUCCESS']);
+
+      if ((count ?? 0) > 0) {
+        return { allowed: false, reason: 'COOLDOWN_ACTIVE' };
+      }
+    }
+  }
+
+  return { allowed: true };
+}
+
+// ============= SUB-EVALUATORS =============
+
+/** §3A: Daily Sync Continuation */
+async function evaluateDailySyncContinuation(
+  orgId: string,
+  policy: AutonomyPolicy,
+): Promise<ActionPlan[]> {
+  const plans: ActionPlan[] = [];
+
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: partial } = await supabase
+    .from('auto_sync_daily_ledger')
+    .select('id, cursor_last_work_item_id, items_succeeded, expected_total_items, failure_reason')
+    .eq('organization_id', orgId)
+    .eq('run_date', today)
+    .eq('status', 'PARTIAL' as any)
+    .eq('failure_reason', 'BUDGET_EXHAUSTED')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!partial?.cursor_last_work_item_id) return plans;
+
+  // Check continuation count
+  const { count: contCount } = await supabase
+    .from('auto_sync_daily_ledger')
+    .select('*', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .eq('run_date', today)
+    .eq('is_continuation', true);
+
+  if ((contCount ?? 0) >= 3) {
+    plans.push({
+      action_type: 'DAILY_CONTINUATION',
+      status: 'SKIPPED',
+      reason: 'Máximo de continuaciones diarias alcanzado (3/3).',
+    });
+    return plans;
+  }
+
+  const check = await checkBudget('DAILY_CONTINUATION', policy);
+  if (!check.allowed) {
+    plans.push({
+      action_type: 'DAILY_CONTINUATION',
+      status: 'SKIPPED',
+      reason: `No permitido: ${check.reason}`,
+    });
+    return plans;
+  }
+
+  // Trigger continuation via edge function
+  try {
+    await supabase.functions.invoke('scheduled-daily-sync', {
+      body: {
+        org_id: orgId,
+        resume_after_id: partial.cursor_last_work_item_id,
+        is_continuation: true,
+        continuation_of: partial.id,
+      },
+    });
+
+    await logAutonomyAction(orgId, {
+      action_type: 'DAILY_CONTINUATION',
+      reasoning: `Sync diario procesó ${partial.items_succeeded}/${partial.expected_total_items} asuntos antes de agotar presupuesto. Continuando desde cursor.`,
+      action_result: 'triggered',
+      evidence: {
+        partial_ledger_id: partial.id,
+        cursor: partial.cursor_last_work_item_id,
+        continuations_today: (contCount ?? 0) + 1,
+      },
+    });
+
+    plans.push({
+      action_type: 'DAILY_CONTINUATION',
+      status: 'EXECUTED',
+      reason: `Continuación #{(contCount ?? 0) + 1} programada.`,
+    });
+  } catch (err: any) {
+    plans.push({
+      action_type: 'DAILY_CONTINUATION',
+      status: 'SKIPPED',
+      reason: `Error al invocar continuación: ${err.message?.substring(0, 100)}`,
+    });
+  }
+
+  return plans;
+}
+
+/** §4.B: Orphaned source retries */
+async function evaluateOrphanedRetries(
+  orgId: string,
+  policy: AutonomyPolicy,
+): Promise<ActionPlan[]> {
+  const plans: ActionPlan[] = [];
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+  const { data: orphans } = await (supabase
+    .from('work_items') as any)
+    .select('id, radicado, workflow_type, consecutive_failures, last_error_code, last_attempted_sync_at')
+    .eq('organization_id', orgId)
+    .eq('monitoring_enabled', true)
+    .gte('consecutive_failures', 3)
+    .in('last_error_code', ['SCRAPING_TIMEOUT', 'PROVIDER_TIMEOUT', 'PROVIDER_5XX', 'NETWORK_ERROR'])
+    .lt('last_attempted_sync_at', twoHoursAgo)
+    .limit(10);
+
+  if (!orphans || orphans.length === 0) return plans;
+
+  for (const item of orphans) {
+    const check = await checkBudget('RETRY_ENQUEUE', policy, item.id);
+    if (!check.allowed) continue;
+
+    try {
+      await supabase.functions.invoke('sync-by-work-item', {
+        body: { work_item_id: item.id, _scheduled: true },
+      });
+
+      await logAutonomyAction(orgId, {
+        action_type: 'RETRY_ENQUEUE',
+        work_item_id: item.id,
+        reasoning: `Reintento correctivo para radicado ${item.radicado} — ${item.consecutive_failures} fallos consecutivos (${item.last_error_code}).`,
+        action_result: 'triggered',
+        evidence: {
+          radicado: item.radicado,
+          consecutive_failures: item.consecutive_failures,
+          last_error_code: item.last_error_code,
+        },
+      });
+
+      plans.push({
+        action_type: 'RETRY_ENQUEUE',
+        status: 'EXECUTED',
+        reason: `Reintento para ${item.radicado}`,
+        work_item_id: item.id,
+      });
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  return plans;
+}
+
+/** §4.C: Auto-suspend monitoring */
+async function evaluateAutoSuspend(
+  orgId: string,
+  policy: AutonomyPolicy,
+): Promise<ActionPlan[]> {
+  const plans: ActionPlan[] = [];
+
+  const { data: candidates } = await (supabase
+    .from('work_items') as any)
+    .select('id, radicado, consecutive_not_found, last_error_code')
+    .eq('organization_id', orgId)
+    .eq('monitoring_enabled', true)
+    .gte('consecutive_not_found', 5)
+    .in('last_error_code', ['PROVIDER_EMPTY_RESULT', 'PROVIDER_NOT_FOUND', 'RECORD_NOT_FOUND'])
+    .limit(15);
+
+  if (!candidates || candidates.length === 0) return plans;
+
+  for (const item of candidates) {
+    const check = await checkBudget('SUSPEND_MONITORING', policy, item.id);
+    if (!check.allowed) continue;
+
+    try {
+      await (supabase
+        .from('work_items') as any)
+        .update({
+          monitoring_enabled: false,
+          monitoring_suspended_at: new Date().toISOString(),
+          monitoring_suspended_reason: 'AUTO_NOT_DIGITIZED',
+        })
+        .eq('id', item.id);
+
+      await logAutonomyAction(orgId, {
+        action_type: 'SUSPEND_MONITORING',
+        work_item_id: item.id,
+        reasoning: `Radicado ${item.radicado} no encontrado en ${item.consecutive_not_found} consultas consecutivas — posiblemente no digitalizado. Monitoreo suspendido automáticamente.`,
+        action_result: 'applied',
+        evidence: {
+          radicado: item.radicado,
+          consecutive_not_found: item.consecutive_not_found,
+          last_error_code: item.last_error_code,
+        },
+      });
+
+      plans.push({
+        action_type: 'SUSPEND_MONITORING',
+        status: 'EXECUTED',
+        reason: `Monitoreo suspendido para ${item.radicado}`,
+        work_item_id: item.id,
+      });
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  return plans;
+}
+
+/** §5: Provider health mitigations */
+async function evaluateProviderHealth(
+  orgId: string,
+  policy: AutonomyPolicy,
+): Promise<ActionPlan[]> {
+  const plans: ActionPlan[] = [];
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+  const { data: traces } = await (supabase
+    .from('sync_traces') as any)
+    .select('provider, success, error_code, latency_ms')
+    .eq('organization_id', orgId)
+    .gte('created_at', twoHoursAgo);
+
+  if (!traces || traces.length === 0) return plans;
+
+  // Group by provider
+  const byProvider = new Map<string, typeof traces>();
+  for (const t of traces) {
+    const p = t.provider || 'unknown';
+    if (!byProvider.has(p)) byProvider.set(p, []);
+    byProvider.get(p)!.push(t);
+  }
+
+  // Expire stale mitigations
+  try {
+    await (supabase
+      .from('provider_route_mitigations') as any)
+      .update({ expired: true })
+      .eq('expired', false)
+      .lte('expires_at', new Date().toISOString());
+  } catch { /* non-blocking */ }
+
+  for (const [provider, provTraces] of byProvider) {
+    const total = provTraces.length;
+    if (total < 5) continue; // Not enough data
+
+    const errors = provTraces.filter((t: any) => !t.success).length;
+    const errorRate = errors / total;
+    const avgLatency = provTraces.reduce((s: number, t: any) => s + (t.latency_ms || 0), 0) / total;
+
+    if (errorRate < 0.5) continue; // Below CRITICAL threshold
+
+    // Check if active mitigation already exists
+    const { data: existing } = await (supabase
+      .from('provider_route_mitigations') as any)
+      .select('id')
+      .eq('provider', provider)
+      .eq('expired', false)
+      .limit(1);
+
+    if (existing && existing.length > 0) continue; // Already mitigated
+
+    const check = await checkBudget('DEMOTE_PROVIDER_ROUTE', policy);
+    if (check.requiresConfirmation) {
+      // Create PLANNED action for admin review
+      await logAutonomyAction(orgId, {
+        action_type: 'DEMOTE_PROVIDER_ROUTE',
+        provider,
+        reasoning: `Proveedor ${provider} degradado: tasa de error ${Math.round(errorRate * 100)}%, latencia promedio ${Math.round(avgLatency)}ms en últimas 2 horas. Se recomienda reducir prioridad temporalmente.`,
+        action_result: 'pending_approval',
+        status: 'PLANNED',
+        evidence: { errorRate, avgLatency, sampleSize: total },
+      });
+
+      plans.push({
+        action_type: 'DEMOTE_PROVIDER_ROUTE',
+        status: 'PLANNED',
+        reason: `Propuesta: degradar ${provider} (error ${Math.round(errorRate * 100)}%)`,
+        provider,
+      });
+    }
+  }
+
+  return plans;
+}
+
+/** §6: Heavy work item split detection */
+async function evaluateHeavyItems(
+  orgId: string,
+  policy: AutonomyPolicy,
+): Promise<ActionPlan[]> {
+  const plans: ActionPlan[] = [];
+
+  const { data: heavyItems } = await (supabase
+    .from('work_items') as any)
+    .select('id, radicado, workflow_type, total_actuaciones, last_error_code')
+    .eq('organization_id', orgId)
+    .eq('monitoring_enabled', true)
+    .or('total_actuaciones.gte.150,workflow_type.eq.PENAL_906')
+    .in('last_error_code', ['EDGE_TIMEOUT', 'PROVIDER_TIMEOUT'])
+    .limit(5);
+
+  if (!heavyItems || heavyItems.length === 0) return plans;
+
+  for (const item of heavyItems) {
+    const check = await checkBudget('SPLIT_HEAVY_SYNC', policy, item.id);
+    if (!check.allowed) continue;
+
+    try {
+      // Split: sync acts first
+      await supabase.functions.invoke('sync-by-work-item', {
+        body: { work_item_id: item.id, _scheduled: true },
+      });
+
+      // Wait 5s then sync pubs separately
+      await new Promise(r => setTimeout(r, 5000));
+
+      await supabase.functions.invoke('sync-publicaciones-by-work-item', {
+        body: { work_item_id: item.id, _scheduled: true },
+      });
+
+      await logAutonomyAction(orgId, {
+        action_type: 'SPLIT_HEAVY_SYNC',
+        work_item_id: item.id,
+        reasoning: `Asunto ${item.radicado} (${item.workflow_type}) tiene ${item.total_actuaciones || '?'} actuaciones. Sincronización dividida en invocaciones separadas para evitar timeout.`,
+        action_result: 'applied',
+        evidence: {
+          radicado: item.radicado,
+          workflow_type: item.workflow_type,
+          total_actuaciones: item.total_actuaciones,
+          last_error: item.last_error_code,
+        },
+      });
+
+      plans.push({
+        action_type: 'SPLIT_HEAVY_SYNC',
+        status: 'EXECUTED',
+        reason: `Split sync para ${item.radicado} (${item.total_actuaciones} acts)`,
+        work_item_id: item.id,
+      });
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  return plans;
+}
+
+// ============= MAIN ORCHESTRATOR =============
+
+export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResult> {
+  const start = Date.now();
+  const policy = await loadAutonomyPolicy();
+
+  if (!policy.is_enabled) {
+    return { plans: [], policy_enabled: false, duration_ms: Date.now() - start };
+  }
+
+  const allPlans: ActionPlan[] = [];
+
+  try {
+    // Run all evaluators
+    const [cont, retries, suspend, provHealth, heavy] = await Promise.all([
+      evaluateDailySyncContinuation(orgId, policy).catch(() => [] as ActionPlan[]),
+      evaluateOrphanedRetries(orgId, policy).catch(() => [] as ActionPlan[]),
+      evaluateAutoSuspend(orgId, policy).catch(() => [] as ActionPlan[]),
+      evaluateProviderHealth(orgId, policy).catch(() => [] as ActionPlan[]),
+      evaluateHeavyItems(orgId, policy).catch(() => [] as ActionPlan[]),
+    ]);
+
+    allPlans.push(...cont, ...retries, ...suspend, ...provHealth, ...heavy);
+  } catch (err) {
+    console.warn('[autonomy-engine] Cycle error:', err);
+  }
+
+  return {
+    plans: allPlans,
+    policy_enabled: true,
+    duration_ms: Date.now() - start,
+  };
+}
+
+// ============= HELPERS =============
+
+async function logAutonomyAction(
+  orgId: string,
+  action: {
+    action_type: string;
+    work_item_id?: string;
+    provider?: string;
+    reasoning: string;
+    action_result?: string;
+    status?: string;
+    evidence?: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await (supabase.from('atenia_ai_actions') as any).insert({
+      organization_id: orgId,
+      action_type: action.action_type,
+      actor: 'AI_AUTOPILOT',
+      autonomy_tier: 'ACT',
+      work_item_id: action.work_item_id ?? null,
+      provider: action.provider ?? null,
+      reasoning: action.reasoning,
+      action_result: action.action_result ?? 'applied',
+      status: action.status ?? 'EXECUTED',
+      evidence: action.evidence ?? {},
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('[autonomy-engine] Failed to log action:', err);
+  }
+}
