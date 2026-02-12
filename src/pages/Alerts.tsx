@@ -175,73 +175,141 @@ export default function Alerts() {
     },
   });
 
+  /**
+   * ROOT CAUSE FIX: Dismiss previously relied solely on invalidateQueries which
+   * marks the query stale but doesn't synchronously remove items from the cache.
+   * The stale-while-revalidate window caused dismissed items to flash back.
+   *
+   * Fix: Optimistic cache update removes the item instantly from the cached list,
+   * then invalidateQueries reconciles with server truth as background refetch.
+   */
   const dismissInstance = useMutation({
     mutationFn: async (id: string) => {
       const result = await dismissAlert(id);
       if (!result.success) throw new Error(result.error);
     },
-    onSuccess: () => {
+    onMutate: async (id: string) => {
+      // Cancel in-flight refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
+      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
+      // Optimistically remove dismissed item from cache
+      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
+        old ? old.filter((a) => a.id !== id) : []
+      );
+      return { previous };
+    },
+    onError: (_error, _id, context) => {
+      // Rollback on failure
+      if (context?.previous) {
+        queryClient.setQueryData(["alert_instances"], context.previous);
+      }
+      toast.error("Error al descartar alerta");
+    },
+    onSettled: () => {
+      // Reconcile with server truth
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
       queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
-      toast.success("Alerta descartada");
     },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
+    onSuccess: () => {
+      toast.success("Alerta descartada");
     },
   });
 
-  // Bulk dismiss mutation
+  // Bulk dismiss mutation with optimistic removal
   const bulkDismissMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const result = await dismissAlerts(ids);
       if (!result.success) throw new Error(result.error);
       return result.count;
     },
-    onSuccess: (count) => {
+    onMutate: async (ids: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
+      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
+      const idSet = new Set(ids);
+      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
+        old ? old.filter((a) => !idSet.has(a.id)) : []
+      );
+      return { previous };
+    },
+    onError: (_error, _ids, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["alert_instances"], context.previous);
+      }
+      toast.error("Error al descartar alertas");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
       queryClient.invalidateQueries({ queryKey: ["unread-alert-count"] });
+    },
+    onSuccess: (count) => {
       clearSelection();
       setShowDismissConfirm(false);
       toast.success(`${count} alerta(s) descartada(s)`);
     },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
   });
 
-  // Bulk mark as read mutation
+  // Bulk mark as read mutation with optimistic update
   const bulkMarkReadMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       const result = await markAlertsAsRead(ids);
       if (!result.success) throw new Error(result.error);
       return result.count;
     },
-    onSuccess: (count) => {
+    onMutate: async (ids: string[]) => {
+      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
+      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
+      const idSet = new Set(ids);
+      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
+        old ? old.map((a) => idSet.has(a.id) ? { ...a, read_at: new Date().toISOString() } : a) : []
+      );
+      return { previous };
+    },
+    onError: (_error, _ids, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["alert_instances"], context.previous);
+      }
+      toast.error("Error al marcar como leídas");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+    },
+    onSuccess: (count) => {
       clearSelection();
       setShowMarkReadConfirm(false);
       toast.success(`${count} alerta(s) marcada(s) como leída(s)`);
     },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
   });
 
-  // Bulk snooze mutation
+  // Bulk snooze mutation with optimistic removal
   const bulkSnoozeMutation = useMutation({
     mutationFn: async ({ ids, snoozeUntil }: { ids: string[]; snoozeUntil: Date }) => {
       const result = await snoozeAlerts(ids, snoozeUntil);
       if (!result.success) throw new Error(result.error);
       return result.count;
     },
-    onSuccess: (count) => {
+    onMutate: async ({ ids }: { ids: string[]; snoozeUntil: Date }) => {
+      await queryClient.cancelQueries({ queryKey: ["alert_instances"] });
+      const previous = queryClient.getQueryData<AlertInstance[]>(["alert_instances"]);
+      const idSet = new Set(ids);
+      // Snoozed items are excluded by the query filter, so remove them optimistically
+      queryClient.setQueryData<AlertInstance[]>(["alert_instances"], (old) =>
+        old ? old.filter((a) => !idSet.has(a.id)) : []
+      );
+      return { previous };
+    },
+    onError: (_error, _ids, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["alert_instances"], context.previous);
+      }
+      toast.error("Error al posponer alertas");
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["alert_instances"] });
+    },
+    onSuccess: (count) => {
       clearSelection();
       setShowSnoozeDialog(false);
       toast.success(`${count} alerta(s) pospuesta(s)`);
-    },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
     },
   });
 
