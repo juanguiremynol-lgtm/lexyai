@@ -872,6 +872,153 @@ export type Database = {
           },
         ]
       }
+      atenia_assistant_actions: {
+        Row: {
+          action_type: string
+          context_summary: string | null
+          created_at: string
+          id: string
+          input: Json
+          model_output: Json | null
+          organization_id: string
+          result: Json | null
+          session_id: string
+          status: string
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          action_type: string
+          context_summary?: string | null
+          created_at?: string
+          id?: string
+          input?: Json
+          model_output?: Json | null
+          organization_id: string
+          result?: Json | null
+          session_id: string
+          status?: string
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          action_type?: string
+          context_summary?: string | null
+          created_at?: string
+          id?: string
+          input?: Json
+          model_output?: Json | null
+          organization_id?: string
+          result?: Json | null
+          session_id?: string
+          status?: string
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_assistant_actions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_assistant_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_actions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_assistant_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          meta: Json
+          role: string
+          session_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          meta?: Json
+          role: string
+          session_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          meta?: Json
+          role?: string
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_assistant_messages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_assistant_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_assistant_sessions: {
+        Row: {
+          created_at: string
+          id: string
+          last_message_at: string
+          organization_id: string
+          scope: string
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          organization_id: string
+          scope: string
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          organization_id?: string
+          scope?: string
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_assistant_sessions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_assistant_sessions_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
