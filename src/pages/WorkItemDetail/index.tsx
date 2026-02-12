@@ -36,6 +36,7 @@ import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
 import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
 import { WorkItemSourcesTab } from "@/components/work-items/WorkItemSourcesTab";
+import { WorkItemMonitoringToggle } from "@/components/work-items/WorkItemMonitoringToggle";
 
 import type { WorkItem } from "@/types/work-item";
 
@@ -428,6 +429,24 @@ export default function WorkItemDetail() {
               <p className="text-xs text-muted-foreground pt-2 border-t">
                 Los datos se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM.
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Monitoring Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Monitoreo</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <WorkItemMonitoringToggle
+                workItemId={workItem.id}
+                monitoringEnabled={workItem.monitoring_enabled}
+                monitoringDisabledReason={workItem.monitoring_disabled_reason}
+                monitoringDisabledBy={workItem.monitoring_disabled_by}
+                monitoringDisabledAt={workItem.monitoring_disabled_at}
+                monitoringDisabledMeta={workItem.monitoring_disabled_meta}
+                onChanged={refetch}
+              />
             </CardContent>
           </Card>
         </div>

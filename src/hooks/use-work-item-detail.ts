@@ -43,6 +43,10 @@ interface WorkItemDetail {
   last_action_description: string | null;
   is_flagged: boolean;
   monitoring_enabled: boolean;
+  monitoring_disabled_reason: string | null;
+  monitoring_disabled_by: string | null;
+  monitoring_disabled_at: string | null;
+  monitoring_disabled_meta: Record<string, unknown> | null;
   email_linking_enabled: boolean;
   expediente_url: string | null;
   sharepoint_url: string | null;
