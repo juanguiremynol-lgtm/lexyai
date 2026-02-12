@@ -164,3 +164,6 @@ verify_jwt = false
 
 [functions.provider-activate-mapping]
 verify_jwt = false
+
+[functions.atenia-assistant]
+verify_jwt = false
