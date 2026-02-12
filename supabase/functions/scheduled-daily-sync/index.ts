@@ -32,7 +32,25 @@ Deno.serve(async (req) => {
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
-  console.log(`[daily-sync] START run_id=${runId}`);
+
+  // Parse optional continuation params from body
+  let bodyParams: {
+    org_id?: string;
+    resume_after_id?: string;
+    is_continuation?: boolean;
+    continuation_of?: string;
+  } = {};
+  try {
+    if (req.method === "POST") {
+      bodyParams = await req.json().catch(() => ({}));
+    }
+  } catch { /* no body */ }
+
+  const isContinuation = bodyParams.is_continuation === true;
+  const resumeAfterId = bodyParams.resume_after_id || undefined;
+  const continuationOf = bodyParams.continuation_of || undefined;
+
+  console.log(`[daily-sync] START run_id=${runId} continuation=${isContinuation} resume=${resumeAfterId?.slice(0, 8) ?? 'none'}`);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -41,16 +59,20 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get all orgs with eligible items
-    const { data: orgRows, error: orgErr } = await supabase
-      .from("work_items")
-      .select("organization_id")
-      .eq("monitoring_enabled", true)
-      .not("radicado", "is", null)
-      .not("organization_id", "is", null);
-    if (orgErr) throw orgErr;
-
-    const orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
+    // Determine which orgs to process
+    let orgIds: string[];
+    if (bodyParams.org_id) {
+      orgIds = [bodyParams.org_id];
+    } else {
+      const { data: orgRows, error: orgErr } = await supabase
+        .from("work_items")
+        .select("organization_id")
+        .eq("monitoring_enabled", true)
+        .not("radicado", "is", null)
+        .not("organization_id", "is", null);
+      if (orgErr) throw orgErr;
+      orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
+    }
     console.log(`[daily-sync] ${orgIds.length} org(s) with eligible items`);
 
     const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; ledger_id?: string }> = [];
@@ -61,7 +83,11 @@ Deno.serve(async (req) => {
         break;
       }
       try {
-        const result = await syncOrganization(supabase, supabaseUrl, supabaseServiceKey, orgId, runId, startTime);
+        const result = await syncOrganization(
+          supabase, supabaseUrl, supabaseServiceKey, orgId, runId, startTime,
+          isContinuation ? resumeAfterId : undefined,
+          isContinuation, continuationOf,
+        );
         allResults.push(result);
       } catch (orgError: any) {
         console.error(`[daily-sync] Org ${orgId} fatal:`, orgError.message);
@@ -113,23 +139,50 @@ async function syncOrganization(
   orgId: string,
   runId: string,
   globalStart: number,
+  resumeAfterId?: string,
+  isContinuation: boolean = false,
+  continuationOf?: string,
 ): Promise<{ org_id: string; status: string; synced: number; errors: number; ledger_id?: string }> {
-  console.log(`[daily-sync] org=${orgId} starting`);
+  console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation}`);
 
-  // Acquire lock via ledger
-  const { data: lockResult, error: lockError } = await supabase.rpc("acquire_daily_sync_lock", {
-    p_organization_id: orgId,
-    p_run_id: runId,
-  });
-  if (lockError) throw lockError;
+  let ledgerId: string;
 
-  const lock = lockResult as { acquired: boolean; ledger_id: string; status: string; reason?: string };
-  if (!lock.acquired) {
-    console.log(`[daily-sync] org=${orgId} skip: ${lock.reason}`);
-    return { org_id: orgId, status: lock.status, synced: 0, errors: 0, ledger_id: lock.ledger_id };
+  if (isContinuation && continuationOf) {
+    // For continuations, create a new ledger row linked to the original
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: newLedger, error: insertErr } = await supabase
+      .from("auto_sync_daily_ledger")
+      .insert({
+        organization_id: orgId,
+        run_date: today,
+        scheduled_for: new Date().toISOString(),
+        status: "RUNNING",
+        run_id: runId,
+        is_continuation: true,
+        continuation_of: continuationOf,
+        started_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (insertErr) throw insertErr;
+    ledgerId = newLedger.id;
+  } else {
+    // Acquire lock via ledger (normal run)
+    const { data: lockResult, error: lockError } = await supabase.rpc("acquire_daily_sync_lock", {
+      p_organization_id: orgId,
+      p_run_id: runId,
+    });
+    if (lockError) throw lockError;
+
+    const lock = lockResult as { acquired: boolean; ledger_id: string; status: string; reason?: string };
+    if (!lock.acquired) {
+      console.log(`[daily-sync] org=${orgId} skip: ${lock.reason}`);
+      return { org_id: orgId, status: lock.status, synced: 0, errors: 0, ledger_id: lock.ledger_id };
+    }
+    ledgerId = lock.ledger_id;
   }
 
-  const ledgerId = lock.ledger_id;
   let itemsSucceeded = 0;
   let itemsFailed = 0;
   let itemsSkipped = 0;
@@ -138,11 +191,13 @@ async function syncOrganization(
   const errorSummary: Array<{ work_item_id: string; radicado?: string; error: string; ts: string }> = [];
 
   try {
-    // Count total eligible items (single query, no limit)
-    const allItems = await selectEligibleWorkItems(supabase, orgId);
+    // Count total eligible items — for continuations, count from resume point
+    const allItems = await selectEligibleWorkItems(supabase, orgId, {
+      afterId: isContinuation ? resumeAfterId : undefined,
+    });
     const expectedTotal = allItems.length;
 
-    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal}`);
+    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} continuation=${isContinuation}`);
 
     // Write ledger RUNNING with expected_total
     await updateLedger(supabase, ledgerId, {
@@ -152,7 +207,7 @@ async function syncOrganization(
     });
 
     // Cursor-driven pagination through items, ordered by id ASC
-    let cursor: string | undefined = undefined;
+    let cursor: string | undefined = isContinuation ? resumeAfterId : undefined;
     let pageItems: EligibleWorkItem[];
     let processedCount = 0;
 

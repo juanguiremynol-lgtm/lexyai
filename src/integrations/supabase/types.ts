@@ -455,14 +455,21 @@ export type Database = {
           evidence: Json | null
           expires_at: string | null
           id: string
+          input_snapshot: Json | null
           is_reversible: boolean | null
           organization_id: string
+          provider: string | null
           reason_code: string | null
           reasoning: string
+          reversible: boolean | null
+          revert_action_id: string | null
+          scope: string | null
+          status: string | null
           summary: string | null
           target_entity_id: string | null
           target_entity_type: string | null
           work_item_id: string | null
+          workflow_type: string | null
         }
         Insert: {
           action_result?: string | null
@@ -477,14 +484,21 @@ export type Database = {
           evidence?: Json | null
           expires_at?: string | null
           id?: string
+          input_snapshot?: Json | null
           is_reversible?: boolean | null
           organization_id: string
+          provider?: string | null
           reason_code?: string | null
           reasoning: string
+          reversible?: boolean | null
+          revert_action_id?: string | null
+          scope?: string | null
+          status?: string | null
           summary?: string | null
           target_entity_id?: string | null
           target_entity_type?: string | null
           work_item_id?: string | null
+          workflow_type?: string | null
         }
         Update: {
           action_result?: string | null
@@ -499,14 +513,21 @@ export type Database = {
           evidence?: Json | null
           expires_at?: string | null
           id?: string
+          input_snapshot?: Json | null
           is_reversible?: boolean | null
           organization_id?: string
+          provider?: string | null
           reason_code?: string | null
           reasoning?: string
+          reversible?: boolean | null
+          revert_action_id?: string | null
+          scope?: string | null
+          status?: string | null
           summary?: string | null
           target_entity_id?: string | null
           target_entity_type?: string | null
           work_item_id?: string | null
+          workflow_type?: string | null
         }
         Relationships: [
           {
@@ -524,6 +545,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      atenia_ai_autonomy_policy: {
+        Row: {
+          allowed_actions: string[] | null
+          budgets: Json | null
+          cooldowns: Json | null
+          created_at: string | null
+          id: string
+          is_enabled: boolean | null
+          notification_email: string | null
+          notify_on_critical: boolean | null
+          require_confirmation_actions: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          allowed_actions?: string[] | null
+          budgets?: Json | null
+          cooldowns?: Json | null
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          notification_email?: string | null
+          notify_on_critical?: boolean | null
+          require_confirmation_actions?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          allowed_actions?: string[] | null
+          budgets?: Json | null
+          cooldowns?: Json | null
+          created_at?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          notification_email?: string | null
+          notify_on_critical?: boolean | null
+          require_confirmation_actions?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       atenia_ai_config: {
         Row: {
@@ -1099,6 +1159,7 @@ export type Database = {
       auto_sync_daily_ledger: {
         Row: {
           completed_at: string | null
+          continuation_of: string | null
           created_at: string
           cursor_last_work_item_id: string | null
           error_summary: Json | null
@@ -1106,6 +1167,7 @@ export type Database = {
           failure_reason: string | null
           finished_at: string | null
           id: string
+          is_continuation: boolean | null
           items_failed: number | null
           items_skipped: number | null
           items_succeeded: number | null
@@ -1124,6 +1186,7 @@ export type Database = {
         }
         Insert: {
           completed_at?: string | null
+          continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null
           error_summary?: Json | null
@@ -1131,6 +1194,7 @@ export type Database = {
           failure_reason?: string | null
           finished_at?: string | null
           id?: string
+          is_continuation?: boolean | null
           items_failed?: number | null
           items_skipped?: number | null
           items_succeeded?: number | null
@@ -1149,6 +1213,7 @@ export type Database = {
         }
         Update: {
           completed_at?: string | null
+          continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null
           error_summary?: Json | null
@@ -1156,6 +1221,7 @@ export type Database = {
           failure_reason?: string | null
           finished_at?: string | null
           id?: string
+          is_continuation?: boolean | null
           items_failed?: number | null
           items_skipped?: number | null
           items_succeeded?: number | null
@@ -6378,6 +6444,56 @@ export type Database = {
           },
         ]
       }
+      provider_route_mitigations: {
+        Row: {
+          applied_at: string | null
+          created_by_action_id: string | null
+          expired: boolean | null
+          expires_at: string
+          id: string
+          mitigation_type: string
+          organization_id: string | null
+          provider: string
+          reason: string
+          scope: string | null
+          severity: string | null
+        }
+        Insert: {
+          applied_at?: string | null
+          created_by_action_id?: string | null
+          expired?: boolean | null
+          expires_at: string
+          id?: string
+          mitigation_type: string
+          organization_id?: string | null
+          provider: string
+          reason: string
+          scope?: string | null
+          severity?: string | null
+        }
+        Update: {
+          applied_at?: string | null
+          created_by_action_id?: string | null
+          expired?: boolean | null
+          expires_at?: string
+          id?: string
+          mitigation_type?: string
+          organization_id?: string | null
+          provider?: string
+          reason?: string
+          scope?: string | null
+          severity?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_route_mitigations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_sync_traces: {
         Row: {
           created_at: string
@@ -7854,6 +7970,62 @@ export type Database = {
           },
         ]
       }
+      work_item_scrape_jobs: {
+        Row: {
+          created_at: string | null
+          id: string
+          job_id: string
+          last_poll_result: Json | null
+          max_poll_attempts: number | null
+          next_poll_at: string
+          organization_id: string
+          poll_attempts: number | null
+          provider: string
+          radicado: string
+          resolved_by_action_id: string | null
+          status: string | null
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          job_id: string
+          last_poll_result?: Json | null
+          max_poll_attempts?: number | null
+          next_poll_at: string
+          organization_id: string
+          poll_attempts?: number | null
+          provider?: string
+          radicado: string
+          resolved_by_action_id?: string | null
+          status?: string | null
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          job_id?: string
+          last_poll_result?: Json | null
+          max_poll_attempts?: number | null
+          next_poll_at?: string
+          organization_id?: string
+          poll_attempts?: number | null
+          provider?: string
+          radicado?: string
+          resolved_by_action_id?: string | null
+          status?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_scrape_jobs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_sources: {
         Row: {
           consecutive_404_count: number
@@ -8128,6 +8300,7 @@ export type Database = {
           client_id: string | null
           consecutive_404_count: number | null
           consecutive_failures: number
+          consecutive_not_found: number | null
           corte_status: string | null
           courthouse_directory_id: number | null
           courthouse_needs_review: boolean | null
@@ -8153,10 +8326,12 @@ export type Database = {
           is_flagged: boolean | null
           last_action_date: string | null
           last_action_description: string | null
+          last_attempted_sync_at: string | null
           last_checked_at: string | null
           last_crawled_at: string | null
           last_error_at: string | null
           last_error_code: string | null
+          last_error_meta: Json | null
           last_event_at: string | null
           last_event_summary: string | null
           last_inference_date: string | null
@@ -8168,6 +8343,7 @@ export type Database = {
           last_stage_change_source: string | null
           last_stage_suggestion_at: string | null
           last_stage_suggestion_id: string | null
+          last_successful_sync_at: string | null
           last_synced_at: string | null
           latest_estado_at: string | null
           latest_estado_fingerprint: string | null
@@ -8186,6 +8362,8 @@ export type Database = {
           monitoring_disabled_meta: Json | null
           monitoring_disabled_reason: string | null
           monitoring_enabled: boolean | null
+          monitoring_suspended_at: string | null
+          monitoring_suspended_reason: string | null
           naturaleza_proceso: string | null
           notes: string | null
           notification_effective_date: string | null
@@ -8265,6 +8443,7 @@ export type Database = {
           client_id?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
+          consecutive_not_found?: number | null
           corte_status?: string | null
           courthouse_directory_id?: number | null
           courthouse_needs_review?: boolean | null
@@ -8290,10 +8469,12 @@ export type Database = {
           is_flagged?: boolean | null
           last_action_date?: string | null
           last_action_description?: string | null
+          last_attempted_sync_at?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
           last_error_at?: string | null
           last_error_code?: string | null
+          last_error_meta?: Json | null
           last_event_at?: string | null
           last_event_summary?: string | null
           last_inference_date?: string | null
@@ -8305,6 +8486,7 @@ export type Database = {
           last_stage_change_source?: string | null
           last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -8323,6 +8505,8 @@ export type Database = {
           monitoring_disabled_meta?: Json | null
           monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
           notes?: string | null
           notification_effective_date?: string | null
@@ -8402,6 +8586,7 @@ export type Database = {
           client_id?: string | null
           consecutive_404_count?: number | null
           consecutive_failures?: number
+          consecutive_not_found?: number | null
           corte_status?: string | null
           courthouse_directory_id?: number | null
           courthouse_needs_review?: boolean | null
@@ -8427,10 +8612,12 @@ export type Database = {
           is_flagged?: boolean | null
           last_action_date?: string | null
           last_action_description?: string | null
+          last_attempted_sync_at?: string | null
           last_checked_at?: string | null
           last_crawled_at?: string | null
           last_error_at?: string | null
           last_error_code?: string | null
+          last_error_meta?: Json | null
           last_event_at?: string | null
           last_event_summary?: string | null
           last_inference_date?: string | null
@@ -8442,6 +8629,7 @@ export type Database = {
           last_stage_change_source?: string | null
           last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
+          last_successful_sync_at?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -8460,6 +8648,8 @@ export type Database = {
           monitoring_disabled_meta?: Json | null
           monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
+          monitoring_suspended_at?: string | null
+          monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
           notes?: string | null
           notification_effective_date?: string | null
