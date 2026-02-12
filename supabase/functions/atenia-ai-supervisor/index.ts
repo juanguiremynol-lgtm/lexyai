@@ -9,6 +9,7 @@
  *   HEARTBEAT          — Scheduled: picks windows by Bogota time, processes queue
  *   PROCESS_QUEUE      — Explicit queue worker run
  *   MANUAL_RUN         — Manual trigger from UI
+ *   WATCHDOG           — Self-healing invariant checker (cron every 10m)
  *
  * V2 additions:
  *   - Remediation queue with atomic claim (SKIP LOCKED)
@@ -48,10 +49,13 @@ interface AteniaAIInput {
     | "HEALTH_CHECK"
     | "HEARTBEAT"
     | "PROCESS_QUEUE"
-    | "MANUAL_RUN";
+    | "MANUAL_RUN"
+    | "WATCHDOG";
   organization_id?: string;
   run_date?: string;
   dry_run?: boolean;
+  max?: number;
+  scope?: string;
 }
 
 interface DiagnosticEntry {
@@ -1473,6 +1477,51 @@ Deno.serve(async (req) => {
         snapshot: snap,
         duration_ms: Date.now() - startTime,
       });
+    }
+
+    // ─── WATCHDOG mode: self-healing invariant checker ───
+    if (input.mode === "WATCHDOG") {
+      console.log("[atenia-ai-supervisor] WATCHDOG mode — delegating to watchdog function");
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const resp = await fetch(`${supabaseUrl}/functions/v1/atenia-cron-watchdog`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        });
+        const body = await resp.json().catch(() => ({ status: resp.status }));
+
+        // Log watchdog execution as an AI action for audit trail
+        const orgId = input.organization_id || "a0000000-0000-0000-0000-000000000001";
+        const { error: insertErr } = await supabase.from("atenia_ai_actions").insert({
+          organization_id: orgId,
+          action_type: "WATCHDOG_RUN",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: "Watchdog ejecutado para verificar invariantes de cron y cobertura de sync.",
+          action_taken: resp.ok ? "WATCHDOG_OK" : "WATCHDOG_FAILED",
+          action_result: resp.ok ? "OK" : "FAILED",
+          evidence: {
+            triggered_by: "supervisor",
+            watchdog_result: body,
+            duration_ms: Date.now() - startTime,
+          },
+        });
+        if (insertErr) console.warn("[watchdog] Failed to log AI action:", insertErr.message);
+
+        return json({
+          ok: resp.ok,
+          mode: "WATCHDOG",
+          watchdog_result: body,
+          duration_ms: Date.now() - startTime,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return json({ ok: false, mode: "WATCHDOG", error: msg }, 500);
+      }
     }
 
     // ─── Legacy modes: POST_DAILY_SYNC, POST_LOGIN_SYNC, MANUAL_AUDIT ───
