@@ -1731,46 +1731,82 @@ export type Database = {
       billing_subscription_state: {
         Row: {
           billing_cycle_months: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
           comped_reason: string | null
           comped_until_at: string | null
           comped_voucher_id: string | null
+          consecutive_payment_failures: number | null
           created_at: string
           currency: string
+          current_period_end: string | null
+          current_period_start: string | null
           current_price_cop_incl_iva: number
+          gateway_customer_id: string | null
+          gateway_subscription_id: string | null
+          grace_period_end: string | null
           intro_offer_applied: boolean
+          last_payment_id: string | null
+          next_billing_at: string | null
           organization_id: string
           plan_code: string
           price_lock_end_at: string | null
+          status: string | null
+          suspended_at: string | null
           trial_end_at: string | null
           updated_at: string
         }
         Insert: {
           billing_cycle_months?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
           comped_reason?: string | null
           comped_until_at?: string | null
           comped_voucher_id?: string | null
+          consecutive_payment_failures?: number | null
           created_at?: string
           currency?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
           current_price_cop_incl_iva?: number
+          gateway_customer_id?: string | null
+          gateway_subscription_id?: string | null
+          grace_period_end?: string | null
           intro_offer_applied?: boolean
+          last_payment_id?: string | null
+          next_billing_at?: string | null
           organization_id: string
           plan_code: string
           price_lock_end_at?: string | null
+          status?: string | null
+          suspended_at?: string | null
           trial_end_at?: string | null
           updated_at?: string
         }
         Update: {
           billing_cycle_months?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
           comped_reason?: string | null
           comped_until_at?: string | null
           comped_voucher_id?: string | null
+          consecutive_payment_failures?: number | null
           created_at?: string
           currency?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
           current_price_cop_incl_iva?: number
+          gateway_customer_id?: string | null
+          gateway_subscription_id?: string | null
+          grace_period_end?: string | null
           intro_offer_applied?: boolean
+          last_payment_id?: string | null
+          next_billing_at?: string | null
           organization_id?: string
           plan_code?: string
           price_lock_end_at?: string | null
+          status?: string | null
+          suspended_at?: string | null
           trial_end_at?: string | null
           updated_at?: string
         }
@@ -3343,6 +3379,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      dunning_schedule: {
+        Row: {
+          action_id: string | null
+          attempt_number: number
+          created_at: string | null
+          executed_at: string | null
+          gateway_response: Json | null
+          id: string
+          organization_id: string
+          result: string | null
+          scheduled_at: string
+        }
+        Insert: {
+          action_id?: string | null
+          attempt_number: number
+          created_at?: string | null
+          executed_at?: string | null
+          gateway_response?: Json | null
+          id?: string
+          organization_id: string
+          result?: string | null
+          scheduled_at: string
+        }
+        Update: {
+          action_id?: string | null
+          attempt_number?: number
+          created_at?: string | null
+          executed_at?: string | null
+          gateway_response?: Json | null
+          id?: string
+          organization_id?: string
+          result?: string | null
+          scheduled_at?: string
+        }
+        Relationships: []
       }
       email_delivery_events: {
         Row: {
@@ -5220,6 +5292,86 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_transactions: {
+        Row: {
+          amount_cop: number
+          billing_cycle_months: number
+          checkout_session_id: string | null
+          created_at: string | null
+          currency: string
+          gateway: string
+          gateway_reference: string | null
+          gateway_response: Json | null
+          gateway_status: string | null
+          gateway_transaction_id: string | null
+          id: string
+          initiated_by_user_id: string | null
+          ip_address: string | null
+          organization_id: string
+          plan_code: string
+          status: string
+          transaction_type: string
+          updated_at: string | null
+          verification_checks: Json | null
+          verified_at: string | null
+          verified_by_action_id: string | null
+        }
+        Insert: {
+          amount_cop: number
+          billing_cycle_months?: number
+          checkout_session_id?: string | null
+          created_at?: string | null
+          currency?: string
+          gateway?: string
+          gateway_reference?: string | null
+          gateway_response?: Json | null
+          gateway_status?: string | null
+          gateway_transaction_id?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          ip_address?: string | null
+          organization_id: string
+          plan_code: string
+          status?: string
+          transaction_type?: string
+          updated_at?: string | null
+          verification_checks?: Json | null
+          verified_at?: string | null
+          verified_by_action_id?: string | null
+        }
+        Update: {
+          amount_cop?: number
+          billing_cycle_months?: number
+          checkout_session_id?: string | null
+          created_at?: string | null
+          currency?: string
+          gateway?: string
+          gateway_reference?: string | null
+          gateway_response?: Json | null
+          gateway_status?: string | null
+          gateway_transaction_id?: string | null
+          id?: string
+          initiated_by_user_id?: string | null
+          ip_address?: string | null
+          organization_id?: string
+          plan_code?: string
+          status?: string
+          transaction_type?: string
+          updated_at?: string | null
+          verification_checks?: Json | null
+          verified_at?: string | null
+          verified_by_action_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_transactions_checkout_session_id_fkey"
+            columns: ["checkout_session_id"]
+            isOneToOne: false
+            referencedRelation: "billing_checkout_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peticion_alerts: {
         Row: {
           alert_type: string
@@ -6956,6 +7108,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      subscription_events: {
+        Row: {
+          created_at: string | null
+          description: string
+          event_type: string
+          id: string
+          organization_id: string
+          payload: Json | null
+          triggered_by: string
+          triggered_by_action_id: string | null
+          triggered_by_user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description: string
+          event_type: string
+          id?: string
+          organization_id: string
+          payload?: Json | null
+          triggered_by?: string
+          triggered_by_action_id?: string | null
+          triggered_by_user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string
+          event_type?: string
+          id?: string
+          organization_id?: string
+          payload?: Json | null
+          triggered_by?: string
+          triggered_by_action_id?: string | null
+          triggered_by_user_id?: string | null
+        }
+        Relationships: []
       }
       subscription_plans: {
         Row: {
