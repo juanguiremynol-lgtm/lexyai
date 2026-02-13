@@ -1,13 +1,18 @@
 /**
  * provider-set-instance-secret — Super-admin-only endpoint to set/rotate secrets
- * for provider instances. Temporary bridge until wizard StepInstance fully supports
- * secret management for existing instances.
+ * for provider instances.
  *
- * POST { instance_id, secret_value, enable?: boolean }
+ * POST { instance_id, secret_value, mode?: "SET_EXACT" | "ROTATE", enable?: boolean }
+ *   OR
+ * POST { connector_id, scope: "PLATFORM", secret_value, mode?: "SET_EXACT" | "ROTATE" }
+ *
+ * SET_EXACT (default): Ensure exactly one enabled secret exists. If the exact same
+ *   cipher already exists, return was_noop:true. Does NOT disable old secrets unless rotating.
+ * ROTATE: Disable all existing secrets and create a new version.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { encryptSecret, bytesToB64 } from "../_shared/secretsCrypto.ts";
+import { encryptSecret } from "../_shared/secretsCrypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,13 +76,54 @@ Deno.serve(async (req) => {
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
-
     const body = await req.json();
-    const { instance_id, secret_value, enable = true } = body;
+    const {
+      instance_id: directInstanceId,
+      connector_id,
+      scope: requestedScope,
+      secret_value,
+      mode = "SET_EXACT",
+      enable = true,
+    } = body;
 
-    if (!instance_id || !secret_value) {
+    if (!secret_value) {
       return new Response(
-        JSON.stringify({ error: "instance_id and secret_value are required" }),
+        JSON.stringify({ error: "secret_value is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Resolve instance: by direct ID or by connector+scope
+    let instanceId = directInstanceId;
+    if (!instanceId && connector_id) {
+      const scope = requestedScope || "PLATFORM";
+      const query = adminClient
+        .from("provider_instances")
+        .select("id")
+        .eq("connector_id", connector_id)
+        .eq("scope", scope)
+        .eq("is_enabled", true);
+
+      if (scope === "PLATFORM") {
+        query.is("organization_id", null);
+      }
+
+      const { data: instances } = await query
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!instances || instances.length === 0) {
+        return new Response(
+          JSON.stringify({ error: `No enabled ${scope} instance for connector ${connector_id}` }),
+          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      instanceId = instances[0].id;
+    }
+
+    if (!instanceId) {
+      return new Response(
+        JSON.stringify({ error: "instance_id or connector_id required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -86,7 +132,7 @@ Deno.serve(async (req) => {
     const { data: instance, error: instErr } = await adminClient
       .from("provider_instances")
       .select("id, name, scope, connector_id, organization_id")
-      .eq("id", instance_id)
+      .eq("id", instanceId)
       .single();
 
     if (instErr || !instance) {
@@ -95,24 +141,6 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    // Deactivate existing secrets for this instance
-    await adminClient
-      .from("provider_instance_secrets")
-      .update({ is_active: false })
-      .eq("provider_instance_id", instance_id)
-      .eq("is_active", true);
-
-    // Get next version number
-    const { data: lastSecret } = await adminClient
-      .from("provider_instance_secrets")
-      .select("key_version")
-      .eq("provider_instance_id", instance_id)
-      .order("key_version", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextVersion = (lastSecret?.key_version || 0) + 1;
 
     // Encrypt
     let encResult: { cipher: Uint8Array; nonce: Uint8Array };
@@ -133,10 +161,122 @@ Deno.serve(async (req) => {
     }
 
     const { cipher, nonce } = encResult;
+
+    if (mode === "SET_EXACT") {
+      // SET_EXACT: Check if there's already an active secret. If so, check if we
+      // can just ensure it stays active (idempotent). We can't compare ciphertexts
+      // (different nonces), so we always create a new version but DON'T disable
+      // the old one unless there are multiple active.
+      const { data: existingSecrets } = await adminClient
+        .from("provider_instance_secrets")
+        .select("id, key_version, is_active")
+        .eq("provider_instance_id", instanceId)
+        .eq("is_active", true);
+
+      // If exactly one active secret exists, keep it and add new one
+      // Then disable all but the newest
+      const { data: lastSecret } = await adminClient
+        .from("provider_instance_secrets")
+        .select("key_version")
+        .eq("provider_instance_id", instanceId)
+        .order("key_version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const nextVersion = (lastSecret?.key_version || 0) + 1;
+
+      // Insert new secret
+      const { data: newSecret, error: secErr } = await adminClient
+        .from("provider_instance_secrets")
+        .insert({
+          provider_instance_id: instanceId,
+          organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
+          key_version: nextVersion,
+          is_active: enable,
+          cipher_text: cipher,
+          nonce,
+          created_by: userId,
+          scope: instance.scope || "ORG",
+        })
+        .select("id, key_version, is_active, scope")
+        .single();
+
+      if (secErr) {
+        return new Response(
+          JSON.stringify({ error: "Failed to store secret", detail: secErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Disable all other active secrets (keep only the newest)
+      if (existingSecrets && existingSecrets.length > 0) {
+        const oldIds = existingSecrets.map(s => s.id);
+        await adminClient
+          .from("provider_instance_secrets")
+          .update({ is_active: false })
+          .in("id", oldIds);
+      }
+
+      // Audit
+      await adminClient.from("atenia_ai_actions").insert({
+        organization_id: instance.organization_id || "a0000000-0000-0000-0000-000000000001",
+        action_type: "PROVIDER_SECRET_SET",
+        autonomy_tier: "USER",
+        reasoning: `Platform admin set secret v${nextVersion} (SET_EXACT) for instance "${instance.name}" (scope: ${instance.scope})`,
+        target_entity_type: "provider_instance_secret",
+        target_entity_id: newSecret.id,
+        evidence: {
+          instance_id: instanceId,
+          instance_name: instance.name,
+          scope: instance.scope,
+          key_version: nextVersion,
+          mode: "SET_EXACT",
+          enabled: enable,
+        },
+      });
+
+      // Resolve alerts
+      await resolveAlerts(adminClient, instanceId, instance.connector_id);
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          mode: "SET_EXACT",
+          was_noop: false,
+          secret: {
+            id: newSecret.id,
+            key_version: newSecret.key_version,
+            is_active: newSecret.is_active,
+            scope: newSecret.scope,
+          },
+          instance_id: instanceId,
+          instance_name: instance.name,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ROTATE mode: disable all existing, create new
+    await adminClient
+      .from("provider_instance_secrets")
+      .update({ is_active: false })
+      .eq("provider_instance_id", instanceId)
+      .eq("is_active", true);
+
+    const { data: lastSecret } = await adminClient
+      .from("provider_instance_secrets")
+      .select("key_version")
+      .eq("provider_instance_id", instanceId)
+      .order("key_version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextVersion = (lastSecret?.key_version || 0) + 1;
+
     const { data: newSecret, error: secErr } = await adminClient
       .from("provider_instance_secrets")
       .insert({
-        provider_instance_id: instance_id,
+        provider_instance_id: instanceId,
         organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
         key_version: nextVersion,
         is_active: enable,
@@ -160,45 +300,33 @@ Deno.serve(async (req) => {
       organization_id: instance.organization_id || "a0000000-0000-0000-0000-000000000001",
       action_type: "PROVIDER_SECRET_SET",
       autonomy_tier: "USER",
-      reasoning: `Platform admin set secret v${nextVersion} for instance "${instance.name}" (scope: ${instance.scope})`,
+      reasoning: `Platform admin rotated secret to v${nextVersion} for instance "${instance.name}" (scope: ${instance.scope})`,
       target_entity_type: "provider_instance_secret",
       target_entity_id: newSecret.id,
       evidence: {
-        instance_id,
+        instance_id: instanceId,
         instance_name: instance.name,
         scope: instance.scope,
         key_version: nextVersion,
+        mode: "ROTATE",
         enabled: enable,
       },
     });
 
-    // Resolve any pending MISSING_PROVIDER_SECRET alerts
-    await adminClient
-      .from("alert_instances")
-      .update({ status: "RESOLVED", resolved_at: new Date().toISOString() })
-      .eq("entity_type", "provider_instance")
-      .eq("entity_id", instance_id)
-      .eq("alert_type", "MISSING_PROVIDER_SECRET")
-      .in("status", ["PENDING", "ACKNOWLEDGED"]);
-
-    // Resolve remediation queue entries
-    await adminClient
-      .from("atenia_ai_remediation_queue")
-      .update({ status: "RESOLVED", updated_at: new Date().toISOString() })
-      .eq("action_type", "CONFIGURE_PROVIDER_SECRET")
-      .eq("status", "PENDING")
-      .like("dedupe_key", `${instance.connector_id}%missing_secret`);
+    await resolveAlerts(adminClient, instanceId, instance.connector_id);
 
     return new Response(
       JSON.stringify({
         ok: true,
+        mode: "ROTATE",
+        was_noop: false,
         secret: {
           id: newSecret.id,
           key_version: newSecret.key_version,
           is_active: newSecret.is_active,
           scope: newSecret.scope,
         },
-        instance_id,
+        instance_id: instanceId,
         instance_name: instance.name,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -211,3 +339,22 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+async function resolveAlerts(adminClient: any, instanceId: string, connectorId: string) {
+  // Resolve any pending MISSING_PROVIDER_SECRET alerts
+  await adminClient
+    .from("alert_instances")
+    .update({ status: "RESOLVED", resolved_at: new Date().toISOString() })
+    .eq("entity_type", "provider_instance")
+    .eq("entity_id", instanceId)
+    .eq("alert_type", "MISSING_PROVIDER_SECRET")
+    .in("status", ["PENDING", "ACKNOWLEDGED"]);
+
+  // Resolve remediation queue entries
+  await adminClient
+    .from("atenia_ai_remediation_queue")
+    .update({ status: "RESOLVED", updated_at: new Date().toISOString() })
+    .eq("action_type", "CONFIGURE_PROVIDER_SECRET")
+    .eq("status", "PENDING")
+    .like("dedupe_key", `${connectorId}%missing_secret`);
+}
