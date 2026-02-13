@@ -231,7 +231,24 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         return dateB.localeCompare(dateA);
       });
 
-      return merged;
+      // UI-level dedup: prefer the record with richer metadata (fecha_fijacion present)
+      const seen = new Map<string, PublicacionEstado>();
+      for (const item of merged) {
+        const key = item.description.trim().toLowerCase();
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, item);
+        } else {
+          // Keep the one with more metadata (fecha_fijacion, pdf_url)
+          const existingScore = (existing.fecha_fijacion ? 1 : 0) + (existing.pdf_url ? 1 : 0);
+          const newScore = (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0);
+          if (newScore > existingScore) {
+            seen.set(key, item);
+          }
+        }
+      }
+
+      return Array.from(seen.values());
     },
     enabled: !!workItem.id,
     staleTime: 2 * 60 * 1000,
