@@ -1,12 +1,14 @@
 /**
  * AteniaWelcomeView — Welcome screen shown when chat panel opens with no messages.
  * Displays greeting, grouped capabilities, and context-aware starter chips.
+ * Enforces identity separation: end-user assistant vs super-admin console.
  */
 
-import { Bot, Wrench, Briefcase, ShieldAlert, Sparkles, Trash2, Lock } from "lucide-react";
+import { Bot, Wrench, Briefcase, ShieldAlert, Sparkles, Lock, Settings, CreditCard } from "lucide-react";
 import { trackMascotEvent } from "./mascot-analytics";
 import type { BubbleContext } from "./mascot-bubbles";
 import { useLocation } from "react-router-dom";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 interface StarterChip {
   label: string;
@@ -44,26 +46,44 @@ const GATED_CHIPS: StarterChip[] = [
   { label: "⚠️ Explicar qué hace la purga", prompt: "Explícame qué hace la purga (eliminación permanente) y cuáles son los riesgos" },
 ];
 
-const CAPABILITY_GROUPS: CapabilityGroup[] = [
-  {
-    title: "Soporte y diagnóstico",
-    description: "Diagnósticos de sync, explicación de errores, pasos de solución",
-    icon: <Wrench className="h-4 w-4" />,
-    chips: SUPPORT_CHIPS,
-  },
-  {
-    title: "Asuntos judiciales",
-    description: "Radicados, datos de proveedores, interpretación de trazas",
-    icon: <Briefcase className="h-4 w-4" />,
-    chips: WORK_ITEM_CHIPS,
-  },
-  {
-    title: "Acciones protegidas",
-    description: "Recuperación de eliminados, habilitación de purga",
-    icon: <ShieldAlert className="h-4 w-4" />,
-    chips: GATED_CHIPS,
-  },
+const SETTINGS_CHIPS: StarterChip[] = [
+  { label: "📻 Desactivar ticker", prompt: "Quiero desactivar el ticker de estados en vivo" },
+  { label: "📻 Activar ticker", prompt: "Quiero activar el ticker de estados en vivo" },
+  { label: "💳 Estado de mi suscripción", prompt: "¿Cuál es el estado de mi suscripción?" },
+  { label: "📄 Resumen de facturación", prompt: "Dame un resumen de mi historial de facturación" },
+  { label: "🎫 Generar certificado de servicio", prompt: "Genera un certificado de servicio para mi organización" },
 ];
+
+function buildCapabilityGroups(isPlatformAdmin: boolean): CapabilityGroup[] {
+  const groups: CapabilityGroup[] = [
+    {
+      title: "Soporte y diagnóstico",
+      description: "Diagnósticos de sync, explicación de errores, pasos de solución",
+      icon: <Wrench className="h-4 w-4" />,
+      chips: SUPPORT_CHIPS,
+    },
+    {
+      title: "Asuntos judiciales",
+      description: "Radicados, datos de proveedores, interpretación de trazas",
+      icon: <Briefcase className="h-4 w-4" />,
+      chips: WORK_ITEM_CHIPS,
+    },
+    {
+      title: "Configuración y cuenta",
+      description: "Ticker, suscripción, facturación",
+      icon: <Settings className="h-4 w-4" />,
+      chips: SETTINGS_CHIPS,
+    },
+    {
+      title: "Acciones protegidas",
+      description: "Recuperación de eliminados, habilitación de purga",
+      icon: <ShieldAlert className="h-4 w-4" />,
+      chips: GATED_CHIPS,
+    },
+  ];
+
+  return groups;
+}
 
 function getContextualChips(contexts: BubbleContext[], pathname: string): StarterChip[] {
   const contextual: StarterChip[] = [];
@@ -84,6 +104,8 @@ function getContextualChips(contexts: BubbleContext[], pathname: string): Starte
 
   if (contexts.includes("SETTINGS")) {
     contextual.push(
+      { label: "📻 Desactivar ticker", prompt: "Quiero desactivar el ticker de estados en vivo" },
+      { label: "📻 Activar ticker", prompt: "Quiero activar el ticker de estados en vivo" },
       { label: "Estado de mi suscripción", prompt: "¿Cuál es el estado de mi suscripción?" },
       { label: "🔓 Habilitar purga", prompt: "Quiero habilitar la sección de purga en configuración" },
     );
@@ -114,7 +136,9 @@ interface AteniaWelcomeViewProps {
 
 export function AteniaWelcomeView({ contexts, onSelectPrompt, isFirstOpen }: AteniaWelcomeViewProps) {
   const location = useLocation();
+  const { isPlatformAdmin } = usePlatformAdmin();
   const contextualChips = getContextualChips(contexts, location.pathname);
+  const capabilityGroups = buildCapabilityGroups(isPlatformAdmin);
 
   const handleChipClick = (chip: StarterChip) => {
     trackMascotEvent("chip_clicked", { label: chip.label });
@@ -133,17 +157,28 @@ export function AteniaWelcomeView({ contexts, onSelectPrompt, isFirstOpen }: Ate
             ¡Hola! Soy Atenia AI.
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Puedo ayudarte a diagnosticar problemas, explicar funciones de la plataforma
-            y asistirte con acciones avanzadas cuando lo solicites.
+            Puedo ayudarte a diagnosticar problemas, explicar funciones de la plataforma,
+            gestionar configuraciones y asistirte con acciones avanzadas cuando lo solicites.
           </p>
         </div>
       </div>
+
+      {/* Super admin notice */}
+      {isPlatformAdmin && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <ShieldAlert className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <span className="text-[11px] text-amber-700 dark:text-amber-300">
+            Tienes controles de plataforma en la consola de Super Administrador. Este asistente se enfoca en ayuda de usuario y organización.
+          </span>
+        </div>
+      )}
 
       {/* Safety notice */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
         <Lock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
         <span className="text-[11px] text-muted-foreground">
           Las acciones destructivas siempre requieren tu confirmación explícita.
+          Este asistente gestiona tu cuenta y configuración de organización (con permiso).
         </span>
       </div>
 
@@ -169,7 +204,7 @@ export function AteniaWelcomeView({ contexts, onSelectPrompt, isFirstOpen }: Ate
       )}
 
       {/* Capability groups */}
-      {CAPABILITY_GROUPS.map((group) => (
+      {capabilityGroups.map((group) => (
         <div key={group.title} className="space-y-2">
           <div className="flex items-center gap-2">
             <span className="text-primary">{group.icon}</span>
