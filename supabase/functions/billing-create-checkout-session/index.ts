@@ -13,6 +13,7 @@ interface RequestBody {
   plan_code?: string; // New: BASIC | PRO | ENTERPRISE
   tier?: string; // Legacy: for backward compatibility
   billing_cycle_months?: number; // 1 or 24
+  discount_code?: string; // Optional: discount code to apply
 }
 
 Deno.serve(async (req) => {
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
 
     // Parse body
     const body: RequestBody = await req.json();
-    const { organization_id, billing_cycle_months = 1 } = body;
+    const { organization_id, billing_cycle_months = 1, discount_code } = body;
     
     // Support both plan_code (new) and tier (legacy)
     const planCode = body.plan_code || body.tier;
@@ -200,6 +201,75 @@ Deno.serve(async (req) => {
     // Get provider (mock for now)
     const provider = Deno.env.get("BILLING_PROVIDER") || "mock";
 
+    // Validate & apply discount code if provided
+    let discountCodeId: string | null = null;
+    let discountAmountCop = 0;
+    let finalAmountCop = pricePoint.price_cop_incl_iva;
+
+    if (discount_code) {
+      const now = new Date();
+      const { data: discCode, error: discError } = await supabaseService
+        .from("billing_discount_codes")
+        .select("*")
+        .eq("code", discount_code.toUpperCase())
+        .maybeSingle();
+
+      if (discError || !discCode) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_NOT_FOUND", message: "Código de descuento no válido" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate eligibility
+      if (!discCode.is_active) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_INACTIVE", message: "Código de descuento inactivo" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (discCode.valid_to && new Date(discCode.valid_to) < now) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_EXPIRED", message: "Código de descuento expirado" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (discCode.max_redemptions && discCode.current_redemptions >= discCode.max_redemptions) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_LIMIT_REACHED", message: "Código de descuento agotado" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check plan eligibility
+      if (discCode.eligible_plans && !discCode.eligible_plans.includes(planCode)) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_NOT_ELIGIBLE", message: "Este código no aplica a este plan" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Check cycle eligibility
+      if (discCode.eligible_cycles && !discCode.eligible_cycles.includes(billing_cycle_months)) {
+        return new Response(
+          JSON.stringify({ ok: false, code: "DISCOUNT_NOT_ELIGIBLE", message: "Este código no aplica a este ciclo de facturación" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Calculate discount amount
+      if (discCode.discount_type === "PERCENT") {
+        discountAmountCop = Math.floor((pricePoint.price_cop_incl_iva * discCode.discount_value) / 100);
+      } else {
+        discountAmountCop = Math.min(discCode.discount_value, pricePoint.price_cop_incl_iva);
+      }
+
+      finalAmountCop = Math.max(0, pricePoint.price_cop_incl_iva - discountAmountCop);
+      discountCodeId = discCode.id;
+    }
+
     // Generate mock session ID and URL
     const sessionId = crypto.randomUUID();
     const checkoutUrl = provider === "mock" 
@@ -219,13 +289,16 @@ Deno.serve(async (req) => {
         created_by: userId,
         billing_cycle_months,
         price_point_id: pricePoint.id,
-        amount_cop_incl_iva: pricePoint.price_cop_incl_iva,
+        amount_cop_incl_iva: finalAmountCop,
+        discount_code_id: discountCodeId,
+        discount_amount_cop: discountAmountCop,
         metadata: { 
           created_via: "edge_function",
           user_agent: req.headers.get("User-Agent") || "unknown",
           plan_code: planCode,
           price_type: priceType,
           account_type: accountType,
+          discount_applied: discountAmountCop > 0,
         },
       })
       .select()
@@ -280,7 +353,9 @@ Deno.serve(async (req) => {
         ok: true,
         session_id: session.id,
         checkout_url: session.checkout_url,
-        amount_cop_incl_iva: pricePoint.price_cop_incl_iva,
+        amount_cop_incl_iva: finalAmountCop,
+        original_amount_cop: pricePoint.price_cop_incl_iva,
+        discount_amount_cop: discountAmountCop,
         price_type: priceType,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

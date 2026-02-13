@@ -106,15 +106,26 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (pricePoint) {
-        const amountMatch = txn.amount_cop === pricePoint.price_cop_incl_iva;
+        // Calculate expected amount with discount reconciliation
+        let expectedAmount = pricePoint.price_cop_incl_iva;
+        let discountInfo = "";
+
+        // If discount was applied, reconcile
+        if (txn.discount_amount_cop && txn.discount_amount_cop > 0) {
+          const reconciled = pricePoint.price_cop_incl_iva - txn.discount_amount_cop;
+          expectedAmount = Math.max(0, reconciled);
+          discountInfo = ` (descuento: $${txn.discount_amount_cop.toLocaleString("es-CO")})`;
+        }
+
+        const amountMatch = txn.amount_cop === expectedAmount;
         checks.push({
           check: "AMOUNT_MATCH",
           passed: amountMatch,
-          expected: pricePoint.price_cop_incl_iva,
+          expected: expectedAmount,
           actual: txn.amount_cop,
           detail: amountMatch
-            ? `Monto correcto: $${txn.amount_cop.toLocaleString("es-CO")} COP`
-            : `⚠️ Monto incorrecto: esperado $${pricePoint.price_cop_incl_iva.toLocaleString("es-CO")}, recibido $${txn.amount_cop.toLocaleString("es-CO")}`,
+            ? `Monto correcto: $${txn.amount_cop.toLocaleString("es-CO")} COP${discountInfo}`
+            : `⚠️ Monto incorrecto: esperado $${expectedAmount.toLocaleString("es-CO")}, recibido $${txn.amount_cop.toLocaleString("es-CO")}${discountInfo}`,
         });
       } else {
         checks.push({
