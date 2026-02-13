@@ -9674,6 +9674,10 @@ export type Database = {
           organization_id: string
         }[]
       }
+      atenia_subchain_coverage_gate: {
+        Args: { p_organization_id?: string }
+        Returns: Json
+      }
       atenia_try_start_cron: {
         Args: {
           p_job_name: string
