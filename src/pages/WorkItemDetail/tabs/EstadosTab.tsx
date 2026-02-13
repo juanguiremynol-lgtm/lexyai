@@ -129,8 +129,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
       const samaiEstadosInstanceIds = (samaiEstadosInstances || []).map((i: any) => i.id);
 
-      // Query all three sources in parallel
-      const [pubsResult, samaiEstadosResult, provenanceResult] = await Promise.all([
+      // Query publicaciones + direct SAMAI_ESTADOS acts in parallel
+      const [pubsResult, samaiEstadosResult, provenanceIdsResult] = await Promise.all([
         supabase
           .from("work_item_publicaciones")
           .select("*")
@@ -144,20 +144,30 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
           .eq("source", "SAMAI_ESTADOS")
           .eq("is_archived", false)
           .order("act_date", { ascending: false, nullsFirst: false }),
-        // Also fetch acts confirmed by SAMAI_ESTADOS provenance (deduped records)
+        // Get act IDs confirmed by SAMAI_ESTADOS provenance (no FK join needed)
         samaiEstadosInstanceIds.length > 0
           ? supabase
               .from("act_provenance")
-              .select("work_item_act_id, provider_instance_id, work_item_acts!inner(*, work_item_id)")
+              .select("work_item_act_id")
               .in("provider_instance_id", samaiEstadosInstanceIds)
-              .eq("work_item_acts.work_item_id", workItem.id)
-              .eq("work_item_acts.is_archived", false)
           : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (pubsResult.error) throw pubsResult.error;
       if (samaiEstadosResult.error) throw samaiEstadosResult.error;
-      // Don't throw on provenance error — it's supplementary
+
+      // Step 2: If we have provenance-confirmed act IDs, fetch those acts
+      const provenanceActIds = (provenanceIdsResult.data || []).map((r: any) => r.work_item_act_id);
+      let provenanceActs: any[] = [];
+      if (provenanceActIds.length > 0) {
+        const { data } = await supabase
+          .from("work_item_acts")
+          .select("*")
+          .in("id", provenanceActIds)
+          .eq("work_item_id", workItem.id)
+          .eq("is_archived", false);
+        provenanceActs = data || [];
+      }
 
       // Map work_item_publicaciones to display format
       const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => ({
@@ -196,9 +206,8 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       // Map provenance-confirmed SAMAI_ESTADOS acts (deduped records with source='samai')
       // Only include those NOT already in the direct SAMAI_ESTADOS list
       const fromProvenance: PublicacionEstado[] = [];
-      for (const prov of (provenanceResult.data || [])) {
-        const act = (prov as any).work_item_acts;
-        if (!act || samaiDirectIds.has(act.id)) continue;
+      for (const act of provenanceActs) {
+        if (samaiDirectIds.has(act.id)) continue;
         samaiDirectIds.add(act.id); // prevent duplicates from multiple provenance rows
         fromProvenance.push({
           id: act.id,
