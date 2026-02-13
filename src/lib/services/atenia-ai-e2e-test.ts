@@ -86,7 +86,7 @@ export async function runAteniaE2ETest(
     try {
       const { data: connectors } = await (supabase.from("provider_connectors") as any)
         .select("id, name, key")
-        .or("key.eq.SAMAI_ESTADOS,adapter_key.ilike.%samai_estados%,name.ilike.%samai%estados%")
+        .or("key.eq.SAMAI_ESTADOS,name.ilike.%samai%estados%")
         .limit(1);
 
       const connector = connectors?.[0];
