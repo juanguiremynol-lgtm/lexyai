@@ -222,12 +222,16 @@ export interface WorkItemForDemonitor {
   last_error_code?: string | null;
   last_synced_at?: string | null;
   monitoring_enabled?: boolean;
+  /** Count of publicaciones for this work item — if > 0, block demonitor */
+  publicaciones_count?: number | null;
+  /** Count of recent actuaciones from any source — if > 0, block demonitor */
+  recent_acts_count?: number | null;
 }
 
 export interface DemonitorDecision {
   demonitor: boolean;
   reason?: string;
-  blockedBy?: ('PENDING_RETRY' | 'TRANSIENT_ERROR' | 'RECENTLY_HEALTHY')[];
+  blockedBy?: ('PENDING_RETRY' | 'TRANSIENT_ERROR' | 'RECENTLY_HEALTHY' | 'HAS_PUBLICACIONES' | 'HAS_RECENT_ACTS')[];
 }
 
 export interface RetryEnqueueDecision {
@@ -338,6 +342,11 @@ export function shouldEnqueueRetry(
  *  1) PENDING_RETRY — item has an active retry row
  *  2) TRANSIENT_ERROR — last_error_code is a transient scraping state
  *  3) RECENTLY_HEALTHY — last_synced_at within staleness window
+ *  4) HAS_PUBLICACIONES — work item has publicaciones from any source
+ *  5) HAS_RECENT_ACTS — work item has recent actuaciones from any source
+ *
+ * Gates 4 & 5 prevent demonitoring based exclusively on CPNU/SAMAI 404s
+ * when other providers (e.g. Publicaciones Procesales) are actively providing data.
  *
  * Also requires last_error_code to be a 404-type signal (not generic failure).
  */
@@ -369,9 +378,8 @@ export function shouldDemonitor(
     item.last_error_code &&
     !(DEMONITOR_ELIGIBLE_ERROR_CODES as readonly string[]).includes(item.last_error_code)
   ) {
-    // If it's not transient AND not 404-type, it's some other failure — also block
     if (!blockedBy.includes('TRANSIENT_ERROR')) {
-      blockedBy.push('TRANSIENT_ERROR'); // reuse label for "non-404 error code"
+      blockedBy.push('TRANSIENT_ERROR');
     }
   }
 
@@ -381,6 +389,18 @@ export function shouldDemonitor(
     if (item.last_synced_at > cutoff) {
       blockedBy.push('RECENTLY_HEALTHY');
     }
+  }
+
+  // Gate 4: Has publicaciones — don't demonitor if Publicaciones Procesales
+  // or any other estados source has data for this work item
+  if ((item.publicaciones_count ?? 0) > 0) {
+    blockedBy.push('HAS_PUBLICACIONES');
+  }
+
+  // Gate 5: Has recent actuaciones from any source — don't demonitor if
+  // other providers besides the failing one have contributed data
+  if ((item.recent_acts_count ?? 0) > 0) {
+    blockedBy.push('HAS_RECENT_ACTS');
   }
 
   if (blockedBy.length > 0) {
@@ -427,4 +447,50 @@ export function buildAuditEvidence(params: {
 export function retryJitterMs(): number {
   const [minSec, maxSec] = RETRY_JITTER_SECONDS;
   return (minSec + Math.floor(Math.random() * (maxSec - minSec + 1))) * 1000;
+}
+
+/**
+ * Enriches demonitor candidate work items with publicaciones_count and
+ * recent_acts_count so shouldDemonitor() can apply its safety gates.
+ *
+ * This prevents demonitoring work items that have data from Publicaciones
+ * Procesales or other sources even when CPNU/SAMAI return NOT_FOUND.
+ */
+export async function enrichDemonitorCandidates(
+  supabase: any,
+  candidates: WorkItemForDemonitor[],
+): Promise<WorkItemForDemonitor[]> {
+  if (candidates.length === 0) return candidates;
+
+  const ids = candidates.map((c) => c.id);
+
+  // Batch-fetch publicaciones counts
+  const { data: pubRows } = await supabase
+    .from("work_item_publicaciones")
+    .select("work_item_id")
+    .in("work_item_id", ids);
+
+  const pubCountMap = new Map<string, number>();
+  for (const r of pubRows || []) {
+    pubCountMap.set(r.work_item_id, (pubCountMap.get(r.work_item_id) || 0) + 1);
+  }
+
+  // Batch-fetch recent acts counts (last 30 days)
+  const recentCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: actRows } = await supabase
+    .from("work_item_acts")
+    .select("work_item_id")
+    .in("work_item_id", ids)
+    .gte("created_at", recentCutoff);
+
+  const actCountMap = new Map<string, number>();
+  for (const r of actRows || []) {
+    actCountMap.set(r.work_item_id, (actCountMap.get(r.work_item_id) || 0) + 1);
+  }
+
+  return candidates.map((c) => ({
+    ...c,
+    publicaciones_count: pubCountMap.get(c.id) ?? 0,
+    recent_acts_count: actCountMap.get(c.id) ?? 0,
+  }));
 }

@@ -14,6 +14,7 @@ import {
   shouldDemonitor,
   buildAuditEvidence,
   retryJitterMs,
+  enrichDemonitorCandidates,
   TRANSIENT_ERROR_CODES,
   DEMONITOR_ELIGIBLE_ERROR_CODES,
   DEFAULT_STALENESS_GUARD_DAYS,
@@ -342,14 +343,16 @@ async function buildHealthSnapshot(
 
   // 5. Demonitor eligibility
   const threshold = config.auto_demonitor_after_404s;
-  const { data: demonitorCandidates } = await supabase
+  const { data: rawDemonitorCandidates } = await supabase
     .from("work_items")
     .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at")
     .eq("organization_id", orgId)
     .eq("monitoring_enabled", true)
     .gte("consecutive_404_count", threshold);
 
-  const candidateIds = (demonitorCandidates || []).map((c: any) => c.id);
+  const demonitorCandidates = await enrichDemonitorCandidates(supabase, rawDemonitorCandidates || []);
+
+  const candidateIds = demonitorCandidates.map((c: any) => c.id);
   let retryIdsForCandidates = new Set<string>();
   if (candidateIds.length > 0) {
     const { data: retries } = await (supabase.from("sync_retry_queue") as any)
@@ -362,10 +365,12 @@ async function buildHealthSnapshot(
     PENDING_RETRY: 0,
     TRANSIENT_ERROR: 0,
     RECENTLY_HEALTHY: 0,
+    HAS_PUBLICACIONES: 0,
+    HAS_RECENT_ACTS: 0,
   };
   let eligibleCount = 0;
 
-  for (const item of demonitorCandidates || []) {
+  for (const item of demonitorCandidates) {
     const decision = shouldDemonitor(item, threshold, retryIdsForCandidates.has(item.id));
     if (decision.demonitor) {
       eligibleCount++;
@@ -607,14 +612,16 @@ async function validateAndHeal(
   // (b) Execute auto-demonitor for eligible items
   if (health.demonitors.eligible_count > 0 && config.auto_demonitor_after_404s > 0) {
     const threshold = config.auto_demonitor_after_404s;
-    const { data: demonitorCandidates } = await supabase
+    const { data: rawDemonitorCandidates } = await supabase
       .from("work_items")
       .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
       .gte("consecutive_404_count", threshold);
 
-    if (demonitorCandidates && demonitorCandidates.length > 0) {
+    const demonitorCandidates = await enrichDemonitorCandidates(supabase, rawDemonitorCandidates || []);
+
+    if (demonitorCandidates.length > 0) {
       const candIds = demonitorCandidates.map((c: any) => c.id);
       const { data: retries } = await (supabase.from("sync_retry_queue") as any)
         .select("work_item_id")

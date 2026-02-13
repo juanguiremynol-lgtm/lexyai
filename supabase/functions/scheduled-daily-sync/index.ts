@@ -5,6 +5,7 @@ import {
   isScrapingPending,
   shouldDemonitor,
   buildAuditEvidence,
+  enrichDemonitorCandidates,
   PUBLICACIONES_WORKFLOWS,
   DEFAULT_STALENESS_GUARD_DAYS,
 } from "../_shared/syncPolicy.ts";
@@ -453,14 +454,16 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
     const threshold = aiConfig?.auto_demonitor_after_404s ?? 5;
     if (threshold <= 0) return;
 
-    const { data: candidates } = await supabase
+    const { data: rawCandidates } = await supabase
       .from("work_items")
       .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at, monitoring_enabled")
       .eq("organization_id", orgId)
       .eq("monitoring_enabled", true)
       .gte("consecutive_404_count", threshold);
 
-    if (!candidates || candidates.length === 0) return;
+    if (!rawCandidates || rawCandidates.length === 0) return;
+
+    const candidates = await enrichDemonitorCandidates(supabase, rawCandidates);
 
     const candidateIds = candidates.map((c: any) => c.id);
     const { data: pendingRetries } = await (supabase.from("sync_retry_queue") as any)
