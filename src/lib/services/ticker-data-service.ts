@@ -377,17 +377,19 @@ export async function getTickerItems(
   }
 
   // Map actuaciones to ticker items
+  // IMPORTANT: SAMAI_ESTADOS records are treated as ESTADO, not ACTUACION
   if (actuacionesResult.data) {
     for (const act of actuacionesResult.data) {
       const workItem = act.work_items as any;
       if (!workItem) continue;
 
-      const content = act.description || 'Actuación registrada';
+      const isSamaiEstado = act.source === 'SAMAI_ESTADOS';
+      const content = act.description || (isSamaiEstado ? 'Estado electrónico' : 'Actuación registrada');
       const severity = detectActuacionSeverity(content);
 
       tickerItems.push({
         id: act.id,
-        type: 'ACTUACION',
+        type: isSamaiEstado ? 'ESTADO' : 'ACTUACION',
         source: mapSource(act.source),
         radicado: workItem.radicado || '',
         work_item_id: act.work_item_id,
@@ -400,7 +402,7 @@ export async function getTickerItems(
         fecha_desfijacion: null,
         terminos_inician: null,
         is_deadline_trigger: false,
-        missing_fecha_desfijacion: false, // N/A for actuaciones
+        missing_fecha_desfijacion: isSamaiEstado, // Flag for estados without desfijacion
         severity,
         created_at: act.created_at,
       });

@@ -43,6 +43,7 @@ import {
   ExternalLink,
   Sparkles,
   AlertTriangle,
+  Scale,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -80,6 +81,16 @@ function mapSource(source: string | null | undefined): TickerItemSource {
 const PUB_SELECT = `
   id, work_item_id, title, annotation, published_at, fecha_fijacion, fecha_desfijacion,
   despacho, tipo_publicacion, source, pdf_url, raw_data, created_at,
+  work_items!inner (
+    id, radicado, workflow_type, organization_id,
+    authority_name, demandantes, demandados,
+    client:clients ( name )
+  )
+`;
+
+const SAMAI_ESTADOS_SELECT = `
+  id, work_item_id, description, act_date, act_type, source,
+  despacho, raw_data, created_at, source_url,
   work_items!inner (
     id, radicado, workflow_type, organization_id,
     authority_name, demandantes, demandados,
@@ -134,14 +145,59 @@ function mapPubRow(pub: any, reason: MatchReason): EstadoHoyItemWithMeta {
 
 /* ── dual-criteria fetch ── */
 
+function mapSamaiEstadoRow(act: any, reason: MatchReason): EstadoHoyItemWithMeta {
+  const wi = act.work_items as any;
+  const content = act.description || "Estado electrónico";
+  const estadoType = detectEstadoType(content);
+  const rawData = act.raw_data as Record<string, any> | null;
+  const termCalc = calculateTermStart(null, rawData?.fechaInicial, act.act_date);
+  const ejecutoria = isInEjecutoriaWindow(termCalc.date);
+
+  let severity: TickerItemSeverity = "MEDIUM";
+  if (estadoType.type === "SENTENCIA") severity = "CRITICAL";
+  else if (estadoType.type === "AUTO_ADMISORIO") severity = "HIGH";
+
+  return {
+    id: act.id,
+    type: "ESTADO" as const,
+    source: "SAMAI" as TickerItemSource,
+    radicado: wi?.radicado || "",
+    work_item_id: act.work_item_id,
+    workflow_type: wi?.workflow_type || "",
+    client_name: wi?.client?.name || undefined,
+    authority_name: wi?.authority_name || undefined,
+    demandantes: wi?.demandantes || undefined,
+    demandados: wi?.demandados || undefined,
+    content,
+    date: act.act_date,
+    fecha_desfijacion: null,
+    fecha_fijacion_raw: act.act_date,
+    terminos_inician: termCalc.date,
+    is_deadline_trigger: estadoType.triggersDeadline,
+    missing_fecha_desfijacion: true,
+    severity,
+    tipo_publicacion: act.act_type || "ESTADO",
+    despacho: act.despacho || undefined,
+    pdf_url: act.source_url || undefined,
+    created_at: act.created_at,
+    actuacion_type: estadoType.label,
+    inicia_termino: termCalc.date,
+    inicia_termino_source: termCalc.source,
+    is_in_ejecutoria_window: ejecutoria.isInWindow,
+    ejecutoria_ends_at: ejecutoria.windowEndsAt,
+    match_reason: reason,
+    is_new: reason === "discovered" || reason === "both",
+  };
+}
+
 async function fetchEstadosHoy(
   organizationId: string,
   window: HoyWindow,
   search?: string
-): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number }> {
+): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number; samaiEstadosCount: number }> {
   const bounds = getWindowBounds(window);
 
-  const [discoveredResult, courtPostedResult] = await Promise.all([
+  const [discoveredResult, courtPostedResult, samaiEstadosResult] = await Promise.all([
     supabase
       .from("work_item_publicaciones")
       .select(PUB_SELECT)
@@ -160,10 +216,22 @@ async function fetchEstadosHoy(
       .lte("fecha_fijacion", bounds.date_end)
       .order("fecha_fijacion", { ascending: false })
       .limit(200),
+    // SAMAI_ESTADOS records from work_item_acts — treated as first-class estados
+    supabase
+      .from("work_item_acts")
+      .select(SAMAI_ESTADOS_SELECT)
+      .eq("work_items.organization_id", organizationId)
+      .eq("source", "SAMAI_ESTADOS")
+      .eq("is_archived", false)
+      .gte("created_at", bounds.created_start)
+      .lte("created_at", bounds.created_end)
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
 
   if (discoveredResult.error) console.error("[estados-hoy] discovered query error:", discoveredResult.error);
   if (courtPostedResult.error) console.error("[estados-hoy] court-posted query error:", courtPostedResult.error);
+  if (samaiEstadosResult.error) console.error("[estados-hoy] SAMAI_ESTADOS query error:", samaiEstadosResult.error);
 
   const itemMap = new Map<string, EstadoHoyItemWithMeta>();
 
@@ -184,6 +252,16 @@ async function fetchEstadosHoy(
     }
   }
 
+  // Merge SAMAI_ESTADOS records — use prefixed ID to avoid collision with publicaciones IDs
+  let samaiEstadosCount = 0;
+  for (const row of samaiEstadosResult.data || []) {
+    const key = `samai_estado_${row.id}`;
+    if (!itemMap.has(key)) {
+      itemMap.set(key, mapSamaiEstadoRow(row, "discovered"));
+      samaiEstadosCount++;
+    }
+  }
+
   let items = Array.from(itemMap.values());
 
   if (search) {
@@ -200,7 +278,7 @@ async function fetchEstadosHoy(
 
   items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  return { items, total: items.length, discoveredCount, courtPostedCount: courtOnlyCount };
+  return { items, total: items.length, discoveredCount, courtPostedCount: courtOnlyCount, samaiEstadosCount };
 }
 
 /* ── page component ── */
@@ -295,6 +373,15 @@ export default function EstadosHoy() {
           </span>
           <span>·</span>
           <span>📅 <strong className="text-foreground">{data.courtPostedCount}</strong> por fecha fijación</span>
+          {(data.samaiEstadosCount ?? 0) > 0 && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1">
+                <Scale className="h-4 w-4 text-blue-500" />
+                <strong className="text-foreground">{data.samaiEstadosCount}</strong> SAMAI Estados
+              </span>
+            </>
+          )}
           {deadlineItems > 0 && (
             <>
               <span>·</span>
@@ -401,7 +488,9 @@ function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavig
               </Badge>
             )}
           </div>
-          <Badge variant="outline" className="text-xs text-muted-foreground">{item.source}</Badge>
+          <Badge variant="outline" className={cn("text-xs", item.source === 'SAMAI' ? "text-blue-600 border-blue-300 bg-blue-500/10" : "text-muted-foreground")}>
+            {item.source === 'SAMAI' ? '⚡ SAMAI Estados' : item.source}
+          </Badge>
         </div>
 
         {/* Radicado + court */}
