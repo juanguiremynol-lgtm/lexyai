@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Activity, Server, Clock, CheckCircle2, XCircle, AlertTriangle, RefreshCw, CalendarClock } from "lucide-react";
 import { format, subHours, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
-import { MasterDebugPanel } from "@/components/debug/MasterDebugPanel";
 
 interface JobRun {
   id: string;
@@ -129,9 +128,6 @@ export function PlatformSystemHealthTab() {
 
   return (
     <div className="space-y-6">
-      {/* Master Debug Panel — replaces UnifiedDebugConsole + EstadosDebugPanel */}
-      <MasterDebugPanel />
-      
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
