@@ -72,6 +72,7 @@ const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
     ],
     ESTADOS: [
       { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
+      { key: "publicaciones", role: "FALLBACK", type: "BUILTIN" },
     ],
   },
   TUTELA: {
@@ -145,7 +146,7 @@ const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
   },
   CPACA: {
     ACTUACIONES: new Set(["samai", "cpnu"]),
-    ESTADOS: new Set(["SAMAI_ESTADOS", "samai_estados", "samai-estados"]),
+    ESTADOS: new Set(["SAMAI_ESTADOS", "samai_estados", "samai-estados", "publicaciones"]),
   },
   TUTELA: {
     ACTUACIONES: new Set(["cpnu", "samai", "tutelas-api", "tutelas"]),
