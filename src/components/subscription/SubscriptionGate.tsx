@@ -5,7 +5,6 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangle, Clock, CreditCard } from "lucide-react";
-import { isWithinGracePeriod } from "@/lib/billing";
 
 interface SubscriptionGateProps {
   children: ReactNode;
@@ -20,34 +19,35 @@ interface SubscriptionGateProps {
  * SubscriptionGate - Restricts access based on subscription status
  * 
  * Use this component to wrap routes or sections that require active subscription.
- * - During trial/grace period: allows full access
+ * - During trial: allows full access
  * - Active subscription: allows full access
  * - Expired/suspended: blocks access and shows upgrade prompt
  */
 export function SubscriptionGate({ children, allowReadOnly = false }: SubscriptionGateProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { subscription, isLoading, isTrialing, trialDaysRemaining } = useSubscription();
+  const { subscription, billingSubscription, isLoading, isTrialing, trialDaysRemaining, isActive } = useSubscription();
   const { organization } = useOrganization();
   const [shouldBlock, setShouldBlock] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
 
-    // Allow access during grace period (even without subscription)
-    if (isWithinGracePeriod()) {
-      setShouldBlock(false);
-      return;
-    }
-
-    // Allow if trialing
+    // Allow if in active trial
     if (isTrialing && trialDaysRemaining > 0) {
       setShouldBlock(false);
       return;
     }
 
-    // Allow if active subscription
-    if (subscription?.status === "active") {
+    // Allow if billing state is TRIAL or ACTIVE
+    const billingStatus = billingSubscription?.status;
+    if (billingStatus === "TRIAL" || billingStatus === "ACTIVE") {
+      setShouldBlock(false);
+      return;
+    }
+
+    // Allow if legacy subscription is active/trialing
+    if (subscription?.status === "active" || subscription?.status === "trialing") {
       setShouldBlock(false);
       return;
     }
@@ -57,10 +57,14 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
       setShouldBlock(true);
       return;
     }
+    if (billingStatus && ["SUSPENDED", "CANCELLED", "EXPIRED", "CHURNED"].includes(billingStatus)) {
+      setShouldBlock(true);
+      return;
+    }
 
     // Default: allow if no subscription info yet
     setShouldBlock(false);
-  }, [isLoading, subscription, isTrialing, trialDaysRemaining]);
+  }, [isLoading, subscription, billingSubscription, isTrialing, trialDaysRemaining, isActive]);
 
   if (isLoading) {
     return (
@@ -85,7 +89,7 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center text-sm text-muted-foreground">
-              Estado: <span className="font-medium text-destructive">{subscription?.status || "Sin suscripción"}</span>
+              Estado: <span className="font-medium text-destructive">{billingSubscription?.status || subscription?.status || "Sin suscripción"}</span>
             </div>
             <div className="flex flex-col gap-2">
               <Button onClick={() => navigate("/pricing")} className="w-full">
@@ -109,19 +113,20 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
  * Hook to check if current user can perform write operations
  */
 export function useSubscriptionAccess() {
-  const { subscription, isTrialing, trialDaysRemaining, isLoading } = useSubscription();
+  const { subscription, billingSubscription, isTrialing, trialDaysRemaining, isLoading } = useSubscription();
   
   const canWrite = () => {
     if (isLoading) return false;
     
-    // Allow during grace period
-    if (isWithinGracePeriod()) return true;
-    
-    // Allow if trialing
+    // Allow if in trial
     if (isTrialing && trialDaysRemaining > 0) return true;
     
-    // Allow if active
-    if (subscription?.status === "active") return true;
+    // Allow if billing state is TRIAL or ACTIVE
+    const billingStatus = billingSubscription?.status;
+    if (billingStatus === "TRIAL" || billingStatus === "ACTIVE") return true;
+    
+    // Allow if active legacy subscription
+    if (subscription?.status === "active" || subscription?.status === "trialing") return true;
     
     return false;
   };
@@ -129,7 +134,7 @@ export function useSubscriptionAccess() {
   return {
     canWrite: canWrite(),
     isLoading,
-    subscriptionStatus: subscription?.status || null,
+    subscriptionStatus: billingSubscription?.status || subscription?.status || null,
     isTrialing,
     trialDaysRemaining,
   };

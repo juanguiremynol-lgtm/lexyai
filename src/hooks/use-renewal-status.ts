@@ -18,7 +18,7 @@ import {
 import { billingClock } from '@/lib/billing/billing-clock';
 
 // Re-export with legacy name mapping
-export type RenewalUrgency = 'none' | 'pre_due' | 'due_today' | 'grace_period' | 'suspended';
+export type RenewalUrgency = 'none' | 'trial_ending' | 'pre_due' | 'due_today' | 'grace_period' | 'suspended';
 
 export interface RenewalStatus {
   urgency: RenewalUrgency;
@@ -36,6 +36,8 @@ export interface RenewalStatus {
   showPaywall: boolean;
   isOrgAdmin: boolean;
   isMemberOnly: boolean;
+  isInTrial: boolean;
+  trialDaysRemaining: number;
   tickerMessage: string;
   tickerMessageMember: string;
 }
@@ -78,7 +80,9 @@ export function useRenewalStatus(): RenewalStatus {
       planCode: billingSubscription?.plan_code || null,
       billingCycleMonths: billingSubscription?.billing_cycle_months || 1,
       canPay: false, showTicker: false, showTopTicker: false, showBottomTicker: false,
-      showPaywall: false, isOrgAdmin, isMemberOnly, tickerMessage: '', tickerMessageMember: '',
+      showPaywall: false, isOrgAdmin, isMemberOnly,
+      isInTrial: false, trialDaysRemaining: 0,
+      tickerMessage: '', tickerMessageMember: '',
     };
 
     if (isPlatformAdmin) return defaults;
@@ -93,7 +97,8 @@ export function useRenewalStatus(): RenewalStatus {
     }, now);
 
     const urgency = mapUrgency(computed.urgency);
-    const canPay = isOrgAdmin || !isMemberOnly;
+    // During trial_ending, only org admins see CTA; during billing urgency, org admins can pay
+    const canPay = urgency !== 'trial_ending' && (isOrgAdmin || !isMemberOnly);
     const msgs = buildTickerMessages(computed.urgency, computed.daysUntilDue, computed.graceDaysRemaining);
 
     return {
@@ -104,7 +109,9 @@ export function useRenewalStatus(): RenewalStatus {
       billingCycleMonths: billingSubscription?.billing_cycle_months || 1,
       canPay, showTicker: computed.showTopTicker, showTopTicker: computed.showTopTicker,
       showBottomTicker: computed.showBottomTicker, showPaywall: computed.showPaywall,
-      isOrgAdmin, isMemberOnly, tickerMessage: msgs.admin, tickerMessageMember: msgs.member,
+      isOrgAdmin, isMemberOnly,
+      isInTrial: computed.isInTrial, trialDaysRemaining: computed.trialDaysRemaining,
+      tickerMessage: msgs.admin, tickerMessageMember: msgs.member,
     };
   }, [subscription, billingSubscription, isPlatformAdmin, membershipRole, isSuspended]);
 }

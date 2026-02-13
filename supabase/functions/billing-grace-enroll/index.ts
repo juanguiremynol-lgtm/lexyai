@@ -5,8 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Pricing window constants (must match src/lib/billing/pricing-windows.ts)
-const GRACE_END_AT = "2026-04-30T23:59:59-05:00";
+// Trial duration: 3 months from signup
+const TRIAL_DURATION_MONTHS = 3;
 
 interface RequestBody {
   organization_id: string;
@@ -14,13 +14,11 @@ interface RequestBody {
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Get auth token
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(
@@ -33,12 +31,10 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Client with user auth for permission checks
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
-    // Verify user
     const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
     if (userError || !user) {
       return new Response(
@@ -48,8 +44,6 @@ Deno.serve(async (req) => {
     }
 
     const userId = user.id;
-
-    // Parse body
     const body: RequestBody = await req.json();
     const { organization_id, account_type } = body;
 
@@ -60,27 +54,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Validate account_type
     const validAccountTypes = ["INDIVIDUAL", "FIRM"];
     if (!validAccountTypes.includes(account_type)) {
       return new Response(
         JSON.stringify({ ok: false, code: "BAD_REQUEST", message: "Invalid account_type" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Check if grace period is still active
-    const now = new Date();
-    const graceEnd = new Date(GRACE_END_AT);
-
-    if (now > graceEnd) {
-      return new Response(
-        JSON.stringify({ 
-          ok: false, 
-          code: "GRACE_PERIOD_EXPIRED", 
-          message: "El período de gracia ha terminado",
-          hint: "Por favor selecciona un plan de pago para continuar usando ATENIA."
-        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -100,10 +77,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Service client for DB writes
     const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Update organization metadata with account_type
+    // Update organization metadata with account_type and auth_provider
     const { data: org, error: orgError } = await supabaseService
       .from("organizations")
       .select("id, metadata")
@@ -117,51 +93,46 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Update metadata with account_type
     const existingMetadata = (org.metadata as Record<string, unknown>) || {};
-    const { error: updateOrgError } = await supabaseService
+    const authProvider = user.app_metadata?.provider || "GOOGLE";
+    
+    await supabaseService
       .from("organizations")
       .update({
-        metadata: { ...existingMetadata, account_type },
+        metadata: { ...existingMetadata, account_type, auth_provider: authProvider },
       })
       .eq("id", organization_id);
 
-    if (updateOrgError) {
-      console.error("Failed to update organization metadata:", updateOrgError);
-    }
+    // Compute trial end date: 3 months from now
+    const now = new Date();
+    const trialEndDate = new Date(now);
+    trialEndDate.setMonth(trialEndDate.getMonth() + TRIAL_DURATION_MONTHS);
+    const trialEndAt = trialEndDate.toISOString();
+    const nowIso = now.toISOString();
 
-    // Get trial plan from subscription_plans
-    const { data: trialPlan, error: trialPlanError } = await supabaseService
+    // Get trial plan
+    const { data: trialPlan } = await supabaseService
       .from("subscription_plans")
       .select("id")
       .eq("name", "trial")
       .single();
 
-    if (trialPlanError || !trialPlan) {
-      console.error("Trial plan not found:", trialPlanError);
+    if (!trialPlan) {
       return new Response(
         JSON.stringify({ ok: false, code: "PLAN_NOT_FOUND", message: "Trial plan not found" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const trialEndAt = GRACE_END_AT;
-    const nowIso = now.toISOString();
-
-    // Check if subscription already exists
-    const { data: existingSub, error: subQueryError } = await supabaseService
+    // Check existing subscription
+    const { data: existingSub } = await supabaseService
       .from("subscriptions")
       .select("id, status")
       .eq("organization_id", organization_id)
       .maybeSingle();
 
-    if (subQueryError && subQueryError.code !== "PGRST116") {
-      console.error("Failed to query subscription:", subQueryError);
-    }
-
     if (existingSub) {
-      // Update existing subscription to trialing with grace end date
-      const { error: subUpdateError } = await supabaseService
+      await supabaseService
         .from("subscriptions")
         .update({
           plan_id: trialPlan.id,
@@ -171,17 +142,8 @@ Deno.serve(async (req) => {
           updated_at: nowIso,
         })
         .eq("id", existingSub.id);
-
-      if (subUpdateError) {
-        console.error("Failed to update subscription:", subUpdateError);
-        return new Response(
-          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to update subscription" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
     } else {
-      // Create new subscription
-      const { error: subInsertError } = await supabaseService
+      await supabaseService
         .from("subscriptions")
         .insert({
           organization_id,
@@ -190,35 +152,23 @@ Deno.serve(async (req) => {
           trial_started_at: nowIso,
           trial_ends_at: trialEndAt,
         });
-
-      if (subInsertError) {
-        console.error("Failed to create subscription:", subInsertError);
-        return new Response(
-          JSON.stringify({ ok: false, code: "DB_ERROR", message: "Failed to create subscription" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
     }
 
-    // Upsert billing_subscription_state
-    const { error: stateError } = await supabaseService
+    // Upsert billing_subscription_state with TRIAL status
+    await supabaseService
       .from("billing_subscription_state")
       .upsert({
         organization_id,
-        plan_code: "BASIC", // Default to BASIC during trial
+        plan_code: "BASIC",
         billing_cycle_months: 1,
         currency: "COP",
         current_price_cop_incl_iva: 0,
         intro_offer_applied: false,
-        price_lock_end_at: null,
+        status: "TRIAL",
         trial_end_at: trialEndAt,
+        current_period_end: null, // No billing period during trial
         updated_at: nowIso,
       }, { onConflict: "organization_id" });
-
-    if (stateError) {
-      console.error("Failed to upsert billing_subscription_state:", stateError);
-      // Non-fatal, continue
-    }
 
     // Audit log
     await supabaseService.from("audit_logs").insert({
@@ -230,17 +180,34 @@ Deno.serve(async (req) => {
       entity_id: existingSub?.id || null,
       metadata: { 
         account_type,
+        auth_provider: authProvider,
         trial_end_at: trialEndAt,
-        source: "grace_enroll",
+        trial_duration_months: TRIAL_DURATION_MONTHS,
+        source: "beta_trial_enroll",
       },
     });
 
-    console.log(`[billing-grace-enroll] Enrolled org ${organization_id} in grace period, account_type=${account_type}, trial_end=${trialEndAt}`);
+    // Log to subscription_events
+    await supabaseService.from("subscription_events").insert({
+      organization_id,
+      event_type: "TRIAL_STARTED",
+      description: `Prueba beta gratuita de ${TRIAL_DURATION_MONTHS} meses activada. Finaliza: ${trialEndDate.toLocaleDateString("es-CO")}.`,
+      payload: {
+        trial_end_at: trialEndAt,
+        trial_duration_months: TRIAL_DURATION_MONTHS,
+        account_type,
+        auth_provider: authProvider,
+      },
+      triggered_by: "USER",
+    });
+
+    console.log(`[billing-grace-enroll] Beta trial enrolled org ${organization_id}, trial_end=${trialEndAt}, auth=${authProvider}`);
 
     return new Response(
       JSON.stringify({
         ok: true,
         trial_end_at: trialEndAt,
+        trial_duration_months: TRIAL_DURATION_MONTHS,
         account_type,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

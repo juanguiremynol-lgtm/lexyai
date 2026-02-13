@@ -24,9 +24,17 @@ export {
 // Re-export pricing window utilities
 export {
   LAUNCH_AT,
-  GRACE_END_AT,
   PROMO_END_AT,
-  isWithinGracePeriod,
+  TRIAL_DURATION_MONTHS,
+  BETA_DISCOUNT_MONTHLY_PERCENT,
+  BETA_DISCOUNT_ANNUAL_PERCENT,
+  getBetaDiscountPercent,
+  computeDiscountedPrice,
+  computeTrialEndDate,
   isWithinPromoWindow,
   formatCOP,
+  // Legacy compat (deprecated)
+  GRACE_END_AT,
+  isWithinGracePeriod,
+  getGraceDaysRemaining,
 } from './pricing-windows';

@@ -3,6 +3,11 @@
  *
  * IMPORTANT: No side effects. No Supabase imports. No React.
  * Can be used in frontend, edge functions, and unit tests.
+ * 
+ * NEW POLICY:
+ * - TRIAL: 3-month free trial for all new signups. No tickers, no paywall.
+ * - Billing starts at trial_end_at. First due date = trial_end_at.
+ * - Pre-due tickers start at trial_end_at - 5 days (only after trial is logically "ending").
  */
 
 // ============================================================================
@@ -20,8 +25,9 @@ export type BillingStatus =
   | "CHURNED";
 
 export type RenewalUrgency =
-  | "none"       // Active, due date > 5 days away
-  | "pre_due"    // 1-5 days before due date
+  | "none"       // Active/trial, due date > 5 days away
+  | "trial_ending" // Trial ending within 5 days (informational, no payment CTA yet)
+  | "pre_due"    // 1-5 days before due date (billing active)
   | "due_today"  // Due date is today
   | "grace"      // Past due, within grace (2 days)
   | "suspended"; // Beyond grace period
@@ -60,6 +66,10 @@ export interface ComputedBillingState {
   showPaywall: boolean;
   /** The resolved due date */
   dueDate: Date | null;
+  /** Whether in active trial */
+  isInTrial: boolean;
+  /** Days remaining in trial (0 if not in trial) */
+  trialDaysRemaining: number;
 }
 
 // ============================================================================
@@ -100,6 +110,8 @@ export function computeBillingState(
     showBottomTicker: false,
     showPaywall: false,
     dueDate: null,
+    isInTrial: false,
+    trialDaysRemaining: 0,
   };
 
   // If already cancelled/churned, keep that status
@@ -115,7 +127,43 @@ export function computeBillingState(
     }
   }
 
-  // Determine due date: current_period_end > trial_end_at
+  // ── TRIAL LOGIC ──
+  // If trial_end_at exists AND we haven't passed it yet AND there's no current_period_end
+  // (no billing cycle has started), we're in trial
+  if (input.trialEndAt) {
+    const trialEnd = new Date(input.trialEndAt);
+    const trialDiffMs = trialEnd.getTime() - now.getTime();
+    const trialDiffDays = Math.ceil(trialDiffMs / (1000 * 60 * 60 * 24));
+
+    // Still in trial: trial hasn't ended AND no active billing period set
+    if (trialDiffDays > 0 && !input.currentPeriodEnd) {
+      const isInTrial = true;
+      const trialDaysRemaining = trialDiffDays;
+
+      // Show informational "trial ending" notice in last 5 days of trial
+      // BUT no payment tickers (no CTA to pay yet)
+      let urgency: RenewalUrgency = "none";
+      let showTopTicker = false;
+      if (trialDiffDays <= PRE_DUE_NOTICE_DAYS) {
+        urgency = "trial_ending";
+        showTopTicker = true;
+      }
+
+      return {
+        ...defaults,
+        status: "TRIAL",
+        urgency,
+        daysUntilDue: trialDaysRemaining,
+        dueDate: trialEnd,
+        isInTrial,
+        trialDaysRemaining,
+        showTopTicker,
+      };
+    }
+  }
+
+  // ── BILLING LOGIC (post-trial or no trial) ──
+  // Determine due date: currentPeriodEnd takes precedence, fallback to trialEndAt
   const dueDateStr = input.currentPeriodEnd || input.trialEndAt;
   if (!dueDateStr) {
     // No due date — treat as active (new account, pending setup)
@@ -150,13 +198,11 @@ export function computeBillingState(
     status = "SUSPENDED";
   } else if (urgency === "grace" || urgency === "due_today") {
     status = "PAST_DUE";
-  } else if (input.status === "TRIAL" || (!input.currentPeriodEnd && input.trialEndAt)) {
-    status = "TRIAL";
   } else {
     status = "ACTIVE";
   }
 
-  // Ticker visibility
+  // Ticker visibility — NO tickers during trial (handled above)
   const showTopTicker = urgency !== "none";
   const showBottomTicker =
     urgency === "due_today" || urgency === "grace" || urgency === "suspended";
@@ -173,6 +219,8 @@ export function computeBillingState(
     showBottomTicker,
     showPaywall,
     dueDate,
+    isInTrial: false,
+    trialDaysRemaining: 0,
   };
 }
 
@@ -200,6 +248,36 @@ export function computeStatusTransition(
 
   // No change needed
   if (computed.status === currentStatus) return null;
+
+  // TRIAL → ACTIVE (trial ended, billing starts)
+  if (currentStatus === "TRIAL" && computed.status === "ACTIVE") {
+    return {
+      newStatus: "ACTIVE",
+      reason: "Período de prueba finalizado. Facturación activa.",
+      shouldSuspend: false,
+      shouldNotify: true,
+    };
+  }
+
+  // TRIAL → PAST_DUE (trial ended, already overdue)
+  if (currentStatus === "TRIAL" && computed.status === "PAST_DUE") {
+    return {
+      newStatus: "PAST_DUE",
+      reason: `Período de prueba finalizado. Pago vencido. Período de gracia de ${GRACE_PERIOD_DAYS} días inicia.`,
+      shouldSuspend: false,
+      shouldNotify: true,
+    };
+  }
+
+  // TRIAL → SUSPENDED (trial ended, way past due)
+  if (currentStatus === "TRIAL" && computed.status === "SUSPENDED") {
+    return {
+      newStatus: "SUSPENDED",
+      reason: "Período de prueba finalizado. Cuenta suspendida por falta de pago.",
+      shouldSuspend: true,
+      shouldNotify: true,
+    };
+  }
 
   // Moving to PAST_DUE
   if (computed.status === "PAST_DUE" && currentStatus === "ACTIVE") {
@@ -247,6 +325,11 @@ export function buildTickerMessages(
   graceDaysRemaining: number
 ): TickerMessages {
   switch (urgency) {
+    case "trial_ending":
+      return {
+        admin: `Tu período de prueba gratuito termina en ${daysUntilDue} día${daysUntilDue > 1 ? "s" : ""}. Elige un plan para continuar sin interrupciones.`,
+        member: `El período de prueba de la cuenta termina en ${daysUntilDue} día${daysUntilDue > 1 ? "s" : ""}. Contacta al administrador.`,
+      };
     case "pre_due":
       return {
         admin: `Tu renovación vence en ${daysUntilDue} día${daysUntilDue > 1 ? "s" : ""}. Paga ahora para evitar interrupciones.`,
