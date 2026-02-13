@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,44 @@ export default function Settings() {
       if (error) throw error;
       return data;
     },
+  });
+
+  // Check if danger zone is unlocked (active token from Atenia AI)
+  const { data: dangerZoneUnlocked } = useQuery({
+    queryKey: ["danger-zone-unlock"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return false;
+      const { data, error } = await supabase
+        .from("danger_zone_unlocks")
+        .select("id, expires_at")
+        .eq("user_id", user.id)
+        .gte("expires_at", new Date().toISOString())
+        .order("expires_at", { ascending: false })
+        .limit(1);
+      if (error) return false;
+      return data && data.length > 0;
+    },
+    refetchInterval: 30_000, // Re-check every 30s for expiration
+  });
+
+  const isDangerZoneVisible = !!dangerZoneUnlocked;
+
+  const dangerZoneExpiry = useQuery({
+    queryKey: ["danger-zone-unlock-expiry"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data } = await supabase
+        .from("danger_zone_unlocks")
+        .select("expires_at")
+        .eq("user_id", user.id)
+        .gte("expires_at", new Date().toISOString())
+        .order("expires_at", { ascending: false })
+        .limit(1);
+      return data?.[0]?.expires_at || null;
+    },
+    enabled: isDangerZoneVisible,
   });
 
   const updateProfile = useMutation({
@@ -175,10 +213,12 @@ export default function Settings() {
           <TabsTrigger value="estados">Estados</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
-          <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">
-            <AlertTriangle className="h-4 w-4 mr-1" />
-            Peligro
-          </TabsTrigger>
+          {isDangerZoneVisible && (
+            <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Peligro
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {isAdmin && (
@@ -519,11 +559,29 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="danger" className="space-y-6">
-          <ArchivedItemsSection />
-          <PurgeLegacyDataSection />
-          <MasterDeleteSection />
-        </TabsContent>
+        {isDangerZoneVisible && (
+          <TabsContent value="danger" className="space-y-6">
+            <Card className="border-amber-500/50 bg-amber-500/5">
+              <CardContent className="py-4">
+                <div className="flex items-center gap-3 text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-medium">Zona de Peligro activa temporalmente</p>
+                    <p className="text-muted-foreground">
+                      Habilitada por Atenia AI. 
+                      {dangerZoneExpiry.data && (
+                        <> Expira: {new Date(dangerZoneExpiry.data).toLocaleString("es-CO")}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <ArchivedItemsSection />
+            <PurgeLegacyDataSection />
+            <MasterDeleteSection />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

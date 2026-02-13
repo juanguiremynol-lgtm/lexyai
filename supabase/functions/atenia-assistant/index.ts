@@ -44,6 +44,7 @@ const ACTION_ALLOWLIST = new Set([
   "RUN_MASTER_SYNC_SCOPE",
   "ESCALATE_TO_ADMIN_QUEUE",
   "CREATE_USER_REPORT",
+  "UNLOCK_DANGER_ZONE",
 ]);
 
 // ---- Risk classification ----
@@ -55,6 +56,8 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "RUN_SYNC_WORK_ITEM":
     case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
       return "SAFE";
+    case "UNLOCK_DANGER_ZONE":
+      return "CONFIRM_REQUIRED";
     case "TOGGLE_MONITORING":
     case "RUN_MASTER_SYNC_SCOPE":
       return "CONFIRM_REQUIRED";
@@ -115,6 +118,15 @@ ALLOWLISTED ACTIONS:
 - RUN_MASTER_SYNC_SCOPE: Run master sync (platform admin only, CONFIRM_REQUIRED)
 - ESCALATE_TO_ADMIN_QUEUE: Escalate issue to admin queue
 - CREATE_USER_REPORT: Create a structured report for the supervisor panel
+- UNLOCK_DANGER_ZONE: Temporarily enable the Danger Zone in Settings for 12 hours (CONFIRM_REQUIRED)
+
+DANGER ZONE POLICY (CRITICAL):
+When a user asks about deleting data, purging data, accessing the danger zone, or recovering soft-deleted items:
+1. If the user is a regular member of an organization (NOT admin/owner), respond: "La recuperación de elementos eliminados y la purga de datos son funciones exclusivas del administrador de la organización. Contacte a su administrador para solicitar esta acción."
+2. If the user is an org admin/owner OR has no organization, you may propose the UNLOCK_DANGER_ZONE action.
+3. ALWAYS warn that: "⚠️ ADVERTENCIA: La Zona de Peligro permite eliminar datos de forma PERMANENTE e IRREVERSIBLE. El acceso se habilitará por 12 horas."
+4. The action requires explicit user confirmation (risk=CONFIRM_REQUIRED).
+5. Never propose UNLOCK_DANGER_ZONE proactively — only when the user explicitly requests danger zone access, data deletion, or data purge.
 
 OUTPUT FORMAT: Always respond with valid JSON matching this structure:
 {
@@ -395,6 +407,34 @@ async function executeAction(
         .single();
       if (error) throw new Error(error.message);
       return { ok: true, report_id: data?.id };
+    }
+
+    case "UNLOCK_DANGER_ZONE": {
+      const userId = ctx.user?.id;
+      if (!userId) throw new Error("User ID required");
+
+      // Check if user is org admin or has no org
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      const hasOrg = !!(ctx.user as any)?.organization_id;
+
+      if (hasOrg && !isOrgAdmin) {
+        throw new Error("Solo administradores de la organización pueden acceder a la Zona de Peligro.");
+      }
+
+      // Insert 12-hour unlock
+      const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await adminClient
+        .from("danger_zone_unlocks")
+        .insert({
+          user_id: userId,
+          granted_by: "atenia_assistant",
+          expires_at: expiresAt,
+        })
+        .select("id, expires_at")
+        .single();
+
+      if (error) throw new Error(error.message);
+      return { ok: true, unlock_id: data?.id, expires_at: data?.expires_at };
     }
 
     default:
