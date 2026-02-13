@@ -1,11 +1,10 @@
 /**
- * internal-bootstrap-secret — One-time bootstrap for provider instance secrets.
- * Uses a bootstrap token for auth instead of user session.
+ * internal-bootstrap-secret — Self-contained bootstrap for provider instance secrets.
+ * Generates its own AES key, encrypts the secret, and stores both.
  * DELETE THIS FUNCTION after initial setup.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { encryptSecret } from "../_shared/secretsCrypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,48 +12,29 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-bootstrap-token",
 };
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Auth: accept service role key OR anon key with special header
-    const authHeader = req.headers.get("authorization") || "";
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const token = authHeader.replace("Bearer ", "");
-    
-    // Allow if the request comes through the functions gateway (apikey is verified by Supabase)
-    // This is a one-time bootstrap, secured by the function being temporary
     const bootstrapKey = req.headers.get("x-bootstrap-token") || "";
-    // Accept: last 16 of service key OR a specific one-time passphrase
-    const isAuthorized = bootstrapKey === "BOOTSTRAP_SAMAI_2026" || token === serviceKey;
-    
-    if (!isAuthorized) {
-      return new Response(JSON.stringify({ error: "Invalid bootstrap auth" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (bootstrapKey !== "BOOTSTRAP_SAMAI_2026") {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const adminClient = createClient(supabaseUrl, svcKey);
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const adminClient = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
-    const { instance_id, secret_value, enable = true, action } = body;
-
-    // Generate a proper AES-256 key (for setting up ATENIA_SECRETS_KEY_B64)
-    if (action === "generate_key") {
-      const keyBytes = crypto.getRandomValues(new Uint8Array(32));
-      let binary = '';
-      for (let i = 0; i < keyBytes.length; i++) binary += String.fromCharCode(keyBytes[i]);
-      const b64Key = btoa(binary);
-      return new Response(
-        JSON.stringify({ ok: true, key_b64: b64Key, length_bytes: 32 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    const { instance_id, secret_value, enable = true } = body;
 
     if (!instance_id || !secret_value) {
       return new Response(
@@ -63,7 +43,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Deactivate existing
+    // Deactivate existing secrets
     await adminClient
       .from("provider_instance_secrets")
       .update({ is_active: false })
@@ -81,24 +61,80 @@ Deno.serve(async (req) => {
 
     const nextVersion = (lastSecret?.key_version || 0) + 1;
 
-    // Encrypt — log key env status for debugging
-    const keyEnv = Deno.env.get("ATENIA_SECRETS_KEY_B64") || "";
-    console.log("KEY_ENV length:", keyEnv.length, "first4:", keyEnv.slice(0, 4));
+    // Try using the shared crypto module first
+    let cipher: Uint8Array;
+    let nonce: Uint8Array;
     
-    let encResult: { cipher: Uint8Array; nonce: Uint8Array };
     try {
-      encResult = await encryptSecret(secret_value);
-    } catch (encErr: unknown) {
-      const msg = encErr instanceof Error ? encErr.message : String(encErr);
-      console.error("Encryption error:", msg);
+      // Try the env-based approach
+      const keyB64 = Deno.env.get("ATENIA_SECRETS_KEY_B64") || "";
+      console.log("Attempting encryption with key length:", keyB64.length);
+      
+      // Manual base64 decode
+      const bin = atob(keyB64);
+      const keyRaw = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) keyRaw[i] = bin.charCodeAt(i);
+      
+      if (keyRaw.byteLength !== 32) {
+        throw new Error(`Key is ${keyRaw.byteLength} bytes, need 32`);
+      }
+      
+      const aesKey = await crypto.subtle.importKey("raw", keyRaw, "AES-GCM", false, ["encrypt", "decrypt"]);
+      nonce = crypto.getRandomValues(new Uint8Array(12));
+      const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aesKey, new TextEncoder().encode(secret_value));
+      cipher = new Uint8Array(cipherBuf);
+    } catch (e) {
+      // Fallback: generate a new key, store it, and encrypt
+      console.log("Shared key failed, generating new key:", e instanceof Error ? e.message : String(e));
+      
+      const newKeyRaw = crypto.getRandomValues(new Uint8Array(32));
+      let binary = '';
+      for (let i = 0; i < newKeyRaw.length; i++) binary += String.fromCharCode(newKeyRaw[i]);
+      const newKeyB64 = btoa(binary);
+      
+      console.log("Generated new AES key, length:", newKeyB64.length, "Store this as ATENIA_SECRETS_KEY_B64:", newKeyB64);
+      
+      const aesKey = await crypto.subtle.importKey("raw", newKeyRaw, "AES-GCM", false, ["encrypt", "decrypt"]);
+      nonce = crypto.getRandomValues(new Uint8Array(12));
+      const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aesKey, new TextEncoder().encode(secret_value));
+      cipher = new Uint8Array(cipherBuf);
+      
+      // Return with the key so it can be saved
+      const { data: newSecret, error: secErr } = await adminClient
+        .from("provider_instance_secrets")
+        .insert({
+          provider_instance_id: instance_id,
+          organization_id: null,
+          key_version: nextVersion,
+          is_active: enable,
+          cipher_text: cipher,
+          nonce,
+          created_by: null,
+          scope: "PLATFORM",
+        })
+        .select("id, key_version, is_active")
+        .single();
+
+      if (secErr) {
+        return new Response(
+          JSON.stringify({ error: "Failed to store", detail: secErr.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       return new Response(
-        JSON.stringify({ error: `Encryption failed: ${msg}`, key_length: keyEnv.length }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ 
+          ok: true, 
+          secret: newSecret, 
+          instance_id,
+          IMPORTANT_save_this_key: newKeyB64,
+          message: "Secret encrypted with a NEW key. You MUST update ATENIA_SECRETS_KEY_B64 to this exact value for decryption to work."
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    const { cipher, nonce } = encResult;
 
-    // Insert
+    // Insert with existing key
     const { data: newSecret, error: secErr } = await adminClient
       .from("provider_instance_secrets")
       .insert({
@@ -122,14 +158,13 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, secret: newSecret, instance_id }),
+      JSON.stringify({ ok: true, secret: newSecret, instance_id, used_existing_key: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
