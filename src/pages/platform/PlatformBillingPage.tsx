@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ShieldAlert,
   Settings,
+  FileSpreadsheet,
 } from "lucide-react";
 import { BillingOverviewSection } from "@/components/platform/billing/BillingOverviewSection";
 import { BillingGatewaySection } from "@/components/platform/billing/BillingGatewaySection";
@@ -24,6 +25,7 @@ import { BillingTransactionsSection } from "@/components/platform/billing/Billin
 import { BillingDunningSection } from "@/components/platform/billing/BillingDunningSection";
 import { BillingFraudSection } from "@/components/platform/billing/BillingFraudSection";
 import { BillingSettingsSection } from "@/components/platform/billing/BillingSettingsSection";
+import { BillingAccountingSection } from "@/components/platform/billing/BillingAccountingSection";
 
 const billingSubPages = [
   { id: "overview", label: "Resumen", icon: LayoutDashboard },
@@ -35,6 +37,7 @@ const billingSubPages = [
   { id: "dunning", label: "Cobros y Morosidad", icon: AlertTriangle },
   { id: "fraud", label: "Fraude y Verificación", icon: ShieldAlert },
   { id: "settings", label: "Configuración", icon: Settings },
+  { id: "accounting", label: "Contabilidad", icon: FileSpreadsheet },
 ] as const;
 
 type BillingSubPage = (typeof billingSubPages)[number]["id"];
@@ -80,6 +83,7 @@ export default function PlatformBillingPage() {
         {activeSection === "dunning" && <BillingDunningSection />}
         {activeSection === "fraud" && <BillingFraudSection />}
         {activeSection === "settings" && <BillingSettingsSection />}
+        {activeSection === "accounting" && <BillingAccountingSection />}
       </div>
     </div>
   );
