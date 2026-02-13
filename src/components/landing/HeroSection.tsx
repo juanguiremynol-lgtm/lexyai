@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, Bot, Sparkles } from "lucide-react";
+import heroLawyer from "@/assets/landing-hero-lawyer.png";
 
 interface HeroSectionProps {
   isAuthenticated: boolean | null;
@@ -11,8 +12,16 @@ interface HeroSectionProps {
 export function HeroSection({ isAuthenticated, onGoToApp }: HeroSectionProps) {
   return (
     <section className="relative overflow-hidden py-24 md:py-36">
-      {/* Background decorative elements */}
+      {/* Background image — right-aligned, faded */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <img
+          src={heroLawyer}
+          alt=""
+          aria-hidden="true"
+          className="absolute right-0 top-1/2 -translate-y-1/2 h-[110%] w-auto max-w-none object-cover opacity-[0.08] dark:opacity-[0.06] select-none"
+        />
+        {/* Gradient overlays */}
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/95 to-background/40" />
         <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/10 via-transparent to-transparent rounded-full blur-3xl" />
         <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-accent/10 via-transparent to-transparent rounded-full blur-3xl" />
       </div>
