@@ -176,9 +176,14 @@ Deno.serve(async (req) => {
     const connector = instance.provider_connectors;
 
     // ── Secret Resolution (single source of truth via shared resolver) ──
+    // Import key mode diagnostics
+    const { getKeyDerivationMode } = await import("../_shared/cryptoKey.ts");
+    let platformKeyMode = "UNAVAILABLE";
+    try { platformKeyMode = getKeyDerivationMode(); } catch { /* */ }
+
     const secretResult = await resolveActiveSecret(db, instance.id);
 
-    // Write resolution trace (never log secrets)
+    // Write SECRET_RESOLUTION trace (Deliverable C) — never log secrets
     const resolutionPayload = {
       connector_id: instance.connector_id,
       connector_key: connector?.key || "unknown",
@@ -189,6 +194,9 @@ Deno.serve(async (req) => {
       resolution_source: instance.scope === "PLATFORM" ? "GLOBAL_ROUTE_PLATFORM_INSTANCE" : "ORG_OVERRIDE_ORG_INSTANCE",
       auth_mode: instance.auth_type,
       failure_reason: secretResult.ok ? null : secretResult.failure_reason,
+      platform_key_mode: platformKeyMode,
+      decrypt_ok: secretResult.ok,
+      secret_id: secretResult.ok ? secretResult.secret_id : null,
     };
     await writeTrace(db, runId, source, instance, "SECRET_RESOLUTION",
       secretResult.ok ? "OK" : secretResult.failure_reason, secretResult.ok, 0, resolutionPayload);
@@ -206,6 +214,7 @@ Deno.serve(async (req) => {
         instance_scope: instance.scope,
         connector_key: connector?.key,
         failure_detail: secretResult.detail,
+        platform_key_mode: platformKeyMode,
       });
 
       await updateSourceError(db, source.id, failCode, secretResult.detail);
@@ -242,6 +251,7 @@ Deno.serve(async (req) => {
       await writeTrace(db, runId, source, instance, "TERMINAL", failCode, false, Date.now() - startTime, {
         outcome: failCode,
         scope: instance.scope,
+        platform_key_mode: platformKeyMode,
       });
 
       return new Response(JSON.stringify({
@@ -250,6 +260,7 @@ Deno.serve(async (req) => {
         message: secretResult.detail,
         instance_id: instance.id,
         instance_scope: instance.scope,
+        platform_key_mode: platformKeyMode,
         duration_ms: Date.now() - startTime,
       }), {
         status: 424,
@@ -297,6 +308,18 @@ Deno.serve(async (req) => {
       orgId: source.organization_id,
     });
 
+    // ── Trace: EXT_PROVIDER_REQUEST (Deliverable C) ──
+    const redactedUrl = new URL(snapshotUrl);
+    await writeTrace(db, runId, source, instance, "EXT_PROVIDER_REQUEST", "SENT", true, 0, {
+      url_host: redactedUrl.hostname,
+      url_path: redactedUrl.pathname,
+      method: "POST",
+      auth_present: true,
+      timeout_ms: providerInfo.timeout_ms,
+      include: includeParam,
+      provider_case_id: source.provider_case_id,
+    });
+
     const snapStart = Date.now();
     let snapRes: Response;
     const securityWarnings: ProviderSecurityWarning[] = [];
@@ -314,6 +337,12 @@ Deno.serve(async (req) => {
       // Save raw snapshot even on fetch error
       await saveRawSnapshot(db, source, instance, connector, null, "ERROR", snapRes?.status ?? 0, snapLatency, "FETCH_ERROR");
       await updateSourceError(db, source.id, "FETCH_ERROR", errMsg);
+      await writeTrace(db, runId, source, instance, "EXT_PROVIDER_RESPONSE", "ERROR", false, snapLatency, {
+        error: errMsg,
+        status_code: 0,
+        body_kind: "NONE",
+        bytes_length: 0,
+      });
       await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", "ERROR", false, snapLatency, { error: errMsg });
       return new Response(
         JSON.stringify({ ok: false, error: errMsg, duration_ms: Date.now() - startTime }),
@@ -325,6 +354,15 @@ Deno.serve(async (req) => {
     // Read response as text first (supports both JSON and TEXT snapshots)
     const rawBodyText = await snapRes.text().catch(() => "");
     const contentTypeHeader = snapRes.headers.get("content-type") || "";
+
+    // ── Trace: EXT_PROVIDER_RESPONSE (Deliverable C) ──
+    const bodyKind = contentTypeHeader.includes("json") ? "JSON" : "TEXT";
+    await writeTrace(db, runId, source, instance, "EXT_PROVIDER_RESPONSE", String(snapRes.status), snapRes.ok, snapLatency, {
+      status_code: snapRes.status,
+      body_kind: bodyKind,
+      bytes_length: rawBodyText.length,
+      content_type: contentTypeHeader,
+    });
 
     // Parse using schema-tolerant snapshot parser
     const connectorCaps = connector?.capabilities || [];
@@ -571,6 +609,8 @@ Deno.serve(async (req) => {
       extras_keys: Object.keys(mappingResult.extrasByKey).length,
       warnings: mappingResult.mappingWarnings.length,
       validation_ok: validation.ok,
+      source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
+      data_kind: isEstadosProvider ? "estados" : "actuaciones",
     });
 
     // ── Stage 4: UPSERTED_CANONICAL ──
@@ -621,6 +661,8 @@ Deno.serve(async (req) => {
     await writeTrace(db, runId, source, instance, "UPSERTED_CANONICAL", "OK", true, 0, {
       acts_upserted: insertedActs,
       pubs_upserted: insertedPubs,
+      source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
+      data_kind: isEstadosProvider ? "estados" : "actuaciones",
     });
 
     // ── Stage 5: PROVENANCE_WRITTEN ──

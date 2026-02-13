@@ -351,24 +351,57 @@ export function ExternalProviderDebugCard() {
         duration_ms: Date.now() - s3,
       });
 
-      // Step 4: Check sync traces for external provider
+      // Step 4: Validate external provider traces — require specific stages
+      const REQUIRED_STAGES = ["SECRET_RESOLUTION", "EXT_PROVIDER_REQUEST", "EXT_PROVIDER_RESPONSE", "MAPPING_APPLIED", "UPSERTED_CANONICAL"];
       const s4 = Date.now();
       const { data: traces } = await (supabase.from("provider_sync_traces") as any)
-        .select("stage, ok, result_code, latency_ms, created_at")
+        .select("stage, ok, result_code, latency_ms, payload, created_at")
         .eq("work_item_id", wi.id)
-        .order("created_at", { ascending: false })
-        .limit(5);
-      const latestExtTrace = traces?.[0];
+        .gte("created_at", startedAt)
+        .order("created_at", { ascending: true })
+        .limit(50);
+
+      const traceStages = (traces || []).map((t: any) => t.stage);
+      const tracesByStage: Record<string, any> = {};
+      for (const t of traces || []) {
+        tracesByStage[t.stage] = t;
+      }
+
+      const missingStages = REQUIRED_STAGES.filter(s => !tracesByStage[s]);
+      const stageResults: Record<string, any> = {};
+      for (const stage of REQUIRED_STAGES) {
+        const trace = tracesByStage[stage];
+        stageResults[stage] = trace
+          ? { found: true, ok: trace.ok, result_code: trace.result_code }
+          : { found: false, ok: false };
+      }
+
+      let extTraceFailReason: string | null = null;
+      const secretTrace = tracesByStage["SECRET_RESOLUTION"];
+      if (secretTrace && !secretTrace.ok) {
+        extTraceFailReason = `Secret resolution failed: ${secretTrace.result_code}`;
+      } else if (missingStages.includes("EXT_PROVIDER_REQUEST")) {
+        extTraceFailReason = "External provider was never called";
+      } else if (missingStages.length > 0) {
+        extTraceFailReason = `Missing stages: ${missingStages.join(", ")}`;
+      }
+
+      const extTraceOk = missingStages.length === 0 && Object.values(stageResults).every((s: any) => s.ok);
       steps.push({
         name: "EXT_PROVIDER_TRACE",
-        ok: latestExtTrace?.ok === true,
-        detail: latestExtTrace || { message: "No external provider traces found" },
+        ok: extTraceOk,
+        detail: {
+          stages_found: traceStages,
+          missing_stages: missingStages,
+          stage_results: stageResults,
+          failure_reason: extTraceFailReason,
+        },
         duration_ms: Date.now() - s4,
       });
 
-      // Step 5: Verify DB data
+      // Step 5: Verify DB data — specifically check for SAMAI_ESTADOS records
       const s5 = Date.now();
-      const [{ count: actsCount }, { count: pubsCount }] = await Promise.all([
+      const [{ count: actsCount }, { count: pubsCount }, { count: estadosCount }] = await Promise.all([
         (supabase.from("work_item_acts") as any)
           .select("id", { count: "exact", head: true })
           .eq("work_item_id", wi.id)
@@ -378,11 +411,20 @@ export function ExternalProviderDebugCard() {
           .select("id", { count: "exact", head: true })
           .eq("work_item_id", wi.id)
           .eq("is_archived", false),
+        (supabase.from("work_item_acts") as any)
+          .select("id", { count: "exact", head: true })
+          .eq("work_item_id", wi.id)
+          .eq("is_archived", false)
+          .eq("source", "SAMAI_ESTADOS"),
       ]);
       steps.push({
         name: "VERIFY_DB_DATA",
         ok: (actsCount || 0) > 0,
-        detail: { actuaciones: actsCount || 0, publicaciones: pubsCount || 0 },
+        detail: {
+          actuaciones_total: actsCount || 0,
+          publicaciones: pubsCount || 0,
+          samai_estados_records: estadosCount || 0,
+        },
         duration_ms: Date.now() - s5,
       });
 

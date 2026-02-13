@@ -4,6 +4,9 @@
  * Provides a programmatic interface for Atenia AI to agentically
  * test external provider sync pipelines end-to-end.
  * All results are logged to atenia_ai_actions for audit.
+ *
+ * Deliverable D: validates specific trace stages from provider-sync-external-provider:
+ *   SECRET_RESOLUTION, EXT_PROVIDER_REQUEST, EXT_PROVIDER_RESPONSE, MAPPING_APPLIED, UPSERTED_CANONICAL
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -33,9 +36,18 @@ export interface AteniaE2ETestResult {
   action_id?: string;
 }
 
+/** Required trace stages that must exist for an E2E to be considered passing */
+const REQUIRED_TRACE_STAGES = [
+  "SECRET_RESOLUTION",
+  "EXT_PROVIDER_REQUEST",
+  "EXT_PROVIDER_RESPONSE",
+  "MAPPING_APPLIED",
+  "UPSERTED_CANONICAL",
+] as const;
+
 /**
  * Run a full E2E test for a work item identified by radicado.
- * Steps: FIND_WORK_ITEM → SECRET_READINESS → SYNC → EXT_TRACE → VERIFY_DB → SOURCE_BREAKDOWN
+ * Steps: FIND_WORK_ITEM → SECRET_READINESS → SYNC → EXT_PROVIDER_TRACE → VERIFY_DB → SOURCE_BREAKDOWN
  */
 export async function runAteniaE2ETest(
   input: AteniaE2ETestInput
@@ -67,18 +79,20 @@ export async function runAteniaE2ETest(
       return buildResult({ ok: false, normalized, testId, startedAt, steps, t0, analysis: "❌ Work item no encontrado" });
     }
 
-    // Step 2: Secret readiness for all external connectors
+    // Step 2: Secret readiness for SAMAI_ESTADOS connector
     const s2 = Date.now();
-    let readinessOk = true;
+    let readinessOk = false;
     let readinessDetail: any = {};
     try {
       const { data: connectors } = await (supabase.from("provider_connectors") as any)
-        .select("id, name")
-        .eq("is_enabled", true);
+        .select("id, name, key")
+        .or("key.eq.SAMAI_ESTADOS,adapter_key.ilike.%samai_estados%,name.ilike.%samai%estados%")
+        .limit(1);
 
-      for (const c of connectors || []) {
+      const connector = connectors?.[0];
+      if (connector) {
         const resp = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/provider-secret-readiness?connector_id=${encodeURIComponent(c.id)}`,
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/provider-secret-readiness?connector_id=${encodeURIComponent(connector.id)}`,
           {
             method: "GET",
             headers: {
@@ -87,12 +101,19 @@ export async function runAteniaE2ETest(
           }
         );
         const data = await resp.json();
-        readinessDetail[c.name] = { can_decrypt: data.can_decrypt, status: data.status, key_mode: data.platform_key_mode };
-        if (!data.can_decrypt) readinessOk = false;
+        readinessDetail = {
+          can_decrypt: data.can_decrypt,
+          platform_key_mode: data.platform_key_mode,
+          key_version: data.key_version,
+          failure_reason: data.failure_reason,
+          instance_id: data.resolved_instance_id,
+        };
+        readinessOk = data.can_decrypt === true;
+      } else {
+        readinessDetail = { error: "SAMAI_ESTADOS connector not found" };
       }
     } catch (err: any) {
-      readinessOk = false;
-      readinessDetail.error = err.message;
+      readinessDetail = { error: err.message };
     }
     steps.push({
       name: "SECRET_READINESS",
@@ -117,24 +138,92 @@ export async function runAteniaE2ETest(
       duration_ms: Date.now() - s3,
     });
 
-    // Step 4: Check external provider traces
+    // Step 4: Validate external provider traces (Deliverable D — specific stage assertions)
     const s4 = Date.now();
     const { data: traces } = await (supabase.from("provider_sync_traces") as any)
-      .select("stage, ok, result_code, latency_ms, created_at")
+      .select("stage, ok, result_code, latency_ms, payload, created_at")
       .eq("work_item_id", wi.id)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    const latestExtTrace = traces?.[0];
+      .gte("created_at", startedAt) // Only traces from THIS test run
+      .order("created_at", { ascending: true })
+      .limit(50);
+
+    const traceStages = (traces || []).map((t: any) => t.stage);
+    const tracesByStage: Record<string, any> = {};
+    for (const t of traces || []) {
+      tracesByStage[t.stage] = t;
+    }
+
+    // Validate each required stage exists
+    const missingStages: string[] = [];
+    const stageResults: Record<string, { found: boolean; ok: boolean; detail?: any }> = {};
+
+    for (const requiredStage of REQUIRED_TRACE_STAGES) {
+      const trace = tracesByStage[requiredStage];
+      if (!trace) {
+        missingStages.push(requiredStage);
+        stageResults[requiredStage] = { found: false, ok: false };
+      } else {
+        stageResults[requiredStage] = {
+          found: true,
+          ok: trace.ok,
+          detail: {
+            result_code: trace.result_code,
+            latency_ms: trace.latency_ms,
+            // Extract key diagnostics from payload
+            ...(requiredStage === "SECRET_RESOLUTION" && trace.payload ? {
+              decrypt_ok: trace.payload.decrypt_ok,
+              platform_key_mode: trace.payload.platform_key_mode,
+            } : {}),
+            ...(requiredStage === "EXT_PROVIDER_REQUEST" && trace.payload ? {
+              url_host: trace.payload.url_host,
+              auth_present: trace.payload.auth_present,
+            } : {}),
+            ...(requiredStage === "EXT_PROVIDER_RESPONSE" && trace.payload ? {
+              status_code: trace.payload.status_code,
+              body_kind: trace.payload.body_kind,
+              bytes_length: trace.payload.bytes_length,
+            } : {}),
+            ...(requiredStage === "UPSERTED_CANONICAL" && trace.payload ? {
+              source_platform: trace.payload.source_platform,
+              data_kind: trace.payload.data_kind,
+              acts_upserted: trace.payload.acts_upserted,
+            } : {}),
+          },
+        };
+      }
+    }
+
+    const extTraceOk = missingStages.length === 0 && Object.values(stageResults).every(s => s.ok);
+
+    // Determine specific failure reason if stages are missing due to secret issues
+    let extTraceFailReason: string | null = null;
+    if (!extTraceOk) {
+      const secretTrace = tracesByStage["SECRET_RESOLUTION"];
+      if (secretTrace && !secretTrace.ok) {
+        extTraceFailReason = `External provider skipped: secret resolution failed (${secretTrace.result_code})`;
+      } else if (missingStages.includes("EXT_PROVIDER_REQUEST")) {
+        extTraceFailReason = "External provider was never called — EXT_PROVIDER_REQUEST trace missing";
+      } else {
+        extTraceFailReason = `Missing stages: ${missingStages.join(", ")}`;
+      }
+    }
+
     steps.push({
       name: "EXT_PROVIDER_TRACE",
-      ok: latestExtTrace?.ok === true,
-      detail: latestExtTrace || { message: "No external provider traces" },
+      ok: extTraceOk,
+      detail: {
+        stages_found: traceStages,
+        required_stages: [...REQUIRED_TRACE_STAGES],
+        missing_stages: missingStages,
+        stage_results: stageResults,
+        failure_reason: extTraceFailReason,
+      },
       duration_ms: Date.now() - s4,
     });
 
-    // Step 5: Verify DB
+    // Step 5: Verify DB — check for SAMAI_ESTADOS records specifically
     const s5 = Date.now();
-    const [{ count: actsCount }, { count: pubsCount }] = await Promise.all([
+    const [{ count: actsCount }, { count: pubsCount }, { count: estadosCount }] = await Promise.all([
       (supabase.from("work_item_acts") as any)
         .select("id", { count: "exact", head: true })
         .eq("work_item_id", wi.id)
@@ -144,11 +233,21 @@ export async function runAteniaE2ETest(
         .select("id", { count: "exact", head: true })
         .eq("work_item_id", wi.id)
         .eq("is_archived", false),
+      (supabase.from("work_item_acts") as any)
+        .select("id", { count: "exact", head: true })
+        .eq("work_item_id", wi.id)
+        .eq("is_archived", false)
+        .eq("source", "SAMAI_ESTADOS"),
     ]);
     steps.push({
       name: "VERIFY_DB_DATA",
       ok: (actsCount || 0) > 0,
-      detail: { actuaciones: actsCount || 0, publicaciones: pubsCount || 0 },
+      detail: {
+        actuaciones_total: actsCount || 0,
+        publicaciones: pubsCount || 0,
+        samai_estados_records: estadosCount || 0,
+        has_estados: (estadosCount || 0) > 0,
+      },
       duration_ms: Date.now() - s5,
     });
 
@@ -177,8 +276,16 @@ export async function runAteniaE2ETest(
     } else {
       const failed = steps.filter((s) => !s.ok).map((s) => s.name);
       analysisParts.push(`⚠️ ${failed.length} paso(s) fallaron: ${failed.join(", ")}`);
+      if (extTraceFailReason) {
+        analysisParts.push(`🔍 ${extTraceFailReason}`);
+      }
     }
-    analysisParts.push(`📊 Actuaciones: ${actsCount || 0}, Publicaciones: ${pubsCount || 0}`);
+    if (readinessOk) {
+      analysisParts.push(`🔑 Secreto descifrable (${readinessDetail.platform_key_mode}, v${readinessDetail.key_version})`);
+    } else {
+      analysisParts.push(`🔴 Secreto NO descifrable: ${readinessDetail.failure_reason || "unknown"}`);
+    }
+    analysisParts.push(`📊 Actuaciones: ${actsCount || 0} (SAMAI_ESTADOS: ${estadosCount || 0}), Publicaciones: ${pubsCount || 0}`);
     if (Object.keys(sourceCounts).length > 0) {
       analysisParts.push(`📦 Fuentes: ${Object.entries(sourceCounts).map(([k, v]) => `${k}(${v})`).join(", ")}`);
     }
@@ -210,6 +317,9 @@ export async function runAteniaE2ETest(
             steps: steps.map((s) => ({ name: s.name, ok: s.ok })),
             duration_ms: result.duration_ms,
             source_breakdown: sourceCounts,
+            ext_trace_stages: traceStages,
+            missing_stages: missingStages,
+            samai_estados_records: estadosCount || 0,
           },
           action_taken: "E2E_TEST_EXECUTED",
           action_result: allOk ? "PASSED" : "FAILED",
