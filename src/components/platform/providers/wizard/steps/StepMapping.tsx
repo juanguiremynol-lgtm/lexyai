@@ -10,6 +10,7 @@ import { ArrowRight, ArrowLeftRight, CheckCircle2, Info, Copy, Sparkles, Loader2
 import { toast } from "sonner";
 import { DataPartitionView } from "../DataPartitionView";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import type { WizardConnector } from "../WizardTypes";
 
 interface StepMappingProps {
@@ -43,6 +44,7 @@ const CANONICAL_PUBS_SCHEMA = [
 ];
 
 export function StepMapping({ connector, onNext, partitionReport }: StepMappingProps) {
+  const { invokeWithSession } = useWizardSessionContext();
   const [isExplaining, setIsExplaining] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
 
@@ -67,7 +69,7 @@ export function StepMapping({ connector, onNext, partitionReport }: StepMappingP
           }
         : { note: "No E2E run yet" };
 
-      const { data, error } = await supabase.functions.invoke("provider-wizard-ai-guide", {
+      const { data, error } = await invokeWithSession("provider-wizard-ai-guide", {
         body: {
           mode: "PLATFORM",
           step_id: "mapping",

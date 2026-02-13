@@ -14,6 +14,7 @@ import { AlertTriangle, ArrowRight, Copy, Plus, Shield, Trash2, Loader2, Info } 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardMode, WizardConnector } from "../WizardTypes";
 
@@ -28,6 +29,7 @@ interface StepConnectorProps {
 
 export function StepConnector({ mode, isNew, connector, organizationId, onConnectorSaved, onNext }: StepConnectorProps) {
   const queryClient = useQueryClient();
+  const { invokeWithSession } = useWizardSessionContext();
   const [key, setKey] = useState(connector?.key || "");
   const [name, setName] = useState(connector?.name || "");
   const [description, setDescription] = useState(connector?.description || "");
@@ -67,7 +69,7 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
         : capsList;
 
       const visibility = mode === "PLATFORM" ? "GLOBAL" : "ORG_PRIVATE";
-      const { data, error } = await supabase.functions.invoke("provider-create-connector", {
+      const { data, error } = await invokeWithSession("provider-create-connector", {
         body: {
           key: key.trim(),
           name: name.trim(),
