@@ -192,6 +192,40 @@ export function getActuacionesSummary(actuaciones: WorkItemAct[]) {
   };
 }
 
+/**
+ * Build context string from raw_data when annotation is missing.
+ * Shows despacho, fecha_registro, and other metadata to avoid "Sin detalle".
+ */
+function buildRawDataContext(rawData?: Record<string, unknown> | null): string | null {
+  if (!rawData) return null;
+
+  const parts: string[] = [];
+  
+  // Extract useful fields from CPNU or icarus raw data
+  const despacho = (rawData.despacho || rawData.nombreDespacho || rawData.Despacho) as string | undefined;
+  const fechaRegistro = (rawData.fecha_registro || rawData.fechaRegistro) as string | undefined;
+  const indice = rawData.indice as string | number | undefined;
+  const anexos = rawData.anexos as number | undefined;
+  const clase = rawData.Clase as string | undefined;
+  const tipo = rawData.Tipo as string | undefined;
+
+  if (despacho) parts.push(`Despacho: ${despacho}`);
+  if (fechaRegistro) {
+    try {
+      const d = new Date(fechaRegistro);
+      parts.push(`Registrado: ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`);
+    } catch {
+      parts.push(`Registrado: ${fechaRegistro}`);
+    }
+  }
+  if (clase) parts.push(`Clase: ${clase}`);
+  if (tipo) parts.push(`Tipo: ${tipo}`);
+  if (indice != null) parts.push(`Índice: ${indice}`);
+  if (typeof anexos === 'number' && anexos > 0) parts.push(`Anexos: ${anexos}`);
+
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 // ─── Main Card Component ─────────────────────────────────────────────────────
 
 interface WorkItemActCardProps {
@@ -205,7 +239,14 @@ export function WorkItemActCard({ act }: WorkItemActCardProps) {
   const { actionType, annotation } = parseDescription(act.description);
 
   // Use event_summary as annotation fallback if parsed annotation is empty
-  const displayAnnotation = annotation || (act.event_summary && act.event_summary !== act.description ? act.event_summary : null);
+  // Then try raw_data.anotacion as a secondary fallback
+  // Finally, build context from raw_data metadata fields
+  const rawAnotacion = act.raw_data?.anotacion as string | undefined;
+  const rawDataContext = buildRawDataContext(act.raw_data);
+  const displayAnnotation = annotation 
+    || (act.event_summary && act.event_summary !== act.description ? act.event_summary : null)
+    || (rawAnotacion?.trim() ? rawAnotacion.trim() : null)
+    || rawDataContext;
   const hasAnnotation = !!displayAnnotation?.trim();
 
   return (

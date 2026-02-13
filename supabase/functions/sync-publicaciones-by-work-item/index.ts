@@ -543,15 +543,18 @@ Deno.serve(async (req) => {
     if (isServiceRole && _scheduled) {
       console.log(`[sync-pub] Scheduled job invocation for work_item_id=${work_item_id}`);
     } else {
-      // Regular user auth check
-      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '');
-      const { data: claims, error: authError } = await anonClient.auth.getClaims(token);
+      // Regular user auth check — use getUser with the JWT token
+      const anonClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY') || '', {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+      });
+      const { data: { user: authUser }, error: authError } = await anonClient.auth.getUser();
       
-      if (authError || !claims?.claims?.sub) {
+      if (authError || !authUser?.id) {
+        console.error(`[sync-pub] Auth error:`, authError?.message);
         return errorResponse('UNAUTHORIZED', 'Invalid or expired token', 401);
       }
 
-      userId = claims.claims.sub as string;
+      userId = authUser.id;
       console.log(`[sync-pub] Starting sync for work_item_id=${work_item_id}, user=${userId}`);
     }
 
