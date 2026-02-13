@@ -6,6 +6,7 @@ import { ColombianClock } from "./ColombianClock";
 import { ThemeToggle } from "./ThemeToggle";
 import { GlobalSearch } from "./GlobalSearch";
 import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
+import { DataAlertBell } from "@/components/notifications/DataAlertBell";
 import { SuperAdminToolbar } from "./SuperAdminToolbar";
 import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
 import logo from "@/assets/atenia-logo.png";
@@ -45,6 +46,9 @@ export function TopBar() {
 
         {/* Admin Notification Bell (only shows for admins/owners) */}
         <AdminNotificationBell />
+
+        {/* Data Freshness Alert Bell (all users) */}
+        <DataAlertBell />
 
         <Button
           variant="ghost"

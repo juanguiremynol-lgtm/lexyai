@@ -9,6 +9,14 @@
  */
 
 import { supabase } from '@/integrations/supabase/client';
+import {
+  evaluateFreshnessClassification,
+  evaluateFreshnessViolations,
+  evaluateUserDataAlerts,
+  evaluateAutoProviderDemotion,
+  evaluatePostRecoveryCatchup,
+  evaluateEscalation,
+} from './atenia-freshness-policies';
 
 // ============= TYPES =============
 
@@ -558,16 +566,25 @@ export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResu
   const allPlans: ActionPlan[] = [];
 
   try {
-    // Run all evaluators
-    const [cont, retries, suspend, provHealth, heavy] = await Promise.all([
+    // Run all evaluators (existing + new capabilities)
+    const [cont, retries, suspend, provHealth, heavy, freshClass, freshViol, userAlerts, autoDemote, postRecovery, escalation] = await Promise.all([
       evaluateDailySyncContinuation(orgId, policy).catch(() => [] as ActionPlan[]),
       evaluateOrphanedRetries(orgId, policy).catch(() => [] as ActionPlan[]),
       evaluateAutoSuspend(orgId, policy).catch(() => [] as ActionPlan[]),
       evaluateProviderHealth(orgId, policy).catch(() => [] as ActionPlan[]),
       evaluateHeavyItems(orgId, policy).catch(() => [] as ActionPlan[]),
+      // NEW: Freshness SLAs
+      evaluateFreshnessClassification(orgId).catch(() => [] as ActionPlan[]),
+      evaluateFreshnessViolations(orgId).catch(() => [] as ActionPlan[]),
+      evaluateUserDataAlerts(orgId).catch(() => [] as ActionPlan[]),
+      // NEW: Provider failover
+      evaluateAutoProviderDemotion(orgId).catch(() => [] as ActionPlan[]),
+      evaluatePostRecoveryCatchup(orgId).catch(() => [] as ActionPlan[]),
+      // NEW: Escalation
+      evaluateEscalation(orgId).catch(() => [] as ActionPlan[]),
     ]);
 
-    allPlans.push(...cont, ...retries, ...suspend, ...provHealth, ...heavy);
+    allPlans.push(...cont, ...retries, ...suspend, ...provHealth, ...heavy, ...freshClass, ...freshViol, ...userAlerts, ...autoDemote, ...postRecovery, ...escalation);
   } catch (err) {
     console.warn('[autonomy-engine] Cycle error:', err);
   }
