@@ -8086,6 +8086,39 @@ export type Database = {
           },
         ]
       }
+      user_feedback: {
+        Row: {
+          created_at: string
+          email: string
+          feedback_type: string
+          id: string
+          message: string
+          name: string
+          organization_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          feedback_type: string
+          id?: string
+          message: string
+          name: string
+          organization_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          feedback_type?: string
+          id?: string
+          message?: string
+          name?: string
+          organization_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       user_preferences: {
         Row: {
           created_at: string
