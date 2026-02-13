@@ -15,7 +15,6 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { decryptSecret } from "../_shared/secretsCrypto.ts";
 import {
   safeFetchProvider,
   buildAuthHeaders,
@@ -40,32 +39,13 @@ import {
   type MappingSpec,
 } from "../_shared/mappingEngine.ts";
 import { parseSnapshot } from "../_shared/snapshotParser.ts";
+import { resolveActiveSecret } from "../_shared/resolveActiveSecret.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session",
 };
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.replace(/^\\x/, "");
-  return new Uint8Array(clean.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
-}
-
-/** Parse bytea value from Supabase — handles both hex strings and JSON-serialized Uint8Array */
-function parseBytea(val: unknown): Uint8Array {
-  if (typeof val === "string") {
-    return hexToBytes(val);
-  }
-  // JSON-serialized Uint8Array: {"0":63,"1":22,...}
-  if (val && typeof val === "object" && !ArrayBuffer.isView(val)) {
-    const obj = val as Record<string, number>;
-    const keys = Object.keys(obj).map(Number).sort((a, b) => a - b);
-    return new Uint8Array(keys.map(k => obj[String(k)]));
-  }
-  if (val instanceof Uint8Array) return val;
-  throw new Error("Cannot parse bytea value");
-}
 
 async function hashPayload(payload: unknown): Promise<string> {
   const text = JSON.stringify(payload);
@@ -195,45 +175,36 @@ Deno.serve(async (req) => {
 
     const connector = instance.provider_connectors;
 
-    // ── Secret Resolution (first-class invariant) ──
-    // For PLATFORM instances, secrets have scope=PLATFORM and no org_id
-    const { data: secretRow } = await db
-      .from("provider_instance_secrets")
-      .select("id, cipher_text, nonce, is_active, key_version, scope")
-      .eq("provider_instance_id", instance.id)
-      .eq("is_active", true)
-      .order("key_version", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // ── Secret Resolution (single source of truth via shared resolver) ──
+    const secretResult = await resolveActiveSecret(db, instance.id);
 
-    // Write detailed resolution trace (never log secrets)
+    // Write resolution trace (never log secrets)
     const resolutionPayload = {
       connector_id: instance.connector_id,
       connector_key: connector?.key || "unknown",
       instance_id: instance.id,
       instance_scope: instance.scope || "UNKNOWN",
       instance_enabled: instance.is_enabled,
-      secret_id: secretRow?.id || null,
-      secret_enabled: secretRow?.is_active || false,
-      secret_version: secretRow?.key_version || null,
-      secret_scope: secretRow?.scope || null,
+      secret_present: secretResult.ok,
       resolution_source: instance.scope === "PLATFORM" ? "GLOBAL_ROUTE_PLATFORM_INSTANCE" : "ORG_OVERRIDE_ORG_INSTANCE",
       auth_mode: instance.auth_type,
-      secret_present: !!secretRow,
+      failure_reason: secretResult.ok ? null : secretResult.failure_reason,
     };
-    await writeTrace(db, runId, source, instance, "SECRET_RESOLUTION", secretRow ? "OK" : "MISSING_PROVIDER_SECRET", !!secretRow, 0, resolutionPayload);
+    await writeTrace(db, runId, source, instance, "SECRET_RESOLUTION",
+      secretResult.ok ? "OK" : secretResult.failure_reason, secretResult.ok, 0, resolutionPayload);
 
-    if (!secretRow) {
-      // Terminal: MISSING_PROVIDER_SECRET — do NOT attempt external fetch
-      await writeTrace(db, runId, source, instance, "SECRET_MISSING", "MISSING_PROVIDER_SECRET", false, 0, {
-        remediation: "No hay secreto activo para esta instancia. Configure una API key en el Wizard (Instancia → Secretos) y habilítela.",
+    if (!secretResult.ok) {
+      // Terminal: hard-fail with typed error code BEFORE any external fetch
+      const failCode = secretResult.failure_reason;
+      await writeTrace(db, runId, source, instance, "SECRET_MISSING", failCode, false, 0, {
+        remediation: "No hay secreto activo/descifrable para esta instancia. Configure una API key en el Wizard (Instancia → Secretos) y habilítela.",
         instance_id: instance.id,
         instance_scope: instance.scope,
         connector_key: connector?.key,
+        failure_detail: secretResult.detail,
       });
 
-      await updateSourceError(db, source.id, "MISSING_PROVIDER_SECRET",
-        "No hay secreto activo para esta instancia. Configure una API key en el Wizard.");
+      await updateSourceError(db, source.id, failCode, secretResult.detail);
 
       if (instance.scope === "PLATFORM") {
         const alertFingerprint = `missing_secret_${instance.connector_id}_${instance.scope}`;
@@ -244,43 +215,24 @@ Deno.serve(async (req) => {
           owner_id: instance.created_by || source.organization_id,
           severity: "CRITICAL",
           title: "🔑 Secreto faltante en instancia de plataforma",
-          message: `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no tiene secreto activo. Todas las organizaciones están afectadas.`,
+          message: `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no tiene secreto activo/descifrable. Error: ${failCode}.`,
           status: "PENDING",
           fired_at: new Date().toISOString(),
           alert_type: "MISSING_PROVIDER_SECRET",
           alert_source: "provider-sync-external-provider",
           fingerprint: alertFingerprint,
         }, { onConflict: "fingerprint", ignoreDuplicates: true });
-
-        const dedupeKey = `${instance.connector_id}_${instance.scope}_missing_secret`;
-        await db.from("atenia_ai_remediation_queue").upsert({
-          action_type: "CONFIGURE_PROVIDER_SECRET",
-          organization_id: source.organization_id,
-          work_item_id: source.work_item_id,
-          provider: connector?.key || "unknown",
-          reason_code: "MISSING_PROVIDER_SECRET",
-          payload: {
-            instance_id: instance.id,
-            instance_name: instance.name,
-            connector_key: connector?.key,
-            scope: instance.scope,
-            remediation: "Configure API key via Platform Wizard → StepInstance",
-          },
-          priority: 1,
-          status: "PENDING",
-          dedupe_key: dedupeKey,
-        }, { onConflict: "dedupe_key", ignoreDuplicates: true });
       }
 
-      await writeTrace(db, runId, source, instance, "TERMINAL", "MISSING_PROVIDER_SECRET", false, Date.now() - startTime, {
-        outcome: "MISSING_PROVIDER_SECRET",
+      await writeTrace(db, runId, source, instance, "TERMINAL", failCode, false, Date.now() - startTime, {
+        outcome: failCode,
         scope: instance.scope,
       });
 
       return new Response(JSON.stringify({
         ok: false,
-        code: "MISSING_PROVIDER_SECRET",
-        message: "No hay secreto activo para esta instancia. Configure una API key en el Wizard.",
+        code: failCode,
+        message: secretResult.detail,
         instance_id: instance.id,
         instance_scope: instance.scope,
         duration_ms: Date.now() - startTime,
@@ -290,12 +242,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Secret loaded successfully
-    const decrypted = await decryptSecret(parseBytea(secretRow.cipher_text), parseBytea(secretRow.nonce));
-    
+    // Secret loaded and decrypted successfully — typed result
+    const decryptedSecret: string = secretResult.decrypted_value;
+
     await writeTrace(db, runId, source, instance, "SECRET_LOADED", "OK", true, 0, {
-      secret_id: secretRow.id,
-      key_version: secretRow.key_version,
+      secret_id: secretResult.secret_id,
+      key_version: secretResult.key_version,
       auth_mode: instance.auth_type,
       secret_present: true,
     });
@@ -323,7 +275,7 @@ Deno.serve(async (req) => {
     });
     const headers = await buildAuthHeaders({
       instance: providerInfo,
-      decryptedSecret: decrypted,
+      decryptedSecret: decryptedSecret,
       method: "POST",
       path: "/snapshot",
       body: snapshotBody,
