@@ -92,7 +92,7 @@ export interface EffectivePolicy {
 const BUILTIN_PROVIDERS: Record<string, { acts: string[]; pubs: string[] }> = {
   CGP:       { acts: ["cpnu"],  pubs: ["publicaciones"] },
   LABORAL:   { acts: ["cpnu"],  pubs: ["publicaciones"] },
-  CPACA:     { acts: ["samai"], pubs: [] },  // SAMAI_ESTADOS is EXTERNAL, not built-in
+  CPACA:     { acts: ["samai"], pubs: ["publicaciones"] },  // SAMAI_ESTADOS is EXTERNAL primary; publicaciones is built-in fallback
   TUTELA:    { acts: ["cpnu", "tutelas-api"], pubs: [] },
   PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
 };
