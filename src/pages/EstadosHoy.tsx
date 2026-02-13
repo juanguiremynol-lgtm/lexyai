@@ -197,7 +197,15 @@ async function fetchEstadosHoy(
 ): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number; samaiEstadosCount: number }> {
   const bounds = getWindowBounds(window);
 
-  const [discoveredResult, courtPostedResult, samaiEstadosResult] = await Promise.all([
+  // First, resolve SAMAI_ESTADOS instance IDs for provenance-based lookups
+  const { data: samaiInstances } = await supabase
+    .from("provider_instances")
+    .select("id, provider_connectors!inner(key)")
+    .eq("provider_connectors.key", "SAMAI_ESTADOS")
+    .eq("is_enabled", true);
+  const samaiInstanceIds = (samaiInstances || []).map((i: any) => i.id);
+
+  const [discoveredResult, courtPostedResult, samaiEstadosResult, provenanceResult] = await Promise.all([
     supabase
       .from("work_item_publicaciones")
       .select(PUB_SELECT)
@@ -216,7 +224,7 @@ async function fetchEstadosHoy(
       .lte("fecha_fijacion", bounds.date_end)
       .order("fecha_fijacion", { ascending: false })
       .limit(200),
-    // SAMAI_ESTADOS records from work_item_acts — treated as first-class estados
+    // SAMAI_ESTADOS records from work_item_acts — directly tagged
     supabase
       .from("work_item_acts")
       .select(SAMAI_ESTADOS_SELECT)
@@ -227,6 +235,15 @@ async function fetchEstadosHoy(
       .lte("created_at", bounds.created_end)
       .order("created_at", { ascending: false })
       .limit(200),
+    // Provenance-confirmed SAMAI_ESTADOS acts (deduped records originally from 'samai')
+    // We query act_provenance for the SAMAI_ESTADOS instance, then load the acts separately
+    samaiInstanceIds.length > 0
+      ? supabase
+          .from("act_provenance")
+          .select("work_item_act_id, provider_instance_id")
+          .in("provider_instance_id", samaiInstanceIds)
+          .limit(500)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (discoveredResult.error) console.error("[estados-hoy] discovered query error:", discoveredResult.error);
@@ -252,13 +269,38 @@ async function fetchEstadosHoy(
     }
   }
 
-  // Merge SAMAI_ESTADOS records — use prefixed ID to avoid collision with publicaciones IDs
+  // Merge SAMAI_ESTADOS records — direct + provenance-confirmed
+  const samaiSeenIds = new Set<string>();
   let samaiEstadosCount = 0;
   for (const row of samaiEstadosResult.data || []) {
     const key = `samai_estado_${row.id}`;
     if (!itemMap.has(key)) {
       itemMap.set(key, mapSamaiEstadoRow(row, "discovered"));
       samaiEstadosCount++;
+    }
+    samaiSeenIds.add(row.id);
+  }
+  // Load provenance-confirmed acts in bulk if any exist
+  const provenanceActIds = (provenanceResult.data || [])
+    .map((p: any) => p.work_item_act_id)
+    .filter((id: string) => !samaiSeenIds.has(id));
+  
+  if (provenanceActIds.length > 0) {
+    const { data: provenanceActs } = await supabase
+      .from("work_item_acts")
+      .select(SAMAI_ESTADOS_SELECT)
+      .in("id", provenanceActIds.slice(0, 200))
+      .eq("work_items.organization_id", organizationId)
+      .eq("is_archived", false);
+    
+    for (const act of (provenanceActs || [])) {
+      if (samaiSeenIds.has(act.id)) continue;
+      samaiSeenIds.add(act.id);
+      const key = `samai_estado_${act.id}`;
+      if (!itemMap.has(key)) {
+        itemMap.set(key, mapSamaiEstadoRow(act, "discovered"));
+        samaiEstadosCount++;
+      }
     }
   }
 

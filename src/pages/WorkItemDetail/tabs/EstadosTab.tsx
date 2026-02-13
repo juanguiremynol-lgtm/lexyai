@@ -111,16 +111,26 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   // Check if radicado is valid for Publicaciones sync
   const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
   
-  // Fetch ESTADOS from two sources:
+  // Fetch ESTADOS from three sources:
   // 1. work_item_publicaciones — Publicaciones Procesales (Rama Judicial)
-  // 2. work_item_acts WHERE source='SAMAI_ESTADOS' — SAMAI Estados (CPACA external provider)
+  // 2. work_item_acts WHERE source='SAMAI_ESTADOS' — directly tagged SAMAI Estados
+  // 3. work_item_acts confirmed by SAMAI_ESTADOS provenance (deduped records with source='samai')
   const { data: estados, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["work-item-estados-unified", workItem.id],
     queryFn: async () => {
       await ensureValidSession();
 
-      // Query both sources in parallel
-      const [pubsResult, samaiEstadosResult] = await Promise.all([
+      // Find the SAMAI_ESTADOS provider instance ID for provenance lookup
+      const { data: samaiEstadosInstances } = await supabase
+        .from("provider_instances")
+        .select("id, connector_id, provider_connectors!inner(key)")
+        .eq("provider_connectors.key", "SAMAI_ESTADOS")
+        .eq("is_enabled", true);
+
+      const samaiEstadosInstanceIds = (samaiEstadosInstances || []).map((i: any) => i.id);
+
+      // Query all three sources in parallel
+      const [pubsResult, samaiEstadosResult, provenanceResult] = await Promise.all([
         supabase
           .from("work_item_publicaciones")
           .select("*")
@@ -134,10 +144,20 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
           .eq("source", "SAMAI_ESTADOS")
           .eq("is_archived", false)
           .order("act_date", { ascending: false, nullsFirst: false }),
+        // Also fetch acts confirmed by SAMAI_ESTADOS provenance (deduped records)
+        samaiEstadosInstanceIds.length > 0
+          ? supabase
+              .from("act_provenance")
+              .select("work_item_act_id, provider_instance_id, work_item_acts!inner(*, work_item_id)")
+              .in("provider_instance_id", samaiEstadosInstanceIds)
+              .eq("work_item_acts.work_item_id", workItem.id)
+              .eq("work_item_acts.is_archived", false)
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (pubsResult.error) throw pubsResult.error;
       if (samaiEstadosResult.error) throw samaiEstadosResult.error;
+      // Don't throw on provenance error — it's supplementary
 
       // Map work_item_publicaciones to display format
       const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => ({
@@ -154,23 +174,49 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         despacho: pub.despacho || pub.raw_data?.despacho || null,
       }));
 
-      // Map SAMAI_ESTADOS from work_item_acts to the same display format
-      const fromSamaiEstados: PublicacionEstado[] = (samaiEstadosResult.data || []).map((act: any) => ({
-        id: act.id,
-        date: act.act_date,
-        date_raw: act.act_date,
-        description: act.description || act.event_summary || '',
-        type: act.act_type || 'ESTADO',
-        source: "SAMAI_ESTADOS",
-        pdf_url: act.source_url || null,
-        created_at: act.created_at,
-        fecha_fijacion: null, // SAMAI Estados doesn't provide fijacion/desfijacion
-        fecha_desfijacion: null,
-        despacho: act.despacho || null,
-      }));
+      // Map directly tagged SAMAI_ESTADOS acts
+      const samaiDirectIds = new Set<string>();
+      const fromSamaiEstados: PublicacionEstado[] = (samaiEstadosResult.data || []).map((act: any) => {
+        samaiDirectIds.add(act.id);
+        return {
+          id: act.id,
+          date: act.act_date,
+          date_raw: act.act_date,
+          description: act.description || act.event_summary || '',
+          type: act.act_type || 'ESTADO',
+          source: "SAMAI_ESTADOS",
+          pdf_url: act.source_url || null,
+          created_at: act.created_at,
+          fecha_fijacion: null,
+          fecha_desfijacion: null,
+          despacho: act.despacho || null,
+        };
+      });
 
-      // Merge and sort by date descending
-      const merged = [...fromPubs, ...fromSamaiEstados].sort((a, b) => {
+      // Map provenance-confirmed SAMAI_ESTADOS acts (deduped records with source='samai')
+      // Only include those NOT already in the direct SAMAI_ESTADOS list
+      const fromProvenance: PublicacionEstado[] = [];
+      for (const prov of (provenanceResult.data || [])) {
+        const act = (prov as any).work_item_acts;
+        if (!act || samaiDirectIds.has(act.id)) continue;
+        samaiDirectIds.add(act.id); // prevent duplicates from multiple provenance rows
+        fromProvenance.push({
+          id: act.id,
+          date: act.act_date,
+          date_raw: act.act_date,
+          description: act.description || act.event_summary || '',
+          type: act.act_type || 'ESTADO',
+          source: "SAMAI_ESTADOS", // Tag as SAMAI_ESTADOS since provenance confirms it
+          pdf_url: act.source_url || null,
+          created_at: act.created_at,
+          fecha_fijacion: null,
+          fecha_desfijacion: null,
+          despacho: act.despacho || null,
+        });
+      }
+
+      // Merge all sources and sort by date descending
+      const merged = [...fromPubs, ...fromSamaiEstados, ...fromProvenance].sort((a, b) => {
         const dateA = a.date || a.created_at;
         const dateB = b.date || b.created_at;
         return dateB.localeCompare(dateA);
