@@ -2,17 +2,18 @@
  * provider-set-instance-secret — Super-admin-only endpoint to set/rotate secrets
  * for provider instances.
  *
- * POST { instance_id, secret_value, mode?: "SET_EXACT" | "ROTATE", enable?: boolean }
+ * POST { instance_id, secret_value, mode?: "SET_EXACT" | "ROTATE" | "REENCRYPT", enable?: boolean }
  *   OR
- * POST { connector_id, scope: "PLATFORM", secret_value, mode?: "SET_EXACT" | "ROTATE" }
+ * POST { connector_id, scope: "PLATFORM", secret_value, mode?: "SET_EXACT" | "ROTATE" | "REENCRYPT" }
  *
- * SET_EXACT (default): Ensure exactly one enabled secret exists. If the exact same
- *   cipher already exists, return was_noop:true. Does NOT disable old secrets unless rotating.
+ * SET_EXACT (default): Ensure exactly one enabled secret exists. Does NOT disable old secrets unless rotating.
  * ROTATE: Disable all existing secrets and create a new version.
+ * REENCRYPT: Re-encrypt existing secret with current platform key (same plaintext value).
+ *   Disables only the undecryptable old secret. No plaintext change.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { encryptSecret } from "../_shared/secretsCrypto.ts";
+import { encryptSecret, decryptSecret, bytesToB64 } from "../_shared/secretsCrypto.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -162,7 +163,110 @@ Deno.serve(async (req) => {
 
     const { cipher, nonce } = encResult;
 
-    if (mode === "SET_EXACT") {
+     if (mode === "REENCRYPT") {
+       // REENCRYPT: Re-encrypt the same plaintext secret under current platform key.
+       // Do not rotate plaintext; only fix key mismatch.
+       // Fetch the old (undecryptable) secret and disable it.
+       const { data: oldSecrets } = await adminClient
+         .from("provider_instance_secrets")
+         .select("id, is_active")
+         .eq("provider_instance_id", instanceId)
+         .order("key_version", { ascending: false })
+         .limit(1);
+
+       const oldSecretId = oldSecrets?.[0]?.id || null;
+
+       // Get next version
+       const { data: lastSecret } = await adminClient
+         .from("provider_instance_secrets")
+         .select("key_version")
+         .eq("provider_instance_id", instanceId)
+         .order("key_version", { ascending: false })
+         .limit(1)
+         .maybeSingle();
+
+       const nextVersion = (lastSecret?.key_version || 0) + 1;
+
+       // Insert new secret with re-encrypted value
+       const { data: newSecret, error: secErr } = await adminClient
+         .from("provider_instance_secrets")
+         .insert({
+           provider_instance_id: instanceId,
+           organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
+           key_version: nextVersion,
+           is_active: enable,
+           cipher_text: cipher,
+           nonce,
+           created_by: userId,
+           scope: instance.scope || "ORG",
+         })
+         .select("id, key_version, is_active, scope")
+         .single();
+
+       if (secErr) {
+         return new Response(
+           JSON.stringify({ error: "Failed to store reencrypted secret", detail: secErr.message }),
+           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+         );
+       }
+
+       // Disable old undecryptable secret
+       if (oldSecretId) {
+         await adminClient
+           .from("provider_instance_secrets")
+           .update({ is_active: false })
+           .eq("id", oldSecretId);
+       }
+
+       // Audit
+       await adminClient.from("atenia_ai_actions").insert({
+         organization_id: instance.organization_id || "a0000000-0000-0000-0000-000000000001",
+         action_type: "PROVIDER_SECRET_REENCRYPT",
+         autonomy_tier: "USER",
+         reasoning: `Platform admin re-encrypted secret for instance "${instance.name}" (v${nextVersion}, scope: ${instance.scope}). Plaintext unchanged. Old undecryptable secret disabled.`,
+         target_entity_type: "provider_instance_secret",
+         target_entity_id: newSecret.id,
+         evidence: {
+           instance_id: instanceId,
+           instance_name: instance.name,
+           scope: instance.scope,
+           key_version: nextVersion,
+           mode: "REENCRYPT",
+           old_secret_id: oldSecretId,
+           plaintext_changed: false,
+         },
+       });
+
+       // Resolve decrypt_failed alerts
+       await adminClient
+         .from("alert_instances")
+         .update({ status: "RESOLVED", resolved_at: new Date().toISOString() })
+         .eq("entity_type", "provider_instance")
+         .eq("entity_id", instanceId)
+         .eq("alert_type", "PROVIDER_SECRET_DECRYPT_FAILED")
+         .in("status", ["PENDING", "ACKNOWLEDGED"]);
+
+       return new Response(
+         JSON.stringify({
+           ok: true,
+           mode: "REENCRYPT",
+           was_reencrypted: true,
+           plaintext_changed: false,
+           secret: {
+             id: newSecret.id,
+             key_version: newSecret.key_version,
+             is_active: newSecret.is_active,
+             scope: newSecret.scope,
+           },
+           old_secret_id: oldSecretId,
+           instance_id: instanceId,
+           instance_name: instance.name,
+         }),
+         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+       );
+     }
+
+     if (mode === "SET_EXACT") {
       // SET_EXACT: Check if there's already an active secret. If so, check if we
       // can just ensure it stays active (idempotent). We can't compare ciphertexts
       // (different nonces), so we always create a new version but DON'T disable

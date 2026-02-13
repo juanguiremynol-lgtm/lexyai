@@ -83,7 +83,32 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
     enabled: !!instance?.id,
   });
 
+  // Check readiness status (decrypt success/failure)
+  const { data: readinessStatus, refetch: refetchReadiness } = useQuery({
+    queryKey: ["provider-readiness", connector?.id],
+    queryFn: async () => {
+      if (!connector?.id) return null;
+      try {
+        const res = await fetch(
+          `https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/provider-secret-readiness?connector_id=${encodeURIComponent(connector.id)}`,
+          {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || ""}`,
+            },
+          }
+        );
+        if (!res.ok) return null;
+        return await res.json();
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!connector?.id && !!instance?.id,
+  });
+
   const hasActiveSecret = !!secretStatus;
+  const decryptFailed = readinessStatus?.failure_reason === "DECRYPT_FAILED";
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -139,6 +164,35 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       toast.success(`Secreto v${data.secret?.key_version || "?"} configurado y activo`);
       setSecretValue("");
       refetchSecretStatus();
+      refetchReadiness();
+      queryClient.invalidateQueries({ queryKey: ["instance-secret-status"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Mutation for re-encrypting secret (DECRYPT_FAILED remediation)
+  const reencryptMutation = useMutation({
+    mutationFn: async () => {
+      if (!instance?.id) throw new Error("No instance selected");
+      if (!secretValue.trim()) throw new Error("Secreto requerido para re-encriptar");
+
+      const { data, error } = await invokeWithSession("provider-set-instance-secret", {
+        body: {
+          instance_id: instance.id,
+          secret_value: secretValue.trim(),
+          mode: "REENCRYPT",
+          enable: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Secreto re-encriptado (v${data.secret?.key_version || "?"}) — sin cambios en el valor`);
+      setSecretValue("");
+      refetchSecretStatus();
+      refetchReadiness();
       queryClient.invalidateQueries({ queryKey: ["instance-secret-status"] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -231,19 +285,34 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
               <Key className="h-3.5 w-3.5 text-primary" />
               {alreadySaved ? "Estado del Secreto" : `Secreto (${authType === "API_KEY" ? "API Key" : "HMAC Secret"})`}
             </Label>
-            {alreadySaved && hasActiveSecret && (
+            {alreadySaved && decryptFailed && (
+              <Badge variant="destructive" className="text-[10px]">
+                <AlertTriangle className="h-3 w-3 mr-1" /> No puede descifrarse
+              </Badge>
+            )}
+            {alreadySaved && hasActiveSecret && !decryptFailed && (
               <Badge variant="outline" className="text-[10px] text-primary border-primary/30 bg-primary/10">
                 <CheckCircle2 className="h-3 w-3 mr-1" /> v{secretStatus?.key_version} activo
               </Badge>
             )}
-            {alreadySaved && !hasActiveSecret && (
+            {alreadySaved && !hasActiveSecret && !decryptFailed && (
               <Badge variant="destructive" className="text-[10px]">
                 <AlertTriangle className="h-3 w-3 mr-1" /> Sin secreto activo
               </Badge>
             )}
           </div>
 
-          {alreadySaved && !hasActiveSecret && (
+          {decryptFailed && (
+            <div className="flex items-start gap-2 p-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                <strong>⚠️ El secreto existe pero no puede descifrarse.</strong> Re-encripte con la clave actual de la plataforma.
+                El valor del secreto no cambiará.
+              </span>
+            </div>
+          )}
+
+          {alreadySaved && !hasActiveSecret && !decryptFailed && (
             <div className="flex items-start gap-2 p-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
@@ -257,21 +326,37 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
             type="password"
             value={secretValue}
             onChange={(e) => setSecretValue(e.target.value)}
-            placeholder={alreadySaved ? "Ingrese nueva API Key para configurar/rotar" : "Write-only — no se mostrará después"}
+            placeholder={decryptFailed ? "Pegue el mismo valor de API Key para re-encriptar" : alreadySaved ? "Ingrese nueva API Key para configurar/rotar" : "Write-only — no se mostrará después"}
           />
 
           {alreadySaved && (
-            <Button
-              size="sm"
-              variant={hasActiveSecret ? "outline" : "default"}
-              onClick={() => setSecretMutation.mutate()}
-              disabled={setSecretMutation.isPending || !secretValue.trim()}
-              className="gap-2"
-            >
-              {setSecretMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-              <RefreshCw className="h-3 w-3" />
-              {hasActiveSecret ? "Rotar Secreto" : "Configurar Secreto"}
-            </Button>
+            <div className="flex gap-2">
+              {decryptFailed ? (
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => reencryptMutation.mutate()}
+                  disabled={reencryptMutation.isPending || !secretValue.trim()}
+                  className="gap-2"
+                >
+                  {reencryptMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                  <RefreshCw className="h-3 w-3" />
+                  Re-encriptar (sin cambiar el secreto)
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant={hasActiveSecret ? "outline" : "default"}
+                  onClick={() => setSecretMutation.mutate()}
+                  disabled={setSecretMutation.isPending || !secretValue.trim()}
+                  className="gap-2"
+                >
+                  {setSecretMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                  <RefreshCw className="h-3 w-3" />
+                  {hasActiveSecret ? "Rotar Secreto" : "Configurar Secreto"}
+                </Button>
+              )}
+            </div>
           )}
         </div>
 

@@ -196,8 +196,12 @@ Deno.serve(async (req) => {
     if (!secretResult.ok) {
       // Terminal: hard-fail with typed error code BEFORE any external fetch
       const failCode = secretResult.failure_reason;
+      const remediationHint = failCode === "DECRYPT_FAILED" 
+        ? "Re-encripte el secreto con la clave actual en el Wizard (Instancia → Estado del Secreto → 'Re-encriptar')."
+        : "Configure una API key activa en el Wizard (Instancia → Secretos).";
+      
       await writeTrace(db, runId, source, instance, "SECRET_MISSING", failCode, false, 0, {
-        remediation: "No hay secreto activo/descifrable para esta instancia. Configure una API key en el Wizard (Instancia → Secretos) y habilítela.",
+        remediation: remediationHint,
         instance_id: instance.id,
         instance_scope: instance.scope,
         connector_key: connector?.key,
@@ -207,18 +211,29 @@ Deno.serve(async (req) => {
       await updateSourceError(db, source.id, failCode, secretResult.detail);
 
       if (instance.scope === "PLATFORM") {
-        const alertFingerprint = `missing_secret_${instance.connector_id}_${instance.scope}`;
+        const alertFingerprint = failCode === "DECRYPT_FAILED" 
+          ? `decrypt_failed_${instance.connector_id}_${instance.scope}`
+          : `missing_secret_${instance.connector_id}_${instance.scope}`;
+        
+        const alertTitle = failCode === "DECRYPT_FAILED"
+          ? "🔐 Secreto no descifrable en instancia de plataforma"
+          : "🔑 Secreto faltante en instancia de plataforma";
+        
+        const alertMessage = failCode === "DECRYPT_FAILED"
+          ? `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no puede descifrarse con la clave actual. Re-encripte el secreto sin cambiar su valor.`
+          : `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no tiene secreto activo. Error: ${failCode}.`;
+
         await db.from("alert_instances").upsert({
           entity_type: "provider_instance",
           entity_id: instance.id,
           organization_id: source.organization_id,
           owner_id: instance.created_by || source.organization_id,
           severity: "CRITICAL",
-          title: "🔑 Secreto faltante en instancia de plataforma",
-          message: `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no tiene secreto activo/descifrable. Error: ${failCode}.`,
+          title: alertTitle,
+          message: alertMessage,
           status: "PENDING",
           fired_at: new Date().toISOString(),
-          alert_type: "MISSING_PROVIDER_SECRET",
+          alert_type: failCode === "DECRYPT_FAILED" ? "PROVIDER_SECRET_DECRYPT_FAILED" : "MISSING_PROVIDER_SECRET",
           alert_source: "provider-sync-external-provider",
           fingerprint: alertFingerprint,
         }, { onConflict: "fingerprint", ignoreDuplicates: true });
