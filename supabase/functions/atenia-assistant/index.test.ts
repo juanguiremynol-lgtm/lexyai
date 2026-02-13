@@ -72,7 +72,6 @@ Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
     "ORG_USAGE_SUMMARY",
     "CREATE_SUPPORT_TICKET",
     "EXPLAIN_CURRENT_PAGE",
-    "REFRESH_WORK_ITEM_METADATA",
   ];
 
   // Verify no SQL-execution actions
@@ -100,7 +99,6 @@ Deno.test("CONFIRM_REQUIRED actions are correctly classified", () => {
     "ORG_USAGE_SUMMARY",
     "CREATE_SUPPORT_TICKET",
     "EXPLAIN_CURRENT_PAGE",
-    "REFRESH_WORK_ITEM_METADATA",
     "GET_BILLING_SUMMARY",
     "GET_SUBSCRIPTION_STATUS",
     "GENERATE_PAYMENT_CERTIFICATE",
