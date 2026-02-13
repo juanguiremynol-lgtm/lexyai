@@ -8396,6 +8396,68 @@ export type Database = {
           },
         ]
       }
+      work_item_coverage_gaps: {
+        Row: {
+          created_at: string
+          data_kind: string
+          despacho: string | null
+          first_seen_at: string
+          id: string
+          last_http_status: number | null
+          last_response_redacted: Json | null
+          last_seen_at: string
+          occurrences: number
+          org_id: string
+          provider_key: string
+          radicado: string
+          status: string
+          work_item_id: string
+          workflow: string
+        }
+        Insert: {
+          created_at?: string
+          data_kind: string
+          despacho?: string | null
+          first_seen_at?: string
+          id?: string
+          last_http_status?: number | null
+          last_response_redacted?: Json | null
+          last_seen_at?: string
+          occurrences?: number
+          org_id: string
+          provider_key: string
+          radicado: string
+          status?: string
+          work_item_id: string
+          workflow: string
+        }
+        Update: {
+          created_at?: string
+          data_kind?: string
+          despacho?: string | null
+          first_seen_at?: string
+          id?: string
+          last_http_status?: number | null
+          last_response_redacted?: Json | null
+          last_seen_at?: string
+          occurrences?: number
+          org_id?: string
+          provider_key?: string
+          radicado?: string
+          status?: string
+          work_item_id?: string
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_coverage_gaps_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_deadlines: {
         Row: {
           business_days_count: number | null
