@@ -127,8 +127,8 @@ export function buildPubDedupeKey(pub: { pub_date?: string | null; tipo_publicac
 // ────────────────────── Merge Logic ──────────────────────
 
 /** Fields to compare for conflict detection */
-const ACT_COMPARE_FIELDS = ["description", "estado", "act_time", "fecha_registro"] as const;
-const PUB_COMPARE_FIELDS = ["description", "despacho", "tipo_publicacion", "fecha_fijacion", "fecha_desfijacion"] as const;
+const ACT_COMPARE_FIELDS = ["description", "estado", "act_time", "fecha_registro", "source_url"] as const;
+const PUB_COMPARE_FIELDS = ["description", "despacho", "tipo_publicacion", "fecha_fijacion", "fecha_desfijacion", "source_url"] as const;
 
 /**
  * Merge actuaciones from primary and secondary providers.
