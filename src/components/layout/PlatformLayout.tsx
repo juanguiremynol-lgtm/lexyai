@@ -10,6 +10,7 @@ import { ShieldAlert } from "lucide-react";
 
 // Map routes to page titles
 const routeTitles: Record<string, string> = {
+  "/platform/notifications": "Notificaciones",
   "/platform/verification": "Verificación del Sistema",
   "/platform/metrics": "Métricas SaaS",
   "/platform/organizations": "Organizaciones",

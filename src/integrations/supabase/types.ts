@@ -6051,6 +6051,53 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_notifications: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          is_read: boolean
+          message: string
+          metadata: Json
+          organization_id: string | null
+          severity: string
+          title: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          is_read?: boolean
+          message: string
+          metadata?: Json
+          organization_id?: string | null
+          severity?: string
+          title: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          metadata?: Json
+          organization_id?: string | null
+          severity?: string
+          title?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_settings: {
         Row: {
           created_at: string

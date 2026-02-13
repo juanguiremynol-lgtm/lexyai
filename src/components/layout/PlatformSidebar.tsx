@@ -20,6 +20,7 @@ import {
   Brain,
   Cable,
   CreditCard,
+  Bell,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -42,6 +43,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 
 const platformNavItems = [
+  { title: "Notificaciones", url: "/platform/notifications", icon: Bell },
   { title: "Verificación", url: "/platform/verification", icon: ShieldCheck },
   { title: "Métricas SaaS", url: "/platform/metrics", icon: BarChart3 },
   { title: "Organizaciones", url: "/platform/organizations", icon: Building2 },
