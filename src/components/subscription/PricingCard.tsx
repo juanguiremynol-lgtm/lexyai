@@ -3,14 +3,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatCOP, type SubscriptionPlan, type PlanName, PLAN_COLORS } from '@/lib/subscription-constants';
 import { useSubscription } from '@/contexts/SubscriptionContext';
-import { Check, Crown, Sparkles, Star, Zap } from 'lucide-react';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
+import { Check, Crown, Sparkles, Star, Zap, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+const SUPABASE_FUNCTIONS_URL = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '') + '/functions/v1';
 
 interface PricingCardProps {
   plan: SubscriptionPlan;
   isCurrentPlan: boolean;
-  onSelect: (plan: SubscriptionPlan) => void;
+  onSelect: (plan: SubscriptionPlan) => Promise<void>;
   recommended?: boolean;
+  isLoading?: boolean;
 }
 
 const PLAN_ICONS: Record<PlanName, React.ReactNode> = {
@@ -20,7 +28,7 @@ const PLAN_ICONS: Record<PlanName, React.ReactNode> = {
   unlimited: <Crown className="h-6 w-6" />,
 };
 
-export function PricingCard({ plan, isCurrentPlan, onSelect, recommended }: PricingCardProps) {
+export function PricingCard({ plan, isCurrentPlan, onSelect, recommended, isLoading }: PricingCardProps) {
   const planName = plan.name as PlanName;
   const icon = PLAN_ICONS[planName] || <Star className="h-6 w-6" />;
   
@@ -88,11 +96,16 @@ export function PricingCard({ plan, isCurrentPlan, onSelect, recommended }: Pric
           onClick={() => onSelect(plan)}
           className="w-full"
           variant={isCurrentPlan ? 'outline' : recommended ? 'default' : 'outline'}
-          disabled={isCurrentPlan}
+          disabled={isCurrentPlan || isLoading}
         >
-          {isCurrentPlan ? 'Plan actual' : 
-           plan.name === 'trial' ? 'Iniciar prueba' :
-           'Seleccionar plan'}
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Procesando...
+            </>
+          ) : isCurrentPlan ? 'Plan actual' : 
+            plan.name === 'trial' ? 'Iniciar prueba' :
+            'Seleccionar plan'}
         </Button>
       </CardFooter>
     </Card>
@@ -100,12 +113,66 @@ export function PricingCard({ plan, isCurrentPlan, onSelect, recommended }: Pric
 }
 
 export function PricingCards() {
-  const { plans, plan: currentPlan } = useSubscription();
+  const { plans, plan: currentPlan, isLoading: subLoading } = useSubscription();
+  const { organization } = useOrganization();
+  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSelectPlan = (plan: SubscriptionPlan) => {
-    // For now, show a message that Stripe integration is pending
-    // This will be replaced with actual Stripe checkout
-    alert(`La integración de pagos con Stripe estará disponible pronto.\n\nPlan seleccionado: ${plan.display_name}\nPrecio: ${formatCOP(plan.price_cop)}/mes`);
+  const handleSelectPlan = async (plan: SubscriptionPlan) => {
+    if (!organization?.id) {
+      toast.error('Por favor inicia sesión para continuar');
+      return;
+    }
+
+    if (plan.price_cop === 0) {
+      // Free plan — no checkout needed
+      toast.success('Plan gratuito activado');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Create checkout session via edge function
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      
+      if (!token) {
+        toast.error('Por favor inicia sesión para continuar');
+        return;
+      }
+
+      const response = await fetch(`${SUPABASE_FUNCTIONS_URL}/billing-create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          organization_id: organization.id,
+          plan_code: plan.name === 'trial' ? 'FREE_TRIAL' : 
+                   plan.name === 'basic' ? 'BASIC' :
+                   plan.name === 'standard' ? 'PRO' : 'ENTERPRISE',
+          billing_cycle_months: 1,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Error al crear sesión de pago');
+      }
+
+      // For demo mode, show mock payment page; for real Wompi, redirect to checkout_url
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else if (data.session_id) {
+        // Redirect to our mock checkout page
+        navigate(`/checkout?session_id=${data.session_id}`);
+      }
+    } catch (error) {
+      toast.error((error as Error).message || 'Error al procesar pago');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Filter out trial from pricing display for non-trial users
@@ -122,6 +189,7 @@ export function PricingCards() {
           isCurrentPlan={currentPlan?.id === plan.id}
           onSelect={handleSelectPlan}
           recommended={plan.name === 'standard'}
+          isLoading={isLoading || subLoading}
         />
       ))}
     </div>
