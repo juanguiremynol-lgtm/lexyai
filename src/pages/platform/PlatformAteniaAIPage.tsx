@@ -2,8 +2,8 @@
  * Platform Atenia AI Page
  */
 
-import { AteniaAISupervisorPanel } from "@/components/platform/AteniaAISupervisorPanel";
+import { AteniaComprehensiveAuditWizard } from "@/components/platform/atenia-ai/AteniaComprehensiveAuditWizard";
 
 export default function PlatformAteniaAIPage() {
-  return <AteniaAISupervisorPanel />;
+  return <AteniaComprehensiveAuditWizard />;
 }
