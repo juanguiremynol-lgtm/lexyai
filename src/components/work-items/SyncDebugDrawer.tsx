@@ -83,6 +83,7 @@ const STEP_CONFIG: Record<string, { icon: React.ElementType; color: string; labe
   DB_WRITE_FAILED: { icon: Database, color: "text-red-500", label: "Error de escritura" },
   SYNC_SUCCESS: { icon: CheckCircle2, color: "text-green-500", label: "Sincronización exitosa" },
   SYNC_FAILED: { icon: XCircle, color: "text-red-500", label: "Sincronización fallida" },
+  EXTERNAL_PROVIDER_SYNC: { icon: Wifi, color: "text-cyan-500", label: "Sync proveedor externo (Estados)" },
 };
 
 function getStepConfig(step: string) {
