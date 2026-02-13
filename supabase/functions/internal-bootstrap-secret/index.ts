@@ -107,8 +107,8 @@ Deno.serve(async (req) => {
           organization_id: null,
           key_version: nextVersion,
           is_active: enable,
-          cipher_text: cipher,
-          nonce,
+          cipher_text: "\\x" + bytesToHex(cipher),
+          nonce: "\\x" + bytesToHex(nonce),
           created_by: null,
           scope: "PLATFORM",
         })
@@ -142,8 +142,8 @@ Deno.serve(async (req) => {
         organization_id: null,
         key_version: nextVersion,
         is_active: enable,
-        cipher_text: cipher,
-        nonce,
+        cipher_text: "\\x" + bytesToHex(cipher),
+        nonce: "\\x" + bytesToHex(nonce),
         created_by: null,
         scope: "PLATFORM",
       })
