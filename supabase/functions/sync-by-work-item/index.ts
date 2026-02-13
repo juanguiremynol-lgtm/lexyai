@@ -4119,14 +4119,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ============= EXTERNAL PROVIDER ENRICHMENT =============
-    // After built-in sync completes, check for external providers configured via
-    // provider_category_routes_global and provider_category_routes_org_override.
-    // This ensures any provider added via the wizard is automatically called.
+    // ============= EXTERNAL PROVIDER ENRICHMENT (data_kind-aware subchains) =============
+    // After built-in sync completes, resolve external provider routes and execute
+    // TWO independent subchains: one for ACTUACIONES, one for ESTADOS.
+    // Routes with scope=BOTH are called in both subchains.
+    // Compatibility gating prevents incompatible providers from being called.
+    //
+    // Spec:
+    //   - data_kind=ACTUACIONES: procedural actions (fed by CPNU, SAMAI, etc.)
+    //   - data_kind=ESTADOS: procedural status/publications (fed by SAMAI_ESTADOS, Publicaciones, etc.)
+    //   - Primary mapping: CGP→CPNU(acts)/Publicaciones(estados), CPACA→SAMAI(acts)/SAMAI_ESTADOS(estados)
+    //   - Fallback providers are merged if non-duplicate; provenance always preserved
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminDb = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Import coverage matrix for compatibility gating
+      const { isProviderCompatible, routeScopeToDataKinds } = await import("../_shared/providerCoverageMatrix.ts");
 
       // Query global routes for this workflow
       const { data: globalRoutes } = await adminDb
@@ -4151,150 +4161,198 @@ Deno.serve(async (req) => {
       if (activeRoutes.length > 0) {
         console.log(`[sync-by-work-item] External provider enrichment: ${activeRoutes.length} route(s) for ${workItem.workflow_type}`);
 
-        for (const route of activeRoutes) {
-          const connectorId = route.provider_connector_id;
-          const connectorName = (route as any).provider_connectors?.name || connectorId?.slice(0, 8);
+        // ── Execute subchains by data_kind ──
+        const DATA_KINDS = ["ACTUACIONES", "ESTADOS"] as const;
+        for (const dataKind of DATA_KINDS) {
+          // Filter routes applicable to this data_kind
+          const scopeFilter = dataKind === "ACTUACIONES" ? "ACTS" : "PUBS";
+          const applicableRoutes = activeRoutes.filter((route: any) => {
+            const routeScope = route.scope || "BOTH";
+            return routeScope === scopeFilter || routeScope === "BOTH";
+          });
 
-          // Resolve instance: PLATFORM scope for global, ORG scope for org override
-          const isOrgRoute = orgRoutes && orgRoutes.length > 0;
-          let instanceQuery = adminDb
-            .from('provider_instances')
-            .select('id, name, base_url')
-            .eq('connector_id', connectorId)
-            .eq('is_enabled', true);
+          if (applicableRoutes.length === 0) continue;
 
-          if (isOrgRoute) {
-            instanceQuery = instanceQuery.eq('organization_id', workItem.organization_id);
-          } else {
-            instanceQuery = instanceQuery.is('organization_id', null);
-          }
+          console.log(`[sync-by-work-item] Subchain ${dataKind}: ${applicableRoutes.length} route(s)`);
 
-          const { data: instances } = await instanceQuery.order('created_at', { ascending: false }).limit(1);
-          const instance = instances?.[0];
+          for (const route of applicableRoutes) {
+            const connectorId = route.provider_connector_id;
+            const connectorInfo = (route as any).provider_connectors;
+            const connectorName = connectorInfo?.name || connectorId?.slice(0, 8);
+            const connectorKey = connectorInfo?.key || connectorName;
 
-          if (!instance) {
-            console.warn(`[sync-by-work-item] SKIP external provider ${connectorName}: no active instance (${isOrgRoute ? 'ORG' : 'PLATFORM'})`);
-            result.warnings.push(`External provider ${connectorName}: MISSING_INSTANCE`);
-
-            await logTrace(supabase, {
-              trace_id: traceId,
-              work_item_id,
-              organization_id: workItem.organization_id,
-              workflow_type: workItem.workflow_type,
-              step: 'EXTERNAL_PROVIDER_SKIP',
-              provider: connectorName,
-              success: false,
-              error_code: isOrgRoute ? 'MISSING_ORG_INSTANCE' : 'MISSING_PLATFORM_INSTANCE',
-              message: `No enabled ${isOrgRoute ? 'ORG' : 'PLATFORM'} instance for connector ${connectorName}`,
-              meta: { connector_id: connectorId, route_kind: route.route_kind },
-            });
-            continue;
-          }
-
-          // Ensure work_item_sources entry exists for this provider
-          const { data: existingSource } = await adminDb
-            .from('work_item_sources')
-            .select('id')
-            .eq('work_item_id', work_item_id)
-            .eq('provider_instance_id', instance.id)
-            .maybeSingle();
-
-          let sourceId = existingSource?.id;
-          if (!sourceId) {
-            // Auto-create source binding
-            const { data: newSource, error: sourceErr } = await adminDb
-              .from('work_item_sources')
-              .insert({
+            // ── Compatibility gate ──
+            const compat = isProviderCompatible(connectorKey, workItem.workflow_type, dataKind);
+            if (!compat.compatible) {
+              console.log(`[sync-by-work-item] SKIP ${connectorName} for ${dataKind}: ${compat.reason}`);
+              await logTrace(supabase, {
+                trace_id: traceId,
                 work_item_id,
-                provider_instance_id: instance.id,
                 organization_id: workItem.organization_id,
-                provider_case_id: workItem.radicado || work_item_id,
-                source_input_type: 'RADICADO',
-                source_input_value: workItem.radicado || work_item_id,
-                scrape_status: 'SCRAPING_PENDING',
-              })
-              .select('id')
-              .single();
-            if (sourceErr) {
-              console.warn(`[sync-by-work-item] Source creation error for ${connectorName}: ${sourceErr.message}`);
-            }
-            sourceId = newSource?.id;
-          }
-
-          if (!sourceId) {
-            console.warn(`[sync-by-work-item] Could not create source for ${connectorName}`);
-            continue;
-          }
-
-          // Call provider-sync-external-provider (non-blocking best effort)
-          try {
-            console.log(`[sync-by-work-item] Calling external provider ${connectorName} (instance: ${instance.name})`);
-            const extStart = Date.now();
-
-            const extResp = await fetch(
-              `${supabaseUrl}/functions/v1/provider-sync-external-provider`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${supabaseServiceKey}`,
-                  'Content-Type': 'application/json',
+                workflow_type: workItem.workflow_type,
+                step: 'EXTERNAL_PROVIDER_COMPAT_SKIP',
+                provider: connectorName,
+                success: false,
+                error_code: 'INCOMPATIBLE_PROVIDER',
+                message: compat.reason,
+                meta: {
+                  connector_id: connectorId,
+                  connector_key: connectorKey,
+                  data_kind: dataKind,
+                  route_kind: route.route_kind,
+                  route_scope: route.scope,
+                  route_scope_effective: dataKind,
                 },
-                body: JSON.stringify({
-                  work_item_source_id: sourceId,
+              });
+              continue;
+            }
+
+            // Resolve instance: PLATFORM scope for global, ORG scope for org override
+            const isOrgRoute = orgRoutes && orgRoutes.length > 0;
+            let instanceQuery = adminDb
+              .from('provider_instances')
+              .select('id, name, base_url')
+              .eq('connector_id', connectorId)
+              .eq('is_enabled', true);
+
+            if (isOrgRoute) {
+              instanceQuery = instanceQuery.eq('organization_id', workItem.organization_id);
+            } else {
+              instanceQuery = instanceQuery.is('organization_id', null);
+            }
+
+            const { data: instances } = await instanceQuery.order('created_at', { ascending: false }).limit(1);
+            const instance = instances?.[0];
+
+            if (!instance) {
+              console.warn(`[sync-by-work-item] SKIP external provider ${connectorName} (${dataKind}): no active instance (${isOrgRoute ? 'ORG' : 'PLATFORM'})`);
+              result.warnings.push(`External provider ${connectorName} (${dataKind}): MISSING_INSTANCE`);
+
+              await logTrace(supabase, {
+                trace_id: traceId,
+                work_item_id,
+                organization_id: workItem.organization_id,
+                workflow_type: workItem.workflow_type,
+                step: 'EXTERNAL_PROVIDER_SKIP',
+                provider: connectorName,
+                success: false,
+                error_code: isOrgRoute ? 'MISSING_ORG_INSTANCE' : 'MISSING_PLATFORM_INSTANCE',
+                message: `No enabled ${isOrgRoute ? 'ORG' : 'PLATFORM'} instance for connector ${connectorName}`,
+                meta: { connector_id: connectorId, route_kind: route.route_kind, data_kind: dataKind, route_scope_effective: dataKind },
+              });
+              continue;
+            }
+
+            // Ensure work_item_sources entry exists for this provider
+            const { data: existingSource } = await adminDb
+              .from('work_item_sources')
+              .select('id')
+              .eq('work_item_id', work_item_id)
+              .eq('provider_instance_id', instance.id)
+              .maybeSingle();
+
+            let sourceId = existingSource?.id;
+            if (!sourceId) {
+              // Auto-create source binding
+              const { data: newSource, error: sourceErr } = await adminDb
+                .from('work_item_sources')
+                .insert({
                   work_item_id,
                   provider_instance_id: instance.id,
-                }),
+                  organization_id: workItem.organization_id,
+                  provider_case_id: workItem.radicado || work_item_id,
+                  source_input_type: 'RADICADO',
+                  source_input_value: workItem.radicado || work_item_id,
+                  scrape_status: 'SCRAPING_PENDING',
+                })
+                .select('id')
+                .single();
+              if (sourceErr) {
+                console.warn(`[sync-by-work-item] Source creation error for ${connectorName} (${dataKind}): ${sourceErr.message}`);
               }
-            );
-            const extData = await extResp.json().catch(() => ({}));
-            const extLatency = Date.now() - extStart;
-
-            const dataKind = extData.data_kind || 'actuaciones';
-            const insertedCount = extData[`inserted_${dataKind}`] || extData.inserted_actuaciones || extData.inserted_estados || 0;
-
-            result.provider_attempts.push({
-              provider: `ext:${connectorName}`,
-              status: extData.ok ? 'success' : (extData.empty ? 'empty' : 'error'),
-              latencyMs: extLatency,
-              message: extData.error || (extData.ok ? `External sync OK (${dataKind})` : undefined),
-              actuacionesCount: insertedCount,
-            });
-
-            if (extData.ok && insertedCount > 0) {
-              result.inserted_count += insertedCount;
-              result.warnings.push(`External ${connectorName}: +${insertedCount} ${dataKind}`);
+              sourceId = newSource?.id;
             }
 
-            await logTrace(supabase, {
-              trace_id: traceId,
-              work_item_id,
-              organization_id: workItem.organization_id,
-              workflow_type: workItem.workflow_type,
-              step: 'EXTERNAL_PROVIDER_SYNC',
-              provider: connectorName,
-              http_status: extResp.status,
-              latency_ms: extLatency,
-              success: !!extData.ok,
-              error_code: extData.code || null,
-              message: extData.ok
-                ? `External ${connectorName}: inserted=${extData.inserted_count || 0}`
-                : `External ${connectorName}: ${extData.error || 'failed'}`,
-              meta: {
-                connector_id: connectorId,
-                instance_id: instance.id,
-                source_id: sourceId,
-                route_kind: route.route_kind,
-                inserted: extData.inserted_count || 0,
-              },
-            });
-          } catch (extErr: any) {
-            console.warn(`[sync-by-work-item] External provider ${connectorName} failed (non-blocking):`, extErr?.message);
-            result.provider_attempts.push({
-              provider: `ext:${connectorName}`,
-              status: 'error',
-              latencyMs: 0,
-              message: extErr?.message || 'Invocation failed',
-            });
+            if (!sourceId) {
+              console.warn(`[sync-by-work-item] Could not create source for ${connectorName} (${dataKind})`);
+              continue;
+            }
+
+            // Call provider-sync-external-provider (non-blocking best effort)
+            try {
+              console.log(`[sync-by-work-item] Calling external provider ${connectorName} for ${dataKind} (instance: ${instance.name}, role: ${route.route_kind})`);
+              const extStart = Date.now();
+
+              const extResp = await fetch(
+                `${supabaseUrl}/functions/v1/provider-sync-external-provider`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${supabaseServiceKey}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    work_item_source_id: sourceId,
+                    work_item_id,
+                    provider_instance_id: instance.id,
+                  }),
+                }
+              );
+              const extData = await extResp.json().catch(() => ({}));
+              const extLatency = Date.now() - extStart;
+
+              const reportedDataKind = extData.data_kind || dataKind.toLowerCase();
+              const insertedCount = extData[`inserted_${reportedDataKind}`] || extData.inserted_actuaciones || extData.inserted_estados || 0;
+
+              result.provider_attempts.push({
+                provider: `ext:${connectorName}`,
+                status: extData.ok ? 'success' : (extData.empty ? 'empty' : 'error'),
+                latencyMs: extLatency,
+                message: extData.error || (extData.ok ? `External sync OK (${dataKind})` : undefined),
+                actuacionesCount: insertedCount,
+              });
+
+              if (extData.ok && insertedCount > 0) {
+                result.inserted_count += insertedCount;
+                result.warnings.push(`External ${connectorName}: +${insertedCount} ${dataKind}`);
+              }
+
+              await logTrace(supabase, {
+                trace_id: traceId,
+                work_item_id,
+                organization_id: workItem.organization_id,
+                workflow_type: workItem.workflow_type,
+                step: 'EXTERNAL_PROVIDER_SYNC',
+                provider: connectorName,
+                http_status: extResp.status,
+                latency_ms: extLatency,
+                success: !!extData.ok,
+                error_code: extData.code || null,
+                message: extData.ok
+                  ? `External ${connectorName} (${dataKind}): inserted=${insertedCount}`
+                  : `External ${connectorName} (${dataKind}): ${extData.error || 'failed'}`,
+                meta: {
+                  connector_id: connectorId,
+                  connector_key: connectorKey,
+                  instance_id: instance.id,
+                  source_id: sourceId,
+                  route_kind: route.route_kind,
+                  data_kind: dataKind,
+                  route_scope: route.scope,
+                  route_scope_effective: dataKind,
+                  inserted: insertedCount,
+                  provenance_upserted: extData.provenance_upserted || 0,
+                },
+              });
+            } catch (extErr: any) {
+              console.warn(`[sync-by-work-item] External provider ${connectorName} (${dataKind}) failed (non-blocking):`, extErr?.message);
+              result.provider_attempts.push({
+                provider: `ext:${connectorName}`,
+                status: 'error',
+                latencyMs: 0,
+                message: extErr?.message || 'Invocation failed',
+              });
+            }
           }
         }
       }

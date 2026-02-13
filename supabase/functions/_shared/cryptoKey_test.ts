@@ -105,7 +105,7 @@ Deno.test("Re-encryption: old ciphertext fails, new one succeeds", async () => {
 
   // New key (derived via SHA-256)
   const { bytes: newKeyBytes } = await deriveKey("current-platform-key-b64");
-  const newKey = await crypto.subtle.importKey("raw", newKeyBytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const newKey = await crypto.subtle.importKey("raw", newKeyBytes.buffer as ArrayBuffer, "AES-GCM", false, ["encrypt", "decrypt"]);
 
   // Old ciphertext should fail with new key
   let decryptFailed = false;
