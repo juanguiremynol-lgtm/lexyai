@@ -294,11 +294,20 @@ Deno.serve(async (req) => {
     const includeParam = isEstadosProvider ? ["ESTADOS"] : caps.filter((c: string) => ["ACTUACIONES", "PUBLICACIONES", "ESTADOS"].includes(c.toUpperCase()));
     if (includeParam.length === 0) includeParam.push("ACTUACIONES");
 
-    const snapshotBody = JSON.stringify({
-      provider_case_id: source.provider_case_id,
+    // Build request body — use adapter-aware field names based on connector capabilities
+    // SAMAI Estados expects "radicado" not "provider_case_id"
+    const caps_set = new Set(caps.map((c: string) => c.toLowerCase()));
+    const useRadicadoField = caps_set.has("search_by_radicado") || connector?.key === "SAMAI_ESTADOS";
+    const caseIdField = useRadicadoField ? "radicado" : "provider_case_id";
+    const snapshotBodyObj: Record<string, unknown> = {
+      [caseIdField]: source.provider_case_id,
       since: source.last_synced_at || null,
-      include: includeParam,
-    });
+    };
+    // Only include "include" param if the provider uses it (Estados providers)
+    if (isEstadosProvider) {
+      snapshotBodyObj.include = includeParam;
+    }
+    const snapshotBody = JSON.stringify(snapshotBodyObj);
     const headers = await buildAuthHeaders({
       instance: providerInfo,
       decryptedSecret: decryptedSecret,
@@ -443,7 +452,10 @@ Deno.serve(async (req) => {
 
     // Determine outcome for raw snapshot status
     let rawStatus = "OK";
-    if (!snapRes.ok || snapData.ok !== true) rawStatus = "ERROR";
+    // Consider response OK if HTTP was 2xx, even if snapData.ok is not explicitly true
+    // Many providers (e.g., SAMAI Estados) return {error: null, actuaciones: [...]} without an explicit "ok" field
+    const hasExplicitError = snapData.error && snapData.error !== null;
+    if (!snapRes.ok || (snapData.ok === false) || hasExplicitError) rawStatus = "ERROR";
     if (snapData.scraping_initiated || isTransientError(normalizedCode)) rawStatus = "PENDING";
     // Extract data — SAMAI Estados returns "estados" key, not "actuaciones"
     // Estados are legally distinct from actuaciones but stored in work_item_acts
@@ -535,8 +547,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Generic error
-    if (!snapRes.ok || snapData.ok !== true) {
+    // Generic error — only if HTTP failed or explicit ok=false or explicit error present
+    if (!snapRes.ok || snapData.ok === false || hasExplicitError) {
       const errCode = normalizedCode !== "PROVIDER_ERROR" ? normalizedCode : (rawErrorCode || "PROVIDER_ERROR");
       await updateSourceError(db, source.id, errCode, snapData.message || `HTTP ${snapRes.status}`);
       await writeTrace(db, runId, source, instance, "TERMINAL", errCode, false, Date.now() - startTime, { outcome: "ERROR" });
@@ -857,6 +869,14 @@ async function resolveEffectiveMapping(
 
   // 3. Connector emits canonical v1 → use identity
   if (connector?.emits_canonical_v1) return IDENTITY_MAPPING_SPEC;
+
+  // 4. Known connectors that return SAMAI-compatible format (actuaciones array with standard fields)
+  // These use identity mapping since normalizeActuaciones handles the transformation
+  const connectorKey = connector?.key || "";
+  const caps: string[] = connector?.capabilities || [];
+  if (connectorKey === "SAMAI_ESTADOS" || caps.includes("snapshot")) {
+    return IDENTITY_MAPPING_SPEC;
+  }
 
   return null;
 }
