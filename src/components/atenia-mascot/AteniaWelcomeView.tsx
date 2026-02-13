@@ -39,7 +39,7 @@ const WORK_ITEM_CHIPS: StarterChip[] = [
   { label: "¿Qué proveedor usa esta categoría?", prompt: "¿Qué proveedor de datos se usa para esta categoría de asunto?" },
   { label: "¿Por qué no se auto-llenan las partes?", prompt: "¿Por qué el wizard de creación no está auto-llenando las partes procesales?" },
   { label: "Mostrar datos obtenidos de este asunto", prompt: "Muéstrame los datos que se obtuvieron de los proveedores para este asunto" },
-  { label: "Resumir últimas actuaciones", prompt: "Resume las últimas actuaciones de este asunto. ¿Hay algo urgente?" },
+  { label: "📋 Resumir este asunto", prompt: "Resume este asunto y sus últimas actuaciones. Incluye ficha del proceso, últimas actuaciones y acciones recomendadas." },
 ];
 
 const GATED_CHIPS: StarterChip[] = [
@@ -109,7 +109,7 @@ function getContextualChips(contexts: BubbleContext[], pathname: string): Starte
 
   if (contexts.includes("WORK_ITEM_DETAIL")) {
     contextual.push(
-      { label: "Resumir este asunto", prompt: "Resume este asunto y sus últimas actuaciones" },
+      { label: "📋 Resumir este asunto", prompt: "Resume este asunto y sus últimas actuaciones. Incluye ficha del proceso, últimas actuaciones y acciones recomendadas." },
       { label: "Explicar trazas de sync", prompt: "Explícame las trazas de sincronización de este asunto" },
     );
   }
