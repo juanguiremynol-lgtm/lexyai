@@ -64,7 +64,16 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Beta Auth Banner */}
+      <div className="w-full max-w-md mb-6 px-4 py-3 rounded-lg border border-primary/30 bg-primary/5 text-center">
+        <p className="text-xs font-medium text-primary">
+          🚀 <span className="font-semibold">Fase Beta</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Por ahora, el registro y acceso es exclusivamente mediante Google Auth. Soporte para correo electrónico próximamente.
+        </p>
+      </div>
       {/* Background decorative elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/10 via-transparent to-transparent rounded-full blur-3xl" />
