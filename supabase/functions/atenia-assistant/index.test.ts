@@ -66,6 +66,13 @@ Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
     "RUN_MASTER_SYNC_SCOPE",
     "ESCALATE_TO_ADMIN_QUEUE",
     "CREATE_USER_REPORT",
+    "INVITE_USER_TO_ORG",
+    "REMOVE_USER_FROM_ORG",
+    "CHANGE_MEMBER_ROLE",
+    "ORG_USAGE_SUMMARY",
+    "CREATE_SUPPORT_TICKET",
+    "EXPLAIN_CURRENT_PAGE",
+    "REFRESH_WORK_ITEM_METADATA",
   ];
 
   // Verify no SQL-execution actions
@@ -78,8 +85,26 @@ Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
 });
 
 Deno.test("CONFIRM_REQUIRED actions are correctly classified", () => {
-  const confirmRequired = ["TOGGLE_MONITORING", "RUN_MASTER_SYNC_SCOPE"];
-  const safe = ["RUN_SYNC_WORK_ITEM", "RUN_SYNC_PUBLICACIONES_WORK_ITEM", "ESCALATE_TO_ADMIN_QUEUE", "CREATE_USER_REPORT"];
+  const confirmRequired = [
+    "TOGGLE_MONITORING",
+    "RUN_MASTER_SYNC_SCOPE",
+    "INVITE_USER_TO_ORG",
+    "REMOVE_USER_FROM_ORG",
+    "CHANGE_MEMBER_ROLE",
+  ];
+  const safe = [
+    "RUN_SYNC_WORK_ITEM",
+    "RUN_SYNC_PUBLICACIONES_WORK_ITEM",
+    "ESCALATE_TO_ADMIN_QUEUE",
+    "CREATE_USER_REPORT",
+    "ORG_USAGE_SUMMARY",
+    "CREATE_SUPPORT_TICKET",
+    "EXPLAIN_CURRENT_PAGE",
+    "REFRESH_WORK_ITEM_METADATA",
+    "GET_BILLING_SUMMARY",
+    "GET_SUBSCRIPTION_STATUS",
+    "GENERATE_PAYMENT_CERTIFICATE",
+  ];
 
   // These are the rules from the edge function
   for (const action of confirmRequired) {

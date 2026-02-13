@@ -20,7 +20,12 @@ export type MascotEvent =
   | "atenia_action_confirmed"
   | "atenia_action_executed"
   | "atenia_action_denied"
-  | "ticker_toggle_requested";
+  | "ticker_toggle_requested"
+  | "invite_user_requested"
+  | "remove_user_requested"
+  | "role_change_requested"
+  | "support_ticket_created"
+  | "org_usage_viewed";
 
 export function trackMascotEvent(
   event: MascotEvent,

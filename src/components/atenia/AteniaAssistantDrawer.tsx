@@ -100,6 +100,13 @@ const ACTION_LABELS: Record<string, string> = {
   TOGGLE_TICKER: "Cambiar ticker de estados",
   GET_BILLING_SUMMARY: "Ver resumen de facturación",
   GET_SUBSCRIPTION_STATUS: "Ver estado de suscripción",
+  INVITE_USER_TO_ORG: "Invitar usuario a organización",
+  REMOVE_USER_FROM_ORG: "Eliminar usuario de organización",
+  CHANGE_MEMBER_ROLE: "Cambiar rol de miembro",
+  ORG_USAGE_SUMMARY: "Resumen de uso de la organización",
+  CREATE_SUPPORT_TICKET: "Crear ticket de soporte",
+  EXPLAIN_CURRENT_PAGE: "Explicar esta página",
+  REFRESH_WORK_ITEM_METADATA: "Actualizar datos del asunto",
 };
 
 const QUICK_QUESTIONS = [

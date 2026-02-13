@@ -4,11 +4,14 @@
  * Enforces identity separation: end-user assistant vs super-admin console.
  */
 
-import { Bot, Wrench, Briefcase, ShieldAlert, Sparkles, Lock, Settings, CreditCard } from "lucide-react";
+import { Bot, Wrench, Briefcase, ShieldAlert, Sparkles, Lock, Settings, CreditCard, Users } from "lucide-react";
 import { trackMascotEvent } from "./mascot-analytics";
 import type { BubbleContext } from "./mascot-bubbles";
 import { useLocation } from "react-router-dom";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface StarterChip {
   label: string;
@@ -54,7 +57,14 @@ const SETTINGS_CHIPS: StarterChip[] = [
   { label: "🎫 Generar certificado de servicio", prompt: "Genera un certificado de servicio para mi organización" },
 ];
 
-function buildCapabilityGroups(isPlatformAdmin: boolean): CapabilityGroup[] {
+const ORG_ADMIN_CHIPS: StarterChip[] = [
+  { label: "👤 Invitar usuario", prompt: "Quiero invitar un usuario a mi organización" },
+  { label: "👥 Resumen de uso de la organización", prompt: "Dame un resumen de uso de mi organización: miembros, asuntos monitoreados, etc." },
+  { label: "🔄 Cambiar rol de miembro", prompt: "Quiero cambiar el rol de un miembro de mi organización" },
+  { label: "❌ Eliminar miembro", prompt: "Quiero eliminar un miembro de mi organización" },
+];
+
+function buildCapabilityGroups(isPlatformAdmin: boolean, isOrgAdmin: boolean): CapabilityGroup[] {
   const groups: CapabilityGroup[] = [
     {
       title: "Soporte y diagnóstico",
@@ -81,6 +91,15 @@ function buildCapabilityGroups(isPlatformAdmin: boolean): CapabilityGroup[] {
       chips: GATED_CHIPS,
     },
   ];
+
+  if (isOrgAdmin) {
+    groups.splice(3, 0, {
+      title: "Administración de organización",
+      description: "Invitar/eliminar miembros, cambiar roles, uso",
+      icon: <Users className="h-4 w-4" />,
+      chips: ORG_ADMIN_CHIPS,
+    });
+  }
 
   return groups;
 }
@@ -137,8 +156,29 @@ interface AteniaWelcomeViewProps {
 export function AteniaWelcomeView({ contexts, onSelectPrompt, isFirstOpen }: AteniaWelcomeViewProps) {
   const location = useLocation();
   const { isPlatformAdmin } = usePlatformAdmin();
+  const { organization } = useOrganization();
+
+  const { data: membershipRole } = useQuery({
+    queryKey: ["org-membership-role", organization?.id],
+    queryFn: async () => {
+      if (!organization?.id) return null;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data } = await supabase
+        .from("organization_memberships")
+        .select("role")
+        .eq("organization_id", organization.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      return data?.role || null;
+    },
+    enabled: !!organization?.id,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const isOrgAdmin = membershipRole === "OWNER" || membershipRole === "ADMIN";
   const contextualChips = getContextualChips(contexts, location.pathname);
-  const capabilityGroups = buildCapabilityGroups(isPlatformAdmin);
+  const capabilityGroups = buildCapabilityGroups(isPlatformAdmin, isOrgAdmin);
 
   const handleChipClick = (chip: StarterChip) => {
     trackMascotEvent("chip_clicked", { label: chip.label });
