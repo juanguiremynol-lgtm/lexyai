@@ -41,6 +41,8 @@ export function normalizeProviderErrorCode(
   httpStatus?: number,
 ): string {
   if (!providerCode && httpStatus === 404) return 'PROVIDER_404';
+  // No error code + successful HTTP status = OK (e.g., SAMAI Estados returns {error: null, actuaciones: [...]})
+  if (!providerCode && httpStatus && httpStatus >= 200 && httpStatus < 300) return 'OK';
   if (!providerCode) return 'PROVIDER_ERROR';
 
   const upper = providerCode.toUpperCase().replace(/[\s-]+/g, '_');
