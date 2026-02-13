@@ -98,8 +98,9 @@ export function translateSamaiFormat(rawRecords: Record<string, unknown>[]): Pro
       r["Actuación"] || r["actuacion"] || r["Actuacion"] || r["description"] || ""
     );
     const docNotif = String(r["Docum. a notif."] || r["docum_a_notif"] || "");
+    // Use hyphen " - " (not em-dash " — ") to match built-in SAMAI format
     const fullDescription = docNotif && docNotif !== "undefined"
-      ? `${description} — ${docNotif}`
+      ? `${description} - ${docNotif}`
       : description;
 
     const hashDoc = String(r["hash_documento"] || "");
