@@ -79,10 +79,20 @@ export interface EffectivePolicy {
   source: "ORG_OVERRIDE" | "GLOBAL" | "BUILTIN";
 }
 
+/**
+ * Built-in provider defaults per workflow.
+ *
+ * For CPACA: SAMAI is the built-in actuaciones source; SAMAI_ESTADOS is an
+ * EXTERNAL provider for estados (configured via provider wizard, not built-in).
+ * Publicaciones is kept as a built-in pubs fallback for CGP/LABORAL/PENAL_906.
+ *
+ * See also: _shared/providerCoverageMatrix.ts for the full coverage matrix
+ * including external providers and compatibility gating.
+ */
 const BUILTIN_PROVIDERS: Record<string, { acts: string[]; pubs: string[] }> = {
   CGP:       { acts: ["cpnu"],  pubs: ["publicaciones"] },
   LABORAL:   { acts: ["cpnu"],  pubs: ["publicaciones"] },
-  CPACA:     { acts: ["samai"], pubs: ["publicaciones"] },
+  CPACA:     { acts: ["samai"], pubs: [] },  // SAMAI_ESTADOS is EXTERNAL, not built-in
   TUTELA:    { acts: ["cpnu", "tutelas-api"], pubs: [] },
   PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
 };
