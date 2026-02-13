@@ -2,11 +2,12 @@
  * MasterDebugPanel — Unified debug console for all provider testing,
  * secret readiness, E2E flows, and Atenia AI agentic testing.
  *
- * Consolidates: ExternalProviderDebugCard, UnifiedDebugConsole,
- * EstadosDebugPanel, PublicacionesDebugCard into a single tabbed panel.
+ * Supports ALL workflow types and dynamically discovered external providers
+ * (registered via the External Provider Integration Wizard).
  */
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,6 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Shield,
   RefreshCw,
@@ -25,7 +25,6 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Clock,
   ChevronDown,
   ChevronRight,
@@ -35,8 +34,7 @@ import {
   Bot,
   Globe,
   Server,
-  FileText,
-  Newspaper,
+  Cable,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -53,7 +51,38 @@ interface StepData {
   message?: string;
 }
 
-type WorkflowType = "CGP" | "LABORAL" | "CPACA" | "TUTELA" | "PENAL_906";
+type WorkflowType = "CGP" | "LABORAL" | "CPACA" | "TUTELA" | "PENAL_906" | "PROCESO_ADMINISTRATIVO" | "PETICIONES";
+
+interface ConnectorInfo {
+  id: string;
+  name: string;
+  key: string;
+  scope: string;
+  capabilities: string[];
+  is_enabled: boolean;
+}
+
+// All workflow types supported by the platform
+const ALL_WORKFLOW_OPTIONS: { value: WorkflowType; label: string; description: string }[] = [
+  { value: "CGP", label: "CGP (Civil/Familia)", description: "CPNU primario, sin fallback SAMAI" },
+  { value: "LABORAL", label: "Laboral", description: "CPNU primario" },
+  { value: "CPACA", label: "CPACA (Administrativo)", description: "SAMAI primario + SAMAI Estados" },
+  { value: "TUTELA", label: "Tutela", description: "CPNU + Tutelas API" },
+  { value: "PENAL_906", label: "Penal 906", description: "CPNU + Publicaciones" },
+  { value: "PROCESO_ADMINISTRATIVO", label: "Proceso Administrativo", description: "SAMAI primario" },
+  { value: "PETICIONES", label: "Peticiones", description: "CPNU primario" },
+];
+
+// Built-in provider config per workflow
+const BUILTIN_PROVIDERS: Record<WorkflowType, { primary: string; secondary?: string; publicaciones: boolean }> = {
+  CGP: { primary: "cpnu", publicaciones: true },
+  LABORAL: { primary: "cpnu", publicaciones: true },
+  CPACA: { primary: "samai", publicaciones: true },
+  TUTELA: { primary: "cpnu", secondary: "tutelas", publicaciones: false },
+  PENAL_906: { primary: "cpnu", secondary: "samai", publicaciones: true },
+  PROCESO_ADMINISTRATIVO: { primary: "samai", publicaciones: true },
+  PETICIONES: { primary: "cpnu", publicaciones: false },
+};
 
 // ============= Shared StepResult Component =============
 
@@ -101,6 +130,21 @@ function StepResult({ step }: { step: StepData }) {
       </div>
     </div>
   );
+}
+
+// ============= Hook: Load dynamic connectors =============
+
+function useConnectors() {
+  return useQuery({
+    queryKey: ["debug-panel-connectors"],
+    queryFn: async () => {
+      const { data } = await (supabase.from("provider_connectors") as any)
+        .select("id, name, key, scope, capabilities, is_enabled")
+        .order("name");
+      return (data || []) as ConnectorInfo[];
+    },
+    staleTime: 1000 * 60 * 5,
+  });
 }
 
 // ============= Secret Readiness Tab =============
@@ -187,9 +231,9 @@ function SecretReadinessTab() {
   );
 }
 
-// ============= E2E Wizard Tab =============
+// ============= E2E Wizard Tab — Dynamic Connector =============
 
-function E2EWizardTab({ radicado }: { radicado: string }) {
+function E2EWizardTab({ radicado, selectedConnectorId, connectors }: { radicado: string; selectedConnectorId: string | null; connectors: ConnectorInfo[] }) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
 
@@ -210,24 +254,34 @@ function E2EWizardTab({ radicado }: { radicado: string }) {
 
       if (!wi) { toast.error(`No existe work_item con radicado ${normalized}`); return; }
 
-      // Find connector
-      const { data: connectors } = await (supabase.from("provider_connectors") as any)
-        .select("id, name, key")
-        .or("key.eq.SAMAI_ESTADOS,name.ilike.%samai%estados%")
-        .limit(1);
+      // Find connector — use selected or auto-detect
+      let connector: ConnectorInfo | undefined;
+      if (selectedConnectorId && selectedConnectorId !== "auto") {
+        connector = connectors.find(c => c.id === selectedConnectorId);
+      } else {
+        // Auto: try first enabled connector
+        connector = connectors.find(c => c.is_enabled);
+      }
 
-      const connector = connectors?.[0];
-      if (!connector) { toast.error("No se encontró conector SAMAI Estados"); return; }
+      if (!connector) { toast.error("No se encontró conector. Seleccione uno manualmente."); return; }
+
+      setSteps(s => [...s, { name: "CONNECTOR_RESOLVED", ok: true, detail: { id: connector!.id, name: connector!.name, key: connector!.key } }]);
 
       // Find instance
       const { data: instances } = await (supabase.from("provider_instances") as any)
-        .select("id")
+        .select("id, scope")
         .eq("connector_id", connector.id)
         .eq("is_enabled", true)
         .limit(1);
 
       const instance = instances?.[0];
-      if (!instance) { toast.error("No hay instancia PLATFORM activa"); return; }
+      if (!instance) {
+        setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: false, message: `No hay instancia activa para ${connector!.name}` }]);
+        toast.error(`No hay instancia PLATFORM activa para ${connector!.name}`);
+        return;
+      }
+
+      setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: true, detail: { id: instance.id, scope: instance.scope } }]);
 
       const { data, error } = await supabase.functions.invoke("provider-wizard-run-e2e", {
         body: { work_item_id: wi.id, connector_id: connector.id, instance_id: instance.id, input_type: "RADICADO", value: normalized },
@@ -242,7 +296,7 @@ function E2EWizardTab({ radicado }: { radicado: string }) {
         detail: s.detail,
         duration_ms: s.duration_ms,
       }));
-      setSteps(wizardSteps);
+      setSteps(s => [...s, ...wizardSteps]);
 
       if (data?.ok) toast.success("E2E Wizard completado");
       else toast.warning("E2E Wizard completado con errores");
@@ -253,10 +307,16 @@ function E2EWizardTab({ radicado }: { radicado: string }) {
     }
   };
 
+  const selectedName = selectedConnectorId && selectedConnectorId !== "auto"
+    ? connectors.find(c => c.id === selectedConnectorId)?.name || selectedConnectorId
+    : "Auto-detectar";
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Resolve → Sync → Trace para el radicado indicado</p>
+        <p className="text-sm text-muted-foreground">
+          Resolve → Sync → Trace para el radicado con conector: <strong>{selectedName}</strong>
+        </p>
         <Button variant="outline" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
           {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
           Run E2E Wizard
@@ -271,19 +331,16 @@ function E2EWizardTab({ radicado }: { radicado: string }) {
   );
 }
 
-// ============= Pipeline Debug Tab (replaces UnifiedDebugConsole) =============
+// ============= Pipeline Debug Tab =============
 
-function PipelineDebugTab({ radicado, workflowType }: { radicado: string; workflowType: WorkflowType }) {
+function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connectors }: {
+  radicado: string;
+  workflowType: WorkflowType;
+  selectedConnectorId: string | null;
+  connectors: ConnectorInfo[];
+}) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
-
-  const PROVIDERS: Record<WorkflowType, { primary: string; publicaciones: boolean }> = {
-    CGP: { primary: "cpnu", publicaciones: true },
-    LABORAL: { primary: "cpnu", publicaciones: true },
-    CPACA: { primary: "samai", publicaciones: true },
-    TUTELA: { primary: "cpnu", publicaciones: false },
-    PENAL_906: { primary: "cpnu", publicaciones: true },
-  };
 
   const run = async () => {
     const normalized = radicado.replace(/\D/g, "");
@@ -291,46 +348,76 @@ function PipelineDebugTab({ radicado, workflowType }: { radicado: string; workfl
 
     setLoading(true);
     setSteps([]);
-    const config = PROVIDERS[workflowType];
+    const config = BUILTIN_PROVIDERS[workflowType];
 
     try {
-      // Health
+      // Built-in provider: Health
       const t1 = Date.now();
       const { data: hd, error: he } = await supabase.functions.invoke("debug-external-provider", {
         body: { provider: config.primary, action: "health" },
       });
       setSteps(s => [...s, { name: `${config.primary.toUpperCase()}_HEALTH`, ok: !he, detail: hd, duration_ms: Date.now() - t1 }]);
 
-      // Snapshot
+      // Built-in provider: Snapshot
       const t2 = Date.now();
       const { data: sd, error: se } = await supabase.functions.invoke("debug-external-provider", {
         body: { provider: config.primary, action: "snapshot", identifier: normalized },
       });
       setSteps(s => [...s, { name: `${config.primary.toUpperCase()}_SNAPSHOT`, ok: !se && (sd?.status === 200 || sd?.status === 404), detail: sd, duration_ms: Date.now() - t2 }]);
 
+      // Secondary built-in (if any)
+      if (config.secondary) {
+        const t2b = Date.now();
+        const { data: sd2, error: se2 } = await supabase.functions.invoke("debug-external-provider", {
+          body: { provider: config.secondary, action: "health" },
+        });
+        setSteps(s => [...s, { name: `${config.secondary!.toUpperCase()}_HEALTH`, ok: !se2, detail: sd2, duration_ms: Date.now() - t2b }]);
+      }
+
+      // External provider test (if selected)
+      if (selectedConnectorId && selectedConnectorId !== "auto") {
+        const connector = connectors.find(c => c.id === selectedConnectorId);
+        if (connector) {
+          const t3 = Date.now();
+          const { data: instances } = await (supabase.from("provider_instances") as any)
+            .select("id")
+            .eq("connector_id", connector.id)
+            .eq("is_enabled", true)
+            .limit(1);
+
+          const instance = instances?.[0];
+          if (instance) {
+            const { data: extData, error: extErr } = await supabase.functions.invoke("provider-sync-external-provider", {
+              body: { work_item_id: null, connector_id: connector.id, instance_id: instance.id, radicado: normalized, dry_run: true },
+            });
+            setSteps(s => [...s, {
+              name: `EXT_${connector.key || connector.name}_PROBE`,
+              ok: !extErr && extData?.ok !== false,
+              detail: extErr ? { error: extErr.message } : extData,
+              duration_ms: Date.now() - t3,
+              message: extErr ? extErr.message : `${extData?.stage || "OK"}`,
+            }]);
+          } else {
+            setSteps(s => [...s, { name: `EXT_${connector.key}_INSTANCE`, ok: false, message: "No hay instancia activa", duration_ms: Date.now() - t3 }]);
+          }
+        }
+      }
+
       // DB check
-      const t3 = Date.now();
+      const t4 = Date.now();
       const { data: wi } = await supabase
         .from("work_items")
         .select("id, radicado, workflow_type")
         .eq("radicado", normalized)
         .limit(1);
-      setSteps(s => [...s, { name: "DB_WORK_ITEM", ok: (wi?.length || 0) > 0, detail: wi?.[0], duration_ms: Date.now() - t3 }]);
+      setSteps(s => [...s, { name: "DB_WORK_ITEM", ok: (wi?.length || 0) > 0, detail: wi?.[0], duration_ms: Date.now() - t4 }]);
 
       if (wi?.[0]) {
-        // Actuaciones count
-        const { count: actCount } = await (supabase.from("work_item_acts") as any)
-          .select("id", { count: "exact", head: true })
-          .eq("work_item_id", wi[0].id)
-          .eq("is_archived", false);
+        const [{ count: actCount }, { count: pubCount }] = await Promise.all([
+          (supabase.from("work_item_acts") as any).select("id", { count: "exact", head: true }).eq("work_item_id", wi[0].id).eq("is_archived", false),
+          supabase.from("work_item_publicaciones").select("id", { count: "exact", head: true }).eq("work_item_id", wi[0].id).eq("is_archived", false),
+        ]);
         setSteps(s => [...s, { name: "DB_ACTUACIONES", ok: (actCount || 0) > 0, detail: { count: actCount } }]);
-
-        // Publicaciones count
-        const { count: pubCount } = await supabase
-          .from("work_item_publicaciones")
-          .select("id", { count: "exact", head: true })
-          .eq("work_item_id", wi[0].id)
-          .eq("is_archived", false);
         setSteps(s => [...s, { name: "DB_PUBLICACIONES", ok: (pubCount || 0) > 0, detail: { count: pubCount } }]);
 
         // Source breakdown
@@ -341,6 +428,14 @@ function PipelineDebugTab({ radicado, workflowType }: { radicado: string; workfl
         const counts: Record<string, number> = {};
         for (const a of srcData || []) counts[a.source || "unknown"] = (counts[a.source || "unknown"] || 0) + 1;
         setSteps(s => [...s, { name: "SOURCE_BREAKDOWN", ok: true, detail: counts }]);
+
+        // Provenance check for external providers
+        const { data: provData } = await (supabase.from("act_provenance") as any)
+          .select("provider_instance_id")
+          .eq("work_item_act_id", wi[0].id)
+          .limit(50);
+        const provInstances = new Set((provData || []).map((p: any) => p.provider_instance_id));
+        setSteps(s => [...s, { name: "PROVENANCE_INSTANCES", ok: provInstances.size > 0, detail: { unique_instances: provInstances.size } }]);
       }
 
       toast.success("Pipeline debug completado");
@@ -351,12 +446,23 @@ function PipelineDebugTab({ radicado, workflowType }: { radicado: string; workfl
     }
   };
 
+  const config = BUILTIN_PROVIDERS[workflowType];
+  const selectedConnector = selectedConnectorId && selectedConnectorId !== "auto"
+    ? connectors.find(c => c.id === selectedConnectorId) : null;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          <Badge variant="outline">{PROVIDERS[workflowType].primary.toUpperCase()}</Badge>
-          {PROVIDERS[workflowType].publicaciones && <Badge variant="secondary">+ Publicaciones</Badge>}
+        <div className="flex gap-2 flex-wrap">
+          <Badge variant="outline">{config.primary.toUpperCase()}</Badge>
+          {config.secondary && <Badge variant="secondary">{config.secondary.toUpperCase()}</Badge>}
+          {config.publicaciones && <Badge variant="secondary">+ Publicaciones</Badge>}
+          {selectedConnector && (
+            <Badge className="bg-primary/20 text-primary border-primary/30">
+              <Cable className="h-3 w-3 mr-1" />
+              {selectedConnector.name}
+            </Badge>
+          )}
         </div>
         <Button variant="outline" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
           {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
@@ -372,9 +478,13 @@ function PipelineDebugTab({ radicado, workflowType }: { radicado: string; workfl
   );
 }
 
-// ============= Sync Test Tab (replaces PublicacionesDebugCard + EstadosDebugPanel) =============
+// ============= Sync Test Tab =============
 
-function SyncTestTab({ radicado }: { radicado: string }) {
+function SyncTestTab({ radicado, selectedConnectorId, connectors }: {
+  radicado: string;
+  selectedConnectorId: string | null;
+  connectors: ConnectorInfo[];
+}) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
 
@@ -398,7 +508,7 @@ function SyncTestTab({ radicado }: { radicado: string }) {
       setSteps(s => [...s, { name: "FIND_WORK_ITEM", ok: !!wi, detail: wi || { error: "Not found" }, duration_ms: Date.now() - t1 }]);
       if (!wi) { toast.error("Work item no encontrado"); return; }
 
-      // Sync actuaciones
+      // Sync actuaciones (built-in)
       const t2 = Date.now();
       const { data: syncData, error: syncErr } = await supabase.functions.invoke("sync-by-work-item", {
         body: { work_item_id: wi.id },
@@ -410,7 +520,7 @@ function SyncTestTab({ radicado }: { radicado: string }) {
         duration_ms: Date.now() - t2,
       }]);
 
-      // Sync publicaciones
+      // Sync publicaciones (built-in)
       const t3 = Date.now();
       const { data: pubSync, error: pubErr } = await supabase.functions.invoke("sync-publicaciones-by-work-item", {
         body: { work_item_id: wi.id },
@@ -422,24 +532,60 @@ function SyncTestTab({ radicado }: { radicado: string }) {
         duration_ms: Date.now() - t3,
       }]);
 
+      // External provider sync (if selected)
+      if (selectedConnectorId && selectedConnectorId !== "auto") {
+        const connector = connectors.find(c => c.id === selectedConnectorId);
+        if (connector) {
+          const { data: instances } = await (supabase.from("provider_instances") as any)
+            .select("id")
+            .eq("connector_id", connector.id)
+            .eq("is_enabled", true)
+            .limit(1);
+
+          const instance = instances?.[0];
+          if (instance) {
+            const t4 = Date.now();
+            const { data: extSync, error: extErr } = await supabase.functions.invoke("provider-sync-external-provider", {
+              body: { work_item_id: wi.id, connector_id: connector.id, instance_id: instance.id },
+            });
+            setSteps(s => [...s, {
+              name: `EXT_SYNC_${connector.key || connector.name}`,
+              ok: !extErr && extSync?.ok !== false,
+              detail: extErr ? { error: extErr.message } : extSync,
+              duration_ms: Date.now() - t4,
+            }]);
+          } else {
+            setSteps(s => [...s, { name: `EXT_SYNC_${connector.key}`, ok: false, message: "Sin instancia activa" }]);
+          }
+        }
+      }
+
       // DB verification
-      const t4 = Date.now();
-      const [{ count: actCount }, { count: pubCount }, { count: estadosCount }] = await Promise.all([
+      const t5 = Date.now();
+      const [{ count: actCount }, { count: pubCount }] = await Promise.all([
         (supabase.from("work_item_acts") as any).select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false),
         supabase.from("work_item_publicaciones").select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false),
-        (supabase.from("work_item_acts") as any).select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false).eq("source", "SAMAI_ESTADOS"),
       ]);
+
+      // Source breakdown
+      const { data: srcData } = await (supabase.from("work_item_acts") as any)
+        .select("source")
+        .eq("work_item_id", wi.id)
+        .eq("is_archived", false);
+      const counts: Record<string, number> = {};
+      for (const a of srcData || []) counts[a.source || "unknown"] = (counts[a.source || "unknown"] || 0) + 1;
+
       setSteps(s => [...s, {
         name: "DB_VERIFY",
         ok: (actCount || 0) > 0,
-        detail: { actuaciones: actCount, publicaciones: pubCount, samai_estados: estadosCount },
-        duration_ms: Date.now() - t4,
+        detail: { actuaciones: actCount, publicaciones: pubCount, source_breakdown: counts },
+        duration_ms: Date.now() - t5,
       }]);
 
       // Provider traces
-      const t5 = Date.now();
+      const t6 = Date.now();
       const { data: traces } = await (supabase.from("provider_sync_traces") as any)
-        .select("stage, ok, result_code")
+        .select("stage, ok, result_code, connector_id")
         .eq("work_item_id", wi.id)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -448,7 +594,7 @@ function SyncTestTab({ radicado }: { radicado: string }) {
         name: "PROVIDER_TRACES",
         ok: (traces?.length || 0) > 0,
         detail: { count: traces?.length, stages: traces?.map((t: any) => `${t.stage}:${t.ok ? "OK" : t.result_code}`) },
-        duration_ms: Date.now() - t5,
+        duration_ms: Date.now() - t6,
       }]);
 
       toast.success("Sync test completado");
@@ -459,11 +605,16 @@ function SyncTestTab({ radicado }: { radicado: string }) {
     }
   };
 
+  const selectedConnector = selectedConnectorId && selectedConnectorId !== "auto"
+    ? connectors.find(c => c.id === selectedConnectorId) : null;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Ejecuta sync completo (actuaciones + publicaciones + external providers) y verifica BD
+          Ejecuta sync completo (actuaciones + publicaciones
+          {selectedConnector ? ` + ${selectedConnector.name}` : ""}
+          ) y verifica BD
         </p>
         <Button variant="outline" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
           {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Database className="h-4 w-4 mr-1.5" />}
@@ -553,14 +704,85 @@ function AteniaE2ETab({ radicado }: { radicado: string }) {
   );
 }
 
+// ============= External Provider Status Tab =============
+
+function ExternalProviderStatusTab({ connectors, loading: connectorsLoading }: { connectors: ConnectorInfo[]; loading: boolean }) {
+  if (connectorsLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const enabled = connectors.filter(c => c.is_enabled);
+  const disabled = connectors.filter(c => !c.is_enabled);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {connectors.length} conector(es) registrados — {enabled.length} activo(s), {disabled.length} inactivo(s)
+      </p>
+
+      {enabled.length === 0 && (
+        <div className="rounded-lg border border-muted p-4 text-center text-sm text-muted-foreground">
+          No hay conectores activos. Use el Wizard de Proveedores Externos para agregar uno.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {connectors.map(c => (
+          <div
+            key={c.id}
+            className={cn(
+              "flex items-center justify-between p-3 rounded-lg border text-sm",
+              c.is_enabled ? "border-emerald-500/30 bg-emerald-500/5" : "border-muted bg-muted/30"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              {c.is_enabled ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <XCircle className="h-4 w-4 text-muted-foreground" />
+              )}
+              <div>
+                <span className="font-medium">{c.name}</span>
+                <span className="text-xs text-muted-foreground ml-2 font-mono">{c.key}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px]">{c.scope}</Badge>
+              {(c.capabilities || []).map(cap => (
+                <Badge key={cap} variant="secondary" className="text-[10px]">{cap}</Badge>
+              ))}
+              <Badge variant={c.is_enabled ? "default" : "secondary"} className="text-[10px]">
+                {c.is_enabled ? "Activo" : "Inactivo"}
+              </Badge>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ============= Main Component =============
 
 export function MasterDebugPanel() {
   const [radicado, setRadicado] = useState("05001333300320190025200");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("CPACA");
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>("auto");
+
+  const { data: connectors = [], isLoading: connectorsLoading } = useConnectors();
 
   const copyAll = () => {
-    navigator.clipboard.writeText(JSON.stringify({ radicado, workflowType, timestamp: new Date().toISOString() }, null, 2));
+    const selectedConnector = connectors.find(c => c.id === selectedConnectorId);
+    navigator.clipboard.writeText(JSON.stringify({
+      radicado,
+      workflowType,
+      selectedConnector: selectedConnector ? { id: selectedConnector.id, name: selectedConnector.name, key: selectedConnector.key } : "auto",
+      timestamp: new Date().toISOString(),
+    }, null, 2));
     toast.success("Datos copiados");
   };
 
@@ -572,12 +794,12 @@ export function MasterDebugPanel() {
           Consola de Debug Unificada — Atenia AI
         </CardTitle>
         <CardDescription>
-          Secret readiness, pipeline testing, sync E2E, y pruebas agénticas con Atenia AI
+          Diagnóstico multi-proveedor: built-in (CPNU, SAMAI, Tutelas, Publicaciones) + proveedores externos registrados vía Wizard
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Shared Inputs */}
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <div className="md:col-span-2">
             <Label htmlFor="master-radicado" className="text-xs text-muted-foreground">
               Radicado (23 dígitos)
@@ -596,17 +818,53 @@ export function MasterDebugPanel() {
             )}
           </div>
           <div>
-            <Label className="text-xs text-muted-foreground">Tipo de Flujo</Label>
+            <Label className="text-xs text-muted-foreground">Categoría</Label>
             <Select value={workflowType} onValueChange={(v) => setWorkflowType(v as WorkflowType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="CGP">CGP (Civil)</SelectItem>
-                <SelectItem value="LABORAL">LABORAL</SelectItem>
-                <SelectItem value="CPACA">CPACA (Admin)</SelectItem>
-                <SelectItem value="TUTELA">TUTELA</SelectItem>
-                <SelectItem value="PENAL_906">PENAL 906</SelectItem>
+                {ALL_WORKFLOW_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    <div className="flex flex-col">
+                      <span>{opt.label}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {ALL_WORKFLOW_OPTIONS.find(o => o.value === workflowType)?.description}
+            </p>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <Cable className="h-3 w-3" />
+              Proveedor Externo
+            </Label>
+            <Select value={selectedConnectorId || "auto"} onValueChange={setSelectedConnectorId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Auto-detectar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">
+                  <span className="text-muted-foreground">Auto-detectar</span>
+                </SelectItem>
+                {connectorsLoading && (
+                  <SelectItem value="loading" disabled>
+                    Cargando conectores...
+                  </SelectItem>
+                )}
+                {connectors.map(c => (
+                  <SelectItem key={c.id} value={c.id}>
+                    <div className="flex items-center gap-2">
+                      <span className={c.is_enabled ? "" : "text-muted-foreground"}>
+                        {c.name}
+                      </span>
+                      {!c.is_enabled && <span className="text-[10px] text-muted-foreground">(inactivo)</span>}
+                    </div>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -616,7 +874,7 @@ export function MasterDebugPanel() {
 
         {/* Tabs */}
         <Tabs defaultValue="secrets" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="secrets" className="text-xs">
               <Shield className="h-3.5 w-3.5 mr-1" />
               Secretos
@@ -637,6 +895,10 @@ export function MasterDebugPanel() {
               <Bot className="h-3.5 w-3.5 mr-1" />
               Atenia AI
             </TabsTrigger>
+            <TabsTrigger value="providers" className="text-xs">
+              <Cable className="h-3.5 w-3.5 mr-1" />
+              Proveedores
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="secrets" className="mt-4">
@@ -644,19 +906,36 @@ export function MasterDebugPanel() {
           </TabsContent>
 
           <TabsContent value="pipeline" className="mt-4">
-            <PipelineDebugTab radicado={radicado} workflowType={workflowType} />
+            <PipelineDebugTab
+              radicado={radicado}
+              workflowType={workflowType}
+              selectedConnectorId={selectedConnectorId}
+              connectors={connectors}
+            />
           </TabsContent>
 
           <TabsContent value="sync" className="mt-4">
-            <SyncTestTab radicado={radicado} />
+            <SyncTestTab
+              radicado={radicado}
+              selectedConnectorId={selectedConnectorId}
+              connectors={connectors}
+            />
           </TabsContent>
 
           <TabsContent value="wizard" className="mt-4">
-            <E2EWizardTab radicado={radicado} />
+            <E2EWizardTab
+              radicado={radicado}
+              selectedConnectorId={selectedConnectorId}
+              connectors={connectors}
+            />
           </TabsContent>
 
           <TabsContent value="atenia" className="mt-4">
             <AteniaE2ETab radicado={radicado} />
+          </TabsContent>
+
+          <TabsContent value="providers" className="mt-4">
+            <ExternalProviderStatusTab connectors={connectors} loading={connectorsLoading} />
           </TabsContent>
         </Tabs>
 
