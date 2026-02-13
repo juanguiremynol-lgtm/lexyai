@@ -11,6 +11,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveActiveSecret, resolveActiveSecretByConnector } from "../_shared/resolveActiveSecret.ts";
+import { getKeyDerivationMode } from "../_shared/cryptoKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,10 +109,23 @@ Deno.serve(async (req) => {
       connectorKey = (inst?.provider_connectors as any)?.key || null;
     }
 
+    // Platform key diagnostics (no secret material)
+    const keyEnvExists = !!Deno.env.get("ATENIA_SECRETS_KEY_B64");
+    let platformKeyMode: string = "UNAVAILABLE";
+    let platformKeyOk = false;
+    if (keyEnvExists) {
+      try {
+        platformKeyMode = getKeyDerivationMode();
+        platformKeyOk = true;
+      } catch {
+        platformKeyMode = "ERROR";
+      }
+    }
+
     // Build response — NEVER include secret material
     const failureReason = result.ok ? null : (result as any).failure_reason;
     const remediationHint = failureReason === "DECRYPT_FAILED"
-      ? "Run REENCRYPT_SAME_VALUE: paste the same provider API key in the Wizard (Step Instance → Re-encriptar). The platform key is unchanged; only the ciphertext is regenerated."
+      ? `Re-encrypt secret using SET_EXACT; platform key is ${platformKeyMode} mode. Paste same provider key in Wizard.`
       : failureReason === "MISSING_SECRET"
       ? "Configure an active API key in the Wizard (Step Instance → Configurar Secreto)."
       : failureReason === "KEY_MISSING"
@@ -130,6 +144,8 @@ Deno.serve(async (req) => {
       failure_reason: failureReason,
       failure_detail: result.ok ? null : (result as any).detail,
       remediation_hint: remediationHint,
+      platform_key_mode: platformKeyMode,
+      platform_key_ok: platformKeyOk,
     };
 
     if (result.ok) {

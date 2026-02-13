@@ -226,7 +226,7 @@ Deno.serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    const { cipher, nonce } = encResult;
+    const { cipherHex, nonceHex } = encResult;
     // Deactivate any existing secrets for this instance
     await adminClient
       .from("provider_instance_secrets")
@@ -241,8 +241,8 @@ Deno.serve(async (req) => {
         organization_id: instanceScope === "PLATFORM" ? null : organization_id,
         key_version: 1,
         is_active: true,
-        cipher_text: cipher,
-        nonce,
+        cipher_text: cipherHex,
+        nonce: nonceHex,
         created_by: user.id,
         scope: instanceScope,
       });

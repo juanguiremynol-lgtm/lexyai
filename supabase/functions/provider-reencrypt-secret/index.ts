@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Get current active secrets to disable them
+    // Get current active secrets to disable them BEFORE inserting new one
     const { data: oldSecrets } = await adminClient
       .from("provider_instance_secrets")
       .select("id, key_version, is_active")
@@ -139,6 +139,15 @@ Deno.serve(async (req) => {
       : 0;
     const nextVersion = maxVersion + 1;
 
+    // Disable old secrets FIRST (to avoid unique constraint on active)
+    const oldActiveIds = (oldSecrets || []).filter(s => s.is_active).map(s => s.id);
+    if (oldActiveIds.length > 0) {
+      await adminClient
+        .from("provider_instance_secrets")
+        .update({ is_active: false })
+        .in("id", oldActiveIds);
+    }
+
     // Insert new secret row
     const { data: newSecret, error: secErr } = await adminClient
       .from("provider_instance_secrets")
@@ -147,8 +156,8 @@ Deno.serve(async (req) => {
         organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
         key_version: nextVersion,
         is_active: true,
-        cipher_text: encResult.cipher,
-        nonce: encResult.nonce,
+        cipher_text: encResult.cipherHex,
+        nonce: encResult.nonceHex,
         created_by: "00000000-0000-0000-0000-000000000000",
         scope: instance.scope || "PLATFORM",
       })
@@ -160,15 +169,6 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: "Failed to store re-encrypted secret", detail: secErr.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
-    }
-
-    // Disable old undecryptable secrets
-    const oldIds = (oldSecrets || []).map(s => s.id);
-    if (oldIds.length > 0) {
-      await adminClient
-        .from("provider_instance_secrets")
-        .update({ is_active: false })
-        .in("id", oldIds);
     }
 
     // Audit
@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
         mode: "REENCRYPT",
         env_source: env_secret_name,
         plaintext_changed: false,
-        old_secrets_disabled: oldIds.length,
+        old_secrets_disabled: oldActiveIds.length,
       },
     });
 
@@ -212,7 +212,7 @@ Deno.serve(async (req) => {
           is_active: newSecret.is_active,
           scope: newSecret.scope,
         },
-        old_secrets_disabled: oldIds.length,
+        old_secrets_disabled: oldActiveIds.length,
         instance_id: instance.id,
         instance_name: instance.name,
       }),
