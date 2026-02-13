@@ -34,11 +34,14 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
-    const { instance_id, secret_value, enable = true } = body;
+    const { instance_id, secret_value: bodySecret, secret_env, enable = true } = body;
+    
+    // Allow reading secret from env variable name
+    const secret_value = bodySecret || (secret_env ? Deno.env.get(secret_env) : null);
 
     if (!instance_id || !secret_value) {
       return new Response(
-        JSON.stringify({ error: "instance_id and secret_value required" }),
+        JSON.stringify({ error: "instance_id and (secret_value or secret_env) required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
