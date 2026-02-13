@@ -170,3 +170,9 @@ verify_jwt = false
 
 [functions.atenia-cron-watchdog]
 verify_jwt = false
+
+[functions.provider-secret-readiness]
+verify_jwt = false
+
+[functions.provider-set-instance-secret]
+verify_jwt = false
