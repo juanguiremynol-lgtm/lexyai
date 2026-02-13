@@ -155,4 +155,34 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
     priority: 4,
     cooldownMinutes: 1440,
   },
+
+  // === RECOVERY HIGHLIGHT ===
+  {
+    id: "recovery_highlight",
+    text: "¿Sabías que puedo recuperar asuntos eliminados? Pídeme que lo haga.",
+    prefillPrompt: "Quiero recuperar un asunto eliminado",
+    contexts: ["GLOBAL"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+
+  // === PURGE HIGHLIGHT ===
+  {
+    id: "purge_highlight",
+    text: "¿Necesitas eliminar datos permanentemente? Puedo habilitar la sección de purga.",
+    prefillPrompt: "Quiero habilitar la sección de purga en configuración",
+    contexts: ["SETTINGS"],
+    priority: 3,
+    cooldownMinutes: 1440,
+  },
+
+  // === TROUBLESHOOTING HIGHLIGHT ===
+  {
+    id: "troubleshoot_highlight",
+    text: "¿Algo no funciona como esperabas? Pregúntame y diagnostico el problema.",
+    prefillPrompt: "Diagnostica por qué mi asunto no se actualiza",
+    contexts: ["WORK_ITEM_DETAIL"],
+    priority: 3,
+    cooldownMinutes: 720,
+  },
 ];
