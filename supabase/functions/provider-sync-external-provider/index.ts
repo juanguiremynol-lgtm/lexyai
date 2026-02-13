@@ -44,7 +44,7 @@ import { parseSnapshot } from "../_shared/snapshotParser.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session",
 };
 
 function hexToBytes(hex: string): Uint8Array {

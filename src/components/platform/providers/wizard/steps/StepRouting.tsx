@@ -14,6 +14,7 @@ import { ArrowRight, Route, Plus, Loader2, ChevronDown, Info, Globe, Building2 }
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { WizardExplanation } from "../WizardExplanation";
 import { WORKFLOW_TYPES, type WorkflowType } from "@/lib/workflow-constants";
 import type { WizardMode, WizardConnector } from "../WizardTypes";
@@ -36,6 +37,7 @@ interface StepRoutingProps {
 
 export function StepRouting({ mode, connector, organizationId, onRoutingConfigured, onNext, routingConfigured }: StepRoutingProps) {
   const queryClient = useQueryClient();
+  const { invokeWithSession } = useWizardSessionContext();
   const isPlatform = mode === "PLATFORM";
   const [workflow, setWorkflow] = useState("");
   const [scope, setScope] = useState("BOTH");
@@ -61,7 +63,7 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
             routes: [{ workflow, scope, route_kind: routeKind, priority, provider_connector_id: connector.id, enabled: true }],
           };
 
-      const { data, error } = await supabase.functions.invoke(edgeFn, { body });
+      const { data, error } = await invokeWithSession(edgeFn, { body });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
@@ -71,7 +73,7 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
         const policyBody = isPlatform
           ? { workflow, scope, strategy: "MERGE", merge_mode: mergeMode, merge_budget_max_providers: maxProviders, merge_budget_max_ms: maxMs }
           : { organization_id: organizationId, workflow, scope, strategy: "MERGE", merge_mode: mergeMode, merge_budget_max_providers: maxProviders, merge_budget_max_ms: maxMs };
-        await supabase.functions.invoke(policyFn, { body: policyBody });
+        await invokeWithSession(policyFn, { body: policyBody });
       }
 
       return data;

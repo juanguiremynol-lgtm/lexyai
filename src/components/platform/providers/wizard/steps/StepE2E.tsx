@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowRight, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Play, Zap, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { useQuery } from "@tanstack/react-query";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardInstance } from "../WizardTypes";
@@ -24,6 +25,7 @@ interface StepE2EProps {
 }
 
 export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAnyway }: StepE2EProps) {
+  const { invokeWithSession } = useWizardSessionContext();
   const [selectedWorkItemId, setSelectedWorkItemId] = useState("");
   const [inputType, setInputType] = useState("RADICADO");
   const [inputValue, setInputValue] = useState("");
@@ -53,7 +55,7 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
     setResolveResult(null);
     setSyncResult(null);
     try {
-      const { data, error: invokeErr } = await supabase.functions.invoke("provider-resolve-source", {
+      const { data, error: invokeErr } = await invokeWithSession("provider-resolve-source", {
         body: { work_item_id: selectedWorkItemId, provider_instance_id: instance.id, input_type: inputType, value: inputValue.trim() },
       });
       if (invokeErr) throw invokeErr;
@@ -71,7 +73,7 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
     if (!resolveResult?.source?.id) return;
     setSyncing(true);
     try {
-      const { data, error: invokeErr } = await supabase.functions.invoke("provider-sync-external-provider", {
+      const { data, error: invokeErr } = await invokeWithSession("provider-sync-external-provider", {
         body: { work_item_source_id: resolveResult.source.id },
       });
       if (invokeErr) throw invokeErr;

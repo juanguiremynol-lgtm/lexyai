@@ -15,6 +15,7 @@ import { ArrowRight, Check, Key, Loader2, Server, ShieldAlert, Info, Globe, Chec
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardConnector, WizardInstance, WizardMode } from "../WizardTypes";
 
@@ -46,6 +47,7 @@ function isHostInAllowlist(host: string, allowlist: string[]): boolean {
 
 export function StepInstance({ mode, connector, instance, organizationId, onInstanceSaved, onNext }: StepInstanceProps) {
   const queryClient = useQueryClient();
+  const { invokeWithSession } = useWizardSessionContext();
   const isPlatform = mode === "PLATFORM";
 
   const [orgId, setOrgId] = useState(organizationId || "");
@@ -89,7 +91,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       if (!secretValue.trim()) throw new Error("Secreto requerido");
       if (!isPlatform && !orgId) throw new Error("Organización requerida");
 
-      const { data, error } = await supabase.functions.invoke("provider-create-instance", {
+      const { data, error } = await invokeWithSession("provider-create-instance", {
         body: {
           organization_id: isPlatform ? null : orgId,
           connector_id: connector.id,
@@ -122,7 +124,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       if (!instance?.id) throw new Error("No instance selected");
       if (!secretValue.trim()) throw new Error("Secreto requerido");
 
-      const { data, error } = await supabase.functions.invoke("provider-set-instance-secret", {
+      const { data, error } = await invokeWithSession("provider-set-instance-secret", {
         body: {
           instance_id: instance.id,
           secret_value: secretValue.trim(),

@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Send, Loader2, AlertTriangle, CheckCircle2, Info, Copy, ShieldAlert, Shield, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSessionContext } from "./WizardSessionContext";
 import type { WizardMode, WizardState } from "./WizardTypes";
 
 interface WizardAIGuidePanelProps {
@@ -40,6 +41,7 @@ interface ChatMessage {
 }
 
 export function WizardAIGuidePanel({ mode, wizardState, stepId }: WizardAIGuidePanelProps) {
+  const { invokeWithSession } = useWizardSessionContext();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -93,7 +95,7 @@ export function WizardAIGuidePanel({ mode, wizardState, stepId }: WizardAIGuideP
         setMessages((prev) => [...prev, { role: "user", content: question, timestamp: new Date() }]);
       }
 
-      const { data, error } = await supabase.functions.invoke("provider-wizard-ai-guide", {
+      const { data, error } = await invokeWithSession("provider-wizard-ai-guide", {
         body: {
           session_id: sessionId,
           mode,

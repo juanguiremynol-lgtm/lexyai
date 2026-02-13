@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CheckCircle2, Shield, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSessionContext } from "./WizardSessionContext";
 
 interface MappingSpec {
   id: string;
@@ -36,12 +37,13 @@ interface MappingActivationModalProps {
 export function MappingActivationModal({
   open, onOpenChange, draftSpec, currentActiveSpec, mode, onActivated,
 }: MappingActivationModalProps) {
+  const { invokeWithSession } = useWizardSessionContext();
   const [isActivating, setIsActivating] = useState(false);
 
   const handleActivate = async () => {
     setIsActivating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("provider-activate-mapping", {
+      const { data, error } = await invokeWithSession("provider-activate-mapping", {
         body: {
           mapping_spec_id: draftSpec.id,
           mode,

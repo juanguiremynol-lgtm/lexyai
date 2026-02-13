@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRight, Activity, CheckCircle2, XCircle, AlertTriangle, Loader2, Copy, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardInstance, WizardConnector, PreflightResult } from "../WizardTypes";
 
@@ -20,6 +21,7 @@ interface StepPreflightProps {
 }
 
 export function StepPreflight({ instance, connector, preflightResult, onPreflightComplete, onNext }: StepPreflightProps) {
+  const { invokeWithSession } = useWizardSessionContext();
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +29,7 @@ export function StepPreflight({ instance, connector, preflightResult, onPrefligh
     setTesting(true);
     setError(null);
     try {
-      const { data, error: invokeErr } = await supabase.functions.invoke("provider-test-connection", {
+      const { data, error: invokeErr } = await invokeWithSession("provider-test-connection", {
         body: { provider_instance_id: instance.id },
       });
       if (invokeErr) throw invokeErr;

@@ -15,6 +15,7 @@ import { ArrowRight, Check, Key, Loader2, Zap, Globe, Building2, Link, Type, Shi
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWizardSessionContext } from "../WizardSessionContext";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardMode, WizardConnector, WizardInstance } from "../WizardTypes";
 
@@ -53,6 +54,7 @@ function extractHost(url: string): string | null {
 
 export function StepQuickAdd({ mode, organizationId, onComplete, onNext }: StepQuickAddProps) {
   const queryClient = useQueryClient();
+  const { invokeWithSession } = useWizardSessionContext();
   const isPlatform = mode === "PLATFORM";
 
   const [providerName, setProviderName] = useState("");
@@ -87,7 +89,7 @@ export function StepQuickAdd({ mode, organizationId, onComplete, onNext }: StepQ
       const visibility = isPlatform ? "GLOBAL" : "ORG_PRIVATE";
 
       // 1. Create connector
-      const { data: connData, error: connErr } = await supabase.functions.invoke("provider-create-connector", {
+      const { data: connData, error: connErr } = await invokeWithSession("provider-create-connector", {
         body: {
           key,
           name: providerName.trim(),
@@ -104,7 +106,7 @@ export function StepQuickAdd({ mode, organizationId, onComplete, onNext }: StepQ
       const connector = connData.connector as WizardConnector;
 
       // 2. Create instance
-      const { data: instData, error: instErr } = await supabase.functions.invoke("provider-create-instance", {
+      const { data: instData, error: instErr } = await invokeWithSession("provider-create-instance", {
         body: {
           organization_id: isPlatform ? null : organizationId,
           connector_id: connector.id,
@@ -132,7 +134,7 @@ export function StepQuickAdd({ mode, organizationId, onComplete, onNext }: StepQ
             routes: [{ workflow, scope: "BOTH", route_kind: "PRIMARY", priority: 1, provider_connector_id: connector.id, enabled: true }],
           };
 
-      const { error: routeErr } = await supabase.functions.invoke(routeFn, { body: routeBody });
+      const { error: routeErr } = await invokeWithSession(routeFn, { body: routeBody });
       if (routeErr) {
         console.warn("Route creation failed (non-blocking):", routeErr);
       }

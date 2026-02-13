@@ -42,9 +42,8 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Wizard session gate
+    // Wizard session gate — accept both PLATFORM and ORG sessions
     const wizardResult = await requireWizardSession(req, user.id, corsHeaders, {
-      mode: "ORG",
       allowPlatformAdminOverride: true,
     });
     if (isWizardError(wizardResult)) return wizardResult;

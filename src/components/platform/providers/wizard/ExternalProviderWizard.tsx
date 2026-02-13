@@ -6,7 +6,7 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, X, Loader2 } from "lucide-react";
 import { WizardStepper } from "./WizardStepper";
 import { WizardAIGuidePanel } from "./WizardAIGuidePanel";
 import { StepWelcome } from "./steps/StepWelcome";
@@ -22,6 +22,8 @@ import { StepQuickAdd } from "./steps/StepQuickAdd";
 import { initialWizardState, WIZARD_STEPS, type WizardMode, type WizardState, type WizardConnector, type WizardInstance, type PreflightResult } from "./WizardTypes";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useWizardSession } from "./useWizardSession";
+import { WizardSessionProvider } from "./WizardSessionContext";
 
 interface ExternalProviderWizardProps {
   mode: WizardMode;
@@ -43,6 +45,9 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
   });
 
   const orgId = state.organizationId || profile?.organization_id || null;
+
+  // Wizard session management
+  const { sessionId, isCreating: sessionCreating, error: sessionError, invokeWithSession } = useWizardSession(mode, orgId);
 
   const goTo = useCallback((step: number) => {
     setState((s) => ({ ...s, step }));
@@ -178,44 +183,65 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
     }
   };
 
+  // Show loading while session is being created
+  if (sessionCreating) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px] gap-3 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span>Iniciando sesión del asistente…</span>
+      </div>
+    );
+  }
+
+  if (sessionError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-destructive">
+        <p>Error al crear sesión del asistente: {sessionError}</p>
+        <Button variant="outline" onClick={() => navigate(backUrl)}>Volver</Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => state.step > 0 ? prev() : navigate(backUrl)}>
-            <ArrowLeft className="h-4 w-4" />
+    <WizardSessionProvider value={{ sessionId, invokeWithSession }}>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => state.step > 0 ? prev() : navigate(backUrl)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="text-lg font-display font-bold text-foreground">
+                Asistente de Proveedor Externo
+              </h1>
+              <p className="text-xs text-muted-foreground">
+                {mode === "PLATFORM" ? "Modo Platform-Wide (Super Admin)" : "Modo Organización"}
+              </p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => navigate(backUrl)}>
+            <X className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-lg font-display font-bold text-foreground">
-              Asistente de Proveedor Externo
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              {mode === "PLATFORM" ? "Modo Platform-Wide (Super Admin)" : "Modo Organización"}
-            </p>
+        </div>
+
+        {/* Stepper */}
+        <WizardStepper currentStep={state.step} onStepClick={(step) => goTo(step)} />
+
+        {/* Step Content + AI Guide */}
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className="xl:col-span-3 min-h-[500px]">
+            {renderStep()}
+          </div>
+          <div className="xl:col-span-1">
+            <WizardAIGuidePanel
+              mode={mode}
+              wizardState={state}
+              stepId={WIZARD_STEPS[state.step]?.key || "unknown"}
+            />
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => navigate(backUrl)}>
-          <X className="h-4 w-4" />
-        </Button>
       </div>
-
-      {/* Stepper */}
-      <WizardStepper currentStep={state.step} onStepClick={(step) => goTo(step)} />
-
-      {/* Step Content + AI Guide */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        <div className="xl:col-span-3 min-h-[500px]">
-          {renderStep()}
-        </div>
-        <div className="xl:col-span-1">
-          <WizardAIGuidePanel
-            mode={mode}
-            wizardState={state}
-            stepId={WIZARD_STEPS[state.step]?.key || "unknown"}
-          />
-        </div>
-      </div>
-    </div>
+    </WizardSessionProvider>
   );
 }
