@@ -34,6 +34,7 @@ import {
   getPromoDaysRemaining,
 } from "@/lib/billing";
 import type { PlanCode, BillingCycleMonths } from "@/types/billing";
+import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -57,6 +58,7 @@ export function BillingTab() {
   const [searchParams] = useSearchParams();
   const { organization } = useOrganization();
   const { subscription, plan, isTrialing, trialDaysRemaining, isLoading: subLoading } = useSubscription();
+  const { isAdmin } = useOrganizationMembership(organization?.id || null);
   
   const { data: plansData, isLoading: plansLoading } = useBillingPlans();
   const { data: billingState, isLoading: stateLoading } = useCurrentBillingState(organization?.id);
@@ -235,15 +237,18 @@ export function BillingTab() {
             </div>
           )}
         </CardContent>
-        <CardFooter className="flex gap-3 border-t pt-4">
-          <Button variant="outline" onClick={handleOpenPortal} disabled={createPortal.isPending}>
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Gestionar facturación
-          </Button>
-        </CardFooter>
+        {isAdmin && (
+          <CardFooter className="flex gap-3 border-t pt-4">
+            <Button variant="outline" onClick={handleOpenPortal} disabled={createPortal.isPending}>
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Gestionar facturación
+            </Button>
+          </CardFooter>
+        )}
       </Card>
 
-      {/* Plan selector */}
+      {/* Plan selector - admin only */}
+      {isAdmin && (
       <Card>
         <CardHeader>
           <CardTitle>Cambiar plan</CardTitle>
@@ -392,6 +397,7 @@ export function BillingTab() {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* Invoices / Billing history */}
       <Card>
