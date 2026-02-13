@@ -408,6 +408,104 @@ Deno.serve(async (req) => {
     };
 
     // ================================================================
+    // 5c) Edge Function Liveness — detect undeployed critical functions
+    // ================================================================
+    const CRITICAL_FUNCTIONS = [
+      "scheduled-daily-sync",
+      "scheduled-publicaciones-monitor",
+      "sync-by-work-item",
+      "sync-publicaciones-by-work-item",
+      "fallback-sync-check",
+      "atenia-ai-supervisor",
+      "provider-sync-external-provider",
+    ];
+
+    const livenessResults: Array<{ fn: string; ok: boolean; status?: number; error?: string }> = [];
+    const LIVENESS_TIMEOUT_MS = 8000;
+
+    // Probe all functions in parallel with OPTIONS request (lightweight, no auth needed)
+    const probes = CRITICAL_FUNCTIONS.map(async (fnName) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), LIVENESS_TIMEOUT_MS);
+        const resp = await fetch(`${supabaseUrl}/functions/v1/${fnName}`, {
+          method: "OPTIONS",
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        // OPTIONS should return 200 or 204 if the function is deployed
+        const ok = resp.status < 500;
+        return { fn: fnName, ok, status: resp.status };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { fn: fnName, ok: false, error: msg.slice(0, 200) };
+      }
+    });
+
+    const probeResults = await Promise.all(probes);
+    const deadFunctions = probeResults.filter((p) => !p.ok);
+    livenessResults.push(...probeResults);
+
+    results.edge_function_liveness = {
+      checked: CRITICAL_FUNCTIONS.length,
+      alive: probeResults.filter((p) => p.ok).length,
+      dead: deadFunctions.length,
+      details: livenessResults,
+    };
+
+    if (deadFunctions.length > 0) {
+      const fnList = deadFunctions.map((d) => d.fn).join(", ");
+      const alertMsg = `${deadFunctions.length} función(es) Edge crítica(s) no responden (posiblemente no desplegadas): ${fnList}. Esto impide la sincronización automática.`;
+
+      alerts.push({
+        title: "🚨 Funciones Edge no desplegadas",
+        message: alertMsg,
+        severity: "CRITICAL",
+      });
+
+      // Log corrective action with full evidence
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_EDGE_FUNCTION_DOWN",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: alertMsg,
+          action_taken: "ALERT_EDGE_FUNCTION_LIVENESS",
+          action_result: "CRITICAL",
+          evidence: {
+            dead_functions: deadFunctions,
+            all_probes: livenessResults,
+            checked_at: new Date().toISOString(),
+          },
+        });
+      } catch (_) { /* non-fatal */ }
+
+      // Enqueue remediation tasks for each dead function
+      const today = new Date().toISOString().slice(0, 10);
+      for (const dead of deadFunctions) {
+        try {
+          await admin.from("atenia_ai_remediation_queue").upsert(
+            {
+              action_type: "EDGE_FUNCTION_REDEPLOY",
+              status: "PENDING",
+              priority: 1, // highest priority
+              payload: {
+                function_name: dead.fn,
+                probe_status: dead.status,
+                probe_error: dead.error,
+                source: "watchdog_liveness",
+                detected_at: new Date().toISOString(),
+              },
+              dedupe_key: `EDGE_LIVENESS:${today}:${dead.fn}`,
+              reason_code: "EDGE_FUNCTION_NOT_DEPLOYED",
+            },
+            { onConflict: "dedupe_key" }
+          );
+        } catch (_) { /* non-fatal */ }
+      }
+    }
+
+    // ================================================================
     // 6) Log watchdog actions into atenia_ai_actions for audit trail
     // ================================================================
     for (const alert of alerts) {

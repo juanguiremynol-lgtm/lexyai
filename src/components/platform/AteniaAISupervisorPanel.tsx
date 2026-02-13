@@ -24,6 +24,7 @@ import { AteniaActionFeed } from "./atenia-ai/AteniaActionFeed";
 import { AteniaProviderHealthDashboard } from "./atenia-ai/AteniaProviderHealthDashboard";
 import { AteniaOperationsInbox } from "./atenia-ai/AteniaOperationsInbox";
 import { AteniaThreadView } from "./atenia-ai/AteniaThreadView";
+import { AteniaEdgeFunctionLiveness } from "./atenia-ai/AteniaEdgeFunctionLiveness";
 // AteniaCronHealthPanel is now integrated into AutopilotDashboard
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { runAutonomyCycle } from "@/lib/services/atenia-ai-autonomy-engine";
@@ -639,6 +640,9 @@ export function AteniaAISupervisorPanel() {
 
           {/* Assurance Gates — 6 invariants */}
           <AteniaAssuranceGates />
+
+          {/* Edge Function Liveness Monitor */}
+          <AteniaEdgeFunctionLiveness />
 
           {/* Ghost Items */}
           <AteniaGhostItems />
