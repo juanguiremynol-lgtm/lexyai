@@ -10,7 +10,7 @@
 
 import { useParams, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Bot, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2 } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -34,7 +34,7 @@ import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist
 import { ElectronicFileButton } from "@/components/work-items/ElectronicFileButton";
 import { WorkItemMonitoringBadge } from "@/components/work-items/WorkItemMonitoringBadge";
 import { WorkItemMonitoringControls } from "@/components/work-items/WorkItemMonitoringControls";
-import { AteniaAssistantDrawer } from "@/components/atenia/AteniaAssistantDrawer";
+
 import { AddRadicadoInline } from "@/components/work-items/AddRadicadoInline";
 import { CourthouseEmailDisplay } from "@/components/work-items/CourthouseEmailDisplay";
 import { RadicadoAnalyzer } from "@/components/work-items/RadicadoAnalyzer";
@@ -55,8 +55,6 @@ export default function WorkItemDetail() {
     refetch,
   } = useWorkItemDetail(id);
 
-  // Assistant drawer state
-  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // Toggle flag mutation
   const toggleFlagMutation = useMutation({
@@ -223,16 +221,6 @@ export default function WorkItemDetail() {
             )}
           </Button>
           
-          {/* Atenia AI — Unified assistant + report */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => setAssistantOpen(true)}
-          >
-            <Bot className="h-4 w-4" />
-            Atenia AI
-          </Button>
 
           {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />
@@ -461,14 +449,6 @@ export default function WorkItemDetail() {
         </div>
       </div>
 
-      {/* Atenia AI Assistant Drawer */}
-      <AteniaAssistantDrawer
-        open={assistantOpen}
-        onOpenChange={setAssistantOpen}
-        scope="WORK_ITEM"
-        workItemId={workItem.id}
-        workItemRadicado={workItem.radicado || undefined}
-      />
     </div>
   );
 }
