@@ -47,6 +47,7 @@ interface EstadosTabProps {
 // Publicacion type for display - ONLY from work_item_publicaciones
 interface PublicacionEstado {
   id: string;
+  hash_fingerprint?: string | null;
   date: string | null;
   date_raw: string | null;
   description: string;
@@ -172,6 +173,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       // Map work_item_publicaciones to display format
       const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => ({
         id: pub.id,
+        hash_fingerprint: pub.hash_fingerprint || null,
         date: pub.published_at,
         date_raw: pub.published_at,
         description: pub.title + (pub.annotation ? ` - ${pub.annotation}` : ''),
@@ -231,15 +233,16 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         return dateB.localeCompare(dateA);
       });
 
-      // UI-level dedup: prefer the record with richer metadata (fecha_fijacion present)
+      // UI-level dedup: only collapse records with the SAME hash_fingerprint
+      // (different fingerprints = different API entries, even if annotation text is identical)
       const seen = new Map<string, PublicacionEstado>();
       for (const item of merged) {
-        const key = item.description.trim().toLowerCase();
+        const key = item.hash_fingerprint || item.id;
         const existing = seen.get(key);
         if (!existing) {
           seen.set(key, item);
         } else {
-          // Keep the one with more metadata (fecha_fijacion, pdf_url)
+          // Same fingerprint seen twice (e.g. from pubs + acts provenance merge) — keep richer one
           const existingScore = (existing.fecha_fijacion ? 1 : 0) + (existing.pdf_url ? 1 : 0);
           const newScore = (item.fecha_fijacion ? 1 : 0) + (item.pdf_url ? 1 : 0);
           if (newScore > existingScore) {
