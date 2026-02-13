@@ -23,7 +23,7 @@ interface ConnectorStatus {
   name: string;
   visibility: string;
   instance_status: 'active' | 'missing' | 'disabled';
-  mapping_status: 'ACTIVE' | 'DRAFT' | 'NONE';
+  mapping_status: 'ACTIVE' | 'DRAFT' | 'IDENTITY' | 'NONE';
   sync_success_24h: number;
   sync_total_24h: number;
   errors: Array<{ code: string; count: number }>;
@@ -51,7 +51,7 @@ export function AteniaExternalProviderStatus({ organizationId }: Props) {
         { data: traces },
       ] = await Promise.all([
         (supabase.from('provider_connectors') as any)
-          .select('id, name, visibility, is_enabled')
+          .select('id, name, key, visibility, is_enabled, capabilities')
           .eq('is_enabled', true),
         (supabase.from('provider_instances') as any)
           .select('connector_id, scope, is_enabled'),
@@ -83,11 +83,23 @@ export function AteniaExternalProviderStatus({ organizationId }: Props) {
       }
 
       // Mapping status per connector
+      // Note: connectors with "snapshot" capability or key "SAMAI_ESTADOS" use
+      // IDENTITY_MAPPING_SPEC at runtime even without an explicit DB mapping spec.
       const mappingByConnector = new Map<string, string>();
       for (const m of (mappings || [])) {
         const existing = mappingByConnector.get(m.provider_connector_id);
         if (m.status === 'ACTIVE' || !existing) {
           mappingByConnector.set(m.provider_connector_id, m.status);
+        }
+      }
+      // Mark connectors that use identity mapping fallback as IDENTITY
+      for (const c of connectors) {
+        if (!mappingByConnector.has(c.id)) {
+          const caps: string[] = (c as any).capabilities || [];
+          const key: string = (c as any).key || '';
+          if (key === 'SAMAI_ESTADOS' || caps.includes('snapshot')) {
+            mappingByConnector.set(c.id, 'IDENTITY');
+          }
         }
       }
 
@@ -196,6 +208,8 @@ export function AteniaExternalProviderStatus({ organizationId }: Props) {
                   · Mapping:{' '}
                   {connector.mapping_status === 'ACTIVE'
                     ? '🟢 Activo'
+                    : connector.mapping_status === 'IDENTITY'
+                    ? '🟢 Identidad (auto)'
                     : connector.mapping_status === 'DRAFT'
                     ? '🟡 Borrador'
                     : '⚪ No configurado'}
