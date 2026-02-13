@@ -775,12 +775,32 @@ Deno.serve(async (req) => {
       radicado_match: c.radicado_match_details || null,
     }));
 
-    // Persist resolution
+    // Persist resolution to new state machine
+    const confidence = Math.round(top1.score * 100) / 100;
+    const eventType = needsReview 
+      ? (scorable.length > 1 && margin < 0.10 ? 'CONFLICT_DETECTED' : 'SUGGESTED')
+      : 'SUGGESTED';
+    
+    const evidence = {
+      method,
+      source_radicado: hasRadicado,
+      source_authority_id: hasCode,
+      radicado_blocks: radParsed.valid ? radBlocks : null,
+      radicado_geo_trusted: radicadoGeoTrusted,
+      is_collegiate_body: isCollegiateBody,
+      radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
+      top1_score: top1.score,
+      top2_score: top2 ? top2.score : null,
+      margin,
+      candidates_count: scorable.length,
+    };
+
+    // Update work_items status + suggested email (if not already confirmed)
     const updateData: Record<string, unknown> = {
       courthouse_directory_id: top1.id,
       resolved_email: needsReview ? null : top1.email,
       resolution_method: method,
-      resolution_confidence: Math.round(top1.score * 100) / 100,
+      resolution_confidence: confidence,
       courthouse_needs_review: needsReview,
       resolution_candidates: topCandidates,
       resolved_at: needsReview ? null : new Date().toISOString(),
@@ -800,7 +820,21 @@ Deno.serve(async (req) => {
 
     await supabase.from("work_items").update(updateData).eq("id", work_item_id);
 
-    // Audit log
+    // Write to work_item_email_events (trigger will sync work_items state machine)
+    const emailEventStatus = eventType === 'CONFLICT_DETECTED' ? 'CONFLICT' : 
+                             needsReview ? 'SUGGESTED' : 'SUGGESTED';
+    
+    await supabase.from("work_item_email_events").insert({
+      work_item_id,
+      actor_type: "SYSTEM",
+      event_type: eventType,
+      suggested_email: needsReview ? null : top1.email,
+      confidence,
+      source: method,
+      evidence: evidence,
+    }).then(() => {});
+
+    // Audit log (legacy, kept for backward compat)
     if (workItem.organization_id) {
       const auditAction = needsReview ? "COURTHOUSE_EMAIL_NEEDS_REVIEW" : "COURTHOUSE_EMAIL_RESOLVED";
       await supabase.from("audit_logs").insert({
@@ -812,7 +846,7 @@ Deno.serve(async (req) => {
         entity_id: work_item_id,
         metadata: {
           method,
-          confidence: Math.round(top1.score * 100) / 100,
+          confidence,
           resolved_email: needsReview ? null : top1.email,
           candidates_count: topCandidates.length,
           total_scored: scorable.length,
