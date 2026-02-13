@@ -8471,6 +8471,53 @@ export type Database = {
           },
         ]
       }
+      work_item_email_events: {
+        Row: {
+          actor_type: string
+          confidence: number | null
+          confirmed_email: string | null
+          created_at: string | null
+          event_type: string
+          evidence: Json | null
+          id: string
+          source: string | null
+          suggested_email: string | null
+          work_item_id: string
+        }
+        Insert: {
+          actor_type: string
+          confidence?: number | null
+          confirmed_email?: string | null
+          created_at?: string | null
+          event_type: string
+          evidence?: Json | null
+          id?: string
+          source?: string | null
+          suggested_email?: string | null
+          work_item_id: string
+        }
+        Update: {
+          actor_type?: string
+          confidence?: number | null
+          confirmed_email?: string | null
+          created_at?: string | null
+          event_type?: string
+          evidence?: Json | null
+          id?: string
+          source?: string | null
+          suggested_email?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_email_events_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_external_links: {
         Row: {
           created_at: string
@@ -9150,6 +9197,14 @@ export type Database = {
           consecutive_not_found: number | null
           corte_status: string | null
           courthouse_directory_id: number | null
+          courthouse_email_confidence: number | null
+          courthouse_email_confirmed: string | null
+          courthouse_email_confirmed_at: string | null
+          courthouse_email_evidence: Json | null
+          courthouse_email_source: string | null
+          courthouse_email_status: string
+          courthouse_email_suggested: string | null
+          courthouse_email_suggested_at: string | null
           courthouse_needs_review: boolean | null
           created_at: string
           delete_reason: string | null
@@ -9294,6 +9349,14 @@ export type Database = {
           consecutive_not_found?: number | null
           corte_status?: string | null
           courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
           courthouse_needs_review?: boolean | null
           created_at?: string
           delete_reason?: string | null
@@ -9438,6 +9501,14 @@ export type Database = {
           consecutive_not_found?: number | null
           corte_status?: string | null
           courthouse_directory_id?: number | null
+          courthouse_email_confidence?: number | null
+          courthouse_email_confirmed?: string | null
+          courthouse_email_confirmed_at?: string | null
+          courthouse_email_evidence?: Json | null
+          courthouse_email_source?: string | null
+          courthouse_email_status?: string
+          courthouse_email_suggested?: string | null
+          courthouse_email_suggested_at?: string | null
           courthouse_needs_review?: boolean | null
           created_at?: string
           delete_reason?: string | null
