@@ -20,6 +20,7 @@ import {
   Gamepad2,
   Regex,
 } from "lucide-react";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
 const EXTERNAL_TOOLS = [
   {
@@ -97,6 +98,8 @@ const EXTERNAL_TOOLS = [
 ];
 
 export default function Utilities() {
+  const { isPlatformAdmin } = usePlatformAdmin();
+
   return (
     <div className="space-y-6">
       <div>
@@ -114,18 +117,22 @@ export default function Utilities() {
             <Regex className="h-4 w-4" />
             Patrones de Hitos
           </TabsTrigger>
-          <TabsTrigger value="externas" className="flex items-center gap-2">
-            <Wrench className="h-4 w-4" />
-            Herramientas Externas
-          </TabsTrigger>
+          {isPlatformAdmin && (
+            <TabsTrigger value="externas" className="flex items-center gap-2">
+              <Wrench className="h-4 w-4" />
+              Herramientas Externas
+            </TabsTrigger>
+          )}
           <TabsTrigger value="radicado" className="flex items-center gap-2">
             <Calculator className="h-4 w-4" />
             Constructor de Radicado
           </TabsTrigger>
-          <TabsTrigger value="snake" className="flex items-center gap-2">
-            <Gamepad2 className="h-4 w-4" />
-            Recreo
-          </TabsTrigger>
+          {isPlatformAdmin && (
+            <TabsTrigger value="snake" className="flex items-center gap-2">
+              <Gamepad2 className="h-4 w-4" />
+              Recreo
+            </TabsTrigger>
+          )}
         </TabsList>
         
         <TabsContent value="terminos" className="mt-6">
@@ -136,44 +143,48 @@ export default function Utilities() {
           <PatternTestingPanel />
         </TabsContent>
         
-        <TabsContent value="externas" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {EXTERNAL_TOOLS.map((tool) => (
-              <a
-                key={tool.url}
-                href={tool.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block group"
-              >
-                <Card className="h-full transition-all hover:shadow-md hover:border-primary/50 group-hover:bg-muted/30">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                        <tool.icon className="h-5 w-5" />
+        {isPlatformAdmin && (
+          <TabsContent value="externas" className="mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {EXTERNAL_TOOLS.map((tool) => (
+                <a
+                  key={tool.url}
+                  href={tool.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block group"
+                >
+                  <Card className="h-full transition-all hover:shadow-md hover:border-primary/50 group-hover:bg-muted/30">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                          <tool.icon className="h-5 w-5" />
+                        </div>
+                        <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
-                      <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                    <CardTitle className="text-base mt-3">{tool.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="text-sm">
-                      {tool.description}
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              </a>
-            ))}
-          </div>
-        </TabsContent>
+                      <CardTitle className="text-base mt-3">{tool.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="text-sm">
+                        {tool.description}
+                      </CardDescription>
+                    </CardContent>
+                  </Card>
+                </a>
+              ))}
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="radicado" className="mt-6">
           <RadicadoConstructor />
         </TabsContent>
 
-        <TabsContent value="snake" className="mt-6">
-          <SnakeGame />
-        </TabsContent>
+        {isPlatformAdmin && (
+          <TabsContent value="snake" className="mt-6">
+            <SnakeGame />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
