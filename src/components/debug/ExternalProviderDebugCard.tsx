@@ -152,7 +152,7 @@ export function ExternalProviderDebugCard() {
     try {
       // Get all connectors first
       const { data: connectors } = await (supabase.from("provider_connectors") as any)
-        .select("id, name, adapter_key")
+        .select("id, name, key")
         .eq("is_enabled", true);
 
       if (!connectors || connectors.length === 0) {
@@ -223,8 +223,8 @@ export function ExternalProviderDebugCard() {
 
       // Find SAMAI connector + instance
       const { data: connectors } = await (supabase.from("provider_connectors") as any)
-        .select("id, name")
-        .or("adapter_key.ilike.%samai_estados%,name.ilike.%samai%estados%")
+        .select("id, name, key")
+        .or("key.eq.SAMAI_ESTADOS,name.ilike.%samai%estados%")
         .limit(1);
 
       const connector = connectors?.[0];
@@ -306,8 +306,8 @@ export function ExternalProviderDebugCard() {
       // Step 2: Secret readiness
       const s2 = Date.now();
       const { data: connectors } = await (supabase.from("provider_connectors") as any)
-        .select("id, name")
-        .or("adapter_key.ilike.%samai_estados%,name.ilike.%samai%estados%")
+        .select("id, name, key")
+        .or("key.eq.SAMAI_ESTADOS,name.ilike.%samai%estados%")
         .limit(1);
       const connector = connectors?.[0];
       let readiness: any = null;

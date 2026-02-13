@@ -41,7 +41,7 @@ import {
   ExternalLink,
   Sparkles,
 } from "lucide-react";
-import { ExternalProviderDebugCard } from "@/components/debug/ExternalProviderDebugCard";
+import { MasterDebugPanel } from "@/components/debug/MasterDebugPanel";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -1830,8 +1830,8 @@ export default function ApiDebugPage() {
         </Card>
       )}
 
-      {/* External Provider Debug & E2E Card */}
-      <ExternalProviderDebugCard />
+      {/* Master Debug Panel — Unified debug console with Atenia AI */}
+      <MasterDebugPanel />
 
       {/* Sync History Card */}
       <SyncHistoryCard />
@@ -1925,8 +1925,7 @@ export default function ApiDebugPage() {
         </CardContent>
       </Card>
 
-      {/* Publicaciones Debug Card - Full Data Flow Verification */}
-      <PublicacionesDebugCard />
+      {/* PublicacionesDebugCard removed — consolidated into MasterDebugPanel */}
 
       {/* Documentation link */}
       <Card>
