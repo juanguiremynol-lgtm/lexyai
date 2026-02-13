@@ -657,7 +657,6 @@ Deno.serve(async (req) => {
 
     if (acts.length > 0) {
       // Translate SAMAI-format Spanish field names to canonical before normalization
-      // SAMAI Estados returns {Actuación, Fecha Providencia, ...} not {description, act_date, ...}
       const isSamaiFormat = isEstadosProvider || 
         (acts[0] && (acts[0]["Actuación"] || acts[0]["Fecha Providencia"] || acts[0]["actuacion"]));
       const translatedActs = isSamaiFormat ? translateSamaiFormat(acts) : acts;
@@ -665,7 +664,6 @@ Deno.serve(async (req) => {
       const normalized = await normalizeActuaciones(
         translatedActs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
-      // Tag estados records with proper source and type for differentiation
       if (isEstadosProvider) {
         for (const record of normalized) {
           record.source = "SAMAI_ESTADOS";
@@ -674,38 +672,69 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Collect all hash_fingerprints before upsert
-      const allFingerprints = normalized.map((r: any) => r.hash_fingerprint).filter(Boolean);
-
-      // Debug: log translation results for observability
-      console.log(`[EXT_PROVIDER] Translated ${acts.length} acts → ${normalized.length} normalized, ${allFingerprints.length} fingerprints, isSamaiFormat=${isSamaiFormat}`);
-      if (normalized.length > 0) {
-        const sample = normalized[0];
-        console.log(`[EXT_PROVIDER] Sample: desc="${String(sample.description || "").slice(0,80)}", date=${sample.act_date}, fp=${sample.hash_fingerprint?.slice(0,12)}`);
-      }
-
-      const { data: inserted, error: upsertErr } = await db
+      // ── Semantic dedup: match against existing canonical rows by (date, normalized_description) ──
+      // This prevents duplicates when fingerprint schemes differ between built-in and external providers
+      const { data: existingActs } = await db
         .from("work_item_acts")
-        .upsert(normalized, { onConflict: "work_item_id,hash_fingerprint", ignoreDuplicates: true })
-        .select("id");
-      if (upsertErr) {
-        console.error(`[EXT_PROVIDER] Upsert error: ${upsertErr.message} (code: ${upsertErr.code})`);
-      }
-      insertedActs = inserted?.length || 0;
-      if (inserted) insertedActIds.push(...inserted.map((r: any) => r.id));
+        .select("id, act_date, description, hash_fingerprint")
+        .eq("work_item_id", workItem.id)
+        .eq("is_archived", false);
 
-      // ── Provenance-first merge: resolve existing canonical IDs for dedup-matched records ──
-      // Even when acts_upserted=0, we must find the existing rows and write provenance
-      if (allFingerprints.length > 0) {
-        const { data: existingRows } = await db
+      // Build semantic set: normalize descriptions for fuzzy matching
+      const normalizeForDedup = (desc: string) =>
+        (desc || "").toLowerCase()
+          .replace(/[\u2014\u2013—–]/g, "-")   // em/en dash → hyphen
+          .replace(/\s+/g, " ")
+          .replace(/[^\w\s\-áéíóúñü]/gi, "")
+          .trim()
+          .slice(0, 120);
+
+      const existingSemanticSet = new Map<string, string>(); // semanticKey → canonical act ID
+      const existingFpSet = new Set<string>();
+      for (const existing of existingActs || []) {
+        const semKey = `${existing.act_date || ""}|${normalizeForDedup(existing.description)}`;
+        existingSemanticSet.set(semKey, existing.id);
+        existingFpSet.add(existing.hash_fingerprint);
+      }
+
+      const toInsert: any[] = [];
+      let semanticDedupCount = 0;
+      let fpDedupCount = 0;
+
+      for (const record of normalized) {
+        // Check fingerprint-level dedup first
+        if (existingFpSet.has(record.hash_fingerprint)) {
+          fpDedupCount++;
+          // Find canonical ID by fingerprint
+          const matched = (existingActs || []).find((e: any) => e.hash_fingerprint === record.hash_fingerprint);
+          if (matched) allConfirmedActIds.push(matched.id);
+          continue;
+        }
+        // Check semantic dedup (date + normalized description)
+        const semKey = `${record.act_date || ""}|${normalizeForDedup(record.description)}`;
+        const matchedId = existingSemanticSet.get(semKey);
+        if (matchedId) {
+          semanticDedupCount++;
+          allConfirmedActIds.push(matchedId);
+          continue;
+        }
+        toInsert.push(record);
+      }
+
+      console.log(`[EXT_PROVIDER] Dedup: ${normalized.length} incoming, ${fpDedupCount} fp-matched, ${semanticDedupCount} semantic-matched, ${toInsert.length} genuinely new`);
+
+      if (toInsert.length > 0) {
+        const { data: inserted, error: upsertErr } = await db
           .from("work_item_acts")
-          .select("id")
-          .eq("work_item_id", workItem.id)
-          .in("hash_fingerprint", allFingerprints);
-        if (existingRows) {
-          for (const row of existingRows) {
-            allConfirmedActIds.push(row.id);
-          }
+          .upsert(toInsert, { onConflict: "work_item_id,hash_fingerprint", ignoreDuplicates: true })
+          .select("id");
+        if (upsertErr) {
+          console.error(`[EXT_PROVIDER] Upsert error: ${upsertErr.message} (code: ${upsertErr.code})`);
+        }
+        insertedActs = inserted?.length || 0;
+        if (inserted) {
+          insertedActIds.push(...inserted.map((r: any) => r.id));
+          allConfirmedActIds.push(...inserted.map((r: any) => r.id));
         }
       }
     }
