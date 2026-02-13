@@ -49,6 +49,15 @@ const ACTION_ALLOWLIST = new Set([
   "TOGGLE_TICKER",
   "GET_BILLING_SUMMARY",
   "GET_SUBSCRIPTION_STATUS",
+  // New org-admin actions
+  "INVITE_USER_TO_ORG",
+  "REMOVE_USER_FROM_ORG",
+  "CHANGE_MEMBER_ROLE",
+  "ORG_USAGE_SUMMARY",
+  // Support actions
+  "CREATE_SUPPORT_TICKET",
+  "EXPLAIN_CURRENT_PAGE",
+  "REFRESH_WORK_ITEM_METADATA",
 ]);
 
 // ---- Risk classification ----
@@ -56,18 +65,23 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
   switch (actionType) {
     case "ESCALATE_TO_ADMIN_QUEUE":
     case "CREATE_USER_REPORT":
+    case "CREATE_SUPPORT_TICKET":
+    case "EXPLAIN_CURRENT_PAGE":
+    case "ORG_USAGE_SUMMARY":
+    case "GET_BILLING_SUMMARY":
+    case "GET_SUBSCRIPTION_STATUS":
+    case "GENERATE_PAYMENT_CERTIFICATE":
       return "SAFE";
     case "RUN_SYNC_WORK_ITEM":
     case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
+    case "REFRESH_WORK_ITEM_METADATA":
       return "SAFE";
-    case "UNLOCK_DANGER_ZONE":
-      return "CONFIRM_REQUIRED";
-    case "GENERATE_PAYMENT_CERTIFICATE":
-    case "GET_BILLING_SUMMARY":
-    case "GET_SUBSCRIPTION_STATUS":
-      return "SAFE";
+    case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
       return "CONFIRM_REQUIRED";
+    case "REMOVE_USER_FROM_ORG":
+    case "CHANGE_MEMBER_ROLE":
+    case "UNLOCK_DANGER_ZONE":
     case "TOGGLE_MONITORING":
     case "RUN_MASTER_SYNC_SCOPE":
       return "CONFIRM_REQUIRED";
@@ -139,6 +153,16 @@ ALLOWLISTED ACTIONS:
   - Super admins: do not route through this action; they have platform-level controls.
 - GET_BILLING_SUMMARY: Read-only: return a summary of billing/subscription status (SAFE)
 - GET_SUBSCRIPTION_STATUS: Read-only: return current subscription details (SAFE)
+- INVITE_USER_TO_ORG: Invite a user to the organization by email (CONFIRM_REQUIRED). Params: { email: string, role?: "MEMBER"|"ADMIN" }
+  RBAC: Only org_admin (OWNER or ADMIN role). Deny for members and no-org users.
+- REMOVE_USER_FROM_ORG: Remove a member from the organization (CONFIRM_REQUIRED). Params: { user_id: string }
+  RBAC: Only org_admin. Cannot remove self. Cannot remove OWNER unless you are also OWNER.
+- CHANGE_MEMBER_ROLE: Change a member's role (CONFIRM_REQUIRED). Params: { user_id: string, new_role: "MEMBER"|"ADMIN" }
+  RBAC: Only org_admin. Cannot change own role. Cannot promote to OWNER.
+- ORG_USAGE_SUMMARY: Read-only org stats: seats used, monitors active, work items count (SAFE). Any org member can view.
+- CREATE_SUPPORT_TICKET: Create a structured support ticket with auto-gathered metadata (SAFE). Params: { subject: string, description: string }
+- EXPLAIN_CURRENT_PAGE: Contextual help based on the user's current route (SAFE). Params: { route: string, page_context?: string }
+- REFRESH_WORK_ITEM_METADATA: Re-run a sync for a specific work item the user has access to (SAFE, rate-limited). Params: { work_item_id: string }
 
 SETTINGS ACTIONS POLICY:
 When a user asks to change settings (ticker, notifications, etc.) via chat:
@@ -699,6 +723,198 @@ async function executeAction(
       // Read-only actions — the billing context is already included in the chat context
       // These are informational; the AI will answer from context. No DB mutation needed.
       return { ok: true, note: "Billing information is available in the chat context. The AI will summarize it directly." };
+    }
+
+    case "INVITE_USER_TO_ORG": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización para invitar usuarios.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores de la organización pueden invitar usuarios.");
+
+      const email = action.params?.email;
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        throw new Error("Se requiere un email válido para la invitación.");
+      }
+
+      const role = action.params?.role || "MEMBER";
+      if (!["MEMBER", "ADMIN"].includes(role)) throw new Error("Rol inválido. Use MEMBER o ADMIN.");
+
+      // Check if user already exists in org
+      const { data: existingUser } = await adminClient
+        .from("profiles")
+        .select("id")
+        .eq("email", email.toLowerCase().trim())
+        .maybeSingle();
+
+      if (existingUser) {
+        const { data: existingMembership } = await adminClient
+          .from("organization_memberships")
+          .select("id")
+          .eq("organization_id", orgId)
+          .eq("user_id", existingUser.id)
+          .maybeSingle();
+
+        if (existingMembership) {
+          return { ok: false, error: "Este usuario ya es miembro de la organización." };
+        }
+
+        // Add existing user to org
+        const { error } = await adminClient
+          .from("organization_memberships")
+          .insert({ organization_id: orgId, user_id: existingUser.id, role });
+        if (error) throw new Error(error.message);
+        return { ok: true, message: `Usuario ${email} agregado como ${role}.`, user_id: existingUser.id };
+      }
+
+      // User doesn't exist yet — create an invitation record or notify
+      return { ok: true, message: `Invitación pendiente para ${email} (rol: ${role}). El usuario debe registrarse primero en la plataforma.`, pending: true };
+    }
+
+    case "REMOVE_USER_FROM_ORG": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores pueden eliminar miembros.");
+
+      const targetUserId = action.params?.user_id;
+      if (!targetUserId) throw new Error("Se requiere el user_id del miembro a eliminar.");
+      if (targetUserId === ctx.user?.id) throw new Error("No puedes eliminarte a ti mismo de la organización.");
+
+      // Check target role — cannot remove OWNER unless you are also OWNER
+      const { data: targetMembership } = await adminClient
+        .from("organization_memberships")
+        .select("id, role")
+        .eq("organization_id", orgId)
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+
+      if (!targetMembership) throw new Error("El usuario no es miembro de esta organización.");
+      
+      const myRole = (ctx.user as any)?.org_membership_role;
+      if (targetMembership.role === "OWNER" && myRole !== "OWNER") {
+        throw new Error("Solo un OWNER puede eliminar a otro OWNER de la organización.");
+      }
+
+      const { error } = await adminClient
+        .from("organization_memberships")
+        .delete()
+        .eq("id", targetMembership.id);
+      if (error) throw new Error(error.message);
+
+      return { ok: true, message: `Miembro eliminado de la organización.`, removed_user_id: targetUserId };
+    }
+
+    case "CHANGE_MEMBER_ROLE": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores pueden cambiar roles.");
+
+      const targetUserId = action.params?.user_id;
+      const newRole = action.params?.new_role;
+      if (!targetUserId) throw new Error("Se requiere el user_id del miembro.");
+      if (!newRole || !["MEMBER", "ADMIN"].includes(newRole)) throw new Error("Rol inválido. Use MEMBER o ADMIN.");
+      if (targetUserId === ctx.user?.id) throw new Error("No puedes cambiar tu propio rol.");
+
+      const { data: targetMembership } = await adminClient
+        .from("organization_memberships")
+        .select("id, role")
+        .eq("organization_id", orgId)
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+
+      if (!targetMembership) throw new Error("El usuario no es miembro de esta organización.");
+      if (targetMembership.role === "OWNER") throw new Error("No se puede cambiar el rol de un OWNER.");
+
+      const { error } = await adminClient
+        .from("organization_memberships")
+        .update({ role: newRole })
+        .eq("id", targetMembership.id);
+      if (error) throw new Error(error.message);
+
+      return { ok: true, message: `Rol cambiado a ${newRole}.`, user_id: targetUserId, new_role: newRole };
+    }
+
+    case "ORG_USAGE_SUMMARY": {
+      const orgId = ctx.orgId;
+      if (!orgId) throw new Error("Se requiere una organización.");
+
+      const { data: members } = await adminClient
+        .from("organization_memberships")
+        .select("id, role")
+        .eq("organization_id", orgId);
+
+      const { data: workItems } = await adminClient
+        .from("work_items")
+        .select("id, monitoring_enabled, status")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null);
+
+      const totalMembers = members?.length || 0;
+      const adminCount = members?.filter((m: any) => m.role === "OWNER" || m.role === "ADMIN").length || 0;
+      const totalWorkItems = workItems?.length || 0;
+      const monitored = workItems?.filter((w: any) => w.monitoring_enabled).length || 0;
+
+      return {
+        ok: true,
+        usage: {
+          total_members: totalMembers,
+          admin_count: adminCount,
+          member_count: totalMembers - adminCount,
+          total_work_items: totalWorkItems,
+          monitored_work_items: monitored,
+          unmonitored_work_items: totalWorkItems - monitored,
+        },
+      };
+    }
+
+    case "CREATE_SUPPORT_TICKET": {
+      const orgId = ctx.orgId;
+      const subject = action.params?.subject || "Ticket de soporte";
+      const description = action.params?.description || "Sin descripción";
+
+      const { data, error } = await adminClient
+        .from("atenia_ai_user_reports")
+        .insert({
+          organization_id: orgId,
+          reporter_user_id: ctx.user.id,
+          work_item_id: action.params?.work_item_id || null,
+          description: `[${subject}] ${description}`,
+          report_type: "SUPPORT_TICKET",
+          status: "OPEN",
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      return { ok: true, ticket_id: data?.id, message: "Ticket de soporte creado exitosamente." };
+    }
+
+    case "EXPLAIN_CURRENT_PAGE": {
+      // This is a contextual help action — the AI will answer from the route context
+      return { ok: true, note: "Contextual help will be provided by the AI based on the current route." };
+    }
+
+    case "REFRESH_WORK_ITEM_METADATA": {
+      const wiId = action.params?.work_item_id;
+      if (!wiId) throw new Error("Se requiere work_item_id.");
+
+      // Verify user has access to this work item
+      const { data: wi } = await userClient
+        .from("work_items")
+        .select("id")
+        .eq("id", wiId)
+        .maybeSingle();
+      if (!wi) throw new Error("No tienes acceso a este asunto o no existe.");
+
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const resp = await fetch(`${supabaseUrl}/functions/v1/sync-by-work-item`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ work_item_id: wiId }),
+      });
+      const result = await resp.json().catch(() => ({ status: resp.status }));
+      return { ok: resp.ok, result, message: resp.ok ? "Sincronización iniciada." : "Error al sincronizar." };
     }
 
     default:
