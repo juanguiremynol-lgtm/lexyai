@@ -62,6 +62,7 @@ import {
   PlatformAteniaAIPage,
   PlatformCourthouseDirectoryPage,
   PlatformExternalProvidersPage,
+  PlatformBillingPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 
@@ -201,6 +202,7 @@ const App = () => (
             <Route path="metrics" element={<ErrorBoundary><PlatformMetricsPage /></ErrorBoundary>} />
             <Route path="organizations" element={<ErrorBoundary><PlatformOrganizationsPage /></ErrorBoundary>} />
             <Route path="subscriptions" element={<ErrorBoundary><PlatformSubscriptionsPage /></ErrorBoundary>} />
+            <Route path="billing" element={<ErrorBoundary><PlatformBillingPage /></ErrorBoundary>} />
             <Route path="vouchers" element={<ErrorBoundary><PlatformVouchersPage /></ErrorBoundary>} />
             <Route path="limits" element={<ErrorBoundary><PlatformLimitsPage /></ErrorBoundary>} />
             <Route path="support" element={<ErrorBoundary><PlatformSupportPage /></ErrorBoundary>} />

@@ -1502,6 +1502,8 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          discount_amount_cop: number | null
+          discount_code_id: string | null
           id: string
           metadata: Json
           organization_id: string
@@ -1518,6 +1520,8 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           id?: string
           metadata?: Json
           organization_id: string
@@ -1534,6 +1538,8 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           id?: string
           metadata?: Json
           organization_id?: string
@@ -1544,6 +1550,13 @@ export type Database = {
           tier?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "billing_checkout_sessions_discount_code_id_fkey"
+            columns: ["discount_code_id"]
+            isOneToOne: false
+            referencedRelation: "billing_discount_codes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "billing_checkout_sessions_organization_id_fkey"
             columns: ["organization_id"]
@@ -1595,12 +1608,146 @@ export type Database = {
           },
         ]
       }
+      billing_discount_codes: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          current_redemptions: number
+          discount_type: string
+          discount_value: number
+          eligible_cycles: number[] | null
+          eligible_plans: string[] | null
+          id: string
+          is_active: boolean
+          max_redemptions: number | null
+          notes: string | null
+          target_org_id: string | null
+          target_user_email: string | null
+          updated_at: string
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          current_redemptions?: number
+          discount_type: string
+          discount_value: number
+          eligible_cycles?: number[] | null
+          eligible_plans?: string[] | null
+          id?: string
+          is_active?: boolean
+          max_redemptions?: number | null
+          notes?: string | null
+          target_org_id?: string | null
+          target_user_email?: string | null
+          updated_at?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          current_redemptions?: number
+          discount_type?: string
+          discount_value?: number
+          eligible_cycles?: number[] | null
+          eligible_plans?: string[] | null
+          id?: string
+          is_active?: boolean
+          max_redemptions?: number | null
+          notes?: string | null
+          target_org_id?: string | null
+          target_user_email?: string | null
+          updated_at?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_discount_codes_target_org_id_fkey"
+            columns: ["target_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_discount_redemptions: {
+        Row: {
+          billing_cycle_months: number
+          checkout_session_id: string | null
+          created_at: string
+          discount_amount_cop: number
+          discount_code_id: string
+          final_amount_cop: number
+          id: string
+          organization_id: string
+          original_amount_cop: number
+          plan_code: string
+          user_id: string | null
+        }
+        Insert: {
+          billing_cycle_months?: number
+          checkout_session_id?: string | null
+          created_at?: string
+          discount_amount_cop: number
+          discount_code_id: string
+          final_amount_cop: number
+          id?: string
+          organization_id: string
+          original_amount_cop: number
+          plan_code: string
+          user_id?: string | null
+        }
+        Update: {
+          billing_cycle_months?: number
+          checkout_session_id?: string | null
+          created_at?: string
+          discount_amount_cop?: number
+          discount_code_id?: string
+          final_amount_cop?: number
+          id?: string
+          organization_id?: string
+          original_amount_cop?: number
+          plan_code?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_discount_redemptions_checkout_session_id_fkey"
+            columns: ["checkout_session_id"]
+            isOneToOne: false
+            referencedRelation: "billing_checkout_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_discount_redemptions_discount_code_id_fkey"
+            columns: ["discount_code_id"]
+            isOneToOne: false
+            referencedRelation: "billing_discount_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_discount_redemptions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_invoices: {
         Row: {
           amount_cop_incl_iva: number | null
           amount_usd: number | null
           created_at: string
           currency: string
+          discount_amount_cop: number | null
+          discount_code_id: string | null
           hosted_invoice_url: string | null
           id: string
           metadata: Json
@@ -1616,6 +1763,8 @@ export type Database = {
           amount_usd?: number | null
           created_at?: string
           currency?: string
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           hosted_invoice_url?: string | null
           id?: string
           metadata?: Json
@@ -1631,6 +1780,8 @@ export type Database = {
           amount_usd?: number | null
           created_at?: string
           currency?: string
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           hosted_invoice_url?: string | null
           id?: string
           metadata?: Json
@@ -1721,6 +1872,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "billing_price_points_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_price_schedules: {
+        Row: {
+          applied: boolean
+          applied_at: string | null
+          billing_cycle_months: number
+          created_at: string
+          created_by: string | null
+          effective_at: string
+          id: string
+          new_price_cop_incl_iva: number
+          notes: string | null
+          plan_id: string
+          price_type: string
+          scope: string
+        }
+        Insert: {
+          applied?: boolean
+          applied_at?: string | null
+          billing_cycle_months?: number
+          created_at?: string
+          created_by?: string | null
+          effective_at: string
+          id?: string
+          new_price_cop_incl_iva: number
+          notes?: string | null
+          plan_id: string
+          price_type?: string
+          scope?: string
+        }
+        Update: {
+          applied?: boolean
+          applied_at?: string | null
+          billing_cycle_months?: number
+          created_at?: string
+          created_by?: string | null
+          effective_at?: string
+          id?: string
+          new_price_cop_incl_iva?: number
+          notes?: string | null
+          plan_id?: string
+          price_type?: string
+          scope?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_price_schedules_plan_id_fkey"
             columns: ["plan_id"]
             isOneToOne: false
             referencedRelation: "billing_plans"
@@ -1826,6 +2030,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      billing_webhook_receipts: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          event_type: string | null
+          gateway: string
+          gateway_event_id: string | null
+          gateway_transaction_id: string | null
+          http_status_returned: number | null
+          id: string
+          latency_ms: number | null
+          outcome: string | null
+          raw_payload: Json
+          retry_number: number | null
+          signature_raw: string | null
+          signature_valid: boolean | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string | null
+          gateway?: string
+          gateway_event_id?: string | null
+          gateway_transaction_id?: string | null
+          http_status_returned?: number | null
+          id?: string
+          latency_ms?: number | null
+          outcome?: string | null
+          raw_payload?: Json
+          retry_number?: number | null
+          signature_raw?: string | null
+          signature_valid?: boolean | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          event_type?: string | null
+          gateway?: string
+          gateway_event_id?: string | null
+          gateway_transaction_id?: string | null
+          http_status_returned?: number | null
+          id?: string
+          latency_ms?: number | null
+          outcome?: string | null
+          raw_payload?: Json
+          retry_number?: number | null
+          signature_raw?: string | null
+          signature_valid?: boolean | null
+        }
+        Relationships: []
       }
       cgp_deadline_rules: {
         Row: {
@@ -5299,6 +5554,8 @@ export type Database = {
           checkout_session_id: string | null
           created_at: string | null
           currency: string
+          discount_amount_cop: number | null
+          discount_code_id: string | null
           gateway: string
           gateway_reference: string | null
           gateway_response: Json | null
@@ -5322,6 +5579,8 @@ export type Database = {
           checkout_session_id?: string | null
           created_at?: string | null
           currency?: string
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           gateway?: string
           gateway_reference?: string | null
           gateway_response?: Json | null
@@ -5345,6 +5604,8 @@ export type Database = {
           checkout_session_id?: string | null
           created_at?: string | null
           currency?: string
+          discount_amount_cop?: number | null
+          discount_code_id?: string | null
           gateway?: string
           gateway_reference?: string | null
           gateway_response?: Json | null
