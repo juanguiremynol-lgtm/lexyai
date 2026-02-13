@@ -185,4 +185,30 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
     priority: 3,
     cooldownMinutes: 720,
   },
+
+  // === SETTINGS / TICKER ===
+  {
+    id: "ticker_toggle_hint",
+    text: "¿Quieres activar o desactivar el ticker de estados? Puedo hacerlo por ti.",
+    prefillPrompt: "Quiero cambiar la configuración del ticker de estados",
+    contexts: ["SETTINGS"],
+    priority: 4,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "settings_via_chat",
+    text: "Puedo gestionar configuraciones como el ticker y la suscripción directamente por aquí.",
+    prefillPrompt: "¿Qué configuraciones puedo cambiar desde aquí?",
+    contexts: ["SETTINGS"],
+    priority: 3,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "billing_check",
+    text: "¿Necesitas información sobre tu suscripción o facturación? Pregúntame.",
+    prefillPrompt: "¿Cuál es el estado de mi suscripción?",
+    contexts: ["SETTINGS", "PAYMENT_DUE"],
+    priority: 4,
+    cooldownMinutes: 1440,
+  },
 ];

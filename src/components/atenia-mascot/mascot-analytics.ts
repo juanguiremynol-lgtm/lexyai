@@ -15,7 +15,12 @@ export type MascotEvent =
   | "recovery_completed"
   | "purge_enable_requested"
   | "purge_enabled"
-  | "prompt_sent";
+  | "prompt_sent"
+  | "atenia_command_detected"
+  | "atenia_action_confirmed"
+  | "atenia_action_executed"
+  | "atenia_action_denied"
+  | "ticker_toggle_requested";
 
 export function trackMascotEvent(
   event: MascotEvent,

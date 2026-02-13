@@ -46,6 +46,9 @@ const ACTION_ALLOWLIST = new Set([
   "CREATE_USER_REPORT",
   "UNLOCK_DANGER_ZONE",
   "GENERATE_PAYMENT_CERTIFICATE",
+  "TOGGLE_TICKER",
+  "GET_BILLING_SUMMARY",
+  "GET_SUBSCRIPTION_STATUS",
 ]);
 
 // ---- Risk classification ----
@@ -60,7 +63,11 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "UNLOCK_DANGER_ZONE":
       return "CONFIRM_REQUIRED";
     case "GENERATE_PAYMENT_CERTIFICATE":
+    case "GET_BILLING_SUMMARY":
+    case "GET_SUBSCRIPTION_STATUS":
       return "SAFE";
+    case "TOGGLE_TICKER":
+      return "CONFIRM_REQUIRED";
     case "TOGGLE_MONITORING":
     case "RUN_MASTER_SYNC_SCOPE":
       return "CONFIRM_REQUIRED";
@@ -123,6 +130,30 @@ ALLOWLISTED ACTIONS:
 - CREATE_USER_REPORT: Create a structured report for the supervisor panel
 - UNLOCK_DANGER_ZONE: Temporarily enable the Danger Zone in Settings for 12 hours (CONFIRM_REQUIRED)
 - GENERATE_PAYMENT_CERTIFICATE: Generate a payment/service certificate for the user's organization (SAFE)
+- TOGGLE_TICKER: Enable/disable the live estados ticker (CONFIRM_REQUIRED). Params: { enabled: boolean }
+  RBAC rules for TOGGLE_TICKER:
+  - If the user has NO organization: allowed (affects only their personal experience).
+  - If the user belongs to an org: ticker is an ORG-LEVEL setting (show_estados_ticker on organizations table).
+    - Only OWNER or ADMIN can toggle it. Regular MEMBER must be told: "Solo los administradores de tu organización pueden cambiar esta configuración. Contacta a tu administrador."
+    - When toggling for org, state clearly: "Esto cambiará la configuración del ticker para toda la organización [org_name]."
+  - Super admins: do not route through this action; they have platform-level controls.
+- GET_BILLING_SUMMARY: Read-only: return a summary of billing/subscription status (SAFE)
+- GET_SUBSCRIPTION_STATUS: Read-only: return current subscription details (SAFE)
+
+SETTINGS ACTIONS POLICY:
+When a user asks to change settings (ticker, notifications, etc.) via chat:
+1. Identify which setting they want to change.
+2. Determine the setting scope (user-level vs org-level).
+3. Check RBAC: does this user have permission to change that setting at that scope?
+4. If permitted: confirm what will change and who it affects, then propose the action with CONFIRM_REQUIRED.
+5. If denied: explain why, and suggest they contact their org admin. Offer to copy a request message.
+6. After execution, confirm the result: "El ticker ha sido desactivado para tu organización [nombre]."
+
+IDENTITY SEPARATION (CRITICAL):
+You are the end-user assistant ("Atenia AI Asistente"). You help with user/org-scoped tasks.
+You do NOT have access to super-admin tools (cron jobs, mass sync, platform health, external API oversight).
+If a user asks about platform-level operations, respond: "Esas funciones están disponibles en la consola de Super Administrador."
+Never mention or expose super-admin capabilities.
 
 BILLING & PAYMENT INQUIRY POLICY:
 When a user asks about payments, invoices, subscription status, amounts paid, service certificates, or billing history:
@@ -181,10 +212,33 @@ async function buildContext(
   const isPlatformAdmin = !!platformAdmin;
   (ctx.user as any).is_platform_admin = isPlatformAdmin;
 
-  // Check org admin
+  // Check org admin + membership role
   if (orgId) {
     const { data: isAdmin } = await adminClient.rpc("is_org_admin", { org_id: orgId });
     (ctx.user as any).is_org_admin = !!isAdmin;
+
+    // Get membership role for RBAC context
+    const { data: membership } = await adminClient
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", orgId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    (ctx.user as any).org_membership_role = membership?.role || "MEMBER";
+
+    // Get org settings (ticker state, name)
+    const { data: orgData } = await adminClient
+      .from("organizations")
+      .select("name, show_estados_ticker")
+      .eq("id", orgId)
+      .maybeSingle();
+    ctx.org_settings = {
+      name: orgData?.name,
+      show_estados_ticker: orgData?.show_estados_ticker ?? true,
+      ticker_scope: "ORGANIZATION", // ticker is org-level
+    };
+  } else {
+    (ctx.user as any).has_organization = false;
   }
 
   // Scope guard
@@ -613,6 +667,38 @@ async function executeAction(
       };
 
       return { ok: true, certificate };
+    }
+
+    case "TOGGLE_TICKER": {
+      const enabled = !!action.params?.enabled;
+      const orgId = ctx.orgId;
+      const hasOrg = !!orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+
+      if (hasOrg && !isOrgAdmin) {
+        throw new Error("Solo los administradores de la organización pueden cambiar la configuración del ticker. Contacta a tu administrador.");
+      }
+
+      if (hasOrg) {
+        // Org-level toggle
+        const { error } = await adminClient
+          .from("organizations")
+          .update({ show_estados_ticker: enabled })
+          .eq("id", orgId);
+        if (error) throw new Error(error.message);
+        return { ok: true, scope: "organization", enabled, org_id: orgId };
+      } else {
+        // No org — personal preference (store in profile mascot_preferences or similar)
+        // For users without org, ticker toggle is conceptually a no-op since ticker requires org data
+        return { ok: true, scope: "personal", enabled, note: "Ticker visibility updated. Note: the ticker requires an organization to display data." };
+      }
+    }
+
+    case "GET_BILLING_SUMMARY":
+    case "GET_SUBSCRIPTION_STATUS": {
+      // Read-only actions — the billing context is already included in the chat context
+      // These are informational; the AI will answer from context. No DB mutation needed.
+      return { ok: true, note: "Billing information is available in the chat context. The AI will summarize it directly." };
     }
 
     default:

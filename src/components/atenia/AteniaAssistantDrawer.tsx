@@ -97,6 +97,9 @@ const ACTION_LABELS: Record<string, string> = {
   RUN_MASTER_SYNC_SCOPE: "Sincronización masiva",
   ESCALATE_TO_ADMIN_QUEUE: "Escalar a administrador",
   CREATE_USER_REPORT: "Crear reporte",
+  TOGGLE_TICKER: "Cambiar ticker de estados",
+  GET_BILLING_SUMMARY: "Ver resumen de facturación",
+  GET_SUBSCRIPTION_STATUS: "Ver estado de suscripción",
 };
 
 const QUICK_QUESTIONS = [
@@ -356,14 +359,14 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
         <SheetHeader className="p-4 pb-2 border-b">
           <SheetTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
-            Atenia AI
+            Atenia AI — Asistente
           </SheetTitle>
           <SheetDescription className="text-xs">
             {scope === "WORK_ITEM" && workItemRadicado
               ? `Analizando: ${workItemRadicado}`
               : scope === "PLATFORM"
                 ? "Modo plataforma"
-                : "Asistente de la organización"}
+                : "Tu asistente de cuenta y organización"}
           </SheetDescription>
         </SheetHeader>
 
