@@ -285,14 +285,19 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
               <Key className="h-3.5 w-3.5 text-primary" />
               {alreadySaved ? "Estado del Secreto" : `Secreto (${authType === "API_KEY" ? "API Key" : "HMAC Secret"})`}
             </Label>
-            {alreadySaved && decryptFailed && (
+           {alreadySaved && decryptFailed && (
               <Badge variant="destructive" className="text-[10px]">
-                <AlertTriangle className="h-3 w-3 mr-1" /> No puede descifrarse
+                <AlertTriangle className="h-3 w-3 mr-1" /> ❌ No descifrable
               </Badge>
             )}
-            {alreadySaved && hasActiveSecret && !decryptFailed && (
+            {alreadySaved && hasActiveSecret && !decryptFailed && readinessStatus?.can_decrypt && (
               <Badge variant="outline" className="text-[10px] text-primary border-primary/30 bg-primary/10">
-                <CheckCircle2 className="h-3 w-3 mr-1" /> v{secretStatus?.key_version} activo
+                <CheckCircle2 className="h-3 w-3 mr-1" /> ✅ Secreto activo y descifrable (v{secretStatus?.key_version})
+              </Badge>
+            )}
+            {alreadySaved && hasActiveSecret && !decryptFailed && !readinessStatus?.can_decrypt && readinessStatus !== null && (
+              <Badge variant="destructive" className="text-[10px]">
+                <AlertTriangle className="h-3 w-3 mr-1" /> ❌ No descifrable
               </Badge>
             )}
             {alreadySaved && !hasActiveSecret && !decryptFailed && (
@@ -305,10 +310,17 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           {decryptFailed && (
             <div className="flex items-start gap-2 p-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>
-                <strong>⚠️ El secreto existe pero no puede descifrarse.</strong> Re-encripte con la clave actual de la plataforma.
-                El valor del secreto no cambiará.
-              </span>
+              <div>
+                <strong>❌ El secreto existe pero no se puede descifrar con la clave actual de la plataforma.</strong>
+                <p className="mt-1 text-destructive/80">
+                  Pegue el <strong>mismo</strong> valor de API Key del proveedor y presione "Re-encriptar".
+                  Esto genera un nuevo cifrado bajo la clave de plataforma actual, sin cambiar el valor del secreto.
+                  No se requiere cambio en ATENIA_SECRETS_KEY_B64.
+                </p>
+                {readinessStatus?.remediation_hint && (
+                  <p className="mt-1 text-[10px] text-destructive/60 font-mono">{readinessStatus.remediation_hint}</p>
+                )}
+              </div>
             </div>
           )}
 

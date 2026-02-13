@@ -109,6 +109,15 @@ Deno.serve(async (req) => {
     }
 
     // Build response — NEVER include secret material
+    const failureReason = result.ok ? null : (result as any).failure_reason;
+    const remediationHint = failureReason === "DECRYPT_FAILED"
+      ? "Run REENCRYPT_SAME_VALUE: paste the same provider API key in the Wizard (Step Instance → Re-encriptar). The platform key is unchanged; only the ciphertext is regenerated."
+      : failureReason === "MISSING_SECRET"
+      ? "Configure an active API key in the Wizard (Step Instance → Configurar Secreto)."
+      : failureReason === "KEY_MISSING"
+      ? "ATENIA_SECRETS_KEY_B64 environment variable is not set. Contact platform operator."
+      : null;
+
     const response: Record<string, unknown> = {
       connector_id: connectorId || null,
       connector_key: connectorKey,
@@ -118,8 +127,9 @@ Deno.serve(async (req) => {
       active_secret_count: activeSecretCount,
       can_decrypt: result.ok,
       last_secret_updated_at: result.ok ? result.last_updated_at : null,
-      failure_reason: result.ok ? null : (result as any).failure_reason,
+      failure_reason: failureReason,
       failure_detail: result.ok ? null : (result as any).detail,
+      remediation_hint: remediationHint,
     };
 
     if (result.ok) {
