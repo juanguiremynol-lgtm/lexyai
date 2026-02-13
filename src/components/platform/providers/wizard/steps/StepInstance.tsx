@@ -2,6 +2,7 @@
  * Step 3 — Instance Provisioning
  * PLATFORM mode: single platform-managed instance (no org selection, stored once).
  * ORG mode: org-scoped instance as before.
+ * Supports secret management for already-saved instances (rotation/initial setup).
  */
 
 import { useState } from "react";
@@ -10,10 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, Check, Key, Loader2, Server, ShieldAlert, Info, Globe, CheckCircle2, AlertTriangle } from "lucide-react";
+import { ArrowRight, Check, Key, Loader2, Server, ShieldAlert, Info, Globe, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { WizardExplanation } from "../WizardExplanation";
 import type { WizardConnector, WizardInstance, WizardMode } from "../WizardTypes";
 
@@ -62,6 +63,26 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
   const baseUrlValid = isHttps && baseUrlHost && hostInAllowlist;
   const alreadySaved = !!instance;
 
+  // Check secret status for existing instances
+  const { data: secretStatus, refetch: refetchSecretStatus } = useQuery({
+    queryKey: ["instance-secret-status", instance?.id],
+    queryFn: async () => {
+      if (!instance?.id) return null;
+      const { data } = await supabase
+        .from("provider_instance_secrets")
+        .select("id, is_active, key_version, scope, created_at")
+        .eq("provider_instance_id", instance.id)
+        .eq("is_active", true)
+        .order("key_version", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!instance?.id,
+  });
+
+  const hasActiveSecret = !!secretStatus;
+
   const createMutation = useMutation({
     mutationFn: async () => {
       if (!baseUrlValid) throw new Error("base_url inválido o no en allowlist");
@@ -89,7 +110,34 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
       toast.success(isPlatform ? "Instancia de plataforma creada — activa para todas las organizaciones" : "Instancia creada");
       setSecretValue("");
       queryClient.invalidateQueries({ queryKey: ["provider-instances"] });
+      refetchSecretStatus();
       onInstanceSaved(inst);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Mutation for setting secret on existing instance
+  const setSecretMutation = useMutation({
+    mutationFn: async () => {
+      if (!instance?.id) throw new Error("No instance selected");
+      if (!secretValue.trim()) throw new Error("Secreto requerido");
+
+      const { data, error } = await supabase.functions.invoke("provider-set-instance-secret", {
+        body: {
+          instance_id: instance.id,
+          secret_value: secretValue.trim(),
+          enable: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(`Secreto v${data.secret?.key_version || "?"} configurado y activo`);
+      setSecretValue("");
+      refetchSecretStatus();
+      queryClient.invalidateQueries({ queryKey: ["instance-secret-status"] });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -106,7 +154,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           <div className="flex items-start gap-2 text-xs bg-primary/5 border border-primary/20 rounded-lg p-3">
             <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-primary" />
             <span className="text-foreground/80">
-              Esta instancia se gestiona <strong>centralmente por el Super Admin</strong>. Las credenciales se almacenan una sola vez y se usan automáticamente para todas las organizaciones. Los administradores de organización y usuarios no necesitan configurar nada.
+              Esta instancia se gestiona <strong>centralmente por el Super Admin</strong>. Las credenciales se almacenan una sola vez y se usan automáticamente para todas las organizaciones.
             </span>
           </div>
         ) : (
@@ -118,7 +166,6 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           </div>
         )}
 
-        {/* Org selector — only for ORG mode */}
         {!isPlatform && (
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Organización</Label>
@@ -128,7 +175,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
 
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Nombre de instancia</Label>
-          <Input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} />
+          <Input value={instanceName} onChange={(e) => setInstanceName(e.target.value)} disabled={alreadySaved} />
         </div>
 
         <div className="space-y-1.5">
@@ -146,7 +193,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
               </Badge>
             )}
           </Label>
-          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://my-provider.example.com" />
+          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://my-provider.example.com" disabled={alreadySaved} />
           {baseUrlHost && !hostInAllowlist && (
             <p className="text-xs text-destructive">
               El host "{baseUrlHost}" no coincide con: [{allowlist.join(", ")}]
@@ -157,7 +204,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
         <div className="grid grid-cols-3 gap-4">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Auth Mode</Label>
-            <Select value={authType} onValueChange={setAuthType}>
+            <Select value={authType} onValueChange={setAuthType} disabled={alreadySaved}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="API_KEY">API_KEY</SelectItem>
@@ -167,51 +214,99 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Timeout (ms)</Label>
-            <Input type="number" value={timeoutMs} onChange={(e) => setTimeoutMs(Number(e.target.value))} />
+            <Input type="number" value={timeoutMs} onChange={(e) => setTimeoutMs(Number(e.target.value))} disabled={alreadySaved} />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Rate Limit (rpm)</Label>
-            <Input type="number" value={rpmLimit} onChange={(e) => setRpmLimit(Number(e.target.value))} />
+            <Input type="number" value={rpmLimit} onChange={(e) => setRpmLimit(Number(e.target.value))} disabled={alreadySaved} />
           </div>
         </div>
 
-        {/* Secret */}
-        {!alreadySaved && (
-          <div className="space-y-1.5 border border-border/50 rounded-lg p-4 bg-muted/20">
+        {/* Secret Section */}
+        <div className="space-y-3 border border-border/50 rounded-lg p-4 bg-muted/20">
+          <div className="flex items-center justify-between">
             <Label className="text-xs text-muted-foreground flex items-center gap-2">
               <Key className="h-3.5 w-3.5 text-primary" />
-              Secreto ({authType === "API_KEY" ? "API Key" : "HMAC Secret"})
+              {alreadySaved ? "Estado del Secreto" : `Secreto (${authType === "API_KEY" ? "API Key" : "HMAC Secret"})`}
             </Label>
-            <Input type="password" value={secretValue} onChange={(e) => setSecretValue(e.target.value)} placeholder="Write-only — no se mostrará después" />
+            {alreadySaved && hasActiveSecret && (
+              <Badge variant="outline" className="text-[10px] text-primary border-primary/30 bg-primary/10">
+                <CheckCircle2 className="h-3 w-3 mr-1" /> v{secretStatus?.key_version} activo
+              </Badge>
+            )}
+            {alreadySaved && !hasActiveSecret && (
+              <Badge variant="destructive" className="text-[10px]">
+                <AlertTriangle className="h-3 w-3 mr-1" /> Sin secreto activo
+              </Badge>
+            )}
           </div>
-        )}
 
-        {alreadySaved && (
+          {alreadySaved && !hasActiveSecret && (
+            <div className="flex items-start gap-2 p-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                <strong>⚠️ Sin secreto activo.</strong> El proveedor no podrá sincronizar datos.
+                Ingrese la API Key a continuación para activar esta instancia.
+              </span>
+            </div>
+          )}
+
+          <Input
+            type="password"
+            value={secretValue}
+            onChange={(e) => setSecretValue(e.target.value)}
+            placeholder={alreadySaved ? "Ingrese nueva API Key para configurar/rotar" : "Write-only — no se mostrará después"}
+          />
+
+          {alreadySaved && (
+            <Button
+              size="sm"
+              variant={hasActiveSecret ? "outline" : "default"}
+              onClick={() => setSecretMutation.mutate()}
+              disabled={setSecretMutation.isPending || !secretValue.trim()}
+              className="gap-2"
+            >
+              {setSecretMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+              <RefreshCw className="h-3 w-3" />
+              {hasActiveSecret ? "Rotar Secreto" : "Configurar Secreto"}
+            </Button>
+          )}
+        </div>
+
+        {alreadySaved && hasActiveSecret && (
           <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
             <Check className="h-4 w-4 text-primary" />
             <span className="text-sm text-foreground/80">Instancia guardada: {instance.name}</span>
           </div>
         )}
 
-        {/* Activation status for PLATFORM */}
         {isPlatform && (
           <div className={`flex items-center gap-2 text-xs rounded-lg p-3 border ${
-            alreadySaved
+            alreadySaved && hasActiveSecret
               ? "bg-primary/5 border-primary/20"
+              : alreadySaved && !hasActiveSecret
+              ? "bg-destructive/5 border-destructive/20"
               : "bg-muted/30 border-border/50"
           }`}>
-            {alreadySaved ? (
+            {alreadySaved && hasActiveSecret ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
                 <span className="text-foreground/80">
-                  <strong className="text-primary">Activo</strong> — Esta instancia de plataforma aplica automáticamente a todas las organizaciones. Cobertura: 100% orgs.
+                  <strong className="text-primary">Activo</strong> — Secret: ✅ activo (v{secretStatus?.key_version}). Aplica automáticamente a todas las organizaciones.
+                </span>
+              </>
+            ) : alreadySaved && !hasActiveSecret ? (
+              <>
+                <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                <span className="text-destructive">
+                  <strong>Instancia creada pero SIN SECRETO ACTIVO</strong> — Configure la API Key arriba para activar el proveedor.
                 </span>
               </>
             ) : (
               <>
                 <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="text-muted-foreground">
-                  <strong>No activo</strong> — Cree la instancia de plataforma para activar el proveedor para todas las organizaciones.
+                  <strong>No activo</strong> — Cree la instancia de plataforma para activar el proveedor.
                 </span>
               </>
             )}
@@ -238,7 +333,7 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
         <WizardExplanation
           title={isPlatform ? "Instancia de Plataforma" : "Instancia de Proveedor"}
           whatItDoes={isPlatform
-            ? "Crea una única instancia centralizada con credenciales que se usan automáticamente para todas las organizaciones. No requiere acción de los org admins."
+            ? "Crea una única instancia centralizada con credenciales que se usan automáticamente para todas las organizaciones."
             : "Crea una conexión concreta con la API del proveedor: URL base, credenciales (encriptadas AES-256-GCM), y límites de rate."
           }
           whyItMatters={isPlatform
@@ -248,7 +343,8 @@ export function StepInstance({ mode, connector, instance, organizationId, onInst
           commonMistakes={[
             "URL con HTTP en vez de HTTPS → rechazado por SSRF",
             "Host que no coincide con la allowlist del conector",
-            "Timeout demasiado bajo para APIs lentas (proveedores judiciales suelen necesitar 8-15s)",
+            "Timeout demasiado bajo para APIs lentas (8-15s para judiciales)",
+            "Crear instancia sin secreto → el proveedor no podrá autenticarse",
           ]}
         />
       </div>
