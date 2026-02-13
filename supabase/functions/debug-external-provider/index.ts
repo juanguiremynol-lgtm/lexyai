@@ -1112,6 +1112,15 @@ Deno.serve(async (req) => {
 
     // Validate identifier based on provider
     let resolvedIdentifier: string;
+
+    if (!identifier || typeof identifier !== 'object') {
+      return errorResponse(
+        'MISSING_IDENTIFIER',
+        'Request must include an "identifier" object with radicado or tutela_code',
+        400,
+        Date.now() - startTime
+      );
+    }
     
     if (provider === 'tutelas') {
       if (identifier.tutela_code && isValidTutelaCode(identifier.tutela_code)) {
