@@ -27,7 +27,7 @@ export default function JoinPage() {
   const graceEnroll = useGraceEnroll();
 
   useEffect(() => {
-    document.title = "Únete a ATENIA";
+    document.title = "Únete a Andromeda";
     
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -77,7 +77,7 @@ export default function JoinPage() {
       });
 
       if (result.ok) {
-        toast.success("¡Bienvenido a ATENIA!", {
+        toast.success("¡Bienvenido a Andromeda!", {
           description: `Tu prueba gratuita de ${TRIAL_DURATION_MONTHS} meses ha sido activada.`,
         });
         navigate("/dashboard");
@@ -98,10 +98,10 @@ export default function JoinPage() {
             <Sparkles className="h-8 w-8 text-primary" />
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-            Únete a ATENIA
+            Únete a Andromeda
           </h1>
           <p className="text-lg text-muted-foreground max-w-md mx-auto">
-            La plataforma de gestión legal más completa para abogados colombianos.
+            La plataforma de gestión legal inteligente, impulsada por Andro IA.
           </p>
         </div>
 
