@@ -4175,11 +4175,16 @@ Deno.serve(async (req) => {
 
           console.log(`[sync-by-work-item] Subchain ${dataKind}: ${applicableRoutes.length} route(s)`);
 
-          for (const route of applicableRoutes) {
+          for (let routeIdx = 0; routeIdx < applicableRoutes.length; routeIdx++) {
+            const route = applicableRoutes[routeIdx];
             const connectorId = route.provider_connector_id;
             const connectorInfo = (route as any).provider_connectors;
             const connectorName = connectorInfo?.name || connectorId?.slice(0, 8);
             const connectorKey = connectorInfo?.key || connectorName;
+            const providerOrder = routeIdx;
+            const providerOrderReason = route.route_kind === "PRIMARY"
+              ? `PRIMARY (priority=${route.priority})`
+              : `FALLBACK (priority=${route.priority})`;
 
             // ── Compatibility gate ──
             const compat = isProviderCompatible(connectorKey, workItem.workflow_type, dataKind);
@@ -4198,10 +4203,13 @@ Deno.serve(async (req) => {
                 meta: {
                   connector_id: connectorId,
                   connector_key: connectorKey,
+                  subchain_kind: dataKind,
                   data_kind: dataKind,
                   route_kind: route.route_kind,
                   route_scope: route.scope,
                   route_scope_effective: dataKind,
+                  provider_order: providerOrder,
+                  provider_order_reason: providerOrderReason,
                 },
               });
               continue;
@@ -4238,7 +4246,15 @@ Deno.serve(async (req) => {
                 success: false,
                 error_code: isOrgRoute ? 'MISSING_ORG_INSTANCE' : 'MISSING_PLATFORM_INSTANCE',
                 message: `No enabled ${isOrgRoute ? 'ORG' : 'PLATFORM'} instance for connector ${connectorName}`,
-                meta: { connector_id: connectorId, route_kind: route.route_kind, data_kind: dataKind, route_scope_effective: dataKind },
+                meta: {
+                  connector_id: connectorId,
+                  subchain_kind: dataKind,
+                  route_kind: route.route_kind,
+                  data_kind: dataKind,
+                  route_scope_effective: dataKind,
+                  provider_order: providerOrder,
+                  provider_order_reason: providerOrderReason,
+                },
               });
               continue;
             }
@@ -4336,12 +4352,19 @@ Deno.serve(async (req) => {
                   connector_key: connectorKey,
                   instance_id: instance.id,
                   source_id: sourceId,
+                  subchain_kind: dataKind,
                   route_kind: route.route_kind,
                   data_kind: dataKind,
                   route_scope: route.scope,
                   route_scope_effective: dataKind,
-                  inserted: insertedCount,
-                  provenance_upserted: extData.provenance_upserted || 0,
+                  provider_order: providerOrder,
+                  provider_order_reason: providerOrderReason,
+                  dedupe_result: {
+                    inserted: insertedCount,
+                    provenance_written: extData.provenance_upserted || 0,
+                    provenance_from_dedup: extData.provenance_from_dedup || 0,
+                    acts_confirmed: extData.acts_confirmed || 0,
+                  },
                 },
               });
             } catch (extErr: any) {

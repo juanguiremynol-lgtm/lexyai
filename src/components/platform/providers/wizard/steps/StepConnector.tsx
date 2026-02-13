@@ -136,7 +136,19 @@ export function StepConnector({ mode, isNew, connector, organizationId, onConnec
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Capabilities (comma-separated)</Label>
-            <Input value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="ACTUACIONES, PUBLICACIONES" />
+            <Input value={capabilities} onChange={(e) => setCapabilities(e.target.value)} placeholder="search_by_radicado, get_estados, health_check" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              <strong>Data Kind:</strong>{" "}
+              {capabilities.toLowerCase().includes("get_estados") || capabilities.toLowerCase().includes("estados")
+                ? "📋 Estados/Publicaciones Procesales"
+                : capabilities.toLowerCase().includes("get_actuaciones") || capabilities.toLowerCase().includes("actuaciones")
+                ? "⚖️ Actuaciones"
+                : "—"
+              }
+              {(capabilities.toLowerCase().includes("get_estados") || capabilities.toLowerCase().includes("estados")) &&
+                " (NO Actuaciones — datos legalmente vinculantes)"
+              }
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Schema Version</Label>
