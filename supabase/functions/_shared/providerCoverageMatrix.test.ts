@@ -134,3 +134,87 @@ Deno.test("SAMAI_ESTADOS (uppercase underscores) matches compatibility", () => {
   const result = isProviderCompatible("SAMAI_ESTADOS", "CPACA", "ESTADOS");
   assertEquals(result.compatible, true);
 });
+
+// ── 9. Dual-chain acceptance criteria ──
+
+Deno.test("CGP ACTS chain: CPNU is primary, no SAMAI_ESTADOS", () => {
+  const actsResult = getProviderCoverage("CGP", "ACTUACIONES");
+  assertEquals(actsResult.compatible, true);
+  assertEquals(actsResult.providers[0].key, "cpnu");
+  assertEquals(actsResult.providers[0].role, "PRIMARY");
+  // SAMAI_ESTADOS must NOT appear in CGP ACTUACIONES
+  const hasSamaiEstados = actsResult.providers.some(p => p.key === "SAMAI_ESTADOS");
+  assertEquals(hasSamaiEstados, false);
+});
+
+Deno.test("CGP PUBS chain: Publicaciones is primary", () => {
+  const pubsResult = getProviderCoverage("CGP", "ESTADOS");
+  assertEquals(pubsResult.compatible, true);
+  assertEquals(pubsResult.providers[0].key, "publicaciones");
+  assertEquals(pubsResult.providers[0].role, "PRIMARY");
+});
+
+Deno.test("CPACA ACTS chain: SAMAI is primary, no Publicaciones", () => {
+  const actsResult = getProviderCoverage("CPACA", "ACTUACIONES");
+  assertEquals(actsResult.compatible, true);
+  assertEquals(actsResult.providers[0].key, "samai");
+  const hasPubs = actsResult.providers.some(p => p.key === "publicaciones");
+  assertEquals(hasPubs, false);
+});
+
+Deno.test("CPACA PUBS chain: SAMAI_ESTADOS is primary, no CPNU", () => {
+  const pubsResult = getProviderCoverage("CPACA", "ESTADOS");
+  assertEquals(pubsResult.compatible, true);
+  assertEquals(pubsResult.providers[0].key, "SAMAI_ESTADOS");
+  const hasCpnu = pubsResult.providers.some(p => p.key === "cpnu");
+  assertEquals(hasCpnu, false);
+});
+
+Deno.test("BOTH-scope routes: routeScopeToDataKinds returns both data kinds", () => {
+  const kinds = routeScopeToDataKinds("BOTH");
+  assertEquals(kinds.length, 2);
+  assertEquals(kinds.includes("ACTUACIONES"), true);
+  assertEquals(kinds.includes("ESTADOS"), true);
+});
+
+Deno.test("ACTS-scope never maps to ESTADOS", () => {
+  const kinds = routeScopeToDataKinds("ACTS");
+  assertEquals(kinds.length, 1);
+  assertEquals(kinds[0], "ACTUACIONES");
+  assertEquals(kinds.includes("ESTADOS"), false);
+});
+
+Deno.test("PUBS-scope never maps to ACTUACIONES", () => {
+  const kinds = routeScopeToDataKinds("PUBS");
+  assertEquals(kinds.length, 1);
+  assertEquals(kinds[0], "ESTADOS");
+  assertEquals(kinds.includes("ACTUACIONES"), false);
+});
+
+// ── 10. Cross-contamination prevention ──
+
+Deno.test("publicaciones provider is NOT compatible with CPACA/ESTADOS", () => {
+  const result = isProviderCompatible("publicaciones", "CPACA", "ESTADOS");
+  assertEquals(result.compatible, false);
+});
+
+Deno.test("publicaciones provider IS compatible with CGP/ESTADOS", () => {
+  const result = isProviderCompatible("publicaciones", "CGP", "ESTADOS");
+  assertEquals(result.compatible, true);
+});
+
+Deno.test("PENAL_906 ACTUACIONES: CPNU primary, SAMAI fallback", () => {
+  const result = getProviderCoverage("PENAL_906", "ACTUACIONES");
+  assertEquals(result.compatible, true);
+  assertEquals(result.providers[0].key, "cpnu");
+  assertEquals(result.providers[0].role, "PRIMARY");
+  assertEquals(result.providers[1].key, "samai");
+  assertEquals(result.providers[1].role, "FALLBACK");
+});
+
+Deno.test("LABORAL mirrors CGP: CPNU for ACTS, publicaciones for ESTADOS", () => {
+  const acts = getProviderCoverage("LABORAL", "ACTUACIONES");
+  assertEquals(acts.providers[0].key, "cpnu");
+  const pubs = getProviderCoverage("LABORAL", "ESTADOS");
+  assertEquals(pubs.providers[0].key, "publicaciones");
+});
