@@ -189,9 +189,9 @@ export function useDailyWelcome(): UseDailyWelcomeResult {
       return;
     }
 
-    // Store in sessionStorage to prevent re-showing
+    // Store in localStorage to persist across tabs/sessions for the day
     const dismissKey = `daily_welcome_dismissed_${format(new Date(), 'yyyy-MM-dd')}`;
-    sessionStorage.setItem(dismissKey, 'true');
+    localStorage.setItem(dismissKey, 'true');
 
     setShouldShowDialog(false);
     setWelcomeAlert(null);
@@ -210,7 +210,7 @@ export function useDailyWelcome(): UseDailyWelcomeResult {
     
     if (alert) {
       const dismissKey = `daily_welcome_dismissed_${format(new Date(), 'yyyy-MM-dd')}`;
-      if (!sessionStorage.getItem(dismissKey)) {
+      if (!localStorage.getItem(dismissKey)) {
         setShouldShowDialog(true);
       }
     }
@@ -241,9 +241,9 @@ export function useDailyWelcome(): UseDailyWelcomeResult {
           return;
         }
 
-        // Check if already dismissed today
+        // Check if already dismissed today (localStorage persists across tabs)
         const dismissKey = `daily_welcome_dismissed_${format(new Date(), 'yyyy-MM-dd')}`;
-        if (sessionStorage.getItem(dismissKey)) {
+        if (localStorage.getItem(dismissKey)) {
           console.log('[useDailyWelcome] Already dismissed for today');
           hasTriggeredRef.current = true;
           setIsLoading(false);
@@ -271,17 +271,17 @@ export function useDailyWelcome(): UseDailyWelcomeResult {
           return;
         }
 
-        // Check session storage to prevent multiple generation attempts
+        // Check localStorage to prevent multiple generation attempts across tabs/logins
         const genKey = `daily_welcome_gen_${organization.id}_${format(new Date(), 'yyyy-MM-dd')}`;
-        if (sessionStorage.getItem(genKey)) {
+        if (localStorage.getItem(genKey)) {
           console.log('[useDailyWelcome] Already attempted generation today');
           hasTriggeredRef.current = true;
           setIsLoading(false);
           return;
         }
 
-        // Mark generation attempt
-        sessionStorage.setItem(genKey, 'true');
+        // Mark generation attempt (persists across tabs for the day)
+        localStorage.setItem(genKey, 'true');
 
         // Trigger generation
         console.log('[useDailyWelcome] Triggering new welcome generation');
