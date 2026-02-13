@@ -10,19 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:bg-primary/90 active:scale-[0.97]",
+          "bg-primary text-white shadow-md hover:shadow-lg hover:bg-primary/90 active:scale-[0.97]",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:shadow-[0_0_20px_4px_hsl(var(--destructive)/0.4)] active:scale-[0.97]",
+          "bg-destructive text-white hover:bg-destructive/90 hover:shadow-[0_0_20px_4px_hsl(var(--destructive)/0.4)] active:scale-[0.97]",
         outline:
-          "border border-border bg-transparent text-foreground hover:bg-muted/50 hover:border-primary/60 hover:text-primary active:scale-[0.97]",
+          "border border-border bg-transparent text-white hover:bg-muted/50 hover:border-primary/60 hover:text-white active:scale-[0.97]",
         secondary:
-          "bg-secondary text-secondary-foreground border border-border/50 hover:bg-secondary/80 hover:border-primary/40 active:scale-[0.97]",
+          "bg-secondary text-white border border-border/50 hover:bg-secondary/80 hover:border-primary/40 active:scale-[0.97]",
         ghost:
-          "text-muted-foreground hover:bg-muted hover:text-foreground active:scale-[0.97]",
+          "text-muted-foreground hover:bg-muted hover:text-white active:scale-[0.97]",
         link: 
           "text-primary underline-offset-4 hover:underline hover:text-primary/80",
         gold:
-          "bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:brightness-110 active:scale-[0.97] active:brightness-100",
+          "bg-primary text-white shadow-md hover:shadow-lg hover:brightness-110 active:scale-[0.97] active:brightness-100",
       },
       size: {
         default: "h-10 px-5 py-2 min-w-[44px]",
