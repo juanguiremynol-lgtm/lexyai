@@ -18,3 +18,4 @@ export { default as PlatformAteniaAIPage } from "./PlatformAteniaAIPage";
 export { default as PlatformCourthouseDirectoryPage } from "./PlatformCourthouseDirectoryPage";
 export { default as PlatformExternalProvidersPage } from "./PlatformExternalProvidersPage";
 export { default as PlatformBillingPage } from "./PlatformBillingPage";
+export { default as PlatformNotificationsPage } from "./PlatformNotificationsPage";

@@ -63,6 +63,7 @@ import {
   PlatformCourthouseDirectoryPage,
   PlatformExternalProvidersPage,
   PlatformBillingPage,
+  PlatformNotificationsPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
@@ -198,7 +199,8 @@ const App = () => (
             </PlatformRouteGuard>
           }>
             {/* Default route redirects to verification */}
-            <Route index element={<Navigate to="/platform/verification" replace />} />
+            <Route index element={<Navigate to="/platform/notifications" replace />} />
+            <Route path="notifications" element={<ErrorBoundary><PlatformNotificationsPage /></ErrorBoundary>} />
             <Route path="verification" element={<ErrorBoundary><PlatformVerificationPage /></ErrorBoundary>} />
             <Route path="metrics" element={<ErrorBoundary><PlatformMetricsPage /></ErrorBoundary>} />
             <Route path="organizations" element={<ErrorBoundary><PlatformOrganizationsPage /></ErrorBoundary>} />
