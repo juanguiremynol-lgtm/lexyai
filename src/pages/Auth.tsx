@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import logo from "@/assets/atenia-logo.png";
+import { ShieldAlert } from "lucide-react";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -17,7 +18,18 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [enrollmentOpen, setEnrollmentOpen] = useState(true);
+  const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkEnrollment = async () => {
+      const { data, error } = await supabase.rpc("is_beta_enrollment_open");
+      if (!error && data !== null) setEnrollmentOpen(data as boolean);
+      setEnrollmentChecked(true);
+    };
+    checkEnrollment();
+  }, []);
 
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
@@ -66,14 +78,26 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4 relative overflow-hidden">
       {/* Beta Auth Banner */}
-      <div className="w-full max-w-md mb-6 px-4 py-3 rounded-lg border border-primary/30 bg-primary/5 text-center">
-        <p className="text-xs font-medium text-primary">
-          🚀 <span className="font-semibold">Fase Beta</span>
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Por ahora, el registro y acceso es exclusivamente mediante Google Auth. Soporte para correo electrónico próximamente.
-        </p>
-      </div>
+      {enrollmentChecked && !enrollmentOpen ? (
+        <div className="w-full max-w-md mb-6 px-4 py-4 rounded-lg border border-destructive/30 bg-destructive/5 text-center">
+          <ShieldAlert className="h-5 w-5 text-destructive mx-auto mb-2" />
+          <p className="text-sm font-semibold text-destructive">
+            Inscripciones Cerradas
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Hemos alcanzado el límite de usuarios beta (100). Las nuevas inscripciones están suspendidas temporalmente. Si ya tienes cuenta, puedes iniciar sesión normalmente.
+          </p>
+        </div>
+      ) : (
+        <div className="w-full max-w-md mb-6 px-4 py-3 rounded-lg border border-primary/30 bg-primary/5 text-center">
+          <p className="text-xs font-medium text-primary">
+            🚀 <span className="font-semibold">Fase Beta</span>
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Por ahora, el registro y acceso es exclusivamente mediante Google Auth. Soporte para correo electrónico próximamente.
+          </p>
+        </div>
+      )}
       {/* Background decorative elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/10 via-transparent to-transparent rounded-full blur-3xl" />
