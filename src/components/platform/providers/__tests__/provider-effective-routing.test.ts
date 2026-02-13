@@ -203,6 +203,60 @@ describe("resolveEffectivePolicyAndChain", () => {
   });
 });
 
+describe("CPACA ESTADOS routing policy", () => {
+  it("CPACA PUBS built-in includes publicaciones as fallback", () => {
+    const result = resolveEffectivePolicyAndChain({
+      workflow: "CPACA",
+      scope: "PUBS",
+      orgOverrideRoutes: [],
+      globalRoutes: [],
+      orgInstances: [],
+    });
+
+    // Without DB routes, CPACA PUBS should have publicaciones as built-in
+    expect(result.routeSource).toBe("BUILTIN");
+    expect(result.chain.map(c => c.provider_name)).toEqual(["publicaciones"]);
+  });
+
+  it("CPACA PUBS with SAMAI_ESTADOS global route: primary + built-in fallback", () => {
+    const globalRoutes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CPACA", scope: "PUBS", provider_connector_id: "samai-est-conn", connector_name: "SAMAI Estados" }),
+    ];
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "samai-est-conn", provider_instance_id: "plat-inst", provider_name: "SAMAI Estados (Platform)", scope: "PLATFORM" },
+    ];
+
+    const result = resolveEffectivePolicyAndChain({
+      workflow: "CPACA",
+      scope: "PUBS",
+      orgOverrideRoutes: [],
+      globalRoutes,
+      orgInstances: [],
+      platformInstances,
+    });
+
+    expect(result.routeSource).toBe("GLOBAL");
+    expect(result.chain.length).toBe(2);
+    expect(result.chain[0].provider_name).toBe("SAMAI Estados (Platform)");
+    expect(result.chain[0].source).toBe("EXTERNAL_PRIMARY");
+    expect(result.chain[1].provider_name).toBe("publicaciones");
+    expect(result.chain[1].source).toBe("BUILTIN");
+  });
+
+  it("CGP PUBS chain: publicaciones is built-in primary (no external)", () => {
+    const result = resolveEffectivePolicyAndChain({
+      workflow: "CGP",
+      scope: "PUBS",
+      orgOverrideRoutes: [],
+      globalRoutes: [],
+      orgInstances: [],
+    });
+
+    expect(result.chain.map(c => c.provider_name)).toEqual(["publicaciones"]);
+    expect(result.chain[0].source).toBe("BUILTIN");
+  });
+});
+
 describe("backward compat: legacy resolvers still work", () => {
   it("resolveProviderChain CGP/ACTS with no routes", () => {
     const chain = resolveProviderChain("CGP", "ACTS", []);

@@ -27,13 +27,16 @@ Deno.test("CPACA ACTUACIONES: primary is SAMAI", () => {
   assertEquals(result.providers[0].type, "BUILTIN");
 });
 
-Deno.test("CPACA ESTADOS: primary is SAMAI_ESTADOS (external)", () => {
+Deno.test("CPACA ESTADOS: SAMAI_ESTADOS primary + publicaciones fallback", () => {
   const result = getProviderCoverage("CPACA", "ESTADOS");
   assertEquals(result.compatible, true);
-  assertEquals(result.providers.length, 1);
+  assertEquals(result.providers.length, 2);
   assertEquals(result.providers[0].key, "SAMAI_ESTADOS");
   assertEquals(result.providers[0].role, "PRIMARY");
   assertEquals(result.providers[0].type, "EXTERNAL");
+  assertEquals(result.providers[1].key, "publicaciones");
+  assertEquals(result.providers[1].role, "FALLBACK");
+  assertEquals(result.providers[1].type, "BUILTIN");
 });
 
 // ── 2. CGP coverage ──
@@ -162,10 +165,12 @@ Deno.test("CPACA ACTS chain: SAMAI is primary, no Publicaciones", () => {
   assertEquals(hasPubs, false);
 });
 
-Deno.test("CPACA PUBS chain: SAMAI_ESTADOS is primary, no CPNU", () => {
+Deno.test("CPACA PUBS chain: SAMAI_ESTADOS primary, publicaciones fallback, no CPNU", () => {
   const pubsResult = getProviderCoverage("CPACA", "ESTADOS");
   assertEquals(pubsResult.compatible, true);
   assertEquals(pubsResult.providers[0].key, "SAMAI_ESTADOS");
+  assertEquals(pubsResult.providers[1].key, "publicaciones");
+  assertEquals(pubsResult.providers[1].role, "FALLBACK");
   const hasCpnu = pubsResult.providers.some(p => p.key === "cpnu");
   assertEquals(hasCpnu, false);
 });
@@ -193,9 +198,9 @@ Deno.test("PUBS-scope never maps to ACTUACIONES", () => {
 
 // ── 10. Cross-contamination prevention ──
 
-Deno.test("publicaciones provider is NOT compatible with CPACA/ESTADOS", () => {
+Deno.test("publicaciones provider IS compatible with CPACA/ESTADOS (fallback)", () => {
   const result = isProviderCompatible("publicaciones", "CPACA", "ESTADOS");
-  assertEquals(result.compatible, false);
+  assertEquals(result.compatible, true);
 });
 
 Deno.test("publicaciones provider IS compatible with CGP/ESTADOS", () => {
