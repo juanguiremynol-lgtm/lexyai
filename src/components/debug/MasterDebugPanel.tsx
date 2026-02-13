@@ -62,6 +62,7 @@ interface ConnectorInfo {
   scope: string;
   capabilities: string[];
   is_enabled: boolean;
+  is_builtin?: boolean;
 }
 
 // All workflow types supported by the platform
@@ -86,6 +87,14 @@ const BUILTIN_PROVIDERS: Record<WorkflowType, { primary: string; secondary?: str
   PETICIONES: { primary: "cpnu", publicaciones: false },
 };
 
+// Built-in providers always available (not in provider_connectors table)
+const BUILTIN_CONNECTORS: ConnectorInfo[] = [
+  { id: "builtin-cpnu", name: "CPNU", key: "cpnu", scope: "ACTS", capabilities: ["ACTUACIONES", "CASE_METADATA"], is_enabled: true, is_builtin: true },
+  { id: "builtin-samai", name: "SAMAI", key: "samai", scope: "ACTS", capabilities: ["ACTUACIONES"], is_enabled: true, is_builtin: true },
+  { id: "builtin-publicaciones", name: "Publicaciones Procesales", key: "publicaciones", scope: "PUBS", capabilities: ["ESTADOS", "DOCUMENTS"], is_enabled: true, is_builtin: true },
+  { id: "builtin-tutelas", name: "Tutelas", key: "tutelas", scope: "ACTS", capabilities: ["ACTUACIONES"], is_enabled: true, is_builtin: true },
+  { id: "builtin-samai-estados", name: "SAMAI Estados", key: "samai_estados", scope: "PUBS", capabilities: ["ESTADOS"], is_enabled: true, is_builtin: true },
+];
 // ============= Shared StepResult Component =============
 
 function StepResult({ step }: { step: StepData }) {
@@ -143,7 +152,15 @@ function useConnectors() {
       const { data } = await (supabase.from("provider_connectors") as any)
         .select("id, name, key, scope, capabilities, is_enabled")
         .order("name");
-      return (data || []) as ConnectorInfo[];
+      const dbConnectors = (data || []).map((c: any) => ({ ...c, is_builtin: false })) as ConnectorInfo[];
+
+      // Merge built-in providers, avoiding duplicates by key
+      const dbKeys = new Set(dbConnectors.map(c => c.key?.toLowerCase()));
+      const merged = [
+        ...BUILTIN_CONNECTORS.filter(b => !dbKeys.has(b.key.toLowerCase())),
+        ...dbConnectors,
+      ];
+      return merged;
     },
     staleTime: 1000 * 60 * 5,
   });
@@ -935,6 +952,7 @@ export function MasterDebugPanel() {
                         onCheckedChange={() => toggleConnector(c.id)}
                       />
                       <span className={c.is_enabled ? "" : "text-muted-foreground"}>{c.name}</span>
+                      {c.is_builtin && <Badge variant="secondary" className="text-[9px]">built-in</Badge>}
                       <Badge variant="outline" className="text-[9px] ml-auto">{c.scope}</Badge>
                       {!c.is_enabled && <Badge variant="secondary" className="text-[9px]">off</Badge>}
                     </label>
