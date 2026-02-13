@@ -123,19 +123,6 @@ interface AlertSummary {
   recent_titles: string[];
 }
 
-interface PortfolioSummary {
-  total_work_items: number;
-  monitoring_enabled: number;
-  stale_items: number; // not synced in 48h+
-  workflow_breakdown: Record<string, number>;
-}
-
-interface SyncHealthSummary {
-  last_daily_sync_status: string | null;
-  last_daily_sync_at: string | null;
-  provider_errors_24h: number;
-}
-
 interface UserActivitySummary {
   user_id: string;
   organization_id: string;
@@ -146,8 +133,6 @@ interface UserActivitySummary {
   new_actuaciones_count: number;
   work_items_with_activity: WorkItemActivity[];
   alerts: AlertSummary;
-  portfolio: PortfolioSummary;
-  sync_health: SyncHealthSummary;
   // Org-admin only: org-wide stats
   org_wide_estados_count: number;
   org_wide_actuaciones_count: number;
@@ -183,72 +168,6 @@ async function gatherAlerts(supabase: any, userId: string, orgId: string, isAdmi
     critical_count: nonWelcome.filter(a => a.severity === 'CRITICAL').length,
     high_count: nonWelcome.filter(a => a.severity === 'HIGH').length,
     recent_titles: nonWelcome.slice(0, 5).map(a => a.title),
-  };
-}
-
-async function gatherPortfolio(supabase: any, userId: string, orgId: string, isAdmin: boolean): Promise<PortfolioSummary> {
-  const staleCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-
-  let baseQuery = supabase
-    .from('work_items')
-    .select('id, workflow_type, monitoring_enabled, last_synced_at, is_archived');
-
-  if (isAdmin) {
-    baseQuery = baseQuery.eq('organization_id', orgId);
-  } else {
-    baseQuery = baseQuery.eq('owner_id', userId);
-  }
-
-  baseQuery = baseQuery.or('is_archived.is.null,is_archived.eq.false');
-
-  const { data: items } = await baseQuery.limit(1000);
-  const workItems = (items || []) as Array<{
-    id: string; workflow_type: string;
-    monitoring_enabled: boolean; last_synced_at: string | null;
-  }>;
-
-  const monitoringEnabled = workItems.filter(w => w.monitoring_enabled);
-  const stale = monitoringEnabled.filter(w =>
-    !w.last_synced_at || w.last_synced_at < staleCutoff
-  );
-
-  const breakdown: Record<string, number> = {};
-  for (const wi of workItems) {
-    breakdown[wi.workflow_type] = (breakdown[wi.workflow_type] || 0) + 1;
-  }
-
-  return {
-    total_work_items: workItems.length,
-    monitoring_enabled: monitoringEnabled.length,
-    stale_items: stale.length,
-    workflow_breakdown: breakdown,
-  };
-}
-
-async function gatherSyncHealth(supabase: any, orgId: string): Promise<SyncHealthSummary> {
-  // Last daily sync from ledger
-  const { data: lastSync } = await supabase
-    .from('auto_sync_daily_ledger')
-    .select('status, finished_at')
-    .eq('organization_id', orgId)
-    .order('run_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  // Provider errors in last 24h
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: errorCount } = await supabase
-    .from('provider_sync_traces')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .gte('created_at', yesterday)
-    .in('stage', ['EXT_PROVIDER_RESPONSE'])
-    .gte('http_status', 400);
-
-  return {
-    last_daily_sync_status: lastSync?.status || null,
-    last_daily_sync_at: lastSync?.finished_at || null,
-    provider_errors_24h: errorCount || 0,
   };
 }
 
@@ -310,14 +229,6 @@ async function generateAIWelcomeMessage(
     sections.push(`Detalle de actividad reciente:\n${activityDetails}`);
   }
 
-  // Portfolio
-  const p = summary.portfolio;
-  sections.push(`Portafolio:
-- Total procesos activos: ${p.total_work_items}
-- Con monitoreo activo: ${p.monitoring_enabled}
-- Procesos sin sincronizar (>48h): ${p.stale_items}
-- Desglose: ${Object.entries(p.workflow_breakdown).map(([k, v]) => `${k}: ${v}`).join(', ') || 'N/A'}`);
-
   // Alerts
   const a = summary.alerts;
   if (a.total_pending > 0) {
@@ -328,12 +239,6 @@ ${a.recent_titles.map(t => `  • ${t}`).join('\n')}`);
     sections.push('Alertas pendientes: Ninguna');
   }
 
-  // Sync health
-  const sh = summary.sync_health;
-  sections.push(`Salud de sincronización:
-- Último sync diario: ${sh.last_daily_sync_status || 'Sin registro'} ${sh.last_daily_sync_at ? `(${sh.last_daily_sync_at})` : ''}
-- Errores de proveedores (24h): ${sh.provider_errors_24h}`);
-
   // Org-admin: org-wide view
   if (summary.is_org_admin && (summary.org_wide_estados_count > 0 || summary.org_wide_actuaciones_count > 0)) {
     sections.push(`Actividad de la organización (como administrador):
@@ -342,24 +247,22 @@ ${a.recent_titles.map(t => `  • ${t}`).join('\n')}`);
 - Procesos con actividad (org): ${summary.org_wide_work_items_with_activity}`);
   }
 
-  const prompt = `Eres un asistente legal colombiano llamado Lexy. Genera un mensaje de bienvenida matutino completo para un abogado.
+  const prompt = `Eres un asistente legal colombiano llamado Lexy. Genera un mensaje de bienvenida matutino para un abogado con la actividad judicial verificada de las últimas 24 horas.
 
 ${sections.join('\n\n')}
 
 Instrucciones:
 1. Saluda cordialmente al usuario por su nombre
-2. Resume el volumen de actividad (estados y actuaciones nuevas)
+2. Resume el volumen de actividad (estados y actuaciones nuevas recibidas)
 3. Si hay alertas críticas o altas, destácalas con urgencia
-4. Menciona el estado del portafolio (procesos activos, monitoreo)
-5. Si hay procesos sin sincronizar en 48h+, recomienda verificar
-6. Si hay errores de proveedores, menciónalo brevemente
-7. Si es administrador, incluye un párrafo con la visión de la organización
-8. Si hay fechas de desfijación, menciona que los términos comienzan al día siguiente hábil
-9. Destaca eventos urgentes (sentencias, audiencias, vencimientos)
-10. Termina con una nota motivacional breve
-11. Usa español colombiano formal pero amigable
-12. Máximo 300 palabras
-13. NO uses markdown, solo texto plano con saltos de línea`;
+4. Si es administrador, incluye un párrafo con la visión de la organización
+5. Si hay fechas de desfijación, menciona que los términos comienzan al día siguiente hábil
+6. Destaca eventos urgentes (sentencias, audiencias, vencimientos)
+7. Termina con una nota motivacional breve
+8. Usa español colombiano formal pero amigable
+9. Máximo 250 palabras
+10. NO uses markdown, solo texto plano con saltos de línea
+11. NO menciones temas de sincronización, proveedores, errores técnicos ni estado del sistema`;
 
   try {
     const response = await fetch(LOVABLE_AI_GATEWAY_URL, {
@@ -373,11 +276,11 @@ Instrucciones:
         messages: [
           {
             role: 'system',
-            content: 'Eres Lexy, un asistente legal inteligente para abogados colombianos. Tu tono es profesional, eficiente y cordial. Proporcionas resúmenes completos que cubren actividad judicial, alertas, estado de sincronización y salud del portafolio.'
+            content: 'Eres Lexy, un asistente legal inteligente para abogados colombianos. Tu tono es profesional, eficiente y cordial. Solo reportas información judicial verificada y recibida — nunca mencionas temas de infraestructura, sincronización o errores de sistema.'
           },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 700,
+        max_tokens: 600,
         temperature: 0.7,
       }),
     });
@@ -394,7 +297,6 @@ Instrucciones:
     return message.trim();
   } catch (err) {
     console.error('[daily-welcome] AI generation failed:', err);
-    // Fallback message with all data
     const lines = [
       `Buenos días, ${userName}.`,
       '',
@@ -403,10 +305,6 @@ Instrucciones:
     if (a.total_pending > 0) {
       lines.push(`Tienes ${a.total_pending} alertas pendientes${a.critical_count > 0 ? ` (${a.critical_count} críticas)` : ''}.`);
     }
-    lines.push(`Portafolio: ${p.total_work_items} procesos activos, ${p.monitoring_enabled} monitoreados.`);
-    if (p.stale_items > 0) {
-      lines.push(`⚠️ ${p.stale_items} procesos sin sincronizar en más de 48 horas.`);
-    }
     if (summary.is_org_admin) {
       lines.push(`\nOrganización: ${summary.org_wide_estados_count} estados y ${summary.org_wide_actuaciones_count} actuaciones en total.`);
     }
@@ -414,7 +312,6 @@ Instrucciones:
     return lines.join('\n');
   }
 }
-
 // ============= Main Handler =============
 
 Deno.serve(async (req) => {
@@ -657,7 +554,7 @@ Deno.serve(async (req) => {
       supabase.auth.admin.listUsers({ perPage: 100 }),
     ]);
 
-    // Enrich each user with alerts, portfolio, sync health, admin status
+    // Enrich each user with alerts and admin status
     const enrichmentPromises = userIds.map(async (userId) => {
       const summary = userActivityMap.get(userId)!;
       const profile = profiles?.find(p => p.id === userId);
@@ -665,19 +562,20 @@ Deno.serve(async (req) => {
       summary.full_name = profile?.full_name || null;
       summary.email = authUser?.email || '';
 
-      // Check org admin status
-      summary.is_org_admin = await checkIsOrgAdmin(supabase, userId, summary.organization_id);
-
-      // Gather alerts, portfolio, sync health in parallel
-      const [alerts, portfolio, syncHealth] = await Promise.all([
-        gatherAlerts(supabase, userId, summary.organization_id, summary.is_org_admin),
-        gatherPortfolio(supabase, userId, summary.organization_id, summary.is_org_admin),
-        gatherSyncHealth(supabase, summary.organization_id),
+      // Check org admin status and gather alerts in parallel
+      const [isAdmin, alerts] = await Promise.all([
+        checkIsOrgAdmin(supabase, userId, summary.organization_id),
+        gatherAlerts(supabase, userId, summary.organization_id, false), // initial fetch as user
       ]);
 
-      summary.alerts = alerts;
-      summary.portfolio = portfolio;
-      summary.sync_health = syncHealth;
+      summary.is_org_admin = isAdmin;
+
+      // Re-fetch alerts with admin scope if needed
+      if (isAdmin) {
+        summary.alerts = await gatherAlerts(supabase, userId, summary.organization_id, true);
+      } else {
+        summary.alerts = alerts;
+      }
 
       // Org-wide stats for admins
       if (summary.is_org_admin) {
@@ -727,9 +625,6 @@ Deno.serve(async (req) => {
             work_items_count: summary.work_items_with_activity.length,
             alerts_pending: summary.alerts.total_pending,
             alerts_critical: summary.alerts.critical_count,
-            portfolio_total: summary.portfolio.total_work_items,
-            portfolio_stale: summary.portfolio.stale_items,
-            sync_status: summary.sync_health.last_daily_sync_status,
             is_org_admin: summary.is_org_admin,
             org_wide_estados: summary.org_wide_estados_count,
             org_wide_actuaciones: summary.org_wide_actuaciones_count,
