@@ -263,6 +263,34 @@ export async function autoSyncStaleItems(
   return { synced, skipped };
 }
 
+// ============= OBSERVATION FINGERPRINTING (Problem 3) =============
+
+function computeObservationFingerprint(observations: ObservationResult[]): string {
+  return observations
+    .map(o => `${o.type}:${o.severity}:${o.data?.count ?? o.data?.length ?? ''}`)
+    .sort()
+    .join('|');
+}
+
+function formatObservationSummary(observations: ObservationResult[]): string {
+  const groups: Record<string, number> = {};
+  for (const obs of observations) {
+    groups[obs.type] = (groups[obs.type] ?? 0) + 1;
+  }
+
+  const parts: string[] = [];
+  if (groups['provider_degraded']) parts.push(`${groups['provider_degraded']} proveedor(es) degradado(s)`);
+  if (groups['ghost_items']) parts.push(`${groups['ghost_items']} asunto(s) fantasma`);
+  if (groups['stale_items']) parts.push(`${groups['stale_items']} asunto(s) desactualizado(s)`);
+
+  const extCount = (groups['ext_sync_failures'] ?? 0) + (groups['ext_provider_degraded'] ?? 0);
+  if (extCount > 0) parts.push(`${extCount} señal(es) de proveedor(es) externo(s)`);
+
+  if (parts.length === 0) parts.push(`${observations.length} observación(es)`);
+
+  return `Heartbeat: ${parts.join(', ')}`;
+}
+
 // ============= HEARTBEAT ORCHESTRATOR =============
 
 /**
@@ -294,20 +322,51 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
     });
   }
 
-  // Log observation
+  // *** Problem 3 FIX: Fingerprint-based observation dedup ***
   if (observations.length > 0) {
-    await logAteniaAction({
-      organization_id: organizationId,
-      action_type: 'heartbeat_observe',
-      autonomy_tier: 'OBSERVE',
-      reasoning: `Heartbeat detectó ${observations.length} observaciones: ${observations.map(o => o.type).join(', ')}`,
-      evidence: {
-        observations,
-        external_provider_health: extHealth.issues_found > 0 ? extHealth : undefined,
-      },
-      action_taken: 'observation_logged',
-      action_result: 'logged',
-    });
+    const currentFingerprint = computeObservationFingerprint(observations);
+
+    // Check last heartbeat_observe action
+    const { data: lastHeartbeat } = await (supabase
+      .from('atenia_ai_actions') as any)
+      .select('id, evidence')
+      .eq('action_type', 'heartbeat_observe')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lastFingerprint = lastHeartbeat?.evidence?.fingerprint;
+
+    if (currentFingerprint === lastFingerprint && lastHeartbeat) {
+      // Same situation — bump existing, don't create new row
+      const repeatCount = (lastHeartbeat.evidence?.repeat_count ?? 1) + 1;
+      await (supabase.from('atenia_ai_actions') as any)
+        .update({
+          evidence: {
+            ...lastHeartbeat.evidence,
+            repeat_count: repeatCount,
+            last_seen: new Date().toISOString(),
+          },
+        })
+        .eq('id', lastHeartbeat.id);
+    } else {
+      // Different fingerprint — log new action with summary
+      await logAteniaAction({
+        organization_id: organizationId,
+        action_type: 'heartbeat_observe',
+        autonomy_tier: 'OBSERVE',
+        reasoning: formatObservationSummary(observations),
+        evidence: {
+          fingerprint: currentFingerprint,
+          observations,
+          repeat_count: 1,
+          external_provider_health: extHealth.issues_found > 0 ? extHealth : undefined,
+        },
+        action_taken: 'observation_logged',
+        action_result: 'logged',
+      });
+    }
   }
 
   // If autonomy is paused, observe only
@@ -357,7 +416,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
       }
     }
 
-    // ACT: E2E spot-check on a random monitored CPACA work item (once per heartbeat cycle)
+    // *** Problem 6 FIX: Batch E2E tests into single summary action ***
     try {
       const { data: cpacaItems } = await (supabase
         .from('work_items') as any)
@@ -369,11 +428,44 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
         .limit(5);
 
       if (cpacaItems && cpacaItems.length > 0) {
-        const randomItem = cpacaItems[Math.floor(Math.random() * cpacaItems.length)];
-        e2eSpotCheck = await runAteniaE2ETest({
-          radicado: randomItem.radicado,
-          triggered_by: 'heartbeat',
+        const testResults: Array<{ radicado: string; result: string; latency_ms?: number }> = [];
+        for (const item of cpacaItems) {
+          try {
+            const result = await runAteniaE2ETest({
+              radicado: item.radicado,
+              triggered_by: 'heartbeat',
+            });
+            testResults.push({
+              radicado: item.radicado,
+              result: result.ok ? 'PASSED' : 'FAILED',
+              latency_ms: result.duration_ms,
+            });
+          } catch {
+            testResults.push({ radicado: item.radicado, result: 'ERROR' });
+          }
+        }
+
+        const passed = testResults.filter(t => t.result === 'PASSED');
+        const failed = testResults.filter(t => t.result !== 'PASSED');
+
+        // Log single batch action instead of per-radicado
+        await logAteniaAction({
+          organization_id: organizationId,
+          action_type: 'PROVIDER_E2E_BATCH',
+          autonomy_tier: 'OBSERVE',
+          reasoning: `E2E heartbeat: ${passed.length} OK, ${failed.length} fallido(s) de ${testResults.length} pruebas.${
+            failed.length > 0 ? ` Fallidos: ${failed.map(f => f.radicado.slice(-10)).join(', ')}` : ''
+          }`,
+          evidence: { tests: testResults },
+          action_taken: 'e2e_batch_completed',
+          action_result: failed.length > 0 ? 'partial' : 'logged',
         });
+
+        if (testResults.length > 0) {
+          // Use the last test result as spot check representative
+          const lastResult = testResults[testResults.length - 1];
+          e2eSpotCheck = null; // Batch replaces single spot check
+        }
       }
     } catch (err) {
       console.warn('[atenia-ai] E2E spot-check failed:', err);

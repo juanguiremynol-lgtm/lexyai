@@ -66,7 +66,7 @@ const GATE_META: Record<string, { label: string; description: string }> = {
   },
   F_heartbeat_liveness: {
     label: "Heartbeat Vivo",
-    description: "Heartbeat OK en últimos 35 min",
+    description: "Heartbeat OK en últimos 40 min",
   },
 };
 

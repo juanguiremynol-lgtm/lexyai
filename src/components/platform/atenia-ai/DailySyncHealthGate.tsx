@@ -59,6 +59,9 @@ function statusBadge(status: string) {
 function durationStr(started: string | null, finished: string | null): string {
   if (!started || !finished) return "—";
   const ms = new Date(finished).getTime() - new Date(started).getTime();
+  // Fix: guard against negative or unreasonable durations
+  if (ms < 0) return "—";
+  if (ms > 600_000) return `${Math.round(ms / 60000)}min`; // > 10 min show minutes
   return `${Math.round(ms / 1000)}s`;
 }
 
@@ -83,12 +86,41 @@ export function DailySyncHealthGate() {
     refetchInterval: 120_000,
   });
 
-  // Compute completion rate across recent runs
-  const completedRuns = (ledgerRows || []).filter(
-    (r) => r.status !== "RUNNING" && r.status !== "PENDING",
-  );
-  const totalExpected = completedRuns.reduce((s, r) => s + (r.expected_total_items || r.items_targeted || 0), 0);
-  const totalSucceeded = completedRuns.reduce((s, r) => s + (r.items_succeeded || 0), 0);
+  // *** Problem 1 FIX: Group by date, show cumulative totals ***
+  // Group ledger rows by run_date for cumulative display
+  const rowsByDate = new Map<string, LedgerRow[]>();
+  for (const row of ledgerRows || []) {
+    const existing = rowsByDate.get(row.run_date) || [];
+    existing.push(row);
+    rowsByDate.set(row.run_date, existing);
+  }
+
+  // Compute cumulative stats per date
+  const dayStats = Array.from(rowsByDate.entries()).map(([date, rows]) => {
+    const original = rows.find(r => !(r as any).is_continuation) || rows[0];
+    const continuations = rows.filter(r => (r as any).is_continuation);
+    const cumulativeSucceeded = rows.reduce((s, r) => s + (r.items_succeeded || 0), 0);
+    const cumulativeFailed = rows.reduce((s, r) => s + (r.items_failed || 0), 0);
+    const cumulativeSkipped = rows.reduce((s, r) => s + (r.items_skipped || 0), 0);
+    const expectedTotal = original.expected_total_items || original.items_targeted || 0;
+    return {
+      date,
+      original,
+      continuations,
+      rows,
+      cumulativeSucceeded,
+      cumulativeFailed,
+      cumulativeSkipped,
+      expectedTotal,
+      status: original.status,
+      failureReason: original.failure_reason,
+    };
+  });
+
+  // Compute completion rate across recent runs (cumulative)
+  const completedDays = dayStats.filter(d => d.status !== "RUNNING" && d.status !== "PENDING");
+  const totalExpected = completedDays.reduce((s, d) => s + d.expectedTotal, 0);
+  const totalSucceeded = completedDays.reduce((s, d) => s + d.cumulativeSucceeded, 0);
   const completionRate = totalExpected > 0 ? Math.round((totalSucceeded / totalExpected) * 100) : 0;
 
   const latestRun = (ledgerRows || [])[0];
@@ -147,43 +179,45 @@ export function DailySyncHealthGate() {
               )}
             </div>
 
-            {/* Recent runs table */}
+            {/* Recent runs table — cumulative per day */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left py-1.5 px-1 font-medium">Fecha</th>
                     <th className="text-center py-1.5 px-1 font-medium">Estado</th>
-                    <th className="text-center py-1.5 px-1 font-medium">Resultado</th>
+                    <th className="text-center py-1.5 px-1 font-medium">Resultado (acum.)</th>
                     <th className="text-center py-1.5 px-1 font-medium">Duración</th>
                     <th className="text-left py-1.5 px-1 font-medium">Razón</th>
                     <th className="text-left py-1.5 px-1 font-medium">Errores</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(ledgerRows || []).map((row) => {
-                    const expected = row.expected_total_items || row.items_targeted || 0;
-                    const succeeded = row.items_succeeded || 0;
-                    const failed = row.items_failed || 0;
-                    const skipped = row.items_skipped || 0;
-                    const errors = row.error_summary || [];
+                  {dayStats.map((day) => {
+                    const errors = day.rows.flatMap(r => (r.error_summary || []) as any[]);
+                    const contCount = day.continuations.length;
 
                     return (
-                      <tr key={row.id} className="border-b hover:bg-muted/50">
-                        <td className="py-1.5 px-1 font-mono">{row.run_date}</td>
-                        <td className="py-1.5 px-1 text-center">{statusBadge(row.status)}</td>
+                      <tr key={day.date} className="border-b hover:bg-muted/50">
+                        <td className="py-1.5 px-1 font-mono">{day.date}</td>
+                        <td className="py-1.5 px-1 text-center">{statusBadge(day.status)}</td>
                         <td className="py-1.5 px-1 text-center">
-                          <span className="text-green-600">{succeeded}✅</span>{" "}
-                          <span className="text-red-600">{failed}❌</span>{" "}
-                          <span className="text-muted-foreground">{skipped}⏭️</span>{" "}
-                          <span className="text-muted-foreground">/ {expected}</span>
+                          <span className="text-green-600">{day.cumulativeSucceeded}✅</span>{" "}
+                          <span className="text-red-600">{day.cumulativeFailed}❌</span>{" "}
+                          <span className="text-muted-foreground">{day.cumulativeSkipped}⏭️</span>{" "}
+                          <span className="text-muted-foreground">/ {day.expectedTotal}</span>
+                          {contCount > 0 && (
+                            <Badge variant="outline" className="text-[9px] ml-1">
+                              {contCount} cont.
+                            </Badge>
+                          )}
                         </td>
                         <td className="py-1.5 px-1 text-center text-muted-foreground">
-                          {durationStr(row.started_at, row.finished_at || row.completed_at)}
+                          {durationStr(day.original.started_at, day.original.finished_at || day.original.completed_at)}
                         </td>
                         <td className="py-1.5 px-1">
-                          {row.failure_reason ? (
-                            <Badge variant="outline" className="text-[10px]">{row.failure_reason}</Badge>
+                          {day.failureReason ? (
+                            <Badge variant="outline" className="text-[10px]">{day.failureReason}</Badge>
                           ) : "—"}
                         </td>
                         <td className="py-1.5 px-1">
@@ -194,7 +228,7 @@ export function DailySyncHealthGate() {
                                 <ChevronDown className="h-3 w-3" />
                               </CollapsibleTrigger>
                               <CollapsibleContent className="mt-1 space-y-0.5">
-                                {errors.slice(0, 10).map((e, i) => (
+                                {errors.slice(0, 10).map((e: any, i: number) => (
                                   <p key={i} className="text-[10px] text-muted-foreground font-mono truncate">
                                     {e.radicado || e.work_item_id?.slice(0, 8)} — {e.error}
                                   </p>
