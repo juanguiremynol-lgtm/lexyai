@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, FileText, ArrowRight, Globe, Building2 } from "lucide-react";
+import { Plus, FileText, ArrowRight, Globe, Building2, Zap } from "lucide-react";
 import { WizardExplanation } from "../WizardExplanation";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
@@ -14,9 +14,9 @@ import type { WizardMode, WizardConnector } from "../WizardTypes";
 
 interface StepTemplateProps {
   mode: WizardMode;
-  templateChoice: "NEW" | "EXISTING" | null;
+  templateChoice: "NEW" | "EXISTING" | "QUICK" | null;
   selectedConnector: WizardConnector | null;
-  onChoose: (choice: "NEW" | "EXISTING") => void;
+  onChoose: (choice: "NEW" | "EXISTING" | "QUICK") => void;
   onSelectConnector: (c: WizardConnector) => void;
   onNext: () => void;
 }
@@ -36,36 +36,57 @@ export function StepTemplate({ mode, templateChoice, selectedConnector, onChoose
     },
   });
 
-  const canProceed = templateChoice === "NEW" || (templateChoice === "EXISTING" && selectedConnector);
+  const canProceed = templateChoice === "NEW" || templateChoice === "QUICK" || (templateChoice === "EXISTING" && selectedConnector);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-3 space-y-6">
         <div className="space-y-2">
           <h2 className="text-xl font-display font-semibold text-foreground">
-            Seleccionar Template
+            ¿Cómo desea agregar el proveedor?
           </h2>
           <p className="text-sm text-muted-foreground">
-            {isPlatform
-              ? "Cree un nuevo conector global o use uno existente como base."
-              : "Cree un conector privado para su org o use uno existente (global o privado)."}
+            Si tiene la URL, nombre y clave del proveedor, use Quick Add. Para configuración avanzada, cree uno nuevo o use uno existente.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Quick Add — Primary option */}
+          <Card
+            className={`cursor-pointer border-2 transition-all hover:shadow-md sm:col-span-3 ${
+              templateChoice === "QUICK" ? "border-primary/50 bg-primary/5 shadow-md" : "border-primary/20 hover:border-primary/40 bg-primary/[0.02]"
+            }`}
+            onClick={() => onChoose("QUICK")}
+          >
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                <Zap className="h-6 w-6 text-primary" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  Quick Add
+                  <Badge className="bg-primary/10 text-primary border-primary/30 text-[10px]">Recomendado</Badge>
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Solo necesita: <strong>Nombre</strong>, <strong>URL</strong> y <strong>Master Key / API Key</strong>. Crea conector + instancia + routing automáticamente.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card
             className={`cursor-pointer border-2 transition-all hover:shadow-md ${
               templateChoice === "NEW" ? "border-primary/50 bg-primary/5" : "border-border/30 hover:border-border"
             }`}
             onClick={() => onChoose("NEW")}
           >
-            <CardContent className="p-6 text-center space-y-3">
-              <Plus className="h-10 w-10 mx-auto text-primary" />
-              <h3 className="font-semibold">Crear Nuevo</h3>
+            <CardContent className="p-5 text-center space-y-3">
+              <Plus className="h-8 w-8 mx-auto text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Crear Nuevo (Avanzado)</h3>
               <p className="text-xs text-muted-foreground">
-                {isPlatform ? "Nuevo conector GLOBAL" : "Nuevo conector ORG_PRIVATE"}
+                Configuración manual paso a paso
               </p>
-              <Badge variant="outline" className="text-xs">
+              <Badge variant="outline" className="text-xs text-muted-foreground">
                 {isPlatform ? <><Globe className="h-3 w-3 mr-1" /> Global</> : <><Building2 className="h-3 w-3 mr-1" /> Privado</>}
               </Badge>
             </CardContent>
@@ -77,9 +98,9 @@ export function StepTemplate({ mode, templateChoice, selectedConnector, onChoose
             }`}
             onClick={() => onChoose("EXISTING")}
           >
-            <CardContent className="p-6 text-center space-y-3">
-              <FileText className="h-10 w-10 mx-auto text-primary" />
-              <h3 className="font-semibold">Usar Existente</h3>
+            <CardContent className="p-5 text-center space-y-3">
+              <FileText className="h-8 w-8 mx-auto text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Usar Existente</h3>
               <p className="text-xs text-muted-foreground">
                 Seleccionar un conector ya creado
               </p>
