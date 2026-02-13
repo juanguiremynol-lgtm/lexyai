@@ -681,19 +681,35 @@ Deno.serve(async (req) => {
         .eq("is_archived", false);
 
       // Build semantic set: normalize descriptions for fuzzy matching
+      // External provider often adds "Sin documento asociado a la providencia: " prefix
+      // while built-in SAMAI doesn't — so we match on action type prefix (before " - ")
+      const extractActionPrefix = (desc: string) =>
+        (desc || "").split(" - ")[0].toLowerCase()
+          .replace(/[\u2014\u2013—–]/g, "-")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 80);
+
       const normalizeForDedup = (desc: string) =>
         (desc || "").toLowerCase()
-          .replace(/[\u2014\u2013—–]/g, "-")   // em/en dash → hyphen
+          .replace(/[\u2014\u2013—–]/g, "-")
+          .replace(/sin documento asociado a la providencia:\s*/gi, "")
           .replace(/\s+/g, " ")
           .replace(/[^\w\s\-áéíóúñü]/gi, "")
           .trim()
           .slice(0, 120);
 
       const existingSemanticSet = new Map<string, string>(); // semanticKey → canonical act ID
+      const existingPrefixSet = new Map<string, string>(); // date|prefix → canonical act ID
       const existingFpSet = new Set<string>();
       for (const existing of existingActs || []) {
         const semKey = `${existing.act_date || ""}|${normalizeForDedup(existing.description)}`;
         existingSemanticSet.set(semKey, existing.id);
+        const prefixKey = `${existing.act_date || ""}|${extractActionPrefix(existing.description)}`;
+        // Only set prefix if not already set (prefer first match = non-"Fijacion estado" rows)
+        if (!existingPrefixSet.has(prefixKey) || !existing.description.startsWith("Fijacion estado")) {
+          existingPrefixSet.set(prefixKey, existing.id);
+        }
         existingFpSet.add(existing.hash_fingerprint);
       }
 
@@ -705,14 +721,18 @@ Deno.serve(async (req) => {
         // Check fingerprint-level dedup first
         if (existingFpSet.has(record.hash_fingerprint)) {
           fpDedupCount++;
-          // Find canonical ID by fingerprint
           const matched = (existingActs || []).find((e: any) => e.hash_fingerprint === record.hash_fingerprint);
           if (matched) allConfirmedActIds.push(matched.id);
           continue;
         }
-        // Check semantic dedup (date + normalized description)
+        // Check semantic dedup: full normalized text
         const semKey = `${record.act_date || ""}|${normalizeForDedup(record.description)}`;
-        const matchedId = existingSemanticSet.get(semKey);
+        let matchedId = existingSemanticSet.get(semKey);
+        // Fallback: match on action type prefix (before " - ") + date
+        if (!matchedId) {
+          const prefixKey = `${record.act_date || ""}|${extractActionPrefix(record.description)}`;
+          matchedId = existingPrefixSet.get(prefixKey);
+        }
         if (matchedId) {
           semanticDedupCount++;
           allConfirmedActIds.push(matchedId);
