@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -30,11 +30,14 @@ import { BillingTab } from "@/components/settings/BillingTab";
 import { ProviderInstanceManager } from "@/components/settings/ProviderInstanceManager";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
+import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Settings() {
   const queryClient = useQueryClient();
   const { organization, isLoading: isOrgLoading } = useOrganization();
   const { isOwner, isAdmin, isLoading: isMembershipLoading } = useOrganizationMembership(organization?.id || null);
+  const { prefs: mascotPrefs, updatePrefs: updateMascotPrefs } = useMascotPreferences();
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
     queryFn: async () => {
@@ -213,6 +216,10 @@ export default function Settings() {
           <TabsTrigger value="estados">Estados</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
+          <TabsTrigger value="atenia">
+            <Bot className="h-4 w-4 mr-1" />
+            Atenia AI
+          </TabsTrigger>
           {isDangerZoneVisible && (
             <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">
               <AlertTriangle className="h-4 w-4 mr-1" />
@@ -554,6 +561,71 @@ export default function Settings() {
                     </p>
                   </div>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="atenia" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5" />
+                Asistente Atenia AI
+              </CardTitle>
+              <CardDescription>
+                Configura la visibilidad y comportamiento del asistente Atenia AI
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-1">
+                  <p className="font-medium">Mostrar asistente</p>
+                  <p className="text-sm text-muted-foreground">
+                    Muestra el robot de Atenia AI en la esquina de la pantalla.
+                  </p>
+                </div>
+                <Switch
+                  checked={mascotPrefs.visible}
+                  onCheckedChange={(v) => updateMascotPrefs({ visible: v })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-1">
+                  <p className="font-medium">Mostrar consejos</p>
+                  <p className="text-sm text-muted-foreground">
+                    Atenia muestra sugerencias contextuales periódicamente.
+                  </p>
+                </div>
+                <Switch
+                  checked={mascotPrefs.tips_enabled}
+                  onCheckedChange={(v) => updateMascotPrefs({ tips_enabled: v })}
+                  disabled={!mascotPrefs.visible}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="space-y-1">
+                  <p className="font-medium">Posición</p>
+                  <p className="text-sm text-muted-foreground">
+                    Elige dónde aparece el asistente en la pantalla.
+                  </p>
+                </div>
+                <RadixSelect
+                  value={mascotPrefs.position}
+                  onValueChange={(v) => updateMascotPrefs({ position: v as "bottom-right" | "bottom-left" | "top-right" })}
+                  disabled={!mascotPrefs.visible}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <RadixSelectItem value="bottom-right">Abajo derecha</RadixSelectItem>
+                    <RadixSelectItem value="bottom-left">Abajo izquierda</RadixSelectItem>
+                    <RadixSelectItem value="top-right">Arriba derecha</RadixSelectItem>
+                  </SelectContent>
+                </RadixSelect>
               </div>
             </CardContent>
           </Card>

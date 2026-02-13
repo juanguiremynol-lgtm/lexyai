@@ -82,6 +82,7 @@ interface AteniaAssistantDrawerProps {
   scope: "WORK_ITEM" | "ORG" | "PLATFORM";
   workItemId?: string;
   workItemRadicado?: string;
+  initialMessage?: string;
 }
 
 type DrawerTab = "chat" | "report";
@@ -107,6 +108,7 @@ export function AteniaAssistantDrawer({
   scope,
   workItemId,
   workItemRadicado,
+  initialMessage,
 }: AteniaAssistantDrawerProps) {
   const { organization } = useOrganization();
 
@@ -144,7 +146,7 @@ export function AteniaAssistantDrawer({
     if (open) {
       setMessages([]);
       setSessionId(null);
-      setInput("");
+      setInput(initialMessage ?? "");
       setConfirmingAction(null);
       setActiveTab("chat");
       // Reset report state
@@ -153,6 +155,14 @@ export function AteniaAssistantDrawer({
       setDiagnosis(null);
       setGeminiAnalysis(null);
       setSubmitted(false);
+
+      // Auto-send initial message if provided
+      if (initialMessage) {
+        setTimeout(() => {
+          callAssistant(initialMessage);
+          setInput("");
+        }, 300);
+      }
     }
   }, [open, workItemId]);
 
