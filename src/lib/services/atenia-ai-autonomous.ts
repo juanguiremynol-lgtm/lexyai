@@ -21,6 +21,7 @@ import {
   type ExternalProviderHealthResult,
   type ExternalProviderDiagnostics,
 } from './atenia-ai-external-providers';
+import { runAteniaE2ETest, type AteniaE2ETestResult } from './atenia-ai-e2e-test';
 
 // ============= TYPES =============
 
@@ -30,6 +31,7 @@ export interface HeartbeatResult {
   observations: ObservationResult[];
   actionsTriggered: number;
   externalProviderHealth?: ExternalProviderHealthResult;
+  e2eSpotCheck?: AteniaE2ETestResult | null;
 }
 
 export interface ObservationResult {
@@ -318,6 +320,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
   const allProvidersDown = providerHealth.length > 0 && providerHealth.every(p => p.isOpen);
 
   let actionsTriggered = 0;
+  let e2eSpotCheck: AteniaE2ETestResult | null = null;
 
   if (!allProvidersDown) {
     // Auto-sync stale items (built-in)
@@ -353,6 +356,28 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
         }
       }
     }
+
+    // ACT: E2E spot-check on a random monitored CPACA work item (once per heartbeat cycle)
+    try {
+      const { data: cpacaItems } = await (supabase
+        .from('work_items') as any)
+        .select('radicado')
+        .eq('organization_id', organizationId)
+        .eq('monitoring_enabled', true)
+        .eq('workflow_type', 'CPACA')
+        .not('radicado', 'is', null)
+        .limit(5);
+
+      if (cpacaItems && cpacaItems.length > 0) {
+        const randomItem = cpacaItems[Math.floor(Math.random() * cpacaItems.length)];
+        e2eSpotCheck = await runAteniaE2ETest({
+          radicado: randomItem.radicado,
+          triggered_by: 'heartbeat',
+        });
+      }
+    } catch (err) {
+      console.warn('[atenia-ai] E2E spot-check failed:', err);
+    }
   } else {
     await logAteniaAction({
       organization_id: organizationId,
@@ -365,7 +390,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
     });
   }
 
-  return { skipped: false, observations, actionsTriggered, externalProviderHealth: extHealth };
+  return { skipped: false, observations, actionsTriggered, externalProviderHealth: extHealth, e2eSpotCheck };
 }
 
 // ============= USER REPORT AUTO-DIAGNOSIS =============

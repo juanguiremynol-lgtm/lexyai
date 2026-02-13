@@ -41,6 +41,7 @@ import {
   ExternalLink,
   Sparkles,
 } from "lucide-react";
+import { ExternalProviderDebugCard } from "@/components/debug/ExternalProviderDebugCard";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -1828,6 +1829,9 @@ export default function ApiDebugPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* External Provider Debug & E2E Card */}
+      <ExternalProviderDebugCard />
 
       {/* Sync History Card */}
       <SyncHistoryCard />
