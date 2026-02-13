@@ -308,16 +308,21 @@ Deno.serve(async (req) => {
       orgId: source.organization_id,
     });
 
-    // ── Trace: EXT_PROVIDER_REQUEST (Deliverable C) ──
+    // ── Trace: EXT_PROVIDER_REQUEST — includes header names and redacted request body ──
     const redactedUrl = new URL(snapshotUrl);
+    const headerNames = Object.keys(headers).sort();
+    // Redacted request body: replace secret values but keep structure
+    const redactedRequestBody = JSON.parse(snapshotBody);
     await writeTrace(db, runId, source, instance, "EXT_PROVIDER_REQUEST", "SENT", true, 0, {
       url_host: redactedUrl.hostname,
       url_path: redactedUrl.pathname,
       method: "POST",
-      auth_present: true,
+      header_names: headerNames,
+      auth_type: instance.auth_type,
       timeout_ms: providerInfo.timeout_ms,
       include: includeParam,
       provider_case_id: source.provider_case_id,
+      request_body: redactedRequestBody,
     });
 
     const snapStart = Date.now();
@@ -355,13 +360,23 @@ Deno.serve(async (req) => {
     const rawBodyText = await snapRes.text().catch(() => "");
     const contentTypeHeader = snapRes.headers.get("content-type") || "";
 
-    // ── Trace: EXT_PROVIDER_RESPONSE (Deliverable C) ──
+    // ── Trace: EXT_PROVIDER_RESPONSE — now captures redacted error body for 4xx/5xx ──
     const bodyKind = contentTypeHeader.includes("json") ? "JSON" : "TEXT";
+    // Redact error body: first 4KB, strip any strings that look like secrets/keys
+    const redactedSnippet = (() => {
+      if (snapRes.ok) return undefined;
+      const snippet = rawBodyText.slice(0, 4096);
+      // Redact common secret patterns (API keys, tokens, passwords)
+      return snippet
+        .replace(/(?:api[_-]?key|token|secret|password|authorization|bearer)\s*[:=]\s*["']?[^\s"',}{]{8,}["']?/gi, "[REDACTED]")
+        .replace(/eyJ[A-Za-z0-9_-]{20,}/g, "[JWT_REDACTED]");
+    })();
     await writeTrace(db, runId, source, instance, "EXT_PROVIDER_RESPONSE", String(snapRes.status), snapRes.ok, snapLatency, {
       status_code: snapRes.status,
       body_kind: bodyKind,
       bytes_length: rawBodyText.length,
       content_type: contentTypeHeader,
+      ...(redactedSnippet ? { error_body_redacted: redactedSnippet } : {}),
     });
 
     // Parse using schema-tolerant snapshot parser
