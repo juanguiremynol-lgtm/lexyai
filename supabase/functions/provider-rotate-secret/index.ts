@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
       .eq("is_active", true);
 
     // Encrypt and insert new secret
-    const { cipher, nonce } = await encryptSecret(new_secret_value);
+    const { cipherHex, nonceHex } = await encryptSecret(new_secret_value);
     const { error: insertErr } = await db
       .from("provider_instance_secrets")
       .insert({
@@ -112,8 +112,8 @@ Deno.serve(async (req) => {
         organization_id: instance.organization_id,
         key_version: newVersion,
         is_active: true,
-        cipher_text: cipher,
-        nonce,
+        cipher_text: cipherHex,
+        nonce: nonceHex,
         created_by: user.id,
       });
 

@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
     }
 
     // Encrypt
-    let encResult: { cipher: Uint8Array; nonce: Uint8Array };
+    let encResult: { cipher: Uint8Array; nonce: Uint8Array; cipherHex: string; nonceHex: string };
     try {
       encResult = await encryptSecret(secret_value);
     } catch (encErr: unknown) {
@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { cipher, nonce } = encResult;
+    const { cipherHex, nonceHex } = encResult;
 
      if (mode === "REENCRYPT") {
        // REENCRYPT: Re-encrypt the same plaintext secret under current platform key.
@@ -195,8 +195,8 @@ Deno.serve(async (req) => {
            organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
            key_version: nextVersion,
            is_active: enable,
-           cipher_text: cipher,
-           nonce,
+           cipher_text: cipherHex,
+           nonce: nonceHex,
            created_by: userId,
            scope: instance.scope || "ORG",
          })
@@ -297,8 +297,8 @@ Deno.serve(async (req) => {
           organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
           key_version: nextVersion,
           is_active: enable,
-          cipher_text: cipher,
-          nonce,
+          cipher_text: cipherHex,
+          nonce: nonceHex,
           created_by: userId,
           scope: instance.scope || "ORG",
         })
@@ -384,8 +384,8 @@ Deno.serve(async (req) => {
         organization_id: instance.scope === "PLATFORM" ? null : instance.organization_id,
         key_version: nextVersion,
         is_active: enable,
-        cipher_text: cipher,
-        nonce,
+        cipher_text: cipherHex,
+        nonce: nonceHex,
         created_by: userId,
         scope: instance.scope || "ORG",
       })
