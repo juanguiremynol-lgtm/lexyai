@@ -28,12 +28,15 @@ export function useWizardSession(
   const createdRef = useRef(false);
 
   useEffect(() => {
-    if (createdRef.current || sessionId) return;
-    createdRef.current = true;
+    if (sessionId) return;
 
+    // Reset ref on each effect run so StrictMode re-mount works correctly
     let cancelled = false;
 
     async function createSession() {
+      if (createdRef.current) return;
+      createdRef.current = true;
+
       setIsCreating(true);
       setError(null);
       try {
@@ -41,7 +44,7 @@ export function useWizardSession(
           data: { user },
         } = await supabase.auth.getUser();
         if (!user) {
-          setError("Authentication required");
+          if (!cancelled) setError("Authentication required");
           return;
         }
 
@@ -60,7 +63,7 @@ export function useWizardSession(
           .single();
 
         if (insertErr) {
-          setError(insertErr.message);
+          if (!cancelled) setError(insertErr.message);
           return;
         }
 
@@ -70,13 +73,17 @@ export function useWizardSession(
       } catch (err: any) {
         if (!cancelled) setError(err.message || "Failed to create wizard session");
       } finally {
-        if (!cancelled) setIsCreating(false);
+        // Always clear loading state — even if cancelled by StrictMode unmount,
+        // the next mount will re-run and this prevents stuck spinner.
+        setIsCreating(false);
       }
     }
 
     createSession();
     return () => {
       cancelled = true;
+      // Allow re-creation on StrictMode re-mount
+      createdRef.current = false;
     };
   }, [mode, organizationId, sessionId]);
 
