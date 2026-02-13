@@ -4202,17 +4202,22 @@ Deno.serve(async (req) => {
           let sourceId = existingSource?.id;
           if (!sourceId) {
             // Auto-create source binding
-            const { data: newSource } = await adminDb
+            const { data: newSource, error: sourceErr } = await adminDb
               .from('work_item_sources')
               .insert({
                 work_item_id,
                 provider_instance_id: instance.id,
                 organization_id: workItem.organization_id,
                 provider_case_id: workItem.radicado || work_item_id,
-                scrape_status: 'PENDING',
+                source_input_type: 'RADICADO',
+                source_input_value: workItem.radicado || work_item_id,
+                scrape_status: 'SCRAPING_PENDING',
               })
               .select('id')
               .single();
+            if (sourceErr) {
+              console.warn(`[sync-by-work-item] Source creation error for ${connectorName}: ${sourceErr.message}`);
+            }
             sourceId = newSource?.id;
           }
 
