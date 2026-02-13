@@ -45,6 +45,7 @@ const ACTION_ALLOWLIST = new Set([
   "ESCALATE_TO_ADMIN_QUEUE",
   "CREATE_USER_REPORT",
   "UNLOCK_DANGER_ZONE",
+  "GENERATE_PAYMENT_CERTIFICATE",
 ]);
 
 // ---- Risk classification ----
@@ -58,6 +59,8 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
       return "SAFE";
     case "UNLOCK_DANGER_ZONE":
       return "CONFIRM_REQUIRED";
+    case "GENERATE_PAYMENT_CERTIFICATE":
+      return "SAFE";
     case "TOGGLE_MONITORING":
     case "RUN_MASTER_SYNC_SCOPE":
       return "CONFIRM_REQUIRED";
@@ -119,6 +122,19 @@ ALLOWLISTED ACTIONS:
 - ESCALATE_TO_ADMIN_QUEUE: Escalate issue to admin queue
 - CREATE_USER_REPORT: Create a structured report for the supervisor panel
 - UNLOCK_DANGER_ZONE: Temporarily enable the Danger Zone in Settings for 12 hours (CONFIRM_REQUIRED)
+- GENERATE_PAYMENT_CERTIFICATE: Generate a payment/service certificate for the user's organization (SAFE)
+
+BILLING & PAYMENT INQUIRY POLICY:
+When a user asks about payments, invoices, subscription status, amounts paid, service certificates, or billing history:
+1. You have access to billing context in the CONTEXT_JSON under "billing". Use it to answer directly.
+2. "billing.subscription" contains the current subscription state (plan, status, price, period dates, trial info).
+3. "billing.invoices" contains recent invoices with amounts, dates, statuses, and provider references.
+4. "billing.checkout_sessions" contains completed checkout sessions with payment details.
+5. When summarizing payment history, always include: amount in COP, period covered, status, and date.
+6. If the user requests a "certificado de servicio", "constancia de pago", or similar, propose the GENERATE_PAYMENT_CERTIFICATE action with params: { period_from, period_to } covering the requested timeframe. If no timeframe specified, use the last 12 months.
+7. For certificate generation, include a summary of: organization name, plan, total amount paid, and periods covered.
+8. NEVER reveal internal billing IDs, gateway customer IDs, or provider-specific tokens.
+9. All org members can view billing info. Only org admins can view detailed invoice breakdowns.
 
 DANGER ZONE POLICY (CRITICAL):
 When a user asks about deleting data, purging data, accessing the danger zone, or recovering soft-deleted items:
@@ -253,10 +269,79 @@ async function buildContext(
     }
   }
 
+  // ---- Billing context (available for any org member) ----
+  if (orgId) {
+    const billingCtx: Record<string, unknown> = {};
+
+    // Current subscription state
+    const { data: subState } = await adminClient
+      .from("billing_subscription_state")
+      .select("plan_code, status, billing_cycle_months, currency, current_price_cop_incl_iva, current_period_start, current_period_end, next_billing_at, trial_end_at, comped_until_at, comped_reason, created_at")
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    billingCtx.subscription = subState || null;
+
+    // Organization name for certificates
+    const { data: org } = await adminClient
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .maybeSingle();
+    billingCtx.organization_name = org?.name || null;
+
+    // Recent invoices (last 24 months, limit 50)
+    const since24m = new Date(Date.now() - 24 * 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: invoices } = await adminClient
+      .from("billing_invoices")
+      .select("id, status, currency, amount_cop_incl_iva, amount_usd, period_start, period_end, created_at, provider, hosted_invoice_url, discount_amount_cop")
+      .eq("organization_id", orgId)
+      .gte("created_at", since24m)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    billingCtx.invoices = (invoices ?? []).map((inv: any) => ({
+      status: inv.status,
+      amount_cop: inv.amount_cop_incl_iva,
+      amount_usd: inv.amount_usd,
+      currency: inv.currency,
+      period_start: inv.period_start,
+      period_end: inv.period_end,
+      created_at: inv.created_at,
+      discount_cop: inv.discount_amount_cop,
+      has_invoice_url: !!inv.hosted_invoice_url,
+    }));
+
+    // Completed checkout sessions (last 24 months)
+    const { data: sessions } = await adminClient
+      .from("billing_checkout_sessions")
+      .select("id, tier, status, billing_cycle_months, amount_cop_incl_iva, discount_amount_cop, completed_at, created_at, provider")
+      .eq("organization_id", orgId)
+      .eq("status", "COMPLETED")
+      .gte("created_at", since24m)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    billingCtx.checkout_sessions = (sessions ?? []).map((s: any) => ({
+      tier: s.tier,
+      billing_cycle_months: s.billing_cycle_months,
+      amount_cop: s.amount_cop_incl_iva,
+      discount_cop: s.discount_amount_cop,
+      completed_at: s.completed_at,
+      created_at: s.created_at,
+    }));
+
+    // Legacy subscriptions table (for trial info)
+    const { data: legacySub } = await userClient
+      .from("subscriptions")
+      .select("status, trial_started_at, trial_ends_at, current_period_end, canceled_at")
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    billingCtx.legacy_subscription = legacySub || null;
+
+    ctx.billing = billingCtx;
+  }
+
   return { ctx, orgId, isPlatformAdmin };
 }
 
-// ---- Gemini call ----
 async function callGemini(system: string, userMessage: string, apiKey: string): Promise<any> {
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -435,6 +520,99 @@ async function executeAction(
 
       if (error) throw new Error(error.message);
       return { ok: true, unlock_id: data?.id, expires_at: data?.expires_at };
+    }
+
+    case "GENERATE_PAYMENT_CERTIFICATE": {
+      const orgId = ctx.orgId;
+      if (!orgId) throw new Error("Se requiere una organización para generar certificados.");
+
+      const periodFrom = action.params?.period_from || new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const periodTo = action.params?.period_to || new Date().toISOString().slice(0, 10);
+
+      // Fetch organization
+      const { data: org } = await adminClient
+        .from("organizations")
+        .select("name, metadata")
+        .eq("id", orgId)
+        .maybeSingle();
+
+      // Fetch subscription state
+      const { data: subState } = await adminClient
+        .from("billing_subscription_state")
+        .select("plan_code, status, billing_cycle_months, currency, current_price_cop_incl_iva, current_period_start, current_period_end, created_at")
+        .eq("organization_id", orgId)
+        .maybeSingle();
+
+      // Fetch paid invoices in period
+      const { data: invoices } = await adminClient
+        .from("billing_invoices")
+        .select("id, status, amount_cop_incl_iva, amount_usd, currency, period_start, period_end, created_at")
+        .eq("organization_id", orgId)
+        .in("status", ["paid", "PAID", "completed", "COMPLETED"])
+        .gte("created_at", periodFrom)
+        .lte("created_at", periodTo + "T23:59:59Z")
+        .order("created_at", { ascending: true });
+
+      // Fetch completed checkouts in period
+      const { data: checkouts } = await adminClient
+        .from("billing_checkout_sessions")
+        .select("id, tier, amount_cop_incl_iva, discount_amount_cop, billing_cycle_months, completed_at, created_at")
+        .eq("organization_id", orgId)
+        .eq("status", "COMPLETED")
+        .gte("created_at", periodFrom)
+        .lte("created_at", periodTo + "T23:59:59Z")
+        .order("created_at", { ascending: true });
+
+      const paidInvoices = invoices ?? [];
+      const completedCheckouts = checkouts ?? [];
+
+      const totalPaidInvoices = paidInvoices.reduce((sum: number, inv: any) => sum + (inv.amount_cop_incl_iva || 0), 0);
+      const totalPaidCheckouts = completedCheckouts.reduce((sum: number, s: any) => sum + (s.amount_cop_incl_iva || 0), 0);
+      const totalPaid = totalPaidInvoices + totalPaidCheckouts;
+      const totalDiscounts = completedCheckouts.reduce((sum: number, s: any) => sum + (s.discount_amount_cop || 0), 0);
+
+      const certificate = {
+        type: "CERTIFICADO_DE_SERVICIO",
+        generated_at: new Date().toISOString(),
+        organization: {
+          name: org?.name || "N/A",
+          id: orgId,
+        },
+        subscription: subState ? {
+          plan: subState.plan_code,
+          status: subState.status,
+          billing_cycle_months: subState.billing_cycle_months,
+          current_price_cop: subState.current_price_cop_incl_iva,
+          currency: subState.currency,
+          period_start: subState.current_period_start,
+          period_end: subState.current_period_end,
+          member_since: subState.created_at,
+        } : null,
+        period: { from: periodFrom, to: periodTo },
+        payment_summary: {
+          total_paid_cop: totalPaid,
+          total_discounts_cop: totalDiscounts,
+          net_paid_cop: totalPaid - totalDiscounts,
+          invoice_count: paidInvoices.length,
+          checkout_count: completedCheckouts.length,
+        },
+        invoices: paidInvoices.map((inv: any) => ({
+          amount_cop: inv.amount_cop_incl_iva,
+          period: `${inv.period_start || "N/A"} - ${inv.period_end || "N/A"}`,
+          date: inv.created_at,
+          status: inv.status,
+        })),
+        checkouts: completedCheckouts.map((s: any) => ({
+          tier: s.tier,
+          amount_cop: s.amount_cop_incl_iva,
+          discount_cop: s.discount_amount_cop,
+          billing_months: s.billing_cycle_months,
+          completed_at: s.completed_at,
+        })),
+        disclaimer: "Este certificado es generado automáticamente por la plataforma ATENIA y refleja los registros de facturación del sistema. Para certificados oficiales con validez tributaria, contacte a soporte.",
+      };
+
+      return { ok: true, certificate };
     }
 
     default:
