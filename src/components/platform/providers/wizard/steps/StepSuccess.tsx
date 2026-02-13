@@ -1,12 +1,13 @@
 /**
- * Step 8 — Success + Runbook
+ * Step 9 — Success + Runbook + Evidence Bundle Export.
  * Includes blocking warning if PLATFORM instance has no active secret.
+ * Evidence bundle from Readiness Gate is available for export.
  */
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Globe, Building2, RefreshCw, List, Settings, Key, Copy, AlertTriangle, Info, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Globe, Building2, RefreshCw, List, Settings, Key, Copy, AlertTriangle, Info, ShieldAlert, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -20,9 +21,10 @@ interface StepSuccessProps {
   routingConfigured: boolean;
   e2eResult: any;
   instanceCoverageCount: number | null;
+  readinessResult?: any;
 }
 
-export function StepSuccess({ mode, connector, instance, routingConfigured, e2eResult, instanceCoverageCount }: StepSuccessProps) {
+export function StepSuccess({ mode, connector, instance, routingConfigured, e2eResult, instanceCoverageCount, readinessResult }: StepSuccessProps) {
   const navigate = useNavigate();
   const isPlatform = mode === "PLATFORM";
 
@@ -52,11 +54,38 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
     routing: routingConfigured ? "Configurado" : "Pendiente",
     e2e: e2eResult?.sync?.ok ? "OK" : e2eResult ? "Con advertencias" : "No ejecutado",
     secret: hasActiveSecret ? `✅ activo (v${secretStatus?.key_version})` : "❌ FALTANTE",
+    readiness: readinessResult?.ok ? "✅ READY" : readinessResult ? "❌ NOT READY" : "No ejecutado",
   };
 
   const copySummary = () => {
-    navigator.clipboard.writeText(JSON.stringify(summary, null, 2));
-    toast.success("Resumen copiado");
+    const exportData = {
+      ...summary,
+      evidence_bundle: readinessResult?.evidence_bundle || null,
+      e2e_result: e2eResult ? { ok: e2eResult.sync?.ok, code: e2eResult.sync?.code } : null,
+    };
+    navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
+    toast.success("Resumen + evidence bundle copiado");
+  };
+
+  const downloadFullBundle = () => {
+    if (!readinessResult?.evidence_bundle) {
+      toast.error("No hay evidence bundle disponible");
+      return;
+    }
+    const bundle = {
+      wizard_summary: summary,
+      evidence_bundle: readinessResult.evidence_bundle,
+      e2e_result: e2eResult || null,
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `provider-bundle-${connector?.key || "unknown"}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Full evidence bundle descargado");
   };
 
   return (
@@ -109,7 +138,12 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-foreground">Resumen</h3>
-            <Button size="sm" variant="ghost" onClick={copySummary}><Copy className="h-3 w-3 mr-1" /> JSON</Button>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" onClick={copySummary}><Copy className="h-3 w-3 mr-1" /> JSON</Button>
+              {readinessResult?.evidence_bundle && (
+                <Button size="sm" variant="ghost" onClick={downloadFullBundle}><Download className="h-3 w-3 mr-1" /> Bundle</Button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -148,8 +182,16 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
                 {summary.e2e}
               </Badge>
             </div>
+            <div className={`rounded-lg p-3 border ${readinessResult?.ok ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-border/50"}`}>
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <FileText className="h-3 w-3" /> Readiness
+              </span>
+              <Badge variant="outline" className={readinessResult?.ok ? "text-primary border-primary/30" : "text-muted-foreground"}>
+                {summary.readiness}
+              </Badge>
+            </div>
             {isPlatform && (
-              <div className="col-span-2 bg-primary/5 rounded-lg p-3 border border-primary/20 flex items-center gap-2">
+              <div className="bg-primary/5 rounded-lg p-3 border border-primary/20 flex items-center gap-2">
                 <Globe className="h-3.5 w-3.5 text-primary shrink-0" />
                 <div>
                   <span className="text-xs text-muted-foreground">Cobertura</span>
@@ -164,8 +206,8 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
       <div className="space-y-3">
         <h3 className="font-semibold text-foreground text-sm">Siguientes Pasos</h3>
         <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers/wizard" : "/app/settings")}>
-            <Settings className="h-4 w-4" /> Nuevo Proveedor
+          <Button variant="outline" className="justify-start gap-2" onClick={() => navigate(isPlatform ? "/platform/external-providers" : "/app/settings")}>
+            <Settings className="h-4 w-4" /> Panel Proveedores
           </Button>
           <Button variant="outline" className="justify-start gap-2" onClick={() => navigate("/app/dashboard")}>
             <List className="h-4 w-4" /> Ir al Dashboard
@@ -204,8 +246,8 @@ export function StepSuccess({ mode, connector, instance, routingConfigured, e2eR
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-3 w-3 mt-0.5 text-primary shrink-0" />
             <div>
-              <p className="font-medium text-foreground">MISSING_ENCRYPTION_KEY</p>
-              <p className="text-muted-foreground">Servidor sin ATENIA_SECRETS_KEY_B64. Contacte al admin de plataforma.</p>
+              <p className="font-medium text-foreground">DECRYPT_FAILED</p>
+              <p className="text-muted-foreground">Use SET_EXACT para re-cifrar con la misma API key del proveedor. No se rota la clave de plataforma.</p>
             </div>
           </div>
         </div>

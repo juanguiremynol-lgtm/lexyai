@@ -13,6 +13,7 @@ export const WIZARD_STEPS = [
   { key: "mapping",    label: "Mapping",           icon: "ArrowLeftRight" },
   { key: "routing",    label: "Routing",           icon: "Route" },
   { key: "e2e",        label: "Validación E2E",    icon: "Zap" },
+  { key: "readiness",  label: "Readiness",         icon: "ShieldCheck" },
   { key: "success",    label: "Completado",        icon: "CheckCircle2" },
 ] as const;
 
@@ -64,6 +65,8 @@ export interface WizardState {
   routingConfigured: boolean;
   e2eResult: any;
   e2ePassed: boolean;
+  readinessResult: any;
+  readinessPassed: boolean;
   wildcardAcknowledged: boolean;
   globalAcknowledged: boolean;
   organizationId: string | null;
@@ -81,6 +84,8 @@ export const initialWizardState = (mode: WizardMode): WizardState => ({
   routingConfigured: false,
   e2eResult: null,
   e2ePassed: false,
+  readinessResult: null,
+  readinessPassed: false,
   wildcardAcknowledged: false,
   globalAcknowledged: false,
   organizationId: null,

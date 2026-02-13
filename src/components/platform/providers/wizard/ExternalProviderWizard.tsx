@@ -17,6 +17,7 @@ import { StepPreflight } from "./steps/StepPreflight";
 import { StepMapping } from "./steps/StepMapping";
 import { StepRouting } from "./steps/StepRouting";
 import { StepE2E } from "./steps/StepE2E";
+import { StepReadiness } from "./steps/StepReadiness";
 import { StepSuccess } from "./steps/StepSuccess";
 import { StepQuickAdd } from "./steps/StepQuickAdd";
 import { initialWizardState, WIZARD_STEPS, type WizardMode, type WizardState, type WizardConnector, type WizardInstance, type PreflightResult } from "./WizardTypes";
@@ -168,6 +169,17 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
           />
         ) : null;
       case 8:
+        return state.connector && state.instance ? (
+          <StepReadiness
+            connector={state.connector}
+            instance={state.instance}
+            organizationId={orgId}
+            readinessResult={state.readinessResult}
+            onReadinessComplete={(result, passed) => setState((s) => ({ ...s, readinessResult: result, readinessPassed: passed }))}
+            onNext={next}
+          />
+        ) : null;
+      case 9:
         return (
           <StepSuccess
             mode={mode}
@@ -176,6 +188,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             routingConfigured={state.routingConfigured}
             e2eResult={state.e2eResult}
             instanceCoverageCount={state.instanceCoverageCount}
+            readinessResult={state.readinessResult}
           />
         );
       default:
