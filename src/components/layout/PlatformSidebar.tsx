@@ -20,6 +20,7 @@ import {
   Bug,
   Brain,
   Cable,
+  CreditCard,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -45,6 +46,7 @@ const platformNavItems = [
   { title: "Verificación", url: "/platform/verification", icon: ShieldCheck },
   { title: "Métricas SaaS", url: "/platform/metrics", icon: BarChart3 },
   { title: "Organizaciones", url: "/platform/organizations", icon: Building2 },
+  { title: "Facturación", url: "/platform/billing", icon: CreditCard },
   { title: "Suscripciones", url: "/platform/subscriptions", icon: Crown },
   { title: "Vouchers", url: "/platform/vouchers", icon: Ticket },
   { title: "Límites", url: "/platform/limits", icon: Gauge },
