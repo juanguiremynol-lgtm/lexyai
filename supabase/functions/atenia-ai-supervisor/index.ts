@@ -326,6 +326,32 @@ async function maybeAutoDemonitor(
 
   if (!wi?.monitoring_enabled) return { demonitor: false };
 
+  // Safety gate: Don't demonitor if the work item has publicaciones data.
+  // Actuaciones (CPNU/SAMAI) returning NOT_FOUND does NOT mean the case
+  // is invalid — Publicaciones Procesales may still be actively providing
+  // legally binding estados for this radicado.
+  const { count: pubCount } = await supabase
+    .from("work_item_publicaciones")
+    .select("id", { count: "exact", head: true })
+    .eq("work_item_id", input.work_item_id);
+
+  if ((pubCount ?? 0) > 0) {
+    return { demonitor: false };
+  }
+
+  // Safety gate: Don't demonitor if there are recent actuaciones from ANY
+  // source other than the failing provider (e.g., SAMAI_ESTADOS, manual, etc.)
+  const recentCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { count: recentActsFromOtherSources } = await supabase
+    .from("work_item_acts")
+    .select("id", { count: "exact", head: true })
+    .eq("work_item_id", input.work_item_id)
+    .gte("created_at", recentCutoff);
+
+  if ((recentActsFromOtherSources ?? 0) > 0) {
+    return { demonitor: false };
+  }
+
   const meta = {
     consecutive_not_found: nf,
     last_provider: state?.last_provider ?? null,
