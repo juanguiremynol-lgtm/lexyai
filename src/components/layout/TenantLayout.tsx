@@ -15,17 +15,14 @@ import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
-import { useLoginSync } from "@/hooks/useLoginSync";
 import { useAteniaHeartbeat } from "@/hooks/useAteniaHeartbeat";
 
 export function TenantLayout() {
   const { theme } = useTheme();
   const isAquaTheme = theme === "aqua";
 
-  // Trigger automatic sync on login
-  useLoginSync();
-
   // Atenia AI autonomous heartbeat (OBSERVE → SUGGEST → ACT)
+  // NOTE: Login sync dismantled — all sync runs via daily cron, super-admin, or Atenia AI only
   useAteniaHeartbeat();
 
   // Ensure user has an organization on first load

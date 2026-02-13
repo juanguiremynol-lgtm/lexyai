@@ -46,33 +46,13 @@ export function AddRadicadoInline({ workItemId, currentRadicado, onUpdate }: Add
 
       if (error) throw error;
 
-      // Fire-and-forget: trigger hydration
-      Promise.allSettled([
-        supabase.functions.invoke("sync-by-work-item", {
-          body: { work_item_id: workItemId },
-        }),
-        supabase.functions.invoke("sync-publicaciones-by-work-item", {
-          body: { work_item_id: workItemId },
-        }),
-      ]).then(([actsResult, pubsResult]) => {
-        const actsOk = actsResult.status === "fulfilled" && !actsResult.value.error;
-        const pubsOk = pubsResult.status === "fulfilled" && !pubsResult.value.error;
-        if (actsOk || pubsOk) {
-          toast.success("Sincronización completada. Datos del proceso actualizados.");
-          onUpdate?.();
-          queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
-          queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItemId] });
-        } else {
-          toast.info("Sincronización ejecutada. Los datos se actualizarán automáticamente.");
-        }
-      }).catch(() => {
-        // Scheduled sync will retry
-      });
+      // NOTE: User-triggered sync removed. Daily cron / Atenia AI will hydrate this item.
+      // The radicado save is enough — next scheduled sync will pick it up automatically.
 
       return radicado23;
     },
     onSuccess: () => {
-      toast.success("Radicado guardado. Iniciando sincronización automática...");
+      toast.success("Radicado guardado. Se sincronizará en el próximo ciclo programado.");
       setIsEditing(false);
       onUpdate?.();
       queryClient.invalidateQueries({ queryKey: ["work-item-detail", workItemId] });
