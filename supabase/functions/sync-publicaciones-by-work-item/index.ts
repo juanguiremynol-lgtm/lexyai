@@ -862,18 +862,18 @@ Deno.serve(async (req) => {
 
       const { data: pubGlobalRoutes } = await adminDb
         .from('provider_category_routes_global')
-        .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name)')
+        .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('workflow', workItem.workflow_type)
-        .eq('scope', 'PUBLICACIONES')
+        .in('scope', ['PUBS', 'BOTH'])
         .eq('enabled', true)
         .order('priority');
 
       const { data: pubOrgRoutes } = await adminDb
         .from('provider_category_routes_org_override')
-        .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name)')
+        .select('id, workflow, scope, provider_connector_id, enabled, provider_connectors(id, name, key)')
         .eq('organization_id', workItem.organization_id)
         .eq('workflow', workItem.workflow_type)
-        .eq('scope', 'PUBLICACIONES')
+        .in('scope', ['PUBS', 'BOTH'])
         .eq('enabled', true)
         .order('priority');
 
