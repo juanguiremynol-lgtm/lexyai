@@ -33,6 +33,17 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // Health check short-circuit
+  try {
+    const cloned = req.clone();
+    const maybeBody = await cloned.json().catch(() => null);
+    if (maybeBody?.health_check) {
+      return new Response(JSON.stringify({ status: "OK", function: "fallback-sync-check" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  } catch { /* not JSON, proceed normally */ }
+
   const startTime = Date.now();
   const runId = crypto.randomUUID();
   console.log(`[fallback-sync-check] Starting fallback check (run_id: ${runId})`);

@@ -24,7 +24,66 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Atenia AI Loading Screen — removed by React on hydration -->
+      <div id="atenia-loader" style="
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: hsl(220 25% 5%);
+        transition: opacity 0.4s ease-out;
+      ">
+        <style>
+          @keyframes atenia-pulse {
+            0%, 100% { opacity: 0.55; transform: scale(1); filter: drop-shadow(0 0 8px rgba(26,166,183,0.3)); }
+            50% { opacity: 1; transform: scale(1.06); filter: drop-shadow(0 0 24px rgba(26,166,183,0.6)); }
+          }
+          @keyframes atenia-fade-text {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+          }
+          #atenia-loader svg { animation: atenia-pulse 2s ease-in-out infinite; }
+          #atenia-loader .loader-text { 
+            margin-top: 20px; font-family: Inter, system-ui, sans-serif; font-size: 14px;
+            color: rgba(255,255,255,0.7); letter-spacing: 0.05em;
+            animation: atenia-fade-text 2s ease-in-out infinite;
+          }
+          #atenia-loader .loader-brand {
+            margin-top: 8px; font-family: Inter, system-ui, sans-serif; font-size: 11px;
+            color: rgba(255,255,255,0.35); letter-spacing: 0.15em; text-transform: uppercase;
+          }
+        </style>
+        <!-- Atenia Brain Logo SVG -->
+        <svg viewBox="0 0 48 48" width="64" height="64" fill="none" aria-hidden="true">
+          <!-- Antenna -->
+          <line x1="24" y1="4" x2="24" y2="10" stroke="rgba(26,166,183,1)" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="24" cy="3" r="2" fill="rgba(26,166,183,1)"/>
+          <!-- Head -->
+          <rect x="8" y="10" width="32" height="28" rx="8" fill="rgba(26,166,183,0.15)" stroke="rgba(26,166,183,1)" stroke-width="2"/>
+          <!-- Eyes -->
+          <circle cx="17" cy="24" r="3" fill="rgba(26,166,183,1)"/>
+          <circle cx="31" cy="24" r="3" fill="rgba(26,166,183,1)"/>
+          <!-- Mouth -->
+          <line x1="18" y1="33" x2="30" y2="33" stroke="rgba(26,166,183,1)" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <div class="loader-text">Cargando...</div>
+        <div class="loader-brand">Atenia AI</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Remove loader once React mounts
+      const observer = new MutationObserver(() => {
+        const root = document.getElementById('root');
+        if (root && root.children.length > 1) {
+          const loader = document.getElementById('atenia-loader');
+          if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 400);
+          }
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.getElementById('root'), { childList: true });
+    </script>
   </body>
 </html>

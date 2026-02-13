@@ -58,6 +58,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Health check short-circuit
+  try {
+    const cloned = req.clone();
+    const maybeBody = await cloned.json().catch(() => null);
+    if (maybeBody?.health_check) {
+      return new Response(JSON.stringify({ status: "OK", function: "provider-sync-external-provider" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  } catch { /* not JSON, proceed normally */ }
+
   const startTime = Date.now();
   const runId = crypto.randomUUID();
 

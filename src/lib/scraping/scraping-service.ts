@@ -403,7 +403,7 @@ async function sendActuacionEmailNotification(
       .from('profiles')
       .select('full_name, reminder_email, default_alert_email')
       .eq('id', ownerId)
-      .single();
+      .maybeSingle();
 
     // Also get user email from auth
     const { data: { user } } = await supabase.auth.getUser();

@@ -23,6 +23,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Health check short-circuit
+  try {
+    const cloned = req.clone();
+    const maybeBody = await cloned.json().catch(() => null);
+    if (maybeBody?.health_check) {
+      return new Response(JSON.stringify({ status: "OK", function: "atenia-server-heartbeat" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  } catch { /* not JSON, proceed normally */ }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
