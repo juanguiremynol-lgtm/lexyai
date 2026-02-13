@@ -38,6 +38,7 @@ import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
 import InviteAccept from "./pages/InviteAccept";
 import PublicPricingPage from "./pages/PublicPricingPage";
+import CheckoutSuccess from "./pages/CheckoutSuccess";
 import MockCheckoutPage from "./pages/MockCheckoutPage";
 import JoinPage from "./pages/JoinPage";
 import VoucherRedeemPage from "./pages/VoucherRedeemPage";
@@ -106,6 +107,7 @@ const App = () => (
           {/* Public routes with PublicLayout */}
           <Route element={<PublicLayout />}>
             <Route path="/pricing" element={<ErrorBoundary><PublicPricingPage /></ErrorBoundary>} />
+            <Route path="/checkout" element={<ErrorBoundary><CheckoutSuccess /></ErrorBoundary>} />
             <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
             <Route path="/v/redeem/:token" element={<ErrorBoundary><VoucherRedeemPage /></ErrorBoundary>} />
           </Route>

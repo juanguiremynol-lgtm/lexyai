@@ -4,15 +4,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { useOrganization } from './OrganizationContext';
 import type { Subscription, SubscriptionPlan, UsageLimits } from '@/lib/subscription-constants';
 
+type SubscriptionStatus = 'PENDING_PAYMENT' | 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'EXPIRED' | 'CHURNED';
+
 interface SubscriptionContextType {
   subscription: Subscription | null;
+  billingSubscription: any | null;  // billing_subscription_state
   plan: SubscriptionPlan | null;
   plans: SubscriptionPlan[];
   usage: UsageLimits;
   isLoading: boolean;
+  status: SubscriptionStatus | null;
   isTrialing: boolean;
   isActive: boolean;
   isExpired: boolean;
+  isPastDue: boolean;
+  isSuspended: boolean;
   trialDaysRemaining: number;
   refetch: () => void;
 }
@@ -32,13 +38,17 @@ const defaultUsage: UsageLimits = {
 
 const SubscriptionContext = createContext<SubscriptionContextType>({
   subscription: null,
+  billingSubscription: null,
   plan: null,
   plans: [],
   usage: defaultUsage,
   isLoading: true,
+  status: null,
   isTrialing: false,
   isActive: false,
   isExpired: false,
+  isPastDue: false,
+  isSuspended: false,
   trialDaysRemaining: 0,
   refetch: () => {},
 });
@@ -64,7 +74,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  // Fetch subscription
+  // Fetch subscription from legacy table
   const { data: subscription, isLoading: subLoading, refetch } = useQuery({
     queryKey: ['subscription', organization?.id],
     queryFn: async () => {
@@ -84,6 +94,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       return data as Subscription & { plan: SubscriptionPlan };
     },
     enabled: !!organization?.id,
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch billing subscription state (new table)
+  const { data: billingSubscription, isLoading: billingLoading } = useQuery({
+    queryKey: ['billing-subscription', organization?.id],
+    queryFn: async () => {
+      if (!organization?.id) return null;
+
+      const { data, error } = await supabase
+        .from('billing_subscription_state')
+        .select('*')
+        .eq('organization_id', organization.id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') return null;
+        throw error;
+      }
+
+      return data;
+    },
+    enabled: !!organization?.id,
+    refetchOnWindowFocus: false,
   });
 
   // Fetch usage counts - now uses work_items only
@@ -146,22 +180,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
   }, [subscription?.trial_ends_at]);
 
-  const isTrialing = subscription?.status === 'trialing';
-  const isActive = subscription?.status === 'active' || isTrialing;
-  const isExpired = subscription?.status === 'expired' || 
-    (isTrialing && trialDaysRemaining === 0);
+  // Determine subscription status from billing state (new) or legacy subscription
+  const status: SubscriptionStatus | null = billingSubscription?.status as SubscriptionStatus || null;
+  const isTrialing = status === 'TRIAL' || subscription?.status === 'trialing';
+  const isActive = status === 'ACTIVE' || status === 'TRIAL' || subscription?.status === 'active';
+  const isPastDue = status === 'PAST_DUE';
+  const isSuspended = status === 'SUSPENDED';
+  const isExpired = status === 'EXPIRED' || status === 'CHURNED' || subscription?.status === 'expired';
+  
 
   return (
     <SubscriptionContext.Provider
       value={{
         subscription: subscription || null,
+        billingSubscription: billingSubscription || null,
         plan,
         plans,
         usage,
-        isLoading: subLoading || usageLoading,
+        isLoading: subLoading || billingLoading,
+        status,
         isTrialing,
         isActive,
         isExpired,
+        isPastDue,
+        isSuspended,
         trialDaysRemaining,
         refetch,
       }}
