@@ -1,5 +1,5 @@
-import React, { createContext, useContext, ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { createContext, useContext, useEffect, useCallback, ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useOrganization } from './OrganizationContext';
 import type { Subscription, SubscriptionPlan, UsageLimits } from '@/lib/subscription-constants';
@@ -55,6 +55,7 @@ const SubscriptionContext = createContext<SubscriptionContextType>({
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { organization } = useOrganization();
+  const queryClient = useQueryClient();
 
   // Fetch all plans
   const { data: plans = [] } = useQuery({
@@ -187,7 +188,33 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isPastDue = status === 'PAST_DUE';
   const isSuspended = status === 'SUSPENDED';
   const isExpired = status === 'EXPIRED' || status === 'CHURNED' || subscription?.status === 'expired';
-  
+
+  // ── Real-time listener for instant UI refresh after payment ──
+  useEffect(() => {
+    if (!organization?.id) return;
+
+    const channel = supabase
+      .channel(`billing-state-${organization.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'billing_subscription_state',
+          filter: `organization_id=eq.${organization.id}`,
+        },
+        () => {
+          // Invalidate both subscription queries for instant refresh
+          queryClient.invalidateQueries({ queryKey: ['billing-subscription', organization.id] });
+          queryClient.invalidateQueries({ queryKey: ['subscription', organization.id] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [organization?.id, queryClient]);
 
   return (
     <SubscriptionContext.Provider
