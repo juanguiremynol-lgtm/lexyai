@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import DOMPurify from "dompurify";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -654,7 +655,11 @@ export function AdminEmailOperationsTab() {
 
               {selectedEmail.html && (
                 <div className="border rounded-md p-4 bg-white dark:bg-gray-900 max-h-[300px] overflow-auto">
-                  <div dangerouslySetInnerHTML={{ __html: selectedEmail.html }} />
+                  <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedEmail.html, {
+                    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'b', 'i', 'u', 'a', 'ul', 'ol', 'li', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'img', 'hr', 'blockquote', 'pre', 'code'],
+                    ALLOWED_ATTR: ['href', 'title', 'class', 'style', 'src', 'alt', 'width', 'height', 'target', 'rel'],
+                    ALLOW_DATA_ATTR: false,
+                  }) }} />
                 </div>
               )}
             </div>
