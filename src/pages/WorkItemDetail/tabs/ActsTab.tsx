@@ -207,7 +207,7 @@ export function ActsTab({ workItem }: ActsTabProps) {
       {/* Cards */}
       <div className="space-y-3">
         {filteredActs?.map((act) => (
-          <WorkItemActCard key={act.id} act={act} />
+          <WorkItemActCard key={act.id} act={act} despacho={workItem.authority_name} />
         ))}
       </div>
 
