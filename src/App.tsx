@@ -65,6 +65,7 @@ import {
   PlatformBillingPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
+import BillingTestConsole from "./pages/platform/BillingTestConsole";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -215,6 +216,13 @@ const App = () => (
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
             <Route path="external-providers" element={<Navigate to="/platform/external-providers/wizard" replace />} />
             <Route path="external-providers/wizard" element={<ErrorBoundary><PlatformProviderWizardPage /></ErrorBoundary>} />
+            <Route path="billing-test" element={
+              <OrganizationProvider>
+                <SubscriptionProvider>
+                  <ErrorBoundary><BillingTestConsole /></ErrorBoundary>
+                </SubscriptionProvider>
+              </OrganizationProvider>
+            } />
           </Route>
           
           {/* 404 */}
