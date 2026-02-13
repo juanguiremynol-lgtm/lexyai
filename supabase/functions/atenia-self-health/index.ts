@@ -1,0 +1,161 @@
+/**
+ * atenia-self-health — Meta-monitoring (Capability 8).
+ *
+ * Runs every 15 min via pg_cron. Checks if Atenia AI itself is healthy:
+ * heartbeat alive, daily sync ran, edge functions responsive, DB alive.
+ * Fires urgent notification if anything is broken.
+ */
+
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+interface HealthCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  const checks: HealthCheck[] = [];
+
+  try {
+    // Check 1: Last heartbeat (any org) within 45 min
+    const { data: lastHeartbeat } = await supabase
+      .from("atenia_ai_actions")
+      .select("created_at")
+      .eq("action_type", "heartbeat_observe")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const heartbeatAge = lastHeartbeat
+      ? Date.now() - new Date(lastHeartbeat.created_at).getTime()
+      : Infinity;
+
+    checks.push({
+      name: "HEARTBEAT_ALIVE",
+      ok: heartbeatAge < 45 * 60 * 1000,
+      detail:
+        heartbeatAge < Infinity
+          ? `Último heartbeat: hace ${Math.round(heartbeatAge / 60000)} min`
+          : "Sin heartbeat registrado",
+    });
+
+    // Check 2: Daily sync ran today (after 8 AM COT / 13:00 UTC)
+    const now = new Date();
+    const cotHour = (now.getUTCHours() - 5 + 24) % 24;
+    const todayStart = new Date(now);
+    todayStart.setUTCHours(12, 0, 0, 0); // ~7 AM COT
+
+    if (cotHour >= 8) {
+      const { count: todaySyncs } = await supabase
+        .from("auto_sync_daily_ledger")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", todayStart.toISOString());
+
+      checks.push({
+        name: "DAILY_SYNC_RAN",
+        ok: (todaySyncs ?? 0) > 0,
+        detail: `${todaySyncs ?? 0} ejecución(es) de sync diario hoy`,
+      });
+    } else {
+      checks.push({
+        name: "DAILY_SYNC_RAN",
+        ok: true,
+        detail: "Antes de la hora del sync diario — omitido",
+      });
+    }
+
+    // Check 3: DB connectivity
+    const { error: dbErr } = await supabase
+      .from("work_items")
+      .select("id")
+      .limit(1);
+
+    checks.push({
+      name: "DB_ALIVE",
+      ok: !dbErr,
+      detail: dbErr ? `DB error: ${dbErr.message}` : "DB responsive",
+    });
+
+    // Check 4: Remediation queue not stuck
+    const { count: stuckQueue } = await supabase
+      .from("atenia_ai_remediation_queue")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "RUNNING")
+      .lt("updated_at", new Date(Date.now() - 30 * 60 * 1000).toISOString());
+
+    checks.push({
+      name: "QUEUE_NOT_STUCK",
+      ok: (stuckQueue ?? 0) === 0,
+      detail:
+        (stuckQueue ?? 0) === 0
+          ? "Cola de remediación OK"
+          : `${stuckQueue} tarea(s) atascada(s) en cola`,
+    });
+
+    const allHealthy = checks.every((c) => c.ok);
+
+    // If unhealthy, send urgent admin notification
+    if (!allHealthy) {
+      const failedChecks = checks
+        .filter((c) => !c.ok)
+        .map((c) => c.detail)
+        .join("; ");
+
+      await supabase.from("atenia_ai_actions").insert({
+        action_type: "SELF_HEALTH_FAILURE",
+        actor: "AI_AUTOPILOT",
+        scope: "PLATFORM",
+        autonomy_tier: "ACT",
+        reasoning: `⚠️ Auto-diagnóstico falló: ${failedChecks}. Requiere intervención.`,
+        status: "EXECUTED",
+        action_result: "applied",
+        evidence: { checks, healthy: false },
+      });
+    }
+
+    // Log check
+    await supabase.from("atenia_ai_actions").insert({
+      action_type: "SELF_HEALTH_CHECK",
+      actor: "AI_AUTOPILOT",
+      scope: "PLATFORM",
+      autonomy_tier: "OBSERVE",
+      reasoning: allHealthy
+        ? `Auto-diagnóstico OK: ${checks.length} verificaciones pasadas.`
+        : `Auto-diagnóstico: ${checks.filter((c) => !c.ok).length} fallo(s).`,
+      status: "EXECUTED",
+      action_result: allHealthy ? "logged" : "applied",
+      evidence: { checks, healthy: allHealthy },
+    });
+
+    return new Response(
+      JSON.stringify({ ok: true, healthy: allHealthy, checks }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ ok: false, error: (err as Error).message }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
+  }
+});

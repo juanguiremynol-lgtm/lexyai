@@ -146,6 +146,48 @@ export type Database = {
           },
         ]
       }
+      admin_daily_digests: {
+        Row: {
+          actions_executed_24h: number | null
+          content_markdown: string
+          critical_violations: number | null
+          digest_date: string
+          freshness_sla_rate: number | null
+          generated_at: string | null
+          id: string
+          platform_health: string | null
+          summary_data: Json | null
+          total_items_monitored: number | null
+          total_orgs: number | null
+        }
+        Insert: {
+          actions_executed_24h?: number | null
+          content_markdown: string
+          critical_violations?: number | null
+          digest_date: string
+          freshness_sla_rate?: number | null
+          generated_at?: string | null
+          id?: string
+          platform_health?: string | null
+          summary_data?: Json | null
+          total_items_monitored?: number | null
+          total_orgs?: number | null
+        }
+        Update: {
+          actions_executed_24h?: number | null
+          content_markdown?: string
+          critical_violations?: number | null
+          digest_date?: string
+          freshness_sla_rate?: number | null
+          generated_at?: string | null
+          id?: string
+          platform_health?: string | null
+          summary_data?: Json | null
+          total_items_monitored?: number | null
+          total_orgs?: number | null
+        }
+        Relationships: []
+      }
       admin_notifications: {
         Row: {
           audit_log_id: string | null
@@ -8133,6 +8175,60 @@ export type Database = {
           },
         ]
       }
+      user_data_alerts: {
+        Row: {
+          alert_type: string
+          created_at: string | null
+          dismissed_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string
+          organization_id: string
+          severity: string
+          user_id: string
+          work_item_id: string
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string | null
+          dismissed_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message: string
+          organization_id: string
+          severity?: string
+          user_id: string
+          work_item_id: string
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string | null
+          dismissed_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          organization_id?: string
+          severity?: string
+          user_id?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_data_alerts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_data_alerts_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_feedback: {
         Row: {
           created_at: string
@@ -9393,6 +9489,10 @@ export type Database = {
           fecha_sentencia: string | null
           filing_date: string | null
           formato_expediente: string | null
+          freshness_sla_hours: number | null
+          freshness_tier: string | null
+          freshness_violation_at: string | null
+          freshness_violation_notified: boolean | null
           id: string
           is_flagged: boolean | null
           last_action_date: string | null
@@ -9415,6 +9515,7 @@ export type Database = {
           last_stage_suggestion_at: string | null
           last_stage_suggestion_id: string | null
           last_successful_sync_at: string | null
+          last_sync_attempt_at: string | null
           last_synced_at: string | null
           latest_estado_at: string | null
           latest_estado_fingerprint: string | null
@@ -9481,6 +9582,7 @@ export type Database = {
           stage_inference_enabled: boolean | null
           status: Database["public"]["Enums"]["item_status"]
           subclase_proceso: string | null
+          sync_failure_streak: number | null
           tipo_proceso: string | null
           tipo_recurso: string | null
           title: string | null
@@ -9545,6 +9647,10 @@ export type Database = {
           fecha_sentencia?: string | null
           filing_date?: string | null
           formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -9567,6 +9673,7 @@ export type Database = {
           last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
           last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -9633,6 +9740,7 @@ export type Database = {
           stage_inference_enabled?: boolean | null
           status?: Database["public"]["Enums"]["item_status"]
           subclase_proceso?: string | null
+          sync_failure_streak?: number | null
           tipo_proceso?: string | null
           tipo_recurso?: string | null
           title?: string | null
@@ -9697,6 +9805,10 @@ export type Database = {
           fecha_sentencia?: string | null
           filing_date?: string | null
           formato_expediente?: string | null
+          freshness_sla_hours?: number | null
+          freshness_tier?: string | null
+          freshness_violation_at?: string | null
+          freshness_violation_notified?: boolean | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -9719,6 +9831,7 @@ export type Database = {
           last_stage_suggestion_at?: string | null
           last_stage_suggestion_id?: string | null
           last_successful_sync_at?: string | null
+          last_sync_attempt_at?: string | null
           last_synced_at?: string | null
           latest_estado_at?: string | null
           latest_estado_fingerprint?: string | null
@@ -9785,6 +9898,7 @@ export type Database = {
           stage_inference_enabled?: boolean | null
           status?: Database["public"]["Enums"]["item_status"]
           subclase_proceso?: string | null
+          sync_failure_streak?: number | null
           tipo_proceso?: string | null
           tipo_recurso?: string | null
           title?: string | null
@@ -9952,6 +10066,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_login_sync_status: {
         Args: {
           p_max_per_day?: number
