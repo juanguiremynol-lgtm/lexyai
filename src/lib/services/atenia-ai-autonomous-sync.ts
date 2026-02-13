@@ -196,6 +196,7 @@ export const evaluatePostCronHealth = async (organizationId: string): Promise<Sy
       .select('id, radicado, last_synced_at')
       .eq('organization_id', organizationId)
       .eq('monitoring_enabled', true)
+      .is('deleted_at', null)
       .not('radicado', 'is', null);
 
     const missedItems = (allEligible || []).filter((item: any) => {
@@ -236,6 +237,7 @@ export const evaluateFailedItems = async (organizationId: string): Promise<SyncD
     .select('id, radicado, workflow_type, consecutive_404_count, scrape_status, last_synced_at, last_crawled_at')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .eq('scrape_status', 'FAILED')
     .lt('consecutive_404_count', 5)
     .not('radicado', 'is', null);
@@ -357,6 +359,7 @@ export const executeTargetedSync = async (
     .select('id, radicado, workflow_type, total_actuaciones, last_synced_at')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .not('radicado', 'is', null);
 
   if (decision.target_items.length > 0) {

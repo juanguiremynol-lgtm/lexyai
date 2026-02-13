@@ -154,6 +154,7 @@ export async function runObservations(organizationId: string): Promise<Observati
     .select('id, radicado, last_synced_at')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .lt('last_synced_at', threeDaysAgo)
     .limit(20);
 
@@ -184,6 +185,7 @@ export async function runObservations(organizationId: string): Promise<Observati
     .select('id, radicado')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .is('last_synced_at', null)
     .limit(10);
 
@@ -216,6 +218,7 @@ export async function autoSyncStaleItems(
     .select('id, radicado, workflow_type, last_synced_at')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .lt('last_synced_at', twoDaysAgo)
     .order('last_synced_at', { ascending: true })
     .limit(maxItems);
@@ -423,6 +426,7 @@ export async function runHeartbeat(organizationId: string): Promise<HeartbeatRes
         .select('radicado')
         .eq('organization_id', organizationId)
         .eq('monitoring_enabled', true)
+        .is('deleted_at', null)
         .eq('workflow_type', 'CPACA')
         .not('radicado', 'is', null)
         .limit(5);
@@ -497,7 +501,8 @@ export async function generateAutoDiagnosis(workItemId: string): Promise<AutoDia
     (supabase.from('work_items') as any)
       .select('id, radicado, workflow_type, organization_id, last_synced_at, monitoring_enabled, consecutive_404_count, scrape_status')
       .eq('id', workItemId)
-      .single(),
+      .is('deleted_at', null)
+      .maybeSingle(),
     (supabase.from('sync_traces') as any)
       .select('provider, success, error_code, latency_ms, created_at')
       .eq('work_item_id', workItemId)

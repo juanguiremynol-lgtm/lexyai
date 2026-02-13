@@ -93,6 +93,7 @@ export async function processUnreachableItems(organizationId: string): Promise<D
     .select('id, radicado, workflow_type, consecutive_404_count, authority_name')
     .eq('organization_id', organizationId)
     .eq('monitoring_enabled', true)
+    .is('deleted_at', null)
     .gte('consecutive_404_count', config.auto_demonitor_after_404s);
 
   if (!unreachableItems || unreachableItems.length === 0) {
@@ -212,7 +213,8 @@ export async function buildPlatformHealthPrompt(organizationId: string): Promise
       .limit(500),
     (supabase.from('work_items') as any)
       .select('id, workflow_type, stage, monitoring_enabled, last_synced_at, consecutive_404_count, provider_reachable, scrape_status')
-      .eq('organization_id', organizationId),
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null),
     (supabase.from('work_item_stage_suggestions') as any)
       .select('id, work_item_id, suggested_stage, confidence, status, created_at')
       .eq('organization_id', organizationId)

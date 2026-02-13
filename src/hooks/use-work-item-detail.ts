@@ -91,6 +91,7 @@ async function fetchWorkItem(id: string): Promise<WorkItemDetail | null> {
       matters(id, matter_name, practice_area, sharepoint_url)
     `)
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (workItemData) {
