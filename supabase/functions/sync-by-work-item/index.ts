@@ -2591,6 +2591,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Health check short-circuit
+  try {
+    const cloned = req.clone();
+    const maybeBody = await cloned.json().catch(() => null);
+    if (maybeBody?.health_check) {
+      return new Response(JSON.stringify({ status: 'OK', function: 'sync-by-work-item' }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  } catch { /* not JSON, proceed normally */ }
+
   // Get trace ID from header or generate new one
   const traceId = req.headers.get('X-Trace-Id') || crypto.randomUUID();
   const syncStartTime = Date.now();

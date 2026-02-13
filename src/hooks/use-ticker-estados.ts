@@ -62,7 +62,7 @@ export function useTickerSettings() {
         .from("organizations")
         .select("show_estados_ticker")
         .eq("id", organization.id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error("Error fetching ticker settings:", error);

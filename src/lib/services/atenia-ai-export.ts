@@ -67,7 +67,7 @@ async function loadConversation(conversationId: string): Promise<ConversationRow
     .from("atenia_ai_conversations") as any)
     .select("*")
     .eq("id", conversationId)
-    .single();
+    .maybeSingle();
   return data;
 }
 
