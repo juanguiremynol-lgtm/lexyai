@@ -1,22 +1,37 @@
 /**
  * provider-reencrypt-secret — Internal admin endpoint that re-encrypts
  * a provider instance secret using the SAME plaintext value but under
- * the current ATENIA_SECRETS_KEY_B64.
- *
- * Reads the external API key from a named env var (e.g. SAMAI_ESTADOS_API_KEY)
- * and calls the re-encryption logic directly.
+ * the current ATENIA_SECRETS_KEY_B64 derived key.
  *
  * POST { connector_id, scope?: "PLATFORM", env_secret_name: string }
+ *
+ * After re-encryption, runs a readiness probe to confirm decrypt_ok.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { encryptSecret } from "../_shared/secretsCrypto.ts";
+import { encryptSecret, decryptSecret } from "../_shared/secretsCrypto.ts";
+import { getKeyDerivationMode } from "../_shared/cryptoKey.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-atenia-wizard-session",
 };
+
+/** Parse bytea hex from Supabase */
+function parseBytea(val: unknown): Uint8Array {
+  if (typeof val === "string") {
+    const clean = val.replace(/^\\x/, "");
+    return new Uint8Array(clean.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
+  }
+  if (val && typeof val === "object" && !ArrayBuffer.isView(val)) {
+    const obj = val as Record<string, number>;
+    const keys = Object.keys(obj).map(Number).sort((a, b) => a - b);
+    return new Uint8Array(keys.map(k => obj[String(k)]));
+  }
+  if (val instanceof Uint8Array) return val;
+  throw new Error("Cannot parse bytea value");
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -93,6 +108,8 @@ Deno.serve(async (req) => {
       );
     }
 
+    const platformKeyMode = getKeyDerivationMode();
+
     const adminClient = createClient(supabaseUrl, serviceKey);
 
     // Find the PLATFORM instance
@@ -115,13 +132,13 @@ Deno.serve(async (req) => {
     const instance = instances[0];
 
     // Encrypt the secret with current platform key
-    let encResult: { cipher: Uint8Array; nonce: Uint8Array };
+    let encResult: Awaited<ReturnType<typeof encryptSecret>>;
     try {
       encResult = await encryptSecret(secretValue);
     } catch (encErr: unknown) {
       const msg = encErr instanceof Error ? encErr.message : String(encErr);
       return new Response(
-        JSON.stringify({ error: `Encryption failed: ${msg}`, code: "ENCRYPTION_ERROR" }),
+        JSON.stringify({ error: `Encryption failed: ${msg}`, code: "ENCRYPTION_ERROR", platform_key_mode: platformKeyMode }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -139,7 +156,7 @@ Deno.serve(async (req) => {
       : 0;
     const nextVersion = maxVersion + 1;
 
-    // Disable old secrets FIRST (to avoid unique constraint on active)
+    // Disable old secrets FIRST
     const oldActiveIds = (oldSecrets || []).filter(s => s.is_active).map(s => s.id);
     if (oldActiveIds.length > 0) {
       await adminClient
@@ -171,12 +188,33 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ── Verify round-trip: read back and decrypt to prove it works ──
+    let decrypt_ok = false;
+    let verifyError: string | null = null;
+    try {
+      const { data: verifyRow } = await adminClient
+        .from("provider_instance_secrets")
+        .select("cipher_text, nonce")
+        .eq("id", newSecret.id)
+        .single();
+      
+      if (verifyRow) {
+        const cipherBytes = parseBytea(verifyRow.cipher_text);
+        const nonceBytes = parseBytea(verifyRow.nonce);
+        const decrypted = await decryptSecret(cipherBytes, nonceBytes);
+        decrypt_ok = decrypted === secretValue;
+        if (!decrypt_ok) verifyError = "Decrypted value mismatch";
+      }
+    } catch (err: unknown) {
+      verifyError = err instanceof Error ? err.message : String(err);
+    }
+
     // Audit
     await adminClient.from("atenia_ai_actions").insert({
       organization_id: instance.organization_id || "a0000000-0000-0000-0000-000000000001",
       action_type: "PROVIDER_SECRET_REENCRYPT",
       autonomy_tier: "USER",
-      reasoning: `Re-encrypted secret for instance "${instance.name}" (v${nextVersion}) using env var ${env_secret_name}. Plaintext unchanged.`,
+      reasoning: `Re-encrypted secret for instance "${instance.name}" (v${nextVersion}) using env var ${env_secret_name}. Plaintext unchanged. decrypt_ok=${decrypt_ok}. platform_key_mode=${platformKeyMode}`,
       target_entity_type: "provider_instance_secret",
       target_entity_id: newSecret.id,
       evidence: {
@@ -188,6 +226,9 @@ Deno.serve(async (req) => {
         env_source: env_secret_name,
         plaintext_changed: false,
         old_secrets_disabled: oldActiveIds.length,
+        decrypt_ok,
+        verify_error: verifyError,
+        platform_key_mode: platformKeyMode,
       },
     });
 
@@ -202,10 +243,13 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        ok: true,
+        ok: decrypt_ok,
         mode: "REENCRYPT",
         was_reencrypted: true,
         plaintext_changed: false,
+        decrypt_ok,
+        verify_error: verifyError,
+        platform_key_mode: platformKeyMode,
         secret: {
           id: newSecret.id,
           key_version: newSecret.key_version,
