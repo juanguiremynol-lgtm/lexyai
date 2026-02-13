@@ -102,6 +102,16 @@ export function useAteniaHeartbeat() {
             if (cycleResult.plans.length > 0) {
               console.log(`[atenia-autonomy] Cycle generated ${cycleResult.plans.length} action(s)`);
             }
+
+            // *** Problem 4 FIX: Wire observation persistence to conversations ***
+            if (result.observations.length > 0 || cycleResult.plans.length > 0) {
+              try {
+                const { persistHeartbeatToConversations } = await import('@/lib/services/atenia-ai-conversation-wiring');
+                await persistHeartbeatToConversations(orgId, result.observations, cycleResult.plans);
+              } catch (convErr) {
+                console.warn('[atenia-heartbeat] Conversation wiring error:', convErr);
+              }
+            }
           } catch (err) {
             console.warn('[atenia-autonomy] Cycle error:', err);
           }

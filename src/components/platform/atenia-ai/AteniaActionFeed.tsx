@@ -1,6 +1,6 @@
 /**
  * AteniaActionFeed — Live action feed with PLANNED action approval buttons.
- * Enhanced version of AteniaActionsLog with status-aware display.
+ * Enhanced: pins pending approvals, shows repeat counts, collapses E2E batches.
  */
 
 import { useState } from "react";
@@ -10,9 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Bot, RefreshCw, Zap, Eye, Pause, RotateCcw, Scissors, AlertTriangle,
-  Check, X, Clock, Loader2, Play,
+  Check, X, Clock, Loader2, Play, ChevronDown, ChevronRight, FlaskConical,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -29,6 +30,8 @@ const ACTION_ICONS: Record<string, typeof Zap> = {
   DAILY_CONTINUATION: Play,
   DEMOTE_PROVIDER_ROUTE: AlertTriangle,
   TRIGGER_CORRECTIVE_SYNC: RefreshCw,
+  PROVIDER_E2E_BATCH: FlaskConical,
+  heartbeat_observe: Eye,
 };
 
 function statusBadge(status: string | null, actionResult: string | null) {
@@ -99,6 +102,14 @@ export function AteniaActionFeed({ organizationId }: Props) {
     }
   };
 
+  // Split actions: pending approval pinned at top, rest below
+  const pendingApproval = (actions || []).filter(
+    (a: any) => a.status === "PLANNED" || a.action_result === "pending_approval"
+  );
+  const recentActions = (actions || []).filter(
+    (a: any) => a.status !== "PLANNED" && a.action_result !== "pending_approval"
+  );
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -130,48 +141,119 @@ export function AteniaActionFeed({ organizationId }: Props) {
           </p>
         ) : (
           <div className="space-y-3 max-h-[500px] overflow-y-auto">
-            {actions.map((action: any) => {
-              const Icon = ACTION_ICONS[action.action_type] || Zap;
-              const isPending = action.status === "PLANNED" || action.action_result === "pending_approval";
-
-              return (
-                <div key={action.id} className="flex items-start gap-2 border-b pb-2 last:border-0">
-                  <Icon className="h-3.5 w-3.5 text-muted-foreground mt-1 shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
-                        {action.action_type}
-                      </Badge>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatDistanceToNow(new Date(action.created_at), { addSuffix: true, locale: es })}
-                      </span>
-                      {statusBadge(action.status, action.action_result)}
-                    </div>
-                    {action.provider && (
-                      <Badge variant="outline" className="text-[9px]">
-                        Proveedor: {action.provider}
-                      </Badge>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {action.reasoning?.substring(0, 200)}{action.reasoning?.length > 200 ? "…" : ""}
-                    </p>
-                    {isPending && (
-                      <div className="flex gap-2 mt-1">
-                        <Button size="sm" variant="default" className="h-6 text-xs" onClick={() => handleApprove(action.id)}>
-                          ✅ Aprobar
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => handleReject(action.id)}>
-                          ❌ Rechazar
-                        </Button>
-                      </div>
-                    )}
-                  </div>
+            {/* Pinned: Pending approval */}
+            {pendingApproval.length > 0 && (
+              <div className="border border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {pendingApproval.length} acción(es) pendiente(s) de aprobación
                 </div>
-              );
-            })}
+                {pendingApproval.map((action: any) => (
+                  <ActionRow
+                    key={action.id}
+                    action={action}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                    isPending
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Recent actions */}
+            {recentActions.map((action: any) => (
+              <ActionRow
+                key={action.id}
+                action={action}
+                onApprove={handleApprove}
+                onReject={handleReject}
+                isPending={false}
+              />
+            ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ActionRow({
+  action,
+  onApprove,
+  onReject,
+  isPending,
+}: {
+  action: any;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  isPending: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const Icon = ACTION_ICONS[action.action_type] || Zap;
+  const repeatCount = action.evidence?.repeat_count ?? 0;
+  const isE2EBatch = action.action_type === 'PROVIDER_E2E_BATCH';
+  const e2eTests = isE2EBatch ? (action.evidence?.tests || []) : [];
+  const e2ePassed = e2eTests.filter((t: any) => t.result === 'PASSED').length;
+  const e2eFailed = e2eTests.length - e2ePassed;
+
+  return (
+    <div className="flex items-start gap-2 border-b pb-2 last:border-0">
+      <Icon className="h-3.5 w-3.5 text-muted-foreground mt-1 shrink-0" />
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+            {action.action_type}
+          </Badge>
+          <span className="text-[10px] text-muted-foreground">
+            {formatDistanceToNow(new Date(action.created_at), { addSuffix: true, locale: es })}
+          </span>
+          {statusBadge(action.status, action.action_result)}
+          {repeatCount > 1 && (
+            <Badge variant="outline" className="text-[10px] px-1 py-0">
+              ×{repeatCount} · Última: {action.evidence?.last_seen
+                ? formatDistanceToNow(new Date(action.evidence.last_seen), { addSuffix: true, locale: es })
+                : '—'}
+            </Badge>
+          )}
+        </div>
+        {action.provider && (
+          <Badge variant="outline" className="text-[9px]">
+            Proveedor: {action.provider}
+          </Badge>
+        )}
+
+        {/* E2E batch: expandable summary */}
+        {isE2EBatch ? (
+          <Collapsible open={expanded} onOpenChange={setExpanded}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+              {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              E2E: {e2ePassed}✅ {e2eFailed}❌ / {e2eTests.length}
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-1 space-y-0.5 ml-4">
+              {e2eTests.map((t: any, i: number) => (
+                <p key={i} className={`text-[10px] font-mono ${t.result === 'PASSED' ? 'text-green-600' : 'text-destructive'}`}>
+                  {t.result === 'PASSED' ? '✅' : '❌'} {t.radicado} {t.latency_ms ? `(${t.latency_ms}ms)` : ''}
+                </p>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {action.reasoning?.substring(0, 200)}{action.reasoning?.length > 200 ? "…" : ""}
+          </p>
+        )}
+
+        {isPending && (
+          <div className="flex gap-2 mt-1">
+            <Button size="sm" variant="default" className="h-6 text-xs" onClick={() => onApprove(action.id)}>
+              ✅ Aprobar
+            </Button>
+            <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => onReject(action.id)}>
+              ❌ Rechazar
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

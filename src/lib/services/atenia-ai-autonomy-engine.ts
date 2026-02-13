@@ -182,6 +182,42 @@ async function evaluateDailySyncContinuation(
     return plans;
   }
 
+  // *** Problem 1 FIX: Convergence detection — stop if cursor hasn't advanced ***
+  const { data: recentContinuations } = await supabase
+    .from('auto_sync_daily_ledger')
+    .select('items_succeeded, items_failed, cursor_last_work_item_id')
+    .eq('organization_id', orgId)
+    .eq('run_date', today)
+    .eq('is_continuation', true)
+    .order('created_at', { ascending: false })
+    .limit(2);
+
+  if (recentContinuations && recentContinuations.length >= 2) {
+    const [latest, previous] = recentContinuations;
+    if (
+      latest.cursor_last_work_item_id === previous.cursor_last_work_item_id &&
+      (latest.items_succeeded ?? 0) === 0
+    ) {
+      await logAutonomyAction(orgId, {
+        action_type: 'DAILY_CONTINUATION',
+        reasoning: 'Cursor no avanzó en las últimas 2 continuaciones — posible bloqueo. Se detiene la continuación para hoy.',
+        action_result: 'skipped',
+        status: 'SKIPPED',
+        evidence: {
+          stuck_cursor: latest.cursor_last_work_item_id,
+          continuations_today: contCount ?? 0,
+        },
+      });
+
+      plans.push({
+        action_type: 'DAILY_CONTINUATION',
+        status: 'SKIPPED',
+        reason: 'CONVERGENCE_FAILED: cursor no avanzó en 2 continuaciones consecutivas.',
+      });
+      return plans;
+    }
+  }
+
   const check = await checkBudget('DAILY_CONTINUATION', policy);
   if (!check.allowed) {
     plans.push({
@@ -398,6 +434,33 @@ async function evaluateProviderHealth(
 
     const check = await checkBudget('DEMOTE_PROVIDER_ROUTE', policy);
     if (check.requiresConfirmation) {
+      // *** Problem 2 FIX: Check for existing PLANNED action before creating duplicate ***
+      const { data: existingProposal } = await (supabase
+        .from('atenia_ai_actions') as any)
+        .select('id, created_at')
+        .eq('action_type', 'DEMOTE_PROVIDER_ROUTE')
+        .eq('status', 'PLANNED')
+        .eq('provider', provider)
+        .maybeSingle();
+
+      if (existingProposal) {
+        // Update existing proposal with latest metrics instead of creating duplicate
+        await (supabase.from('atenia_ai_actions') as any)
+          .update({
+            reasoning: `Proveedor ${provider} degradado: tasa de error ${Math.round(errorRate * 100)}%, latencia promedio ${Math.round(avgLatency)}ms en últimas 2 horas. Se recomienda reducir prioridad temporalmente. (Actualizado: ${new Date().toLocaleTimeString('es-CO')})`,
+            evidence: { errorRate, avgLatency, sampleSize: total, updated_at: new Date().toISOString() },
+          })
+          .eq('id', existingProposal.id);
+
+        plans.push({
+          action_type: 'DEMOTE_PROVIDER_ROUTE',
+          status: 'PLANNED',
+          reason: `Propuesta existente actualizada: ${provider} (error ${Math.round(errorRate * 100)}%)`,
+          provider,
+        });
+        continue;
+      }
+
       // Create PLANNED action for admin review
       await logAutonomyAction(orgId, {
         action_type: 'DEMOTE_PROVIDER_ROUTE',
