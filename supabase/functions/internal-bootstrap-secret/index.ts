@@ -42,7 +42,19 @@ Deno.serve(async (req) => {
     const adminClient = createClient(supabaseUrl, svcKey);
 
     const body = await req.json();
-    const { instance_id, secret_value, enable = true } = body;
+    const { instance_id, secret_value, enable = true, action } = body;
+
+    // Generate a proper AES-256 key (for setting up ATENIA_SECRETS_KEY_B64)
+    if (action === "generate_key") {
+      const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+      let binary = '';
+      for (let i = 0; i < keyBytes.length; i++) binary += String.fromCharCode(keyBytes[i]);
+      const b64Key = btoa(binary);
+      return new Response(
+        JSON.stringify({ ok: true, key_b64: b64Key, length_bytes: 32 }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     if (!instance_id || !secret_value) {
       return new Response(
