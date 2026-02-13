@@ -175,7 +175,7 @@ export default function Settings() {
         </p>
       </div>
 
-      <Tabs defaultValue={isAdmin ? "admin" : "ticker"} className="space-y-6">
+      <Tabs defaultValue={isAdmin ? "admin" : "subscription"} className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
@@ -183,14 +183,19 @@ export default function Settings() {
                 <Shield className="h-4 w-4 mr-1" />
                 Administración de Cuenta
               </TabsTrigger>
-              <TabsTrigger value="subscription">
-                <Crown className="h-4 w-4 mr-1" />
-                Suscripción
-              </TabsTrigger>
-              <TabsTrigger value="billing">
-                <CreditCard className="h-4 w-4 mr-1" />
-                Facturación
-              </TabsTrigger>
+            </>
+          )}
+          {/* Subscription & Billing: visible to all, write actions gated inside */}
+          <TabsTrigger value="subscription">
+            <Crown className="h-4 w-4 mr-1" />
+            Suscripción
+          </TabsTrigger>
+          <TabsTrigger value="billing">
+            <CreditCard className="h-4 w-4 mr-1" />
+            Facturación
+          </TabsTrigger>
+          {isAdmin && (
+            <>
               <TabsTrigger value="members">
                 <Users className="h-4 w-4 mr-1" />
                 Miembros
@@ -229,19 +234,23 @@ export default function Settings() {
         </TabsList>
 
         {isAdmin && (
+          <TabsContent value="admin">
+            <AdminConsole />
+          </TabsContent>
+        )}
+
+        {/* Subscription: read-only for all users */}
+        <TabsContent value="subscription">
+          <SubscriptionManagement />
+        </TabsContent>
+
+        {/* Billing: visible to all, write actions gated inside the component */}
+        <TabsContent value="billing">
+          <BillingTab />
+        </TabsContent>
+
+        {isAdmin && (
           <>
-            <TabsContent value="admin">
-              <AdminConsole />
-            </TabsContent>
-
-            <TabsContent value="subscription">
-              <SubscriptionManagement />
-            </TabsContent>
-
-            <TabsContent value="billing">
-              <BillingTab />
-            </TabsContent>
-
             <TabsContent value="members">
               <MembershipManagement />
             </TabsContent>
