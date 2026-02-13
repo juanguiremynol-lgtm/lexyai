@@ -476,6 +476,7 @@ export function CourthouseEmailDisplay({ workItem }: CourthouseEmailDisplayProps
     method === "auto_radicado" ? "Verificado con radicado" :
     method === "auto_code" ? "Código exacto" :
     method === "auto_fuzzy" ? "Resolución automática" :
+    method === "auto_name_fallback" ? "Verificado por nombre" :
     method === "exact_code" ? "Código exacto" :
     method === "exact_name" ? "Nombre exacto" :
     method === "manual_override" ? "Selección manual" :
