@@ -117,11 +117,175 @@ function getProviderOrder(workflowType: string): ProviderConfig {
       // Penal 906 - CPNU primary, SAMAI fallback (aligned with sync-by-work-item)
       return { primary: 'CPNU', fallback: 'SAMAI', fallbackEnabled: true };
     case 'LABORAL':
-    case 'PENAL_906':
     default:
       // Civil/Labor/Penal - CPNU only, no fallback (SAMAI doesn't have these)
       return { primary: 'CPNU', fallbackEnabled: false };
   }
+}
+
+// ============= DANE/DIVIPOLA ENRICHMENT =============
+
+/**
+ * Top Colombian municipalities by DANE code (dept 2 digits + municipality 3 digits).
+ * Used to derive city/department from radicado when provider doesn't return them.
+ */
+const DANE_CITIES: Record<string, { city: string; department: string }> = {
+  "05001": { city: "Medellín", department: "Antioquia" },
+  "05002": { city: "Abejorral", department: "Antioquia" },
+  "05045": { city: "Apartadó", department: "Antioquia" },
+  "05088": { city: "Bello", department: "Antioquia" },
+  "05148": { city: "Carmen de Viboral", department: "Antioquia" },
+  "05154": { city: "Caucasia", department: "Antioquia" },
+  "05172": { city: "Chigorodó", department: "Antioquia" },
+  "05212": { city: "Copacabana", department: "Antioquia" },
+  "05237": { city: "Don Matías", department: "Antioquia" },
+  "05250": { city: "El Bagre", department: "Antioquia" },
+  "05266": { city: "Envigado", department: "Antioquia" },
+  "05308": { city: "Girardota", department: "Antioquia" },
+  "05360": { city: "Itagüí", department: "Antioquia" },
+  "05380": { city: "La Estrella", department: "Antioquia" },
+  "05440": { city: "Marinilla", department: "Antioquia" },
+  "05615": { city: "Rionegro", department: "Antioquia" },
+  "05631": { city: "Sabaneta", department: "Antioquia" },
+  "05736": { city: "Segovia", department: "Antioquia" },
+  "05756": { city: "Sonsón", department: "Antioquia" },
+  "05790": { city: "Tarazá", department: "Antioquia" },
+  "05837": { city: "Turbo", department: "Antioquia" },
+  "05842": { city: "Uramita", department: "Antioquia" },
+  "08001": { city: "Barranquilla", department: "Atlántico" },
+  "08433": { city: "Malambo", department: "Atlántico" },
+  "08638": { city: "Sabanalarga", department: "Atlántico" },
+  "08758": { city: "Soledad", department: "Atlántico" },
+  "11001": { city: "Bogotá D.C.", department: "Bogotá D.C." },
+  "13001": { city: "Cartagena", department: "Bolívar" },
+  "13430": { city: "Magangué", department: "Bolívar" },
+  "15001": { city: "Tunja", department: "Boyacá" },
+  "15238": { city: "Duitama", department: "Boyacá" },
+  "15759": { city: "Sogamoso", department: "Boyacá" },
+  "17001": { city: "Manizales", department: "Caldas" },
+  "18001": { city: "Florencia", department: "Caquetá" },
+  "19001": { city: "Popayán", department: "Cauca" },
+  "20001": { city: "Valledupar", department: "Cesar" },
+  "23001": { city: "Montería", department: "Córdoba" },
+  "25001": { city: "Agua de Dios", department: "Cundinamarca" },
+  "25175": { city: "Chía", department: "Cundinamarca" },
+  "25269": { city: "Facatativá", department: "Cundinamarca" },
+  "25286": { city: "Funza", department: "Cundinamarca" },
+  "25290": { city: "Fusagasugá", department: "Cundinamarca" },
+  "25307": { city: "Girardot", department: "Cundinamarca" },
+  "25430": { city: "Madrid", department: "Cundinamarca" },
+  "25473": { city: "Mosquera", department: "Cundinamarca" },
+  "25754": { city: "Soacha", department: "Cundinamarca" },
+  "25899": { city: "Zipaquirá", department: "Cundinamarca" },
+  "27001": { city: "Quibdó", department: "Chocó" },
+  "41001": { city: "Neiva", department: "Huila" },
+  "44001": { city: "Riohacha", department: "La Guajira" },
+  "47001": { city: "Santa Marta", department: "Magdalena" },
+  "50001": { city: "Villavicencio", department: "Meta" },
+  "52001": { city: "Pasto", department: "Nariño" },
+  "52835": { city: "Tumaco", department: "Nariño" },
+  "54001": { city: "Cúcuta", department: "Norte de Santander" },
+  "54874": { city: "Villa del Rosario", department: "Norte de Santander" },
+  "63001": { city: "Armenia", department: "Quindío" },
+  "66001": { city: "Pereira", department: "Risaralda" },
+  "66170": { city: "Dosquebradas", department: "Risaralda" },
+  "68001": { city: "Bucaramanga", department: "Santander" },
+  "68081": { city: "Barrancabermeja", department: "Santander" },
+  "68276": { city: "Floridablanca", department: "Santander" },
+  "68307": { city: "Girón", department: "Santander" },
+  "68547": { city: "Piedecuesta", department: "Santander" },
+  "70001": { city: "Sincelejo", department: "Sucre" },
+  "73001": { city: "Ibagué", department: "Tolima" },
+  "76001": { city: "Cali", department: "Valle del Cauca" },
+  "76109": { city: "Buenaventura", department: "Valle del Cauca" },
+  "76111": { city: "Guadalajara de Buga", department: "Valle del Cauca" },
+  "76147": { city: "Cartago", department: "Valle del Cauca" },
+  "76364": { city: "Jamundí", department: "Valle del Cauca" },
+  "76520": { city: "Palmira", department: "Valle del Cauca" },
+  "76834": { city: "Tuluá", department: "Valle del Cauca" },
+  "76892": { city: "Yumbo", department: "Valle del Cauca" },
+  "81001": { city: "Arauca", department: "Arauca" },
+  "85001": { city: "Yopal", department: "Casanare" },
+  "86001": { city: "Mocoa", department: "Putumayo" },
+  "88001": { city: "San Andrés", department: "San Andrés y Providencia" },
+  "91001": { city: "Leticia", department: "Amazonas" },
+  "94001": { city: "Inírida", department: "Guainía" },
+  "95001": { city: "San José del Guaviare", department: "Guaviare" },
+  "97001": { city: "Mitú", department: "Vaupés" },
+  "99001": { city: "Puerto Carreño", department: "Vichada" },
+};
+
+/** Department names by 2-digit code (fallback when specific municipality isn't in DANE_CITIES) */
+const DEPT_NAMES: Record<string, string> = {
+  "05": "Antioquia", "08": "Atlántico", "11": "Bogotá D.C.", "13": "Bolívar",
+  "15": "Boyacá", "17": "Caldas", "18": "Caquetá", "19": "Cauca",
+  "20": "Cesar", "23": "Córdoba", "25": "Cundinamarca", "27": "Chocó",
+  "41": "Huila", "44": "La Guajira", "47": "Magdalena", "50": "Meta",
+  "52": "Nariño", "54": "Norte de Santander", "63": "Quindío", "66": "Risaralda",
+  "68": "Santander", "70": "Sucre", "73": "Tolima", "76": "Valle del Cauca",
+  "81": "Arauca", "85": "Casanare", "86": "Putumayo", "88": "San Andrés y Providencia",
+  "91": "Amazonas", "94": "Guainía", "95": "Guaviare", "97": "Vaupés", "99": "Vichada",
+};
+
+/** Specialty codes (ESP 2 digits) to human-readable jurisdiction */
+const ESP_NAMES: Record<string, string> = {
+  "33": "Administrativo", "23": "Administrativo", "31": "Civil",
+  "40": "Civil", "41": "Familia", "42": "Laboral", "43": "Penal",
+  "44": "Penal", "89": "Promiscuo",
+};
+
+/**
+ * Enrich process data using radicado block analysis when provider didn't return fields.
+ * Parses the DANE code from the radicado to derive city, department, and specialty.
+ */
+function enrichFromRadicado(radicado: string, processData: ProcessData): ProcessData {
+  if (!radicado || radicado.length !== 23) return processData;
+
+  const dane5 = radicado.slice(0, 5);
+  const deptCode = radicado.slice(0, 2);
+  const espCode = radicado.slice(7, 9);
+  const despCode = radicado.slice(9, 12);
+  const yearCode = radicado.slice(12, 16);
+
+  const enriched = { ...processData };
+
+  // Enrich city + department from DANE code
+  if (!enriched.ciudad || !enriched.departamento) {
+    const lookup = DANE_CITIES[dane5];
+    if (lookup) {
+      if (!enriched.ciudad) enriched.ciudad = lookup.city;
+      if (!enriched.departamento) enriched.departamento = lookup.department;
+    } else {
+      // Fallback: at least get department name
+      if (!enriched.departamento) enriched.departamento = DEPT_NAMES[deptCode] || undefined;
+    }
+  }
+
+  // Enrich despacho: if it's just a numeric code, build a readable name
+  if (enriched.despacho && /^\d+$/.test(enriched.despacho.trim())) {
+    const espName = ESP_NAMES[espCode] || "Judicial";
+    const despNum = parseInt(despCode, 10);
+    const cityName = enriched.ciudad || DANE_CITIES[dane5]?.city || "";
+    if (despNum === 0) {
+      // Collegiate body (Tribunal/Corte)
+      enriched.despacho = `Tribunal ${espName}${cityName ? " de " + cityName : ""}`;
+    } else {
+      enriched.despacho = `Juzgado ${despNum} ${espName}${cityName ? " de " + cityName : ""}`;
+    }
+  }
+
+  // Enrich tipo_proceso from specialty code
+  if (!enriched.tipo_proceso && espCode) {
+    enriched.tipo_proceso = ESP_NAMES[espCode] || undefined;
+  }
+
+  // Derive filing date from radicado year if not provided
+  if (!enriched.fecha_radicacion && yearCode) {
+    // We only know the year, not the exact date
+    enriched.fecha_radicacion = `${yearCode}-01-01`;
+  }
+
+  return enriched;
 }
 
 // ============= HELPERS =============
@@ -1335,6 +1499,13 @@ Deno.serve(async (req) => {
       }
     }
     } // end non-TUTELA else block
+
+    // ============= ENRICH FROM RADICADO BLOCKS =============
+    // Fill missing city, department, despacho name, tipo_proceso from radicado structure
+    if (foundInSource) {
+      processData = enrichFromRadicado(radicado, processData);
+      console.log(`[sync-by-radicado] Post-enrichment: despacho="${processData.despacho}", ciudad="${processData.ciudad}", dept="${processData.departamento}", tipo="${processData.tipo_proceso}"`);
+    }
 
     // Classify FILING vs PROCESS
     const { hasAutoAdmisorio, reason: classificationReason } = detectAutoAdmisorio(

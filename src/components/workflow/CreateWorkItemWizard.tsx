@@ -201,15 +201,18 @@ export function CreateWorkItemWizard({
       setAuthorityName(data.despacho || '');
       setAuthorityCity(data.ciudad || '');
       if (data.departamento) setAuthorityDepartment(data.departamento);
-      setDemandantes(data.demandante || '');
-      setDemandados(data.demandado || '');
+      
+      // Normalize pipe-separated party names to comma-separated
+      const normParties = (raw: string | undefined) => raw?.replace(/\s*\|\s*/g, ', ') || '';
+      setDemandantes(normParties(data.demandante));
+      setDemandados(normParties(data.demandado));
       
       // Auto-generate title from provider data
       if (!title) {
         const parts: string[] = [];
         if (workflowType) parts.push(WORKFLOW_TYPES[workflowType]?.shortLabel || workflowType);
-        const plaintiff = data.demandante?.split(',')[0]?.trim();
-        const defendant = data.demandado?.split(',')[0]?.trim();
+        const plaintiff = normParties(data.demandante).split(',')[0]?.trim();
+        const defendant = normParties(data.demandado).split(',')[0]?.trim();
         if (plaintiff && defendant) {
           parts.push(`${plaintiff} vs ${defendant}`);
         } else if (plaintiff) {
@@ -225,6 +228,20 @@ export function CreateWorkItemWizard({
         setCgpPhase(lookupResult.cgp_phase);
       }
       
+      // Set CPACA medio de control from clase_proceso
+      if (workflowType === 'CPACA' && (data.clase_proceso || data.tipo_proceso)) {
+        const claseRaw = (data.clase_proceso || data.tipo_proceso || '').toUpperCase();
+        // Try to match against known medios de control
+        const entries = Object.entries(MEDIOS_DE_CONTROL) as [MedioDeControl, { label: string }][];
+        const match = entries.find(([, v]) => 
+          claseRaw.includes(v.label.toUpperCase()) || 
+          v.label.toUpperCase().includes(claseRaw)
+        );
+        if (match) {
+          setMedioDeControl(match[0]);
+        }
+      }
+      
       // Set filing date if available
       if (data.fecha_radicacion) {
         if (workflowType === 'TUTELA') {
@@ -236,7 +253,7 @@ export function CreateWorkItemWizard({
       
       // Set accionado for Tutelas
       if (workflowType === 'TUTELA' && data.demandado) {
-        setAccionado(data.demandado);
+        setAccionado(normParties(data.demandado));
       }
     }
   }, [lookupResult, lookupStatus, workflowType, title]);

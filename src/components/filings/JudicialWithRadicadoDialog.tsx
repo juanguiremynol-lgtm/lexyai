@@ -267,17 +267,18 @@ export function JudicialWithRadicadoDialog({
 
     const auto = new Set<string>();
     const updates: Partial<FormData> = {};
+    const normParties = (raw: string | undefined) => raw?.replace(/\s*\|\s*/g, ', ') || '';
 
     if (pd.despacho) { updates.authorityName = pd.despacho; auto.add("authorityName"); }
     if (pd.ciudad) { updates.authorityCity = pd.ciudad; auto.add("authorityCity"); }
     if (pd.departamento) { updates.authorityDepartment = pd.departamento; auto.add("authorityDepartment"); }
-    if (pd.demandante) { updates.plaintiff = pd.demandante; auto.add("plaintiff"); }
-    if (pd.demandado) { updates.defendant = pd.demandado; auto.add("defendant"); }
-    if (pd.tipo_proceso) { updates.subtype = pd.tipo_proceso; auto.add("subtype"); }
+    if (pd.demandante) { updates.plaintiff = normParties(pd.demandante); auto.add("plaintiff"); }
+    if (pd.demandado) { updates.defendant = normParties(pd.demandado); auto.add("defendant"); }
+    if (pd.tipo_proceso || pd.clase_proceso) { updates.subtype = pd.clase_proceso || pd.tipo_proceso || ''; auto.add("subtype"); }
 
     if (pd.demandante && pd.demandado) {
-      const d1 = pd.demandante.split(/[,|]/)[0].trim().split(" ").slice(0, 2).join(" ");
-      const d2 = pd.demandado.split(/[,|]/)[0].trim().split(" ").slice(0, 3).join(" ");
+      const d1 = normParties(pd.demandante).split(/[,|]/)[0].trim().split(" ").slice(0, 2).join(" ");
+      const d2 = normParties(pd.demandado).split(/[,|]/)[0].trim().split(" ").slice(0, 3).join(" ");
       const prefix = workflowKey === "TUTELA" ? "Tutela" : config.label;
       updates.title = `${prefix} ${d1} vs ${d2}`;
       auto.add("title");
