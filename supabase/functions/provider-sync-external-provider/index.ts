@@ -52,6 +52,21 @@ function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(clean.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
 }
 
+/** Parse bytea value from Supabase — handles both hex strings and JSON-serialized Uint8Array */
+function parseBytea(val: unknown): Uint8Array {
+  if (typeof val === "string") {
+    return hexToBytes(val);
+  }
+  // JSON-serialized Uint8Array: {"0":63,"1":22,...}
+  if (val && typeof val === "object" && !ArrayBuffer.isView(val)) {
+    const obj = val as Record<string, number>;
+    const keys = Object.keys(obj).map(Number).sort((a, b) => a - b);
+    return new Uint8Array(keys.map(k => obj[String(k)]));
+  }
+  if (val instanceof Uint8Array) return val;
+  throw new Error("Cannot parse bytea value");
+}
+
 async function hashPayload(payload: unknown): Promise<string> {
   const text = JSON.stringify(payload);
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -276,7 +291,7 @@ Deno.serve(async (req) => {
     }
 
     // Secret loaded successfully
-    const decrypted = await decryptSecret(hexToBytes(secretRow.cipher_text), hexToBytes(secretRow.nonce));
+    const decrypted = await decryptSecret(parseBytea(secretRow.cipher_text), parseBytea(secretRow.nonce));
     
     await writeTrace(db, runId, source, instance, "SECRET_LOADED", "OK", true, 0, {
       secret_id: secretRow.id,
