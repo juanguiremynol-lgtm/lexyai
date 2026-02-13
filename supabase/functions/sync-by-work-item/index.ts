@@ -4244,17 +4244,20 @@ Deno.serve(async (req) => {
             const extData = await extResp.json().catch(() => ({}));
             const extLatency = Date.now() - extStart;
 
+            const dataKind = extData.data_kind || 'actuaciones';
+            const insertedCount = extData[`inserted_${dataKind}`] || extData.inserted_actuaciones || extData.inserted_estados || 0;
+
             result.provider_attempts.push({
               provider: `ext:${connectorName}`,
               status: extData.ok ? 'success' : (extData.empty ? 'empty' : 'error'),
               latencyMs: extLatency,
-              message: extData.error || (extData.ok ? `External sync OK` : undefined),
-              actuacionesCount: extData.inserted_count || 0,
+              message: extData.error || (extData.ok ? `External sync OK (${dataKind})` : undefined),
+              actuacionesCount: insertedCount,
             });
 
-            if (extData.ok && extData.inserted_count > 0) {
-              result.inserted_count += extData.inserted_count || 0;
-              result.warnings.push(`External ${connectorName}: +${extData.inserted_count} records`);
+            if (extData.ok && insertedCount > 0) {
+              result.inserted_count += insertedCount;
+              result.warnings.push(`External ${connectorName}: +${insertedCount} ${dataKind}`);
             }
 
             await logTrace(supabase, {

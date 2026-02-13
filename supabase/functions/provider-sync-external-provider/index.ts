@@ -211,10 +211,16 @@ Deno.serve(async (req) => {
 
     // ── Stage 1: SNAPSHOT_FETCHED ──
     const snapshotUrl = `${instance.base_url.replace(/\/$/, "")}/snapshot`;
+    // Determine what data this connector provides based on capabilities
+    const caps: string[] = connector?.capabilities || ["ACTUACIONES"];
+    const isEstadosProvider = caps.includes("get_estados");
+    const includeParam = isEstadosProvider ? ["ESTADOS"] : caps.filter((c: string) => ["ACTUACIONES", "PUBLICACIONES", "ESTADOS"].includes(c.toUpperCase()));
+    if (includeParam.length === 0) includeParam.push("ACTUACIONES");
+
     const snapshotBody = JSON.stringify({
       provider_case_id: source.provider_case_id,
       since: source.last_synced_at || null,
-      include: connector?.capabilities || ["ACTUACIONES"],
+      include: includeParam,
     });
     const headers = await buildAuthHeaders({
       instance: providerInfo,
@@ -274,8 +280,10 @@ Deno.serve(async (req) => {
       snapshot_format: parsedResult.format,
       parse_ok: parsedResult.ok,
       parse_warnings: parsedResult.warnings.length,
+      has_estados: !!(snapData.estados || parsedResult.snapshot?.estados?.length),
       has_actuaciones: !!(snapData.actuaciones || parsedResult.snapshot?.actuaciones?.length),
       has_publicaciones: !!(snapData.publicaciones || parsedResult.snapshot?.publicaciones),
+      is_estados_provider: isEstadosProvider,
     });
 
     // ── Stage 2: RAW_SAVED — always persist raw snapshot ──
@@ -318,7 +326,13 @@ Deno.serve(async (req) => {
     let rawStatus = "OK";
     if (!snapRes.ok || snapData.ok !== true) rawStatus = "ERROR";
     if (snapData.scraping_initiated || isTransientError(normalizedCode)) rawStatus = "PENDING";
-    const acts = (effectiveData as any).actuaciones || [];
+    // Extract data — SAMAI Estados returns "estados" key, not "actuaciones"
+    // Estados are legally distinct from actuaciones but stored in work_item_acts
+    // with source='SAMAI_ESTADOS' and act_type='ESTADO' for proper differentiation
+    const rawEstados = (effectiveData as any).estados || [];
+    const rawActuaciones = (effectiveData as any).actuaciones || [];
+    // If this is an estados provider, use estados data; otherwise use actuaciones
+    const acts = isEstadosProvider && rawEstados.length > 0 ? rawEstados : rawActuaciones;
     const pubs = (effectiveData as any).publicaciones || [];
     if (snapRes.ok && (snapData.ok === true || parsedResult.ok) && acts.length === 0 && pubs.length === 0) rawStatus = "EMPTY";
     if (isStrict404Code(normalizedCode)) rawStatus = "ERROR";
@@ -510,6 +524,14 @@ Deno.serve(async (req) => {
       const normalized = await normalizeActuaciones(
         acts, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
+      // Tag estados records with proper source and type for differentiation
+      if (isEstadosProvider) {
+        for (const record of normalized) {
+          record.source = "SAMAI_ESTADOS";
+          record.act_type = "ESTADO";
+          record.source_platform = "SAMAI_ESTADOS";
+        }
+      }
       const { data: inserted } = await db
         .from("work_item_acts")
         .upsert(normalized, { onConflict: "hash_fingerprint", ignoreDuplicates: true })
@@ -595,10 +617,13 @@ Deno.serve(async (req) => {
       await writeTrace(db, runId, source, instance, "SECURITY", "WARN", true, 0, { warnings: securityWarnings });
     }
 
+    const dataKindLabel = isEstadosProvider ? "estados" : "actuaciones";
+
     await writeTrace(db, runId, source, instance, "TERMINAL", "OK", true, Date.now() - startTime, {
       outcome: "OK",
-      actuaciones_received: acts.length,
-      actuaciones_inserted: insertedActs,
+      data_kind: dataKindLabel,
+      [`${dataKindLabel}_received`]: acts.length,
+      [`${dataKindLabel}_inserted`]: insertedActs,
       publicaciones_received: pubs.length,
       publicaciones_inserted: insertedPubs,
       extras_written: extrasWritten,
@@ -610,14 +635,15 @@ Deno.serve(async (req) => {
       organization_id: source.organization_id,
       action_type: "PROVIDER_SYNC_COMPLETED",
       autonomy_tier: "SYSTEM",
-      reasoning: `Synced ${insertedActs} actuaciones + ${insertedPubs} publicaciones from "${instance.name}"`,
+      reasoning: `Synced ${insertedActs} ${dataKindLabel} + ${insertedPubs} publicaciones from "${instance.name}"`,
       target_entity_type: "work_item_source",
       target_entity_id: source.id,
       evidence: {
         work_item_id: workItem.id,
         provider_instance_id: instance.id,
-        actuaciones_received: acts.length,
-        actuaciones_inserted: insertedActs,
+        data_kind: dataKindLabel,
+        [`${dataKindLabel}_received`]: acts.length,
+        [`${dataKindLabel}_inserted`]: insertedActs,
         publicaciones_received: pubs.length,
         publicaciones_inserted: insertedPubs,
         extras_written: extrasWritten,
@@ -629,7 +655,8 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true,
-        inserted_actuaciones: insertedActs,
+        data_kind: dataKindLabel,
+        [`inserted_${dataKindLabel}`]: insertedActs,
         inserted_publicaciones: insertedPubs,
         extras_written: extrasWritten,
         snapshot_id: snapshotId,
