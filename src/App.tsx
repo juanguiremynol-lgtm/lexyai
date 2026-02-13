@@ -58,7 +58,6 @@ import {
   PlatformAuditPage,
   PlatformEmailOpsPage,
   PlatformSystemPage,
-  PlatformApiDebugPage,
   PlatformAteniaAIPage,
   PlatformCourthouseDirectoryPage,
   PlatformExternalProvidersPage,
@@ -213,7 +212,7 @@ const App = () => (
             <Route path="audit" element={<ErrorBoundary><PlatformAuditPage /></ErrorBoundary>} />
             <Route path="email-ops" element={<ErrorBoundary><PlatformEmailOpsPage /></ErrorBoundary>} />
             <Route path="system" element={<ErrorBoundary><PlatformSystemPage /></ErrorBoundary>} />
-            <Route path="api-debug" element={<ErrorBoundary><PlatformApiDebugPage /></ErrorBoundary>} />
+            <Route path="api-debug" element={<Navigate to="/platform/atenia-ai" replace />} />
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
             <Route path="external-providers" element={<Navigate to="/platform/external-providers/wizard" replace />} />
