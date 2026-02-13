@@ -1,17 +1,13 @@
 /**
  * Billing Daily Status Cron
  * 
- * Runs periodically (e.g. every hour or daily) to auto-transition subscription statuses:
+ * Runs periodically to auto-transition subscription statuses:
+ *   TRIAL → ACTIVE/PAST_DUE/SUSPENDED (when trial ends)
  *   ACTIVE → PAST_DUE (when past due date, within grace)
  *   PAST_DUE → SUSPENDED (when grace period expired)
  * 
  * Uses the same pure billing state logic as the frontend.
  * Super admins / comped accounts are exempt from suspension.
- * 
- * POST body (optional):
- *   { "dry_run": true }  — preview transitions without executing
- *   { "organization_id": "..." } — process only a specific org
- *   { "limit": 200 } — max orgs to process (default 200)
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -55,6 +51,53 @@ function computeStatusTransition(input: BillingStateInput, now: Date): StatusTra
     if (now < compedEnd) return null;
   }
 
+  // ── TRIAL LOGIC ──
+  if (input.trialEndAt && !input.currentPeriodEnd) {
+    const trialEnd = new Date(input.trialEndAt);
+    const trialDiffMs = trialEnd.getTime() - now.getTime();
+    const trialDiffDays = Math.ceil(trialDiffMs / (1000 * 60 * 60 * 24));
+
+    if (trialDiffDays > 0) {
+      // Still in trial, no transition
+      if (currentStatus !== "TRIAL") {
+        return {
+          newStatus: "TRIAL",
+          reason: "Cuenta en período de prueba.",
+          shouldSuspend: false,
+          shouldNotify: false,
+        };
+      }
+      return null;
+    }
+
+    // Trial has ended - need to transition
+    // The trial_end_at IS the first due date
+    const daysOverdue = Math.max(0, -trialDiffDays);
+    const beyondGrace = daysOverdue > GRACE_PERIOD_DAYS;
+    const inGrace = daysOverdue > 0 && daysOverdue <= GRACE_PERIOD_DAYS;
+
+    if (beyondGrace) {
+      if (currentStatus === "SUSPENDED") return null;
+      return {
+        newStatus: "SUSPENDED",
+        reason: "Período de prueba finalizado. Cuenta suspendida por falta de pago.",
+        shouldSuspend: true,
+        shouldNotify: true,
+      };
+    }
+
+    if (inGrace || trialDiffDays === 0) {
+      if (currentStatus === "PAST_DUE") return null;
+      return {
+        newStatus: "PAST_DUE",
+        reason: `Período de prueba finalizado. Pago vencido. Período de gracia de ${GRACE_PERIOD_DAYS} días.`,
+        shouldSuspend: false,
+        shouldNotify: true,
+      };
+    }
+  }
+
+  // ── BILLING PERIOD LOGIC ──
   const dueDateStr = input.currentPeriodEnd || input.trialEndAt;
   if (!dueDateStr) return null;
 
@@ -66,19 +109,15 @@ function computeStatusTransition(input: BillingStateInput, now: Date): StatusTra
   const beyondGrace = daysOverdue > GRACE_PERIOD_DAYS;
   const inGrace = daysOverdue > 0 && daysOverdue <= GRACE_PERIOD_DAYS;
 
-  // Determine computed status
   let computedStatus: BillingStatus;
   if (beyondGrace || input.status === "SUSPENDED") {
     computedStatus = "SUSPENDED";
   } else if (inGrace || diffDays === 0) {
     computedStatus = "PAST_DUE";
-  } else if (input.status === "TRIAL" || (!input.currentPeriodEnd && input.trialEndAt)) {
-    computedStatus = "TRIAL";
   } else {
     computedStatus = "ACTIVE";
   }
 
-  // No change needed
   if (computedStatus === currentStatus) return null;
 
   // ACTIVE → PAST_DUE
@@ -126,7 +165,7 @@ Deno.serve(async (req) => {
     const limit = body.limit || 200;
     const now = new Date();
 
-    // Fetch all active/past_due billing subscriptions
+    // Fetch all non-terminal billing subscriptions
     let query = supabase
       .from("billing_subscription_state")
       .select("organization_id, status, current_period_end, trial_end_at, comped_until_at, suspended_at")
@@ -153,7 +192,6 @@ Deno.serve(async (req) => {
     
     const adminUserIds = new Set((platformAdmins || []).map(a => a.user_id));
 
-    // Get org owners to check if they're platform admins
     const orgIds = subscriptions.map(s => s.organization_id);
     const { data: orgOwners } = await supabase
       .from("organization_memberships")
@@ -172,7 +210,6 @@ Deno.serve(async (req) => {
     let transitionCount = 0;
 
     for (const sub of subscriptions) {
-      // Skip platform admin orgs
       if (exemptOrgIds.has(sub.organization_id)) {
         results.push({
           organization_id: sub.organization_id,
@@ -192,9 +229,7 @@ Deno.serve(async (req) => {
 
       const transition = computeStatusTransition(input, now);
 
-      if (!transition) {
-        continue; // No transition needed
-      }
+      if (!transition) continue;
 
       if (dryRun) {
         results.push({
@@ -208,7 +243,6 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Execute transition
       const updateData: Record<string, unknown> = {
         status: transition.newStatus,
         updated_at: now.toISOString(),
@@ -234,7 +268,8 @@ Deno.serve(async (req) => {
 
       // Also update legacy subscriptions table
       const legacyStatus = transition.newStatus === "PAST_DUE" ? "past_due" :
-                           transition.newStatus === "SUSPENDED" ? "suspended" : "active";
+                           transition.newStatus === "SUSPENDED" ? "suspended" :
+                           transition.newStatus === "TRIAL" ? "trialing" : "active";
       await supabase
         .from("subscriptions")
         .update({ status: legacyStatus })

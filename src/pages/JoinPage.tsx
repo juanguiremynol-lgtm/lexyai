@@ -7,7 +7,12 @@ import { Label } from "@/components/ui/label";
 import { User, Building2, ArrowRight, Sparkles, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { useGraceEnroll, isWithinGracePeriod, getGraceDaysRemaining } from "@/lib/billing";
+import { useGraceEnroll } from "@/lib/billing";
+import {
+  TRIAL_DURATION_MONTHS,
+  BETA_DISCOUNT_MONTHLY_PERCENT,
+  BETA_DISCOUNT_ANNUAL_PERCENT,
+} from "@/lib/billing/pricing-windows";
 import type { AccountType } from "@/types/billing";
 import { toast } from "sonner";
 
@@ -20,8 +25,6 @@ export default function JoinPage() {
   const [isLoading, setIsLoading] = useState(false);
   
   const graceEnroll = useGraceEnroll();
-  const inGracePeriod = isWithinGracePeriod();
-  const graceDaysRemaining = getGraceDaysRemaining();
 
   useEffect(() => {
     document.title = "Únete a ATENIA";
@@ -31,7 +34,6 @@ export default function JoinPage() {
       setIsAuthenticated(!!session);
       
       if (session) {
-        // Get user's organization
         const { data: profile } = await supabase
           .from("profiles")
           .select("organization_id")
@@ -46,7 +48,6 @@ export default function JoinPage() {
     
     checkAuth();
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setIsAuthenticated(!!session);
       if (session) {
@@ -59,7 +60,6 @@ export default function JoinPage() {
 
   const handleContinue = async () => {
     if (!isAuthenticated) {
-      // Redirect to auth with account type stored
       navigate(`/auth?next=/join/start&accountType=${accountType}`);
       return;
     }
@@ -69,7 +69,6 @@ export default function JoinPage() {
       return;
     }
 
-    // Enroll in grace period
     setIsLoading(true);
     try {
       const result = await graceEnroll.mutateAsync({
@@ -79,12 +78,12 @@ export default function JoinPage() {
 
       if (result.ok) {
         toast.success("¡Bienvenido a ATENIA!", {
-          description: "Tu cuenta ha sido activada con acceso gratuito.",
+          description: `Tu prueba gratuita de ${TRIAL_DURATION_MONTHS} meses ha sido activada.`,
         });
         navigate("/dashboard");
       }
     } catch (error) {
-      console.error("Grace enroll error:", error);
+      console.error("Trial enroll error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -106,17 +105,15 @@ export default function JoinPage() {
           </p>
         </div>
 
-        {/* Grace period banner */}
-        {inGracePeriod && (
-          <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4 text-center">
-            <p className="text-emerald-700 dark:text-emerald-300 font-medium">
-              🎉 Período de gracia activo
-            </p>
-            <p className="text-sm text-emerald-600 dark:text-emerald-400">
-              Disfruta de acceso gratuito por {graceDaysRemaining} días más. Sin tarjeta de crédito.
-            </p>
-          </div>
-        )}
+        {/* Beta trial banner */}
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 text-center space-y-1">
+          <p className="text-primary font-medium">
+            🎉 Prueba beta gratuita de {TRIAL_DURATION_MONTHS} meses
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Sin tarjeta de crédito. Después: {BETA_DISCOUNT_MONTHLY_PERCENT}% off mensual, {BETA_DISCOUNT_ANNUAL_PERCENT}% off anual.
+          </p>
+        </div>
 
         {/* Account type selection */}
         <Card className="bg-card/80 backdrop-blur-sm">
@@ -219,7 +216,7 @@ export default function JoinPage() {
                 "Procesando..."
               ) : isAuthenticated ? (
                 <>
-                  Activar cuenta
+                  Activar prueba gratuita
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </>
               ) : (

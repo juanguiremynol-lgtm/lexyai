@@ -2,22 +2,27 @@
  * RenewalTicker — Fixed top/bottom banners for payment renewal urgency
  * 
  * Shows contextual banners based on billing urgency:
+ * - Trial ending (1-5 days): single top ticker (informational, no pay CTA)
  * - Pre-due (1-5 days): single top ticker
  * - Due today: top + bottom tickers
  * - Grace period: top + bottom tickers (red)
  * - Suspended: top + bottom tickers (blocked)
+ * 
+ * NO tickers during active trial (urgency = "none")
  */
 
-import { AlertTriangle, Clock, CreditCard, XCircle, Info } from 'lucide-react';
+import { AlertTriangle, Clock, CreditCard, XCircle, Info, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRenewalStatus, type RenewalUrgency } from '@/hooks/use-renewal-status';
 import { useCreateCheckoutSessionV2 } from '@/lib/billing/hooks';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
 import type { PlanCode } from '@/types/billing';
 
 const URGENCY_STYLES: Record<RenewalUrgency, string> = {
   none: '',
+  trial_ending: 'bg-primary/5 text-primary border-b border-primary/20',
   pre_due: 'bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 border-b border-amber-200 dark:border-amber-800',
   due_today: 'bg-orange-50 dark:bg-orange-950/50 text-orange-900 dark:text-orange-100 border-b border-orange-200 dark:border-orange-800',
   grace_period: 'bg-destructive/10 text-destructive border-b border-destructive/20',
@@ -26,6 +31,7 @@ const URGENCY_STYLES: Record<RenewalUrgency, string> = {
 
 const URGENCY_ICONS: Record<RenewalUrgency, typeof Clock> = {
   none: Clock,
+  trial_ending: Sparkles,
   pre_due: Clock,
   due_today: AlertTriangle,
   grace_period: AlertTriangle,
@@ -38,7 +44,9 @@ function TickerBar({
   urgency, 
   canPay, 
   isMemberOnly,
+  isTrialEnding,
   onPayNow,
+  onChoosePlan,
   isLoading,
 }: {
   position: 'top' | 'bottom';
@@ -46,7 +54,9 @@ function TickerBar({
   urgency: RenewalUrgency;
   canPay: boolean;
   isMemberOnly: boolean;
+  isTrialEnding: boolean;
   onPayNow: () => void;
+  onChoosePlan: () => void;
   isLoading: boolean;
 }) {
   const Icon = URGENCY_ICONS[urgency];
@@ -63,7 +73,12 @@ function TickerBar({
         <span className="truncate">{message}</span>
       </div>
       <div className="flex-shrink-0">
-        {canPay ? (
+        {isTrialEnding ? (
+          <Button size="sm" variant="outline" onClick={onChoosePlan} className="gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            Elegir plan
+          </Button>
+        ) : canPay ? (
           <Button
             size="sm"
             variant={urgency === 'suspended' || urgency === 'grace_period' ? 'default' : 'outline'}
@@ -89,6 +104,7 @@ export function RenewalTickerTop() {
   const status = useRenewalStatus();
   const createCheckout = useCreateCheckoutSessionV2();
   const { organization } = useOrganization();
+  const navigate = useNavigate();
 
   if (!status.showTopTicker || status.urgency === 'none') return null;
 
@@ -103,6 +119,8 @@ export function RenewalTickerTop() {
     });
   };
 
+  const handleChoosePlan = () => navigate('/pricing');
+
   return (
     <TickerBar
       position="top"
@@ -110,7 +128,9 @@ export function RenewalTickerTop() {
       urgency={status.urgency}
       canPay={status.canPay}
       isMemberOnly={status.isMemberOnly}
+      isTrialEnding={status.urgency === 'trial_ending'}
       onPayNow={handlePayNow}
+      onChoosePlan={handleChoosePlan}
       isLoading={createCheckout.isPending}
     />
   );
@@ -120,6 +140,7 @@ export function RenewalTickerBottom() {
   const status = useRenewalStatus();
   const createCheckout = useCreateCheckoutSessionV2();
   const { organization } = useOrganization();
+  const navigate = useNavigate();
 
   if (!status.showBottomTicker || status.urgency === 'none') return null;
 
@@ -134,6 +155,8 @@ export function RenewalTickerBottom() {
     });
   };
 
+  const handleChoosePlan = () => navigate('/pricing');
+
   return (
     <TickerBar
       position="bottom"
@@ -141,7 +164,9 @@ export function RenewalTickerBottom() {
       urgency={status.urgency}
       canPay={status.canPay}
       isMemberOnly={status.isMemberOnly}
+      isTrialEnding={status.urgency === 'trial_ending'}
       onPayNow={handlePayNow}
+      onChoosePlan={handleChoosePlan}
       isLoading={createCheckout.isPending}
     />
   );

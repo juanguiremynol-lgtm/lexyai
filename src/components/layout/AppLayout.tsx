@@ -5,6 +5,7 @@ import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
 import { RenewalTickerTop, RenewalTickerBottom } from "@/components/billing/RenewalTicker";
 import { SuspendedPaywall } from "@/components/billing/SuspendedPaywall";
+import { BetaTrialBanner } from "@/components/billing/BetaTrialBanner";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
@@ -36,6 +37,7 @@ export function AppLayout() {
         <AppSidebar />
         <SidebarInset className="flex flex-1 flex-col min-w-0">
           <RenewalTickerTop />
+          <BetaTrialBanner />
           <EstadosTicker />
           <TopBar />
           {/* Main content area - transparent for aqua theme */}
