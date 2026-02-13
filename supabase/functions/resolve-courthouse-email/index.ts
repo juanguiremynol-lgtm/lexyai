@@ -229,8 +229,50 @@ Deno.serve(async (req) => {
     const selectFields = "id, email, nombre_raw, dept_norm, city_norm, court_class, specialty_norm, court_number, name_norm_soft, name_norm_hard, codigo_despacho_norm, account_type_norm, dane_code, corp_code, esp_code, desp_code";
     let candidates: Candidate[] = [];
 
+    // ─── Detect DANE-authority geo mismatch ───
+    // If radicado DANE points to city A but authority_name mentions city B,
+    // the radicado may be from a different jurisdiction. In that case,
+    // we should NOT use radicado DANE for geo filtering — fall back to name-based matching.
+    let radicadoGeoTrusted = true;
+    const knownCityPatterns: Record<string, string[]> = {
+      "11001": ["bogota"],
+      "05001": ["medellin"],
+      "76001": ["cali"],
+      "08001": ["barranquilla"],
+      "13001": ["cartagena"],
+      "68001": ["bucaramanga"],
+      "05615": ["rionegro"],
+      "15001": ["tunja"],
+      "17001": ["manizales"],
+      "54001": ["cucuta"],
+      "66001": ["pereira"],
+      "23001": ["monteria"],
+      "73001": ["ibague"],
+      "41001": ["neiva"],
+      "52001": ["pasto"],
+      "47001": ["santa marta"],
+      "50001": ["villavicencio"],
+      "19001": ["popayan"],
+      "44001": ["riohacha"],
+    };
+    if (radParsed.valid && radBlocks && inputName) {
+      const nameNormLower = normalizeBase(inputName);
+      const radicadoDane = radBlocks.dane;
+      for (const [dane, cities] of Object.entries(knownCityPatterns)) {
+        if (dane === radicadoDane) continue;
+        for (const city of cities) {
+          if (nameNormLower.includes(city)) {
+            radicadoGeoTrusted = false;
+            break;
+          }
+        }
+        if (!radicadoGeoTrusted) break;
+      }
+    }
+
     // Strategy 0: Radicado-based exact code match (highest priority)
-    if (radParsed.valid && radBlocks) {
+    // Only use when radicado geo is trusted (no DANE-authority name conflict)
+    if (radParsed.valid && radBlocks && radicadoGeoTrusted) {
       // Try full match: dane + corp + esp + desp
       const { data } = await supabase
         .from("courthouse_directory")
@@ -244,7 +286,7 @@ Deno.serve(async (req) => {
         candidates = data.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "exact_full" } }));
       }
 
-      // Relax: dane + corp + desp (skip esp)
+      // Relax: dane + corp + desp (skip esp) — ESP codes often differ between radicado and directory
       if (candidates.length === 0) {
         const { data: d2 } = await supabase
           .from("courthouse_directory")
@@ -255,6 +297,19 @@ Deno.serve(async (req) => {
           .limit(30);
         if (d2 && d2.length > 0) {
           candidates = d2.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_corp_desp" } }));
+        }
+      }
+
+      // Collegiate body: DESP=000 → expand to ALL desks of same DANE+CORP
+      if (candidates.length === 0 && radBlocks.desp === "000") {
+        const { data: d2b } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .eq("dane_code", radBlocks.dane)
+          .eq("corp_code", radBlocks.corp)
+          .limit(50);
+        if (d2b && d2b.length > 0) {
+          candidates = d2b.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "collegiate_body" } }));
         }
       }
 
@@ -281,6 +336,41 @@ Deno.serve(async (req) => {
           .limit(200);
         if (d4 && d4.length > 0) {
           candidates = d4.map((r) => ({ ...r, score: 0, radicado_match_details: { level: "dane_only" } }));
+        }
+      }
+    }
+
+    // Strategy 0b: Radicado geo NOT trusted — extract city from authority name and search by city + name
+    if (radParsed.valid && radBlocks && !radicadoGeoTrusted && inputName) {
+      // Try to extract a city name from the authority name
+      const nameNormLower = normalizeBase(inputName);
+      const allCities = Object.entries(knownCityPatterns).flatMap(([, cities]) => cities);
+      const detectedCity = allCities.find(city => nameNormLower.includes(city));
+      
+      if (detectedCity) {
+        // Search by detected city + name similarity
+        const { data } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .eq("city_norm", detectedCity)
+          .limit(200);
+        if (data && data.length > 0) {
+          candidates = data
+            .map((r) => ({ ...r, score: 0, radicado_match_details: { level: "name_fallback_city_detected", detected_city: detectedCity } }))
+            .filter((c) => trigramSimilarity(c.name_norm_soft, nameNormSoft) >= 0.25);
+        }
+      }
+      
+      // If city detection didn't work, try broader search with higher similarity threshold
+      if (candidates.length === 0) {
+        const { data } = await supabase
+          .from("courthouse_directory")
+          .select(selectFields)
+          .limit(500);
+        if (data && data.length > 0) {
+          candidates = data
+            .map((r) => ({ ...r, score: 0, radicado_match_details: { level: "name_fallback_broad" } }))
+            .filter((c) => trigramSimilarity(c.name_norm_soft, nameNormSoft) >= 0.35);
         }
       }
     }
@@ -502,13 +592,48 @@ Deno.serve(async (req) => {
         matchDetails.codigo = "match";
       }
 
-      // Name similarity
+      // Name similarity (boosted when resolving by name due to DANE-authority mismatch)
       if (nameNormSoft) {
         const softSim = trigramSimilarity(c.name_norm_soft, nameNormSoft);
         const hardSim = trigramSimilarity(c.name_norm_hard, expandAbbreviations(normalizeBase(inputName).toLowerCase()));
         const nameSim = Math.max(softSim, hardSim);
-        score += nameSim * (hasRadicado ? 0.20 : 0.35);
+        const nameWeight = (!radicadoGeoTrusted) ? 0.50 : (hasRadicado ? 0.20 : 0.35);
+        score += nameSim * nameWeight;
         matchDetails.name_sim = nameSim.toFixed(2);
+      }
+
+      // Specialty matching (critical for ESP-agnostic disambiguation — Case 2 fix)
+      if (specialtyNorm && c.specialty_norm) {
+        const specSim = trigramSimilarity(c.specialty_norm, specialtyNorm);
+        if (specSim > 0.5) {
+          score += 0.08;
+          matchDetails.specialty_match = specSim.toFixed(2);
+        }
+      }
+      // Also check if authority name implies a specialty
+      if (!specialtyNorm && nameNormSoft && c.specialty_norm) {
+        const civilWords = ["civil", "oralidad"];
+        const penalWords = ["penal", "garantias", "ejecucion"];
+        const laboralWords = ["laboral"];
+        const adminWords = ["administrativo", "contencioso"];
+        const nameHasCivil = civilWords.some(w => nameNormSoft.includes(w));
+        const nameHasPenal = penalWords.some(w => nameNormSoft.includes(w));
+        const nameHasLaboral = laboralWords.some(w => nameNormSoft.includes(w));
+        const nameHasAdmin = adminWords.some(w => nameNormSoft.includes(w));
+        
+        const candidateIsCivil = civilWords.some(w => c.specialty_norm.includes(w));
+        const candidateIsPenal = penalWords.some(w => c.specialty_norm.includes(w));
+        const candidateIsLaboral = laboralWords.some(w => c.specialty_norm.includes(w));
+        const candidateIsAdmin = adminWords.some(w => c.specialty_norm.includes(w));
+        
+        if ((nameHasCivil && candidateIsCivil) || (nameHasPenal && candidateIsPenal) ||
+            (nameHasLaboral && candidateIsLaboral) || (nameHasAdmin && candidateIsAdmin)) {
+          score += 0.10;
+          matchDetails.specialty_inferred = "match";
+        } else if ((nameHasCivil && candidateIsPenal) || (nameHasPenal && candidateIsCivil)) {
+          score -= 0.10;
+          matchDetails.specialty_inferred = "conflict";
+        }
       }
 
       // Dept + city match
@@ -546,7 +671,7 @@ Deno.serve(async (req) => {
     let radicadoGatingPassed = true;
     const radicadoGatingReasons: string[] = [];
 
-    if (hasRadicado && radBlocks) {
+    if (hasRadicado && radBlocks && radicadoGeoTrusted) {
       // Mandatory: DANE must match
       if (top1.dane_code && top1.dane_code !== radBlocks.dane) {
         radicadoGatingPassed = false;
@@ -557,31 +682,58 @@ Deno.serve(async (req) => {
         radicadoGatingPassed = false;
         radicadoGatingReasons.push(`CORP mismatch: ${top1.corp_code} vs ${radBlocks.corp}`);
       }
-      // If candidate has esp_code, it must match
+      // ESP: WARN but do NOT block — ESP codes often differ between radicado and directory
+      // (Case 2 fix: civil vs penal courts share DANE+CORP+DESP, differ only in ESP)
       if (top1.esp_code && top1.esp_code !== radBlocks.esp) {
-        radicadoGatingPassed = false;
-        radicadoGatingReasons.push(`ESP mismatch: ${top1.esp_code} vs ${radBlocks.esp}`);
+        // Don't fail gating — just note it
+        radicadoGatingReasons.push(`ESP differs: ${top1.esp_code} vs ${radBlocks.esp} (non-blocking)`);
       }
       // If candidate has desp_code and not collegiate, it must match
       if (top1.desp_code && radBlocks.desp !== "000" && top1.desp_code !== radBlocks.desp) {
         radicadoGatingPassed = false;
         radicadoGatingReasons.push(`DESP mismatch: ${top1.desp_code} vs ${radBlocks.desp}`);
       }
+    } else if (hasRadicado && !radicadoGeoTrusted) {
+      // DANE-authority mismatch: don't apply radicado hard gating at all
+      radicadoGatingReasons.push("Radicado DANE conflicts with authority name — using name-based matching");
     }
+
+    // ─── Collegiate body detection ───
+    const isCollegiateBody = hasRadicado && radBlocks && radBlocks.desp === "000";
 
     // ─── Decision (stricter with radicado) ───
     let method: string;
     let needsReview = false;
 
-    if (hasRadicado) {
-      // Check if all available radicado codes matched exactly
+    if (isCollegiateBody) {
+      // Collegiate bodies (DESP=000) always need review — can't auto-pick a desk
+      method = "collegiate_body";
+      needsReview = true;
+    } else if (!radicadoGeoTrusted && hasRadicado) {
+      // DANE-authority mismatch: use name-based decision
+      if (top1.score >= 0.85 && margin >= 0.10) {
+        method = "auto_name_fallback";
+      } else if (top1.score >= 0.60 && margin >= 0.05) {
+        method = "fuzzy_name_fallback";
+        needsReview = true;
+      } else {
+        method = "fuzzy_name_fallback";
+        needsReview = true;
+      }
+    } else if (hasRadicado) {
+      // Check if DANE+CORP+DESP all matched (ESP-agnostic — Case 2 fix)
       const radDetails = top1.radicado_match_details || {};
-      const radCodeFields = ["dane", "corp", "esp", "desp"].filter((k) => radDetails[k]);
-      const allRadCodesMatch = radCodeFields.length >= 3 && radCodeFields.every((k) => radDetails[k] === "match");
+      const coreFields = ["dane", "corp", "desp"].filter((k) => radDetails[k]);
+      const coreAllMatch = coreFields.length >= 3 && coreFields.every((k) => radDetails[k] === "match");
+      const allFieldsIncludingEsp = ["dane", "corp", "esp", "desp"].filter((k) => radDetails[k]);
+      const allRadCodesMatch = allFieldsIncludingEsp.length >= 3 && allFieldsIncludingEsp.every((k) => radDetails[k] === "match");
       const isSingleCandidate = scorable.length === 1 || margin >= 0.15;
 
       if (radicadoGatingPassed && allRadCodesMatch && isSingleCandidate && top1.score >= 0.55) {
         // All radicado codes match + single/clear candidate = deterministic match
+        method = "auto_radicado";
+      } else if (radicadoGatingPassed && coreAllMatch && margin >= 0.05 && top1.score >= 0.55) {
+        // DANE+CORP+DESP match (ESP may differ) + clear margin = auto-resolve (Case 2 fix)
         method = "auto_radicado";
       } else if (radicadoGatingPassed && top1.score >= 0.80 && margin >= 0.05) {
         // 80%+ confidence with radicado gating = auto-resolve
@@ -665,6 +817,8 @@ Deno.serve(async (req) => {
           candidates_count: topCandidates.length,
           total_scored: scorable.length,
           radicado_valid: radParsed.valid,
+          radicado_geo_trusted: radicadoGeoTrusted,
+          is_collegiate_body: isCollegiateBody,
           radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
           radicado_gating_reasons: radicadoGatingReasons.length > 0 ? radicadoGatingReasons : null,
         },
@@ -682,6 +836,8 @@ Deno.serve(async (req) => {
         total_candidates: scorable.length,
         radicado_valid: radParsed.valid,
         radicado_blocks: radParsed.valid ? radBlocks : null,
+        radicado_geo_trusted: radicadoGeoTrusted,
+        is_collegiate_body: isCollegiateBody,
         radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
         radicado_gating_reasons: radicadoGatingReasons,
       }),
