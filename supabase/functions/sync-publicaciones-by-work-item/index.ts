@@ -397,14 +397,16 @@ async function fetchPublicaciones(
   // Clean base URL
   const cleanBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  // STRATEGY: Try /snapshot (45s timeout, 2 attempts), then /search, then /buscar
+  // STRATEGY: Try /snapshot (30s timeout, 1 attempt), then /search (30s, 1 attempt)
+  // Total worst-case: ~60s for both endpoints, well within the 110s safety timeout.
+  // Previous 45s×2 per endpoint (180s worst case) caused safety timeout hits.
   const endpoints = [
     `${cleanBaseUrl}/snapshot/${radicado}`,
     `${cleanBaseUrl}/search/${radicado}`,
   ];
 
   for (const url of endpoints) {
-    const result = await fetchWithTimeoutAndRetry(url, headers, 45000, 2);
+    const result = await fetchWithTimeoutAndRetry(url, headers, 30000, 1);
 
     if (result.ok && result.response) {
       try {
