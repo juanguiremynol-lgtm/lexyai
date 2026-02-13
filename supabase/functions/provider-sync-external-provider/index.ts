@@ -178,28 +178,110 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Decrypt secret — for PLATFORM instances, secrets have scope=PLATFORM and no org_id
-    const secretQuery = db
+    const connector = instance.provider_connectors;
+
+    // ── Secret Resolution (first-class invariant) ──
+    // For PLATFORM instances, secrets have scope=PLATFORM and no org_id
+    const { data: secretRow } = await db
       .from("provider_instance_secrets")
-      .select("cipher_text, nonce")
+      .select("id, cipher_text, nonce, is_active, key_version, scope")
       .eq("provider_instance_id", instance.id)
-      .eq("is_active", true);
-    const { data: secretRow } = await secretQuery.single();
+      .eq("is_active", true)
+      .order("key_version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Write detailed resolution trace (never log secrets)
+    const resolutionPayload = {
+      connector_id: instance.connector_id,
+      connector_key: connector?.key || "unknown",
+      instance_id: instance.id,
+      instance_scope: instance.scope || "UNKNOWN",
+      instance_enabled: instance.is_enabled,
+      secret_id: secretRow?.id || null,
+      secret_enabled: secretRow?.is_active || false,
+      secret_version: secretRow?.key_version || null,
+      secret_scope: secretRow?.scope || null,
+      resolution_source: instance.scope === "PLATFORM" ? "GLOBAL_ROUTE_PLATFORM_INSTANCE" : "ORG_OVERRIDE_ORG_INSTANCE",
+      auth_mode: instance.auth_type,
+      secret_present: !!secretRow,
+    };
+    await writeTrace(db, runId, source, instance, "SECRET_RESOLUTION", secretRow ? "OK" : "MISSING_PROVIDER_SECRET", !!secretRow, 0, resolutionPayload);
 
     if (!secretRow) {
-      await writeTrace(db, runId, source, instance, "SNAPSHOT_FETCHED", "ERROR", false, 0, { error: "No active secret" });
-      return new Response(JSON.stringify({ error: "No active secret" }), {
-        status: 500,
+      // Terminal: MISSING_PROVIDER_SECRET — do NOT attempt external fetch
+      await writeTrace(db, runId, source, instance, "SECRET_MISSING", "MISSING_PROVIDER_SECRET", false, 0, {
+        remediation: "No hay secreto activo para esta instancia. Configure una API key en el Wizard (Instancia → Secretos) y habilítela.",
+        instance_id: instance.id,
+        instance_scope: instance.scope,
+        connector_key: connector?.key,
+      });
+
+      await updateSourceError(db, source.id, "MISSING_PROVIDER_SECRET",
+        "No hay secreto activo para esta instancia. Configure una API key en el Wizard.");
+
+      if (instance.scope === "PLATFORM") {
+        const alertFingerprint = `missing_secret_${instance.connector_id}_${instance.scope}`;
+        await db.from("alert_instances").upsert({
+          entity_type: "provider_instance",
+          entity_id: instance.id,
+          organization_id: source.organization_id,
+          owner_id: instance.created_by || source.organization_id,
+          severity: "CRITICAL",
+          title: "🔑 Secreto faltante en instancia de plataforma",
+          message: `La instancia PLATFORM "${instance.name}" (conector: ${connector?.key}) no tiene secreto activo. Todas las organizaciones están afectadas.`,
+          status: "PENDING",
+          fired_at: new Date().toISOString(),
+          alert_type: "MISSING_PROVIDER_SECRET",
+          alert_source: "provider-sync-external-provider",
+          fingerprint: alertFingerprint,
+        }, { onConflict: "fingerprint", ignoreDuplicates: true });
+
+        const dedupeKey = `${instance.connector_id}_${instance.scope}_missing_secret`;
+        await db.from("atenia_ai_remediation_queue").upsert({
+          action_type: "CONFIGURE_PROVIDER_SECRET",
+          organization_id: source.organization_id,
+          work_item_id: source.work_item_id,
+          provider: connector?.key || "unknown",
+          reason_code: "MISSING_PROVIDER_SECRET",
+          payload: {
+            instance_id: instance.id,
+            instance_name: instance.name,
+            connector_key: connector?.key,
+            scope: instance.scope,
+            remediation: "Configure API key via Platform Wizard → StepInstance",
+          },
+          priority: 1,
+          status: "PENDING",
+          dedupe_key: dedupeKey,
+        }, { onConflict: "dedupe_key", ignoreDuplicates: true });
+      }
+
+      await writeTrace(db, runId, source, instance, "TERMINAL", "MISSING_PROVIDER_SECRET", false, Date.now() - startTime, {
+        outcome: "MISSING_PROVIDER_SECRET",
+        scope: instance.scope,
+      });
+
+      return new Response(JSON.stringify({
+        ok: false,
+        code: "MISSING_PROVIDER_SECRET",
+        message: "No hay secreto activo para esta instancia. Configure una API key en el Wizard.",
+        instance_id: instance.id,
+        instance_scope: instance.scope,
+        duration_ms: Date.now() - startTime,
+      }), {
+        status: 424,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const decrypted = await decryptSecret(
-      hexToBytes(secretRow.cipher_text as string),
-      hexToBytes(secretRow.nonce as string),
-    );
-
-    const connector = instance.provider_connectors;
+    // Secret loaded successfully
+    await writeTrace(db, runId, source, instance, "SECRET_LOADED", "OK", true, 0, {
+      secret_id: secretRow.id,
+      key_version: secretRow.key_version,
+      auth_mode: instance.auth_type,
+      secret_present: true,
+    });
     const providerInfo: ProviderInstanceInfo = {
       id: instance.id,
       base_url: instance.base_url,
