@@ -57,7 +57,6 @@ const ACTION_ALLOWLIST = new Set([
   // Support actions
   "CREATE_SUPPORT_TICKET",
   "EXPLAIN_CURRENT_PAGE",
-  "REFRESH_WORK_ITEM_METADATA",
 ]);
 
 // ---- Risk classification ----
@@ -74,7 +73,6 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
       return "SAFE";
     case "RUN_SYNC_WORK_ITEM":
     case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
-    case "REFRESH_WORK_ITEM_METADATA":
       return "SAFE";
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
@@ -162,7 +160,6 @@ ALLOWLISTED ACTIONS:
 - ORG_USAGE_SUMMARY: Read-only org stats: seats used, monitors active, work items count (SAFE). Any org member can view.
 - CREATE_SUPPORT_TICKET: Create a structured support ticket with auto-gathered metadata (SAFE). Params: { subject: string, description: string }
 - EXPLAIN_CURRENT_PAGE: Contextual help based on the user's current route (SAFE). Params: { route: string, page_context?: string }
-- REFRESH_WORK_ITEM_METADATA: Re-run a sync for a specific work item the user has access to (SAFE, rate-limited). Params: { work_item_id: string }
 
 SETTINGS ACTIONS POLICY:
 When a user asks to change settings (ticker, notifications, etc.) via chat:
@@ -894,8 +891,6 @@ async function executeAction(
       return { ok: true, note: "Contextual help will be provided by the AI based on the current route." };
     }
 
-    case "REFRESH_WORK_ITEM_METADATA": {
-      const wiId = action.params?.work_item_id;
       if (!wiId) throw new Error("Se requiere work_item_id.");
 
       // Verify user has access to this work item
