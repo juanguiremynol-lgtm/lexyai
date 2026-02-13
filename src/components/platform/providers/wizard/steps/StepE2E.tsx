@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowRight, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Play, Zap, ExternalLink } from "lucide-react";
+import { ArrowRight, CheckCircle2, XCircle, AlertTriangle, Loader2, Play, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useWizardSessionContext } from "../WizardSessionContext";
 import { useQuery } from "@tanstack/react-query";
 import { WizardExplanation } from "../WizardExplanation";
+import { ContractDebugPanel } from "./ContractDebugPanel";
 import type { WizardInstance } from "../WizardTypes";
 
 interface StepE2EProps {
@@ -33,6 +34,7 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
   const [syncing, setSyncing] = useState(false);
   const [resolveResult, setResolveResult] = useState<any>(null);
   const [syncResult, setSyncResult] = useState<any>(null);
+  const [traces, setTraces] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const { data: workItems } = useQuery({
@@ -48,12 +50,24 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
     },
   });
 
+  const fetchTraces = async (workItemId: string) => {
+    const { data } = await supabase
+      .from("provider_sync_traces")
+      .select("stage, result_code, ok, latency_ms, payload")
+      .eq("work_item_id", workItemId)
+      .eq("provider_instance_id", instance.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    setTraces(data || []);
+  };
+
   const handleResolve = async () => {
     if (!selectedWorkItemId || !inputValue.trim()) return;
     setResolving(true);
     setError(null);
     setResolveResult(null);
     setSyncResult(null);
+    setTraces([]);
     try {
       const { data, error: invokeErr } = await invokeWithSession("provider-resolve-source", {
         body: { work_item_id: selectedWorkItemId, provider_instance_id: instance.id, input_type: inputType, value: inputValue.trim() },
@@ -82,9 +96,12 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
       onE2EComplete({ resolve: resolveResult, sync: data }, passed);
       if (passed) toast.success("E2E completado");
       else toast.warning(`Sync: ${data?.code || "no ok"}`);
+      // Fetch traces for contract debug
+      await fetchTraces(selectedWorkItemId);
     } catch (err: any) {
       setSyncResult({ ok: false, error: err.message });
       onE2EComplete({ resolve: resolveResult, sync: { ok: false, error: err.message } }, false);
+      await fetchTraces(selectedWorkItemId);
     } finally {
       setSyncing(false);
     }
@@ -179,6 +196,11 @@ export function StepE2E({ instance, e2eResult, onE2EComplete, onNext, onFinishAn
               <p className="text-xs text-destructive font-mono">{syncResult.error || syncResult.code}</p>
             )}
           </div>
+        )}
+
+        {/* Contract Debug Panel — shows after sync */}
+        {(syncResult || traces.length > 0) && (
+          <ContractDebugPanel syncResult={syncResult} traces={traces} />
         )}
 
         <div className="flex justify-between items-center">
