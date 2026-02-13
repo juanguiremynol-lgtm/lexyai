@@ -18,6 +18,8 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Shield,
   RefreshCw,
@@ -263,7 +265,7 @@ function SecretReadinessTab() {
 
 // ============= E2E Wizard Tab — Dynamic Connector =============
 
-function E2EWizardTab({ radicado, workflowType, selectedConnectorId, connectors }: { radicado: string; workflowType: WorkflowType; selectedConnectorId: string | null; connectors: ConnectorInfo[] }) {
+function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado: string; workflowType: WorkflowType; resolvedConnectors: ConnectorInfo[] }) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
 
@@ -284,14 +286,8 @@ function E2EWizardTab({ radicado, workflowType, selectedConnectorId, connectors 
 
       if (!wi) { toast.error(`No existe work_item con radicado ${normalized}`); return; }
 
-      // Find connector — use selected or auto-detect based on workflow
-      let connector: ConnectorInfo | undefined;
-      if (selectedConnectorId && selectedConnectorId !== "auto") {
-        connector = connectors.find(c => c.id === selectedConnectorId);
-      } else {
-        const resolved = resolveConnectorsForWorkflow(workflowType, connectors);
-        connector = resolved[0];
-      }
+      // Use first resolved connector
+      let connector = resolvedConnectors[0];
 
       if (!connector) { toast.error("No se encontró conector. Seleccione uno manualmente."); return; }
 
@@ -337,12 +333,9 @@ function E2EWizardTab({ radicado, workflowType, selectedConnectorId, connectors 
     }
   };
 
-  const resolvedName = selectedConnectorId && selectedConnectorId !== "auto"
-    ? connectors.find(c => c.id === selectedConnectorId)?.name || selectedConnectorId
-    : (() => {
-        const resolved = resolveConnectorsForWorkflow(workflowType, connectors);
-        return resolved.length > 0 ? `${resolved[0].name} (auto)` : "Auto-detectar (sin coincidencias)";
-      })();
+  const resolvedName = resolvedConnectors.length > 0
+    ? resolvedConnectors.map(c => c.name).join(", ")
+    : "Sin proveedores";
 
   return (
     <div className="space-y-3">
@@ -366,11 +359,10 @@ function E2EWizardTab({ radicado, workflowType, selectedConnectorId, connectors 
 
 // ============= Pipeline Debug Tab =============
 
-function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connectors }: {
+function PipelineDebugTab({ radicado, workflowType, resolvedConnectors }: {
   radicado: string;
   workflowType: WorkflowType;
-  selectedConnectorId: string | null;
-  connectors: ConnectorInfo[];
+  resolvedConnectors: ConnectorInfo[];
 }) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
@@ -407,10 +399,8 @@ function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connect
         setSteps(s => [...s, { name: `${config.secondary!.toUpperCase()}_HEALTH`, ok: !se2, detail: sd2, duration_ms: Date.now() - t2b }]);
       }
 
-      // External provider test — manual or auto-detect based on workflow
-      const extConnectors: ConnectorInfo[] = selectedConnectorId && selectedConnectorId !== "auto"
-        ? connectors.filter(c => c.id === selectedConnectorId)
-        : resolveConnectorsForWorkflow(workflowType, connectors);
+      // External provider test — use resolved connectors
+      const extConnectors = resolvedConnectors;
 
       for (const connector of extConnectors) {
         const t3 = Date.now();
@@ -481,9 +471,7 @@ function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connect
   };
 
   const config = BUILTIN_PROVIDERS[workflowType];
-  const extConnectors = selectedConnectorId && selectedConnectorId !== "auto"
-    ? connectors.filter(c => c.id === selectedConnectorId)
-    : resolveConnectorsForWorkflow(workflowType, connectors);
+  const extConnectors = resolvedConnectors;
 
   return (
     <div className="space-y-3">
@@ -496,7 +484,6 @@ function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connect
             <Badge key={c.id} className="bg-primary/20 text-primary border-primary/30">
               <Cable className="h-3 w-3 mr-1" />
               {c.name}
-              {selectedConnectorId === "auto" && <span className="ml-1 text-[9px] opacity-70">(auto)</span>}
             </Badge>
           ))}
         </div>
@@ -516,11 +503,10 @@ function PipelineDebugTab({ radicado, workflowType, selectedConnectorId, connect
 
 // ============= Sync Test Tab =============
 
-function SyncTestTab({ radicado, workflowType, selectedConnectorId, connectors }: {
+function SyncTestTab({ radicado, workflowType, resolvedConnectors }: {
   radicado: string;
   workflowType: WorkflowType;
-  selectedConnectorId: string | null;
-  connectors: ConnectorInfo[];
+  resolvedConnectors: ConnectorInfo[];
 }) {
   const [loading, setLoading] = useState(false);
   const [steps, setSteps] = useState<StepData[]>([]);
@@ -569,10 +555,8 @@ function SyncTestTab({ radicado, workflowType, selectedConnectorId, connectors }
         duration_ms: Date.now() - t3,
       }]);
 
-      // External provider sync — manual or auto-detect
-      const extConnectors: ConnectorInfo[] = selectedConnectorId && selectedConnectorId !== "auto"
-        ? connectors.filter(c => c.id === selectedConnectorId)
-        : resolveConnectorsForWorkflow(workflowType, connectors);
+      // External provider sync — use resolved connectors
+      const extConnectors = resolvedConnectors;
 
       for (const connector of extConnectors) {
         const { data: instances } = await (supabase.from("provider_instances") as any)
@@ -643,9 +627,7 @@ function SyncTestTab({ radicado, workflowType, selectedConnectorId, connectors }
     }
   };
 
-  const extConnectors = selectedConnectorId && selectedConnectorId !== "auto"
-    ? connectors.filter(c => c.id === selectedConnectorId)
-    : resolveConnectorsForWorkflow(workflowType, connectors);
+  const extConnectors = resolvedConnectors;
   const extNames = extConnectors.map(c => c.name).join(", ");
 
   return (
@@ -655,7 +637,7 @@ function SyncTestTab({ radicado, workflowType, selectedConnectorId, connectors }
           Ejecuta sync completo (actuaciones + publicaciones
           {extNames ? ` + ${extNames}` : ""}
           ) y verifica BD
-          {selectedConnectorId === "auto" && extNames && <span className="italic ml-1">(auto)</span>}
+          
         </p>
         <Button variant="outline" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
           {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Database className="h-4 w-4 mr-1.5" />}
@@ -812,20 +794,46 @@ function ExternalProviderStatusTab({ connectors, loading: connectorsLoading }: {
 export function MasterDebugPanel() {
   const [radicado, setRadicado] = useState("05001333300320190025200");
   const [workflowType, setWorkflowType] = useState<WorkflowType>("CPACA");
-  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>("auto");
+  // "auto" = workflow-based auto-detect, "all" = every connector, or Set of specific IDs
+  const [connectorMode, setConnectorMode] = useState<"auto" | "all" | Set<string>>("auto");
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
   const { data: connectors = [], isLoading: connectorsLoading } = useConnectors();
 
+
+  // Resolve which connectors to use based on mode
+  const resolveSelectedConnectors = (allConnectors: ConnectorInfo[]): ConnectorInfo[] => {
+    if (connectorMode === "auto") return resolveConnectorsForWorkflow(workflowType, allConnectors);
+    if (connectorMode === "all") return allConnectors.filter(c => c.is_enabled);
+    return allConnectors.filter(c => (connectorMode as Set<string>).has(c.id));
+  };
+
   const copyAll = () => {
-    const selectedConnector = connectors.find(c => c.id === selectedConnectorId);
+    const resolved = resolveSelectedConnectors(connectors);
     navigator.clipboard.writeText(JSON.stringify({
       radicado,
       workflowType,
-      selectedConnector: selectedConnector ? { id: selectedConnector.id, name: selectedConnector.name, key: selectedConnector.key } : "auto",
+      selectedConnectors: resolved.map(c => ({ id: c.id, name: c.name, key: c.key })),
+      mode: connectorMode === "auto" ? "auto" : connectorMode === "all" ? "all" : Array.from(connectorMode as Set<string>),
       timestamp: new Date().toISOString(),
     }, null, 2));
     toast.success("Datos copiados");
   };
+
+  const toggleConnector = (id: string) => {
+    setConnectorMode(prev => {
+      const current = prev instanceof Set ? new Set(prev) : new Set<string>();
+      if (current.has(id)) current.delete(id);
+      else current.add(id);
+      return current.size === 0 ? "auto" : current;
+    });
+  };
+
+  const connectorLabel = connectorMode === "auto"
+    ? "Auto-detectar"
+    : connectorMode === "all"
+    ? `Todos (${connectors.filter(c => c.is_enabled).length})`
+    : `${(connectorMode as Set<string>).size} seleccionado(s)`;
 
   return (
     <Card>
@@ -883,31 +891,57 @@ export function MasterDebugPanel() {
               <Cable className="h-3 w-3" />
               Proveedor Externo
             </Label>
-            <Select value={selectedConnectorId || "auto"} onValueChange={setSelectedConnectorId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Auto-detectar" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">
-                  <span className="text-muted-foreground">Auto-detectar</span>
-                </SelectItem>
-                {connectorsLoading && (
-                  <SelectItem value="loading" disabled>
-                    Cargando conectores...
-                  </SelectItem>
-                )}
-                {connectors.map(c => (
-                  <SelectItem key={c.id} value={c.id}>
-                    <div className="flex items-center gap-2">
-                      <span className={c.is_enabled ? "" : "text-muted-foreground"}>
-                        {c.name}
-                      </span>
-                      {!c.is_enabled && <span className="text-[10px] text-muted-foreground">(inactivo)</span>}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-full justify-between font-normal h-11">
+                  <span className="truncate">{connectorLabel}</span>
+                  <ChevronDown className="h-4 w-4 ml-2 shrink-0 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-2 space-y-1" align="start">
+                {/* Auto option */}
+                <button
+                  className={cn("flex items-center gap-2 w-full rounded px-2 py-1.5 text-sm hover:bg-muted transition-colors",
+                    connectorMode === "auto" && "bg-primary/10 text-primary font-medium")}
+                  onClick={() => { setConnectorMode("auto"); setPopoverOpen(false); }}
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                  Auto-detectar (por categoría)
+                </button>
+                {/* All option */}
+                <button
+                  className={cn("flex items-center gap-2 w-full rounded px-2 py-1.5 text-sm hover:bg-muted transition-colors",
+                    connectorMode === "all" && "bg-primary/10 text-primary font-medium")}
+                  onClick={() => { setConnectorMode("all"); setPopoverOpen(false); }}
+                >
+                  <Server className="h-3.5 w-3.5" />
+                  Todos los activos ({connectors.filter(c => c.is_enabled).length})
+                </button>
+                <Separator className="my-1" />
+                <p className="text-[10px] text-muted-foreground px-2 py-0.5">Seleccionar individualmente:</p>
+                {connectorsLoading && <p className="text-xs text-muted-foreground px-2">Cargando...</p>}
+                {connectors.map(c => {
+                  const isChecked = connectorMode instanceof Set && connectorMode.has(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={cn(
+                        "flex items-center gap-2 w-full rounded px-2 py-1.5 text-sm cursor-pointer hover:bg-muted transition-colors",
+                        isChecked && "bg-primary/10"
+                      )}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleConnector(c.id)}
+                      />
+                      <span className={c.is_enabled ? "" : "text-muted-foreground"}>{c.name}</span>
+                      <Badge variant="outline" className="text-[9px] ml-auto">{c.scope}</Badge>
+                      {!c.is_enabled && <Badge variant="secondary" className="text-[9px]">off</Badge>}
+                    </label>
+                  );
+                })}
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
@@ -950,8 +984,7 @@ export function MasterDebugPanel() {
             <PipelineDebugTab
               radicado={radicado}
               workflowType={workflowType}
-              selectedConnectorId={selectedConnectorId}
-              connectors={connectors}
+              resolvedConnectors={resolveSelectedConnectors(connectors)}
             />
           </TabsContent>
 
@@ -959,8 +992,7 @@ export function MasterDebugPanel() {
             <SyncTestTab
               radicado={radicado}
               workflowType={workflowType}
-              selectedConnectorId={selectedConnectorId}
-              connectors={connectors}
+              resolvedConnectors={resolveSelectedConnectors(connectors)}
             />
           </TabsContent>
 
@@ -968,8 +1000,7 @@ export function MasterDebugPanel() {
             <E2EWizardTab
               radicado={radicado}
               workflowType={workflowType}
-              selectedConnectorId={selectedConnectorId}
-              connectors={connectors}
+              resolvedConnectors={resolveSelectedConnectors(connectors)}
             />
           </TabsContent>
 
