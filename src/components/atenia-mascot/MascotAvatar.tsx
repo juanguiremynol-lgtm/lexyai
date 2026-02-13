@@ -51,18 +51,26 @@ export function MascotAvatar({ state, onClick, className }: MascotAvatarProps) {
           fill="currentColor" opacity="0.15"
           stroke="currentColor" strokeWidth="2"
         />
-        {/* Eyes */}
-        {state === "CHAT_OPEN" ? (
-          <>
-            <path d="M14 22 Q17 19 20 22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
-            <path d="M28 22 Q31 19 34 22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
-          </>
-        ) : (
-          <>
-            <circle cx="17" cy="24" r="3" fill="currentColor" />
-            <circle cx="31" cy="24" r="3" fill="currentColor" />
-          </>
-        )}
+         {/* Eyes */}
+         {state === "CHAT_OPEN" ? (
+           <>
+             {/* Happy curved eyes */}
+             <path d="M14 22 Q17 19 20 22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+             <path d="M28 22 Q31 19 34 22" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
+           </>
+         ) : state === "SPEAKING" ? (
+           <>
+             {/* Wider eyes for speaking */}
+             <circle cx="17" cy="24" r="4" fill="currentColor" />
+             <circle cx="31" cy="24" r="4" fill="currentColor" />
+           </>
+         ) : (
+           <>
+             {/* Normal eyes */}
+             <circle cx="17" cy="24" r="3" fill="currentColor" />
+             <circle cx="31" cy="24" r="3" fill="currentColor" />
+           </>
+         )}
         {/* Mouth */}
         {state === "CHAT_OPEN" ? (
           <path d="M18 32 Q24 37 30 32" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" />
