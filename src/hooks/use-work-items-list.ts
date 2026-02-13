@@ -61,6 +61,7 @@ export function useWorkItemsList(options: UseWorkItemsListOptions = {}) {
             name
           )
         `)
+        .is("deleted_at", null)
         .order("updated_at", { ascending: false });
 
       // Filter by workflow types if specified

@@ -130,6 +130,7 @@ export function useLoginSync(): UseLoginSyncResult {
           .select('id, workflow_type, radicado, stage')
           .eq('organization_id', organization.id)
           .eq('monitoring_enabled', true)
+          .is('deleted_at', null)
           .in('workflow_type', SYNC_ENABLED_WORKFLOWS)
           .not('radicado', 'is', null)
           .order('last_synced_at', { ascending: true, nullsFirst: true }) // Oldest sync first
