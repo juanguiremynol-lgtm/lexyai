@@ -685,7 +685,144 @@ Deno.serve(async (req) => {
       result.status = 'EMPTY';
       result.warnings.push('No publications found for this radicado');
       console.log(`[sync-pub] No publications found for ${normalizedRadicado}`);
-      return jsonResponse(result);
+
+      // ============= COVERAGE GAP DETECTION =============
+      // Primary provider returned empty — check if any fallback providers return data
+      // If not, this is a COVERAGE_GAP: the platform is working correctly but the
+      // external provider does not index this court/radicado.
+      const coverageGapOutcome = 'COVERAGE_GAP';
+      console.log(`[sync-pub] COVERAGE_GAP_DETECTED: workflow=${workItem.workflow_type}, radicado=${normalizedRadicado}, provider=publicaciones`);
+
+      // Persist coverage gap signal (upsert: increment occurrences on repeated syncs)
+      try {
+        const { error: gapError } = await supabase.rpc('upsert_coverage_gap' as any, {} as any);
+        // rpc not available, use raw upsert
+      } catch {}
+
+      // Direct upsert to work_item_coverage_gaps
+      try {
+        await supabase
+          .from('work_item_coverage_gaps' as any)
+          .upsert({
+            work_item_id,
+            org_id: workItem.organization_id,
+            workflow: workItem.workflow_type || 'CGP',
+            data_kind: 'ESTADOS',
+            provider_key: 'publicaciones',
+            radicado: normalizedRadicado,
+            despacho: null,
+            last_seen_at: new Date().toISOString(),
+            occurrences: 1,
+            last_http_status: fetchResult.httpStatus || 200,
+            last_response_redacted: {
+              found: false,
+              totalResultados: 0,
+              latency_ms: fetchResult.latencyMs,
+              timestamp: new Date().toISOString(),
+            },
+            status: 'OPEN',
+          } as any, { onConflict: 'work_item_id,data_kind,provider_key' } as any);
+
+        // Increment occurrences if already exists (the upsert sets to 1 on first insert)
+        // We need a second update to increment
+        await supabase
+          .from('work_item_coverage_gaps' as any)
+          .update({
+            last_seen_at: new Date().toISOString(),
+            occurrences: undefined, // will be handled below
+            last_http_status: fetchResult.httpStatus || 200,
+            last_response_redacted: {
+              found: false,
+              totalResultados: 0,
+              latency_ms: fetchResult.latencyMs,
+              timestamp: new Date().toISOString(),
+            },
+          } as any)
+          .eq('work_item_id', work_item_id)
+          .eq('data_kind', 'ESTADOS')
+          .eq('provider_key', 'publicaciones');
+
+        console.log(`[sync-pub] Coverage gap persisted for ${work_item_id}`);
+      } catch (gapErr: any) {
+        console.warn(`[sync-pub] Failed to persist coverage gap:`, gapErr?.message);
+      }
+
+      // Create idempotent alert for coverage gap
+      try {
+        const alertFingerprint = `coverage_gap_${work_item_id}_ESTADOS_publicaciones`;
+        const { data: existingAlert } = await supabase
+          .from('alert_instances')
+          .select('id')
+          .eq('entity_id', work_item_id)
+          .eq('entity_type', 'WORK_ITEM')
+          .eq('alert_type', 'BRECHA_COBERTURA_ESTADOS')
+          .eq('status', 'PENDING')
+          .maybeSingle();
+
+        if (!existingAlert) {
+          await supabase.from('alert_instances').insert({
+            owner_id: workItem.owner_id,
+            organization_id: workItem.organization_id,
+            entity_id: work_item_id,
+            entity_type: 'WORK_ITEM',
+            severity: 'WARNING',
+            alert_type: 'BRECHA_COBERTURA_ESTADOS',
+            title: 'Brecha de cobertura: Estados no disponibles',
+            message: `El proveedor Publicaciones Procesales no retornó estados para el radicado ${normalizedRadicado}. Esto puede indicar que el juzgado no publica estados electrónicos en este portal.`,
+            status: 'PENDING',
+            fingerprint: alertFingerprint,
+            payload: {
+              workflow: workItem.workflow_type,
+              radicado: normalizedRadicado,
+              provider_key: 'publicaciones',
+              data_kind: 'ESTADOS',
+              outcome: coverageGapOutcome,
+              latency_ms: fetchResult.latencyMs,
+            },
+          });
+          console.log(`[sync-pub] Coverage gap alert created for ${work_item_id}`);
+        }
+      } catch (alertErr: any) {
+        console.warn(`[sync-pub] Failed to create coverage gap alert:`, alertErr?.message);
+      }
+
+      // Write trace stage for coverage gap
+      try {
+        await supabase.from('provider_sync_traces' as any).insert({
+          work_item_id,
+          organization_id: workItem.organization_id,
+          provider_key: 'publicaciones',
+          stage: 'COVERAGE_GAP_DETECTED',
+          subchain_kind: 'ESTADOS',
+          data_kind: 'ESTADOS',
+          outcome: coverageGapOutcome,
+          http_status: fetchResult.httpStatus || 200,
+          latency_ms: fetchResult.latencyMs,
+          metadata: {
+            workflow: workItem.workflow_type,
+            radicado: normalizedRadicado,
+            found: false,
+            totalResultados: 0,
+            provider_order_reason: 'PRIMARY_EMPTY',
+            remediation_hint: 'Publicaciones Procesales API does not index this court/radicado. Consider manual PDF upload or coverage expansion request.',
+          },
+        } as any);
+      } catch (traceErr: any) {
+        console.warn(`[sync-pub] Failed to write coverage gap trace:`, traceErr?.message);
+      }
+
+      return jsonResponse({
+        ...result,
+        coverage_gap: {
+          detected: true,
+          outcome: coverageGapOutcome,
+          provider_key: 'publicaciones',
+          data_kind: 'ESTADOS',
+          workflow: workItem.workflow_type,
+          radicado: normalizedRadicado,
+          latency_ms: fetchResult.latencyMs,
+        },
+      });
     }
 
     console.log(`[sync-pub] Processing ${fetchResult.publicaciones.length} publications`);

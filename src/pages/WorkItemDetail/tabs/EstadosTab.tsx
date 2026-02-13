@@ -33,12 +33,29 @@ import {
   Newspaper,
   FileWarning,
   Clock,
+  ShieldAlert,
+  ChevronDown,
 } from "lucide-react";
 import { format, formatDistanceToNow, addDays, isWeekend } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { WorkItem } from "@/types/work-item";
+
+// Coverage gap type
+interface CoverageGap {
+  id: string;
+  provider_key: string;
+  data_kind: string;
+  workflow: string;
+  radicado: string;
+  last_seen_at: string;
+  occurrences: number;
+  last_http_status: number | null;
+  last_response_redacted: any;
+  status: string;
+}
 
 interface EstadosTabProps {
   workItem: WorkItem & { _source?: string };
@@ -258,6 +275,29 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
     refetchOnWindowFocus: false,
   });
 
+  // Query coverage gaps for this work item
+  const { data: coverageGaps } = useQuery({
+    queryKey: ["work-item-coverage-gaps", workItem.id],
+    queryFn: async () => {
+      await ensureValidSession();
+      const { data, error } = await supabase
+        .from("work_item_coverage_gaps" as any)
+        .select("*")
+        .eq("work_item_id", workItem.id)
+        .eq("status", "OPEN");
+      if (error) {
+        console.warn("Failed to fetch coverage gaps:", error);
+        return [];
+      }
+      return (data || []) as unknown as CoverageGap[];
+    },
+    enabled: !!workItem.id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const hasCoverageGap = (coverageGaps?.length ?? 0) > 0;
+  const estadosGap = coverageGaps?.find(g => g.data_kind === "ESTADOS");
+
   // NOTE: Manual sync buttons removed - syncing happens automatically via useLoginSync + daily cron
   // The syncPublicacionesMutation was removed as part of the automatic-sync architecture
 
@@ -333,24 +373,101 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         </CardHeader>
       </Card>
 
-      {/* Empty state - REMOVED: "Buscar Estados" button */}
+      {/* Empty state with coverage gap awareness */}
       {!estados || estados.length === 0 ? (
-        <Card>
-          <CardContent className="py-12">
-            <div className="text-center space-y-3">
-              <Newspaper className="h-12 w-12 mx-auto text-muted-foreground/50" />
-              <div>
-                <h3 className="font-semibold mb-2">Sin estados registrados</h3>
-                <p className="text-muted-foreground text-sm max-w-md mx-auto">
-                  {hasValidRadicado
-                    ? "No se han encontrado estados para este proceso aún. Los estados se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM."
-                    : "Este proceso necesita un radicado válido (23 dígitos) para buscar estados."
-                  }
-                </p>
+        hasCoverageGap && estadosGap ? (
+          /* COVERAGE GAP BANNER — not misleading "sin estados" */
+          <Card className="border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
+            <CardContent className="py-8">
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="h-8 w-8 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-foreground">
+                      Brecha de cobertura del proveedor
+                    </h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      No encontramos estados en nuestras fuentes automáticas para este proceso (posible brecha de cobertura del proveedor).
+                      Esto significa que el portal electrónico de la Rama Judicial no retorna estados para este radicado,
+                      aunque pueden existir en el juzgado físico.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Diagnostic accordion */}
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground hover:text-foreground">
+                      <ChevronDown className="h-4 w-4" />
+                      Ver diagnóstico
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    <div className="rounded-lg border bg-background p-4 space-y-3 text-sm">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                        <div>
+                          <span className="text-muted-foreground">Proveedor:</span>
+                          <span className="ml-2 font-medium">Publicaciones Procesales</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Resultado:</span>
+                          <Badge variant="outline" className="ml-2 text-amber-600 border-amber-300">
+                            found=false
+                          </Badge>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Último intento:</span>
+                          <span className="ml-2">
+                            {format(new Date(estadosGap.last_seen_at), "d MMM yyyy HH:mm", { locale: es })}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Intentos totales:</span>
+                          <span className="ml-2 font-medium">{estadosGap.occurrences}</span>
+                        </div>
+                        {estadosGap.last_http_status && (
+                          <div>
+                            <span className="text-muted-foreground">HTTP Status:</span>
+                            <span className="ml-2">{estadosGap.last_http_status}</span>
+                          </div>
+                        )}
+                        {estadosGap.last_response_redacted?.latency_ms && (
+                          <div>
+                            <span className="text-muted-foreground">Latencia:</span>
+                            <span className="ml-2">{estadosGap.last_response_redacted.latency_ms}ms</span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        El radicado <code className="bg-muted px-1 rounded">{estadosGap.radicado}</code> fue
+                        consultado correctamente en el API de Publicaciones Procesales. La respuesta fue vacía
+                        (found=false), indicando que este juzgado no publica estados electrónicos en el portal.
+                      </p>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          /* Standard empty state — no coverage gap detected yet */
+          <Card>
+            <CardContent className="py-12">
+              <div className="text-center space-y-3">
+                <Newspaper className="h-12 w-12 mx-auto text-muted-foreground/50" />
+                <div>
+                  <h3 className="font-semibold mb-2">Sin estados registrados</h3>
+                  <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                    {hasValidRadicado
+                      ? "No se han encontrado estados para este proceso aún. Los estados se sincronizan automáticamente al iniciar sesión y cada día a las 7:00 AM."
+                      : "Este proceso necesita un radicado válido (23 dígitos) para buscar estados."
+                    }
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )
       ) : (
         /* Estados Timeline */
         <div className="space-y-3">
