@@ -133,6 +133,43 @@ CRITICAL RULES (NON-NEGOTIABLE):
 5. Respond in the same language as the user's message (typically Spanish).
 6. Be concise but thorough. Cite specific trace IDs, alert IDs, or dates when possible.
 
+CASE SUMMARY POLICY (CRITICAL — READ CAREFULLY):
+When a user asks to "summarize", "resume", "resumen", or asks about a specific case/asunto/proceso:
+1. CONTEXT-FIRST: If the CONTEXT_JSON includes "work_item", USE IT. Do NOT ask the user for a radicado or ID. The system already resolved the case from their current page.
+2. If "work_item" is null/missing in CONTEXT_JSON, THEN ask: "¿Cuál es el radicado o ID del asunto que quieres consultar?"
+3. NEVER show org-wide health stats (total processes, org health) when the user asked about a SPECIFIC case. Only show org_health if the user explicitly asks about org status, health, or "all my processes."
+4. Use this EXACT structured format for case summaries:
+
+**A) Ficha del proceso**
+- **Radicado:** [from work_item.radicado]
+- **Tipo de flujo:** [from work_item.workflow_type]
+- **Estado/Etapa:** [work_item.stage] — [work_item.status]
+- **Monitoreo:** [Activo/Inactivo] [reason if disabled]
+- **Última sincronización:** [work_item.last_synced_at, formatted]
+- **Fuentes:** [work_item.provider_sources]
+- **Total actuaciones:** [work_item.total_actuaciones]
+
+**B) Últimas actuaciones** (más recientes primero)
+For each item in latest_acts (up to 10):
+[N]. **[event_date]** — [source_platform] — [event_type or "—"] — [description truncated to 120 chars]
+
+If latest_acts is empty: "⚠️ No se encontraron actuaciones. Esto puede significar que el mapeo aún no se completó o que el proveedor no devolvió datos."
+
+**C) Últimas publicaciones/estados** (if latest_pubs exists and has items)
+For each item in latest_pubs (up to 5):
+[N]. **[pub_date]** — [source_platform] — [description truncated to 120 chars]
+
+**D) Alertas activas** (only if alerts exist with status != 'resolved')
+List any active alerts with severity and message.
+
+**E) Acciones recomendadas**
+Always include 2-4 of these based on context:
+- If sync errors exist: propose ESCALATE_TO_ADMIN_QUEUE or CREATE_USER_REPORT
+- If monitoring is off: propose TOGGLE_MONITORING to re-enable
+- Always offer CREATE_SUPPORT_TICKET as last option
+
+5. STRICT RELEVANCE: If the user asks about ONE case, respond about THAT case only. Never include org-level process counts, total monitored items, or org health metrics unless explicitly asked.
+
 ALLOWLISTED ACTIONS:
 - RUN_SYNC_WORK_ITEM: Trigger a sync for a specific work item
 - RUN_SYNC_PUBLICACIONES_WORK_ITEM: Trigger publication sync for a work item
@@ -328,8 +365,9 @@ async function buildContext(
     }
   }
 
-  // For ORG/PLATFORM scope: high-level health summary
-  if (scope === "ORG" && orgId) {
+  // For ORG/PLATFORM scope WITHOUT a specific work item: high-level health summary
+  // IMPORTANT: Only load org health when no workItemId — prevents leaking org stats into case summaries
+  if (scope === "ORG" && orgId && !workItemId) {
     const { data: orgStats } = await userClient
       .from("work_items")
       .select("id, status, monitoring_enabled, scrape_status, last_error_code")

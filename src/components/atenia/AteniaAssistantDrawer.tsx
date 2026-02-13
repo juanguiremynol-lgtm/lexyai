@@ -110,7 +110,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const QUICK_QUESTIONS = [
   { label: "¿Por qué no se actualiza?", message: "¿Por qué este proceso no se está actualizando? Analiza los traces recientes y el estado de monitoreo." },
-  { label: "Resumen de actuaciones", message: "Resume las últimas actuaciones de este proceso. ¿Hay algo importante o urgente?" },
+  { label: "Resumen del proceso", message: "Resume este asunto y sus últimas actuaciones. Incluye ficha del proceso, últimas actuaciones y acciones recomendadas." },
   { label: "¿Qué debo hacer?", message: "Basado en el estado actual de este proceso, ¿qué acciones debería tomar? Sugiere pasos concretos." },
 ];
 
