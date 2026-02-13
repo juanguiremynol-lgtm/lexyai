@@ -56,7 +56,7 @@ export interface PreflightResult {
 export interface WizardState {
   mode: WizardMode;
   step: number;
-  templateChoice: "NEW" | "EXISTING" | null;
+  templateChoice: "NEW" | "EXISTING" | "QUICK" | null;
   connector: WizardConnector | null;
   instance: WizardInstance | null;
   preflightResult: PreflightResult | null;

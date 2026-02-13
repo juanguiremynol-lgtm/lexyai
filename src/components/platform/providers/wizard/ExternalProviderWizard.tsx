@@ -18,6 +18,7 @@ import { StepMapping } from "./steps/StepMapping";
 import { StepRouting } from "./steps/StepRouting";
 import { StepE2E } from "./steps/StepE2E";
 import { StepSuccess } from "./steps/StepSuccess";
+import { StepQuickAdd } from "./steps/StepQuickAdd";
 import { initialWizardState, WIZARD_STEPS, type WizardMode, type WizardState, type WizardConnector, type WizardInstance, type PreflightResult } from "./WizardTypes";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -76,10 +77,35 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             selectedConnector={state.connector}
             onChoose={(choice) => setState((s) => ({ ...s, templateChoice: choice, connector: choice === "NEW" ? null : s.connector }))}
             onSelectConnector={(c) => setState((s) => ({ ...s, connector: c }))}
-            onNext={next}
+            onNext={() => {
+              if (state.templateChoice === "QUICK") {
+                // Quick Add shows its own step at index 2 (reuses connector step slot)
+                next();
+              } else {
+                next();
+              }
+            }}
           />
         );
       case 2:
+        if (state.templateChoice === "QUICK") {
+          return (
+            <StepQuickAdd
+              mode={mode}
+              organizationId={orgId}
+              onComplete={(c, i) => {
+                setState((s) => ({
+                  ...s,
+                  connector: c,
+                  instance: i,
+                  organizationId: i.organization_id,
+                  routingConfigured: true,
+                }));
+              }}
+              onNext={() => setState((s) => ({ ...s, step: 4 }))}
+            />
+          );
+        }
         return (
           <StepConnector
             mode={mode}
