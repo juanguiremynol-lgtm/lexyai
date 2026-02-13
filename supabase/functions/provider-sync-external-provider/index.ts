@@ -276,6 +276,8 @@ Deno.serve(async (req) => {
     }
 
     // Secret loaded successfully
+    const decrypted = await decryptSecret(hexToBytes(secretRow.cipher_text), hexToBytes(secretRow.nonce));
+    
     await writeTrace(db, runId, source, instance, "SECRET_LOADED", "OK", true, 0, {
       secret_id: secretRow.id,
       key_version: secretRow.key_version,
