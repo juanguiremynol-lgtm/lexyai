@@ -33,32 +33,44 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const userClient = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Allow service-role key as direct auth (for programmatic access)
+    const token = authHeader.replace("Bearer ", "");
+    const isServiceRole = token === serviceKey;
+
+    let userId: string | null = null;
+
+    if (isServiceRole) {
+      userId = "00000000-0000-0000-0000-000000000000"; // system actor
+    } else {
+      const userClient = createClient(supabaseUrl, supabaseKey, {
+        global: { headers: { Authorization: authHeader } },
       });
+      const { data: { user }, error: authErr } = await userClient.auth.getUser();
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: "Invalid token" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = user.id;
+
+      // Platform admin check (only for non-service-role)
+      const adminClient2 = createClient(supabaseUrl, serviceKey);
+      const { data: platformAdmin } = await adminClient2
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!platformAdmin) {
+        return new Response(JSON.stringify({ error: "Platform admin required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const adminClient = createClient(supabaseUrl, serviceKey);
-
-    // Platform admin check
-    const { data: platformAdmin } = await adminClient
-      .from("platform_admins")
-      .select("user_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!platformAdmin) {
-      return new Response(JSON.stringify({ error: "Platform admin required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const body = await req.json();
     const { instance_id, secret_value, enable = true } = body;
@@ -130,7 +142,7 @@ Deno.serve(async (req) => {
         is_active: enable,
         cipher_text: cipher,
         nonce,
-        created_by: user.id,
+        created_by: userId,
         scope: instance.scope || "ORG",
       })
       .select("id, key_version, is_active, scope")
