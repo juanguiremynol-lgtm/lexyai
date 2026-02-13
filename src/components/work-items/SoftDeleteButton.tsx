@@ -68,6 +68,10 @@ export function SoftDeleteButton({
         toast.success(
           `Asunto ${radicado || ""} eliminado. Puedes recuperarlo con Atenia AI en los próximos 10 días.`
         );
+        // Dispatch event for mascot nudge
+        window.dispatchEvent(new CustomEvent("atenia:work-item-deleted", {
+          detail: { radicado, workItemId },
+        }));
         setOpen(false);
         onDeleted();
       } else {

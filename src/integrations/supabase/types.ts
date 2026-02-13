@@ -6372,6 +6372,7 @@ export type Database = {
           id: string
           last_estados_import_at: string | null
           last_welcome_date: string | null
+          mascot_preferences: Json | null
           organization_id: string | null
           reminder_email: string | null
           reparto_directory: Json | null
@@ -6400,6 +6401,7 @@ export type Database = {
           id: string
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
+          mascot_preferences?: Json | null
           organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
@@ -6428,6 +6430,7 @@ export type Database = {
           id?: string
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
+          mascot_preferences?: Json | null
           organization_id?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
