@@ -891,27 +891,6 @@ async function executeAction(
       return { ok: true, note: "Contextual help will be provided by the AI based on the current route." };
     }
 
-      if (!wiId) throw new Error("Se requiere work_item_id.");
-
-      // Verify user has access to this work item
-      const { data: wi } = await userClient
-        .from("work_items")
-        .select("id")
-        .eq("id", wiId)
-        .maybeSingle();
-      if (!wi) throw new Error("No tienes acceso a este asunto o no existe.");
-
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const resp = await fetch(`${supabaseUrl}/functions/v1/sync-by-work-item`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ work_item_id: wiId }),
-      });
-      const result = await resp.json().catch(() => ({ status: resp.status }));
-      return { ok: resp.ok, result, message: resp.ok ? "Sincronización iniciada." : "Error al sincronizar." };
-    }
-
     default:
       throw new Error(`Unknown action type: ${action.type}`);
   }
