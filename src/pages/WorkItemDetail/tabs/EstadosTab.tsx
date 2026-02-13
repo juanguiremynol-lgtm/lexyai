@@ -1,17 +1,18 @@
 /**
- * Estados Tab - Publicaciones Procesales ONLY
+ * Estados Tab - Court Notifications & ESTADOS
  * 
- * CRITICAL: This tab displays ONLY work_item_publicaciones (court notifications)
- * from the Publicaciones Procesales API. These are LEGAL OBLIGATIONS with deadlines.
+ * This tab displays ESTADOS data from two canonical sources:
+ *   1. work_item_publicaciones — Publicaciones Procesales API (Rama Judicial)
+ *   2. work_item_acts WHERE source='SAMAI_ESTADOS' — SAMAI Estados external provider (CPACA)
  * 
- * Actuaciones (clerk registry entries from CPNU/SAMAI) are shown in the separate
- * Actuaciones tab and must NEVER appear here.
+ * Actuaciones (clerk registry entries from CPNU/SAMAI actuaciones) are shown in the
+ * separate Actuaciones tab and must NEVER appear here.
  * 
  * Features:
- * - Display publicaciones from Rama Judicial API (work_item_publicaciones table ONLY)
+ * - Display publicaciones + SAMAI_ESTADOS records merged into a unified timeline
  * - Syncing happens AUTOMATICALLY via useLoginSync and daily cron (no manual buttons)
  * - PROMINENT DISPLAY of deadline dates (fecha_desfijacion → términos_inician)
- * - Source badges for Publicaciones API
+ * - Source badges showing provenance (Rama Judicial vs SAMAI Estados)
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -58,11 +59,12 @@ interface PublicacionEstado {
   despacho: string | null;
 }
 
-// Source labels and styling - Publicaciones sources only
+// Source labels and styling
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: typeof Newspaper }> = {
   PUBLICACIONES_API: { label: "Rama Judicial", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   "publicaciones-procesales": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   "publicaciones-api": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
+  SAMAI_ESTADOS: { label: "SAMAI Estados", color: "text-blue-600 bg-blue-500/10", icon: Scale },
   DEFAULT: { label: "Sistema", color: "text-muted-foreground bg-muted/50", icon: Newspaper },
 };
 
@@ -109,30 +111,36 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
   // Check if radicado is valid for Publicaciones sync
   const hasValidRadicado = workItem.radicado && workItem.radicado.replace(/\D/g, "").length === 23;
   
-  // PUBLICACIONES ONLY: Fetch ONLY from work_item_publicaciones
-  // This tab is exclusively for court notifications (estados/publicaciones procesales)
-  // Actuaciones from CPNU/SAMAI are displayed in the separate Actuaciones tab
+  // Fetch ESTADOS from two sources:
+  // 1. work_item_publicaciones — Publicaciones Procesales (Rama Judicial)
+  // 2. work_item_acts WHERE source='SAMAI_ESTADOS' — SAMAI Estados (CPACA external provider)
   const { data: estados, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["work-item-publicaciones", workItem.id],
+    queryKey: ["work-item-estados-unified", workItem.id],
     queryFn: async () => {
-      // Guard: ensure valid auth before querying
       await ensureValidSession();
 
-      // Query ONLY work_item_publicaciones - this tab shows estados/publicaciones ONLY
-      // FIX 4.1: Filter out archived records
-      // FIX 4.2: Add proper ORDER BY with fallback
-      const { data: pubs, error: pubsError } = await supabase
-        .from("work_item_publicaciones")
-        .select("*")
-        .eq("work_item_id", workItem.id)
-        .eq("is_archived", false)
-        .order("fecha_fijacion", { ascending: false, nullsFirst: false });
-      
-      if (pubsError) throw pubsError;
-      
+      // Query both sources in parallel
+      const [pubsResult, samaiEstadosResult] = await Promise.all([
+        supabase
+          .from("work_item_publicaciones")
+          .select("*")
+          .eq("work_item_id", workItem.id)
+          .eq("is_archived", false)
+          .order("fecha_fijacion", { ascending: false, nullsFirst: false }),
+        supabase
+          .from("work_item_acts")
+          .select("*")
+          .eq("work_item_id", workItem.id)
+          .eq("source", "SAMAI_ESTADOS")
+          .eq("is_archived", false)
+          .order("act_date", { ascending: false, nullsFirst: false }),
+      ]);
+
+      if (pubsResult.error) throw pubsResult.error;
+      if (samaiEstadosResult.error) throw samaiEstadosResult.error;
+
       // Map work_item_publicaciones to display format
-      // CRITICAL: Read deadline fields from DB columns (not just raw_data)
-      const estadosList: PublicacionEstado[] = (pubs || []).map((pub: any) => ({
+      const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => ({
         id: pub.id,
         date: pub.published_at,
         date_raw: pub.published_at,
@@ -141,13 +149,34 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
         source: pub.source || "PUBLICACIONES_API",
         pdf_url: pub.pdf_url,
         created_at: pub.created_at,
-        // CRITICAL: Use DB columns as primary source
         fecha_fijacion: pub.fecha_fijacion || pub.raw_data?.fecha_fijacion || null,
         fecha_desfijacion: pub.fecha_desfijacion || pub.raw_data?.fecha_desfijacion || null,
         despacho: pub.despacho || pub.raw_data?.despacho || null,
       }));
-      
-      return estadosList;
+
+      // Map SAMAI_ESTADOS from work_item_acts to the same display format
+      const fromSamaiEstados: PublicacionEstado[] = (samaiEstadosResult.data || []).map((act: any) => ({
+        id: act.id,
+        date: act.act_date,
+        date_raw: act.act_date,
+        description: act.description || act.event_summary || '',
+        type: act.act_type || 'ESTADO',
+        source: "SAMAI_ESTADOS",
+        pdf_url: act.source_url || null,
+        created_at: act.created_at,
+        fecha_fijacion: null, // SAMAI Estados doesn't provide fijacion/desfijacion
+        fecha_desfijacion: null,
+        despacho: act.despacho || null,
+      }));
+
+      // Merge and sort by date descending
+      const merged = [...fromPubs, ...fromSamaiEstados].sort((a, b) => {
+        const dateA = a.date || a.created_at;
+        const dateB = b.date || b.created_at;
+        return dateB.localeCompare(dateA);
+      });
+
+      return merged;
     },
     enabled: !!workItem.id,
     staleTime: 2 * 60 * 1000,
