@@ -3635,9 +3635,43 @@ export type Database = {
           },
         ]
       }
+      dunning_rules: {
+        Row: {
+          action_type: string
+          attempt_number: number
+          created_at: string
+          delay_hours: number
+          escalation_action: string | null
+          id: string
+          notify_email: boolean
+          notify_in_app: boolean
+        }
+        Insert: {
+          action_type?: string
+          attempt_number: number
+          created_at?: string
+          delay_hours?: number
+          escalation_action?: string | null
+          id?: string
+          notify_email?: boolean
+          notify_in_app?: boolean
+        }
+        Update: {
+          action_type?: string
+          attempt_number?: number
+          created_at?: string
+          delay_hours?: number
+          escalation_action?: string | null
+          id?: string
+          notify_email?: boolean
+          notify_in_app?: boolean
+        }
+        Relationships: []
+      }
       dunning_schedule: {
         Row: {
           action_id: string | null
+          action_type: string
           attempt_number: number
           created_at: string | null
           executed_at: string | null
@@ -3646,9 +3680,11 @@ export type Database = {
           organization_id: string
           result: string | null
           scheduled_at: string
+          status: string
         }
         Insert: {
           action_id?: string | null
+          action_type?: string
           attempt_number: number
           created_at?: string | null
           executed_at?: string | null
@@ -3657,9 +3693,11 @@ export type Database = {
           organization_id: string
           result?: string | null
           scheduled_at: string
+          status?: string
         }
         Update: {
           action_id?: string | null
+          action_type?: string
           attempt_number?: number
           created_at?: string | null
           executed_at?: string | null
@@ -3668,6 +3706,7 @@ export type Database = {
           organization_id?: string
           result?: string | null
           scheduled_at?: string
+          status?: string
         }
         Relationships: []
       }
@@ -5908,6 +5947,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      platform_gateway_config: {
+        Row: {
+          config_key: string
+          config_value: string
+          created_at: string
+          environment: string
+          gateway: string
+          id: string
+          is_secret: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          config_key: string
+          config_value: string
+          created_at?: string
+          environment?: string
+          gateway?: string
+          id?: string
+          is_secret?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          config_key?: string
+          config_value?: string
+          created_at?: string
+          environment?: string
+          gateway?: string
+          id?: string
+          is_secret?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       platform_settings: {
         Row: {

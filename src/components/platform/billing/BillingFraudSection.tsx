@@ -1,14 +1,20 @@
 /**
- * Billing Fraud & Verification Section — AI verification results, fraud signals
+ * Billing Fraud & Verification Section — AI verification results, fraud signals, risk dashboard
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldAlert, ShieldCheck, AlertTriangle } from "lucide-react";
+import { ShieldAlert, ShieldCheck, AlertTriangle, TrendingUp, Activity } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+
+function formatCOP(amount: number): string {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency", currency: "COP", minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(amount);
+}
 
 export function BillingFraudSection() {
   // Fetch AI verification actions
@@ -49,6 +55,13 @@ export function BillingFraudSection() {
     staleTime: 30_000,
   });
 
+  // Compute risk stats
+  const totalVerifications = verifications?.length || 0;
+  const approvedCount = verifications?.filter(v => v.action_result === "APPROVED" || v.action_result === "applied").length || 0;
+  const rejectedCount = verifications?.filter(v => v.action_result === "REJECTED").length || 0;
+  const pendingCount = totalVerifications - approvedCount - rejectedCount;
+  const approvalRate = totalVerifications > 0 ? Math.round((approvedCount / totalVerifications) * 100) : 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -57,8 +70,39 @@ export function BillingFraudSection() {
           Fraude y Verificación
         </h1>
         <p className="text-sm text-slate-400 mt-1">
-          Resultados de verificación por Atenia AI, señales de fraude y transacciones sospechosas.
+          Resultados de verificación por Atenia AI, señales de fraude y dashboard de riesgo.
         </p>
+      </div>
+
+      {/* Risk KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <KPICard
+          label="Verificaciones"
+          value={totalVerifications.toString()}
+          icon={<Activity className="h-4 w-4 text-amber-400" />}
+          sub="Últimas 50"
+        />
+        <KPICard
+          label="Aprobadas"
+          value={`${approvalRate}%`}
+          icon={<ShieldCheck className="h-4 w-4 text-emerald-400" />}
+          sub={`${approvedCount} de ${totalVerifications}`}
+          accent="emerald"
+        />
+        <KPICard
+          label="Rechazadas"
+          value={rejectedCount.toString()}
+          icon={<ShieldAlert className="h-4 w-4 text-red-400" />}
+          sub={rejectedCount > 0 ? "Requiere revisión" : "Sin incidentes"}
+          accent={rejectedCount > 0 ? "red" : undefined}
+        />
+        <KPICard
+          label="Sospechosas"
+          value={(suspiciousTxns?.length || 0).toString()}
+          icon={<AlertTriangle className="h-4 w-4 text-orange-400" />}
+          sub="Txns fallidas/sospechosas"
+          accent={(suspiciousTxns?.length || 0) > 0 ? "orange" : undefined}
+        />
       </div>
 
       {/* Verification Results */}
@@ -85,6 +129,7 @@ export function BillingFraudSection() {
                     <th className="text-left py-2 px-2">Fecha</th>
                     <th className="text-left py-2 px-2">Organización</th>
                     <th className="text-left py-2 px-2">Resultado</th>
+                    <th className="text-left py-2 px-2">Tier</th>
                     <th className="text-left py-2 px-2">Razonamiento</th>
                   </tr>
                 </thead>
@@ -109,6 +154,9 @@ export function BillingFraudSection() {
                         >
                           {v.action_result || "—"}
                         </Badge>
+                      </td>
+                      <td className="py-2 px-2">
+                        <Badge variant="outline" className="text-xs">{v.autonomy_tier}</Badge>
                       </td>
                       <td className="py-2 px-2 text-slate-400 max-w-xs truncate">{v.reasoning}</td>
                     </tr>
@@ -141,7 +189,7 @@ export function BillingFraudSection() {
                   <div>
                     <p className="text-sm text-slate-200">{t.org_name} — {t.plan_code}</p>
                     <p className="text-xs text-slate-400">
-                      {format(new Date(t.created_at), "dd MMM HH:mm", { locale: es })} · Gateway: {t.gateway}
+                      {format(new Date(t.created_at), "dd MMM HH:mm", { locale: es })} · {formatCOP(t.amount_cop)} · Gateway: {t.gateway}
                     </p>
                   </div>
                   <Badge className="bg-red-500/20 text-red-400 border-red-500/30">{t.status}</Badge>
@@ -152,5 +200,31 @@ export function BillingFraudSection() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function KPICard({ label, value, icon, sub, accent }: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  sub: string;
+  accent?: "emerald" | "red" | "orange";
+}) {
+  const borderClass = accent === "emerald" ? "border-emerald-500/20"
+    : accent === "red" ? "border-red-500/20"
+    : accent === "orange" ? "border-orange-500/20"
+    : "border-slate-700/50";
+
+  return (
+    <Card className={`bg-slate-900/50 ${borderClass}`}>
+      <CardContent className="pt-4 pb-3">
+        <div className="flex items-center gap-2 mb-1">
+          {icon}
+          <span className="text-xs text-slate-400">{label}</span>
+        </div>
+        <p className="text-2xl font-bold text-slate-100">{value}</p>
+        <p className="text-xs text-slate-500 mt-1">{sub}</p>
+      </CardContent>
+    </Card>
   );
 }
