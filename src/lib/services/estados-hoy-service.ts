@@ -283,12 +283,14 @@ export async function getEstadosHoy(
   }
   
   // Map actuaciones
+  // IMPORTANT: SAMAI_ESTADOS records are treated as first-class ESTADO items
   if (actuacionesResult.data) {
     for (const act of actuacionesResult.data) {
       const workItem = act.work_items as any;
       if (!workItem) continue;
       
-      const content = act.description || 'Actuación registrada';
+      const isSamaiEstado = act.source === 'SAMAI_ESTADOS';
+      const content = act.description || (isSamaiEstado ? 'Estado electrónico' : 'Actuación registrada');
       const severity = detectActuacionSeverity(content);
       
       // Calculate term start from raw_data.fechaInicial if available
@@ -304,7 +306,7 @@ export async function getEstadosHoy(
       
       items.push({
         id: act.id,
-        type: 'ACTUACION',
+        type: isSamaiEstado ? 'ESTADO' : 'ACTUACION',
         source: mapSource(act.source),
         radicado: workItem.radicado || '',
         work_item_id: act.work_item_id,
@@ -319,10 +321,10 @@ export async function getEstadosHoy(
         fecha_desfijacion: null,
         terminos_inician: termCalc.date,
         is_deadline_trigger: false,
-        missing_fecha_desfijacion: false,
+        missing_fecha_desfijacion: isSamaiEstado,
         severity,
         created_at: act.created_at,
-        actuacion_type: act.act_type || undefined,
+        actuacion_type: isSamaiEstado ? (detectEstadoType(content).label) : (act.act_type || undefined),
         inicia_termino: termCalc.date,
         inicia_termino_source: termCalc.source,
         is_in_ejecutoria_window: ejecutoria.isInWindow,
