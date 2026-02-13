@@ -3,7 +3,8 @@ import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
-import { SubscriptionBanner } from "@/components/subscription/SubscriptionBanner";
+import { RenewalTickerTop, RenewalTickerBottom } from "@/components/billing/RenewalTicker";
+import { SuspendedPaywall } from "@/components/billing/SuspendedPaywall";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
@@ -34,7 +35,7 @@ export function AppLayout() {
       )}>
         <AppSidebar />
         <SidebarInset className="flex flex-1 flex-col min-w-0">
-          <SubscriptionBanner />
+          <RenewalTickerTop />
           <EstadosTicker />
           <TopBar />
           {/* Main content area - transparent for aqua theme */}
@@ -44,8 +45,11 @@ export function AppLayout() {
           )}>
             <Outlet />
           </main>
+          <RenewalTickerBottom />
         </SidebarInset>
       </div>
+      {/* Suspended paywall overlays everything */}
+      <SuspendedPaywall />
     </SidebarProvider>
   );
 }
