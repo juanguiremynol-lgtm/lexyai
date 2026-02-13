@@ -1126,27 +1126,54 @@
 }
 
 /* ============================================
-   PLATFORM CONSOLE - Dark Noir Theme
-   Completely separate from app themes
+   PLATFORM CONSOLE - Fido Dido Grayscale
+   Bold B&W with color only for highlights
    ============================================ */
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 .platform-console-root {
-  --platform-bg: 222 47% 4%;
-  --platform-surface: 222 40% 8%;
-  --platform-surface-elevated: 222 35% 12%;
-  --platform-border: 222 20% 18%;
-  --platform-text: 220 14% 90%;
-  --platform-text-muted: 220 10% 55%;
-  --platform-accent: 43 95% 55%;
-  --platform-accent-muted: 43 70% 35%;
+  /* Pure grayscale palette */
+  --platform-bg: 0 0% 4%;
+  --platform-surface: 0 0% 9%;
+  --platform-surface-elevated: 0 0% 14%;
+  --platform-border: 0 0% 20%;
+  --platform-border-strong: 0 0% 30%;
+  --platform-text: 0 0% 93%;
+  --platform-text-muted: 0 0% 55%;
+  --platform-text-dim: 0 0% 38%;
+  
+  /* Highlight color — electric cyan, used sparingly */
+  --platform-hi: 180 100% 50%;
+  --platform-hi-muted: 180 60% 35%;
+  
+  /* Danger / destructive */
+  --platform-danger: 0 72% 55%;
+  
+  /* Success */
+  --platform-ok: 145 70% 45%;
+  
+  /* Warning */
+  --platform-warn: 45 100% 55%;
   
   background: hsl(var(--platform-bg));
   color: hsl(var(--platform-text));
+  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
 }
 
 .platform-console-root,
 .platform-console-root * {
   color-scheme: dark;
+}
+
+/* Headings use monospace for that Fido Dido edge */
+.platform-console-root h1,
+.platform-console-root h2,
+.platform-console-root h3,
+.platform-console-root h4 {
+  font-family: 'JetBrains Mono', 'Space Grotesk', monospace;
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 .platform-console-main {
@@ -1157,12 +1184,14 @@
 .platform-console-root [data-slot="card"],
 .platform-console-root .bg-card {
   background: hsl(var(--platform-surface)) !important;
-  border-color: hsl(var(--platform-border)) !important;
+  border: 1px solid hsl(var(--platform-border)) !important;
   color: hsl(var(--platform-text));
+  border-radius: 6px;
 }
 
 .platform-console-root [data-slot="card"]:hover {
   background: hsl(var(--platform-surface-elevated)) !important;
+  border-color: hsl(var(--platform-border-strong)) !important;
 }
 
 /* Platform Console Inputs */
@@ -1170,14 +1199,22 @@
 .platform-console-root textarea,
 .platform-console-root select,
 .platform-console-root [data-slot="input"] {
-  background: hsl(var(--platform-surface)) !important;
-  border-color: hsl(var(--platform-border)) !important;
+  background: hsl(var(--platform-bg)) !important;
+  border: 1px solid hsl(var(--platform-border)) !important;
   color: hsl(var(--platform-text)) !important;
+  border-radius: 4px;
+  font-family: 'Space Grotesk', sans-serif;
+}
+
+.platform-console-root input:focus,
+.platform-console-root textarea:focus {
+  border-color: hsl(var(--platform-hi)) !important;
+  box-shadow: 0 0 0 1px hsl(var(--platform-hi) / 0.3) !important;
 }
 
 .platform-console-root input::placeholder,
 .platform-console-root textarea::placeholder {
-  color: hsl(var(--platform-text-muted)) !important;
+  color: hsl(var(--platform-text-dim)) !important;
 }
 
 /* Platform Console Buttons */
@@ -1188,6 +1225,7 @@
 
 .platform-console-root button[data-variant="outline"]:hover {
   background: hsl(var(--platform-surface-elevated));
+  border-color: hsl(var(--platform-border-strong));
 }
 
 /* Platform Console Tables */
@@ -1199,6 +1237,10 @@
   background: hsl(var(--platform-surface));
   color: hsl(var(--platform-text-muted));
   border-color: hsl(var(--platform-border));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .platform-console-root td {
@@ -1224,7 +1266,7 @@
 .platform-console-root [role="dialog"],
 .platform-console-root [data-slot="dialog-content"] {
   background: hsl(var(--platform-surface)) !important;
-  border-color: hsl(var(--platform-border)) !important;
+  border: 1px solid hsl(var(--platform-border)) !important;
 }
 
 /* Platform Console Selects */
@@ -1240,46 +1282,67 @@
   background: hsl(var(--platform-surface-elevated)) !important;
 }
 
-/* Platform Console Badges - Preserve status colors */
+/* Platform Console Badges — grayscale base, color only for semantics */
 .platform-console-root .bg-green-100 {
-  background: hsl(140 50% 15%) !important;
+  background: hsl(var(--platform-ok) / 0.12) !important;
 }
 .platform-console-root .text-green-800 {
-  color: hsl(140 70% 65%) !important;
+  color: hsl(var(--platform-ok)) !important;
 }
 .platform-console-root .bg-blue-100 {
-  background: hsl(210 50% 15%) !important;
+  background: hsl(var(--platform-hi) / 0.12) !important;
 }
 .platform-console-root .text-blue-800 {
-  color: hsl(210 70% 65%) !important;
+  color: hsl(var(--platform-hi)) !important;
 }
 .platform-console-root .bg-amber-100 {
-  background: hsl(43 50% 15%) !important;
+  background: hsl(var(--platform-warn) / 0.12) !important;
 }
 .platform-console-root .text-amber-800 {
-  color: hsl(43 80% 60%) !important;
+  color: hsl(var(--platform-warn)) !important;
 }
 .platform-console-root .bg-red-100 {
-  background: hsl(0 50% 15%) !important;
+  background: hsl(var(--platform-danger) / 0.12) !important;
 }
 .platform-console-root .text-red-800 {
-  color: hsl(0 70% 65%) !important;
+  color: hsl(var(--platform-danger)) !important;
 }
 
-/* Platform Console Amber Accents */
+/* Platform Console Primary — electric cyan highlight */
 .platform-console-root .text-primary {
-  color: hsl(var(--platform-accent)) !important;
+  color: hsl(var(--platform-hi)) !important;
+}
+
+.platform-console-root .bg-primary {
+  background: hsl(var(--platform-hi)) !important;
+  color: hsl(0 0% 0%) !important;
+}
+
+.platform-console-root .bg-primary:hover {
+  background: hsl(180 100% 60%) !important;
 }
 
 .platform-console-root .bg-primary\/10,
 .platform-console-root .bg-primary\/5 {
-  background: hsl(var(--platform-accent) / 0.1) !important;
+  background: hsl(var(--platform-hi) / 0.08) !important;
+}
+
+/* Platform Console Tabs */
+.platform-console-root [role="tablist"] {
+  background: hsl(var(--platform-surface)) !important;
+  border: 1px solid hsl(var(--platform-border)) !important;
+}
+
+.platform-console-root [role="tab"][data-state="active"] {
+  background: hsl(var(--platform-surface-elevated)) !important;
+  color: hsl(var(--platform-text)) !important;
+  border-bottom: 2px solid hsl(var(--platform-hi)) !important;
 }
 
 /* Platform Console Scrollbar */
 .platform-console-root ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .platform-console-root ::-webkit-scrollbar-track {
@@ -1288,9 +1351,14 @@
 
 .platform-console-root ::-webkit-scrollbar-thumb {
   background: hsl(var(--platform-border));
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 .platform-console-root ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--platform-text-muted));
+}
+
+/* Fido Dido sketch-like accent borders on key elements */
+.platform-console-root .border-l-2 {
+  border-left-color: hsl(var(--platform-hi)) !important;
 }

@@ -35,13 +35,13 @@ export function PlatformLayout() {
         <PlatformSidebar />
         <SidebarInset className="flex flex-1 flex-col min-w-0">
           {/* Platform Console Header */}
-          <header className="h-14 border-b border-amber-500/20 bg-slate-900/95 backdrop-blur-sm flex items-center px-6 gap-3 sticky top-0 z-10">
-            <ShieldAlert className="h-5 w-5 text-amber-500" />
-            <span className="font-semibold text-amber-500">ATENIA Platform Console</span>
-            <span className="text-slate-500 mx-2">|</span>
-            <span className="text-slate-300 font-medium">{pageTitle}</span>
-            <div className="ml-auto px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full">
-              <span className="text-xs text-amber-500 font-medium tracking-wide">Super Admin Mode</span>
+          <header className="h-14 border-b border-white/10 bg-black/90 backdrop-blur-sm flex items-center px-6 gap-3 sticky top-0 z-10">
+            <ShieldAlert className="h-5 w-5 text-cyan-400" />
+            <span className="font-semibold text-white tracking-tight" style={{ fontFamily: "'JetBrains Mono', monospace" }}>PLATFORM</span>
+            <span className="text-white/20 mx-1">—</span>
+            <span className="text-white/70 font-medium">{pageTitle}</span>
+            <div className="ml-auto px-3 py-1 bg-white/5 border border-white/10 rounded">
+              <span className="text-xs text-cyan-400 font-mono tracking-widest uppercase">Admin</span>
             </div>
           </header>
           

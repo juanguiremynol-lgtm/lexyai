@@ -81,9 +81,9 @@ export function PlatformSidebar() {
   return (
     <Sidebar 
       collapsible="icon" 
-      className="border-r border-slate-800 bg-slate-950"
+      className="border-r border-white/10 bg-black"
     >
-      <SidebarHeader className="border-b border-slate-800 bg-slate-950">
+      <SidebarHeader className="border-b border-white/10 bg-black">
         <div className={cn(
           "flex items-center gap-3 px-3 py-4",
           collapsed && "justify-center"
@@ -95,21 +95,21 @@ export function PlatformSidebar() {
             <img 
               src={logo} 
               alt="ATENIA Platform" 
-              className="h-full w-auto object-contain"
+              className="h-full w-auto object-contain brightness-0 invert"
             />
           </div>
           {!collapsed && (
-            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30">
-              Platform
+            <Badge className="bg-white/10 text-cyan-400 border-white/15 hover:bg-white/15 font-mono text-xs tracking-widest uppercase">
+              Console
             </Badge>
           )}
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="px-2 bg-slate-950">
+      <SidebarContent className="px-2 bg-black">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-amber-500/70 text-xs uppercase tracking-widest font-semibold px-3 py-2">
-            Consola de Plataforma
+          <SidebarGroupLabel className="text-white/30 text-[10px] uppercase tracking-[0.2em] font-mono px-3 py-2">
+            Consola
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -122,20 +122,20 @@ export function PlatformSidebar() {
                       isActive={active}
                       tooltip={item.title}
                       className={cn(
-                        "transition-all duration-200 rounded-lg my-0.5",
+                        "transition-all duration-150 rounded my-0.5",
                         active 
-                          ? "bg-amber-500/15 text-amber-400 border-l-2 border-amber-500" 
-                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                          ? "bg-white/10 text-white border-l-2 border-cyan-400" 
+                          : "text-white/50 hover:text-white/80 hover:bg-white/5"
                       )}
                     >
                       <NavLink to={item.url} className="flex items-center gap-3 px-3 py-2">
                         <item.icon className={cn(
                           "h-4 w-4 transition-colors shrink-0",
-                          active ? "text-amber-400" : "text-slate-500"
+                          active ? "text-cyan-400" : "text-white/30"
                         )} />
                         <span className={cn(
-                          "transition-colors",
-                          active ? "text-amber-400 font-medium" : "text-slate-300"
+                          "transition-colors text-sm",
+                          active ? "text-white font-medium" : "text-white/60"
                         )}>
                           {item.title}
                         </span>
@@ -149,13 +149,13 @@ export function PlatformSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-slate-800 px-2 bg-slate-950">
+      <SidebarFooter className="border-t border-white/10 px-2 bg-black">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={() => navigate("/app/dashboard")}
               tooltip="Volver a App"
-              className="text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all duration-200 rounded-lg"
+              className="text-white/40 hover:text-cyan-400 hover:bg-white/5 transition-all duration-150 rounded"
             >
               <ArrowLeft className="h-4 w-4" />
               <span>Volver a App</span>
@@ -165,7 +165,7 @@ export function PlatformSidebar() {
             <SidebarMenuButton
               onClick={handleLogout}
               tooltip="Cerrar sesión"
-              className="text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 rounded-lg"
+              className="text-white/40 hover:text-red-400 hover:bg-red-500/8 transition-all duration-150 rounded"
             >
               <LogOut className="h-4 w-4" />
               <span>Cerrar sesión</span>
