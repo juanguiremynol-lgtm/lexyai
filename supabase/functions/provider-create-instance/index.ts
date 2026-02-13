@@ -146,31 +146,67 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create provider instance
-    const { data: instance, error: instErr } = await adminClient
+    // Create provider instance (or reuse existing for PLATFORM scope)
+    let instance: any;
+    const insertPayload = {
+      organization_id: instanceScope === "PLATFORM" ? null : organization_id,
+      connector_id,
+      name,
+      base_url,
+      auth_type,
+      timeout_ms: timeout_ms || 8000,
+      rpm_limit: rpm_limit || 60,
+      is_enabled: true,
+      created_by: user.id,
+      scope: instanceScope,
+      created_by_role: instanceScope === "PLATFORM" ? "PLATFORM_ADMIN" : "ORG_ADMIN",
+    };
+
+    const { data: newInstance, error: instErr } = await adminClient
       .from("provider_instances")
-      .insert({
-        organization_id: instanceScope === "PLATFORM" ? null : organization_id,
-        connector_id,
-        name,
-        base_url,
-        auth_type,
-        timeout_ms: timeout_ms || 8000,
-        rpm_limit: rpm_limit || 60,
-        is_enabled: true,
-        created_by: user.id,
-        scope: instanceScope,
-        created_by_role: instanceScope === "PLATFORM" ? "PLATFORM_ADMIN" : "ORG_ADMIN",
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (instErr) {
-      const status = instErr.code === "23505" ? 409 : 500;
-      return new Response(
-        JSON.stringify({ error: instErr.message, code: instErr.code }),
-        { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      if (instErr.code === "23505") {
+        // Duplicate — find existing instance and update it instead
+        const query = adminClient
+          .from("provider_instances")
+          .select("*")
+          .eq("connector_id", connector_id)
+          .eq("scope", instanceScope);
+
+        if (instanceScope === "PLATFORM") {
+          query.is("organization_id", null);
+        } else {
+          query.eq("organization_id", organization_id);
+        }
+
+        const { data: existing } = await query.maybeSingle();
+        if (existing) {
+          // Update the existing instance with new values
+          const { data: updated } = await adminClient
+            .from("provider_instances")
+            .update({ name, base_url, auth_type, timeout_ms: timeout_ms || 8000, rpm_limit: rpm_limit || 60, is_enabled: true })
+            .eq("id", existing.id)
+            .select()
+            .single();
+          instance = updated || existing;
+        } else {
+          return new Response(
+            JSON.stringify({ error: instErr.message, code: instErr.code }),
+            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      } else {
+        return new Response(
+          JSON.stringify({ error: instErr.message, code: instErr.code }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else {
+      instance = newInstance;
     }
 
     // Encrypt and store secret
@@ -191,6 +227,13 @@ Deno.serve(async (req) => {
       );
     }
     const { cipher, nonce } = encResult;
+    // Deactivate any existing secrets for this instance
+    await adminClient
+      .from("provider_instance_secrets")
+      .update({ is_active: false })
+      .eq("provider_instance_id", instance.id)
+      .eq("is_active", true);
+
     const { error: secErr } = await adminClient
       .from("provider_instance_secrets")
       .insert({
