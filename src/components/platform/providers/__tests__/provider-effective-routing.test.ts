@@ -1,5 +1,6 @@
 /**
  * Tests for effective routing resolution: org override → global → builtin.
+ * Includes subchain isolation, scope gating, and invariant coverage tests.
  */
 
 import { describe, it, expect } from "vitest";
@@ -58,8 +59,8 @@ describe("resolveEffectivePolicyAndChain", () => {
     const globalRoutes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "g-conn-1", connector_name: "GlobalProv" }),
     ];
-    const instances: ResolvedInstance[] = [
-      { provider_connector_id: "g-conn-1", provider_instance_id: "g-inst-1", provider_name: "GlobalInst" },
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "g-conn-1", provider_instance_id: "g-inst-1", provider_name: "GlobalInst", scope: "PLATFORM" },
     ];
 
     const result = resolveEffectivePolicyAndChain({
@@ -67,7 +68,8 @@ describe("resolveEffectivePolicyAndChain", () => {
       scope: "ACTS",
       orgOverrideRoutes: [],
       globalRoutes,
-      orgInstances: instances,
+      orgInstances: [],
+      platformInstances,
     });
 
     expect(result.routeSource).toBe("GLOBAL");
@@ -148,7 +150,7 @@ describe("resolveEffectivePolicyAndChain", () => {
     });
 
     expect(result.routeSource).toBe("ORG_OVERRIDE");
-    expect(result.chain[0].skip_reason).toContain("No enabled instance");
+    expect(result.chain[0].skip_reason).toContain("No enabled ORG instance");
     expect(result.chain[0].provider_instance_id).toBeNull();
     // Built-in fallback still present
     expect(result.chain[1].provider_name).toBe("cpnu");
@@ -176,32 +178,31 @@ describe("resolveEffectivePolicyAndChain", () => {
     expect(result.chain.map(c => c.attempt_index)).toEqual([0, 1, 2]);
   });
 
-  it("ORG_PRIVATE connector in global routes is not special — just needs org instance", () => {
-    // This verifies connector visibility doesn't leak: routing works by connector_id,
-    // instance must exist for the org.
+  it("GLOBAL routes resolve to PLATFORM instances, not ORG instances", () => {
     const globalRoutes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "private-conn", connector_name: "PrivateConn" }),
     ];
-    // Org A has an instance, Org B doesn't
-    const orgAInstances: ResolvedInstance[] = [
-      { provider_connector_id: "private-conn", provider_instance_id: "a-inst", provider_name: "AInst" },
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "private-conn", provider_instance_id: "plat-inst", provider_name: "PlatInst", scope: "PLATFORM" },
     ];
 
     const resultA = resolveEffectivePolicyAndChain({
       workflow: "CGP", scope: "ACTS",
-      orgOverrideRoutes: [], globalRoutes, orgInstances: orgAInstances,
+      orgOverrideRoutes: [], globalRoutes, orgInstances: [], platformInstances,
     });
-    expect(resultA.chain[0].provider_name).toBe("AInst");
+    expect(resultA.chain[0].provider_name).toBe("PlatInst");
     expect(resultA.chain[0].skip_reason).toBeUndefined();
 
-    // Org B: no instance → skip
+    // Without platform instance → skip
     const resultB = resolveEffectivePolicyAndChain({
       workflow: "CGP", scope: "ACTS",
       orgOverrideRoutes: [], globalRoutes, orgInstances: [],
     });
-    expect(resultB.chain[0].skip_reason).toContain("No enabled instance");
+    expect(resultB.chain[0].skip_reason).toContain("MISSING_PLATFORM_INSTANCE");
   });
 });
+
+// ── CPACA ESTADOS routing policy ──
 
 describe("CPACA ESTADOS routing policy", () => {
   it("CPACA PUBS built-in includes publicaciones as fallback", () => {
@@ -213,7 +214,6 @@ describe("CPACA ESTADOS routing policy", () => {
       orgInstances: [],
     });
 
-    // Without DB routes, CPACA PUBS should have publicaciones as built-in
     expect(result.routeSource).toBe("BUILTIN");
     expect(result.chain.map(c => c.provider_name)).toEqual(["publicaciones"]);
   });
@@ -257,20 +257,122 @@ describe("CPACA ESTADOS routing policy", () => {
   });
 });
 
+// ── Scope gating: subchain isolation ──
+
+describe("scope gating: subchain isolation", () => {
+  it("ACTS-scoped route does NOT appear in PUBS chain", () => {
+    const globalRoutes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CGP", scope: "ACTS", provider_connector_id: "acts-only-conn", connector_name: "ActsOnly" }),
+    ];
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "acts-only-conn", provider_instance_id: "acts-inst", provider_name: "ActsOnlyInst", scope: "PLATFORM" },
+    ];
+
+    const pubsResult = resolveEffectivePolicyAndChain({
+      workflow: "CGP",
+      scope: "PUBS",
+      orgOverrideRoutes: [],
+      globalRoutes,
+      orgInstances: [],
+      platformInstances,
+    });
+
+    // ACTS-only route must NOT appear in PUBS chain
+    const hasActsProvider = pubsResult.chain.some(c => c.provider_name === "ActsOnlyInst");
+    expect(hasActsProvider).toBe(false);
+  });
+
+  it("PUBS-scoped route does NOT appear in ACTS chain", () => {
+    const globalRoutes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CGP", scope: "PUBS", provider_connector_id: "pubs-only-conn", connector_name: "PubsOnly" }),
+    ];
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "pubs-only-conn", provider_instance_id: "pubs-inst", provider_name: "PubsOnlyInst", scope: "PLATFORM" },
+    ];
+
+    const actsResult = resolveEffectivePolicyAndChain({
+      workflow: "CGP",
+      scope: "ACTS",
+      orgOverrideRoutes: [],
+      globalRoutes,
+      orgInstances: [],
+      platformInstances,
+    });
+
+    const hasPubsProvider = actsResult.chain.some(c => c.provider_name === "PubsOnlyInst");
+    expect(hasPubsProvider).toBe(false);
+  });
+
+  it("BOTH-scoped route appears in BOTH chains", () => {
+    const globalRoutes: GlobalRoute[] = [
+      makeGlobalRoute({ workflow: "CGP", scope: "BOTH", provider_connector_id: "both-conn", connector_name: "BothProvider" }),
+    ];
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "both-conn", provider_instance_id: "both-inst", provider_name: "BothInst", scope: "PLATFORM" },
+    ];
+
+    const actsResult = resolveEffectivePolicyAndChain({
+      workflow: "CGP", scope: "ACTS",
+      orgOverrideRoutes: [], globalRoutes, orgInstances: [], platformInstances,
+    });
+    const pubsResult = resolveEffectivePolicyAndChain({
+      workflow: "CGP", scope: "PUBS",
+      orgOverrideRoutes: [], globalRoutes, orgInstances: [], platformInstances,
+    });
+
+    expect(actsResult.chain.some(c => c.provider_name === "BothInst")).toBe(true);
+    expect(pubsResult.chain.some(c => c.provider_name === "BothInst")).toBe(true);
+  });
+});
+
+// ── Built-in provider determinism ──
+
+describe("built-in provider determinism per workflow", () => {
+  const workflows = [
+    { wf: "CGP", acts: ["cpnu"], pubs: ["publicaciones"] },
+    { wf: "LABORAL", acts: ["cpnu"], pubs: ["publicaciones"] },
+    { wf: "CPACA", acts: ["samai"], pubs: ["publicaciones"] },
+    { wf: "TUTELA", acts: ["cpnu", "tutelas-api"], pubs: [] },
+    { wf: "PENAL_906", acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+  ];
+
+  for (const { wf, acts, pubs } of workflows) {
+    it(`${wf} ACTS built-in = [${acts.join(", ")}]`, () => {
+      const result = resolveEffectivePolicyAndChain({
+        workflow: wf, scope: "ACTS",
+        orgOverrideRoutes: [], globalRoutes: [], orgInstances: [],
+      });
+      const builtinNames = result.chain.filter(c => c.source === "BUILTIN").map(c => c.provider_name);
+      expect(builtinNames).toEqual(acts);
+    });
+
+    it(`${wf} PUBS built-in = [${pubs.join(", ")}]`, () => {
+      const result = resolveEffectivePolicyAndChain({
+        workflow: wf, scope: "PUBS",
+        orgOverrideRoutes: [], globalRoutes: [], orgInstances: [],
+      });
+      const builtinNames = result.chain.filter(c => c.source === "BUILTIN").map(c => c.provider_name);
+      expect(builtinNames).toEqual(pubs);
+    });
+  }
+});
+
+// ── Backward compat ──
+
 describe("backward compat: legacy resolvers still work", () => {
   it("resolveProviderChain CGP/ACTS with no routes", () => {
     const chain = resolveProviderChain("CGP", "ACTS", []);
     expect(chain.map(c => c.provider_name)).toEqual(["cpnu"]);
   });
 
-  it("resolveGlobalProviderChain still works", () => {
+  it("resolveGlobalProviderChain still works with platform instances", () => {
     const routes: GlobalRoute[] = [
       makeGlobalRoute({ workflow: "CGP", provider_connector_id: "conn-1" }),
     ];
-    const instances: ResolvedInstance[] = [
-      { provider_connector_id: "conn-1", provider_instance_id: "inst-1", provider_name: "Prov1" },
+    const platformInstances: ResolvedInstance[] = [
+      { provider_connector_id: "conn-1", provider_instance_id: "inst-1", provider_name: "Prov1", scope: "PLATFORM" },
     ];
-    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, instances);
+    const chain = resolveGlobalProviderChain("CGP", "ACTS", routes, [], platformInstances);
     expect(chain[0].provider_name).toBe("Prov1");
   });
 });

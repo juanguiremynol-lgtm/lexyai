@@ -7,6 +7,9 @@
  *   3. Compatibility gating: incompatible providers are rejected
  *   4. Debug override bypasses compatibility
  *   5. routeScopeToDataKinds mapping
+ *   6. Scope gating: ACTS-only never runs in ESTADOS; PUBS-only never runs in ACTS
+ *   7. Cross-contamination prevention
+ *   8. All radicado-sync workflows have deterministic provider order
  */
 
 import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
@@ -222,4 +225,90 @@ Deno.test("LABORAL mirrors CGP: CPNU for ACTS, publicaciones for ESTADOS", () =>
   assertEquals(acts.providers[0].key, "cpnu");
   const pubs = getProviderCoverage("LABORAL", "ESTADOS");
   assertEquals(pubs.providers[0].key, "publicaciones");
+});
+
+// ── 11. Invariant: Required provider attempts per workflow/subchain ──
+// These tests codify the acceptance criteria from the routing spec.
+
+Deno.test("INVARIANT: CGP ACTUACIONES requires CPNU attempt", () => {
+  const result = getProviderCoverage("CGP", "ACTUACIONES");
+  assertEquals(result.compatible, true);
+  const hasCpnu = result.providers.some(p => p.key === "cpnu");
+  assertEquals(hasCpnu, true, "CGP ACTUACIONES must include CPNU");
+});
+
+Deno.test("INVARIANT: CGP ESTADOS requires publicaciones attempt", () => {
+  const result = getProviderCoverage("CGP", "ESTADOS");
+  assertEquals(result.compatible, true);
+  const hasPubs = result.providers.some(p => p.key === "publicaciones");
+  assertEquals(hasPubs, true, "CGP ESTADOS must include publicaciones");
+});
+
+Deno.test("INVARIANT: CPACA ACTUACIONES requires SAMAI attempt", () => {
+  const result = getProviderCoverage("CPACA", "ACTUACIONES");
+  assertEquals(result.compatible, true);
+  const hasSamai = result.providers.some(p => p.key === "samai");
+  assertEquals(hasSamai, true, "CPACA ACTUACIONES must include SAMAI");
+});
+
+Deno.test("INVARIANT: CPACA ESTADOS requires SAMAI_ESTADOS and publicaciones", () => {
+  const result = getProviderCoverage("CPACA", "ESTADOS");
+  assertEquals(result.compatible, true);
+  const hasSamaiEstados = result.providers.some(p => p.key === "SAMAI_ESTADOS");
+  const hasPubs = result.providers.some(p => p.key === "publicaciones");
+  assertEquals(hasSamaiEstados, true, "CPACA ESTADOS must include SAMAI_ESTADOS");
+  assertEquals(hasPubs, true, "CPACA ESTADOS must include publicaciones as fallback");
+});
+
+// ── 12. PUBS providers must NOT appear in ACTUACIONES compatibility ──
+
+Deno.test("publicaciones is NOT compatible with CGP/ACTUACIONES", () => {
+  const result = isProviderCompatible("publicaciones", "CGP", "ACTUACIONES");
+  assertEquals(result.compatible, false);
+});
+
+Deno.test("publicaciones is NOT compatible with CPACA/ACTUACIONES", () => {
+  const result = isProviderCompatible("publicaciones", "CPACA", "ACTUACIONES");
+  assertEquals(result.compatible, false);
+});
+
+Deno.test("SAMAI_ESTADOS is NOT compatible with CGP/ACTUACIONES", () => {
+  const result = isProviderCompatible("SAMAI_ESTADOS", "CGP", "ACTUACIONES");
+  assertEquals(result.compatible, false);
+});
+
+// ── 13. ACTS providers must NOT appear in ESTADOS compatibility (where not configured) ──
+
+Deno.test("CPNU is NOT compatible with CGP/ESTADOS", () => {
+  const result = isProviderCompatible("cpnu", "CGP", "ESTADOS");
+  assertEquals(result.compatible, false);
+});
+
+Deno.test("CPNU is NOT compatible with CPACA/ESTADOS", () => {
+  const result = isProviderCompatible("cpnu", "CPACA", "ESTADOS");
+  assertEquals(result.compatible, false);
+});
+
+// ── 14. PENAL_906 ESTADOS requires publicaciones ──
+
+Deno.test("INVARIANT: PENAL_906 ESTADOS requires publicaciones", () => {
+  const result = getProviderCoverage("PENAL_906", "ESTADOS");
+  assertEquals(result.compatible, true);
+  assertEquals(result.providers[0].key, "publicaciones");
+});
+
+// ── 15. PETICION and GOV_PROCEDURE have no providers ──
+
+Deno.test("PETICION has no ACTUACIONES or ESTADOS providers", () => {
+  const acts = getProviderCoverage("PETICION", "ACTUACIONES");
+  const estados = getProviderCoverage("PETICION", "ESTADOS");
+  assertEquals(acts.compatible, false);
+  assertEquals(estados.compatible, false);
+});
+
+Deno.test("GOV_PROCEDURE has no ACTUACIONES or ESTADOS providers", () => {
+  const acts = getProviderCoverage("GOV_PROCEDURE", "ACTUACIONES");
+  const estados = getProviderCoverage("GOV_PROCEDURE", "ESTADOS");
+  assertEquals(acts.compatible, false);
+  assertEquals(estados.compatible, false);
 });
