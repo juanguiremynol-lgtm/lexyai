@@ -1,15 +1,21 @@
 # Memory: architecture/auto-sync-governance-login-cap-and-ledger
 Updated: now
 
-## Login Sync Cap (3/day per user)
+## Sync Governance Policy (CURRENT)
 
-- `auto_sync_login_runs` table tracks per-user, per-org, per-date (America/Bogota) sync counts
-- `check_and_increment_login_sync()` DB function provides atomic check+increment for server-side enforcement
-- `get_login_sync_status()` DB function provides read-only status check
-- `useLoginSync` hook calls server-side check before running batch sync
-- Limit: 3 login-triggered syncs per user per calendar day (COT timezone)
-- Failed syncs still count toward the limit to prevent abuse
-- Client-side sessionStorage provides UX optimization but server enforces the hard limit
+- **Login sync DISMANTLED** — `useLoginSync` hook removed from TenantLayout
+- User-triggered syncs (AddRadicadoInline, WorkItemMonitoringBadge) removed
+- Work items sync ONLY via:
+  1. Daily cron job (`scheduled-daily-sync` at 07:00 COT)
+  2. Super-admin sync buttons (SuperAdminToolbar → Master Sync)
+  3. Atenia AI autonomous capabilities (heartbeat, supervisor, remediation queue)
+- No regular user or org admin can trigger manual sync of work items
+
+## Login Sync Cap (DEPRECATED — DISMANTLED)
+
+- `auto_sync_login_runs` table still exists but is no longer written to
+- `check_and_increment_login_sync()` / `get_login_sync_status()` DB functions remain but are unused
+- `login-sync-service.ts` and `useLoginSync.ts` are dead code (kept for reference)
 
 ## Daily Sync Ledger (Per-Org Idempotency)
 
@@ -19,15 +25,25 @@ Updated: now
 - `update_daily_sync_ledger()` updates progress/completion
 - `get_pending_daily_syncs()` returns orgs needing retry
 
+## Cron Assurance Layer (Watchdog Gates)
+
+- **Gate A**: Daily Enqueue proof for Bogotá day
+- **Gate B**: Watchdog liveness (OK in last 15 min)
+- **Gate C**: Sync Coverage (≥80% in 24h)
+- **Gate D**: Queue Boundedness (≤500 pending tasks)
+- **Gate E**: Stuck convergence (SCRAPING_PENDING > 30min)
+- **Gate F**: Heartbeat liveness (OK in last 35 min)
+- **Gate G**: Per-Org Daily Sync Verification (after 12:00 COT, every active org must have ledger entry)
+- **Gate H**: Work Item Freshness Audit (items stale > 48h trigger remediation)
+- Edge Function liveness probing for critical functions
+
 ## Retry Strategy
 
 - `scheduled-daily-sync` runs at 07:00 COT
 - `fallback-sync-check` runs every 2-4 hours to catch failures
-- Retry schedule: attempts at 09:00, 11:00, 14:00, 17:00, 20:00 COT
+- `atenia-cron-watchdog` runs every 10 min for self-healing
 - Max 5 retries per org per day
 - Cutoff at 20:00 COT (no retries after)
-- Backoff applied based on retry_count
-- Provider outage detection: repeated errors increase backoff
 
 ## Success Criteria
 

@@ -506,6 +506,142 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
+    // 5d) Per-Org Daily Sync Verification — ensure every active org
+    //     has a ledger entry for today and no org was silently skipped
+    // ================================================================
+    const todayStr = getBogotaNow().toISOString().slice(0, 10);
+
+    const { data: activeOrgs } = await admin
+      .from("work_items")
+      .select("organization_id")
+      .eq("monitoring_enabled", true)
+      .is("deleted_at", null)
+      .not("radicado", "is", null);
+
+    const activeOrgIds = [...new Set((activeOrgs ?? []).map((o: any) => o.organization_id).filter(Boolean))];
+
+    if (activeOrgIds.length > 0 && bogotaHour >= 12) {
+      const { data: todayLedger } = await admin
+        .from("auto_sync_daily_ledger")
+        .select("organization_id, status")
+        .eq("run_date", todayStr);
+
+      const ledgerOrgIds = new Set((todayLedger ?? []).map((l: any) => l.organization_id));
+      const missingOrgs = activeOrgIds.filter((id: string) => !ledgerOrgIds.has(id));
+
+      results.org_sync_verification = {
+        active_orgs: activeOrgIds.length,
+        ledger_entries: todayLedger?.length ?? 0,
+        missing_orgs: missingOrgs.length,
+      };
+
+      if (missingOrgs.length > 0) {
+        alerts.push({
+          title: "⚠️ Organizaciones sin sync diario",
+          message: `${missingOrgs.length} org(s) activa(s) sin entrada en ledger para hoy. IDs: ${missingOrgs.slice(0, 5).join(", ")}${missingOrgs.length > 5 ? "..." : ""}`,
+          severity: "CRITICAL",
+        });
+
+        for (const orgId of missingOrgs.slice(0, 20)) {
+          try {
+            await admin.from("atenia_ai_remediation_queue").upsert(
+              {
+                action_type: "SYNC_ORG_DAILY",
+                organization_id: orgId,
+                status: "PENDING",
+                priority: 2,
+                payload: { source: "watchdog_org_verification", run_date: todayStr },
+                dedupe_key: `ORG_DAILY:${todayStr}:${orgId}`,
+              },
+              { onConflict: "dedupe_key" }
+            );
+          } catch (_) { /* non-fatal */ }
+        }
+      }
+
+      const failedLedger = (todayLedger ?? []).filter((l: any) => l.status === "FAILED");
+      if (failedLedger.length > 0) {
+        results.failed_ledger_entries = failedLedger.length;
+        alerts.push({
+          title: "⚠️ Sync diario fallido sin reintentar",
+          message: `${failedLedger.length} org(s) con sync FAILED para hoy sin reintento exitoso.`,
+          severity: "WARNING",
+        });
+      }
+    }
+
+    // ================================================================
+    // 5e) Work Item Freshness Audit — catch items stale > 48h
+    // ================================================================
+    const CRITICAL_STALE_HOURS = 48;
+    const staleCutoff48h = new Date(Date.now() - CRITICAL_STALE_HOURS * 60 * 60 * 1000).toISOString();
+
+    const { count: criticallyStaleCount } = await admin
+      .from("work_items")
+      .select("id", { count: "exact", head: true })
+      .eq("monitoring_enabled", true)
+      .is("deleted_at", null)
+      .not("radicado", "is", null)
+      .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`);
+
+    const staleCount = criticallyStaleCount ?? 0;
+    results.freshness_audit = {
+      critically_stale_items: staleCount,
+      threshold_hours: CRITICAL_STALE_HOURS,
+    };
+
+    if (staleCount > 0) {
+      const fSeverity = staleCount > 50 ? "CRITICAL" : "WARNING";
+      alerts.push({
+        title: `⚠️ ${staleCount} items sin sync en ${CRITICAL_STALE_HOURS}h`,
+        message: `${staleCount} work items monitoreados sin sync en más de ${CRITICAL_STALE_HOURS} horas.`,
+        severity: fSeverity,
+      });
+
+      try {
+        await admin.from("atenia_ai_actions").insert({
+          organization_id: "a0000000-0000-0000-0000-000000000001",
+          action_type: "WATCHDOG_FRESHNESS_AUDIT",
+          autonomy_tier: "AUTONOMOUS",
+          reasoning: `${staleCount} items monitoreados sin sync en ${CRITICAL_STALE_HOURS}h.`,
+          action_taken: "FRESHNESS_AUDIT_ALERT",
+          action_result: fSeverity,
+          evidence: { stale_count: staleCount, threshold_hours: CRITICAL_STALE_HOURS },
+        });
+      } catch (_) { /* non-fatal */ }
+
+      const { data: stalestItems } = await admin
+        .from("work_items")
+        .select("id, organization_id")
+        .eq("monitoring_enabled", true)
+        .is("deleted_at", null)
+        .not("radicado", "is", null)
+        .or(`last_synced_at.is.null,last_synced_at.lt.${staleCutoff48h}`)
+        .order("last_synced_at", { ascending: true, nullsFirst: true })
+        .limit(30);
+
+      if (stalestItems && stalestItems.length > 0) {
+        for (const item of stalestItems) {
+          try {
+            await admin.from("atenia_ai_remediation_queue").upsert(
+              {
+                action_type: "SYNC_WORK_ITEM",
+                work_item_id: item.id,
+                organization_id: item.organization_id,
+                status: "PENDING",
+                priority: 2,
+                payload: { source: "watchdog_freshness_audit", threshold_hours: CRITICAL_STALE_HOURS },
+                dedupe_key: `FRESH:${todayStr}:${item.id}`,
+              },
+              { onConflict: "dedupe_key" }
+            );
+          } catch (_) { /* non-fatal */ }
+        }
+        results.freshness_enqueued = stalestItems.length;
+      }
+    }
+
+    // ================================================================
     // 6) Log watchdog actions into atenia_ai_actions for audit trail
     // ================================================================
     for (const alert of alerts) {

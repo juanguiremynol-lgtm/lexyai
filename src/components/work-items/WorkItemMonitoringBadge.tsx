@@ -133,30 +133,11 @@ export function WorkItemMonitoringBadge({ workItem, onUpdate }: WorkItemMonitori
 
       if (error) throw error;
 
-      toast.success('Radicado actualizado. Iniciando sincronización automática...');
+      toast.success('Radicado actualizado. Se sincronizará automáticamente en el próximo ciclo programado.');
       setEditingRadicado(false);
       onUpdate?.();
 
-      // Fire-and-forget: trigger hydration from external APIs
-      Promise.allSettled([
-        supabase.functions.invoke('sync-by-work-item', {
-          body: { work_item_id: workItem.id },
-        }),
-        supabase.functions.invoke('sync-publicaciones-by-work-item', {
-          body: { work_item_id: workItem.id },
-        }),
-      ]).then(([actsResult, pubsResult]) => {
-        const actsOk = actsResult.status === 'fulfilled' && !actsResult.value.error;
-        const pubsOk = pubsResult.status === 'fulfilled' && !pubsResult.value.error;
-        if (actsOk || pubsOk) {
-          toast.success('Sincronización completada. Los datos del proceso se han actualizado.');
-          onUpdate?.();
-        } else {
-          toast.warning('La sincronización se ejecutó pero no encontró datos aún. Se reintentará automáticamente.');
-        }
-      }).catch(() => {
-        // Silently fail — scheduled sync will pick it up
-      });
+      // NOTE: User-triggered sync removed. Daily cron / Atenia AI will hydrate automatically.
     } catch {
       toast.error('Error al actualizar el radicado');
     } finally {
