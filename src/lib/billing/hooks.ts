@@ -91,11 +91,11 @@ export function useBillingPlans() {
       // Combine plans with their price points
       const now = new Date();
       return (plans || []).map((plan) => {
-        const planPrices = (pricePoints || []).filter((pp: BillingPricePoint) => pp.plan_id === plan.id);
+        const planPrices = (pricePoints || []).filter((pp: any) => pp.plan_id === plan.id);
 
         // Find REGULAR monthly price (currently valid)
         const regularPrice = planPrices.find(
-          (pp: BillingPricePoint) =>
+          (pp: any) =>
             pp.price_type === "REGULAR" &&
             pp.billing_cycle_months === 1 &&
             new Date(pp.valid_from) <= now &&
@@ -104,7 +104,7 @@ export function useBillingPlans() {
 
         // Find INTRO 24-month price (currently valid)
         const introPrice = planPrices.find(
-          (pp: BillingPricePoint) =>
+          (pp: any) =>
             pp.price_type === "INTRO" &&
             pp.billing_cycle_months === 24 &&
             new Date(pp.valid_from) <= now &&

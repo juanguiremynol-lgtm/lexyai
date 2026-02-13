@@ -1496,6 +1496,7 @@ export type Database = {
       }
       billing_checkout_sessions: {
         Row: {
+          amount_breakdown: Json | null
           amount_cop_incl_iva: number | null
           billing_cycle_months: number
           checkout_url: string | null
@@ -1514,6 +1515,7 @@ export type Database = {
           tier: string
         }
         Insert: {
+          amount_breakdown?: Json | null
           amount_cop_incl_iva?: number | null
           billing_cycle_months?: number
           checkout_url?: string | null
@@ -1532,6 +1534,7 @@ export type Database = {
           tier: string
         }
         Update: {
+          amount_breakdown?: Json | null
           amount_cop_incl_iva?: number | null
           billing_cycle_months?: number
           checkout_url?: string | null
@@ -1685,6 +1688,7 @@ export type Database = {
           discount_code_id: string
           final_amount_cop: number
           id: string
+          ip_hash: string | null
           organization_id: string
           original_amount_cop: number
           plan_code: string
@@ -1698,6 +1702,7 @@ export type Database = {
           discount_code_id: string
           final_amount_cop: number
           id?: string
+          ip_hash?: string | null
           organization_id: string
           original_amount_cop: number
           plan_code: string
@@ -1711,6 +1716,7 @@ export type Database = {
           discount_code_id?: string
           final_amount_cop?: number
           id?: string
+          ip_hash?: string | null
           organization_id?: string
           original_amount_cop?: number
           plan_code?: string
@@ -1754,6 +1760,7 @@ export type Database = {
           organization_id: string
           period_end: string | null
           period_start: string | null
+          price_point_id: string | null
           provider: string
           provider_invoice_id: string | null
           status: string
@@ -1771,6 +1778,7 @@ export type Database = {
           organization_id: string
           period_end?: string | null
           period_start?: string | null
+          price_point_id?: string | null
           provider?: string
           provider_invoice_id?: string | null
           status?: string
@@ -1788,6 +1796,7 @@ export type Database = {
           organization_id?: string
           period_end?: string | null
           period_start?: string | null
+          price_point_id?: string | null
           provider?: string
           provider_invoice_id?: string | null
           status?: string
@@ -1798,6 +1807,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_invoices_price_point_id_fkey"
+            columns: ["price_point_id"]
+            isOneToOne: false
+            referencedRelation: "billing_price_points"
             referencedColumns: ["id"]
           },
         ]
@@ -1835,6 +1851,7 @@ export type Database = {
           created_at: string
           currency: string
           id: string
+          is_active: boolean
           plan_id: string
           price_cop_incl_iva: number
           price_lock_months: number
@@ -1842,12 +1859,14 @@ export type Database = {
           promo_requires_commit_24m: boolean
           valid_from: string
           valid_to: string | null
+          version_number: number
         }
         Insert: {
           billing_cycle_months: number
           created_at?: string
           currency?: string
           id?: string
+          is_active?: boolean
           plan_id: string
           price_cop_incl_iva: number
           price_lock_months?: number
@@ -1855,12 +1874,14 @@ export type Database = {
           promo_requires_commit_24m?: boolean
           valid_from: string
           valid_to?: string | null
+          version_number?: number
         }
         Update: {
           billing_cycle_months?: number
           created_at?: string
           currency?: string
           id?: string
+          is_active?: boolean
           plan_id?: string
           price_cop_incl_iva?: number
           price_lock_months?: number
@@ -1868,6 +1889,7 @@ export type Database = {
           promo_requires_commit_24m?: boolean
           valid_from?: string
           valid_to?: string | null
+          version_number?: number
         }
         Relationships: [
           {
@@ -1883,7 +1905,10 @@ export type Database = {
         Row: {
           applied: boolean
           applied_at: string | null
+          applied_by: string | null
           billing_cycle_months: number
+          cancelled_at: string | null
+          cancelled_by: string | null
           created_at: string
           created_by: string | null
           effective_at: string
@@ -1892,12 +1917,17 @@ export type Database = {
           notes: string | null
           plan_id: string
           price_type: string
+          reason: string | null
           scope: string
+          status: string
         }
         Insert: {
           applied?: boolean
           applied_at?: string | null
+          applied_by?: string | null
           billing_cycle_months?: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
           created_by?: string | null
           effective_at: string
@@ -1906,12 +1936,17 @@ export type Database = {
           notes?: string | null
           plan_id: string
           price_type?: string
+          reason?: string | null
           scope?: string
+          status?: string
         }
         Update: {
           applied?: boolean
           applied_at?: string | null
+          applied_by?: string | null
           billing_cycle_months?: number
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           created_at?: string
           created_by?: string | null
           effective_at?: string
@@ -1920,7 +1955,9 @@ export type Database = {
           notes?: string | null
           plan_id?: string
           price_type?: string
+          reason?: string | null
           scope?: string
+          status?: string
         }
         Relationships: [
           {
@@ -5588,6 +5625,7 @@ export type Database = {
       }
       payment_transactions: {
         Row: {
+          amount_breakdown: Json | null
           amount_cop: number
           billing_cycle_months: number
           checkout_session_id: string | null
@@ -5605,6 +5643,7 @@ export type Database = {
           ip_address: string | null
           organization_id: string
           plan_code: string
+          price_point_id: string | null
           status: string
           transaction_type: string
           updated_at: string | null
@@ -5613,6 +5652,7 @@ export type Database = {
           verified_by_action_id: string | null
         }
         Insert: {
+          amount_breakdown?: Json | null
           amount_cop: number
           billing_cycle_months?: number
           checkout_session_id?: string | null
@@ -5630,6 +5670,7 @@ export type Database = {
           ip_address?: string | null
           organization_id: string
           plan_code: string
+          price_point_id?: string | null
           status?: string
           transaction_type?: string
           updated_at?: string | null
@@ -5638,6 +5679,7 @@ export type Database = {
           verified_by_action_id?: string | null
         }
         Update: {
+          amount_breakdown?: Json | null
           amount_cop?: number
           billing_cycle_months?: number
           checkout_session_id?: string | null
@@ -5655,6 +5697,7 @@ export type Database = {
           ip_address?: string | null
           organization_id?: string
           plan_code?: string
+          price_point_id?: string | null
           status?: string
           transaction_type?: string
           updated_at?: string | null

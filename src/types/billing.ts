@@ -39,12 +39,14 @@ export interface BillingPricePoint {
   plan_id: string;
   currency: string;
   price_cop_incl_iva: number;
-  billing_cycle_months: BillingCycleMonths;
-  price_type: PriceType;
+  billing_cycle_months: number;
+  price_type: string;
   valid_from: string;
   valid_to: string | null;
   promo_requires_commit_24m: boolean;
   price_lock_months: number;
+  version_number: number;
+  is_active: boolean;
   created_at: string;
 }
 

@@ -6,6 +6,7 @@ export * from './types';
 export * from './provider';
 export * from './hooks';
 export * from './pricing-windows';
+export * from './pricing-engine';
 
 // Re-export commonly used helpers
 export { 
