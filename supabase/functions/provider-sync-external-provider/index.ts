@@ -30,7 +30,7 @@ import {
   isStrict404Code,
   reclassifyWithContext,
 } from "../_shared/syncPolicy.ts";
-import { normalizeActuaciones, normalizePublicaciones } from "../_shared/providerNormalize.ts";
+import { normalizeActuaciones, normalizePublicaciones, translateSamaiFormat } from "../_shared/providerNormalize.ts";
 import {
   validateSnapshotAgainstContract,
   applyMappingSpec,
@@ -652,10 +652,18 @@ Deno.serve(async (req) => {
     let insertedPubs = 0;
     const insertedActIds: string[] = [];
     const insertedPubIds: string[] = [];
+    // Track ALL canonical IDs that this provider confirms (inserted + dedup-matched)
+    const allConfirmedActIds: string[] = [];
 
     if (acts.length > 0) {
+      // Translate SAMAI-format Spanish field names to canonical before normalization
+      // SAMAI Estados returns {Actuación, Fecha Providencia, ...} not {description, act_date, ...}
+      const isSamaiFormat = isEstadosProvider || 
+        (acts[0] && (acts[0]["Actuación"] || acts[0]["Fecha Providencia"] || acts[0]["actuacion"]));
+      const translatedActs = isSamaiFormat ? translateSamaiFormat(acts) : acts;
+
       const normalized = await normalizeActuaciones(
-        acts, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
+        translatedActs, provenance, workItem.id, workItem.owner_id, workItem.organization_id,
       );
       // Tag estados records with proper source and type for differentiation
       if (isEstadosProvider) {
@@ -665,12 +673,41 @@ Deno.serve(async (req) => {
           record.source_platform = "SAMAI_ESTADOS";
         }
       }
-      const { data: inserted } = await db
+
+      // Collect all hash_fingerprints before upsert
+      const allFingerprints = normalized.map((r: any) => r.hash_fingerprint).filter(Boolean);
+
+      // Debug: log translation results for observability
+      console.log(`[EXT_PROVIDER] Translated ${acts.length} acts → ${normalized.length} normalized, ${allFingerprints.length} fingerprints, isSamaiFormat=${isSamaiFormat}`);
+      if (normalized.length > 0) {
+        const sample = normalized[0];
+        console.log(`[EXT_PROVIDER] Sample: desc="${String(sample.description || "").slice(0,80)}", date=${sample.act_date}, fp=${sample.hash_fingerprint?.slice(0,12)}`);
+      }
+
+      const { data: inserted, error: upsertErr } = await db
         .from("work_item_acts")
-        .upsert(normalized, { onConflict: "hash_fingerprint", ignoreDuplicates: true })
+        .upsert(normalized, { onConflict: "work_item_id,hash_fingerprint", ignoreDuplicates: true })
         .select("id");
+      if (upsertErr) {
+        console.error(`[EXT_PROVIDER] Upsert error: ${upsertErr.message} (code: ${upsertErr.code})`);
+      }
       insertedActs = inserted?.length || 0;
       if (inserted) insertedActIds.push(...inserted.map((r: any) => r.id));
+
+      // ── Provenance-first merge: resolve existing canonical IDs for dedup-matched records ──
+      // Even when acts_upserted=0, we must find the existing rows and write provenance
+      if (allFingerprints.length > 0) {
+        const { data: existingRows } = await db
+          .from("work_item_acts")
+          .select("id")
+          .eq("work_item_id", workItem.id)
+          .in("hash_fingerprint", allFingerprints);
+        if (existingRows) {
+          for (const row of existingRows) {
+            allConfirmedActIds.push(row.id);
+          }
+        }
+      }
     }
 
     if (pubs.length > 0) {
@@ -688,29 +725,38 @@ Deno.serve(async (req) => {
     await writeTrace(db, runId, source, instance, "UPSERTED_CANONICAL", "OK", true, 0, {
       acts_upserted: insertedActs,
       pubs_upserted: insertedPubs,
+      acts_confirmed: allConfirmedActIds.length,
       source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
       data_kind: isEstadosProvider ? "estados" : "actuaciones",
     });
 
     // ── Stage 5: PROVENANCE_WRITTEN ──
+    // Write provenance for ALL confirmed canonical IDs (both newly inserted AND dedup-matched)
+    // This ensures multi-source attribution works even when acts_upserted=0
+    const now = new Date().toISOString();
     const provenanceRows: any[] = [];
-    for (const actId of insertedActIds) {
+    for (const actId of allConfirmedActIds) {
       provenanceRows.push({
         work_item_act_id: actId,
         provider_instance_id: instance.id,
         provider_event_id: null,
-        first_seen_at: new Date().toISOString(),
-        last_seen_at: new Date().toISOString(),
+        first_seen_at: now,
+        last_seen_at: now,
       });
     }
+    let provenanceUpserted = 0;
     if (provenanceRows.length > 0) {
-      await db.from("act_provenance").upsert(provenanceRows, {
+      // Use ignoreDuplicates: false so last_seen_at gets updated on re-runs
+      const { data: provResult } = await db.from("act_provenance").upsert(provenanceRows, {
         onConflict: "work_item_act_id,provider_instance_id",
-        ignoreDuplicates: true,
-      });
+        ignoreDuplicates: false,
+      }).select("id");
+      provenanceUpserted = provResult?.length || provenanceRows.length;
     }
     await writeTrace(db, runId, source, instance, "PROVENANCE_WRITTEN", "OK", true, 0, {
       act_provenance_rows: provenanceRows.length,
+      provenance_upserted: provenanceUpserted,
+      provenance_from_dedup: allConfirmedActIds.length - insertedActIds.length,
     });
 
     // ── Stage 6: EXTRAS_WRITTEN ──
@@ -759,6 +805,9 @@ Deno.serve(async (req) => {
       data_kind: dataKindLabel,
       [`${dataKindLabel}_received`]: acts.length,
       [`${dataKindLabel}_inserted`]: insertedActs,
+      [`${dataKindLabel}_confirmed`]: allConfirmedActIds.length,
+      provenance_upserted: provenanceUpserted,
+      provenance_from_dedup: allConfirmedActIds.length - insertedActIds.length,
       publicaciones_received: pubs.length,
       publicaciones_inserted: insertedPubs,
       extras_written: extrasWritten,

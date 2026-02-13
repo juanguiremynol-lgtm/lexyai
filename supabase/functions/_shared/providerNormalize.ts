@@ -77,6 +77,48 @@ async function generateFingerprint(text: string): Promise<string> {
     .slice(0, 40);
 }
 
+/**
+ * Translate raw SAMAI-format records (Spanish field names) into canonical ProviderActuacion format.
+ * SAMAI Estados returns: { Actuación, Fecha Providencia, Radicacion, url_descarga, hash_documento, Ponente, ... }
+ * We need:              { description, act_date, source_url, hash_fingerprint, raw_data, ... }
+ */
+export function translateSamaiFormat(rawRecords: Record<string, unknown>[]): ProviderActuacion[] {
+  return rawRecords.map((r) => {
+    // Parse "DD/MM/YYYY" → "YYYY-MM-DD"
+    const rawDate = String(r["Fecha Providencia"] || r["fecha_providencia"] || "");
+    let actDate: string | null = null;
+    const dmyMatch = rawDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dmyMatch) {
+      actDate = `${dmyMatch[3]}-${dmyMatch[2]}-${dmyMatch[1]}`;
+    } else if (rawDate.match(/^\d{4}-\d{2}-\d{2}/)) {
+      actDate = rawDate.slice(0, 10);
+    }
+
+    const description = String(
+      r["Actuación"] || r["actuacion"] || r["Actuacion"] || r["description"] || ""
+    );
+    const docNotif = String(r["Docum. a notif."] || r["docum_a_notif"] || "");
+    const fullDescription = docNotif && docNotif !== "undefined"
+      ? `${description} — ${docNotif}`
+      : description;
+
+    const hashDoc = String(r["hash_documento"] || "");
+    const urlDescarga = String(r["url_descarga"] || "");
+
+    return {
+      description: fullDescription,
+      raw_text: fullDescription,
+      act_date: actDate,
+      act_date_raw: rawDate || null,
+      date_source: "api_explicit",
+      source_url: urlDescarga || null,
+      hash_fingerprint: undefined, // Let normalizer generate from content
+      raw_data: r,
+      // Extras: ponente, class, parties — stored in raw_data
+    } as ProviderActuacion;
+  });
+}
+
 // ────────────────────────────── Normalizers ──────────────────────────────
 
 export async function normalizeActuaciones(
@@ -103,17 +145,10 @@ export async function normalizeActuaciones(
       organization_id: organizationId,
       hash_fingerprint: fingerprint,
       description,
-      raw_text: a.raw_text || description,
-      normalized_text: description,
       act_date: a.act_date || null,
       act_date_raw: a.act_date_raw || a.act_date || null,
-      act_time: a.act_time || null,
       date_source: dateSource,
       date_confidence: DATE_SOURCE_TO_CONFIDENCE[dateSource] || "low",
-      fecha_registro: a.fecha_registro || null,
-      estado: a.estado || null,
-      attachments: a.attachments || null,
-      anexos_count: a.anexos_count ?? 0,
       source_url: a.source_url || provenance.source_url || null,
       source: "external_provider",
       raw_data: a.raw_data || null,
