@@ -15,6 +15,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import type { BubbleContext } from "@/components/atenia-mascot/mascot-bubbles";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,6 +52,7 @@ import {
 import { callGeminiViaEdge } from "@/lib/services/atenia-ai-engine";
 import { buildAteniaAiTechnicalReport } from "@/lib/services/atenia-ai-technical-report";
 import { toast } from "sonner";
+import { AteniaWelcomeView } from "@/components/atenia-mascot/AteniaWelcomeView";
 
 // ---- Types ----
 
@@ -83,6 +85,7 @@ interface AteniaAssistantDrawerProps {
   workItemId?: string;
   workItemRadicado?: string;
   initialMessage?: string;
+  mascotContexts?: BubbleContext[];
 }
 
 type DrawerTab = "chat" | "report";
@@ -109,6 +112,7 @@ export function AteniaAssistantDrawer({
   workItemId,
   workItemRadicado,
   initialMessage,
+  mascotContexts,
 }: AteniaAssistantDrawerProps) {
   const { organization } = useOrganization();
 
@@ -392,26 +396,18 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
         {/* ---- CHAT TAB ---- */}
         {activeTab === "chat" && (
           <>
-            {/* Quick actions (only for WORK_ITEM scope on first load) */}
-            {messages.length === 0 && scope === "WORK_ITEM" && (
-              <div className="p-4 space-y-2 border-b">
-                <p className="text-xs text-muted-foreground font-medium">Preguntas rápidas:</p>
-                <div className="flex flex-wrap gap-2">
-                  {QUICK_QUESTIONS.map((q) => (
-                    <Button
-                      key={q.label}
-                      variant="outline"
-                      size="sm"
-                      className="text-xs"
-                      disabled={isLoading}
-                      onClick={() => callAssistant(q.message, "DIAGNOSE_WORK_ITEM")}
-                    >
-                      <Zap className="h-3 w-3 mr-1" />
-                      {q.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+            {/* Welcome view with capabilities + chips on first load */}
+            {messages.length === 0 && (
+              <AteniaWelcomeView
+                contexts={mascotContexts ?? (scope === "WORK_ITEM" ? ["WORK_ITEM_DETAIL"] : ["GLOBAL"])}
+                onSelectPrompt={(prompt) => {
+                  setInput(prompt);
+                  // Auto-send immediately
+                  setTimeout(() => {
+                    callAssistant(prompt, scope === "WORK_ITEM" ? "DIAGNOSE_WORK_ITEM" : "CHAT");
+                  }, 100);
+                }}
+              />
             )}
 
             {/* Messages */}

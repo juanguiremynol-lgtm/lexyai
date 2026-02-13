@@ -6,10 +6,16 @@ export type MascotEvent =
   | "bubble_action_clicked"
   | "tips_disabled"
   | "quick_prompt_clicked"
+  | "chip_clicked"
   | "chat_opened"
   | "chat_closed"
   | "chat_message_sent"
-  | "nudge_shown";
+  | "nudge_shown"
+  | "recovery_requested"
+  | "recovery_completed"
+  | "purge_enable_requested"
+  | "purge_enabled"
+  | "prompt_sent";
 
 export function trackMascotEvent(
   event: MascotEvent,
