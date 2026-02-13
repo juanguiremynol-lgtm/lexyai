@@ -81,8 +81,22 @@ Deno.serve(async (req) => {
 
     const nextVersion = (lastSecret?.key_version || 0) + 1;
 
-    // Encrypt
-    const { cipher, nonce } = await encryptSecret(secret_value);
+    // Encrypt — log key env status for debugging
+    const keyEnv = Deno.env.get("ATENIA_SECRETS_KEY_B64") || "";
+    console.log("KEY_ENV length:", keyEnv.length, "first4:", keyEnv.slice(0, 4));
+    
+    let encResult: { cipher: Uint8Array; nonce: Uint8Array };
+    try {
+      encResult = await encryptSecret(secret_value);
+    } catch (encErr: unknown) {
+      const msg = encErr instanceof Error ? encErr.message : String(encErr);
+      console.error("Encryption error:", msg);
+      return new Response(
+        JSON.stringify({ error: `Encryption failed: ${msg}`, key_length: keyEnv.length }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const { cipher, nonce } = encResult;
 
     // Insert
     const { data: newSecret, error: secErr } = await adminClient
