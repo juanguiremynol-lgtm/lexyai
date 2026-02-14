@@ -260,20 +260,20 @@ Deno.serve(async (req: Request) => {
         error: "RATE_LIMITED",
         message: "Has alcanzado el límite de consultas. Intenta de nuevo en unos minutos.",
         retry_after_seconds: rl.retryAfterSeconds,
-      }, 429);
+      }, 200);
     }
 
     // 2. Validate radicado
     const rawRadicado = body?.radicado;
     if (!rawRadicado || typeof rawRadicado !== "string") {
-      return json({ error: "MISSING_RADICADO", message: "El radicado es requerido." }, 400);
+      return json({ error: "MISSING_RADICADO", message: "El radicado es requerido." }, 200);
     }
     const radicado = rawRadicado.replace(/\D/g, "");
     if (radicado.length !== 23) {
       return json({
         error: "INVALID_RADICADO",
         message: `El radicado debe tener exactamente 23 dígitos numéricos (tiene ${radicado.length}).`,
-      }, 400);
+      }, 200);
     }
 
     // 3. Parallel API calls via egressClient
@@ -398,7 +398,7 @@ Deno.serve(async (req: Request) => {
       return json({
         error: "NOT_FOUND",
         message: "No se encontraron datos para este radicado. Verifica que el número sea correcto.",
-      }, 404);
+      }, 200);
     }
 
     // Build default resumen if still null
@@ -443,7 +443,7 @@ Deno.serve(async (req: Request) => {
     return json({
       error: "INTERNAL_ERROR",
       message: "Ocurrió un error al consultar el radicado. Intenta de nuevo.",
-    }, 500);
+    }, 200);
   }
 });
 
