@@ -162,8 +162,6 @@ interface DemoResponse {
 const CALLER = "demo-radicado-lookup";
 
 async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null; diagnostic?: Record<string, unknown> }> {
-  // Call CPNU v2 API directly with compatibility headers to avoid HTTP 406
-  const url = `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`;
   const headers: Record<string, string> = {
     "Accept": "application/json, text/json, text/plain, */*",
     "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
@@ -172,91 +170,153 @@ async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body
     "Referer": "https://consultaprocesos.ramajudicial.gov.co/",
     "Origin": "https://consultaprocesos.ramajudicial.gov.co",
   };
-  
-  console.log(`[demo] CPNU: calling ${url.slice(0, 80)}...`);
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const resp = await fetch(url, { method: "GET", headers, signal: controller.signal });
-    clearTimeout(timeoutId);
-    console.log(`[demo] CPNU: HTTP ${resp.status}, content-type=${resp.headers.get("content-type")}`);
-    
-    if (!resp.ok) {
-      const errBody = await resp.text().catch(() => "");
-      console.log(`[demo] CPNU: non-OK response, body snippet: ${errBody.slice(0, 200)}`);
-      // Graceful fallback: mark CPNU as temporarily unavailable, do NOT throw
-      return { 
-        status: resp.status, 
-        body: null, 
-        diagnostic: { 
-          provider: "CPNU", 
-          http_status: resp.status, 
-          headers_sent: Object.keys(headers),
-          error_snippet: errBody.slice(0, 200),
-          message: `CPNU returned HTTP ${resp.status} — falling back to other providers`,
+
+  // Multi-endpoint fallback strategy (matches production adapter-cpnu)
+  const searchCandidates: Array<{ url: string; method: string; body?: string; desc: string }> = [
+    {
+      url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+      method: "GET", desc: "v2 standard",
+    },
+    {
+      url: `https://consultaprocesos.ramajudicial.gov.co:443/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+      method: "GET", desc: "v2 port 443",
+    },
+    {
+      url: `https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+      method: "GET", desc: "v2 port 448",
+    },
+    {
+      url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion`,
+      method: "POST", body: JSON.stringify({ numero: radicado, SoloActivos: false, pagina: 1 }), desc: "v2 POST",
+    },
+    {
+      url: `https://consultaprocesos.ramajudicial.gov.co/api/v1/Procesos/Consulta/NumeroRadicacion?numero=${radicado}`,
+      method: "GET", desc: "v1 legacy",
+    },
+    {
+      url: `https://rama-judicial-api.onrender.com/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+      method: "GET", desc: "external API fallback",
+    },
+  ];
+
+  let lastDiagnostic: Record<string, unknown> = {};
+
+  for (const candidate of searchCandidates) {
+    try {
+      console.log(`[demo] CPNU: trying ${candidate.desc} ...`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const fetchOpts: RequestInit = {
+        method: candidate.method,
+        headers,
+        signal: controller.signal,
+      };
+      if (candidate.body) fetchOpts.body = candidate.body;
+
+      const resp = await fetch(candidate.url, fetchOpts);
+      clearTimeout(timeoutId);
+
+      const contentType = resp.headers.get("content-type") || "";
+      console.log(`[demo] CPNU ${candidate.desc}: HTTP ${resp.status}, ct=${contentType.slice(0, 40)}`);
+
+      // Skip if not JSON (HTML = WAF/captcha page)
+      if (!contentType.includes("json") && !contentType.includes("text/plain")) {
+        console.log(`[demo] CPNU ${candidate.desc}: non-JSON response, skipping`);
+        lastDiagnostic = { provider: "CPNU", variant: candidate.desc, http_status: resp.status, content_type: contentType.slice(0, 40), message: "non-JSON response" };
+        continue;
+      }
+
+      if (!resp.ok) {
+        lastDiagnostic = { provider: "CPNU", variant: candidate.desc, http_status: resp.status, message: `HTTP ${resp.status}` };
+        continue;
+      }
+
+      const text = await resp.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch {
+        console.log(`[demo] CPNU ${candidate.desc}: JSON parse failed`);
+        lastDiagnostic = { provider: "CPNU", variant: candidate.desc, message: "JSON parse error" };
+        continue;
+      }
+
+      const procesos = data?.procesos || [];
+      console.log(`[demo] CPNU ${candidate.desc}: ${procesos.length} procesos found`);
+
+      if (procesos.length === 0) {
+        return { status: 200, body: { ok: false, procesos: [] } };
+      }
+
+      const p = procesos[0];
+      const idProceso = p.idProceso;
+
+      // Fetch actuaciones with same fallback
+      let actuaciones: any[] = [];
+      if (idProceso) {
+        const actCandidates = [
+          `https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Proceso/Actuaciones/${idProceso}`,
+          `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/${idProceso}`,
+          `https://consultaprocesos.ramajudicial.gov.co:443/api/v2/Proceso/Actuaciones/${idProceso}`,
+          `https://rama-judicial-api.onrender.com/api/v2/Proceso/Actuaciones/${idProceso}`,
+        ];
+        for (const actUrl of actCandidates) {
+          try {
+            console.log(`[demo] CPNU actuaciones: trying ${actUrl.slice(0, 70)}...`);
+            const ac = new AbortController();
+            const at = setTimeout(() => ac.abort(), 12000);
+            const actResp = await fetch(actUrl, { headers, signal: ac.signal });
+            clearTimeout(at);
+            const actCt = actResp.headers.get("content-type") || "";
+            console.log(`[demo] CPNU actuaciones: HTTP ${actResp.status}, ct=${actCt.slice(0, 40)}`);
+            if (!actCt.includes("json")) {
+              console.log(`[demo] CPNU actuaciones: non-JSON, skipping`);
+              continue;
+            }
+            if (actResp.ok) {
+              const actData = await actResp.json();
+              actuaciones = actData?.actuaciones || [];
+              console.log(`[demo] CPNU actuaciones: ${actuaciones.length} found`);
+              break;
+            }
+          } catch (e) {
+            console.log(`[demo] CPNU actuaciones attempt failed: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          proceso: {
+            despacho: p.despacho || p.nombreDespacho || null,
+            tipo: p.tipoProceso || null,
+            clase: p.claseProceso || null,
+            fecha_radicacion: p.fechaRadicacion || p.fechaProceso || null,
+            sujetos_procesales: p.sujetosProcesales || [],
+            actuaciones: actuaciones.map((a: any) => ({
+              fecha_actuacion: a.fechaActuacion || a.fecharegistro || null,
+              actuacion: a.actuacion || a.nombreActuacion || "",
+              anotacion: a.anotacion || "",
+              fecha: a.fechaActuacion || a.fecharegistro || null,
+            })),
+            estados_electronicos: [],
+          },
         },
       };
+    } catch (err) {
+      console.log(`[demo] CPNU ${candidate.desc}: error: ${err instanceof Error ? err.message : err}`);
+      lastDiagnostic = { provider: "CPNU", variant: candidate.desc, error: err instanceof Error ? err.message : "unknown" };
+      continue;
     }
-    
-    const text = await resp.text();
-    const data = JSON.parse(text);
-    const procesos = data?.procesos || [];
-    console.log(`[demo] CPNU: ${procesos.length} procesos found`);
-    
-    if (procesos.length === 0) {
-      return { status: 200, body: { ok: false, procesos: [] } };
-    }
-    
-    const p = procesos[0];
-    const idProceso = p.idProceso;
-    
-    // Fetch actuaciones for this process
-    let actuaciones: any[] = [];
-    if (idProceso) {
-      try {
-        const actUrl = `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/${idProceso}`;
-        const actController = new AbortController();
-        const actTimeout = setTimeout(() => actController.abort(), 15000);
-        const actResp = await fetch(actUrl, { headers, signal: actController.signal });
-        clearTimeout(actTimeout);
-        if (actResp.ok) {
-          const actData = await actResp.json();
-          actuaciones = actData?.actuaciones || [];
-          console.log(`[demo] CPNU actuaciones: ${actuaciones.length} found`);
-        }
-      } catch (e) {
-        console.log(`[demo] CPNU actuaciones fetch failed:`, e instanceof Error ? e.message : e);
-      }
-    }
-    
-    return {
-      status: 200,
-      body: {
-        ok: true,
-        proceso: {
-          despacho: p.despacho || p.nombreDespacho || null,
-          tipo: p.tipoProceso || null,
-          clase: p.claseProceso || null,
-          fecha_radicacion: p.fechaRadicacion || p.fechaProceso || null,
-          sujetos_procesales: p.sujetosProcesales || [],
-          actuaciones: actuaciones.map((a: any) => ({
-            fecha_actuacion: a.fechaActuacion || a.fecharegistro || null,
-            actuacion: a.actuacion || a.nombreActuacion || "",
-            anotacion: a.anotacion || "",
-            fecha: a.fechaActuacion || a.fecharegistro || null,
-          })),
-          estados_electronicos: [],
-        },
-      },
-    };
-  } catch (err) {
-    console.log(`[demo] CPNU: fetch error:`, err instanceof Error ? err.message : err);
-    return { 
-      status: 0, 
-      body: null,
-      diagnostic: { provider: "CPNU", error: err instanceof Error ? err.message : "unknown", message: "CPNU unreachable — falling back" },
-    };
   }
+
+  // All candidates failed
+  console.log(`[demo] CPNU: all candidates exhausted`);
+  return {
+    status: 0,
+    body: null,
+    diagnostic: { ...lastDiagnostic, message: "CPNU unreachable — all candidates exhausted, falling back" },
+  };
 }
 
 async function fetchPublicacionesDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
