@@ -64,6 +64,7 @@ import {
   PlatformBillingPage,
   PlatformNotificationsPage,
   PlatformGeminiPage,
+  PlatformSecurityPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
@@ -216,6 +217,7 @@ const App = () => (
             <Route path="api-debug" element={<Navigate to="/platform/atenia-ai" replace />} />
             <Route path="atenia-ai" element={<ErrorBoundary><PlatformAteniaAIPage /></ErrorBoundary>} />
             <Route path="gemini" element={<ErrorBoundary><PlatformGeminiPage /></ErrorBoundary>} />
+            <Route path="security" element={<ErrorBoundary><PlatformSecurityPage /></ErrorBoundary>} />
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
             <Route path="external-providers" element={<Navigate to="/platform/external-providers/wizard" replace />} />
             <Route path="external-providers/wizard" element={<ErrorBoundary><PlatformProviderWizardPage /></ErrorBoundary>} />

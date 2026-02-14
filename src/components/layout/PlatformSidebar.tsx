@@ -57,6 +57,7 @@ const platformNavItems = [
   { title: "Sistema", url: "/platform/system", icon: Activity },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
   { title: "Gemini AI", url: "/platform/gemini", icon: Sparkles },
+  { title: "Seguridad", url: "/platform/security", icon: ShieldCheck },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
   { title: "Proveedores Ext.", url: "/platform/external-providers/wizard", icon: Cable },
 ];
