@@ -18,6 +18,8 @@ import { DailySyncHealthGate } from "./atenia-ai/DailySyncHealthGate";
 import { AteniaExternalProviderStatus } from "./atenia-ai/AteniaExternalProviderStatus";
 import { AteniaGhostItems } from "./atenia-ai/AteniaGhostItems";
 import { AteniaOperatorExplanation } from "./atenia-ai/AteniaOperatorExplanation";
+import { AteniaDeepDivesSection } from "./atenia-ai/AteniaDeepDivesSection";
+import { AteniaPreflightStatus } from "./atenia-ai/AteniaPreflightStatus";
 import { AutopilotDashboard } from "./atenia-ai/AutopilotDashboard";
 import { AteniaAutonomyControlPanel } from "./atenia-ai/AteniaAutonomyControlPanel";
 import { AteniaActionFeed } from "./atenia-ai/AteniaActionFeed";
@@ -643,6 +645,12 @@ export function AteniaAISupervisorPanel() {
 
           {/* Edge Function Liveness Monitor */}
           <AteniaEdgeFunctionLiveness />
+
+          {/* Pre-Flight API Status */}
+          <AteniaPreflightStatus />
+
+          {/* Deep Dives */}
+          <AteniaDeepDivesSection />
 
           {/* Ghost Items */}
           <AteniaGhostItems />
