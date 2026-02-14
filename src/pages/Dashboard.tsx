@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale, Briefcase, Shield } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +12,7 @@ import { CpacaPipeline } from "@/components/cpaca";
 import { CreateWorkItemWizard } from "@/components/workflow";
 import { LexyDailyCard } from "@/components/lexy/LexyDailyCard";
 import { HearingTeamsNotice } from "@/components/dashboard/HearingTeamsNotice";
+import { StatsCarousel } from "@/components/dashboard/StatsCarousel";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -138,81 +139,20 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Acta Pendiente</CardTitle>
-            <Clock className="h-4 w-4 text-status-pending" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.actaPending}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Radicado Pendiente</CardTitle>
-            <FileText className="h-4 w-4 text-status-pending" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.radicadoPending}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Tareas Vencidas</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-sla-critical" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.overdueTasks}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-sla-critical" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.criticalAlerts}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">En Seguimiento</CardTitle>
-            <Eye className="h-4 w-4 text-status-active" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.monitoredProcesses}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Peticiones</CardTitle>
-            <Send className="h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingPeticiones}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Tutelas</CardTitle>
-            <Gavel className="h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingTutelas}</div>
-          </CardContent>
-        </Card>
-        <Card className="dashboard-metric-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">CPACA</CardTitle>
-            <Scale className="h-4 w-4" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.pendingCpaca}</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Stats Carousel + Atenia AI Commentary */}
+      <StatsCarousel
+        stats={{
+          actaPending: stats.actaPending,
+          radicadoPending: stats.radicadoPending,
+          overdueTasks: stats.overdueTasks,
+          criticalAlerts: stats.criticalAlerts,
+          monitoredProcesses: stats.monitoredProcesses,
+          pendingPeticiones: stats.pendingPeticiones,
+          pendingTutelas: stats.pendingTutelas,
+          pendingCpaca: stats.pendingCpaca,
+        }}
+        onRefresh={fetchStats}
+      />
 
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">

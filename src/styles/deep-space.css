@@ -381,6 +381,22 @@ html.deep-space [class*="via-card"] {
 }
 
 /* ============================= */
+/* STATS CAROUSEL                */
+/* ============================= */
+html.deep-space .stats-carousel-glass {
+  background: var(--ds-glass-bg-strong) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  backdrop-filter: blur(var(--ds-glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+html.deep-space .stats-carousel-glass:hover {
+  border-color: var(--ds-glass-border-hover) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 20px var(--ds-glow-blue);
+}
+
+/* ============================= */
 /* SCROLLBAR                     */
 /* ============================= */
 html.deep-space ::-webkit-scrollbar {
