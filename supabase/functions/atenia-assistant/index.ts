@@ -60,6 +60,9 @@ const ACTION_ALLOWLIST = new Set([
   // Privacy & support access grant actions
   "GRANT_SUPPORT_ACCESS",
   "REVOKE_SUPPORT_ACCESS",
+  // Analytics actions
+  "GET_ANALYTICS_STATUS",
+  "UPDATE_ORG_ANALYTICS",
 ]);
 
 // ---- Risk classification ----
@@ -74,6 +77,7 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "GET_SUBSCRIPTION_STATUS":
     case "GENERATE_PAYMENT_CERTIFICATE":
     case "REVOKE_SUPPORT_ACCESS":
+    case "GET_ANALYTICS_STATUS":
       return "SAFE";
     case "RUN_SYNC_WORK_ITEM":
     case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
@@ -81,6 +85,7 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
     case "GRANT_SUPPORT_ACCESS":
+    case "UPDATE_ORG_ANALYTICS":
       return "CONFIRM_REQUIRED";
     case "REMOVE_USER_FROM_ORG":
     case "CHANGE_MEMBER_ROLE":
@@ -207,9 +212,23 @@ ALLOWLISTED ACTIONS:
   "⚠️ Esto dará acceso temporal al equipo de soporte para ver [redacted info/su pantalla directamente]. Máximo 30 minutos. Puede revocar en cualquier momento desde Configuración > Privacidad."
   For DIRECT_VIEW, add extra warning: "Vista directa significa que el agente de soporte podrá ver exactamente lo que usted ve en la pantalla."
 - REVOKE_SUPPORT_ACCESS: Immediately revoke all active support access grants (SAFE). No params needed.
+- GET_ANALYTICS_STATUS: Read-only: return the current analytics configuration for the user's organization (SAFE). Shows global state, org override, and whether analytics are effectively enabled. Any org member can view.
+- UPDATE_ORG_ANALYTICS: Update analytics settings for the user's organization (CONFIRM_REQUIRED). Params: { analytics_enabled?: boolean | null, session_replay_enabled?: boolean | null, notes?: string }
+  RBAC: Only org_admin (OWNER or ADMIN role). Regular members should be told: "Solo los administradores de tu organización pueden cambiar la configuración de analíticas."
+  When toggling, explain: "Esto cambiará la configuración de analíticas para toda la organización [nombre]. Si se establece en null, se heredará la configuración global."
+
+ANALYTICS INQUIRY POLICY:
+When a user asks about analytics, telemetry, data collection, tracking, or observability:
+1. Use the "analytics" context from CONTEXT_JSON (if available) to answer about the current state.
+2. Explain that analytics NEVER collect PII, legal content, case details, or personal data. Only safe metadata (counts, latencies, feature usage) is tracked.
+3. All identifiers are hashed with HMAC-SHA256 before transmission.
+4. If the user wants to change their org's analytics settings, propose UPDATE_ORG_ANALYTICS with appropriate params.
+5. If the user wants to see the current state, propose GET_ANALYTICS_STATUS.
+6. Session replay (if enabled) masks all inputs and excludes document viewers and legal content areas.
+7. For users asking about data privacy: reassure that analytics are OFF by default and require explicit opt-in by platform admins. Each organization can override and opt out independently.
 
 SETTINGS ACTIONS POLICY:
-When a user asks to change settings (ticker, notifications, etc.) via chat:
+When a user asks to change settings (ticker, notifications, analytics, etc.) via chat:
 1. Identify which setting they want to change.
 2. Determine the setting scope (user-level vs org-level).
 3. Check RBAC: does this user have permission to change that setting at that scope?
@@ -470,6 +489,37 @@ async function buildContext(
     billingCtx.legacy_subscription = legacySub || null;
 
     ctx.billing = billingCtx;
+  }
+
+  // ---- Analytics context ----
+  if (orgId) {
+    const analyticsCtx: Record<string, unknown> = {};
+
+    // Global analytics settings
+    const { data: globalSettings } = await adminClient
+      .from("platform_settings")
+      .select("analytics_enabled_global, posthog_enabled, sentry_enabled, session_replay_enabled")
+      .eq("id", "singleton")
+      .maybeSingle();
+    analyticsCtx.global = globalSettings || { analytics_enabled_global: false, posthog_enabled: false, sentry_enabled: false, session_replay_enabled: false };
+
+    // Org override
+    const { data: orgOverride } = await adminClient
+      .from("org_analytics_overrides")
+      .select("analytics_enabled, session_replay_enabled, notes, updated_at")
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    analyticsCtx.org_override = orgOverride || null;
+
+    // Resolve effective state
+    const globalEnabled = (globalSettings as any)?.analytics_enabled_global ?? false;
+    const orgEnabled = (orgOverride as any)?.analytics_enabled;
+    analyticsCtx.effective = {
+      analytics_enabled: orgEnabled === null || orgEnabled === undefined ? globalEnabled : orgEnabled,
+      source: orgEnabled === null || orgEnabled === undefined ? "inherited_from_global" : "org_override",
+    };
+
+    ctx.analytics = analyticsCtx;
   }
 
   return { ctx, orgId, isPlatformAdmin };
@@ -1025,6 +1075,42 @@ async function executeAction(
         message: data?.length
           ? `Se revocaron ${data.length} acceso(s) de soporte activos inmediatamente.`
           : "No hay accesos de soporte activos para revocar.",
+      };
+    }
+
+    case "GET_ANALYTICS_STATUS": {
+      const orgId = ctx.orgId;
+      if (!orgId) throw new Error("Se requiere una organización.");
+
+      // Return the analytics context already built
+      return {
+        ok: true,
+        analytics: ctx.analytics || { global: { analytics_enabled_global: false }, org_override: null, effective: { analytics_enabled: false, source: "inherited_from_global" } },
+      };
+    }
+
+    case "UPDATE_ORG_ANALYTICS": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores de la organización pueden cambiar la configuración de analíticas.");
+
+      const payload: Record<string, unknown> = { organization_id: orgId };
+      if (action.params?.analytics_enabled !== undefined) payload.analytics_enabled = action.params.analytics_enabled;
+      if (action.params?.session_replay_enabled !== undefined) payload.session_replay_enabled = action.params.session_replay_enabled;
+      if (action.params?.notes !== undefined) payload.notes = action.params.notes;
+      payload.updated_by = ctx.user?.id;
+
+      const { error } = await adminClient
+        .from("org_analytics_overrides")
+        .upsert(payload, { onConflict: "organization_id" });
+      if (error) throw new Error(error.message);
+
+      return {
+        ok: true,
+        message: "Configuración de analíticas actualizada para la organización.",
+        analytics_enabled: action.params?.analytics_enabled,
+        session_replay_enabled: action.params?.session_replay_enabled,
       };
     }
 

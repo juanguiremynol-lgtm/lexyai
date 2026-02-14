@@ -1,9 +1,10 @@
 /**
  * Platform Analytics & Observability Settings Tab
- * Superadmin-only: global toggles, allowlist editor, tenant overrides, status panel.
+ * Superadmin-only: global toggles, allowlist editor, tenant overrides, status panel, implementation wizard.
  */
 
 import { useState } from "react";
+import { AnalyticsImplementationWizard } from "@/components/platform/analytics/AnalyticsImplementationWizard";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -173,6 +174,9 @@ export function PlatformAnalyticsTab() {
           <p className="text-white/50 text-sm">Control global de telemetría — sin PII, sin datos legales</p>
         </div>
       </div>
+
+      {/* Implementation Wizard */}
+      <AnalyticsImplementationWizard />
 
       {/* Safety banner */}
       <Alert className="bg-amber-500/10 border-amber-500/30">
