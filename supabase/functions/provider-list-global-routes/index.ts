@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     // Calculate coverage: how many orgs have an enabled instance per connector
     const connectorIds = [...new Set((routes || []).map((r: any) => r.provider_connector_id))];
     const coverage: Record<string, number> = {};
+    const platform_instances: Record<string, boolean> = {};
 
     for (const cid of connectorIds) {
       const { count } = await adminClient
@@ -80,10 +81,19 @@ Deno.serve(async (req) => {
         .eq("connector_id", cid)
         .eq("is_enabled", true);
       coverage[cid] = count || 0;
+
+      // Check if a PLATFORM-scoped enabled instance exists
+      const { count: platformCount } = await adminClient
+        .from("provider_instances")
+        .select("id", { count: "exact", head: true })
+        .eq("connector_id", cid)
+        .eq("scope", "PLATFORM")
+        .eq("is_enabled", true);
+      platform_instances[cid] = (platformCount || 0) > 0;
     }
 
     return new Response(
-      JSON.stringify({ ok: true, routes: routes || [], policies: policies || [], coverage }),
+      JSON.stringify({ ok: true, routes: routes || [], policies: policies || [], coverage, platform_instances }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err: unknown) {
