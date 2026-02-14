@@ -92,16 +92,17 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
 
   return (
     <>
-      {/* Floating mascot */}
+      {/* Floating mascot — drop below Sheet z-index (50) when chat is open */}
       <div
         className={cn(
-          "fixed z-[60]",
+          "fixed",
+          chatOpen ? "z-40" : "z-[60]",
           positionClasses[prefs.position] || positionClasses["bottom-right"],
           className
         )}
       >
-        {/* Speech bubble — hide on mobile */}
-        {currentBubble && mascotState === "SPEAKING" && !isMobile && (
+        {/* Speech bubble — hide on mobile or when chat open */}
+        {currentBubble && mascotState === "SPEAKING" && !isMobile && !chatOpen && (
           <SpeechBubble
             text={currentBubble.text}
             prefillPrompt={currentBubble.prefillPrompt}
@@ -121,14 +122,12 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
           />
         )}
 
-      {/* The robot — hide when chat is open so it doesn't block the Sheet */}
-        {!chatOpen && (
-          <MascotAvatar
-            state={mascotState}
-            onClick={() => openChat()}
-            className={isMobile ? "w-10 h-10" : undefined}
-          />
-        )}
+        {/* The robot — always visible */}
+        <MascotAvatar
+          state={mascotState}
+          onClick={() => openChat()}
+          className={isMobile ? "w-10 h-10" : undefined}
+        />
       </div>
 
       {/* Chat panel */}
