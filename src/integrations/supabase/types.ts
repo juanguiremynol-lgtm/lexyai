@@ -8158,6 +8158,75 @@ export type Database = {
           },
         ]
       }
+      support_access_grants: {
+        Row: {
+          access_type: string
+          conversation_id: string | null
+          created_at: string
+          expires_at: string
+          granted_at: string
+          granted_to_admin_id: string
+          id: string
+          organization_id: string
+          reason: string | null
+          redaction_level: string
+          revoked_at: string | null
+          revoked_by: string | null
+          scope: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          access_type?: string
+          conversation_id?: string | null
+          created_at?: string
+          expires_at?: string
+          granted_at?: string
+          granted_to_admin_id: string
+          id?: string
+          organization_id: string
+          reason?: string | null
+          redaction_level?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          scope?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          access_type?: string
+          conversation_id?: string | null
+          created_at?: string
+          expires_at?: string
+          granted_at?: string
+          granted_to_admin_id?: string
+          id?: string
+          organization_id?: string
+          reason?: string | null
+          redaction_level?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          scope?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_access_grants_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_ai_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_access_grants_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_audit_log: {
         Row: {
           acts_count_after: number
@@ -10495,6 +10564,14 @@ export type Database = {
       }
       get_user_org_id: { Args: never; Returns: string }
       get_user_organization_id: { Args: never; Returns: string }
+      has_active_org_support_grant: {
+        Args: { p_admin_id: string; p_org_id: string }
+        Returns: boolean
+      }
+      has_active_support_grant: {
+        Args: { p_admin_id: string; p_user_id: string }
+        Returns: boolean
+      }
       has_org_role: {
         Args: {
           _org_id: string

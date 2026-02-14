@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -28,6 +28,7 @@ import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboa
 import { AdminConsole } from "@/components/admin";
 import { BillingTab } from "@/components/settings/BillingTab";
 import { ProviderInstanceManager } from "@/components/settings/ProviderInstanceManager";
+import { UserPrivacySettings } from "@/components/settings/UserPrivacySettings";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
@@ -221,6 +222,10 @@ export default function Settings() {
           <TabsTrigger value="estados">Estados</TabsTrigger>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
           <TabsTrigger value="export">Exportar</TabsTrigger>
+          <TabsTrigger value="privacy">
+            <ShieldCheck className="h-4 w-4 mr-1" />
+            Privacidad
+          </TabsTrigger>
           <TabsTrigger value="atenia">
             <Bot className="h-4 w-4 mr-1" />
             Atenia AI
@@ -573,6 +578,10 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="privacy">
+          <UserPrivacySettings />
         </TabsContent>
 
         <TabsContent value="atenia" className="space-y-6">

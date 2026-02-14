@@ -1,5 +1,9 @@
 /**
- * Platform Impersonation Tab - Read-only support mode
+ * Platform Support Tab - Consent-based support access
+ * 
+ * Super admins can only access user data through:
+ * 1. Redacted support info (default, always available for diagnostics)
+ * 2. Direct view (requires explicit user authorization via Atenia AI, 30 min max)
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -8,121 +12,129 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Input } from "@/components/ui/input";
 import { 
   Eye, 
+  EyeOff,
   Building2,
   Users,
-  AlertTriangle,
+  Shield,
+  ShieldAlert,
   Search,
   LogIn,
-  LogOut
+  LogOut,
+  Clock,
+  Lock,
+  Bot,
+  CheckCircle2,
 } from "lucide-react";
 import { useState } from "react";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
-interface OrganizationForSupport {
+interface ActiveGrant {
   id: string;
-  name: string;
-  slug: string | null;
-  created_at: string;
-  member_count: number;
-  subscription_status: string | null;
+  user_id: string;
+  organization_id: string;
+  access_type: string;
+  redaction_level: string;
+  reason: string | null;
+  granted_at: string;
+  expires_at: string;
+  status: string;
 }
 
 export function PlatformImpersonationTab() {
   const [searchTerm, setSearchTerm] = useState("");
   const { isImpersonating, impersonatedOrg, enterImpersonation, exitImpersonation } = useImpersonation();
 
-  // Fetch organizations
-  const { data: organizations, isLoading } = useQuery({
-    queryKey: ["platform-orgs-for-impersonation"],
+  // Fetch only grants given TO this admin
+  const { data: activeGrants, isLoading: grantsLoading } = useQuery({
+    queryKey: ["platform-support-grants"],
     queryFn: async () => {
-      const { data: orgs, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from("support_access_grants")
+        .select("id, user_id, organization_id, access_type, redaction_level, reason, granted_at, expires_at, status")
+        .eq("granted_to_admin_id", user.id)
+        .eq("status", "ACTIVE")
+        .gt("expires_at", new Date().toISOString())
+        .order("granted_at", { ascending: false });
+
+      if (error) {
+        console.warn("[PlatformImpersonationTab] Error fetching grants:", error.message);
+        return [];
+      }
+      return (data || []) as ActiveGrant[];
+    },
+    refetchInterval: 30_000, // Refresh every 30s to catch expirations
+  });
+
+  // Fetch org names for grants
+  const grantOrgIds = [...new Set(activeGrants?.map(g => g.organization_id) || [])];
+  const { data: grantOrgs } = useQuery({
+    queryKey: ["grant-org-names", grantOrgIds],
+    queryFn: async () => {
+      if (grantOrgIds.length === 0) return new Map<string, string>();
+      const { data } = await supabase
         .from("organizations")
-        .select("*")
-        .order("name");
+        .select("id, name")
+        .in("id", grantOrgIds);
+      return new Map((data || []).map(o => [o.id, o.name]));
+    },
+    enabled: grantOrgIds.length > 0,
+  });
 
-      if (error) throw error;
+  // Recent grant history (expired/revoked)
+  const { data: grantHistory } = useQuery({
+    queryKey: ["platform-support-grant-history"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
 
-      // Get member counts
-      const { data: memberships } = await supabase
-        .from("organization_memberships")
-        .select("organization_id");
+      const { data, error } = await supabase
+        .from("support_access_grants")
+        .select("id, organization_id, access_type, reason, granted_at, expires_at, status")
+        .eq("granted_to_admin_id", user.id)
+        .neq("status", "ACTIVE")
+        .order("granted_at", { ascending: false })
+        .limit(20);
 
-      const memberCounts = new Map<string, number>();
-      memberships?.forEach((m) => {
-        const count = memberCounts.get(m.organization_id) || 0;
-        memberCounts.set(m.organization_id, count + 1);
-      });
-
-      // Get subscription statuses
-      const { data: subs } = await supabase
-        .from("subscriptions")
-        .select("organization_id, status");
-
-      const subMap = new Map(subs?.map((s) => [s.organization_id, s.status]));
-
-      return orgs?.map((org) => ({
-        ...org,
-        member_count: memberCounts.get(org.id) || 0,
-        subscription_status: subMap.get(org.id) || null,
-      })) as OrganizationForSupport[];
+      if (error) return [];
+      return data || [];
     },
   });
 
-  const filteredOrgs = organizations?.filter((org) =>
-    org.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    org.slug?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getStatusBadge = (status: string | null) => {
-    switch (status) {
-      case "active":
-        return <Badge className="bg-green-100 text-green-800">Activo</Badge>;
-      case "trialing":
-        return <Badge className="bg-blue-100 text-blue-800">Prueba</Badge>;
-      case "past_due":
-        return <Badge className="bg-amber-100 text-amber-800">Suspendido</Badge>;
-      case "expired":
-        return <Badge className="bg-red-100 text-red-800">Expirado</Badge>;
-      default:
-        return <Badge variant="outline">Sin suscripción</Badge>;
+  const getAccessBadge = (type: string) => {
+    if (type === "DIRECT_VIEW") {
+      return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">Vista Directa</Badge>;
     }
+    return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Redactado</Badge>;
   };
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          Cargando organizaciones...
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <div className="space-y-6">
-      {/* Warning Banner */}
-      <Alert variant="default" className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
-        <AlertTriangle className="h-4 w-4 text-amber-600" />
-        <AlertTitle className="text-amber-800 dark:text-amber-200">Modo Soporte</AlertTitle>
-        <AlertDescription className="text-amber-700 dark:text-amber-300">
-          La impersonación permite ver datos de una organización como si fueras miembro.
-          <strong> Todas las mutaciones están bloqueadas.</strong>
-          {" "}Cada entrada y salida queda registrada en auditoría.
+      {/* Privacy-First Warning */}
+      <Alert className="border-primary/50 bg-primary/5">
+        <Shield className="h-4 w-4 text-primary" />
+        <AlertTitle>Soporte basado en Consentimiento</AlertTitle>
+        <AlertDescription>
+          No tiene acceso directo a datos de usuarios ni organizaciones. 
+          El soporte se canaliza exclusivamente a través de <strong>Andro IA</strong>, que le proporcionará 
+          información <strong>redactada</strong> para diagnósticos. Para vista directa ("lo que el usuario ve"), 
+          el usuario debe autorizar explícitamente un acceso temporal de máximo 30 minutos.
         </AlertDescription>
       </Alert>
 
-      {/* Active Impersonation */}
+      {/* Active Impersonation Session */}
       {isImpersonating && impersonatedOrg && (
         <Card className="border-primary">
           <CardHeader className="bg-primary/5">
             <CardTitle className="flex items-center gap-2 text-primary">
               <Eye className="h-5 w-5" />
-              Modo Soporte Activo
+              Sesión de Soporte Activa (Autorizada)
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-4">
@@ -134,7 +146,7 @@ export function PlatformImpersonationTab() {
                 <div>
                   <p className="font-medium">{impersonatedOrg.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    Navegue la aplicación para ver datos de esta organización
+                    Modo solo lectura — Autorizado por el usuario
                   </p>
                 </div>
               </div>
@@ -144,105 +156,151 @@ export function PlatformImpersonationTab() {
                 className="gap-2"
               >
                 <LogOut className="h-4 w-4" />
-                Salir del Modo Soporte
+                Salir
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Organization Selector */}
-      {!isImpersonating && (
+      {/* Active Grants (User-Authorized) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-green-600" />
+            Accesos Autorizados por Usuarios
+            {(activeGrants?.length || 0) > 0 && (
+              <Badge variant="default" className="ml-2">{activeGrants?.length}</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Usuarios que le han otorgado acceso temporal de soporte a través de Andro IA
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {grantsLoading ? (
+            <p className="text-center text-muted-foreground py-6">Cargando...</p>
+          ) : (activeGrants?.length || 0) === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <EyeOff className="h-10 w-10 text-muted-foreground mb-3" />
+              <p className="font-medium">No hay accesos autorizados activos</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Cuando un usuario autorice soporte a través de Andro IA, aparecerá aquí.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {activeGrants?.map((grant) => (
+                <div
+                  key={grant.id}
+                  className="p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">
+                          {grantOrgs?.get(grant.organization_id) || "Organización"}
+                        </span>
+                        {getAccessBadge(grant.access_type)}
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {grant.reason || "Soporte técnico"}
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Expira {formatDistanceToNow(new Date(grant.expires_at), { addSuffix: true, locale: es })}
+                        </span>
+                      </div>
+                    </div>
+                    {grant.access_type === "DIRECT_VIEW" && !isImpersonating && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => enterImpersonation({
+                          id: grant.organization_id,
+                          name: grantOrgs?.get(grant.organization_id) || "Organización",
+                        })}
+                        className="gap-2 shrink-0"
+                      >
+                        <LogIn className="h-4 w-4" />
+                        Ver como usuario
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* How Support Works */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bot className="h-5 w-5 text-primary" />
+            Flujo de Soporte
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-lg border bg-muted/30">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <EyeOff className="h-4 w-4" />
+                Soporte Redactado (Predeterminado)
+              </h4>
+              <ol className="space-y-1 text-muted-foreground list-decimal list-inside">
+                <li>Usuario reporta problema a Andro IA</li>
+                <li>Andro IA recopila diagnósticos técnicos</li>
+                <li>Usted recibe info <strong>redactada</strong> (sin nombres, correos ni datos de clientes)</li>
+                <li>Resuelve el problema sin ver datos personales</li>
+              </ol>
+            </div>
+            <div className="p-4 rounded-lg border bg-muted/30">
+              <h4 className="font-medium mb-2 flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                Vista Directa (Requiere Autorización)
+              </h4>
+              <ol className="space-y-1 text-muted-foreground list-decimal list-inside">
+                <li>Si el soporte redactado no basta, solicite vista directa</li>
+                <li>Andro IA pregunta al usuario: "¿Autoriza acceso directo por 30 min?"</li>
+                <li>El usuario confirma explícitamente</li>
+                <li>Usted obtiene acceso temporal de solo lectura</li>
+                <li>El usuario puede revocar en cualquier momento</li>
+              </ol>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Grant History */}
+      {(grantHistory?.length || 0) > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-primary" />
-              Seleccionar Organización
+              <Clock className="h-5 w-5 text-muted-foreground" />
+              Historial de Accesos
             </CardTitle>
-            <CardDescription>
-              Elija una organización para entrar en modo de soporte (solo lectura)
-            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nombre o slug..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            {/* Organizations List */}
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {filteredOrgs?.map((org) => (
-                <div
-                  key={org.id}
-                  className="p-3 border rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between gap-4"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium truncate">{org.name}</span>
-                      {getStatusBadge(org.subscription_status)}
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
-                      {org.slug && <span>@{org.slug}</span>}
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
-                        {org.member_count} miembros
-                      </span>
-                      <span>
-                        Creada: {format(new Date(org.created_at), "dd MMM yyyy", { locale: es })}
-                      </span>
-                    </div>
+          <CardContent>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {grantHistory?.map((g: any) => (
+                <div key={g.id} className="p-2 border rounded flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    {getAccessBadge(g.access_type)}
+                    <Badge variant="outline" className="text-muted-foreground">{g.status}</Badge>
+                    <span className="text-muted-foreground">{g.reason || "Soporte"}</span>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => enterImpersonation({ id: org.id, name: org.name })}
-                    className="gap-2 shrink-0"
-                  >
-                    <LogIn className="h-4 w-4" />
-                    Entrar
-                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {format(new Date(g.granted_at), "dd MMM yyyy HH:mm", { locale: es })}
+                  </span>
                 </div>
               ))}
-
-              {filteredOrgs?.length === 0 && (
-                <p className="text-center text-muted-foreground py-4">
-                  No se encontraron organizaciones
-                </p>
-              )}
             </div>
           </CardContent>
         </Card>
       )}
-
-      {/* Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Instrucciones</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p>
-            <strong>1.</strong> Seleccione una organización de la lista para entrar en modo soporte.
-          </p>
-          <p>
-            <strong>2.</strong> Navegue por la aplicación normalmente. Verá los datos de esa organización.
-          </p>
-          <p>
-            <strong>3.</strong> Todos los botones de crear, editar y eliminar estarán deshabilitados.
-          </p>
-          <p>
-            <strong>4.</strong> Un banner permanente indicará que está en modo soporte.
-          </p>
-          <p>
-            <strong>5.</strong> Para salir, use el botón "Salir del Modo Soporte" o regrese a esta página.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }
