@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   type ObservationKind,
   type ObservationSeverity,
+  SECURITY_OBSERVATION_KINDS,
   validateObservationKind,
   isValidObservationSeverity,
 } from "@/lib/constants/sync-constraints";
@@ -91,6 +92,15 @@ export async function findOrCreateConversation(
 
 // ============= ADD OBSERVATION =============
 
+/**
+ * Add an observation to a conversation.
+ *
+ * Error policy (tiered):
+ * - Security observation kinds (EGRESS_VIOLATION, SECURITY_ALERT): throws on failure
+ *   → caller should deny the risky operation if observation can't be logged
+ * - All other kinds: logs error + emits metric but does NOT throw
+ *   → prevents observation subsystem failures from breaking core user flows
+ */
 export async function addObservation(
   conversationId: string,
   orgId: string,
@@ -106,6 +116,8 @@ export async function addObservation(
     ? severity.toUpperCase()
     : (() => { throw new Error(`Invalid observation severity: "${severity}"`); })();
 
+  const isSecurityKind = SECURITY_OBSERVATION_KINDS.includes(validKind as any);
+
   const { error } = await (supabase.from("atenia_ai_observations") as any).insert({
     conversation_id: conversationId,
     organization_id: orgId,
@@ -117,9 +129,15 @@ export async function addObservation(
   });
 
   if (error) {
-    // Hard error — never swallow insert failures
     console.error(`[observation_insert_failure] kind=${validKind} fn=addObservation error=${error.message}`);
-    throw new Error(`Observation insert failed (kind=${validKind}): ${error.message}`);
+
+    if (isSecurityKind) {
+      // Security-critical: throw to force caller to deny the risky operation
+      throw new Error(`Security observation insert failed (kind=${validKind}): ${error.message}`);
+    }
+    // Non-security: log metric but don't break the caller's primary flow
+    console.warn(`[observation_non_fatal] kind=${validKind} — insert failed but primary flow continues`);
+    return;
   }
 
   // Update counts

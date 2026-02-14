@@ -11,6 +11,10 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  validateObservationSeverity,
+  sanitizeSecurityPayload,
+} from "../_shared/sync-constraints.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -266,20 +270,25 @@ Deno.serve(async (req) => {
       }
 
       if (triggered) {
-        // Create incident observation — PAYLOAD-FREE
+        // Validate severity via centralized constants
+        const validSeverity = validateObservationSeverity(rule.severity.toUpperCase());
+        // Structural enforcement: sanitize payload through whitelist
+        const cleanPayload = sanitizeSecurityPayload({
+          rule_id: rule.id,
+          description: rule.description,
+          ...detail,
+          detected_at: new Date().toISOString(),
+        });
+
         const { error: insertErr } = await supabaseAdmin.from("atenia_ai_observations").insert({
           kind: "SECURITY_ALERT",
-          severity: rule.severity.toUpperCase(),
+          severity: validSeverity,
           title: `🚨 ${rule.name}`,
-          payload: {
-            rule_id: rule.id,
-            description: rule.description,
-            // Only safe metadata, no raw content
-            ...detail,
-            detected_at: new Date().toISOString(),
-          },
+          payload: cleanPayload,
         });
         if (insertErr) {
+          // Hard error: log failure is visible but does NOT block the scan from continuing
+          // (security-audit-alerts is a detection scan, not a gate)
           console.error(`[observation_insert_failure] kind=SECURITY_ALERT fn=security-audit-alerts rule=${rule.id} reason=${insertErr.message}`);
         }
       }

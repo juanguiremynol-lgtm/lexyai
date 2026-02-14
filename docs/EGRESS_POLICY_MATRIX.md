@@ -145,3 +145,73 @@ The Content Security Policy in `index.html` enforces:
 4. **Update this document** with the new entry
 5. **Run validation** via `egress-proxy-validation` edge function
 6. **Update `egressClient.ts`** `KNOWN_DESTINATIONS` export
+
+---
+
+## Adding a New Observation Kind (ENUM Governance)
+
+Because `observation_kind` is a Postgres ENUM, adding a new value requires a coordinated migration:
+
+```sql
+-- Migration: Add new observation kind
+-- IMPORTANT: ALTER TYPE ... ADD VALUE cannot run inside a transaction block.
+-- In Supabase migrations, each statement runs in its own implicit transaction,
+-- so this works if it's the ONLY statement or you use a separate migration file.
+
+ALTER TYPE observation_kind ADD VALUE IF NOT EXISTS 'NEW_KIND';
+```
+
+### Checklist for new observation kinds:
+
+1. **Create a migration** with `ALTER TYPE observation_kind ADD VALUE IF NOT EXISTS 'NEW_KIND';`
+2. **Update `src/lib/constants/sync-constraints.ts`** — add to `ALLOWED_OBSERVATION_KINDS`
+3. **Update `supabase/functions/_shared/sync-constraints.ts`** — add to `ALLOWED_OBSERVATION_KINDS`
+4. **If security-related**, add to `SECURITY_OBSERVATION_KINDS` and update RLS policies
+5. **Update this document** if the kind relates to egress/security telemetry
+6. **Run `egress-proxy-validation`** on staging
+7. **Update test**: `src/test/observation-constraints.test.ts` kind count assertion
+
+### ENUM removal (rare):
+
+Postgres does not support `DROP VALUE` from an ENUM. If a kind must be deprecated:
+- Remove it from application constants (prevents new inserts)
+- Leave the ENUM value in Postgres (harmless; existing rows remain valid)
+- Add a comment in the migration documenting the deprecation
+
+---
+
+## Security Observation Retention Policy
+
+| Kind | Retention | Rationale |
+|------|-----------|-----------|
+| `EGRESS_VIOLATION` | 365 days | Regulatory compliance, incident forensics |
+| `SECURITY_ALERT` | 365 days | Audit trail for detected security events |
+| All other kinds | 90 days (default) | Operational telemetry |
+
+> **Note:** Retention is enforced by `purge-old-audit-logs` job. Security observation kinds
+> are excluded from the standard 90-day purge and use the 365-day window instead.
+> If incident threads reference observation rows, only the observation row is deleted;
+> conversation/message metadata is preserved.
+
+---
+
+## Security Observation Access Control
+
+| Role | Can Read | Can Write |
+|------|----------|-----------|
+| Org Admin | ❌ (RLS excludes `EGRESS_VIOLATION`, `SECURITY_ALERT`) | ❌ |
+| Org Member | ❌ | ❌ |
+| Platform Admin | ✅ (via `is_platform_admin()` policy) | ✅ (service_role in edge functions) |
+| Edge Functions (service_role) | ✅ (bypasses RLS) | ✅ |
+
+---
+
+## Deny-by-Default Policy (Egress Proxy)
+
+The egress proxy follows a **deny-by-default** policy for security logging failures:
+
+- If a violation is detected (domain blocked, PII detected, etc.) and the observation insert **fails**, the proxy **still denies the request**.
+- This ensures that security violations cannot be exploited by causing the logging subsystem to fail.
+- The `logViolation` function returns `false` on failure; callers log a `DENY-BY-DEFAULT` metric.
+
+For `security-audit-alerts` (a detection scan, not a gate), insert failures are logged but do **not** block the scan from continuing — the scan reports its results even if individual observations can't be persisted.
