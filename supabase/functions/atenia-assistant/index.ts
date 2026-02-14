@@ -57,6 +57,9 @@ const ACTION_ALLOWLIST = new Set([
   // Support actions
   "CREATE_SUPPORT_TICKET",
   "EXPLAIN_CURRENT_PAGE",
+  // Privacy & support access grant actions
+  "GRANT_SUPPORT_ACCESS",
+  "REVOKE_SUPPORT_ACCESS",
 ]);
 
 // ---- Risk classification ----
@@ -70,12 +73,14 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "GET_BILLING_SUMMARY":
     case "GET_SUBSCRIPTION_STATUS":
     case "GENERATE_PAYMENT_CERTIFICATE":
+    case "REVOKE_SUPPORT_ACCESS":
       return "SAFE";
     case "RUN_SYNC_WORK_ITEM":
     case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
       return "SAFE";
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
+    case "GRANT_SUPPORT_ACCESS":
       return "CONFIRM_REQUIRED";
     case "REMOVE_USER_FROM_ORG":
     case "CHANGE_MEMBER_ROLE":
@@ -197,6 +202,11 @@ ALLOWLISTED ACTIONS:
 - ORG_USAGE_SUMMARY: Read-only org stats: seats used, monitors active, work items count (SAFE). Any org member can view.
 - CREATE_SUPPORT_TICKET: Create a structured support ticket with auto-gathered metadata (SAFE). Params: { subject: string, description: string }
 - EXPLAIN_CURRENT_PAGE: Contextual help based on the user's current route (SAFE). Params: { route: string, page_context?: string }
+- GRANT_SUPPORT_ACCESS: Grant temporary support access to a platform admin (CONFIRM_REQUIRED). Params: { access_type: "REDACTED"|"DIRECT_VIEW", reason: string, duration_minutes?: number (max 30) }
+  POLICY: The user MUST explicitly request this. NEVER propose proactively. Always explain:
+  "⚠️ Esto dará acceso temporal al equipo de soporte para ver [redacted info/su pantalla directamente]. Máximo 30 minutos. Puede revocar en cualquier momento desde Configuración > Privacidad."
+  For DIRECT_VIEW, add extra warning: "Vista directa significa que el agente de soporte podrá ver exactamente lo que usted ve en la pantalla."
+- REVOKE_SUPPORT_ACCESS: Immediately revoke all active support access grants (SAFE). No params needed.
 
 SETTINGS ACTIONS POLICY:
 When a user asks to change settings (ticker, notifications, etc.) via chat:
@@ -232,6 +242,16 @@ When a user asks about deleting data, purging data, accessing the danger zone, o
 3. ALWAYS warn that: "⚠️ ADVERTENCIA: La Zona de Peligro permite eliminar datos de forma PERMANENTE e IRREVERSIBLE. El acceso se habilitará por 12 horas."
 4. The action requires explicit user confirmation (risk=CONFIRM_REQUIRED).
 5. Never propose UNLOCK_DANGER_ZONE proactively — only when the user explicitly requests danger zone access, data deletion, or data purge.
+
+SUPPORT ACCESS POLICY (CRITICAL — PRIVACY FIRST):
+When a user asks for help, support, or mentions a problem:
+1. ALWAYS channel support through redacted diagnostics first. NEVER propose DIRECT_VIEW access proactively.
+2. If the user explicitly asks for "direct support", "que vean mi pantalla", or "vista directa", THEN propose GRANT_SUPPORT_ACCESS with access_type=DIRECT_VIEW.
+3. For general support requests, propose GRANT_SUPPORT_ACCESS with access_type=REDACTED (default).
+4. ALWAYS warn: "⚠️ Esto otorgará acceso temporal (máximo 30 minutos) al equipo de soporte. Puede revocarlo en cualquier momento desde Configuración > Privacidad."
+5. For DIRECT_VIEW, add: "Vista directa significa que el agente de soporte podrá ver exactamente lo que usted ve. ¿Está seguro?"
+6. The user can say "revocar acceso" at any time → propose REVOKE_SUPPORT_ACCESS (SAFE, no confirmation needed).
+7. Super admins CANNOT see user data without an active grant. All access is audited.
 
 OUTPUT FORMAT: Always respond with valid JSON matching this structure:
 {
@@ -927,6 +947,85 @@ async function executeAction(
     case "EXPLAIN_CURRENT_PAGE": {
       // This is a contextual help action — the AI will answer from the route context
       return { ok: true, note: "Contextual help will be provided by the AI based on the current route." };
+    }
+
+    case "GRANT_SUPPORT_ACCESS": {
+      const userId = ctx.user?.id;
+      const orgId = ctx.orgId;
+      if (!userId) throw new Error("User ID required");
+      if (!orgId) throw new Error("Se requiere una organización.");
+
+      const accessType = action.params?.access_type || "REDACTED";
+      if (!["REDACTED", "DIRECT_VIEW"].includes(accessType)) {
+        throw new Error("Tipo de acceso inválido. Use REDACTED o DIRECT_VIEW.");
+      }
+
+      const reason = action.params?.reason || "Soporte técnico solicitado por usuario";
+      const durationMinutes = Math.min(Math.max(action.params?.duration_minutes || 30, 5), 30);
+      const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+
+      // Find a platform admin to grant access to (first available)
+      const { data: platformAdmins } = await adminClient
+        .from("platform_admins")
+        .select("user_id")
+        .limit(5);
+
+      if (!platformAdmins || platformAdmins.length === 0) {
+        throw new Error("No hay administradores de plataforma disponibles.");
+      }
+
+      // Create grants for all platform admins
+      const grants = platformAdmins.map((admin: any) => ({
+        user_id: userId,
+        organization_id: orgId,
+        granted_to_admin_id: admin.user_id,
+        access_type: accessType,
+        scope: "SUPPORT",
+        redaction_level: accessType === "DIRECT_VIEW" ? "LOW" : "HIGH",
+        reason,
+        expires_at: expiresAt,
+        status: "ACTIVE",
+      }));
+
+      const { data, error } = await adminClient
+        .from("support_access_grants")
+        .insert(grants)
+        .select("id, expires_at");
+
+      if (error) throw new Error(error.message);
+
+      return {
+        ok: true,
+        grants_created: data?.length || 0,
+        access_type: accessType,
+        expires_at: expiresAt,
+        duration_minutes: durationMinutes,
+        message: accessType === "DIRECT_VIEW"
+          ? `Acceso de vista directa otorgado por ${durationMinutes} minutos. Puede revocarlo en Configuración > Privacidad.`
+          : `Acceso de soporte redactado otorgado por ${durationMinutes} minutos. Su información personal permanece protegida.`,
+      };
+    }
+
+    case "REVOKE_SUPPORT_ACCESS": {
+      const userId = ctx.user?.id;
+      if (!userId) throw new Error("User ID required");
+
+      const { data, error } = await adminClient
+        .from("support_access_grants")
+        .update({ status: "REVOKED", revoked_at: new Date().toISOString(), revoked_by: userId })
+        .eq("user_id", userId)
+        .eq("status", "ACTIVE")
+        .select("id");
+
+      if (error) throw new Error(error.message);
+
+      return {
+        ok: true,
+        revoked_count: data?.length || 0,
+        message: data?.length
+          ? `Se revocaron ${data.length} acceso(s) de soporte activos inmediatamente.`
+          : "No hay accesos de soporte activos para revocar.",
+      };
     }
 
     default:
