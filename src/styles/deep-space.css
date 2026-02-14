@@ -100,11 +100,19 @@ html.deep-space body > * {
 /* ============================= */
 /* TRANSPARENT WRAPPERS          */
 /* ============================= */
-html.deep-space .bg-background,
-html.deep-space [class*="bg-background"],
+html.deep-space .bg-background:not([role="dialog"]):not([data-radix-dialog-content]),
+html.deep-space [class*="bg-background"]:not([role="dialog"]):not([data-radix-dialog-content]),
 html.deep-space main,
 html.deep-space .flex-1.overflow-y-auto {
   background: transparent !important;
+}
+
+/* Sheet/Dialog content must be opaque in deep-space */
+html.deep-space [role="dialog"][class*="bg-background"],
+html.deep-space [data-radix-dialog-content] {
+  background: rgba(10, 14, 28, 0.95) !important;
+  backdrop-filter: blur(var(--ds-glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong));
 }
 
 /* ============================= */

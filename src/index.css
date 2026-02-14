@@ -1829,12 +1829,8 @@
 }
 
 /* ============================================
-   ATENIA MASCOT CHAT - Ensure Sheet renders above mascot
+   ANDRO IA MASCOT CHAT - Ensure overlay renders above mascot (z-60)
    ============================================ */
-/* The Atenia mascot uses z-[60], so its Sheet must be higher */
 [data-radix-dialog-overlay][data-state] {
-  z-index: 65 !important;
-}
-[data-radix-dialog-content][role="dialog"][data-state] {
   z-index: 65 !important;
 }
