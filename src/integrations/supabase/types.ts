@@ -3613,6 +3613,48 @@ export type Database = {
         }
         Relationships: []
       }
+      data_access_log: {
+        Row: {
+          accessed_at: string
+          columns_accessed: string[] | null
+          context: string | null
+          id: string
+          ip_address: string | null
+          operation: string
+          organization_id: string | null
+          row_count: number | null
+          table_name: string
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          accessed_at?: string
+          columns_accessed?: string[] | null
+          context?: string | null
+          id?: string
+          ip_address?: string | null
+          operation: string
+          organization_id?: string | null
+          row_count?: number | null
+          table_name: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          accessed_at?: string
+          columns_accessed?: string[] | null
+          context?: string | null
+          id?: string
+          ip_address?: string | null
+          operation?: string
+          organization_id?: string | null
+          row_count?: number | null
+          table_name?: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       desacato_incidents: {
         Row: {
           apertura_date: string | null
@@ -5990,6 +6032,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      pii_encryption_registry: {
+        Row: {
+          column_name: string
+          encrypted_at: string | null
+          encryption_method: string
+          id: string
+          is_encrypted: boolean
+          last_audit_at: string | null
+          notes: string | null
+          table_name: string
+        }
+        Insert: {
+          column_name: string
+          encrypted_at?: string | null
+          encryption_method?: string
+          id?: string
+          is_encrypted?: boolean
+          last_audit_at?: string | null
+          notes?: string | null
+          table_name: string
+        }
+        Update: {
+          column_name?: string
+          encrypted_at?: string | null
+          encryption_method?: string
+          id?: string
+          is_encrypted?: boolean
+          last_audit_at?: string | null
+          notes?: string | null
+          table_name?: string
+        }
+        Relationships: []
       }
       plan_limits: {
         Row: {
@@ -10126,6 +10201,7 @@ export type Database = {
         Returns: Json
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
+      get_data_protection_summary: { Args: never; Returns: Json }
       get_login_sync_status: {
         Args: {
           p_max_per_day?: number
@@ -10165,6 +10241,16 @@ export type Database = {
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      log_sensitive_access: {
+        Args: {
+          p_columns?: string[]
+          p_context?: string
+          p_operation: string
+          p_row_count?: number
+          p_table_name: string
+        }
+        Returns: undefined
+      }
       platform_create_courtesy_voucher: {
         Args: {
           p_expires_days?: number
@@ -10183,6 +10269,10 @@ export type Database = {
       }
       platform_rls_probe_negative: { Args: never; Returns: Json }
       platform_verification_snapshot: { Args: never; Returns: Json }
+      purge_old_data_access_logs: {
+        Args: { p_retention_days?: number }
+        Returns: number
+      }
       purge_work_item_acts_and_pubs: {
         Args: { p_work_item_id: string }
         Returns: undefined
