@@ -68,7 +68,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Invoke the supervisor in HEARTBEAT mode
+        // ── Bug 4 FIX: Timeout handling + error isolation for supervisor invoke ──
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 130_000); // 130s timeout
+
         const { error: invokeErr } = await supabase.functions.invoke(
           "atenia-ai-supervisor",
           {
@@ -79,25 +82,47 @@ Deno.serve(async (req) => {
           }
         );
 
-        if (invokeErr) {
-          results.push({ org_id: org.id, status: "ERROR", detail: invokeErr.message });
+        clearTimeout(timeoutId);
 
-          // Log failure
+        if (invokeErr) {
+          const reason = invokeErr.message ?? "Unknown error";
+          results.push({ org_id: org.id, status: "ERROR", detail: reason });
+
+          // Log failure with evidence
           await supabase.from("atenia_ai_actions").insert({
             action_type: "SERVER_HEARTBEAT_FAILURE",
             actor: "AI_AUTOPILOT",
             scope: "ORG",
             organization_id: org.id,
             autonomy_tier: "ACT",
-            reasoning: `Heartbeat del servidor falló para org ${org.name}: ${invokeErr.message}`,
+            reasoning: `Heartbeat del servidor falló para org ${org.name}: ${reason}`,
             status: "FAILED",
             action_result: "failed",
+            evidence: { error: reason, timestamp: new Date().toISOString() },
           });
         } else {
           results.push({ org_id: org.id, status: "OK" });
         }
       } catch (err) {
-        results.push({ org_id: org.id, status: "ERROR", detail: (err as Error).message });
+        const reason = (err as Error).name === "AbortError"
+          ? "Timeout: supervisor tardó más de 130s"
+          : (err as Error).message;
+        results.push({ org_id: org.id, status: "ERROR", detail: reason });
+
+        // Log timeout/crash failure
+        try {
+          await supabase.from("atenia_ai_actions").insert({
+            action_type: "SERVER_HEARTBEAT_FAILURE",
+            actor: "AI_AUTOPILOT",
+            scope: "ORG",
+            organization_id: org.id,
+            autonomy_tier: "ACT",
+            reasoning: `Heartbeat del servidor falló para org ${org.name}: ${reason}`,
+            status: "FAILED",
+            action_result: "failed",
+            evidence: { error: reason, timestamp: new Date().toISOString() },
+          });
+        } catch { /* non-blocking */ }
       }
     }
 

@@ -329,46 +329,81 @@ async function evaluateOrphanedRetries(
   return plans;
 }
 
-/** §4.C: Auto-suspend monitoring */
+/** §4.C: Auto-suspend monitoring — checks BOTH consecutive_not_found AND consecutive_other_errors */
 async function evaluateAutoSuspend(
   orgId: string,
   policy: AutonomyPolicy,
 ): Promise<ActionPlan[]> {
   const plans: ActionPlan[] = [];
 
+  // ── Bug 2 FIX: Also check consecutive_other_errors for "Radicado no encontrado" variants ──
   const { data: candidates } = await (supabase
-    .from('work_items') as any)
-    .select('id, radicado, consecutive_not_found, last_error_code')
-    .eq('organization_id', orgId)
-    .eq('monitoring_enabled', true)
-    .gte('consecutive_not_found', 5)
-    .in('last_error_code', ['PROVIDER_EMPTY_RESULT', 'PROVIDER_NOT_FOUND', 'RECORD_NOT_FOUND'])
-    .limit(15);
+    .from('atenia_ai_work_item_state') as any)
+    .select('work_item_id, consecutive_not_found, consecutive_other_errors, consecutive_timeouts, last_error_code')
+    .or('consecutive_not_found.gte.5,consecutive_other_errors.gte.5')
+    .limit(30);
 
   if (!candidates || candidates.length === 0) return plans;
 
-  for (const item of candidates) {
+  // Filter to only items with not-found-like errors
+  const NOT_FOUND_CODES = ['RECORD_NOT_FOUND', 'PROVIDER_NOT_FOUND', 'PROVIDER_EMPTY_RESULT', 'Radicado no encontrado', 'NOT_FOUND', '404'];
+  const eligible = candidates.filter((c: any) => {
+    const totalFailures = (c.consecutive_not_found ?? 0) + (c.consecutive_other_errors ?? 0);
+    return totalFailures >= 5 && (!c.last_error_code || NOT_FOUND_CODES.some(code =>
+      (c.last_error_code ?? '').includes(code)
+    ));
+  });
+
+  // Fetch work item details for eligible items
+  if (eligible.length === 0) return plans;
+  const eligibleIds = eligible.map((c: any) => c.work_item_id);
+  const { data: workItems } = await (supabase
+    .from('work_items') as any)
+    .select('id, radicado, monitoring_enabled')
+    .in('id', eligibleIds)
+    .eq('monitoring_enabled', true)
+    .limit(15);
+
+  if (!workItems || workItems.length === 0) return plans;
+
+  // Build a map of state info
+  const stateMap = new Map<string, Record<string, any>>(eligible.map((c: any) => [c.work_item_id, c]));
+  const candidatesWithDetails = workItems.map((wi: any) => {
+    const state = stateMap.get(wi.id) || {};
+    return { ...wi, ...state };
+  });
+
+  for (const item of candidatesWithDetails) {
     const check = await checkBudget('SUSPEND_MONITORING', policy, item.id);
     if (!check.allowed) continue;
+
+    const totalFailures = (item.consecutive_not_found ?? 0) + (item.consecutive_other_errors ?? 0);
 
     try {
       await (supabase
         .from('work_items') as any)
         .update({
           monitoring_enabled: false,
-          monitoring_suspended_at: new Date().toISOString(),
-          monitoring_suspended_reason: 'AUTO_NOT_DIGITIZED',
+          monitoring_disabled_reason: 'AUTO_DEMONITOR_NOT_FOUND',
+          monitoring_disabled_by: 'ATENIA',
+          monitoring_disabled_at: new Date().toISOString(),
+          monitoring_disabled_meta: {
+            consecutive_not_found: item.consecutive_not_found ?? 0,
+            consecutive_other_errors: item.consecutive_other_errors ?? 0,
+            last_error_code: item.last_error_code,
+          },
         })
         .eq('id', item.id);
 
       await logAutonomyAction(orgId, {
         action_type: 'SUSPEND_MONITORING',
         work_item_id: item.id,
-        reasoning: `Radicado ${item.radicado} no encontrado en ${item.consecutive_not_found} consultas consecutivas — posiblemente no digitalizado. Monitoreo suspendido automáticamente.`,
+        reasoning: `Radicado ${item.radicado} no encontrado en ${totalFailures} consultas consecutivas (${item.last_error_code}) — posiblemente no digitalizado. Monitoreo suspendido automáticamente.`,
         action_result: 'applied',
         evidence: {
           radicado: item.radicado,
-          consecutive_not_found: item.consecutive_not_found,
+          consecutive_not_found: item.consecutive_not_found ?? 0,
+          consecutive_other_errors: item.consecutive_other_errors ?? 0,
           last_error_code: item.last_error_code,
         },
       });

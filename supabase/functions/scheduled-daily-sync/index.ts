@@ -71,6 +71,16 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // ── Bug 1 Step 5: Clean up stuck RUNNING entries from previous days ──
+    const todayStr = new Date().toISOString().slice(0, 10);
+    try {
+      await supabase
+        .from("auto_sync_daily_ledger")
+        .update({ status: "FAILED" as any, finished_at: new Date().toISOString(), failure_reason: "TIMEOUT_STUCK_RUNNING" })
+        .eq("status", "RUNNING")
+        .lt("run_date", todayStr);
+    } catch { /* non-blocking cleanup */ }
+
     // Determine which orgs to process
     let orgIds: string[];
     if (bodyParams.org_id) {
@@ -288,7 +298,10 @@ async function syncOrganization(
     // Determine final status
     const totalAttempted = itemsSucceeded + itemsFailed;
     let finalStatus: string;
-    if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
+    if (failureReason === "BUDGET_EXHAUSTED") {
+      // ── Bug 1: Use BUDGET_EXHAUSTED as status so continuation evaluator can find it ──
+      finalStatus = "PARTIAL";
+    } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
       finalStatus = "SUCCESS";
     } else if (itemsSucceeded > 0 && totalAttempted > 0) {
       const successRate = itemsSucceeded / totalAttempted;
@@ -299,10 +312,6 @@ async function syncOrganization(
       finalStatus = "SUCCESS"; // No items to sync
     } else {
       finalStatus = "FAILED";
-    }
-
-    if (failureReason) {
-      finalStatus = itemsSucceeded > 0 ? "PARTIAL" : "FAILED";
     }
 
     // Final ledger update
