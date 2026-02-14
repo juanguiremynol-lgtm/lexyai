@@ -21,6 +21,28 @@ html.deep-space body {
   background-color: hsl(228 40% 4%) !important;
 }
 
+/* Ultra-wide / multi-monitor: contain image to avoid ugly stretching */
+@media (min-width: 2561px) {
+  html.deep-space body {
+    background-size: 2560px auto !important;
+    background-position: center top !important;
+    /* background-color fills the sides seamlessly */
+  }
+}
+
+/* Small tablets and phones: position for best focal area */
+@media (max-width: 768px) {
+  html.deep-space body {
+    background-position: 60% center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  html.deep-space body {
+    background-position: 65% center !important;
+  }
+}
+
 /* Root container transparent */
 html.deep-space #root {
   min-height: 100vh;

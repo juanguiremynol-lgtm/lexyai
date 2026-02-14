@@ -1245,6 +1245,14 @@
     background-position: right center;
     background-repeat: no-repeat;
     background-attachment: fixed;
+    background-color: hsl(200 50% 8%);
+  }
+
+  @media (min-width: 2561px) {
+    .aqua-shell {
+      background-size: 2560px auto;
+      background-position: center top;
+    }
   }
 
   /* Overlay Layer A: Directional gradient for legibility */

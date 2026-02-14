@@ -102,7 +102,28 @@ html.aqua body {
   background-position: var(--bg-position) !important;
   background-repeat: no-repeat !important;
   background-attachment: fixed !important;
-  background-color: transparent !important;
+  background-color: hsl(200 50% 8%) !important;
+}
+
+/* Ultra-wide / multi-monitor: cap image width to avoid stretching */
+@media (min-width: 2561px) {
+  html.aqua body {
+    background-size: 2560px auto !important;
+    background-position: center top !important;
+  }
+}
+
+/* Mobile: offset to show the interesting part of the wallpaper */
+@media (max-width: 768px) {
+  html.aqua body {
+    background-position: 70% center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  html.aqua body {
+    background-position: 75% center !important;
+  }
 }
 
 /* Ensure root container is transparent and above overlays */
