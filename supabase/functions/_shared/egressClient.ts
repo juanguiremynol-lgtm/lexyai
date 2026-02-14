@@ -1,23 +1,37 @@
 /**
- * Egress Client — Safe outbound fetch helper for edge functions
+ * Egress Client — Safe outbound fetch helper for edge functions (v2)
  *
- * All external HTTP calls from edge functions MUST use this helper
- * instead of raw fetch(). Routes through the egress-proxy for
- * domain allowlist enforcement and PII scanning.
+ * All external HTTP calls from edge functions MUST use this helper.
+ * Routes through the egress-proxy with:
+ * - Purpose declaration (required)
+ * - Server-only auth token
+ * - Optional destination_key (preferred over raw URLs)
  *
- * Usage in edge functions:
+ * Usage:
  *   import { egressFetch } from "../_shared/egressClient.ts";
  *   const result = await egressFetch({
- *     targetUrl: "https://app.posthog.com/capture",
- *     method: "POST",
+ *     destinationKey: "POSTHOG_CAPTURE",  // preferred
+ *     purpose: "analytics",
  *     body: { event: "test" },
  *     caller: "posthog-adapter",
  *     tenantHash: "abc123",
  *   });
+ *
+ *   // Or with raw URL (less preferred):
+ *   const result = await egressFetch({
+ *     targetUrl: "https://api.resend.com/emails",
+ *     purpose: "email",
+ *     body: { to: "user@example.com" },
+ *     caller: "email-sender",
+ *   });
  */
 
+export type EgressPurpose = "analytics" | "error_tracking" | "email" | "payments" | "judicial_source" | "ai" | "webhook";
+
 interface EgressRequest {
-  targetUrl: string;
+  targetUrl?: string;
+  destinationKey?: string;  // Named destination (preferred)
+  purpose: EgressPurpose;
   method?: string;
   headers?: Record<string, string>;
   body?: unknown;
@@ -30,8 +44,10 @@ interface EgressResponse {
   status: number;
   body: string;
   egress_metadata?: {
-    domain_category: string;
+    purpose: string;
+    domain: string;
     caller: string;
+    request_id: string;
     proxied_at: string;
   };
   error?: string;
@@ -46,6 +62,14 @@ export async function egressFetch(request: EgressRequest): Promise<EgressRespons
     throw new Error("[egressFetch] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
+  if (!request.purpose) {
+    throw new Error("[egressFetch] Purpose is required for all egress requests");
+  }
+
+  if (!request.targetUrl && !request.destinationKey) {
+    throw new Error("[egressFetch] Provide targetUrl or destinationKey");
+  }
+
   const proxyUrl = `${supabaseUrl}/functions/v1/egress-proxy`;
 
   try {
@@ -54,9 +78,13 @@ export async function egressFetch(request: EgressRequest): Promise<EgressRespons
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${serviceKey}`,
+        "x-egress-internal-token": serviceKey,
+        "x-egress-purpose": request.purpose,
       },
       body: JSON.stringify({
         target_url: request.targetUrl,
+        destination_key: request.destinationKey,
+        purpose: request.purpose,
         method: request.method || "POST",
         headers: request.headers || {},
         body: request.body,
@@ -95,26 +123,14 @@ export async function egressFetch(request: EgressRequest): Promise<EgressRespons
 }
 
 /**
- * Check if a URL would be allowed by the egress proxy
- * (client-side pre-check, not authoritative)
+ * Known destination keys — for documentation and pre-validation
  */
-export function isEgressAllowed(url: string): boolean {
-  const KNOWN_DOMAINS = [
-    "app.posthog.com", "us.posthog.com", "eu.posthog.com",
-    "sentry.io", "o0.ingest.sentry.io",
-    "api.resend.com",
-    "api.wompi.co", "sandbox.wompi.co", "production.wompi.co",
-    "consultaprocesos.ramajudicial.gov.co", "procesos.ramajudicial.gov.co",
-    "samai.consejodeestado.gov.co",
-    "generativelanguage.googleapis.com",
-  ];
-
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return KNOWN_DOMAINS.some(
-      (d) => hostname === d || hostname.endsWith(`.${d}`)
-    );
-  } catch {
-    return false;
-  }
-}
+export const KNOWN_DESTINATIONS = {
+  POSTHOG_CAPTURE: "analytics",
+  POSTHOG_DECIDE: "analytics",
+  SENTRY_ENVELOPE: "error_tracking",
+  RESEND_EMAILS: "email",
+  WOMPI_TRANSACTIONS: "payments",
+  WOMPI_SANDBOX_TXN: "payments",
+  GEMINI_GENERATE: "ai",
+} as const;

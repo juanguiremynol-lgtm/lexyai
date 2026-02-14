@@ -21,6 +21,8 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // ── Analytics SDK import restrictions ──
+      // All analytics must go through src/lib/analytics wrapper
       "no-restricted-imports": ["error", {
         "patterns": [
           {
@@ -41,6 +43,28 @@ export default tseslint.config(
           }
         ]
       }],
+      // ── External fetch restriction ──
+      // Prevent direct external HTTP calls that bypass the egress proxy.
+      // Edge functions must use egressClient.ts; frontend code must not call external APIs directly.
+      "no-restricted-globals": ["error",
+        {
+          "name": "fetch",
+          "message": "Do not use global fetch() for external URLs. Use egressFetch() from _shared/egressClient.ts for all outbound calls. Internal Supabase calls are fine via the supabase-js client."
+        }
+      ],
+    },
+  },
+  // ── Override: Allow fetch in specific files ──
+  // egressClient.ts, egress-proxy, and supabase client files need raw fetch
+  {
+    files: [
+      "supabase/functions/_shared/egressClient.ts",
+      "supabase/functions/egress-proxy/**",
+      "src/integrations/supabase/**",
+      "supabase/functions/**/index.ts",
+    ],
+    rules: {
+      "no-restricted-globals": "off",
     },
   },
 );
