@@ -86,6 +86,8 @@ interface AteniaAssistantDrawerProps {
   workItemRadicado?: string;
   initialMessage?: string;
   mascotContexts?: BubbleContext[];
+  /** When true, renders content without Sheet wrapper (for embedding in Dialog) */
+  embedded?: boolean;
 }
 
 type DrawerTab = "chat" | "report";
@@ -124,6 +126,7 @@ export function AteniaAssistantDrawer({
   workItemRadicado,
   initialMessage,
   mascotContexts,
+  embedded = false,
 }: AteniaAssistantDrawerProps) {
   const { organization } = useOrganization();
 
@@ -363,10 +366,8 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
   // Debug: log open state changes
   console.log("[AteniaAssistantDrawer] render, open=", open, "scope=", scope);
 
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 z-[70] bg-background"
-        style={{ background: 'var(--ds-glass-bg-strong, hsl(var(--background)))' }}>
+  const innerContent = (
+    <div className={embedded ? "flex flex-col h-full overflow-hidden" : "w-full sm:max-w-lg flex flex-col p-0"}>
 
         {/* Header */}
         <SheetHeader className="p-4 pb-2 border-b">
@@ -698,6 +699,16 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
             )}
           </div>
         )}
+    </div>
+  );
+
+  if (embedded) return innerContent;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 z-[70] bg-background"
+        style={{ background: 'var(--ds-glass-bg-strong, hsl(var(--background)))' }}>
+        {innerContent}
       </SheetContent>
     </Sheet>
   );
