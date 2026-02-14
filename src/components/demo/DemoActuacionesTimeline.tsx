@@ -1,19 +1,14 @@
 /**
  * DemoActuacionesTimeline — Visual timeline of actuaciones for demo
- * Props-only, no Supabase, no auth.
+ * Props-only, no Supabase, no auth. Includes search filter for large lists.
  */
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, FileText } from "lucide-react";
-
-interface DemoActuacion {
-  fecha: string;
-  tipo: string | null;
-  descripcion: string;
-  anotacion: string | null;
-}
+import { Input } from "@/components/ui/input";
+import { ChevronDown, ChevronUp, FileText, Search } from "lucide-react";
+import type { DemoActuacion } from "./demo-types";
 
 interface Props {
   actuaciones: DemoActuacion[];
@@ -22,8 +17,16 @@ interface Props {
 export function DemoActuacionesTimeline({ actuaciones }: Props) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
+  const [search, setSearch] = useState("");
 
-  const visible = showAll ? actuaciones : actuaciones.slice(0, 10);
+  const filtered = actuaciones.filter(
+    (a) =>
+      !search ||
+      a.tipo?.toLowerCase().includes(search.toLowerCase()) ||
+      a.descripcion?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const visible = showAll ? filtered : filtered.slice(0, 10);
 
   const toggle = (i: number) => {
     setExpanded((prev) => {
@@ -43,7 +46,20 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-3">
+      {/* Search filter for larger lists */}
+      {actuaciones.length > 5 && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filtrar actuaciones..."
+            className="pl-9 h-9 text-sm"
+          />
+        </div>
+      )}
+
       <div className="relative">
         {/* Timeline line */}
         <div className="absolute left-[19px] top-0 bottom-0 w-px bg-border" />
@@ -59,7 +75,13 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-muted-foreground font-mono">
-                  {act.fecha}
+                  {act.fecha
+                    ? new Date(act.fecha).toLocaleDateString("es-CO", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      })
+                    : "Fecha no disponible"}
                 </span>
                 {act.tipo && (
                   <Badge variant="secondary" className="text-xs max-w-[280px] truncate">
@@ -99,7 +121,7 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
         ))}
       </div>
 
-      {actuaciones.length > 10 && (
+      {filtered.length > 10 && (
         <div className="text-center pt-2">
           <Button
             variant="ghost"
@@ -107,10 +129,16 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
             onClick={() => setShowAll(!showAll)}
           >
             {showAll
-              ? `Mostrar menos`
-              : `Ver ${actuaciones.length - 10} actuaciones más`}
+              ? "Mostrar menos"
+              : `Ver ${filtered.length - 10} actuaciones más`}
           </Button>
         </div>
+      )}
+
+      {filtered.length > 20 && showAll && (
+        <p className="text-xs text-muted-foreground text-center">
+          Mostrando {filtered.length} actuaciones. En ATENIA verías todas con sincronización automática.
+        </p>
       )}
     </div>
   );

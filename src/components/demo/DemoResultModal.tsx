@@ -1,7 +1,8 @@
 /**
  * DemoResultModal — Full-screen modal showing demo radicado results
- * 
- * Presents: Resumen card, Actuaciones timeline, Estados list, Mini Kanban sandbox
+ *
+ * Presents: Resumen card, Actuaciones timeline, Estados list,
+ * Work Item preview, Mini Kanban sandbox, Andro IA mascot bubble.
  * All ephemeral — no DB, no localStorage.
  */
 
@@ -17,46 +18,15 @@ import {
 import { DemoActuacionesTimeline } from "./DemoActuacionesTimeline";
 import { DemoEstadosList } from "./DemoEstadosList";
 import { DemoMiniKanban } from "./DemoMiniKanban";
+import { DemoWorkItemCard } from "./DemoWorkItemCard";
+import { DemoAteniaMascot } from "./DemoAteniaMascot";
 import { Link } from "react-router-dom";
-
-interface DemoData {
-  resumen: {
-    radicado_display: string;
-    despacho: string | null;
-    ciudad: string | null;
-    departamento: string | null;
-    jurisdiccion: string | null;
-    tipo_proceso: string | null;
-    fecha_radicacion: string | null;
-    ultima_actuacion_fecha: string | null;
-    ultima_actuacion_tipo: string | null;
-    total_actuaciones: number;
-    total_estados: number;
-  };
-  actuaciones: Array<{
-    fecha: string;
-    tipo: string | null;
-    descripcion: string;
-    anotacion: string | null;
-  }>;
-  estados: Array<{
-    tipo: string;
-    fecha: string;
-    descripcion: string | null;
-  }>;
-  meta: {
-    radicado_masked: string;
-    actuaciones_count: number;
-    estados_count: number;
-    fetched_at: string;
-    demo: boolean;
-  };
-}
+import type { DemoResult } from "./demo-types";
 
 interface DemoResultModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  data: DemoData | null;
+  data: DemoResult | null;
 }
 
 export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalProps) {
@@ -116,13 +86,19 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                   <InfoItem icon={FileText} label="Tipo" value={resumen.tipo_proceso} />
                 )}
                 {resumen.fecha_radicacion && (
-                  <InfoItem icon={Calendar} label="Radicación" value={resumen.fecha_radicacion} />
+                  <InfoItem
+                    icon={Calendar}
+                    label="Radicación"
+                    value={new Date(resumen.fecha_radicacion).toLocaleDateString("es-CO", {
+                      year: "numeric", month: "long", day: "numeric",
+                    })}
+                  />
                 )}
                 {resumen.ultima_actuacion_fecha && (
                   <InfoItem
                     icon={Clock}
                     label="Última actuación"
-                    value={`${resumen.ultima_actuacion_fecha}${resumen.ultima_actuacion_tipo ? ` — ${resumen.ultima_actuacion_tipo}` : ""}`}
+                    value={`${new Date(resumen.ultima_actuacion_fecha).toLocaleDateString("es-CO")}${resumen.ultima_actuacion_tipo ? ` — ${resumen.ultima_actuacion_tipo}` : ""}`}
                   />
                 )}
               </div>
@@ -140,7 +116,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               </div>
             </div>
 
-            {/* Tabs: Actuaciones, Estados, Kanban preview */}
+            {/* Tabs: Actuaciones, Estados, Pipeline */}
             <Tabs defaultValue="actuaciones" className="w-full">
               <TabsList className="w-full justify-start">
                 <TabsTrigger value="actuaciones" className="gap-1.5">
@@ -170,9 +146,47 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               )}
 
               <TabsContent value="kanban" className="mt-4">
-                <DemoMiniKanban resumen={resumen} />
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-sm font-medium mb-1 text-muted-foreground">
+                      Así se vería en tu espacio de trabajo
+                    </h4>
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Un vistazo a cómo ATENIA organizaría este caso en tu pipeline.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-1">
+                      <DemoWorkItemCard resumen={resumen} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <DemoMiniKanban resumen={resumen} />
+                    </div>
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
+
+            {/* Andro IA mascot */}
+            <DemoAteniaMascot actuacionesCount={actuaciones.length} />
+
+            {/* CTA */}
+            <div className="rounded-lg border bg-primary/5 p-6 text-center space-y-3">
+              <h4 className="text-lg font-semibold">
+                ¿Te gustó? Tu espacio de trabajo completo te espera.
+              </h4>
+              <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+                Sincronización automática diaria, alertas inteligentes, Andro IA
+                monitoreando tus casos 24/7.
+              </p>
+              <Button asChild size="lg">
+                <Link to="/auth?signup=true">
+                  Crear cuenta gratis — 3 meses
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
         </ScrollArea>
 
@@ -183,7 +197,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
           </p>
           <Button asChild>
             <Link to="/auth?signup=true">
-              Comenzar gratis — 3 meses
+              Comenzar gratis
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>

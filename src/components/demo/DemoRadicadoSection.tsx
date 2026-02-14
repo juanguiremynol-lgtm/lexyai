@@ -1,99 +1,117 @@
 /**
  * DemoRadicadoSection — "Prueba ATENIA" on landing page
- * 
- * Input for radicado + triggers demo lookup + opens full-screen modal with results.
+ *
+ * Input for radicado + triggers demo lookup + opens full-screen modal.
  * All state is ephemeral (React only). No DB writes, no localStorage.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { Search, Loader2, AlertCircle, Sparkles, ShieldCheck, Eye, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { DemoResultModal } from "./DemoResultModal";
+import type { DemoResult, DemoError } from "./demo-types";
 
-interface DemoData {
-  resumen: {
-    radicado_display: string;
-    despacho: string | null;
-    ciudad: string | null;
-    departamento: string | null;
-    jurisdiccion: string | null;
-    tipo_proceso: string | null;
-    fecha_radicacion: string | null;
-    ultima_actuacion_fecha: string | null;
-    ultima_actuacion_tipo: string | null;
-    total_actuaciones: number;
-    total_estados: number;
-  };
-  actuaciones: Array<{
-    fecha: string;
-    tipo: string | null;
-    descripcion: string;
-    anotacion: string | null;
-  }>;
-  estados: Array<{
-    tipo: string;
-    fecha: string;
-    descripcion: string | null;
-  }>;
-  meta: {
-    radicado_masked: string;
-    actuaciones_count: number;
-    estados_count: number;
-    fetched_at: string;
-    demo: boolean;
-  };
-}
+type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
 
 export function DemoRadicadoSection() {
+  const [state, setState] = useState<DemoState>("IDLE");
   const [radicado, setRadicado] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [demoData, setDemoData] = useState<DemoData | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const [demoData, setDemoData] = useState<DemoResult | null>(null);
+  const [error, setError] = useState<DemoError | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const normalizedDigits = radicado.replace(/\D/g, "");
   const isValid = normalizedDigits.length === 23;
 
-  const handleLookup = useCallback(async () => {
-    if (!isValid) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "demo-radicado-lookup",
-        { body: { radicado: normalizedDigits } }
-      );
-
-      if (fnError) {
-        throw new Error(fnError.message || "Error de conexión");
-      }
-
-      if (data?.error) {
-        if (data.error === "RATE_LIMITED") {
-          setError("Has alcanzado el límite de consultas. Intenta de nuevo en unos minutos.");
-        } else if (data.error === "NOT_FOUND") {
-          setError("No se encontraron datos para este radicado. Verifica que sea correcto.");
-        } else {
-          setError(data.message || "Error desconocido");
-        }
+  const handleLookup = useCallback(
+    async (overrideRadicado?: string) => {
+      const digits = (overrideRadicado ?? normalizedDigits).replace(/\D/g, "");
+      if (digits.length !== 23) {
+        setInputError(
+          digits.length === 0
+            ? "Ingresa el número de radicado."
+            : `El radicado debe tener 23 dígitos. Tienes ${digits.length}.`
+        );
+        inputRef.current?.focus();
         return;
       }
 
-      setDemoData(data);
-      setModalOpen(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de conexión");
-    } finally {
-      setLoading(false);
-    }
-  }, [normalizedDigits, isValid]);
+      setState("LOADING");
+      setError(null);
+      setInputError(null);
+
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke(
+          "demo-radicado-lookup",
+          { body: { radicado: digits } }
+        );
+
+        if (fnError) throw new Error(fnError.message || "Error de conexión");
+
+        if (data?.error) {
+          if (data.error === "RATE_LIMITED") {
+            setError({
+              type: "RATE_LIMITED",
+              message: data.message,
+              retryAfter: data.retry_after_seconds,
+            });
+          } else if (data.error === "NOT_FOUND") {
+            setError({
+              type: "NOT_FOUND",
+              message: data.message || "No se encontraron datos para este radicado.",
+            });
+          } else {
+            setError({ type: data.error, message: data.message || "Error desconocido" });
+          }
+          setState("ERROR");
+          return;
+        }
+
+        setDemoData(data);
+        setModalOpen(true);
+        setState("RESULT");
+      } catch (err) {
+        setError({
+          type: "NETWORK",
+          message: "No se pudo conectar con el servidor. Verifica tu conexión e intenta de nuevo.",
+        });
+        setState("ERROR");
+      }
+    },
+    [normalizedDigits]
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && isValid && !loading) handleLookup();
+    if (e.key === "Enter" && !isLoading) handleLookup();
+  };
+
+  const handleReset = () => {
+    setState("IDLE");
+    setError(null);
+    setInputError(null);
+  };
+
+  const handleTryExample = () => {
+    const example = "05001233300020240115300";
+    setRadicado(example);
+    handleLookup(example);
+  };
+
+  const isLoading = state === "LOADING";
+
+  // Format digits for display readability
+  const formatForDisplay = (digits: string): string => {
+    const parts = [
+      digits.slice(0, 2), digits.slice(2, 5), digits.slice(5, 7),
+      digits.slice(7, 9), digits.slice(9, 12), digits.slice(12, 16),
+      digits.slice(16, 21), digits.slice(21, 23),
+    ].filter((p) => p.length > 0);
+    return parts.join(" ");
   };
 
   return (
@@ -103,6 +121,7 @@ export function DemoRadicadoSection() {
         className="py-20 md:py-28 bg-gradient-to-b from-muted/30 via-muted/50 to-muted/30"
       >
         <div className="container max-w-4xl mx-auto px-4">
+          {/* Header */}
           <div className="text-center space-y-4 mb-10">
             <Badge variant="outline" className="text-sm px-4 py-1.5">
               <Sparkles className="h-3.5 w-3.5 mr-1.5" />
@@ -113,25 +132,32 @@ export function DemoRadicadoSection() {
               <span className="text-primary">radicado real</span>
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Ingresa un radicado de 23 dígitos y visualiza cómo ATENIA 
-              organiza y presenta la información de tu proceso judicial.
+              Ingresa un radicado colombiano y mira en segundos cómo ATENIA
+              organiza las actuaciones, estados, y gestiona tu caso.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Consulta en tiempo real. Sin registro. Sin almacenamiento de datos.
             </p>
           </div>
 
+          {/* Input area */}
           <div className="max-w-xl mx-auto space-y-4">
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Input
+                  ref={inputRef}
                   value={radicado}
                   onChange={(e) => {
-                    setRadicado(e.target.value);
-                    setError(null);
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 23);
+                    setRadicado(digits);
+                    setInputError(null);
+                    if (state === "ERROR") handleReset();
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ej: 05001400300220250105400"
                   className="h-12 text-base font-mono pr-20"
                   maxLength={30}
-                  disabled={loading}
+                  disabled={isLoading}
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground tabular-nums">
                   {normalizedDigits.length}/23
@@ -140,31 +166,96 @@ export function DemoRadicadoSection() {
               <Button
                 size="lg"
                 className="h-12 px-6"
-                onClick={handleLookup}
-                disabled={!isValid || loading}
+                onClick={() => handleLookup()}
+                disabled={isLoading}
               >
-                {loading ? (
+                {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
                 <span className="ml-2 hidden sm:inline">
-                  {loading ? "Consultando..." : "Buscar"}
+                  {isLoading ? "Consultando..." : "Buscar"}
                 </span>
               </Button>
             </div>
 
-            {error && (
-              <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md p-3">
-                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span>{error}</span>
+            {/* Loading state */}
+            {isLoading && (
+              <div className="flex items-center justify-center gap-3 py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <div className="text-center">
+                  <p className="text-sm font-medium">Consultando fuentes judiciales...</p>
+                  <p className="text-xs text-muted-foreground">
+                    CPNU · Publicaciones Procesales · SAMAI
+                  </p>
+                </div>
               </div>
             )}
 
-            <p className="text-xs text-muted-foreground text-center">
-              Los datos se consultan en tiempo real desde fuentes judiciales públicas.
-              No se almacena ninguna información. La información personal es redactada automáticamente.
-            </p>
+            {/* Input validation error */}
+            {inputError && (
+              <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-md p-3">
+                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>{inputError}</span>
+              </div>
+            )}
+
+            {/* API error */}
+            {state === "ERROR" && error && (
+              <div className="space-y-3 rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+                <div className="flex items-start gap-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>{error.message}</span>
+                </div>
+                {error.type === "NOT_FOUND" && (
+                  <p className="text-xs text-muted-foreground">
+                    Verifica que el radicado tenga 23 dígitos y corresponda a un proceso activo
+                    en la Rama Judicial colombiana.
+                  </p>
+                )}
+                {error.type === "RATE_LIMITED" && error.retryAfter && (
+                  <p className="text-xs text-muted-foreground">
+                    Puedes intentar de nuevo en {Math.ceil(error.retryAfter / 60)} minuto(s).
+                  </p>
+                )}
+                <button
+                  onClick={handleReset}
+                  className="text-sm text-primary hover:underline"
+                >
+                  ← Intentar de nuevo
+                </button>
+              </div>
+            )}
+
+            {/* Try example link */}
+            {state !== "LOADING" && (
+              <div className="text-center">
+                <button
+                  onClick={handleTryExample}
+                  className="text-sm text-primary hover:underline"
+                  disabled={isLoading}
+                >
+                  Probar con un radicado de ejemplo →
+                </button>
+              </div>
+            )}
+
+            {/* Trust badges */}
+            <div className="flex flex-wrap justify-center gap-4 pt-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Datos no almacenados
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5" />
+                Información personal redactada
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5" />
+                Consulta en tiempo real
+              </span>
+            </div>
           </div>
         </div>
       </section>
