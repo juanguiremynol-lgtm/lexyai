@@ -11,7 +11,6 @@ import { Component, type ReactNode, useEffect, useState } from "react";
 import type { BubbleContext } from "./mascot-bubbles";
 import { Bot, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 import { AteniaAssistantDrawer } from "@/components/atenia/AteniaAssistantDrawer";
 
@@ -63,31 +62,73 @@ export function AteniaChat({
     setMounted(true);
   }, []);
 
-  console.log("[AteniaChat] render, open:", open, "mounted:", mounted);
+  // Lock body scroll when open
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = ""; };
+    }
+  }, [open]);
 
   if (!open || !mounted) return null;
 
   const chatPopup = (
-    <>
+    <div
+      id="atenia-chat-portal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2147483647, // max 32-bit int — absolutely nothing can be above this
+        pointerEvents: "auto",
+        isolation: "isolate", // own stacking context
+      }}
+    >
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 animate-in fade-in-0"
-        style={{ zIndex: 99998 }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.6)",
+          zIndex: 1,
+        }}
         onClick={onClose}
       />
-      {/* Popup panel */}
+
+      {/* Popup panel — right side drawer style */}
       <div
-        className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] w-[95vw] sm:max-w-lg h-[80vh] max-h-[700px] rounded-lg border shadow-2xl overflow-hidden flex flex-col animate-in fade-in-0 zoom-in-95"
         style={{
-          zIndex: 99999,
-          background: 'hsl(var(--background))',
-          borderColor: 'hsl(var(--border))',
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(28rem, 95vw)",
+          zIndex: 2,
+          background: "hsl(var(--background))",
+          borderLeft: "1px solid hsl(var(--border))",
+          boxShadow: "-8px 0 30px rgba(0,0,0,0.3)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
         }}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute right-3 top-3 rounded-sm opacity-70 hover:opacity-100 transition-opacity z-10"
+          style={{
+            position: "absolute",
+            right: 12,
+            top: 12,
+            zIndex: 10,
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 4,
+            borderRadius: 4,
+            color: "hsl(var(--foreground))",
+            opacity: 0.7,
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseOut={(e) => (e.currentTarget.style.opacity = "0.7")}
           aria-label="Cerrar"
         >
           <X className="h-4 w-4" />
@@ -106,7 +147,7 @@ export function AteniaChat({
             </div>
           }
         >
-          <div className="flex-1 overflow-hidden flex flex-col">
+          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <AteniaAssistantDrawer
               open={true}
               onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}
@@ -119,9 +160,8 @@ export function AteniaChat({
           </div>
         </ChatErrorBoundary>
       </div>
-    </>
+    </div>
   );
 
-  // Portal to document.body to escape any stacking context (isolation: isolate)
   return createPortal(chatPopup, document.body);
 }
