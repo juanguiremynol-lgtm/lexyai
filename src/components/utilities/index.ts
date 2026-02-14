@@ -6,3 +6,4 @@ export { ConstitutionArticles } from "./ConstitutionArticles";
 export { ColombiaMaps } from "./ColombiaMaps";
 export { ColombiaAirports } from "./ColombiaAirports";
 export { ColombiaDepartments } from "./ColombiaDepartments";
+export { ColombiaCountryInfo } from "./ColombiaCountryInfo";
