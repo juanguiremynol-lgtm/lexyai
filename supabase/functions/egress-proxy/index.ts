@@ -244,7 +244,7 @@ async function logViolation(
   try {
     await supabaseAdmin.from("atenia_ai_observations").insert({
       kind: "EGRESS_VIOLATION",
-      severity: violation.type === "PII_DETECTED" ? "critical" : "warning",
+      severity: violation.type === "PII_DETECTED" ? "CRITICAL" : "WARNING",
       title: `Egress ${violation.type}: ${violation.caller} → ${violation.targetDomain} [${violation.purpose}]`,
       payload: {
         type: violation.type,

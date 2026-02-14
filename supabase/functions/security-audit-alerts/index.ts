@@ -269,7 +269,7 @@ Deno.serve(async (req) => {
         // Create incident observation — PAYLOAD-FREE
         await supabaseAdmin.from("atenia_ai_observations").insert({
           kind: "SECURITY_ALERT",
-          severity: rule.severity,
+          severity: rule.severity.toUpperCase(),
           title: `🚨 ${rule.name}`,
           payload: {
             rule_id: rule.id,
