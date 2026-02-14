@@ -21,6 +21,7 @@ const routeTitles: Record<string, string> = {
   "/platform/users": "Usuarios",
   "/platform/audit": "Auditoría",
   "/platform/email-ops": "Operaciones de Email",
+  "/platform/email-provider": "Integración de Proveedor de Email",
   "/platform/system": "Estado del Sistema",
   "/platform/atenia-ai": "Atenia AI — Centro de Comando",
 };

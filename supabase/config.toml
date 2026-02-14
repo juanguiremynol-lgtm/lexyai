@@ -182,3 +182,6 @@ verify_jwt = false
 
 [functions.atenia-e2e-scheduled]
 verify_jwt = false
+
+[functions.email-provider-admin]
+verify_jwt = false

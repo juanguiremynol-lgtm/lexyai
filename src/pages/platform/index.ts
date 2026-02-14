@@ -20,3 +20,4 @@ export { default as PlatformBillingPage } from "./PlatformBillingPage";
 export { default as PlatformNotificationsPage } from "./PlatformNotificationsPage";
 export { default as PlatformGeminiPage } from "./PlatformGeminiPage";
 export { default as PlatformSecurityPage } from "./PlatformSecurityPage";
+export { default as PlatformEmailProviderPage } from "./PlatformEmailProviderPage";
