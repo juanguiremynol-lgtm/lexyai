@@ -61,6 +61,7 @@ const platformNavItems = [
   { title: "Seguridad", url: "/platform/security", icon: ShieldCheck },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
   { title: "Proveedores Ext.", url: "/platform/external-providers", icon: Cable },
+  { title: "Analíticas", url: "/platform/analytics", icon: BarChart3 },
 ];
 
 export function PlatformSidebar() {

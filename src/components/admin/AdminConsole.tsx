@@ -17,6 +17,7 @@ import {
   Lock,
   Bell,
   ShieldAlert,
+  BarChart3,
 } from "lucide-react";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
@@ -33,6 +34,7 @@ import { AdminSupportToolsTab } from "./tabs/AdminSupportToolsTab";
 import { AdminAuditLogsTab } from "./tabs/AdminAuditLogsTab";
 import { AdminAlertsTab } from "./tabs/AdminAlertsTab";
 import { AdminCoverageGapsTab } from "./tabs/AdminCoverageGapsTab";
+import { AdminAnalyticsTab } from "./tabs/AdminAnalyticsTab";
 
 export function AdminConsole() {
   const { organization } = useOrganization();
@@ -115,6 +117,10 @@ export function AdminConsole() {
             <ShieldAlert className="h-4 w-4" />
             <span className="hidden sm:inline">Cobertura</span>
           </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Analíticas</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="members">
@@ -159,6 +165,10 @@ export function AdminConsole() {
 
         <TabsContent value="coverage-gaps">
           <AdminCoverageGapsTab />
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          <AdminAnalyticsTab />
         </TabsContent>
 
       </Tabs>
