@@ -25,7 +25,9 @@ export type MascotEvent =
   | "remove_user_requested"
   | "role_change_requested"
   | "support_ticket_created"
-  | "org_usage_viewed";
+  | "org_usage_viewed"
+  | "analytics_status_viewed"
+  | "analytics_config_changed";
 
 export function trackMascotEvent(
   event: MascotEvent,

@@ -57,6 +57,8 @@ const SETTINGS_CHIPS: StarterChip[] = [
   { label: "💳 Estado de mi suscripción", prompt: "¿Cuál es el estado de mi suscripción?" },
   { label: "📄 Resumen de facturación", prompt: "Dame un resumen de mi historial de facturación" },
   { label: "🎫 Generar certificado de servicio", prompt: "Genera un certificado de servicio para mi organización" },
+  { label: "📊 Estado de analíticas", prompt: "¿Cuál es el estado de analíticas y telemetría de mi organización?" },
+  { label: "🔒 ¿Qué datos se recopilan?", prompt: "¿Qué datos de uso se recopilan de mi organización? ¿Se envía información personal?" },
 ];
 
 const ORG_ADMIN_CHIPS: StarterChip[] = [
@@ -64,6 +66,8 @@ const ORG_ADMIN_CHIPS: StarterChip[] = [
   { label: "👥 Resumen de uso de la organización", prompt: "Dame un resumen de uso de mi organización: miembros, asuntos monitoreados, etc." },
   { label: "🔄 Cambiar rol de miembro", prompt: "Quiero cambiar el rol de un miembro de mi organización" },
   { label: "❌ Eliminar miembro", prompt: "Quiero eliminar un miembro de mi organización" },
+  { label: "📊 Configurar analíticas", prompt: "Quiero configurar las analíticas y telemetría de mi organización" },
+  { label: "🚫 Desactivar analíticas", prompt: "Quiero desactivar la recopilación de analíticas para mi organización" },
 ];
 
 function buildCapabilityGroups(isPlatformAdmin: boolean, isOrgAdmin: boolean): CapabilityGroup[] {

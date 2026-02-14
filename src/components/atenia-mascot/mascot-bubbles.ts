@@ -269,4 +269,21 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
     priority: 2,
     cooldownMinutes: 1440,
   },
+
+  // === ANALYTICS AWARENESS ===
+  {
+    id: "analytics_privacy",
+    text: "Las analíticas de uso nunca incluyen datos legales, nombres ni documentos. Solo metadatos seguros y hasheados. 📊",
+    contexts: ["SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "analytics_opt_out",
+    text: "¿Sabías que tu organización puede optar por no participar en analíticas de uso? Pregúntame cómo.",
+    prefillPrompt: "¿Cómo puedo desactivar las analíticas de uso para mi organización?",
+    contexts: ["SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
 ];

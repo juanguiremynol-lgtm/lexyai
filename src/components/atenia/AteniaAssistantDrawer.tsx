@@ -106,6 +106,8 @@ const ACTION_LABELS: Record<string, string> = {
   ORG_USAGE_SUMMARY: "Resumen de uso de la organización",
   CREATE_SUPPORT_TICKET: "Crear ticket de soporte",
   EXPLAIN_CURRENT_PAGE: "Explicar esta página",
+  GET_ANALYTICS_STATUS: "Ver estado de analíticas",
+  UPDATE_ORG_ANALYTICS: "Cambiar analíticas de organización",
 };
 
 const QUICK_QUESTIONS = [
