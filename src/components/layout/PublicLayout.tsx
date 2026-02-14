@@ -1,6 +1,6 @@
 import { Link, Outlet } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import ateniaLogo from "@/assets/atenia-logo.png";
+import andromedaLogo from "@/assets/andromeda-logo.png";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +21,7 @@ export function PublicLayout() {
       <header className="border-b bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
-            <img src={ateniaLogo} alt="Andromeda" className="h-10" />
+            <img src={andromedaLogo} alt="Andromeda" className="h-10" />
             <span className="font-bold text-lg hidden sm:inline">Andromeda</span>
           </Link>
           
@@ -58,7 +58,7 @@ export function PublicLayout() {
         <div className="container max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <img src={ateniaLogo} alt="Andromeda" className="h-8 opacity-70" />
+              <img src={andromedaLogo} alt="Andromeda" className="h-8 opacity-70" />
               <span className="text-sm text-muted-foreground">
                 © {new Date().getFullYear()} Andromeda. Todos los derechos reservados.
               </span>

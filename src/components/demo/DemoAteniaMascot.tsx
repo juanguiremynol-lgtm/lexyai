@@ -17,7 +17,7 @@ export function DemoAteniaMascot({ actuacionesCount }: Props) {
 
   const message =
     actuacionesCount > 10
-      ? `Este caso tiene ${actuacionesCount} actuaciones. Con ATENIA, recibirías alertas automáticas de cada nueva actuación.`
+      ? `Este caso tiene ${actuacionesCount} actuaciones. Con Andromeda, recibirías alertas automáticas de cada nueva actuación.`
       : actuacionesCount > 0
         ? `Encontré ${actuacionesCount} actuaciones. En tu espacio de trabajo, Andro IA sincroniza estas automáticamente todos los días.`
         : "No encontré actuaciones todavía, pero Andro IA revisaría este caso automáticamente cada día hasta que aparezcan.";

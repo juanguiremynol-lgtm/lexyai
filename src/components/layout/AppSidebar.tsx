@@ -12,7 +12,7 @@ import {
   ShieldAlert,
   Newspaper,
 } from "lucide-react";
-import logo from "@/assets/atenia-logo.png";
+import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -134,7 +134,7 @@ export function AppSidebar() {
           )}>
             <img 
               src={logo} 
-              alt="ATENIA" 
+              alt="Andromeda" 
               className="h-full w-auto object-contain"
             />
             <div className="absolute inset-0 -z-10 blur-xl bg-primary/10 rounded-full" />

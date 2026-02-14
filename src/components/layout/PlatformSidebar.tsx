@@ -22,7 +22,7 @@ import {
   Bell,
   Sparkles,
 } from "lucide-react";
-import logo from "@/assets/atenia-logo.png";
+import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -56,7 +56,7 @@ const platformNavItems = [
   { title: "Email Ops", url: "/platform/email-ops", icon: Mail },
   { title: "Email Provider", url: "/platform/email-provider", icon: Mail },
   { title: "Sistema", url: "/platform/system", icon: Activity },
-  { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
+  { title: "Andro IA", url: "/platform/atenia-ai", icon: Brain },
   { title: "Gemini AI", url: "/platform/gemini", icon: Sparkles },
   { title: "Seguridad", url: "/platform/security", icon: ShieldCheck },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },

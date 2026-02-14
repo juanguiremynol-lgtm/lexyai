@@ -30,7 +30,7 @@ export default function MockCheckoutPage() {
 
   // Load session info on mount
   useEffect(() => {
-    document.title = "Completar pago - ATENIA";
+    document.title = "Completar pago - Andromeda";
     
     const loadSession = async () => {
       if (!sessionId) {

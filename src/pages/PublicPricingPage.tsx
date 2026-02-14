@@ -194,7 +194,7 @@ export default function PublicPricingPage() {
 
   // Check auth status on mount
   useEffect(() => {
-    document.title = "Planes y Precios - ATENIA";
+    document.title = "Planes y Precios - Andromeda";
     
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -219,7 +219,7 @@ export default function PublicPricingPage() {
   const handleSelectPlan = (planCode: PlanCode, cycleMonths: 1 | 24) => {
     if (planCode === "ENTERPRISE") {
       // Open email for enterprise inquiries
-      window.location.href = "mailto:ventas@atenia.co?subject=Consulta%20Plan%20Enterprise";
+      window.location.href = "mailto:ventas@andromeda.legal?subject=Consulta%20Plan%20Enterprise";
       return;
     }
 
@@ -356,7 +356,7 @@ export default function PublicPricingPage() {
         {isAuthenticated === false && (
           <div className="text-center py-8 border-t border-border/50">
             <div className="max-w-xl mx-auto space-y-4">
-              <h2 className="text-2xl font-semibold">¿Nuevo en ATENIA?</h2>
+              <h2 className="text-2xl font-semibold">¿Nuevo en Andromeda?</h2>
               <p className="text-muted-foreground">
                 Crea tu cuenta y comienza con acceso gratuito durante el período de gracia. 
                 Sin compromiso, sin tarjeta de crédito.
@@ -402,7 +402,7 @@ export default function PublicPricingPage() {
             </div>
           </div>
           <p className="text-center text-muted-foreground">
-            Contáctanos a <a href="mailto:soporte@atenia.co" className="text-primary hover:underline">soporte@atenia.co</a> y te ayudaremos a encontrar el plan perfecto para tu firma.
+            Contáctanos a <a href="mailto:soporte@andromeda.legal" className="text-primary hover:underline">soporte@andromeda.legal</a> y te ayudaremos a encontrar el plan perfecto para tu firma.
           </p>
         </div>
       </div>

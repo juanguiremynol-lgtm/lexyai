@@ -76,10 +76,10 @@ export function OrganizationProvider({ children }: OrganizationProviderProps) {
         // Return default ATENIA organization for backward compatibility
         return {
           id: "a0000000-0000-0000-0000-000000000001",
-          name: "ATENIA",
-          slug: "atenia",
+          name: "Andromeda",
+          slug: "andromeda",
           brand_logo_url: null,
-          brand_tagline: "Asistente jurídico digital",
+          brand_tagline: "Su Universo Legal",
           brand_primary_color: null,
         } as Organization;
       }

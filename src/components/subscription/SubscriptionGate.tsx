@@ -84,7 +84,7 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
             </div>
             <CardTitle>Suscripción requerida</CardTitle>
             <CardDescription>
-              Tu período de prueba ha expirado. Actualiza tu plan para continuar usando ATENIA.
+              Tu período de prueba ha expirado. Actualiza tu plan para continuar usando Andromeda.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

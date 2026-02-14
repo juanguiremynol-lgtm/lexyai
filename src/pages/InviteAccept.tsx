@@ -392,7 +392,7 @@ export default function InviteAccept() {
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background to-muted">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Invitación a ATENIA</CardTitle>
+          <CardTitle className="text-2xl">Invitación a Andromeda</CardTitle>
           <CardDescription>
             Sistema de Gestión Legal
           </CardDescription>

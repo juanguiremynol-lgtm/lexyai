@@ -9,7 +9,7 @@ import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell"
 import { DataAlertBell } from "@/components/notifications/DataAlertBell";
 import { SuperAdminToolbar } from "./SuperAdminToolbar";
 import { useUnreadAlerts } from "@/hooks/use-unread-alerts";
-import logo from "@/assets/atenia-logo.png";
+import logo from "@/assets/andromeda-logo.png";
 
 export function TopBar() {
   const navigate = useNavigate();
@@ -27,7 +27,7 @@ export function TopBar() {
         
         <img 
           src={logo} 
-          alt="ATENIA" 
+          alt="Andromeda" 
           className="h-12 w-auto object-contain hidden md:block flex-shrink-0"
         />
         

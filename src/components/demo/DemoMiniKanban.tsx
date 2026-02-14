@@ -76,7 +76,7 @@ export function DemoMiniKanban({ resumen }: Props) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        En ATENIA, cada proceso se ubica en una etapa del pipeline. Arrastra la tarjeta entre columnas para ver cómo funciona.
+        En Andromeda, cada proceso se ubica en una etapa del pipeline. Arrastra la tarjeta entre columnas para ver cómo funciona.
       </p>
 
       <DndContext
@@ -105,7 +105,7 @@ export function DemoMiniKanban({ resumen }: Props) {
 
       <div className="flex items-center justify-center gap-2 pt-2">
         <p className="text-xs text-muted-foreground">
-          Con ATENIA, este proceso avanzaría automáticamente según las actuaciones detectadas
+          Con Andromeda, este proceso avanzaría automáticamente según las actuaciones detectadas
         </p>
         <ArrowRight className="h-3 w-3 text-primary" />
       </div>

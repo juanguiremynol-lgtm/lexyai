@@ -39,7 +39,7 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
   },
   {
     id: "what_can_i_do",
-    text: "¡Hola! Soy Atenia. Puedo ayudarte con sync, trazas, alertas y más.",
+    text: "¡Hola! Soy Andro IA. Puedo ayudarte con sync, trazas, alertas y más.",
     contexts: ["FIRST_SESSION"],
     priority: 10,
     cooldownMinutes: 1440,

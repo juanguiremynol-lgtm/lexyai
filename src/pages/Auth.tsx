@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import logo from "@/assets/atenia-logo.png";
+import logo from "@/assets/andromeda-logo.png";
 import { ShieldAlert } from "lucide-react";
 
 export default function Auth() {
@@ -117,7 +117,7 @@ export default function Auth() {
             <div className="relative">
               <img 
                 src={logo} 
-                alt="ATENIA" 
+                alt="Andromeda" 
                 className="h-32 w-auto object-contain relative z-10"
               />
               {/* Glow effect */}

@@ -30,7 +30,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import ateniaLogo from "@/assets/atenia-logo.png";
+import andromedaLogo from "@/assets/andromeda-logo.png";
 
 interface RedeemResult {
   ok: boolean;
@@ -160,7 +160,7 @@ export default function VoucherRedeemPage() {
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4">
-              <img src={ateniaLogo} alt="ATENIA" className="h-12 mx-auto" />
+              <img src={andromedaLogo} alt="Andromeda" className="h-12 mx-auto" />
             </div>
             <CardTitle className="flex items-center justify-center gap-2">
               <Gift className="h-6 w-6 text-primary" />
@@ -270,7 +270,7 @@ export default function VoucherRedeemPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4">
-            <img src={ateniaLogo} alt="ATENIA" className="h-12 mx-auto" />
+            <img src={andromedaLogo} alt="Andromeda" className="h-12 mx-auto" />
           </div>
           <CardTitle className="flex items-center justify-center gap-2">
             <Gift className="h-6 w-6 text-primary" />
