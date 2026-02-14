@@ -44,6 +44,9 @@ Deno.serve(async (req) => {
 
   const startTime = Date.now();
   const runId = crypto.randomUUID();
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  let preflightDecision: string | undefined;
 
   // Parse optional continuation params from body
   let bodyParams: {
@@ -65,11 +68,40 @@ Deno.serve(async (req) => {
   console.log(`[daily-sync] START run_id=${runId} continuation=${isContinuation} resume=${resumeAfterId?.slice(0, 8) ?? 'none'}`);
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase configuration");
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // ── Pre-flight API check BEFORE processing items ──
+    if (!isContinuation) {
+      try {
+        console.log("[daily-sync] Running pre-flight check...");
+        const { data: pfData, error: pfErr } = await supabase.functions.invoke("atenia-preflight-check", {
+          body: { trigger: "PRE_DAILY_SYNC" },
+        });
+
+        if (!pfErr && pfData) {
+          preflightDecision = pfData.decision;
+          console.log(`[daily-sync] Pre-flight: ${pfData.overall} → decision=${pfData.decision}`);
+
+          if (pfData.overall === "CRITICAL_FAILURE" && pfData.decision === "DELAY_SYNC") {
+            console.warn("[daily-sync] Pre-flight CRITICAL — delaying sync");
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                run_id: runId,
+                delayed: true,
+                reason: "preflight_critical",
+                preflight: { overall: pfData.overall, decision: pfData.decision },
+              }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+        }
+      } catch (pfCatchErr) {
+        console.warn("[daily-sync] Pre-flight check failed (non-blocking):", (pfCatchErr as Error).message);
+      }
+    }
 
     // ── Bug 1 Step 5: Clean up stuck RUNNING entries from previous days ──
     const todayStr = new Date().toISOString().slice(0, 10);

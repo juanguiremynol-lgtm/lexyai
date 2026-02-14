@@ -48,6 +48,46 @@ Deno.serve(async (req) => {
 
     const results: { org_id: string; status: string; detail?: string }[] = [];
 
+    // ── Pre-flight check every ~90 min (runs for platform, not per-org) ──
+    try {
+      const { data: recentPF } = await supabase
+        .from("atenia_preflight_checks")
+        .select("id")
+        .eq("trigger", "PRE_HEARTBEAT")
+        .gte("created_at", new Date(Date.now() - 80 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (!recentPF) {
+        console.log("[server-heartbeat] Running periodic pre-flight check...");
+        await supabase.functions.invoke("atenia-preflight-check", {
+          body: { trigger: "PRE_HEARTBEAT" },
+        });
+      }
+    } catch (pfErr) {
+      console.warn("[server-heartbeat] Pre-flight check failed:", (pfErr as Error).message);
+    }
+
+    // ── Scheduled E2E tests (every ~6h guard) ──
+    try {
+      const { data: recentE2E } = await supabase
+        .from("atenia_ai_actions")
+        .select("id")
+        .eq("action_type", "SCHEDULED_E2E_BATCH")
+        .gte("created_at", new Date(Date.now() - 5.5 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (!recentE2E) {
+        console.log("[server-heartbeat] Running scheduled E2E batch...");
+        await supabase.functions.invoke("atenia-e2e-scheduled", {
+          body: { mode: "FULL", trigger: "SCHEDULED" },
+        });
+      }
+    } catch (e2eErr) {
+      console.warn("[server-heartbeat] E2E scheduled failed:", (e2eErr as Error).message);
+    }
+
     for (const org of orgs ?? []) {
       try {
         // Dedup: check if a heartbeat ran recently for this org
