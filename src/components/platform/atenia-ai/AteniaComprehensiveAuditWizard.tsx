@@ -19,7 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Brain, Play, Loader2, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ShieldCheck, CalendarSync, Server, Ghost, Plug,
-  Activity, Zap, Settings, RefreshCw, FileText, Clock,
+  Activity, Zap, Settings, RefreshCw, FileText, Clock, Download,
   Database, Shield, Mail, Wifi, WifiOff, Bot, Crosshair,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -621,14 +621,66 @@ export function AteniaComprehensiveAuditWizard() {
                     <FileText className="h-4 w-4" />
                     Reporte de Auditoría Completo
                   </CardTitle>
-                  {audit.finishedAt && (
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(audit.finishedAt).toLocaleTimeString("es-CO")}
-                      {audit.startedAt && (
-                        <> · {Math.round((new Date(audit.finishedAt).getTime() - new Date(audit.startedAt).getTime()) / 1000)}s</>
-                      )}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {audit.finishedAt && (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(audit.finishedAt).toLocaleTimeString("es-CO")}
+                        {audit.startedAt && (
+                          <> · {Math.round((new Date(audit.finishedAt).getTime() - new Date(audit.startedAt).getTime()) / 1000)}s</>
+                        )}
+                      </span>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const lines: string[] = [];
+                        lines.push("=== ATENIA AI — REPORTE DE AUDITORÍA ===");
+                        lines.push(`Fecha: ${audit.finishedAt ? new Date(audit.finishedAt).toLocaleString("es-CO") : new Date().toLocaleString("es-CO")}`);
+                        if (audit.startedAt && audit.finishedAt) {
+                          lines.push(`Duración: ${Math.round((new Date(audit.finishedAt).getTime() - new Date(audit.startedAt).getTime()) / 1000)}s`);
+                        }
+                        const okCount = Object.values(audit.checks).filter(c => c.severity === "ok" && c.status !== "idle").length;
+                        const warnCount = Object.values(audit.checks).filter(c => c.severity === "warn" && c.status !== "idle").length;
+                        const errCount = Object.values(audit.checks).filter(c => c.severity === "error" && c.status !== "idle").length;
+                        lines.push(`Resumen: ${okCount} OK, ${warnCount} Advertencias, ${errCount} Errores`);
+                        lines.push("");
+
+                        for (const def of CHECK_DEFS) {
+                          const check = audit.checks[def.key];
+                          if (!check || check.status === "idle") continue;
+                          lines.push("─".repeat(60));
+                          lines.push(`[${check.severity.toUpperCase()}] ${check.label}`);
+                          lines.push(`Resumen: ${check.summary}`);
+                          if (check.details) {
+                            lines.push("Datos:");
+                            const detailStr = typeof check.details === "string"
+                              ? check.details
+                              : check.details.analysis
+                                ? check.details.analysis
+                                : JSON.stringify(check.details, null, 2);
+                            lines.push(detailStr);
+                          }
+                          lines.push("");
+                        }
+
+                        lines.push("─".repeat(60));
+                        lines.push("=== FIN DEL REPORTE ===");
+
+                        const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `atenia-audit-${new Date().toISOString().slice(0, 10)}.txt`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast.success("Reporte descargado");
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Descargar TXT
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
