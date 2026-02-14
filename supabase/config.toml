@@ -185,3 +185,102 @@ verify_jwt = false
 
 [functions.email-provider-admin]
 verify_jwt = false
+
+[functions.egress-proxy]
+verify_jwt = false
+
+[functions.security-audit-alerts]
+verify_jwt = false
+
+[functions.manage-analytics-secrets]
+verify_jwt = false
+
+[functions.master-sync-analysis]
+verify_jwt = false
+
+[functions.atenia-server-heartbeat]
+verify_jwt = false
+
+[functions.atenia-platform-sweep]
+verify_jwt = false
+
+[functions.atenia-self-health]
+verify_jwt = false
+
+[functions.atenia-ai-verify-payment]
+verify_jwt = false
+
+[functions.billing-admin-discounts]
+verify_jwt = false
+
+[functions.billing-admin-gateway]
+verify_jwt = false
+
+[functions.billing-admin-plans]
+verify_jwt = false
+
+[functions.billing-admin-subscriptions]
+verify_jwt = false
+
+[functions.billing-create-invoice]
+verify_jwt = false
+
+[functions.billing-daily-status-cron]
+verify_jwt = false
+
+[functions.billing-dunning-engine]
+verify_jwt = false
+
+[functions.billing-renewal-processor]
+verify_jwt = false
+
+[functions.wompi-webhook-receiver]
+verify_jwt = false
+
+[functions.backfill-courthouse-emails]
+verify_jwt = false
+
+[functions.confirm-work-item-courthouse-email]
+verify_jwt = false
+
+[functions.import-courthouse-directory]
+verify_jwt = false
+
+[functions.resolve-courthouse-email]
+verify_jwt = false
+
+[functions.generate-evidence-bundle]
+verify_jwt = false
+
+[functions.provider-create-wizard-session]
+verify_jwt = false
+
+[functions.provider-list-category-routes]
+verify_jwt = false
+
+[functions.provider-list-effective-routing]
+verify_jwt = false
+
+[functions.provider-list-global-routes]
+verify_jwt = false
+
+[functions.provider-reencrypt-secret]
+verify_jwt = false
+
+[functions.provider-set-category-policy-org]
+verify_jwt = false
+
+[functions.provider-set-category-routes-org]
+verify_jwt = false
+
+[functions.provider-set-category-routes]
+verify_jwt = false
+
+[functions.provider-set-global-policy]
+verify_jwt = false
+
+[functions.provider-set-global-routes]
+verify_jwt = false
+
+[functions.provider-wizard-readiness]
+verify_jwt = false
