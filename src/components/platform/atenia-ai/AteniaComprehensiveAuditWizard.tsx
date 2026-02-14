@@ -160,7 +160,7 @@ export function AteniaComprehensiveAuditWizard() {
     const results: Record<string, { ok: boolean; status?: number }> = {};
     await Promise.all(CRITICAL_FNS.map(async fn => {
       try {
-        const res = await supabase.functions.invoke(fn, { body: undefined, headers: {} } as any);
+        const res = await supabase.functions.invoke(fn, { body: { health_check: true } });
         results[fn] = { ok: !res.error, status: res.error ? 500 : 200 };
       } catch { results[fn] = { ok: false, status: 0 }; }
     }));
