@@ -1827,3 +1827,14 @@
 .platform-console-root .border-l-2 {
   border-left-color: hsl(var(--platform-hi)) !important;
 }
+
+/* ============================================
+   ATENIA MASCOT CHAT - Ensure Sheet renders above mascot
+   ============================================ */
+/* The Atenia mascot uses z-[60], so its Sheet must be higher */
+[data-radix-dialog-overlay][data-state] {
+  z-index: 65 !important;
+}
+[data-radix-dialog-content][role="dialog"][data-state] {
+  z-index: 65 !important;
+}

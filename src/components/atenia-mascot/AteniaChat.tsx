@@ -45,10 +45,13 @@ export function AteniaChat({
   const resolvedWorkItemId = useResolvedWorkItemId();
   const isWorkItemContext = !!resolvedWorkItemId || contexts.includes("WORK_ITEM_DETAIL");
 
+  console.log("[AteniaChat] render, open:", open, "workItemId:", resolvedWorkItemId);
+
   return (
     <AteniaAssistantDrawer
       open={open}
       onOpenChange={(isOpen) => {
+        console.log("[AteniaChat] onOpenChange:", isOpen);
         if (!isOpen) onClose();
       }}
       scope={isWorkItemContext ? "WORK_ITEM" : "ORG"}
