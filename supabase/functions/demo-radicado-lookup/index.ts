@@ -160,79 +160,158 @@ interface DemoResponse {
 
 const CALLER = "demo-radicado-lookup";
 
-async function fetchCpnuViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  // CPNU goes through adapter-cpnu edge function (internal call via egress proxy)
-  const result = await egressFetch({
-    targetUrl: `${supabaseUrl}/functions/v1/adapter-cpnu`,
-    purpose: "judicial_demo",
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
-      "Content-Type": "application/json",
-    },
-    body: { radicado, action: "search" },
-    caller: CALLER,
-    tenantHash: "demo",
-  });
-
-  if (!result.ok) {
-    return { status: result.status, body: null };
+async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  // Call CPNU v2 API directly (no adapter overhead for demo)
+  const urls = [
+    `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+    `https://consultaprocesos.ramajudicial.gov.co:443/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
+  ];
+  
+  for (const url of urls) {
+    console.log(`[demo] Trying CPNU: ${url.slice(0, 80)}...`);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const resp = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      console.log(`[demo] CPNU responded: HTTP ${resp.status}`);
+      
+      if (!resp.ok) continue;
+      
+      const text = await resp.text();
+      try {
+        const data = JSON.parse(text);
+        // CPNU v2 returns { procesos: [...] }
+        const procesos = data?.procesos || [];
+        console.log(`[demo] CPNU parsed: ${procesos.length} procesos found`);
+        
+        if (procesos.length === 0) {
+          return { status: 200, body: { ok: false, procesos: [] } };
+        }
+        
+        // Get first matching process
+        const p = procesos[0];
+        const idProceso = p.idProceso;
+        
+        // Fetch actuaciones for this process
+        let actuaciones: any[] = [];
+        if (idProceso) {
+          try {
+            const actUrl = `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/${idProceso}`;
+            const actController = new AbortController();
+            const actTimeout = setTimeout(() => actController.abort(), 15000);
+            const actResp = await fetch(actUrl, {
+              headers: {
+                Accept: "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              },
+              signal: actController.signal,
+            });
+            clearTimeout(actTimeout);
+            if (actResp.ok) {
+              const actData = await actResp.json();
+              actuaciones = actData?.actuaciones || [];
+              console.log(`[demo] CPNU actuaciones: ${actuaciones.length} found`);
+            }
+          } catch (e) {
+            console.log(`[demo] CPNU actuaciones fetch failed:`, e);
+          }
+        }
+        
+        // Build adapter-compatible response
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            proceso: {
+              despacho: p.despacho || p.nombreDespacho || null,
+              tipo: p.tipoProceso || null,
+              clase: p.claseProceso || null,
+              fecha_radicacion: p.fechaRadicacion || p.fechaProceso || null,
+              sujetos_procesales: p.sujetosProcesales || [],
+              actuaciones: actuaciones.map((a: any) => ({
+                fecha_actuacion: a.fechaActuacion || a.fecharegistro || null,
+                actuacion: a.actuacion || a.nombreActuacion || "",
+                anotacion: a.anotacion || "",
+                fecha: a.fechaActuacion || a.fecharegistro || null,
+              })),
+              estados_electronicos: [],
+            },
+          },
+        };
+      } catch {
+        console.log(`[demo] CPNU response not JSON`);
+        continue;
+      }
+    } catch (err) {
+      console.log(`[demo] CPNU fetch error:`, err instanceof Error ? err.message : err);
+      continue;
+    }
   }
-  try {
-    return { status: result.status, body: JSON.parse(result.body) };
-  } catch {
-    return { status: result.status, body: null };
-  }
+  
+  return { status: 0, body: null };
 }
 
-async function fetchPublicacionesViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+async function fetchPublicacionesDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL");
   const pubApiKey = Deno.env.get("PUBLICACIONES_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
-  if (!pubBaseUrl || !pubApiKey) return { status: 0, body: null };
-
-  const result = await egressFetch({
-    targetUrl: `${pubBaseUrl}/snapshot/${radicado}`,
-    purpose: "judicial_demo",
-    method: "GET",
-    headers: { "x-api-key": pubApiKey },
-    body: undefined,
-    caller: CALLER,
-    tenantHash: "demo",
-  });
-
-  if (!result.ok) {
-    return { status: result.status, body: null };
+  if (!pubBaseUrl || !pubApiKey) {
+    console.log(`[demo] Publicaciones skipped: missing env vars (BASE_URL=${!!pubBaseUrl}, API_KEY=${!!pubApiKey})`);
+    return { status: 0, body: null };
   }
+  const url = `${pubBaseUrl}/snapshot/${radicado}`;
+  console.log(`[demo] Calling Publicaciones for radicado ***${radicado.slice(-4)}`);
   try {
-    return { status: result.status, body: JSON.parse(result.body) };
-  } catch {
-    return { status: result.status, body: null };
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: { "x-api-key": pubApiKey },
+    });
+    console.log(`[demo] Publicaciones responded: HTTP ${resp.status}`);
+    const text = await resp.text();
+    try {
+      return { status: resp.status, body: JSON.parse(text) };
+    } catch {
+      console.log(`[demo] Publicaciones response not JSON, length=${text.length}`);
+      return { status: resp.status, body: null };
+    }
+  } catch (err) {
+    console.error(`[demo] Publicaciones fetch error:`, err);
+    return { status: 0, body: null };
   }
 }
 
-async function fetchSamaiViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+async function fetchSamaiDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const samaiUrl = Deno.env.get("SAMAI_BASE_URL");
   const samaiKey = Deno.env.get("SAMAI_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
-  if (!samaiUrl || !samaiKey) return { status: 0, body: null };
-
-  const result = await egressFetch({
-    targetUrl: `${samaiUrl}/buscar?numero_radicacion=${radicado}`,
-    purpose: "judicial_demo",
-    method: "GET",
-    headers: { "x-api-key": samaiKey },
-    body: undefined,
-    caller: CALLER,
-    tenantHash: "demo",
-  });
-
-  if (!result.ok) {
-    return { status: result.status, body: null };
+  if (!samaiUrl || !samaiKey) {
+    console.log(`[demo] SAMAI skipped: missing env vars (BASE_URL=${!!samaiUrl}, API_KEY=${!!samaiKey})`);
+    return { status: 0, body: null };
   }
+  const url = `${samaiUrl}/buscar?numero_radicacion=${radicado}`;
+  console.log(`[demo] Calling SAMAI for radicado ***${radicado.slice(-4)}`);
   try {
-    return { status: result.status, body: JSON.parse(result.body) };
-  } catch {
-    return { status: result.status, body: null };
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: { "x-api-key": samaiKey },
+    });
+    console.log(`[demo] SAMAI responded: HTTP ${resp.status}`);
+    const text = await resp.text();
+    try {
+      return { status: resp.status, body: JSON.parse(text) };
+    } catch {
+      console.log(`[demo] SAMAI response not JSON, length=${text.length}`);
+      return { status: resp.status, body: null };
+    }
+  } catch (err) {
+    console.error(`[demo] SAMAI fetch error:`, err);
+    return { status: 0, body: null };
   }
 }
 
@@ -276,10 +355,10 @@ Deno.serve(async (req: Request) => {
       }, 200);
     }
 
-    // 3. Parallel API calls via egressClient
+    // 3. Parallel API calls (direct fetch, no egress proxy needed)
     const [cpnuResult, pubResult] = await Promise.allSettled([
-      fetchCpnuViaEgress(radicado),
-      fetchPublicacionesViaEgress(radicado),
+      fetchCpnuDirect(radicado),
+      fetchPublicacionesDirect(radicado),
     ]);
 
     // 4. Parse responses into whitelisted schema
@@ -291,6 +370,7 @@ Deno.serve(async (req: Request) => {
     // Parse CPNU
     if (cpnuResult.status === "fulfilled") {
       const d = cpnuResult.value;
+      console.log(`[demo] CPNU result: status=${d.status}, ok=${(d.body as any)?.ok}, hasProceso=${!!(d.body as any)?.proceso}`);
       if (d.status === 200 && d.body && (d.body as any)?.ok && (d.body as any)?.proceso) {
         const p = (d.body as any).proceso;
         const daneCode = radicado.slice(0, 5);
@@ -338,26 +418,55 @@ Deno.serve(async (req: Request) => {
       const d = pubResult.value;
       if (d.status === 200 && d.body) {
         const rawBody = d.body as any;
+        // Handle the snapshot response format: { found, publicaciones: [...], principal: {...}, ... }
         const pubs = Array.isArray(rawBody?.publicaciones)
           ? rawBody.publicaciones
           : Array.isArray(rawBody) ? rawBody : [];
+        
+        console.log(`[demo] Publicaciones: found=${rawBody?.found}, totalResultados=${rawBody?.totalResultados}, pubsCount=${pubs.length}, hasPrincipal=${!!rawBody?.principal}`);
+        if (pubs.length > 0) {
+          console.log(`[demo] Pub sample keys: ${Object.keys(pubs[0]).join(',')}`);
+        }
+        
         estados = pubs
           .map((p: Record<string, unknown>) => ({
-            tipo: truncate(String(p.tipo || p.nombre || p.estado || "Estado"), 80) || "Estado",
-            fecha: normalizeDate(p.fechaFijacion ?? p.fecha ?? p.fechaPublicacion),
-            descripcion: p.descripcion ? redactPIIFromText(truncate(String(p.descripcion), 200) || "") : null,
+            tipo: truncate(String(p.tipo_evento || p.tipo || p.nombre || p.estado || p.tipoPublicacion || "Estado"), 80) || "Estado",
+            fecha: normalizeDate(p.fecha_publicacion ?? p.fecha_hora_inicio ?? p.fechaFijacion ?? p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro),
+            descripcion: p.titulo ? redactPIIFromText(truncate(String(p.titulo), 200) || "") : (p.descripcion ? redactPIIFromText(truncate(String(p.descripcion), 200) || "") : null),
           }))
           .filter((e: DemoEstado) => e.fecha)
           .sort((a: DemoEstado, b: DemoEstado) => b.fecha.localeCompare(a.fecha));
+        
+        // If publicaciones array was empty but we have principal info, use it for resumen
+        if (rawBody?.found && rawBody?.principal && !resumen) {
+          const pr = rawBody.principal;
+          const daneCode = radicado.slice(0, 5);
+          const daneInfo = DANE_CITIES[daneCode];
+          resumen = {
+            radicado_display: formatRadicadoDisplay(radicado),
+            despacho: pr.despacho ? redactPIIFromText(truncate(String(pr.despacho), 100) || "") : null,
+            ciudad: daneInfo?.city || null,
+            departamento: daneInfo?.dept || null,
+            jurisdiccion: JURISDICCION_MAP[radicado.slice(5, 7)] || null,
+            tipo_proceso: pr.tipoProceso ? truncate(String(pr.tipoProceso), 80) : null,
+            fecha_radicacion: normalizeDate(pr.fechaRadicacion ?? pr.fecha),
+            ultima_actuacion_fecha: estados[0]?.fecha || null,
+            ultima_actuacion_tipo: estados[0]?.tipo || null,
+            total_actuaciones: 0,
+            total_estados: estados.length,
+          };
+          dataFound = true;
+        }
+        
         if (estados.length > 0) dataFound = true;
         if (resumen) resumen.total_estados = estados.length;
       }
     }
 
-    // 5. SAMAI fallback via egressClient if no data yet
+    // 5. SAMAI fallback if no data yet
     if (!dataFound) {
       try {
-        const samaiResult = await fetchSamaiViaEgress(radicado);
+        const samaiResult = await fetchSamaiDirect(radicado);
         if (samaiResult.status === 200 && samaiResult.body) {
           const sd = samaiResult.body as any;
           const resultado = sd?.result || sd;
