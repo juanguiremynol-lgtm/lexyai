@@ -99,7 +99,7 @@ export function PlatformSidebar() {
           )}>
             <img 
               src={logo} 
-              alt="ATENIA Platform" 
+              alt="Andromeda Platform" 
               className="h-full w-auto object-contain brightness-0 invert"
             />
           </div>

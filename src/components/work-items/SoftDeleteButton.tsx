@@ -66,7 +66,7 @@ export function SoftDeleteButton({
 
       if (result.success) {
         toast.success(
-          `Asunto ${radicado || ""} eliminado. Puedes recuperarlo con Atenia AI en los próximos 10 días.`
+          `Asunto ${radicado || ""} eliminado. Puedes recuperarlo con Andro IA en los próximos 10 días.`
         );
         // Dispatch event for mascot nudge
         window.dispatchEvent(new CustomEvent("atenia:work-item-deleted", {
@@ -125,7 +125,7 @@ export function SoftDeleteButton({
               </p>
               <p className="text-sm text-muted-foreground">
                 Tienes <strong>10 días</strong> para recuperarlo solicitándoselo
-                a Atenia AI. Después de ese plazo, será eliminado
+                a Andro IA. Después de ese plazo, será eliminado
                 permanentemente.
               </p>
               <div className="pt-2">

@@ -89,7 +89,7 @@ export function ArchiveWorkItemDialog({
                     <li>Ocultará {isBulk ? "los elementos" : "el elemento"} de los pipelines y listas</li>
                     <li>Detendrá la sincronización automática</li>
                     <li>Mantendrá todos los datos intactos por <strong>10 días</strong></li>
-                    <li>Podrás recuperar{isBulk ? "los" : "lo"} solicitándoselo a <strong>Atenia AI</strong></li>
+                    <li>Podrás recuperar{isBulk ? "los" : "lo"} solicitándoselo a <strong>Andro IA</strong></li>
                     <li>Después de 10 días, será eliminado permanentemente</li>
                   </ul>
                 </div>
