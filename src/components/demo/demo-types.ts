@@ -25,12 +25,14 @@ export interface DemoActuacion {
   anotacion: string | null;
   fecha_inicio?: string | null;
   fecha_fin?: string | null;
+  source?: string;
 }
 
 export interface DemoEstado {
   tipo: string;
   fecha: string;
   descripcion: string | null;
+  source?: string;
 }
 
 export interface DemoResult {
@@ -41,6 +43,7 @@ export interface DemoResult {
     radicado_masked: string;
     actuaciones_count: number;
     estados_count: number;
+    sources?: string[];
     fetched_at: string;
     demo: boolean;
   };

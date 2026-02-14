@@ -128,11 +128,11 @@ export function DemoRadicadoSection() {
               Prueba en vivo
             </Badge>
             <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Prueba ATENIA con tu{" "}
+              Prueba Andromeda con tu{" "}
               <span className="text-primary">radicado real</span>
             </h2>
             <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Ingresa un radicado colombiano y mira en segundos cómo ATENIA
+              Ingresa un radicado colombiano y mira en segundos cómo Andromeda
               organiza las actuaciones, estados, y gestiona tu caso.
             </p>
             <p className="text-sm text-muted-foreground">
@@ -187,7 +187,7 @@ export function DemoRadicadoSection() {
                 <div className="text-center">
                   <p className="text-sm font-medium">Consultando fuentes judiciales...</p>
                   <p className="text-xs text-muted-foreground">
-                    CPNU · Publicaciones Procesales · SAMAI
+                    CPNU · Publicaciones · SAMAI · SAMAI Estados
                   </p>
                 </div>
               </div>
