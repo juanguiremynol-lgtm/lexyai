@@ -95,7 +95,7 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
       {/* Floating mascot */}
       <div
         className={cn(
-          "fixed z-50",
+          "fixed z-[60]",
           positionClasses[prefs.position] || positionClasses["bottom-right"],
           className
         )}
