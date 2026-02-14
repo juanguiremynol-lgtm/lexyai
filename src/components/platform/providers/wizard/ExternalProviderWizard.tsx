@@ -20,6 +20,7 @@ import { StepE2E } from "./steps/StepE2E";
 import { StepReadiness } from "./steps/StepReadiness";
 import { StepSuccess } from "./steps/StepSuccess";
 import { StepQuickAdd } from "./steps/StepQuickAdd";
+import { StepSimulation } from "./steps/StepSimulation";
 import { initialWizardState, WIZARD_STEPS, type WizardMode, type WizardState, type WizardConnector, type WizardInstance, type PreflightResult } from "./WizardTypes";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -85,7 +86,6 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             onSelectConnector={(c) => setState((s) => ({ ...s, connector: c }))}
             onNext={() => {
               if (state.templateChoice === "QUICK") {
-                // Quick Add shows its own step at index 2 (reuses connector step slot)
                 next();
               } else {
                 next();
@@ -144,10 +144,18 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
           />
         ) : null;
       case 5:
+        return (
+          <StepSimulation
+            connector={state.connector}
+            instance={state.instance}
+            onNext={next}
+          />
+        );
+      case 6:
         return state.connector ? (
           <StepMapping connector={state.connector} onNext={next} partitionReport={state.e2eResult?.partition_report || null} />
         ) : null;
-      case 6:
+      case 7:
         return state.connector ? (
           <StepRouting
             mode={mode}
@@ -158,17 +166,17 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             routingConfigured={state.routingConfigured}
           />
         ) : null;
-      case 7:
+      case 8:
         return state.instance ? (
           <StepE2E
             instance={state.instance}
             e2eResult={state.e2eResult}
             onE2EComplete={(result, passed) => setState((s) => ({ ...s, e2eResult: result, e2ePassed: passed }))}
             onNext={next}
-            onFinishAnyway={() => setState((s) => ({ ...s, step: 8 }))}
+            onFinishAnyway={() => setState((s) => ({ ...s, step: 9 }))}
           />
         ) : null;
-      case 8:
+      case 9:
         return state.connector && state.instance ? (
           <StepReadiness
             connector={state.connector}
@@ -179,7 +187,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             onNext={next}
           />
         ) : null;
-      case 9:
+      case 10:
         return (
           <StepSuccess
             mode={mode}
