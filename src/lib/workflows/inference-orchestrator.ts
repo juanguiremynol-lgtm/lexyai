@@ -10,6 +10,7 @@
  * - Workflow type detection for new items
  * - Stage inference from any event type (Estado, Actuación, Publicación, Tutela)
  * - Confidence-based auto-apply rules
+ * - Preclusion guard: monotonic stage enforcement with rollback detection
  */
 
 import {
@@ -21,6 +22,12 @@ import { classifyCpacaActuacion } from '@/lib/cpaca/cpaca-stage-inference';
 import { classifyActuacion as classifyPenal906 } from '@/lib/penal906/penal906-classifier';
 import { type WorkflowType, type CGPPhase } from '@/lib/workflow-constants';
 import type { CpacaPhase } from '@/lib/cpaca-constants';
+import { 
+  evaluatePreclusion, 
+  type PreclisionDecision, 
+  type PreclisionEvidence,
+  type RollbackTrigger,
+} from './preclusion-guard';
 
 // ============================================
 // Normalized Input Types
@@ -67,6 +74,12 @@ export interface StageInferenceOrchestrationResult {
   triggers_milestone: boolean;
   should_auto_apply: boolean;
   source_type: EventSourceType;
+  // Preclusion guard fields
+  preclusion_decision: PreclisionDecision;
+  preclusion_evidence: PreclisionEvidence | null;
+  rollback_trigger: RollbackTrigger | null;
+  final_stage: string | null; // After preclusion guard evaluation
+  final_cgp_phase: CGPPhase | null;
 }
 
 // ============================================
@@ -249,12 +262,41 @@ export function inferWorkflowTypeFromSnapshot(
 }
 
 // ============================================
+// Default preclusion fields helper
+// ============================================
+
+const DEFAULT_PRECLUSION_FIELDS = {
+  preclusion_decision: 'NO_SUGGESTION' as PreclisionDecision,
+  preclusion_evidence: null,
+  rollback_trigger: null,
+  final_stage: null,
+  final_cgp_phase: null,
+};
+
+function buildNoSuggestionResult(sourceType: EventSourceType, reasoning: string): StageInferenceOrchestrationResult {
+  return {
+    suggested_stage: null,
+    suggested_cgp_phase: null,
+    suggested_pipeline_stage: null,
+    confidence: 'LOW',
+    reasoning,
+    category: 'OTHER',
+    milestone_type: null,
+    triggers_milestone: false,
+    should_auto_apply: false,
+    source_type: sourceType,
+    ...DEFAULT_PRECLUSION_FIELDS,
+  };
+}
+
+// ============================================
 // Stage Inference Orchestration
 // ============================================
 
 /**
  * Infer stage from a new event for any workflow type
  * Delegates to the appropriate engine based on workflow_type
+ * Now includes preclusion guard evaluation
  */
 export function inferStageFromNewEvent(
   workflowType: WorkflowType,
@@ -267,48 +309,59 @@ export function inferStageFromNewEvent(
   const primaryText = input.actuacion || input.descripcion || input.title || input.anotacion || '';
   
   if (!primaryText.trim()) {
-    return {
-      suggested_stage: null,
-      suggested_cgp_phase: null,
-      suggested_pipeline_stage: null,
-      confidence: 'LOW',
-      reasoning: 'No text available for stage inference',
-      category: 'OTHER',
-      milestone_type: null,
-      triggers_milestone: false,
-      should_auto_apply: false,
-      source_type: input.source_type,
-    };
+    return buildNoSuggestionResult(input.source_type, 'No text available for stage inference');
   }
   
   // Route to appropriate engine
+  let rawResult: StageInferenceOrchestrationResult;
+  
   switch (workflowType) {
     case 'PENAL_906':
-      return inferPenal906Stage(primaryText, currentPipelineStage, input);
-    
+      rawResult = inferPenal906Stage(primaryText, currentPipelineStage, input);
+      break;
     case 'CPACA':
-      return inferCpacaStage(primaryText, currentStage, input);
-    
+      rawResult = inferCpacaStage(primaryText, currentStage, input);
+      break;
     case 'CGP':
     case 'LABORAL':
     case 'TUTELA':
-      return inferEstadoStage(workflowType, currentStage, currentCgpPhase, primaryText, input);
-    
+      rawResult = inferEstadoStage(workflowType, currentStage, currentCgpPhase, primaryText, input);
+      break;
     default:
-      // PETICION, GOV_PROCEDURE don't have stage inference
-      return {
-        suggested_stage: null,
-        suggested_cgp_phase: null,
-        suggested_pipeline_stage: null,
-        confidence: 'LOW',
-        reasoning: `Workflow ${workflowType} does not support automated stage inference`,
-        category: 'OTHER',
-        milestone_type: null,
-        triggers_milestone: false,
-        should_auto_apply: false,
-        source_type: input.source_type,
-      };
+      return buildNoSuggestionResult(input.source_type, `Workflow ${workflowType} does not support automated stage inference`);
   }
+  
+  // Apply preclusion guard (skip for PENAL_906 which has its own retroceso handling)
+  if (workflowType !== 'PENAL_906' && rawResult.suggested_stage) {
+    const preclusionResult = evaluatePreclusion({
+      workflowType,
+      currentStage,
+      currentCgpPhase,
+      suggestedStage: rawResult.suggested_stage,
+      suggestedCgpPhase: rawResult.suggested_cgp_phase,
+      docketText: primaryText,
+    });
+    
+    rawResult.preclusion_decision = preclusionResult.decision;
+    rawResult.preclusion_evidence = preclusionResult.evidence;
+    rawResult.rollback_trigger = preclusionResult.rollbackTrigger;
+    rawResult.final_stage = preclusionResult.finalStage;
+    rawResult.final_cgp_phase = preclusionResult.finalCgpPhase;
+    
+    // Update auto-apply based on preclusion decision
+    if (preclusionResult.decision === 'REGRESSION_BLOCKED' || 
+        preclusionResult.decision === 'ROLLBACK_NEEDS_REVIEW') {
+      rawResult.should_auto_apply = false;
+    }
+    
+    // For rollback by nullity, use the rollback target as the final suggestion
+    if (preclusionResult.decision === 'ROLLBACK_BY_NULLITY' && preclusionResult.finalStage) {
+      rawResult.final_stage = preclusionResult.finalStage;
+      rawResult.reasoning += ` | ROLLBACK: ${preclusionResult.rollbackTrigger.matchedText} → ${preclusionResult.finalStage}`;
+    }
+  }
+  
+  return rawResult;
 }
 
 /**
@@ -342,6 +395,7 @@ function inferEstadoStage(
     triggers_milestone: result.triggersMilestone,
     should_auto_apply: shouldAutoApplyStageChange(result.confidence, result.suggestedStage, currentStage),
     source_type: input.source_type,
+    ...DEFAULT_PRECLUSION_FIELDS,
   };
 }
 
@@ -355,7 +409,6 @@ function inferCpacaStage(
 ): StageInferenceOrchestrationResult {
   const result = classifyCpacaActuacion(text, (currentStage as CpacaPhase) || 'DEMANDA_RADICADA');
   
-  // Map CPACA confidence to our standard
   const confidence: StageConfidence = result.confidence_level as StageConfidence;
   const isDifferent = result.stage_inferred !== currentStage;
   
@@ -370,6 +423,7 @@ function inferCpacaStage(
     triggers_milestone: false,
     should_auto_apply: isDifferent && confidence === 'HIGH',
     source_type: input.source_type,
+    ...DEFAULT_PRECLUSION_FIELDS,
   };
 }
 
@@ -397,6 +451,8 @@ function inferPenal906Stage(
     triggers_milestone: false,
     should_auto_apply: isDifferent && confidence === 'HIGH' && !result.has_retroceso,
     source_type: input.source_type,
+    ...DEFAULT_PRECLUSION_FIELDS,
+    preclusion_decision: result.has_retroceso ? 'REGRESSION_BLOCKED' : (isDifferent ? 'ADVANCE_MONOTONIC' : 'SAME_STAGE'),
   };
 }
 
@@ -404,24 +460,14 @@ function inferPenal906Stage(
 // Auto-Apply Rules
 // ============================================
 
-/**
- * Determine if a stage change should be auto-applied
- * Only HIGH confidence changes that move forward are auto-applied
- */
 function shouldAutoApplyStageChange(
   confidence: StageConfidence,
   suggestedStage: string | null,
   currentStage: string | null
 ): boolean {
-  // Only auto-apply HIGH confidence
   if (confidence !== 'HIGH') return false;
-  
-  // Must have a suggestion
   if (!suggestedStage) return false;
-  
-  // Must be different from current
   if (suggestedStage === currentStage) return false;
-  
   return true;
 }
 
@@ -436,10 +482,6 @@ export interface BatchInferenceResult {
   error?: string;
 }
 
-/**
- * Process multiple events and return inference results
- * Used by ingestion pipelines after writing new events
- */
 export async function processEventsForInference(
   events: Array<{
     work_item_id: string;
@@ -464,7 +506,7 @@ export async function processEventsForInference(
     results.push({
       work_item_id: item.work_item_id,
       inference,
-      applied: false, // Caller decides whether to apply
+      applied: false,
     });
   }
   
@@ -472,4 +514,4 @@ export async function processEventsForInference(
 }
 
 // Re-export types for convenience
-export type { StageConfidence };
+export type { StageConfidence, PreclisionDecision, PreclisionEvidence };
