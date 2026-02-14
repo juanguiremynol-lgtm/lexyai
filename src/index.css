@@ -419,6 +419,119 @@
   }
 
   /* ============================================
+     DEEP SPACE / GALAXY THEME — Cinematic, Premium Dark
+     ============================================ */
+  .deep-space {
+    color-scheme: dark;
+
+    /* Primary: Electric Blue */
+    --primary: 210 100% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Deep Charcoal */
+    --secondary: 225 20% 14%;
+    --secondary-foreground: 210 30% 90%;
+
+    /* Background: Near-black space */
+    --background: 228 40% 4%;
+    --foreground: 210 25% 92%;
+
+    /* Card: Translucent dark glass */
+    --card: 225 30% 8%;
+    --card-foreground: 210 25% 92%;
+
+    /* Popover: Glass panel */
+    --popover: 225 30% 10%;
+    --popover-foreground: 210 25% 92%;
+
+    /* Muted: Dark nebula */
+    --muted: 225 20% 12%;
+    --muted-foreground: 220 15% 55%;
+
+    /* Accent: Violet highlight */
+    --accent: 270 50% 25%;
+    --accent-foreground: 270 60% 80%;
+
+    /* Brand variations - cosmic */
+    --brand-dark: 210 80% 35%;
+    --brand: 210 100% 60%;
+    --brand-light: 210 90% 72%;
+    --brand-muted: 220 50% 50%;
+
+    /* Gold becomes cosmic teal */
+    --gold: 180 70% 50%;
+    --gold-foreground: 0 0% 5%;
+
+    /* Destructive: Bright coral */
+    --destructive: 0 70% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Border: Faint cosmic edge */
+    --border: 225 25% 18%;
+    --input: 225 20% 15%;
+    --ring: 230 60% 65%;
+
+    /* Radius - slightly rounded for premium */
+    --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 228 35% 5%;
+    --sidebar-foreground: 210 25% 88%;
+    --sidebar-primary: 210 100% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 270 40% 18%;
+    --sidebar-accent-foreground: 270 50% 78%;
+    --sidebar-border: 225 25% 16%;
+    --sidebar-ring: 230 60% 65%;
+
+    /* Status colors - Vivid on dark */
+    --status-drafted: 220 15% 50%;
+    --status-sent: 210 85% 58%;
+    --status-pending: 45 85% 55%;
+    --status-received: 160 65% 50%;
+    --status-confirmed: 140 70% 48%;
+    --status-active: 270 60% 62%;
+    --status-closed: 220 15% 42%;
+
+    /* SLA colors */
+    --sla-safe: 140 75% 48%;
+    --sla-warning: 45 90% 55%;
+    --sla-critical: 0 75% 58%;
+
+    /* Chart colors - Cosmic palette */
+    --chart-1: 210 100% 60%;
+    --chart-2: 270 60% 62%;
+    --chart-3: 180 70% 50%;
+    --chart-4: 320 55% 58%;
+    --chart-5: 45 85% 55%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(210 100% 60%) 0%, hsl(270 60% 55%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(228 40% 6%) 0%, hsl(228 40% 3%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(225 30% 10%) 0%, hsl(225 30% 6%) 100%);
+
+    /* Shadows - Deep space */
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
+    --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.5), 0 2px 4px -2px hsl(0 0% 0% / 0.4);
+    --shadow-lg: 0 10px 25px -5px hsl(0 0% 0% / 0.6), 0 4px 10px -4px hsl(0 0% 0% / 0.5);
+    --shadow-xl: 0 20px 40px -8px hsl(0 0% 0% / 0.7), 0 8px 16px -6px hsl(0 0% 0% / 0.6);
+
+    /* Deep Space glass variables */
+    --ds-glass-bg: rgba(8, 12, 24, 0.55);
+    --ds-glass-bg-strong: rgba(8, 12, 24, 0.72);
+    --ds-glass-border: rgba(100, 140, 220, 0.12);
+    --ds-glass-border-hover: rgba(100, 140, 220, 0.22);
+    --ds-glass-blur: 18px;
+    --ds-glass-blur-strong: 24px;
+    --ds-text: rgba(210, 220, 240, 0.95);
+    --ds-text-muted: rgba(180, 195, 220, 0.7);
+    --ds-glow-blue: rgba(80, 140, 255, 0.15);
+    --ds-glow-violet: rgba(140, 80, 220, 0.12);
+    --ds-glow-teal: rgba(60, 200, 200, 0.1);
+    --ds-glow-magenta: rgba(200, 80, 160, 0.1);
+  }
+
+  /* ============================================
      PASTEL GIRLY THEME — Soft, Warm, Professional
      ============================================ */
   .pastel-girly {

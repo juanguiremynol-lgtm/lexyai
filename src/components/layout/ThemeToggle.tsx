@@ -1,4 +1,4 @@
-import { Moon, Sun, Monitor, Terminal, Waves, Flower2 } from "lucide-react";
+import { Moon, Sun, Monitor, Terminal, Waves, Flower2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -22,6 +22,9 @@ export function ThemeToggle() {
     }
     if (theme === "pastel-girly") {
       return <Flower2 className="h-5 w-5 text-[hsl(330_45%_68%)]" />;
+    }
+    if (theme === "deep-space") {
+      return <Sparkles className="h-5 w-5 text-[hsl(210_100%_65%)]" />;
     }
     return (
       <>
@@ -68,6 +71,13 @@ export function ThemeToggle() {
         >
           <Waves className="mr-2 h-4 w-4" />
           <span>Aqua Horizon</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem 
+          onClick={() => setTheme("deep-space")}
+          className={theme === "deep-space" ? "bg-accent" : ""}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          <span>Deep Space 🌌</span>
         </DropdownMenuItem>
         <DropdownMenuItem 
           onClick={() => setTheme("matrix")}

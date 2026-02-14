@@ -1,0 +1,455 @@
+/**
+ * Deep Space / Galaxy Theme
+ * Ultra-realistic astrophotography background + glassmorphism
+ */
+
+/* ============================= */
+/* GLOBAL BACKGROUND WALLPAPER   */
+/* ============================= */
+html.deep-space,
+html.deep-space body {
+  height: 100%;
+}
+
+html.deep-space body {
+  margin: 0;
+  background-image: url("/images/deep-space-bg.jpg") !important;
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-attachment: fixed !important;
+  background-color: hsl(228 40% 4%) !important;
+}
+
+/* Root container transparent */
+html.deep-space #root {
+  min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+  background: transparent !important;
+}
+
+/* Overlay A: Directional gradient for legibility */
+html.deep-space #root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(to bottom,
+      rgba(5, 6, 14, 0.55),
+      rgba(5, 6, 14, 0.30),
+      rgba(5, 6, 14, 0.60)),
+    linear-gradient(to right,
+      rgba(5, 6, 14, 0.50),
+      rgba(5, 6, 14, 0.15));
+}
+
+/* Overlay B: Vignette */
+html.deep-space #root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0.05) 30%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+/* Subtle noise/grain overlay for realism */
+html.deep-space body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+/* Content above overlays */
+html.deep-space .app-content,
+html.deep-space body > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============================= */
+/* TRANSPARENT WRAPPERS          */
+/* ============================= */
+html.deep-space .bg-background,
+html.deep-space [class*="bg-background"],
+html.deep-space main,
+html.deep-space .flex-1.overflow-y-auto {
+  background: transparent !important;
+}
+
+/* ============================= */
+/* GLASS SURFACES                */
+/* ============================= */
+html.deep-space .glass,
+html.deep-space .glass-card {
+  background: var(--ds-glass-bg) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(var(--ds-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur));
+}
+
+html.deep-space .glass-strong {
+  background: var(--ds-glass-bg-strong) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(var(--ds-glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong));
+}
+
+/* ============================= */
+/* CARDS - Space glass           */
+/* ============================= */
+html.deep-space [data-slot="card"],
+html.deep-space .bg-card {
+  background: var(--ds-glass-bg) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  backdrop-filter: blur(var(--ds-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur));
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  transition: all 0.25s ease;
+}
+
+html.deep-space [data-slot="card"]:hover,
+html.deep-space .bg-card:hover {
+  background: rgba(12, 18, 35, 0.65) !important;
+  border-color: var(--ds-glass-border-hover) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 20px var(--ds-glow-blue);
+}
+
+/* ============================= */
+/* SIDEBAR - Dark cosmic glass   */
+/* ============================= */
+html.deep-space [data-sidebar="sidebar"],
+html.deep-space .bg-sidebar {
+  background: linear-gradient(180deg,
+    rgba(5, 8, 18, 0.85),
+    rgba(5, 8, 18, 0.75)) !important;
+  border-right: 1px solid var(--ds-glass-border) !important;
+  backdrop-filter: blur(var(--ds-glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong));
+}
+
+html.deep-space [data-sidebar="sidebar"] * {
+  color: var(--ds-text) !important;
+}
+
+html.deep-space [data-sidebar="sidebar"] .text-muted-foreground,
+html.deep-space [data-sidebar="sidebar"] [class*="text-muted"] {
+  color: var(--ds-text-muted) !important;
+}
+
+html.deep-space [data-sidebar="sidebar"] a:hover,
+html.deep-space [data-sidebar="sidebar"] button:hover {
+  background: rgba(80, 140, 255, 0.08) !important;
+}
+
+html.deep-space [data-sidebar="sidebar"] [data-active="true"],
+html.deep-space [data-sidebar="sidebar"] a[aria-current="page"] {
+  background: rgba(80, 140, 255, 0.15) !important;
+  border-left: 3px solid hsl(210 100% 60%) !important;
+}
+
+/* ============================= */
+/* TOP BAR - Space glass         */
+/* ============================= */
+html.deep-space header.bg-card,
+html.deep-space header[class*="bg-card"] {
+  background: var(--ds-glass-bg-strong) !important;
+  border-color: var(--ds-glass-border) !important;
+  backdrop-filter: blur(var(--ds-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur));
+}
+
+/* ============================= */
+/* POPOVERS, MENUS, DIALOGS      */
+/* ============================= */
+html.deep-space [data-radix-popper-content-wrapper] > *,
+html.deep-space [role="dialog"],
+html.deep-space [role="menu"],
+html.deep-space .bg-popover {
+  background: rgba(10, 14, 28, 0.92) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  backdrop-filter: blur(var(--ds-glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur-strong));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* ============================= */
+/* TEXT COLORS                   */
+/* ============================= */
+html.deep-space .text-foreground {
+  color: var(--ds-text) !important;
+}
+
+html.deep-space .text-muted-foreground {
+  color: var(--ds-text-muted) !important;
+}
+
+/* ============================= */
+/* FOCUS RING                    */
+/* ============================= */
+html.deep-space *:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(230 60% 65% / 0.5), 0 0 12px hsl(230 60% 65% / 0.15) !important;
+}
+
+/* ============================= */
+/* KANBAN COLUMNS - Neon edges   */
+/* ============================= */
+html.deep-space .kanban-column-glass {
+  background: var(--ds-glass-bg-strong) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+  border-radius: 0.75rem;
+  backdrop-filter: blur(var(--ds-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* Per-column neon edge glow (very faint) */
+html.deep-space .kanban-column-glass:nth-child(1) {
+  border-top: 2px solid rgba(80, 140, 255, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(80, 140, 255, 0.08);
+}
+html.deep-space .kanban-column-glass:nth-child(2) {
+  border-top: 2px solid rgba(140, 80, 220, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(140, 80, 220, 0.08);
+}
+html.deep-space .kanban-column-glass:nth-child(3) {
+  border-top: 2px solid rgba(60, 200, 200, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(60, 200, 200, 0.08);
+}
+html.deep-space .kanban-column-glass:nth-child(4) {
+  border-top: 2px solid rgba(200, 80, 160, 0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(200, 80, 160, 0.08);
+}
+
+html.deep-space .kanban-column-glass * {
+  color: var(--ds-text);
+}
+
+html.deep-space .kanban-column-glass .text-muted-foreground {
+  color: var(--ds-text-muted) !important;
+}
+
+/* Kanban cards */
+html.deep-space .kanban-card-glass {
+  background: rgba(10, 16, 32, 0.6) !important;
+  border: 1px solid rgba(80, 120, 200, 0.1) !important;
+  border-radius: 0.625rem;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s ease;
+}
+
+html.deep-space .kanban-card-glass:hover {
+  background: rgba(14, 22, 42, 0.7) !important;
+  border-color: rgba(80, 140, 255, 0.18) !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4), 0 0 16px var(--ds-glow-blue);
+}
+
+/* Dragging card: cosmic glow */
+html.deep-space [data-pipeline-card][data-dragging="true"],
+html.deep-space .kanban-card-glass.dragging {
+  transform: rotate(1deg) scale(1.04);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(80, 140, 255, 0.2),
+    0 0 60px rgba(140, 80, 220, 0.1);
+  border-color: rgba(80, 140, 255, 0.3) !important;
+  z-index: 50;
+}
+
+/* Drop target column */
+html.deep-space [data-pipeline-column][data-drag-over="true"],
+html.deep-space .kanban-column-glass[data-drag-over="true"] {
+  background: rgba(80, 140, 255, 0.08) !important;
+  border: 2px dashed rgba(80, 140, 255, 0.3) !important;
+}
+
+/* ============================= */
+/* PRIMARY BUTTON                */
+/* ============================= */
+html.deep-space .bg-primary {
+  background: linear-gradient(135deg, hsl(210 100% 55%), hsl(240 70% 55%)) !important;
+  color: white !important;
+  border: 1px solid rgba(100, 140, 255, 0.2) !important;
+}
+
+html.deep-space .bg-primary:hover {
+  box-shadow: 0 4px 20px rgba(80, 140, 255, 0.3);
+}
+
+/* ============================= */
+/* TABS                          */
+/* ============================= */
+html.deep-space [role="tablist"] {
+  background: var(--ds-glass-bg) !important;
+  backdrop-filter: blur(var(--ds-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ds-glass-blur));
+  border-radius: 0.75rem;
+}
+
+html.deep-space [role="tab"][data-state="active"] {
+  background: rgba(80, 140, 255, 0.12) !important;
+  color: hsl(210 100% 72%) !important;
+  border-bottom: 2px solid hsl(210 100% 60%) !important;
+}
+
+/* ============================= */
+/* TICKER / FROM-CARD GRADIENTS  */
+/* ============================= */
+html.deep-space .from-card,
+html.deep-space [class*="from-card"] {
+  --tw-gradient-from: rgba(8, 12, 24, 0.55) !important;
+}
+
+html.deep-space .via-card,
+html.deep-space [class*="via-card"] {
+  --tw-gradient-via: rgba(8, 12, 24, 0.55) !important;
+}
+
+/* ============================= */
+/* THEME-SPECIFIC UTILITIES      */
+/* ============================= */
+
+/* Brand gradient text */
+.deep-space .text-brand-gradient {
+  background-image: linear-gradient(135deg, hsl(210 100% 60%) 0%, hsl(270 60% 65%) 50%, hsl(180 70% 55%) 100%);
+}
+
+/* Border glow */
+.deep-space .border-brand-glow {
+  box-shadow: 0 0 0 1px rgba(80, 140, 255, 0.2), 0 0 20px -5px rgba(80, 140, 255, 0.15);
+}
+
+/* Glow on hover */
+.deep-space .glow-on-hover {
+  transition: box-shadow 0.3s;
+}
+
+.deep-space .glow-on-hover:hover {
+  box-shadow: 0 0 20px 4px rgba(80, 140, 255, 0.25), 0 4px 12px -4px rgba(140, 80, 220, 0.15);
+}
+
+/* Card hover */
+.deep-space .card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px var(--ds-glow-blue);
+}
+
+/* Pulse */
+@keyframes pulse-brand-space {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(80, 140, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(80, 140, 255, 0);
+  }
+}
+
+.deep-space .pulse-brand {
+  animation: pulse-brand-space 2s ease-in-out infinite;
+}
+
+/* Shine */
+.deep-space .brand-shine {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(80, 140, 255, 0.12) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Glass card */
+.deep-space .glass-card {
+  background: var(--ds-glass-bg) !important;
+  border: 1px solid var(--ds-glass-border) !important;
+}
+
+/* ============================= */
+/* SCROLLBAR                     */
+/* ============================= */
+html.deep-space ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html.deep-space ::-webkit-scrollbar-track {
+  background: rgba(8, 12, 24, 0.4);
+  border-radius: 3px;
+}
+
+html.deep-space ::-webkit-scrollbar-thumb {
+  background: rgba(80, 140, 255, 0.2);
+  border-radius: 3px;
+}
+
+html.deep-space ::-webkit-scrollbar-thumb:hover {
+  background: rgba(80, 140, 255, 0.35);
+}
+
+/* Selection */
+html.deep-space ::selection {
+  background: hsl(210 100% 60% / 0.3);
+  color: hsl(210 25% 95%);
+}
+
+/* ============================= */
+/* REDUCED MOTION                */
+/* ============================= */
+@media (prefers-reduced-motion: reduce) {
+  html.deep-space *,
+  html.deep-space *::before,
+  html.deep-space *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================= */
+/* MOBILE: Stronger overlays     */
+/* ============================= */
+@media (max-width: 767px) {
+  html.deep-space #root::before {
+    background:
+      linear-gradient(to bottom,
+        rgba(5, 6, 14, 0.70),
+        rgba(5, 6, 14, 0.50),
+        rgba(5, 6, 14, 0.75)),
+      linear-gradient(to right,
+        rgba(5, 6, 14, 0.65),
+        rgba(5, 6, 14, 0.35));
+  }
+}
+
+/* ============================= */
+/* BACKDROP-FILTER FALLBACK      */
+/* ============================= */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html.deep-space [data-slot="card"],
+  html.deep-space .bg-card,
+  html.deep-space .glass,
+  html.deep-space .glass-card {
+    background: rgba(8, 12, 24, 0.92) !important;
+  }
+
+  html.deep-space [data-sidebar="sidebar"],
+  html.deep-space .bg-sidebar {
+    background: rgba(5, 8, 18, 0.95) !important;
+  }
+}
