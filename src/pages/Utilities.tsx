@@ -1,11 +1,12 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
   ExternalLink, 
   Briefcase, 
-  Scale, 
+  Scale,
+  BookOpen,
   FileText, 
   Shield, 
   Clock, 
@@ -127,6 +128,10 @@ export default function Utilities() {
             <Calculator className="h-4 w-4" />
             Constructor de Radicado
           </TabsTrigger>
+          <TabsTrigger value="constitucion" className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            Constitución
+          </TabsTrigger>
           {isPlatformAdmin && (
             <TabsTrigger value="snake" className="flex items-center gap-2">
               <Gamepad2 className="h-4 w-4" />
@@ -178,6 +183,10 @@ export default function Utilities() {
 
         <TabsContent value="radicado" className="mt-6">
           <RadicadoConstructor />
+        </TabsContent>
+
+        <TabsContent value="constitucion" className="mt-6">
+          <ConstitutionArticles />
         </TabsContent>
 
         {isPlatformAdmin && (
