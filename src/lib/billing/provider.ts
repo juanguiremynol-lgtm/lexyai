@@ -73,17 +73,20 @@ export function getBillingProviderInstance(): IBillingProvider {
       default:
         providerInstance = new MockBillingProvider();
         break;
-      // Future providers will be added here:
-      // case 'stripe':
-      //   providerInstance = new StripeBillingProvider();
-      //   break;
-      // case 'wompi':
-      //   providerInstance = new WompiBillingProvider();
-      //   break;
+      // Active providers are configured via platform_gateway_config.
+      // When a real provider is activated, the billing edge functions
+      // read credentials from platform_gateway_config and route accordingly.
+      // The frontend factory always uses 'mock' for local operations;
+      // actual payment processing happens server-side via edge functions.
     }
   }
   
   return providerInstance;
+}
+
+// Reset provider instance (useful when active gateway changes)
+export function resetBillingProviderInstance(): void {
+  providerInstance = null;
 }
 
 // Convenience exports
