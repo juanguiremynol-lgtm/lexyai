@@ -17,6 +17,8 @@ import {
   evaluatePostRecoveryCatchup,
   evaluateEscalation,
 } from './atenia-freshness-policies';
+import { evaluateDeepDiveTriggers } from './atenia-deep-dive';
+import { refreshE2ERegistry, runScheduledE2EBatch } from './atenia-e2e-registry';
 
 // ============= TYPES =============
 
@@ -620,6 +622,42 @@ export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResu
     ]);
 
     allPlans.push(...cont, ...retries, ...suspend, ...provHealth, ...heavy, ...freshClass, ...freshViol, ...userAlerts, ...autoDemote, ...postRecovery, ...escalation);
+
+    // Deep dive triggers (max 2 per cycle)
+    try {
+      const divesTriggered = await evaluateDeepDiveTriggers(orgId);
+      if (divesTriggered > 0) {
+        allPlans.push({ action_type: 'DEEP_DIVE_TRIGGERS', status: 'EXECUTED', reason: `${divesTriggered} deep dive(s) activados.` });
+      }
+    } catch { /* non-blocking */ }
+
+    // E2E registry refresh (once per day guard)
+    try {
+      const { data: recentRefresh } = await (supabase.from('atenia_ai_actions') as any)
+        .select('id')
+        .eq('action_type', 'REFRESH_E2E_REGISTRY')
+        .gte('created_at', new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (!recentRefresh) {
+        const added = await refreshE2ERegistry(orgId);
+        if (added > 0) allPlans.push({ action_type: 'REFRESH_E2E_REGISTRY', status: 'EXECUTED', reason: `${added} centinelas añadidos.` });
+      }
+    } catch { /* non-blocking */ }
+
+    // Scheduled E2E (every 6 hours guard)
+    try {
+      const { data: recentE2E } = await (supabase.from('atenia_ai_actions') as any)
+        .select('id')
+        .eq('action_type', 'SCHEDULED_E2E_BATCH')
+        .gte('created_at', new Date(Date.now() - 5.5 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (!recentE2E) {
+        const e2eResult = await runScheduledE2EBatch(orgId, 'SCHEDULED');
+        allPlans.push({ action_type: 'SCHEDULED_E2E_BATCH', status: 'EXECUTED', reason: `E2E: ${e2eResult.passed}✅ ${e2eResult.failed}❌ / ${e2eResult.total}` });
+      }
+    } catch { /* non-blocking */ }
   } catch (err) {
     console.warn('[autonomy-engine] Cycle error:', err);
   }
