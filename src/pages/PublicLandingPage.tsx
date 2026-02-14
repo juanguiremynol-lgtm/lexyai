@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 import { HeroSection } from "@/components/landing/HeroSection";
+import { DemoRadicadoSection } from "@/components/demo/DemoRadicadoSection";
 import { AndroIASection } from "@/components/landing/AndroIASection";
 import { WorkflowsSection } from "@/components/landing/WorkflowsSection";
 import { AlertsAndEmailSection } from "@/components/landing/AlertsAndEmailSection";
@@ -41,6 +42,7 @@ export default function PublicLandingPage() {
   return (
     <div className="min-h-screen bg-background">
       <HeroSection isAuthenticated={isAuthenticated} onGoToApp={handleGoToApp} />
+      <DemoRadicadoSection />
       <AndroIASection />
       <WorkflowsSection />
       <AlertsAndEmailSection />
