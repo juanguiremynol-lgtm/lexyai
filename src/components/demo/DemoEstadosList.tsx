@@ -5,12 +5,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { FileText } from "lucide-react";
-
-interface DemoEstado {
-  tipo: string;
-  fecha: string;
-  descripcion: string | null;
-}
+import type { DemoEstado } from "./demo-types";
 
 interface Props {
   estados: DemoEstado[];
@@ -39,11 +34,22 @@ export function DemoEstadosList({ estados }: Props) {
           <div className="flex-1 min-w-0 space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground font-mono">
-                {estado.fecha}
+                {estado.fecha
+                  ? new Date(estado.fecha).toLocaleDateString("es-CO", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })
+                  : estado.fecha}
               </span>
               <Badge variant="outline" className="text-xs">
                 {estado.tipo}
               </Badge>
+              {i === 0 && (
+                <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                  Actual
+                </Badge>
+              )}
             </div>
             {estado.descripcion && (
               <p className="text-sm text-muted-foreground">
