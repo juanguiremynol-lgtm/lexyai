@@ -694,15 +694,34 @@
     );
   }
 
-  /* Pastel Girly theme background */
+  /* Pastel Girly theme background — dreamy clouds */
   .pastel-girly body {
     font-family: 'Nunito', 'Quicksand', system-ui, sans-serif;
     letter-spacing: 0.01em;
-    background:
-      radial-gradient(ellipse at 20% 50%, hsl(330 30% 96%) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 20%, hsl(270 25% 96%) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 80%, hsl(20 35% 96%) 0%, transparent 50%),
-      hsl(30 40% 98%);
+    background-color: hsl(210 60% 92%);
+    background-image:
+      /* Foreground clouds — large, warm pink/white */
+      radial-gradient(ellipse 220px 100px at 15% 85%, hsl(330 30% 96% / 0.95) 0%, transparent 70%),
+      radial-gradient(ellipse 280px 110px at 25% 82%, hsl(0 0% 100% / 0.9) 0%, transparent 70%),
+      radial-gradient(ellipse 200px 90px at 10% 88%, hsl(330 25% 95% / 0.85) 0%, transparent 65%),
+      /* Mid clouds — right side */
+      radial-gradient(ellipse 300px 120px at 75% 70%, hsl(0 0% 100% / 0.88) 0%, transparent 70%),
+      radial-gradient(ellipse 250px 100px at 80% 68%, hsl(270 20% 96% / 0.8) 0%, transparent 65%),
+      radial-gradient(ellipse 180px 80px at 85% 74%, hsl(330 20% 97% / 0.85) 0%, transparent 60%),
+      /* Mid clouds — center */
+      radial-gradient(ellipse 350px 130px at 50% 55%, hsl(0 0% 100% / 0.75) 0%, transparent 70%),
+      radial-gradient(ellipse 260px 100px at 45% 52%, hsl(210 30% 96% / 0.7) 0%, transparent 65%),
+      /* High clouds — wispy, top area */
+      radial-gradient(ellipse 400px 80px at 30% 25%, hsl(0 0% 100% / 0.6) 0%, transparent 70%),
+      radial-gradient(ellipse 320px 70px at 65% 20%, hsl(270 15% 97% / 0.55) 0%, transparent 65%),
+      radial-gradient(ellipse 280px 60px at 50% 15%, hsl(210 25% 97% / 0.5) 0%, transparent 60%),
+      /* Sky gradient — soft pastel blue to pink horizon */
+      linear-gradient(180deg,
+        hsl(210 55% 88%) 0%,
+        hsl(210 50% 90%) 25%,
+        hsl(270 25% 92%) 50%,
+        hsl(330 30% 93%) 75%,
+        hsl(20 35% 94%) 100%);
     background-attachment: fixed;
   }
 
