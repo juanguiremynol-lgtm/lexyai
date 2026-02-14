@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
 
       if (triggered) {
         // Create incident observation — PAYLOAD-FREE
-        await supabaseAdmin.from("atenia_ai_observations").insert({
+        const { error: insertErr } = await supabaseAdmin.from("atenia_ai_observations").insert({
           kind: "SECURITY_ALERT",
           severity: rule.severity.toUpperCase(),
           title: `🚨 ${rule.name}`,
@@ -279,6 +279,9 @@ Deno.serve(async (req) => {
             detected_at: new Date().toISOString(),
           },
         });
+        if (insertErr) {
+          console.error(`[observation_insert_failure] kind=SECURITY_ALERT fn=security-audit-alerts rule=${rule.id} reason=${insertErr.message}`);
+        }
       }
 
       results.push({

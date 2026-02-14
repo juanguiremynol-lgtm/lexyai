@@ -64,7 +64,7 @@ export async function persistHeartbeatToConversations(
     try {
       const convId = await findOrCreateConversation(incident);
       if (convId) {
-        await addObservation(convId, orgId, 'provider_degraded', severity, incident.title, {
+        await addObservation(convId, orgId, 'PROVIDER_DEGRADED_WIRING', severity, incident.title, {
           providers,
           observations: providerDegraded.map(o => o.message),
         });
@@ -89,7 +89,7 @@ export async function persistHeartbeatToConversations(
     try {
       const convId = await findOrCreateConversation(incident);
       if (convId) {
-        await addObservation(convId, orgId, 'ext_failures', severity, detail, {
+        await addObservation(convId, orgId, 'EXT_FAILURES', severity, detail, {
           count: extFailures.length,
         });
       }
@@ -111,7 +111,7 @@ export async function persistHeartbeatToConversations(
     try {
       const convId = await findOrCreateConversation(incident);
       if (convId) {
-        await addObservation(convId, orgId, 'ghost_items', 'WARNING',
+        await addObservation(convId, orgId, 'GHOST_ITEMS_WIRING', 'WARNING',
           `${count} asuntos monitoreados sin sincronización inicial`, { count });
       }
     } catch (err) {
