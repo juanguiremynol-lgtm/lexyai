@@ -10285,10 +10285,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
       }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
-      unaccent: { Args: { "": string }; Returns: string }
       update_daily_sync_ledger: {
         Args: {
           p_error?: string
