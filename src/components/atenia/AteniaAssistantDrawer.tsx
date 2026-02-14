@@ -370,19 +370,35 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
     <div className={embedded ? "flex flex-col h-full overflow-hidden" : "w-full sm:max-w-lg flex flex-col p-0"}>
 
         {/* Header */}
-        <SheetHeader className="p-4 pb-2 border-b">
-          <SheetTitle className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-primary" />
-            Andro IA — Asistente
-          </SheetTitle>
-          <SheetDescription className="text-xs">
-            {scope === "WORK_ITEM" && workItemRadicado
-              ? `Analizando: ${workItemRadicado}`
-              : scope === "PLATFORM"
-                ? "Modo plataforma"
-                : "Tu asistente de cuenta y organización"}
-          </SheetDescription>
-        </SheetHeader>
+        {embedded ? (
+          <div className="p-4 pb-2 border-b flex flex-col space-y-1.5">
+            <div className="flex items-center gap-2 text-lg font-semibold">
+              <Bot className="h-5 w-5 text-primary" />
+              Andro IA — Asistente
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {scope === "WORK_ITEM" && workItemRadicado
+                ? `Analizando: ${workItemRadicado}`
+                : scope === "PLATFORM"
+                  ? "Modo plataforma"
+                  : "Tu asistente de cuenta y organización"}
+            </p>
+          </div>
+        ) : (
+          <SheetHeader className="p-4 pb-2 border-b">
+            <SheetTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-primary" />
+              Andro IA — Asistente
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              {scope === "WORK_ITEM" && workItemRadicado
+                ? `Analizando: ${workItemRadicado}`
+                : scope === "PLATFORM"
+                  ? "Modo plataforma"
+                  : "Tu asistente de cuenta y organización"}
+            </SheetDescription>
+          </SheetHeader>
+        )}
 
         {/* Tab switcher */}
         <div className="flex border-b">
