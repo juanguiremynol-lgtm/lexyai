@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MasterSyncPanel } from "./master-sync/MasterSyncPanel";
+import { GlobalMasterSyncButton } from "./master-sync/GlobalMasterSyncButton";
 import { AteniaActionsLog } from "./atenia-ai/AteniaActionsLog";
 import { AteniaConfigEditor } from "./atenia-ai/AteniaConfigEditor";
 import { AteniaHealthAudit } from "./atenia-ai/AteniaHealthAudit";
@@ -687,8 +688,11 @@ export function AteniaAISupervisorPanel() {
           {/* Atenia AI Configuration */}
           <AteniaConfigEditor organizationId={PLATFORM_ORG_ID} />
 
-          {/* Master Sync Debug Tool */}
+          {/* Master Sync Debug Tool (org-scoped) */}
           <MasterSyncPanel />
+
+          {/* Global Master Sync — all orgs, all users */}
+          <GlobalMasterSyncButton />
 
           {/* Operator Explanation */}
           <AteniaOperatorExplanation />
