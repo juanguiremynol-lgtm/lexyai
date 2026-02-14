@@ -54,6 +54,7 @@ const platformNavItems = [
   { title: "Usuarios", url: "/platform/users", icon: Users },
   { title: "Auditoría", url: "/platform/audit", icon: History },
   { title: "Email Ops", url: "/platform/email-ops", icon: Mail },
+  { title: "Email Provider", url: "/platform/email-provider", icon: Mail },
   { title: "Sistema", url: "/platform/system", icon: Activity },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
   { title: "Gemini AI", url: "/platform/gemini", icon: Sparkles },

@@ -4298,6 +4298,36 @@ export type Database = {
           },
         ]
       }
+      email_provider_config: {
+        Row: {
+          config_key: string
+          config_value: string
+          environment: string
+          id: string
+          is_secret: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          config_key: string
+          config_value: string
+          environment?: string
+          id?: string
+          is_secret?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          config_key?: string
+          config_value?: string
+          environment?: string
+          id?: string
+          is_secret?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       email_suppressions: {
         Row: {
           created_at: string
@@ -6543,6 +6573,11 @@ export type Database = {
           email_pause_reason: string | null
           email_paused_at: string | null
           email_paused_by: string | null
+          email_provider_configured: boolean
+          email_provider_configured_at: string | null
+          email_provider_configured_by: string | null
+          email_provider_environment: string | null
+          email_provider_type: string | null
           gemini_master_enabled: boolean
           gemini_org_admin_enabled: boolean
           gemini_super_admin_enabled: boolean
@@ -6563,6 +6598,11 @@ export type Database = {
           email_pause_reason?: string | null
           email_paused_at?: string | null
           email_paused_by?: string | null
+          email_provider_configured?: boolean
+          email_provider_configured_at?: string | null
+          email_provider_configured_by?: string | null
+          email_provider_environment?: string | null
+          email_provider_type?: string | null
           gemini_master_enabled?: boolean
           gemini_org_admin_enabled?: boolean
           gemini_super_admin_enabled?: boolean
@@ -6583,6 +6623,11 @@ export type Database = {
           email_pause_reason?: string | null
           email_paused_at?: string | null
           email_paused_by?: string | null
+          email_provider_configured?: boolean
+          email_provider_configured_at?: string | null
+          email_provider_configured_by?: string | null
+          email_provider_environment?: string | null
+          email_provider_type?: string | null
           gemini_master_enabled?: boolean
           gemini_org_admin_enabled?: boolean
           gemini_super_admin_enabled?: boolean
