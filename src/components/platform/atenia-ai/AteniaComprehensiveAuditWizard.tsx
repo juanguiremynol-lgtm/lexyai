@@ -650,7 +650,7 @@ export function AteniaComprehensiveAuditWizard() {
                   })}
                 </div>
 
-                <ScrollArea className="max-h-[700px]">
+                <div className="overflow-auto">
                   <div className="space-y-2">
                     {groups.map(g => {
                       const groupChecks = CHECK_DEFS.filter(c => c.group === g.key && audit.checks[c.key]?.status !== "idle");
@@ -679,7 +679,7 @@ export function AteniaComprehensiveAuditWizard() {
                                 </CollapsibleTrigger>
                                 {check.details && (
                                   <CollapsibleContent className="px-3 pb-3">
-                                    <div className="mt-2 p-3 rounded bg-muted/30 border text-xs font-mono whitespace-pre-wrap max-h-[300px] overflow-auto">
+                                    <div className="mt-2 p-3 rounded bg-muted/30 border text-xs font-mono whitespace-pre-wrap overflow-auto select-all">
                                       {typeof check.details === "string"
                                         ? check.details
                                         : check.details.analysis
@@ -695,7 +695,7 @@ export function AteniaComprehensiveAuditWizard() {
                       );
                     })}
                   </div>
-                </ScrollArea>
+                </div>
               </CardContent>
             </Card>
           ) : (
