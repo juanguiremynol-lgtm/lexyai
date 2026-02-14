@@ -100,6 +100,12 @@ const EXTERNAL_TOOLS = [
     url: "https://colombia-legal-rates.lovable.app/contrato-servicios",
     icon: ScrollText,
   },
+  {
+    title: "Datos Abiertos Colombia",
+    description: "Portal oficial de datos abiertos del gobierno colombiano",
+    url: "https://www.datos.gov.co/browse?sortBy=newest&utf8=%E2%9C%93&pageSize=20",
+    icon: ExternalLink,
+  },
 ];
 
 export default function Utilities() {
