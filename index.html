@@ -3,6 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Security: Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: blob: https://*.supabase.co;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://app.posthog.com https://us.posthog.com https://eu.posthog.com https://*.ingest.sentry.io;
+      frame-src 'none';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    " />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>ATENIA - Asistente jurídico digital</title>
     <meta name="description" content="ATENIA - Asistente jurídico digital para la gestión de procesos legales" />
