@@ -237,7 +237,7 @@ export default function Settings() {
           </TabsTrigger>
           <TabsTrigger value="atenia">
             <Bot className="h-4 w-4 mr-1" />
-            Atenia AI
+            Andro IA
           </TabsTrigger>
           {isDangerZoneVisible && (
             <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">
@@ -570,7 +570,7 @@ export default function Settings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Bot className="h-5 w-5" />
-                Asistente Atenia AI
+                Asistente Andro IA
               </CardTitle>
               <CardDescription>
                 Configura la visibilidad y comportamiento del asistente Atenia AI

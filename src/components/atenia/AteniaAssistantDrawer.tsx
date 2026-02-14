@@ -296,7 +296,7 @@ export function AteniaAssistantDrawer({
     if (!diagnosis) return;
     setIsEscalating(true);
     try {
-      const prompt = `Eres Atenia AI. Un usuario reportó un problema con el radicado ${diagnosis.radicado || "desconocido"}.
+      const prompt = `Eres Andro IA. Un usuario reportó un problema con el radicado ${diagnosis.radicado || "desconocido"}.
 
 CONTEXTO:
 - Tipo: ${diagnosis.workflow_type}
@@ -348,7 +348,7 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
         autoDiagnosis: diagnosis || undefined,
       });
       setSubmitted(true);
-      toast.success("Reporte enviado a Atenia AI", {
+      toast.success("Reporte enviado a Andro IA", {
         description: "Tu reporte será analizado y se tomarán acciones correctivas si es necesario.",
       });
     } catch (err: any) {
@@ -372,7 +372,7 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
         <SheetHeader className="p-4 pb-2 border-b">
           <SheetTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-primary" />
-            Atenia AI — Asistente
+            Andro IA — Asistente
           </SheetTitle>
           <SheetDescription className="text-xs">
             {scope === "WORK_ITEM" && workItemRadicado
@@ -546,7 +546,7 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Pregunta a Atenia AI..."
+                  placeholder="Pregunta a Andro IA..."
                   className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm min-h-[40px] max-h-[100px]"
                   rows={1}
                   disabled={isLoading}
@@ -567,7 +567,7 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
                 <CheckCircle className="h-10 w-10 text-primary mx-auto" />
                 <p className="text-sm font-medium">Reporte enviado exitosamente</p>
                 <p className="text-xs text-muted-foreground">
-                  Tu reporte será analizado por Atenia AI. Si se requiere acción correctiva, se ejecutará automáticamente.
+                  Tu reporte será analizado por Andro IA. Si se requiere acción correctiva, se ejecutará automáticamente.
                 </p>
                 <div className="flex justify-center gap-2">
                   {diagnosis && (
@@ -676,7 +676,7 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
                     <CardContent className="p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Brain className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-medium">Análisis de Atenia AI</span>
+                        <span className="text-sm font-medium">Análisis de Andro IA</span>
                       </div>
                       <p className="text-xs text-muted-foreground whitespace-pre-wrap">{geminiAnalysis}</p>
                     </CardContent>

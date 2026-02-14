@@ -145,10 +145,10 @@ export function useOrganizationInvites(organizationId: string | null) {
       await supabase.from("email_outbox").insert({
         organization_id: organizationId,
         to_email: email.toLowerCase().trim(),
-        subject: `Invitación a unirte a ${org?.name || "la organización"} en ATENIA`,
+        subject: `Invitación a unirte a ${org?.name || "la organización"} en Andromeda`,
         html: `
           <h1>¡Has sido invitado!</h1>
-          <p>Has recibido una invitación para unirte a <strong>${org?.name || "una organización"}</strong> en ATENIA como <strong>${role === "ADMIN" ? "Administrador" : "Miembro"}</strong>.</p>
+          <p>Has recibido una invitación para unirte a <strong>${org?.name || "una organización"}</strong> en Andromeda como <strong>${role === "ADMIN" ? "Administrador" : "Miembro"}</strong>.</p>
           <p><a href="${inviteUrl}" style="display: inline-block; padding: 12px 24px; background-color: #0ea5e9; color: white; text-decoration: none; border-radius: 6px;">Aceptar Invitación</a></p>
           <p>Este enlace expira en 7 días.</p>
           <p>Si no esperabas esta invitación, puedes ignorar este correo.</p>
@@ -220,10 +220,10 @@ export function useOrganizationInvites(organizationId: string | null) {
       await supabase.from("email_outbox").insert({
         organization_id: organizationId,
         to_email: invite.email,
-        subject: `Recordatorio: Invitación a unirte a ${org?.name || "la organización"} en ATENIA`,
+        subject: `Recordatorio: Invitación a unirte a ${org?.name || "la organización"} en Andromeda`,
         html: `
           <h1>Recordatorio de Invitación</h1>
-          <p>Este es un recordatorio de que has sido invitado a unirte a <strong>${org?.name || "una organización"}</strong> en ATENIA como <strong>${invite.role === "ADMIN" ? "Administrador" : "Miembro"}</strong>.</p>
+          <p>Este es un recordatorio de que has sido invitado a unirte a <strong>${org?.name || "una organización"}</strong> en Andromeda como <strong>${invite.role === "ADMIN" ? "Administrador" : "Miembro"}</strong>.</p>
           <p><a href="${inviteUrl}" style="display: inline-block; padding: 12px 24px; background-color: #0ea5e9; color: white; text-decoration: none; border-radius: 6px;">Aceptar Invitación</a></p>
           <p>Este enlace expira en 7 días.</p>
         `,

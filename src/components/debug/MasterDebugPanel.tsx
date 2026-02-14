@@ -986,7 +986,7 @@ export function MasterDebugPanel() {
             </TabsTrigger>
             <TabsTrigger value="atenia" className="text-xs">
               <Bot className="h-3.5 w-3.5 mr-1" />
-              Atenia AI
+              Andro IA
             </TabsTrigger>
             <TabsTrigger value="providers" className="text-xs">
               <Cable className="h-3.5 w-3.5 mr-1" />

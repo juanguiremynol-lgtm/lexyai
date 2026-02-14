@@ -80,7 +80,7 @@ export function useSoftDeleteWorkItems(options?: UseSoftDeleteWorkItemsOptions) 
       // Show success message
       if (result.archived_count > 0) {
         toast.success(
-          `${result.archived_count} asunto${result.archived_count !== 1 ? "s" : ""} eliminado${result.archived_count !== 1 ? "s" : ""}. Recuperable con Atenia AI por 10 días.`
+          `${result.archived_count} asunto${result.archived_count !== 1 ? "s" : ""} eliminado${result.archived_count !== 1 ? "s" : ""}. Recuperable con Andro IA por 10 días.`
         );
       }
 

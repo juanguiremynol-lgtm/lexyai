@@ -32,8 +32,8 @@ export function MascotAvatar({ state, onClick, className }: MascotAvatarProps) {
         state === "SUPPRESSED" && "opacity-70",
         className
       )}
-      aria-label="Abrir Atenia AI"
-      title="Atenia AI — Tu asistente"
+      aria-label="Abrir Andro IA"
+      title="Andro IA — Tu asistente"
     >
       <svg viewBox="0 0 48 48" className="w-8 h-8" aria-hidden="true">
         {/* Antenna */}

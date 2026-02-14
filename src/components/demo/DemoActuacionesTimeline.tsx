@@ -137,7 +137,7 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
 
       {filtered.length > 20 && showAll && (
         <p className="text-xs text-muted-foreground text-center">
-          Mostrando {filtered.length} actuaciones. En ATENIA verías todas con sincronización automática.
+          Mostrando {filtered.length} actuaciones. En Andromeda verías todas con sincronización automática.
         </p>
       )}
     </div>
