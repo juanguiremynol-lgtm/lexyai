@@ -5833,6 +5833,50 @@ export type Database = {
           },
         ]
       }
+      org_analytics_overrides: {
+        Row: {
+          allowed_properties_override: Json | null
+          analytics_enabled: boolean | null
+          created_at: string
+          id: string
+          notes: string | null
+          organization_id: string
+          session_replay_enabled: boolean | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          allowed_properties_override?: Json | null
+          analytics_enabled?: boolean | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          organization_id: string
+          session_replay_enabled?: boolean | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          allowed_properties_override?: Json | null
+          analytics_enabled?: boolean | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          organization_id?: string
+          session_replay_enabled?: boolean | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_analytics_overrides_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       org_integration_settings: {
         Row: {
           adapter_priority_order: string[]
@@ -6567,6 +6611,11 @@ export type Database = {
       }
       platform_settings: {
         Row: {
+          analytics_allowed_properties: Json
+          analytics_enabled_global: boolean
+          analytics_hash_secret_configured: boolean
+          analytics_last_event_at: string | null
+          analytics_posthog_host: string | null
           created_at: string
           daily_welcome_enabled: boolean
           email_enabled: boolean
@@ -6587,11 +6636,19 @@ export type Database = {
           max_emails_per_org_per_hour: number | null
           max_global_emails_per_minute: number | null
           max_retry_attempts: number | null
+          posthog_enabled: boolean
+          sentry_enabled: boolean
+          session_replay_enabled: boolean
           spike_detection_enabled: boolean | null
           spike_threshold_multiplier: number | null
           updated_at: string
         }
         Insert: {
+          analytics_allowed_properties?: Json
+          analytics_enabled_global?: boolean
+          analytics_hash_secret_configured?: boolean
+          analytics_last_event_at?: string | null
+          analytics_posthog_host?: string | null
           created_at?: string
           daily_welcome_enabled?: boolean
           email_enabled?: boolean
@@ -6612,11 +6669,19 @@ export type Database = {
           max_emails_per_org_per_hour?: number | null
           max_global_emails_per_minute?: number | null
           max_retry_attempts?: number | null
+          posthog_enabled?: boolean
+          sentry_enabled?: boolean
+          session_replay_enabled?: boolean
           spike_detection_enabled?: boolean | null
           spike_threshold_multiplier?: number | null
           updated_at?: string
         }
         Update: {
+          analytics_allowed_properties?: Json
+          analytics_enabled_global?: boolean
+          analytics_hash_secret_configured?: boolean
+          analytics_last_event_at?: string | null
+          analytics_posthog_host?: string | null
           created_at?: string
           daily_welcome_enabled?: boolean
           email_enabled?: boolean
@@ -6637,6 +6702,9 @@ export type Database = {
           max_emails_per_org_per_hour?: number | null
           max_global_emails_per_minute?: number | null
           max_retry_attempts?: number | null
+          posthog_enabled?: boolean
+          sentry_enabled?: boolean
+          session_replay_enabled?: boolean
           spike_detection_enabled?: boolean | null
           spike_threshold_multiplier?: number | null
           updated_at?: string
