@@ -192,6 +192,32 @@ export function UserPrivacySettings() {
               Andro IA le pedirá su autorización explícita antes de compartir cualquier información con el equipo de soporte.
             </AlertDescription>
           </Alert>
+
+          <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center gap-2 mb-3">
+              <ShieldCheck className="h-5 w-5 text-blue-600" />
+              <h4 className="font-medium text-blue-800 dark:text-blue-200">
+                Sin Recopilación de Datos para IA
+              </h4>
+            </div>
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              <strong>No recopilamos, almacenamos ni utilizamos ningún tipo de información de nuestros usuarios para alimentar, entrenar o mejorar modelos de inteligencia artificial (LLM).</strong>
+            </p>
+            <ul className="mt-2 space-y-1.5 text-sm text-blue-700 dark:text-blue-300">
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>Sus datos, documentos, procesos y conversaciones <strong>nunca</strong> se envían a terceros para entrenamiento de IA</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>Las funcionalidades de IA integradas procesan su información de forma efímera y <strong>sin retención</strong></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>Ningún dato personal o profesional es utilizado como insumo para modelos generativos</span>
+              </li>
+            </ul>
+          </div>
         </CardContent>
       </Card>
 
