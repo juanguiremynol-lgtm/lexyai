@@ -1,13 +1,12 @@
 /**
- * Security Audit Alerts — High-signal event detection
+ * Security Audit Alerts — High-signal event detection (v2)
  *
- * Monitors audit_logs and system events for suspicious patterns:
- * - Bulk exports
- * - Permission changes
- * - Unusual access patterns
- * - Settings mutations
+ * v2 Enhancements:
+ * - Per-tenant baseline thresholds (relative to org size)
+ * - Payload-free incident observations (links to audit entries, no raw data)
+ * - SECURITY_SETTINGS_UPDATED tracking for egress/CSP changes
+ * - Egress violation correlation
  *
- * Wires alerts into Atenia AI's incident system (atenia_ai_observations).
  * Called by pg_cron or server-heartbeat.
  */
 
@@ -19,110 +18,80 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Alert Definitions ────────────────────────────────────────────────
+// ── Per-Tenant Baseline Multipliers ──────────────────────────────────
+// Thresholds are multiplied by tenant size category
+function getTenantMultiplier(memberCount: number): number {
+  if (memberCount <= 3) return 1;      // Small firm
+  if (memberCount <= 10) return 2;     // Medium firm
+  if (memberCount <= 30) return 4;     // Large firm
+  return 8;                             // Enterprise
+}
+
+// ── Alert Rule Definitions ───────────────────────────────────────────
 interface AlertRule {
   id: string;
   name: string;
   description: string;
   severity: "critical" | "warning" | "info";
-  query: string; // SQL to detect the condition
-  threshold: number; // Minimum count to trigger
-  windowMinutes: number; // Lookback window
+  baseThreshold: number;       // Base threshold (multiplied by tenant size)
+  windowMinutes: number;
+  scaleByTenant: boolean;      // Whether to apply tenant multiplier
 }
 
 const ALERT_RULES: AlertRule[] = [
   {
     id: "BULK_EXPORT_SPIKE",
-    name: "Bulk Export Spike",
-    description: "Unusually high number of exports by a single user in short window",
+    name: "Pico de Exportación Masiva",
+    description: "Número inusualmente alto de exportaciones por un usuario",
     severity: "critical",
-    query: `
-      SELECT actor_user_id, organization_id, COUNT(*) as event_count
-      FROM audit_logs
-      WHERE action IN ('EXPORT_GENERATED', 'DOCUMENT_DOWNLOADED', 'EVIDENCE_BUNDLE_GENERATED')
-        AND created_at > now() - interval '$1 minutes'
-      GROUP BY actor_user_id, organization_id
-      HAVING COUNT(*) >= $2
-    `,
-    threshold: 10,
+    baseThreshold: 10,
     windowMinutes: 15,
+    scaleByTenant: true,
   },
   {
     id: "PERMISSION_ESCALATION",
-    name: "Permission Escalation Detected",
-    description: "Role change to admin/owner detected — verify legitimacy",
+    name: "Escalamiento de Permisos",
+    description: "Cambio de rol a admin/owner detectado",
     severity: "critical",
-    query: `
-      SELECT actor_user_id, organization_id, metadata, created_at
-      FROM audit_logs
-      WHERE action IN ('DB_MEMBERSHIP_UPDATED', 'ROLE_CHANGED', 'MEMBER_ROLE_UPDATED')
-        AND created_at > now() - interval '$1 minutes'
-        AND (metadata->>'after')::jsonb->>'role' IN ('OWNER', 'ADMIN', 'owner', 'admin')
-    `,
-    threshold: 1,
+    baseThreshold: 1,
     windowMinutes: 60,
+    scaleByTenant: false, // Always 1 — any escalation is notable
   },
   {
     id: "FAILED_AUTH_SPIKE",
-    name: "Failed Authentication Spike",
-    description: "Multiple failed login attempts — potential credential stuffing",
+    name: "Pico de Auth Fallido",
+    description: "Múltiples intentos de login fallidos",
     severity: "warning",
-    query: `
-      SELECT COUNT(*) as event_count
-      FROM audit_logs
-      WHERE action IN ('AUTH_LOGIN_FAILURE', 'AUTH_FAILED')
-        AND created_at > now() - interval '$1 minutes'
-      HAVING COUNT(*) >= $2
-    `,
-    threshold: 20,
+    baseThreshold: 20,
     windowMinutes: 10,
+    scaleByTenant: true,
   },
   {
     id: "ADMIN_SETTINGS_MUTATION",
-    name: "Admin Settings Changed",
-    description: "Platform or organization settings were modified",
+    name: "Cambio de Configuración Admin",
+    description: "Configuración de plataforma u organización modificada",
     severity: "info",
-    query: `
-      SELECT actor_user_id, organization_id, action, metadata, created_at
-      FROM audit_logs
-      WHERE action IN (
-        'ANALYTICS_SETTINGS_UPDATED', 'ORG_SETTINGS_UPDATED',
-        'PLATFORM_SETTINGS_UPDATED', 'SUBSCRIPTION_CHANGED',
-        'DB_SUBSCRIPTION_UPDATED', 'SUPPORT_GRANT_CREATED'
-      )
-        AND created_at > now() - interval '$1 minutes'
-    `,
-    threshold: 1,
+    baseThreshold: 1,
     windowMinutes: 60,
+    scaleByTenant: false,
   },
   {
     id: "UNUSUAL_DATA_READ_VOLUME",
-    name: "Unusual Data Read Volume",
-    description: "Single user accessing abnormally high number of records",
+    name: "Volumen de Lectura Anómalo",
+    description: "Usuario accediendo a volumen anormal de registros",
     severity: "warning",
-    query: `
-      SELECT user_id, table_name, COUNT(*) as access_count
-      FROM data_access_log
-      WHERE accessed_at > now() - interval '$1 minutes'
-      GROUP BY user_id, table_name
-      HAVING COUNT(*) >= $2
-    `,
-    threshold: 200,
+    baseThreshold: 200,
     windowMinutes: 30,
+    scaleByTenant: true,
   },
   {
     id: "EGRESS_VIOLATION_DETECTED",
-    name: "Egress Proxy Violation",
-    description: "Outbound request blocked by egress proxy — potential exfiltration attempt",
+    name: "Violación de Egreso",
+    description: "Solicitud externa bloqueada por proxy de egreso",
     severity: "critical",
-    query: `
-      SELECT title, severity, payload, created_at
-      FROM atenia_ai_observations
-      WHERE kind = 'EGRESS_VIOLATION'
-        AND created_at > now() - interval '$1 minutes'
-    `,
-    threshold: 1,
+    baseThreshold: 1,
     windowMinutes: 30,
+    scaleByTenant: false,
   },
 ];
 
@@ -136,7 +105,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.clone().json().catch(() => null);
     if (body?.health_check === true) {
-      return new Response(JSON.stringify({ status: "ok", service: "security-audit-alerts" }), {
+      return new Response(JSON.stringify({ status: "ok", service: "security-audit-alerts", version: "2.0" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -147,6 +116,25 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
+  // Fetch tenant sizes for baseline scaling
+  const { data: orgSizes } = await supabaseAdmin
+    .from("organization_memberships")
+    .select("organization_id")
+    .then(({ data }) => {
+      if (!data) return { data: new Map<string, number>() };
+      const counts = new Map<string, number>();
+      for (const row of data) {
+        counts.set(row.organization_id, (counts.get(row.organization_id) || 0) + 1);
+      }
+      return { data: counts };
+    });
+
+  const getThreshold = (rule: AlertRule, orgId?: string): number => {
+    if (!rule.scaleByTenant || !orgId) return rule.baseThreshold;
+    const memberCount = orgSizes?.get(orgId) || 1;
+    return rule.baseThreshold * getTenantMultiplier(memberCount);
+  };
+
   const results: {
     rule_id: string;
     triggered: boolean;
@@ -156,35 +144,30 @@ Deno.serve(async (req) => {
 
   for (const rule of ALERT_RULES) {
     try {
-      // Replace placeholders with actual values
-      const query = rule.query
-        .replace(/\$1/g, String(rule.windowMinutes))
-        .replace(/\$2/g, String(rule.threshold));
-
-      const { data, error } = await supabaseAdmin.rpc("", {}).maybeSingle();
-      
-      // Use raw SQL via supabase-js isn't directly available,
-      // so we query the relevant tables directly
       let triggered = false;
-      let detail: unknown = null;
+      // PAYLOAD-FREE detail: only IDs, counts, timestamps — never raw content
+      let detail: Record<string, unknown> = {};
 
       if (rule.id === "BULK_EXPORT_SPIKE") {
         const { data: exports } = await supabaseAdmin
           .from("audit_logs")
           .select("actor_user_id, organization_id")
-          .in("action", ["EXPORT_GENERATED", "DOCUMENT_DOWNLOADED", "EVIDENCE_BUNDLE_GENERATED"])
+          .in("action", ["EXPORT_GENERATED", "DOCUMENT_DOWNLOADED", "EVIDENCE_BUNDLE_GENERATED", "DATA_EXPORTED"])
           .gte("created_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
-        
+
         if (exports) {
-          const countByUser = new Map<string, number>();
+          const countByUserOrg = new Map<string, { count: number; orgId: string }>();
           for (const row of exports) {
             const key = `${row.actor_user_id}:${row.organization_id}`;
-            countByUser.set(key, (countByUser.get(key) || 0) + 1);
+            const existing = countByUserOrg.get(key);
+            if (existing) existing.count++;
+            else countByUserOrg.set(key, { count: 1, orgId: row.organization_id });
           }
-          for (const [key, count] of countByUser) {
-            if (count >= rule.threshold) {
+          for (const [key, { count, orgId }] of countByUserOrg) {
+            const threshold = getThreshold(rule, orgId);
+            if (count >= threshold) {
               triggered = true;
-              detail = { user_org: key.split(":")[1], count, threshold: rule.threshold };
+              detail = { org_id: orgId, event_count: count, threshold, window_minutes: rule.windowMinutes };
               break;
             }
           }
@@ -192,21 +175,21 @@ Deno.serve(async (req) => {
       } else if (rule.id === "PERMISSION_ESCALATION") {
         const { data: roleMutations } = await supabaseAdmin
           .from("audit_logs")
-          .select("actor_user_id, organization_id, metadata, created_at")
+          .select("actor_user_id, organization_id, metadata, created_at, id")
           .in("action", ["DB_MEMBERSHIP_UPDATED", "ROLE_CHANGED", "MEMBER_ROLE_UPDATED"])
           .gte("created_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
 
-        if (roleMutations && roleMutations.length >= rule.threshold) {
-          // Check if any resulted in admin/owner
+        if (roleMutations) {
           for (const mutation of roleMutations) {
             const after = (mutation.metadata as any)?.after;
             if (after?.role && ["OWNER", "ADMIN", "owner", "admin"].includes(after.role)) {
               triggered = true;
+              // Link to audit entry ID, not raw metadata
               detail = {
-                actor: mutation.actor_user_id,
-                org: mutation.organization_id,
+                audit_log_id: mutation.id,
+                org_id: mutation.organization_id,
                 new_role: after.role,
-                at: mutation.created_at,
+                detected_at: mutation.created_at,
               };
               break;
             }
@@ -219,24 +202,30 @@ Deno.serve(async (req) => {
           .in("action", ["AUTH_LOGIN_FAILURE", "AUTH_FAILED"])
           .gte("created_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
 
-        if (count && count >= rule.threshold) {
+        if (count && count >= rule.baseThreshold) {
           triggered = true;
-          detail = { count, threshold: rule.threshold, window_minutes: rule.windowMinutes };
+          detail = { event_count: count, threshold: rule.baseThreshold, window_minutes: rule.windowMinutes };
         }
       } else if (rule.id === "ADMIN_SETTINGS_MUTATION") {
         const { data: mutations } = await supabaseAdmin
           .from("audit_logs")
-          .select("actor_user_id, organization_id, action, created_at")
+          .select("id, actor_user_id, organization_id, action, created_at")
           .in("action", [
             "ANALYTICS_SETTINGS_UPDATED", "ORG_SETTINGS_UPDATED",
             "PLATFORM_SETTINGS_UPDATED", "SUBSCRIPTION_CHANGED",
             "DB_SUBSCRIPTION_UPDATED", "SUPPORT_GRANT_CREATED",
+            "SECURITY_SETTINGS_UPDATED",
           ])
           .gte("created_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
 
-        if (mutations && mutations.length >= rule.threshold) {
+        if (mutations && mutations.length >= rule.baseThreshold) {
           triggered = true;
-          detail = { count: mutations.length, actions: mutations.map((m) => m.action) };
+          // Only actions and IDs, no metadata content
+          detail = {
+            event_count: mutations.length,
+            actions: mutations.map(m => m.action),
+            audit_log_ids: mutations.map(m => m.id),
+          };
         }
       } else if (rule.id === "UNUSUAL_DATA_READ_VOLUME") {
         const { data: reads } = await supabaseAdmin
@@ -245,15 +234,16 @@ Deno.serve(async (req) => {
           .gte("accessed_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
 
         if (reads) {
-          const countByUser = new Map<string, number>();
+          const countByUserTable = new Map<string, number>();
           for (const row of reads) {
             const key = `${row.user_id}:${row.table_name}`;
-            countByUser.set(key, (countByUser.get(key) || 0) + 1);
+            countByUserTable.set(key, (countByUserTable.get(key) || 0) + 1);
           }
-          for (const [key, count] of countByUser) {
-            if (count >= rule.threshold) {
+          for (const [key, count] of countByUserTable) {
+            if (count >= rule.baseThreshold) {
               triggered = true;
-              detail = { user_table: key, count, threshold: rule.threshold };
+              const [, tableName] = key.split(":");
+              detail = { table: tableName, access_count: count, threshold: rule.baseThreshold };
               break;
             }
           }
@@ -261,18 +251,22 @@ Deno.serve(async (req) => {
       } else if (rule.id === "EGRESS_VIOLATION_DETECTED") {
         const { data: violations } = await supabaseAdmin
           .from("atenia_ai_observations")
-          .select("title, severity, created_at")
+          .select("id, title, severity, created_at")
           .eq("kind", "EGRESS_VIOLATION")
           .gte("created_at", new Date(Date.now() - rule.windowMinutes * 60_000).toISOString());
 
-        if (violations && violations.length >= rule.threshold) {
+        if (violations && violations.length >= rule.baseThreshold) {
           triggered = true;
-          detail = { count: violations.length, latest: violations[0] };
+          // Only observation IDs and count
+          detail = {
+            violation_count: violations.length,
+            observation_ids: violations.slice(0, 5).map(v => v.id),
+          };
         }
       }
 
       if (triggered) {
-        // Create incident observation
+        // Create incident observation — PAYLOAD-FREE
         await supabaseAdmin.from("atenia_ai_observations").insert({
           kind: "SECURITY_ALERT",
           severity: rule.severity,
@@ -280,7 +274,8 @@ Deno.serve(async (req) => {
           payload: {
             rule_id: rule.id,
             description: rule.description,
-            detail,
+            // Only safe metadata, no raw content
+            ...detail,
             detected_at: new Date().toISOString(),
           },
         });
@@ -303,7 +298,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const triggeredCount = results.filter((r) => r.triggered).length;
+  const triggeredCount = results.filter(r => r.triggered).length;
 
   return new Response(
     JSON.stringify({
@@ -313,8 +308,6 @@ Deno.serve(async (req) => {
       alerts_triggered: triggeredCount,
       results,
     }),
-    {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    }
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } }
   );
 });
