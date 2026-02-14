@@ -48,7 +48,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Así se vería este proceso en ATENIA
+              Así se vería este proceso en Andromeda
             </p>
           </div>
           <Button
@@ -152,7 +152,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                       Así se vería en tu espacio de trabajo
                     </h4>
                     <p className="text-xs text-muted-foreground mb-4">
-                      Un vistazo a cómo ATENIA organizaría este caso en tu pipeline.
+                      Un vistazo a cómo Andromeda organizaría este caso en tu pipeline.
                     </p>
                   </div>
 

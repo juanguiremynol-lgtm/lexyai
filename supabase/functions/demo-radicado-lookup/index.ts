@@ -1,8 +1,14 @@
 /**
  * demo-radicado-lookup — Public demo edge function
  * 
- * Zero-auth, zero-DB-write lookup for the landing page "Prueba ATENIA" experience.
+ * Zero-auth, zero-DB-write lookup for the landing page "Prueba Andromeda" experience.
  * All external calls route through egressClient with purpose "judicial_demo".
+ * 
+ * Providers called in parallel:
+ * - CPNU (Consulta Nacional Unificada de Procesos)
+ * - Publicaciones Procesales
+ * - SAMAI (actuaciones)
+ * - SAMAI Estados (estados/publicaciones electrónicas)
  * 
  * Security:
  * - Rate limit: 5 req / IP / 10 min (in-memory)
@@ -13,7 +19,6 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { egressFetch } from "../_shared/egressClient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -133,12 +138,14 @@ interface DemoActuacion {
   tipo: string | null;
   descripcion: string;
   anotacion: string | null;
+  source?: string;
 }
 
 interface DemoEstado {
   tipo: string;
   fecha: string;
   descripcion: string | null;
+  source?: string;
 }
 
 // Whitelisted response envelope — nothing outside this shape leaves the function
@@ -150,6 +157,7 @@ interface DemoResponse {
     radicado_masked: string;
     actuaciones_count: number;
     estados_count: number;
+    sources: string[];
     fetched_at: string;
     demo: true;
   };
@@ -171,7 +179,6 @@ async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body
     "Origin": "https://consultaprocesos.ramajudicial.gov.co",
   };
 
-  // Multi-endpoint fallback strategy (matches production adapter-cpnu)
   const searchCandidates: Array<{ url: string; method: string; body?: string; desc: string }> = [
     {
       url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`,
@@ -219,7 +226,6 @@ async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body
       const contentType = resp.headers.get("content-type") || "";
       console.log(`[demo] CPNU ${candidate.desc}: HTTP ${resp.status}, ct=${contentType.slice(0, 40)}`);
 
-      // Skip if not JSON (HTML = WAF/captcha page)
       if (!contentType.includes("json") && !contentType.includes("text/plain")) {
         console.log(`[demo] CPNU ${candidate.desc}: non-JSON response, skipping`);
         lastDiagnostic = { provider: "CPNU", variant: candidate.desc, http_status: resp.status, content_type: contentType.slice(0, 40), message: "non-JSON response" };
@@ -310,7 +316,6 @@ async function fetchCpnuDirect(radicado: string): Promise<{ status: number; body
     }
   }
 
-  // All candidates failed
   console.log(`[demo] CPNU: all candidates exhausted`);
   return {
     status: 0,
@@ -375,6 +380,42 @@ async function fetchSamaiDirect(radicado: string): Promise<{ status: number; bod
   }
 }
 
+async function fetchSamaiEstadosDirect(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const baseUrl = Deno.env.get("SAMAI_ESTADOS_BASE_URL");
+  const apiKey = Deno.env.get("SAMAI_ESTADOS_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
+  if (!baseUrl || !apiKey) {
+    console.log(`[demo] SAMAI Estados skipped: missing env vars (BASE_URL=${!!baseUrl}, API_KEY=${!!apiKey})`);
+    return { status: 0, body: null };
+  }
+  // Format radicado with dashes for SAMAI Estados API
+  const formatted = radicado.length === 23
+    ? `${radicado.slice(0, 2)}-${radicado.slice(2, 5)}-${radicado.slice(5, 7)}-${radicado.slice(7, 9)}-${radicado.slice(9, 12)}-${radicado.slice(12, 16)}-${radicado.slice(16, 21)}-${radicado.slice(21, 23)}`
+    : radicado;
+  const url = `${baseUrl}/buscar?radicado=${encodeURIComponent(formatted)}`;
+  console.log(`[demo] Calling SAMAI Estados for radicado ***${radicado.slice(-4)}`);
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: { "x-api-key": apiKey },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    console.log(`[demo] SAMAI Estados responded: HTTP ${resp.status}`);
+    const text = await resp.text();
+    try {
+      return { status: resp.status, body: JSON.parse(text) };
+    } catch {
+      console.log(`[demo] SAMAI Estados response not JSON, length=${text.length}`);
+      return { status: resp.status, body: null };
+    }
+  } catch (err) {
+    console.error(`[demo] SAMAI Estados fetch error:`, err);
+    return { status: 0, body: null };
+  }
+}
+
 // ═══════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════
@@ -415,10 +456,12 @@ Deno.serve(async (req: Request) => {
       }, 200);
     }
 
-    // 3. Parallel API calls (direct fetch, no egress proxy needed)
-    const [cpnuResult, pubResult] = await Promise.allSettled([
+    // 3. Parallel API calls — ALL four providers at once
+    const [cpnuResult, pubResult, samaiResult, samaiEstadosResult] = await Promise.allSettled([
       fetchCpnuDirect(radicado),
       fetchPublicacionesDirect(radicado),
+      fetchSamaiDirect(radicado),
+      fetchSamaiEstadosDirect(radicado),
     ]);
 
     // 4. Parse responses into whitelisted schema
@@ -426,8 +469,9 @@ Deno.serve(async (req: Request) => {
     let estados: DemoEstado[] = [];
     let resumen: DemoResumen | null = null;
     let dataFound = false;
+    const activeSources: string[] = [];
 
-    // Parse CPNU (graceful: if CPNU failed, log diagnostic and continue)
+    // Parse CPNU
     let cpnuDiagnostic: Record<string, unknown> | null = null;
     if (cpnuResult.status === "fulfilled") {
       const d = cpnuResult.value;
@@ -442,24 +486,19 @@ Deno.serve(async (req: Request) => {
         const daneInfo = DANE_CITIES[daneCode];
         const jurCode = radicado.slice(5, 7);
 
-        actuaciones = (p.actuaciones || [])
+        const cpnuActuaciones: DemoActuacion[] = (p.actuaciones || [])
           .map((a: Record<string, unknown>) => ({
             fecha: normalizeDate(a.fecha_actuacion ?? a.fecha),
             tipo: truncate(String(a.actuacion || ""), 120),
             descripcion: redactPIIFromText(truncate(String(a.anotacion || a.actuacion || ""), 300) || ""),
             anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
+            source: "CPNU",
           }))
           .filter((a: DemoActuacion) => a.fecha)
           .sort((a: DemoActuacion, b: DemoActuacion) => b.fecha.localeCompare(a.fecha));
 
-        // Deduplicate
-        const seen = new Set<string>();
-        actuaciones = actuaciones.filter((a) => {
-          const k = `${a.fecha}|${a.tipo}`;
-          if (seen.has(k)) return false;
-          seen.add(k);
-          return true;
-        });
+        actuaciones.push(...cpnuActuaciones);
+        activeSources.push("CPNU");
 
         resumen = {
           radicado_display: formatRadicadoDisplay(radicado),
@@ -469,47 +508,92 @@ Deno.serve(async (req: Request) => {
           jurisdiccion: JURISDICCION_MAP[jurCode] || null,
           tipo_proceso: p.tipo ? truncate(String(p.tipo), 80) : null,
           fecha_radicacion: normalizeDate(p.fecha_radicacion),
-          ultima_actuacion_fecha: actuaciones[0]?.fecha || null,
-          ultima_actuacion_tipo: actuaciones[0]?.tipo || null,
-          total_actuaciones: actuaciones.length,
+          ultima_actuacion_fecha: cpnuActuaciones[0]?.fecha || null,
+          ultima_actuacion_tipo: cpnuActuaciones[0]?.tipo || null,
+          total_actuaciones: cpnuActuaciones.length,
           total_estados: 0,
         };
         dataFound = true;
       }
     }
 
+    // Parse SAMAI actuaciones (merge, not fallback-only)
+    if (samaiResult.status === "fulfilled") {
+      const d = samaiResult.value;
+      if (d.status === 200 && d.body) {
+        const sd = d.body as any;
+        const resultado = sd?.result || sd;
+        if (resultado?.actuaciones || resultado?.despacho) {
+          const acts = Array.isArray(resultado.actuaciones) ? resultado.actuaciones : [];
+          const samaiActs: DemoActuacion[] = acts
+            .map((a: Record<string, unknown>) => ({
+              fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
+              tipo: truncate(String(a.actuacion || a.tipo_actuacion || ""), 120),
+              descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
+              anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
+              source: "SAMAI",
+            }))
+            .filter((a: DemoActuacion) => a.fecha);
+
+          actuaciones.push(...samaiActs);
+          activeSources.push("SAMAI");
+
+          if (!resumen && resultado.despacho) {
+            const daneCode = radicado.slice(0, 5);
+            const daneInfo = DANE_CITIES[daneCode];
+            resumen = {
+              radicado_display: formatRadicadoDisplay(radicado),
+              despacho: resultado.despacho ? redactPIIFromText(truncate(String(resultado.despacho), 100) || "") : null,
+              ciudad: daneInfo?.city || null,
+              departamento: daneInfo?.dept || null,
+              jurisdiccion: JURISDICCION_MAP[radicado.slice(5, 7)] || null,
+              tipo_proceso: resultado.tipo_proceso ? truncate(String(resultado.tipo_proceso), 80) : null,
+              fecha_radicacion: normalizeDate(resultado.fecha_radicacion ?? resultado.fecha_radicado),
+              ultima_actuacion_fecha: samaiActs[0]?.fecha || null,
+              ultima_actuacion_tipo: samaiActs[0]?.tipo || null,
+              total_actuaciones: samaiActs.length,
+              total_estados: 0,
+            };
+          }
+          dataFound = true;
+          console.log(`[demo] SAMAI: ${samaiActs.length} actuaciones merged`);
+        } else {
+          console.log(`[demo] SAMAI: 200 OK but no matching data`);
+        }
+      }
+    }
+
+    // Deduplicate actuaciones across providers
+    const seenActs = new Set<string>();
+    actuaciones = actuaciones
+      .sort((a, b) => b.fecha.localeCompare(a.fecha))
+      .filter((a) => {
+        const k = `${a.fecha}|${(a.tipo || "").slice(0, 60)}`;
+        if (seenActs.has(k)) return false;
+        seenActs.add(k);
+        return true;
+      });
+
     // Parse Publicaciones
     if (pubResult.status === "fulfilled") {
       const d = pubResult.value;
       if (d.status === 200 && d.body) {
         const rawBody = d.body as any;
-        // Handle the snapshot response format: { found, publicaciones: [...], principal: {...}, ... }
         const pubs = Array.isArray(rawBody?.publicaciones)
           ? rawBody.publicaciones
           : Array.isArray(rawBody) ? rawBody : [];
         
-        console.log(`[demo] Publicaciones: found=${rawBody?.found}, totalResultados=${rawBody?.totalResultados}, pubsCount=${pubs.length}, hasPrincipal=${!!rawBody?.principal}`);
-        if (pubs.length > 0) {
-          // Log raw date values from first pub for diagnostic
-          const sample = pubs[0];
-          console.log(`[demo] Pub[0] raw values: fecha_publicacion=${JSON.stringify(sample.fecha_publicacion)}, tipo_evento=${JSON.stringify(sample.tipo_evento)}, titulo=${JSON.stringify(sample.titulo?.slice?.(0, 60))}, fecha_hora_inicio=${JSON.stringify(sample.fecha_hora_inicio)}`);
-          console.log(`[demo] Pub[0] keys: ${Object.keys(sample).join(',')}`);
-        }
+        console.log(`[demo] Publicaciones: found=${rawBody?.found}, pubsCount=${pubs.length}`);
         
-        // Map publicaciones to estados with robust date parsing
-        // When fecha_publicacion is null, extract date from titulo pattern:
-        // "ESTADOS 036 DEL 28 DE JULIO DE 2025.pdf" → 2025-07-28
         const mappedEstados = pubs.map((p: Record<string, unknown>, idx: number) => {
           let rawFecha = p.fecha_publicacion ?? p.fecha_hora_inicio ?? p.fechaFijacion ?? p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro;
           let fecha = normalizeDate(rawFecha);
           
-          // If no fecha from fields, try extracting from titulo
           const tituloStr = String(p.titulo || "");
           if (!fecha && tituloStr) {
             fecha = extractDateFromSpanishTitle(tituloStr);
           }
           
-          // Also try extracting from pdf_url pattern like "EstadosYYYYMMDD.pdf"
           const pdfUrl = String(p.pdf_url || p.url || "");
           if (!fecha && pdfUrl) {
             const urlDateMatch = pdfUrl.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
@@ -518,7 +602,6 @@ Deno.serve(async (req: Request) => {
             }
           }
           
-          // Infer tipo from document name pattern
           let tipo = String(p.tipo_evento || "");
           if (!tipo || tipo === "null") {
             if (/^ESTADOS?\b/i.test(tituloStr)) tipo = "Estado Electrónico";
@@ -529,27 +612,28 @@ Deno.serve(async (req: Request) => {
             else tipo = truncate(String(p.tipo || "Estado"), 80) || "Estado";
           }
           
-          // Clean up titulo for display (remove .pdf extension)
           const cleanTitulo = tituloStr.replace(/\.pdf$/i, "").trim();
           
-          if (idx < 3) {
-            console.log(`[demo] Pub[${idx}] mapping: rawFecha=${JSON.stringify(rawFecha)} → fecha=${fecha}, inferredTipo=${tipo}, titulo=${cleanTitulo.slice(0, 50)}`);
-          }
           return {
             tipo,
             fecha: fecha || "",
             descripcion: cleanTitulo ? redactPIIFromText(truncate(cleanTitulo, 200) || "") : (p.descripcion ? redactPIIFromText(truncate(String(p.descripcion), 200) || "") : null),
+            source: "Publicaciones",
           };
         });
         
-        // Keep items with fecha or description
-        estados = mappedEstados
+        const pubEstados = mappedEstados
           .filter((e: DemoEstado) => e.fecha || e.descripcion)
           .sort((a: DemoEstado, b: DemoEstado) => (b.fecha || "").localeCompare(a.fecha || ""));
         
-        console.log(`[demo] Publicaciones mapping: ${pubs.length} raw → ${estados.length} estados after mapping`);
+        estados.push(...pubEstados);
+        if (pubEstados.length > 0) {
+          activeSources.push("Publicaciones");
+          dataFound = true;
+        }
         
-        // Build resumen from principal info when available (even if CPNU already provided resumen)
+        console.log(`[demo] Publicaciones: ${pubEstados.length} estados mapped`);
+        
         if (rawBody?.found && rawBody?.principal && !resumen) {
           const pr = rawBody.principal;
           const daneCode = radicado.slice(0, 5);
@@ -569,63 +653,61 @@ Deno.serve(async (req: Request) => {
           };
           dataFound = true;
         }
+      }
+    }
+
+    // Parse SAMAI Estados
+    if (samaiEstadosResult.status === "fulfilled") {
+      const d = samaiEstadosResult.value;
+      if (d.status === 200 && d.body) {
+        const raw = d.body as any;
+        // SAMAI Estados returns { estados: [...] } or { result: { estados: [...] } }
+        const resultado = raw?.result || raw;
+        const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
         
-        // Mark data found if we got any estados
-        if (estados.length > 0) dataFound = true;
-        if (resumen) resumen.total_estados = estados.length;
-      }
-    }
-
-    // 5. SAMAI fallback if no data yet (SAMAI 200 with no match = healthy, not an error)
-    let samaiDiagnostic: string | null = null;
-    if (!dataFound) {
-      try {
-        const samaiResult = await fetchSamaiDirect(radicado);
-        if (samaiResult.status === 200 && samaiResult.body) {
-          const sd = samaiResult.body as any;
-          const resultado = sd?.result || sd;
-          if (resultado?.actuaciones || resultado?.despacho) {
-            const acts = Array.isArray(resultado.actuaciones) ? resultado.actuaciones : [];
-            actuaciones = acts
-              .map((a: Record<string, unknown>) => ({
-                fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
-                tipo: truncate(String(a.actuacion || a.tipo_actuacion || ""), 120),
-                descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
-                anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
-              }))
-              .filter((a: DemoActuacion) => a.fecha)
-              .sort((a: DemoActuacion, b: DemoActuacion) => b.fecha.localeCompare(a.fecha));
-
-            const daneCode = radicado.slice(0, 5);
-            const daneInfo = DANE_CITIES[daneCode];
-            resumen = {
-              radicado_display: formatRadicadoDisplay(radicado),
-              despacho: resultado.despacho ? redactPIIFromText(truncate(String(resultado.despacho), 100) || "") : null,
-              ciudad: daneInfo?.city || null,
-              departamento: daneInfo?.dept || null,
-              jurisdiccion: JURISDICCION_MAP[radicado.slice(5, 7)] || null,
-              tipo_proceso: resultado.tipo_proceso ? truncate(String(resultado.tipo_proceso), 80) : null,
-              fecha_radicacion: normalizeDate(resultado.fecha_radicacion ?? resultado.fecha_radicado),
-              ultima_actuacion_fecha: actuaciones[0]?.fecha || null,
-              ultima_actuacion_tipo: actuaciones[0]?.tipo || null,
-              total_actuaciones: actuaciones.length,
-              total_estados: 0,
+        console.log(`[demo] SAMAI Estados: ${rawEstados.length} raw estados`);
+        
+        const samaiEstados: DemoEstado[] = rawEstados
+          .map((e: Record<string, unknown>) => {
+            const fecha = normalizeDate(
+              e["Fecha Providencia"] ?? e["Fecha Estado"] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? ""
+            );
+            const actuacion = String(e["Actuación"] ?? e.actuacion ?? e.tipo ?? "");
+            const anotacion = String(e["Anotación"] ?? e.anotacion ?? e.descripcion ?? "");
+            
+            return {
+              tipo: actuacion ? truncate(actuacion, 120) || "Estado SAMAI" : "Estado SAMAI",
+              fecha: fecha || "",
+              descripcion: anotacion ? redactPIIFromText(truncate(anotacion, 200) || "") : (actuacion ? redactPIIFromText(truncate(actuacion, 200) || "") : null),
+              source: "SAMAI Estados",
             };
-            dataFound = true;
-            samaiDiagnostic = `SAMAI: ${actuaciones.length} actuaciones found`;
-          } else {
-            // SAMAI returned 200 but no matching data — this is NOT an error
-            samaiDiagnostic = "SAMAI: 200 OK but no matching data (radicado not in SAMAI)";
-            console.log(`[demo] SAMAI: no matching data for radicado — pipeline continues healthy`);
-          }
-        } else {
-          samaiDiagnostic = `SAMAI: HTTP ${samaiResult.status} (no data)`;
+          })
+          .filter((e: DemoEstado) => e.fecha || e.descripcion);
+        
+        estados.push(...samaiEstados);
+        if (samaiEstados.length > 0) {
+          activeSources.push("SAMAI Estados");
+          dataFound = true;
         }
-      } catch (e) {
-        samaiDiagnostic = `SAMAI: fetch error — ${e instanceof Error ? e.message : "unknown"}`;
-        console.log(`[demo] SAMAI fallback failed (non-blocking): ${samaiDiagnostic}`);
+        
+        console.log(`[demo] SAMAI Estados: ${samaiEstados.length} estados merged`);
+      } else {
+        console.log(`[demo] SAMAI Estados: HTTP ${d.status} (no data)`);
       }
+    } else {
+      console.log(`[demo] SAMAI Estados: promise rejected`);
     }
+
+    // Deduplicate estados across providers
+    const seenEstados = new Set<string>();
+    estados = estados
+      .sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""))
+      .filter((e) => {
+        const k = `${e.fecha}|${(e.tipo || "").slice(0, 40)}`;
+        if (seenEstados.has(k)) return false;
+        seenEstados.add(k);
+        return true;
+      });
 
     if (!dataFound) {
       return json({
@@ -652,22 +734,27 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    // 6. Build whitelisted response — only DemoResponse shape leaves the function
+    // Update resumen totals
+    resumen.total_actuaciones = actuaciones.length;
+    resumen.total_estados = estados.length;
+
+    // 6. Build whitelisted response
     const response: DemoResponse = {
       resumen,
-      actuaciones: actuaciones.slice(0, 30), // Cap at 30 for demo
+      actuaciones: actuaciones.slice(0, 30),
       estados: estados.slice(0, 20),
       meta: {
         radicado_masked: maskRadicado(radicado),
         actuaciones_count: actuaciones.length,
         estados_count: estados.length,
+        sources: activeSources,
         fetched_at: new Date().toISOString(),
         demo: true,
       },
     };
 
     // 7. Telemetry (non-blocking, masked)
-    logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip).catch(() => {});
+    logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip, activeSources).catch(() => {});
 
     return json(response, 200);
 
@@ -690,11 +777,6 @@ const SPANISH_MONTHS: Record<string, string> = {
   "septiembre": "09", "octubre": "10", "noviembre": "11", "diciembre": "12",
 };
 
-/**
- * Extract date from Spanish-format document titles like:
- * "ESTADOS 036 DEL 28 DE JULIO DE 2025.pdf" → "2025-07-28"
- * "ESTADOS 004 DEL 13 DE FEBRERO DE 2026.pdf" → "2026-02-13"
- */
 function extractDateFromSpanishTitle(titulo: string): string {
   const match = titulo.match(/DEL\s+(\d{1,2})\s+DE\s+(\w+)\s+DE\s+(\d{4})/i);
   if (!match) return "";
@@ -715,30 +797,19 @@ function json(data: unknown, status: number) {
 
 function normalizeDate(val: unknown): string {
   if (val === null || val === undefined) return "";
-  
-  // Handle numeric timestamps (epoch ms)
   if (typeof val === "number") {
     const d = new Date(val);
     if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
     return "";
   }
-  
-  // Coerce to string for non-string types
   const str = String(val).trim();
   if (!str || str === "null" || str === "undefined") return "";
-  
-  // dd/mm/yyyy or dd-mm-yyyy
   const ddmm = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (ddmm) return `${ddmm[3]}-${ddmm[2].padStart(2, "0")}-${ddmm[1].padStart(2, "0")}`;
-  
-  // yyyy-mm-dd (already ISO-like, extract date part)
   const isoDate = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoDate) return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
-  
-  // Full ISO datetime or other parseable formats
   const iso = new Date(str);
   if (!isNaN(iso.getTime())) return iso.toISOString().split("T")[0];
-  
   return "";
 }
 
@@ -748,7 +819,7 @@ function truncate(val: string, max: number): string | null {
   return c.length <= max ? c : c.slice(0, max) + "...";
 }
 
-async function logTelemetry(radicado: string, actCount: number, estCount: number, durationMs: number, ip: string) {
+async function logTelemetry(radicado: string, actCount: number, estCount: number, durationMs: number, ip: string, sources: string[]) {
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -767,12 +838,13 @@ async function logTelemetry(radicado: string, actCount: number, estCount: number
       action_type: "DEMO_LOOKUP",
       autonomy_tier: "T0_OBSERVE",
       organization_id: orgRow.id,
-      reasoning: `Demo lookup: ${maskRadicado(radicado)}, ${actCount} actuaciones, ${estCount} estados, ${durationMs}ms`,
+      reasoning: `Demo lookup: ${maskRadicado(radicado)}, ${actCount} actuaciones, ${estCount} estados, ${durationMs}ms, sources: ${sources.join(",")}`,
       evidence: {
         radicado_masked: maskRadicado(radicado),
         actuaciones_count: actCount,
         estados_count: estCount,
         duration_ms: durationMs,
+        sources,
         ip_masked: ip.split(".").slice(0, 2).join(".") + ".*.*",
         egress_purpose: "judicial_demo",
       },
