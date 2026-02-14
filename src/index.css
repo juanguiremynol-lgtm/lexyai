@@ -695,10 +695,10 @@
   }
 
   /* Pastel Girly theme background — dreamy clouds */
-  .pastel-girly body {
+  html.pastel-girly body {
     font-family: 'Nunito', 'Quicksand', system-ui, sans-serif;
     letter-spacing: 0.01em;
-    background-color: hsl(210 60% 92%);
+    background-color: hsl(210 60% 92%) !important;
     background-image:
       /* Foreground clouds — large, warm pink/white */
       radial-gradient(ellipse 220px 100px at 15% 85%, hsl(330 30% 96% / 0.95) 0%, transparent 70%),
@@ -721,8 +721,21 @@
         hsl(210 50% 90%) 25%,
         hsl(270 25% 92%) 50%,
         hsl(330 30% 93%) 75%,
-        hsl(20 35% 94%) 100%);
-    background-attachment: fixed;
+        hsl(20 35% 94%) 100%) !important;
+    background-attachment: fixed !important;
+  }
+
+  /* Make main content area transparent so clouds show through */
+  html.pastel-girly .bg-background,
+  html.pastel-girly [class*="bg-background"],
+  html.pastel-girly main,
+  html.pastel-girly .flex-1.overflow-y-auto {
+    background: transparent !important;
+  }
+
+  html.pastel-girly #root {
+    min-height: 100vh;
+    background: transparent !important;
   }
 
   /* Pastel Girly heart motif overlay (extremely subtle) */
