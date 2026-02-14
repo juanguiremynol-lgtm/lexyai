@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { FileText, Clock, AlertTriangle, Eye, Send, Gavel, Plus, Scale, Briefcase, Shield } from "lucide-react";
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { WorkItemPipeline, AdminPipeline, LaboralPipeline, PenalPipeline } from "@/components/pipeline";
 import { PeticionesPipeline } from "@/components/peticiones";
@@ -26,6 +27,16 @@ export default function Dashboard() {
     pendingGovProcedure: 0,
   });
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Dashboard tab persistence via URL
+  const VALID_TABS = ["cgp", "laboral", "penal", "cpaca", "administrativos", "peticiones", "tutelas"];
+  const urlTab = searchParams.get("tab");
+  const activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : "cgp";
+
+  const handleTabChange = useCallback((value: string) => {
+    setSearchParams({ tab: value }, { replace: true });
+  }, [setSearchParams]);
 
   const fetchStats = useCallback(async () => {
     // Query unified work_items table for stats
@@ -204,7 +215,7 @@ export default function Dashboard() {
       </div>
 
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
-      <Tabs defaultValue="cgp" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <div className="overflow-x-auto -mx-1 px-1">
           <TabsList className="inline-flex whitespace-nowrap">
             <TabsTrigger value="cgp">Demandas CGP</TabsTrigger>

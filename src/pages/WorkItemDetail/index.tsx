@@ -8,8 +8,8 @@
  * - Works with canonical work_items table
  */
 
-import { useParams, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useCallback } from "react";
 import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2 } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ import type { WorkItem } from "@/types/work-item";
 export default function WorkItemDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   
   const {
@@ -303,7 +304,7 @@ export default function WorkItemDetail() {
           <CourthouseEmailDisplay workItem={extendedWorkItem as any} />
 
           {/* Tabs for Actuaciones, Estados, Notas */}
-          <Tabs defaultValue="actuaciones" className="w-full">
+          <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />

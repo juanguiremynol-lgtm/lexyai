@@ -169,7 +169,7 @@ export function EstadosTicker() {
   }
 
   const handleItemClick = (workItemId: string) => {
-    navigate(`/app/work-items/${workItemId}`);
+    navigate(`/app/work-items/${workItemId}?tab=estados`);
   };
 
   return (

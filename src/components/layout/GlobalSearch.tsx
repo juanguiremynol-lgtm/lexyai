@@ -19,6 +19,7 @@ import {
   CornerDownLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useOrganization } from "@/contexts/OrganizationContext";
 
 // Result types
 interface SearchResult {
@@ -29,6 +30,8 @@ interface SearchResult {
   badge?: string;
   badgeVariant?: "default" | "secondary" | "outline" | "destructive";
   route: string;
+  /** Used for ranking: 1 = exact ID/radicado, 2 = prefix match, 3 = fuzzy */
+  relevance: number;
 }
 
 interface GroupedResults {
@@ -54,11 +57,58 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
-// Search function
-async function performSearch(query: string): Promise<GroupedResults> {
+// ── Highlight matching text ──
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query || query.length < 2 || !text) return <>{text}</>;
+  
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escapedQuery})`, "gi");
+  const parts = text.split(regex);
+  
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-primary/20 text-foreground rounded-sm px-0.5">
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
+// ── Relevance scoring ──
+function scoreResult(result: { title: string; subtitle: string }, query: string): number {
+  const q = query.toLowerCase();
+  const title = result.title.toLowerCase();
+  
+  // Exact match on title/radicado
+  if (title === q) return 1;
+  // Starts with query (prefix match)
+  if (title.startsWith(q)) return 2;
+  // Contains query
+  if (title.includes(q)) return 3;
+  // Subtitle match
+  if (result.subtitle.toLowerCase().includes(q)) return 4;
+  return 5;
+}
+
+// ── Abort-controller-aware search ──
+let searchAbortController: AbortController | null = null;
+
+async function performSearch(query: string, organizationId?: string): Promise<GroupedResults> {
   if (!query || query.length < 2) {
     return { work_items: [], clients: [], actuaciones: [] };
   }
+
+  // Cancel previous in-flight request
+  if (searchAbortController) {
+    searchAbortController.abort();
+  }
+  searchAbortController = new AbortController();
 
   const { data: user } = await supabase.auth.getUser();
   if (!user.user) {
@@ -68,72 +118,106 @@ async function performSearch(query: string): Promise<GroupedResults> {
   const searchPattern = `%${query}%`;
   const limitPerType = 7;
 
-  // Parallel searches
+  // Tenant-safe: scope to organization if available, else owner_id
   const [workItemsResult, clientsResult, actuacionesResult] = await Promise.all([
-    // Work items search
-    supabase
-      .from("work_items")
-      .select("id, workflow_type, stage, radicado, title, demandantes, demandados, authority_name")
-      .or(`radicado.ilike.${searchPattern},title.ilike.${searchPattern},demandantes.ilike.${searchPattern},demandados.ilike.${searchPattern},authority_name.ilike.${searchPattern}`)
-      .eq("owner_id", user.user.id)
-      .limit(limitPerType),
+    // Work items — org-scoped
+    (() => {
+      let q = supabase
+        .from("work_items")
+        .select("id, workflow_type, stage, radicado, title, demandantes, demandados, authority_name, updated_at")
+        .or(`radicado.ilike.${searchPattern},title.ilike.${searchPattern},demandantes.ilike.${searchPattern},demandados.ilike.${searchPattern},authority_name.ilike.${searchPattern}`)
+        .limit(limitPerType)
+        .order("updated_at", { ascending: false });
+      if (organizationId) {
+        q = q.eq("organization_id", organizationId);
+      } else {
+        q = q.eq("owner_id", user.user!.id);
+      }
+      return q;
+    })(),
 
-    // Clients search
-    supabase
-      .from("clients")
-      .select("id, name, id_number, city, email")
-      .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
-      .eq("owner_id", user.user.id)
-      .limit(limitPerType),
+    // Clients — org-scoped
+    (() => {
+      let q = supabase
+        .from("clients")
+        .select("id, name, id_number, city, email")
+        .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
+        .limit(limitPerType);
+      if (organizationId) {
+        q = q.eq("organization_id", organizationId);
+      } else {
+        q = q.eq("owner_id", user.user!.id);
+      }
+      return q;
+    })(),
 
-    // Actuaciones search (replacing process_events)
-    supabase
-      .from("actuaciones")
-      .select("id, work_item_id, act_type_guess, normalized_text, act_date")
-      .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
-      .eq("owner_id", user.user.id)
-      .order("act_date", { ascending: false })
-      .limit(limitPerType),
+    // Actuaciones — org-scoped
+    (() => {
+      let q = supabase
+        .from("actuaciones")
+        .select("id, work_item_id, act_type_guess, normalized_text, act_date")
+        .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
+        .order("act_date", { ascending: false })
+        .limit(limitPerType);
+      if (organizationId) {
+        q = q.eq("organization_id", organizationId);
+      } else {
+        q = q.eq("owner_id", user.user!.id);
+      }
+      return q;
+    })(),
   ]);
 
-  // Transform work items
-  const workItems: SearchResult[] = (workItemsResult.data || []).map((item) => ({
-    id: item.id,
-    type: "work_item" as const,
-    title: item.radicado || item.title || "Sin radicado",
-    subtitle: [item.demandantes, item.demandados].filter(Boolean).join(" vs ") || item.authority_name || "Sin partes",
-    badge: item.workflow_type,
-    badgeVariant: "secondary" as const,
-    route: `/app/work-items/${item.id}`,
-  }));
+  // Transform & rank work items
+  const workItems: SearchResult[] = (workItemsResult.data || []).map((item) => {
+    const result = {
+      id: item.id,
+      type: "work_item" as const,
+      title: item.radicado || item.title || "Sin radicado",
+      subtitle: [item.demandantes, item.demandados].filter(Boolean).join(" vs ") || item.authority_name || "Sin partes",
+      badge: item.workflow_type,
+      badgeVariant: "secondary" as const,
+      route: `/app/work-items/${item.id}`,
+      relevance: 5,
+    };
+    result.relevance = scoreResult(result, query);
+    return result;
+  }).sort((a, b) => a.relevance - b.relevance);
 
   // Transform clients
-  const clients: SearchResult[] = (clientsResult.data || []).map((client) => ({
-    id: client.id,
-    type: "client" as const,
-    title: client.name,
-    subtitle: [client.id_number, client.city, client.email].filter(Boolean).join(" • "),
-    badge: "Cliente",
-    badgeVariant: "outline" as const,
-    route: `/app/clients/${client.id}`,
-  }));
+  const clients: SearchResult[] = (clientsResult.data || []).map((client) => {
+    const result = {
+      id: client.id,
+      type: "client" as const,
+      title: client.name,
+      subtitle: [client.id_number, client.city, client.email].filter(Boolean).join(" • "),
+      badge: "Cliente",
+      badgeVariant: "outline" as const,
+      route: `/app/clients/${client.id}`,
+      relevance: 5,
+    };
+    result.relevance = scoreResult(result, query);
+    return result;
+  }).sort((a, b) => a.relevance - b.relevance);
 
-  // Transform actuaciones
-  const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => ({
-    id: act.id,
-    type: "actuacion" as const,
-    title: act.act_type_guess || "Actuación",
-    subtitle: act.normalized_text?.substring(0, 60) + (act.normalized_text && act.normalized_text.length > 60 ? "..." : "") || "Sin descripción",
-    badge: act.act_type_guess || "Actuación",
-    badgeVariant: "default" as const,
-    route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
-  }));
+  // Transform actuaciones — safe snippets (max 60 chars, no full text)
+  const actuaciones: SearchResult[] = (actuacionesResult.data || []).map((act) => {
+    const snippet = act.normalized_text?.substring(0, 60) + (act.normalized_text && act.normalized_text.length > 60 ? "..." : "") || "Sin descripción";
+    const result = {
+      id: act.id,
+      type: "actuacion" as const,
+      title: act.act_type_guess || "Actuación",
+      subtitle: snippet,
+      badge: act.act_type_guess || "Actuación",
+      badgeVariant: "default" as const,
+      route: act.work_item_id ? `/app/work-items/${act.work_item_id}` : `/app/work-items`,
+      relevance: 5,
+    };
+    result.relevance = scoreResult(result, query);
+    return result;
+  }).sort((a, b) => a.relevance - b.relevance);
 
-  return {
-    work_items: workItems,
-    clients: clients,
-    actuaciones: actuaciones,
-  };
+  return { work_items: workItems, clients, actuaciones };
 }
 
 // Icon mapping
@@ -150,18 +234,41 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 
 export function GlobalSearch() {
   const navigate = useNavigate();
+  const { organization } = useOrganization();
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const debouncedQuery = useDebounce(query, 300);
+  const debouncedQuery = useDebounce(query, 200);
 
-  // Search query
+  // "/" keyboard shortcut to focus search
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input/textarea/contentEditable
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setIsOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    return () => document.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
+  // Search query with org-scoping
   const { data: results, isLoading } = useQuery({
-    queryKey: ["global-search", debouncedQuery],
-    queryFn: () => performSearch(debouncedQuery),
+    queryKey: ["global-search", debouncedQuery, organization?.id],
+    queryFn: () => performSearch(debouncedQuery, organization?.id),
     enabled: debouncedQuery.length >= 2,
     staleTime: 30000,
   });
@@ -198,7 +305,13 @@ export function GlobalSearch() {
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!isOpen || !hasResults) return;
+    if (!isOpen || !hasResults) {
+      if (e.key === "Escape") {
+        setIsOpen(false);
+        inputRef.current?.blur();
+      }
+      return;
+    }
 
     switch (e.key) {
       case "ArrowDown":
@@ -220,6 +333,7 @@ export function GlobalSearch() {
       case "Escape":
         e.preventDefault();
         setIsOpen(false);
+        inputRef.current?.blur();
         break;
     }
   }, [isOpen, hasResults, totalResults, flatResults, selectedIndex, navigate]);
@@ -238,7 +352,7 @@ export function GlobalSearch() {
     inputRef.current?.focus();
   }, []);
 
-  // Render result group
+  // Render result group with highlighting
   const renderGroup = (
     title: string,
     items: SearchResult[],
@@ -278,7 +392,7 @@ export function GlobalSearch() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm truncate">
-                      {result.title}
+                      <HighlightMatch text={result.title} query={query} />
                     </span>
                     {result.badge && (
                       <Badge 
@@ -290,7 +404,7 @@ export function GlobalSearch() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
-                    {result.subtitle}
+                    <HighlightMatch text={result.subtitle} query={query} />
                   </p>
                 </div>
                 {isSelected && (
@@ -314,7 +428,7 @@ export function GlobalSearch() {
         <Input
           ref={inputRef}
           type="search"
-          placeholder="Buscar radicado, cliente, juzgado..."
+          placeholder='Buscar radicado, cliente, juzgado...  ("/" para enfocar)'
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -377,6 +491,10 @@ export function GlobalSearch() {
                 <div className="px-3 py-2 border-t border-border bg-muted/50 flex items-center justify-between text-xs text-muted-foreground">
                   <span>{totalResults} resultado{totalResults !== 1 ? "s" : ""}</span>
                   <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1">
+                      <kbd className="px-1.5 py-0.5 bg-background border rounded text-[10px]">/</kbd>
+                      buscar
+                    </span>
                     <span className="flex items-center gap-1">
                       <kbd className="px-1.5 py-0.5 bg-background border rounded text-[10px]">↑↓</kbd>
                       navegar
