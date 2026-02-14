@@ -62,7 +62,7 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
     setState((s) => ({ ...s, step: Math.max(s.step - 1, 0) }));
   }, []);
 
-  const backUrl = mode === "PLATFORM" ? "/platform/external-providers/wizard" : "/app/settings";
+  const backUrl = mode === "PLATFORM" ? "/platform/external-providers" : "/app/settings";
 
   const renderStep = () => {
     switch (state.step) {
