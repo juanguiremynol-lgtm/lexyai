@@ -245,7 +245,7 @@ export function UserPrivacySettings() {
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span><strong>Alertas de Seguridad:</strong> Atenia AI monitorea automáticamente exportaciones masivas, escalamiento de permisos y patrones anómalos</span>
+                <span><strong>Alertas de Seguridad:</strong> Andro IA monitorea automáticamente exportaciones masivas, escalamiento de permisos y patrones anómalos</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />

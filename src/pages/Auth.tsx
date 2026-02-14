@@ -53,7 +53,7 @@ export default function Auth() {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("Bienvenido a ATENIA");
+        toast.success("Bienvenido a Andromeda");
         navigate("/dashboard");
       } else {
         const { error } = await supabase.auth.signUp({
@@ -118,7 +118,7 @@ export default function Auth() {
               <img 
                 src={logo} 
                 alt="Andromeda" 
-                className="h-32 w-auto object-contain relative z-10"
+                className="h-[148px] w-auto object-contain relative z-10"
               />
               {/* Glow effect */}
               <div className="absolute inset-0 blur-2xl bg-primary/20 rounded-full -z-10 scale-110" />

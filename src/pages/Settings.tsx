@@ -573,7 +573,7 @@ export default function Settings() {
                 Asistente Andro IA
               </CardTitle>
               <CardDescription>
-                Configura la visibilidad y comportamiento del asistente Atenia AI
+                Configura la visibilidad y comportamiento del asistente Andro IA
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -581,7 +581,7 @@ export default function Settings() {
                 <div className="space-y-1">
                   <p className="font-medium">Mostrar asistente</p>
                   <p className="text-sm text-muted-foreground">
-                    Muestra el robot de Atenia AI en la esquina de la pantalla.
+                    Muestra el robot de Andro IA en la esquina de la pantalla.
                   </p>
                 </div>
                 <Switch
@@ -639,7 +639,7 @@ export default function Settings() {
                   <div className="text-sm">
                     <p className="font-medium">Zona de Peligro activa temporalmente</p>
                     <p className="text-muted-foreground">
-                      Habilitada por Atenia AI. 
+                      Habilitada por Andro IA. 
                       {dangerZoneExpiry.data && (
                         <> Expira: {new Date(dangerZoneExpiry.data).toLocaleString("es-CO")}</>
                       )}
