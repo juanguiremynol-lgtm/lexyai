@@ -274,5 +274,14 @@ export function mapLegacyStage(legacyStage: string): string {
     'EJECUCION_ARCHIVO': 'RECURSO', // Archive maps to last stage
   };
   
-  return mapping[legacyStage] || legacyStage;
+  const mapped = mapping[legacyStage] || legacyStage;
+  
+  // Ensure the result is a valid CGP stage key — fallback to PREPARACION
+  // to prevent items from "oscillating" when their stage doesn't match any column
+  if (!CGP_STAGES[mapped]) {
+    console.warn(`[CGP] Unknown stage "${legacyStage}" (mapped: "${mapped}"), defaulting to PREPARACION`);
+    return 'PREPARACION';
+  }
+  
+  return mapped;
 }

@@ -121,12 +121,14 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
           />
         )}
 
-        {/* The robot */}
-        <MascotAvatar
-          state={mascotState}
-          onClick={() => openChat()}
-          className={isMobile ? "w-10 h-10" : undefined}
-        />
+      {/* The robot — hide when chat is open so it doesn't block the Sheet */}
+        {!chatOpen && (
+          <MascotAvatar
+            state={mascotState}
+            onClick={() => openChat()}
+            className={isMobile ? "w-10 h-10" : undefined}
+          />
+        )}
       </div>
 
       {/* Chat panel */}
