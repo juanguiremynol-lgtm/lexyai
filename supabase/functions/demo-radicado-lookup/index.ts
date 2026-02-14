@@ -2,16 +2,18 @@
  * demo-radicado-lookup — Public demo edge function
  * 
  * Zero-auth, zero-DB-write lookup for the landing page "Prueba ATENIA" experience.
- * Calls CPNU (via adapter-cpnu) + Publicaciones directly, returns sanitized data.
+ * All external calls route through egressClient with purpose "judicial_demo".
  * 
  * Security:
  * - Rate limit: 5 req / IP / 10 min (in-memory)
  * - PII redaction on all returned text
  * - No DB rows created (telemetry only via atenia_ai_actions)
  * - Masked radicado in all logs
+ * - Whitelisted response schema only
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { egressFetch } from "../_shared/egressClient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,7 +111,7 @@ const JURISDICCION_MAP: Record<string, string> = {
 };
 
 // ═══════════════════════════════════════════
-// TYPES
+// WHITELISTED RESPONSE TYPES
 // ═══════════════════════════════════════════
 interface DemoResumen {
   radicado_display: string;
@@ -136,6 +138,102 @@ interface DemoEstado {
   tipo: string;
   fecha: string;
   descripcion: string | null;
+}
+
+// Whitelisted response envelope — nothing outside this shape leaves the function
+interface DemoResponse {
+  resumen: DemoResumen;
+  actuaciones: DemoActuacion[];
+  estados: DemoEstado[];
+  meta: {
+    radicado_masked: string;
+    actuaciones_count: number;
+    estados_count: number;
+    fetched_at: string;
+    demo: true;
+  };
+}
+
+// ═══════════════════════════════════════════
+// EGRESS HELPERS — all external calls go through egressClient
+// ═══════════════════════════════════════════
+
+const CALLER = "demo-radicado-lookup";
+
+async function fetchCpnuViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  // CPNU goes through adapter-cpnu edge function (internal call via egress proxy)
+  const result = await egressFetch({
+    targetUrl: `${supabaseUrl}/functions/v1/adapter-cpnu`,
+    purpose: "judicial_demo",
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+      "Content-Type": "application/json",
+    },
+    body: { radicado, action: "search" },
+    caller: CALLER,
+    tenantHash: "demo",
+  });
+
+  if (!result.ok) {
+    return { status: result.status, body: null };
+  }
+  try {
+    return { status: result.status, body: JSON.parse(result.body) };
+  } catch {
+    return { status: result.status, body: null };
+  }
+}
+
+async function fetchPublicacionesViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL");
+  const pubApiKey = Deno.env.get("PUBLICACIONES_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
+  if (!pubBaseUrl || !pubApiKey) return { status: 0, body: null };
+
+  const result = await egressFetch({
+    targetUrl: `${pubBaseUrl}/snapshot/${radicado}`,
+    purpose: "judicial_demo",
+    method: "GET",
+    headers: { "x-api-key": pubApiKey },
+    body: undefined,
+    caller: CALLER,
+    tenantHash: "demo",
+  });
+
+  if (!result.ok) {
+    return { status: result.status, body: null };
+  }
+  try {
+    return { status: result.status, body: JSON.parse(result.body) };
+  } catch {
+    return { status: result.status, body: null };
+  }
+}
+
+async function fetchSamaiViaEgress(radicado: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  const samaiUrl = Deno.env.get("SAMAI_BASE_URL");
+  const samaiKey = Deno.env.get("SAMAI_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
+  if (!samaiUrl || !samaiKey) return { status: 0, body: null };
+
+  const result = await egressFetch({
+    targetUrl: `${samaiUrl}/buscar?numero_radicacion=${radicado}`,
+    purpose: "judicial_demo",
+    method: "GET",
+    headers: { "x-api-key": samaiKey },
+    body: undefined,
+    caller: CALLER,
+    tenantHash: "demo",
+  });
+
+  if (!result.ok) {
+    return { status: result.status, body: null };
+  }
+  try {
+    return { status: result.status, body: JSON.parse(result.body) };
+  } catch {
+    return { status: result.status, body: null };
+  }
 }
 
 // ═══════════════════════════════════════════
@@ -178,34 +276,13 @@ Deno.serve(async (req: Request) => {
       }, 400);
     }
 
-    // 3. Parallel API calls: CPNU (via adapter-cpnu) + Publicaciones (direct)
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const pubBaseUrl = Deno.env.get("PUBLICACIONES_BASE_URL");
-    const pubApiKey = Deno.env.get("PUBLICACIONES_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
-
+    // 3. Parallel API calls via egressClient
     const [cpnuResult, pubResult] = await Promise.allSettled([
-      // CPNU via adapter-cpnu edge function (service role auth)
-      fetch(`${supabaseUrl}/functions/v1/adapter-cpnu`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ radicado, action: "search" }),
-        signal: AbortSignal.timeout(15000),
-      }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) })),
-
-      // Publicaciones direct call
-      pubBaseUrl && pubApiKey
-        ? fetch(`${pubBaseUrl}/snapshot/${radicado}`, {
-            headers: { "x-api-key": pubApiKey },
-            signal: AbortSignal.timeout(12000),
-          }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))
-        : Promise.resolve({ status: 0, body: null }),
+      fetchCpnuViaEgress(radicado),
+      fetchPublicacionesViaEgress(radicado),
     ]);
 
-    // 4. Parse responses
+    // 4. Parse responses into whitelisted schema
     let actuaciones: DemoActuacion[] = [];
     let estados: DemoEstado[] = [];
     let resumen: DemoResumen | null = null;
@@ -214,8 +291,8 @@ Deno.serve(async (req: Request) => {
     // Parse CPNU
     if (cpnuResult.status === "fulfilled") {
       const d = cpnuResult.value;
-      if (d.status === 200 && d.body?.ok && d.body?.proceso) {
-        const p = d.body.proceso;
+      if (d.status === 200 && d.body && (d.body as any)?.ok && (d.body as any)?.proceso) {
+        const p = (d.body as any).proceso;
         const daneCode = radicado.slice(0, 5);
         const daneInfo = DANE_CITIES[daneCode];
         const jurCode = radicado.slice(5, 7);
@@ -260,9 +337,10 @@ Deno.serve(async (req: Request) => {
     if (pubResult.status === "fulfilled") {
       const d = pubResult.value;
       if (d.status === 200 && d.body) {
-        const pubs = Array.isArray(d.body?.publicaciones)
-          ? d.body.publicaciones
-          : Array.isArray(d.body) ? d.body : [];
+        const rawBody = d.body as any;
+        const pubs = Array.isArray(rawBody?.publicaciones)
+          ? rawBody.publicaciones
+          : Array.isArray(rawBody) ? rawBody : [];
         estados = pubs
           .map((p: Record<string, unknown>) => ({
             tipo: truncate(String(p.tipo || p.nombre || p.estado || "Estado"), 80) || "Estado",
@@ -276,52 +354,44 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 5. SAMAI fallback if no data yet
+    // 5. SAMAI fallback via egressClient if no data yet
     if (!dataFound) {
-      const samaiUrl = Deno.env.get("SAMAI_BASE_URL");
-      const samaiKey = Deno.env.get("SAMAI_X_API_KEY") || Deno.env.get("EXTERNAL_X_API_KEY");
-      if (samaiUrl && samaiKey) {
-        try {
-          const res = await fetch(`${samaiUrl}/buscar?numero_radicacion=${radicado}`, {
-            headers: { "x-api-key": samaiKey },
-            signal: AbortSignal.timeout(12000),
-          });
-          if (res.ok) {
-            const sd = await res.json();
-            // SAMAI /buscar may return cached result directly
-            const resultado = sd?.result || sd;
-            if (resultado?.actuaciones || resultado?.despacho) {
-              const acts = Array.isArray(resultado.actuaciones) ? resultado.actuaciones : [];
-              actuaciones = acts
-                .map((a: Record<string, unknown>) => ({
-                  fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
-                  tipo: truncate(String(a.actuacion || a.tipo_actuacion || ""), 120),
-                  descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
-                  anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
-                }))
-                .filter((a: DemoActuacion) => a.fecha)
-                .sort((a: DemoActuacion, b: DemoActuacion) => b.fecha.localeCompare(a.fecha));
+      try {
+        const samaiResult = await fetchSamaiViaEgress(radicado);
+        if (samaiResult.status === 200 && samaiResult.body) {
+          const sd = samaiResult.body as any;
+          const resultado = sd?.result || sd;
+          if (resultado?.actuaciones || resultado?.despacho) {
+            const acts = Array.isArray(resultado.actuaciones) ? resultado.actuaciones : [];
+            actuaciones = acts
+              .map((a: Record<string, unknown>) => ({
+                fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
+                tipo: truncate(String(a.actuacion || a.tipo_actuacion || ""), 120),
+                descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
+                anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
+              }))
+              .filter((a: DemoActuacion) => a.fecha)
+              .sort((a: DemoActuacion, b: DemoActuacion) => b.fecha.localeCompare(a.fecha));
 
-              const daneCode = radicado.slice(0, 5);
-              const daneInfo = DANE_CITIES[daneCode];
-              resumen = {
-                radicado_display: formatRadicadoDisplay(radicado),
-                despacho: resultado.despacho ? redactPIIFromText(truncate(String(resultado.despacho), 100) || "") : null,
-                ciudad: daneInfo?.city || null,
-                departamento: daneInfo?.dept || null,
-                jurisdiccion: JURISDICCION_MAP[radicado.slice(5, 7)] || null,
-                tipo_proceso: resultado.tipo_proceso ? truncate(String(resultado.tipo_proceso), 80) : null,
-                fecha_radicacion: normalizeDate(resultado.fecha_radicacion ?? resultado.fecha_radicado),
-                ultima_actuacion_fecha: actuaciones[0]?.fecha || null,
-                ultima_actuacion_tipo: actuaciones[0]?.tipo || null,
-                total_actuaciones: actuaciones.length,
-                total_estados: 0,
-              };
-              dataFound = true;
-            }
+            const daneCode = radicado.slice(0, 5);
+            const daneInfo = DANE_CITIES[daneCode];
+            resumen = {
+              radicado_display: formatRadicadoDisplay(radicado),
+              despacho: resultado.despacho ? redactPIIFromText(truncate(String(resultado.despacho), 100) || "") : null,
+              ciudad: daneInfo?.city || null,
+              departamento: daneInfo?.dept || null,
+              jurisdiccion: JURISDICCION_MAP[radicado.slice(5, 7)] || null,
+              tipo_proceso: resultado.tipo_proceso ? truncate(String(resultado.tipo_proceso), 80) : null,
+              fecha_radicacion: normalizeDate(resultado.fecha_radicacion ?? resultado.fecha_radicado),
+              ultima_actuacion_fecha: actuaciones[0]?.fecha || null,
+              ultima_actuacion_tipo: actuaciones[0]?.tipo || null,
+              total_actuaciones: actuaciones.length,
+              total_estados: 0,
+            };
+            dataFound = true;
           }
-        } catch { /* SAMAI fallback failed — non-blocking */ }
-      }
+        }
+      } catch { /* SAMAI fallback failed — non-blocking */ }
     }
 
     if (!dataFound) {
@@ -349,11 +419,8 @@ Deno.serve(async (req: Request) => {
       };
     }
 
-    // 6. Telemetry (non-blocking, masked)
-    logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip).catch(() => {});
-
-    // 7. Return sanitized response
-    return json({
+    // 6. Build whitelisted response — only DemoResponse shape leaves the function
+    const response: DemoResponse = {
       resumen,
       actuaciones: actuaciones.slice(0, 30), // Cap at 30 for demo
       estados: estados.slice(0, 20),
@@ -364,7 +431,12 @@ Deno.serve(async (req: Request) => {
         fetched_at: new Date().toISOString(),
         demo: true,
       },
-    }, 200);
+    };
+
+    // 7. Telemetry (non-blocking, masked)
+    logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip).catch(() => {});
+
+    return json(response, 200);
 
   } catch (err) {
     console.error("[demo-radicado-lookup] Error:", err);
@@ -408,14 +480,13 @@ async function logTelemetry(radicado: string, actCount: number, estCount: number
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       { auth: { persistSession: false } },
     );
-    // Find a system-level org for telemetry (use first org or skip)
     const { data: orgRow } = await supabase
       .from("organizations")
       .select("id")
       .limit(1)
       .maybeSingle();
 
-    if (!orgRow) return; // No org to log against — skip
+    if (!orgRow) return;
 
     await supabase.from("atenia_ai_actions").insert({
       action_type: "DEMO_LOOKUP",
@@ -428,6 +499,7 @@ async function logTelemetry(radicado: string, actCount: number, estCount: number
         estados_count: estCount,
         duration_ms: durationMs,
         ip_masked: ip.split(".").slice(0, 2).join(".") + ".*.*",
+        egress_purpose: "judicial_demo",
       },
       status: "executed",
     });

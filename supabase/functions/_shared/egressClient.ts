@@ -26,7 +26,7 @@
  *   });
  */
 
-export type EgressPurpose = "analytics" | "error_tracking" | "email" | "payments" | "judicial_source" | "ai" | "webhook";
+export type EgressPurpose = "analytics" | "error_tracking" | "email" | "payments" | "judicial_source" | "judicial_demo" | "ai" | "webhook";
 
 interface EgressRequest {
   targetUrl?: string;
@@ -133,4 +133,7 @@ export const KNOWN_DESTINATIONS = {
   WOMPI_TRANSACTIONS: "payments",
   WOMPI_SANDBOX_TXN: "payments",
   GEMINI_GENERATE: "ai",
+  CPNU_DEMO_LOOKUP: "judicial_demo",
+  PUBLICACIONES_DEMO_SNAPSHOT: "judicial_demo",
+  SAMAI_DEMO_FALLBACK: "judicial_demo",
 } as const;
