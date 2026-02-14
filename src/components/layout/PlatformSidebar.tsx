@@ -20,6 +20,7 @@ import {
   Cable,
   CreditCard,
   Bell,
+  Sparkles,
 } from "lucide-react";
 import logo from "@/assets/atenia-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -55,6 +56,7 @@ const platformNavItems = [
   { title: "Email Ops", url: "/platform/email-ops", icon: Mail },
   { title: "Sistema", url: "/platform/system", icon: Activity },
   { title: "Atenia AI", url: "/platform/atenia-ai", icon: Brain },
+  { title: "Gemini AI", url: "/platform/gemini", icon: Sparkles },
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
   { title: "Proveedores Ext.", url: "/platform/external-providers/wizard", icon: Cable },
 ];
