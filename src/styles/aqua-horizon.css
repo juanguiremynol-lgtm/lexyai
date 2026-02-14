@@ -167,11 +167,19 @@ html.aqua .app-content {
 /* ============================= */
 
 /* Remove all solid backgrounds that block the wallpaper */
-html.aqua .bg-background,
-html.aqua [class*="bg-background"],
+html.aqua .bg-background:not([role="dialog"]):not([data-radix-dialog-content]),
+html.aqua [class*="bg-background"]:not([role="dialog"]):not([data-radix-dialog-content]),
 html.aqua main,
 html.aqua .flex-1.overflow-y-auto {
   background: transparent !important;
+}
+
+/* Sheet/Dialog content must be opaque in aqua */
+html.aqua [role="dialog"][class*="bg-background"],
+html.aqua [data-radix-dialog-content] {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(var(--glass-blur-strong));
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong));
 }
 
 /* ============================= */
