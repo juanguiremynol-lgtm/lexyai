@@ -100,6 +100,9 @@ const EXTERNAL_TOOLS = [
     url: "https://colombia-legal-rates.lovable.app/contrato-servicios",
     icon: ScrollText,
   },
+];
+
+const PUBLIC_LINKS = [
   {
     title: "Datos Abiertos Colombia",
     description: "Portal oficial de datos abiertos del gobierno colombiano",
@@ -157,6 +160,10 @@ export default function Utilities() {
           <TabsTrigger value="pais" className="flex items-center gap-2">
             <Flag className="h-4 w-4" />
             Colombia
+          </TabsTrigger>
+          <TabsTrigger value="enlaces" className="flex items-center gap-2">
+            <ExternalLink className="h-4 w-4" />
+            Enlaces
           </TabsTrigger>
           {isPlatformAdmin && (
             <TabsTrigger value="snake" className="flex items-center gap-2">
@@ -229,6 +236,37 @@ export default function Utilities() {
 
         <TabsContent value="pais" className="mt-6">
           <ColombiaCountryInfo />
+        </TabsContent>
+
+        <TabsContent value="enlaces" className="mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {PUBLIC_LINKS.map((link) => (
+              <a
+                key={link.url}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block group"
+              >
+                <Card className="h-full transition-all hover:shadow-md hover:border-primary/50 group-hover:bg-muted/30">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between">
+                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                        <link.icon className="h-5 w-5" />
+                      </div>
+                      <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <CardTitle className="text-base mt-3">{link.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-sm">
+                      {link.description}
+                    </CardDescription>
+                  </CardContent>
+                </Card>
+              </a>
+            ))}
+          </div>
         </TabsContent>
 
         {isPlatformAdmin && (
