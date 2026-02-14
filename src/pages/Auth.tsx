@@ -76,41 +76,43 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-[#070b1a]">
+      {/* Cosmic background — matches landing */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] rounded-full bg-[#1a3a6a]/20 blur-[120px]" />
+        <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full bg-[#0ea5e9]/10 blur-[100px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#d4a017]/5 blur-[150px]" />
+      </div>
+
+      {/* Accent lines */}
+      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#d4a017]/30 to-transparent" />
+      <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#d4a017]/30 to-transparent" />
+
       {/* Beta Auth Banner */}
       {enrollmentChecked && !enrollmentOpen ? (
-        <div className="w-full max-w-md mb-6 px-4 py-4 rounded-lg border border-destructive/30 bg-destructive/5 text-center">
-          <ShieldAlert className="h-5 w-5 text-destructive mx-auto mb-2" />
-          <p className="text-sm font-semibold text-destructive">
+        <div className="w-full max-w-md mb-6 px-4 py-4 rounded-lg border border-red-500/30 bg-red-500/10 text-center relative z-10">
+          <ShieldAlert className="h-5 w-5 text-red-400 mx-auto mb-2" />
+          <p className="text-sm font-semibold text-red-400">
             Inscripciones Cerradas
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-[#a0b4d0] mt-1">
             Hemos alcanzado el límite de usuarios beta (100). Las nuevas inscripciones están suspendidas temporalmente. Si ya tienes cuenta, puedes iniciar sesión normalmente.
           </p>
         </div>
       ) : (
-        <div className="w-full max-w-md mb-6 px-4 py-3 rounded-lg border border-primary/30 bg-primary/5 text-center">
-          <p className="text-xs font-medium text-primary">
+        <div className="w-full max-w-md mb-6 px-4 py-3 rounded-lg border border-[#0ea5e9]/30 bg-[#0ea5e9]/10 text-center relative z-10">
+          <p className="text-xs font-medium text-[#0ea5e9]">
             🚀 <span className="font-semibold">Fase Beta</span>
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-[#a0b4d0] mt-1">
             Por ahora, el registro y acceso es exclusivamente mediante Google Auth. Soporte para correo electrónico próximamente.
           </p>
         </div>
       )}
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-bl from-primary/10 via-transparent to-transparent rounded-full blur-3xl" />
-        <div className="absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-primary/5 via-transparent to-transparent rounded-full blur-3xl" />
-      </div>
-      
-      {/* Accent lines */}
-      <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
-      <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
 
-      <Card className="w-full max-w-md relative border-primary/20 bg-card/80 backdrop-blur-xl shadow-elevated">
+      <Card className="w-full max-w-md relative border-[#d4a017]/20 bg-[#0c1529]/80 backdrop-blur-xl shadow-[0_0_60px_rgba(212,160,23,0.08)] z-10">
         {/* Top accent */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-primary/50 via-primary to-primary/50 rounded-b-full" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-1 bg-gradient-to-r from-[#d4a017]/50 via-[#d4a017] to-[#d4a017]/50 rounded-b-full" />
         
         <CardHeader className="text-center pt-8">
           <div className="flex justify-center mb-4 relative">
@@ -118,13 +120,12 @@ export default function Auth() {
               <img 
                 src={logo} 
                 alt="Andromeda" 
-                className="h-[148px] w-auto object-contain relative z-10"
+                className="h-[148px] w-auto object-contain relative z-10 drop-shadow-[0_0_40px_rgba(212,160,23,0.3)]"
               />
-              {/* Glow effect */}
-              <div className="absolute inset-0 blur-2xl bg-primary/20 rounded-full -z-10 scale-110" />
+              <div className="absolute inset-0 blur-2xl bg-[#d4a017]/15 rounded-full -z-10 scale-110" />
             </div>
           </div>
-          <CardDescription className="mt-2 text-muted-foreground">
+          <CardDescription className="mt-2 text-[#a0b4d0]">
             {isLogin ? "Inicia sesión para continuar" : "Crea tu cuenta"}
           </CardDescription>
         </CardHeader>
@@ -133,7 +134,7 @@ export default function Auth() {
           <Button
             type="button"
             variant="outline"
-            className="w-full mb-4 gap-2"
+            className="w-full mb-4 gap-2 border-[#0ea5e9]/30 text-white hover:bg-[#0ea5e9]/10 hover:border-[#0ea5e9]/50 bg-transparent"
             onClick={handleGoogleSignIn}
             disabled={googleLoading}
           >
@@ -147,8 +148,8 @@ export default function Auth() {
           </Button>
 
           <div className="relative my-5">
-            <Separator />
-            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
+            <Separator className="bg-[#1a3a6a]/50" />
+            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0c1529] px-3 text-xs text-[#a0b4d0]/60">
               o con correo electrónico
             </span>
           </div>
@@ -156,7 +157,7 @@ export default function Auth() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div className="space-y-2">
-                <Label htmlFor="fullName" className="text-sm text-muted-foreground">
+                <Label htmlFor="fullName" className="text-sm text-[#a0b4d0]">
                   Nombre Completo
                 </Label>
                 <Input
@@ -165,11 +166,12 @@ export default function Auth() {
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Juan Pérez"
                   required={!isLogin}
+                  className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
                 />
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm text-muted-foreground">
+              <Label htmlFor="email" className="text-sm text-[#a0b4d0]">
                 Correo Electrónico
               </Label>
               <Input
@@ -179,10 +181,11 @@ export default function Auth() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="usuario@ejemplo.com"
                 required
+                className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm text-muted-foreground">
+              <Label htmlFor="password" className="text-sm text-[#a0b4d0]">
                 Contraseña
               </Label>
               <Input
@@ -193,11 +196,12 @@ export default function Auth() {
                 placeholder="••••••••"
                 required
                 minLength={6}
+                className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
               />
             </div>
             <Button 
               type="submit" 
-              className="w-full mt-6" 
+              className="w-full mt-6 bg-gradient-to-r from-[#d4a017] to-[#e8b830] text-[#070b1a] font-bold hover:from-[#e8b830] hover:to-[#f0c848] shadow-[0_0_30px_rgba(212,160,23,0.3)]" 
               disabled={loading}
             >
               {loading ? "Cargando..." : isLogin ? "Iniciar Sesión" : "Crear Cuenta"}
@@ -207,7 +211,7 @@ export default function Auth() {
             <button
               type="button"
               onClick={() => setIsLogin(!isLogin)}
-              className="text-primary hover:text-primary/80 hover:underline transition-colors"
+              className="text-[#0ea5e9] hover:text-[#0ea5e9]/80 hover:underline transition-colors"
             >
               {isLogin ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Inicia sesión"}
             </button>
