@@ -5,3 +5,4 @@ export { PatternTestingPanel } from "./PatternTestingPanel";
 export { ConstitutionArticles } from "./ConstitutionArticles";
 export { ColombiaMaps } from "./ColombiaMaps";
 export { ColombiaAirports } from "./ColombiaAirports";
+export { ColombiaDepartments } from "./ColombiaDepartments";
