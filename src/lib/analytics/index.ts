@@ -1,5 +1,8 @@
 /**
  * Analytics Module — Public exports
+ *
+ * ALL analytics usage MUST go through this module.
+ * Direct imports of posthog-js, @sentry/*, etc. are blocked by ESLint.
  */
 export {
   track,
@@ -24,3 +27,18 @@ export type {
   OrgAnalyticsOverride,
   ResolvedAnalyticsConfig,
 } from "./types";
+
+// Event catalog — single source of truth
+export {
+  ANALYTICS_EVENTS,
+  EVENT_PROPERTIES,
+  toSizeBucket,
+  toLatencyMs,
+  toFileTypeCategory,
+  toSafeRoute,
+} from "./events";
+
+export type { AnalyticsEventName } from "./events";
+
+// Providers
+export { createConsoleProvider } from "./providers/console";
