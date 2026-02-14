@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,8 @@ import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, Se
 
 export default function Settings() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
   const { organization, isLoading: isOrgLoading } = useOrganization();
   const { isOwner, isAdmin, isLoading: isMembershipLoading } = useOrganizationMembership(organization?.id || null);
   const { isPlatformAdmin } = usePlatformAdmin();
@@ -178,7 +181,7 @@ export default function Settings() {
         </p>
       </div>
 
-      <Tabs defaultValue={isAdmin ? "admin" : "subscription"} className="space-y-6">
+      <Tabs defaultValue={tabFromUrl || (isAdmin ? "admin" : "subscription")} className="space-y-6">
         <TabsList className="flex-wrap h-auto gap-1">
           {isAdmin && (
             <>
