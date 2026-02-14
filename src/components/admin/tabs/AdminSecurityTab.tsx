@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { 
   Shield, 
+  ShieldCheck,
   Lock, 
   UserPlus, 
   Link2, 
@@ -417,6 +418,36 @@ export function AdminSecurityTab() {
                 <p className="font-medium text-purple-800 dark:text-purple-200">Auditoría Completa</p>
                 <p className="text-purple-700 dark:text-purple-300">
                   Todas las acciones administrativas quedan registradas en el historial de auditoría.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-lg">
+              <Shield className="h-5 w-5 text-indigo-600 mt-0.5" />
+              <div>
+                <p className="font-medium text-indigo-800 dark:text-indigo-200">Proxy de Egreso</p>
+                <p className="text-indigo-700 dark:text-indigo-300">
+                  Todas las comunicaciones externas pasan por un punto de control con lista de dominios autorizados y escáner de PII.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-teal-50 dark:bg-teal-950 border border-teal-200 dark:border-teal-800 rounded-lg">
+              <ShieldCheck className="h-5 w-5 text-teal-600 mt-0.5" />
+              <div>
+                <p className="font-medium text-teal-800 dark:text-teal-200">Alertas de Seguridad Autónomas</p>
+                <p className="text-teal-700 dark:text-teal-300">
+                  Atenia AI detecta exportaciones masivas, escalamiento de permisos y violaciones de egreso en tiempo real.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
+              <Lock className="h-5 w-5 text-orange-600 mt-0.5" />
+              <div>
+                <p className="font-medium text-orange-800 dark:text-orange-200">CSP Estricto</p>
+                <p className="text-orange-700 dark:text-orange-300">
+                  Content-Security-Policy previene inyección de scripts, robo de datos del navegador y solicitudes a dominios no autorizados.
                 </p>
               </div>
             </div>
