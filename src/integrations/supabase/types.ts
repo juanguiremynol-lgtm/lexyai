@@ -1359,6 +1359,93 @@ export type Database = {
         }
         Relationships: []
       }
+      atenia_deep_dives: {
+        Row: {
+          conversation_id: string | null
+          created_at: string | null
+          diagnosis: string
+          duration_ms: number | null
+          finished_at: string | null
+          gemini_analysis: string | null
+          id: string
+          included_in_digest: boolean | null
+          organization_id: string
+          radicado: string
+          recommended_actions: Json | null
+          remediation_action_id: string | null
+          remediation_applied: boolean | null
+          root_cause: string | null
+          severity: string
+          started_at: string
+          status: string
+          steps: Json
+          trigger_criteria: string
+          trigger_evidence: Json | null
+          work_item_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string | null
+          diagnosis?: string
+          duration_ms?: number | null
+          finished_at?: string | null
+          gemini_analysis?: string | null
+          id?: string
+          included_in_digest?: boolean | null
+          organization_id: string
+          radicado: string
+          recommended_actions?: Json | null
+          remediation_action_id?: string | null
+          remediation_applied?: boolean | null
+          root_cause?: string | null
+          severity?: string
+          started_at?: string
+          status?: string
+          steps?: Json
+          trigger_criteria: string
+          trigger_evidence?: Json | null
+          work_item_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string | null
+          diagnosis?: string
+          duration_ms?: number | null
+          finished_at?: string | null
+          gemini_analysis?: string | null
+          id?: string
+          included_in_digest?: boolean | null
+          organization_id?: string
+          radicado?: string
+          recommended_actions?: Json | null
+          remediation_action_id?: string | null
+          remediation_applied?: boolean | null
+          root_cause?: string | null
+          severity?: string
+          started_at?: string
+          status?: string
+          steps?: Json
+          trigger_criteria?: string
+          trigger_evidence?: Json | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_deep_dives_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_deep_dives_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       atenia_e2e_test_registry: {
         Row: {
           consecutive_failures: number | null
