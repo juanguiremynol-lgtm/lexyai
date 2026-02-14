@@ -18,3 +18,4 @@ export { default as PlatformCourthouseDirectoryPage } from "./PlatformCourthouse
 export { default as PlatformExternalProvidersPage } from "./PlatformExternalProvidersPage";
 export { default as PlatformBillingPage } from "./PlatformBillingPage";
 export { default as PlatformNotificationsPage } from "./PlatformNotificationsPage";
+export { default as PlatformGeminiPage } from "./PlatformGeminiPage";

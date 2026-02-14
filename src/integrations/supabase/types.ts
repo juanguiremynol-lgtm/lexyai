@@ -4276,6 +4276,53 @@ export type Database = {
           },
         ]
       }
+      gemini_call_log: {
+        Row: {
+          caller_type: string
+          caller_user_id: string | null
+          created_at: string
+          duration_ms: number | null
+          function_name: string
+          id: string
+          model: string
+          organization_id: string | null
+          status: string
+          tokens_used: number | null
+        }
+        Insert: {
+          caller_type: string
+          caller_user_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          function_name: string
+          id?: string
+          model?: string
+          organization_id?: string | null
+          status?: string
+          tokens_used?: number | null
+        }
+        Update: {
+          caller_type?: string
+          caller_user_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          function_name?: string
+          id?: string
+          model?: string
+          organization_id?: string | null
+          status?: string
+          tokens_used?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gemini_call_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hearings: {
         Row: {
           auto_detected: boolean | null
@@ -6148,6 +6195,10 @@ export type Database = {
           email_pause_reason: string | null
           email_paused_at: string | null
           email_paused_by: string | null
+          gemini_master_enabled: boolean
+          gemini_org_admin_enabled: boolean
+          gemini_super_admin_enabled: boolean
+          gemini_user_enabled: boolean
           id: string
           max_emails_per_org_per_day: number | null
           max_emails_per_org_per_hour: number | null
@@ -6164,6 +6215,10 @@ export type Database = {
           email_pause_reason?: string | null
           email_paused_at?: string | null
           email_paused_by?: string | null
+          gemini_master_enabled?: boolean
+          gemini_org_admin_enabled?: boolean
+          gemini_super_admin_enabled?: boolean
+          gemini_user_enabled?: boolean
           id?: string
           max_emails_per_org_per_day?: number | null
           max_emails_per_org_per_hour?: number | null
@@ -6180,6 +6235,10 @@ export type Database = {
           email_pause_reason?: string | null
           email_paused_at?: string | null
           email_paused_by?: string | null
+          gemini_master_enabled?: boolean
+          gemini_org_admin_enabled?: boolean
+          gemini_super_admin_enabled?: boolean
+          gemini_user_enabled?: boolean
           id?: string
           max_emails_per_org_per_day?: number | null
           max_emails_per_org_per_hour?: number | null
