@@ -284,3 +284,6 @@ verify_jwt = false
 
 [functions.provider-wizard-readiness]
 verify_jwt = false
+
+[functions.provider-wizard-simulate]
+verify_jwt = false

@@ -10,6 +10,7 @@ export const WIZARD_STEPS = [
   { key: "connector",  label: "Conector",          icon: "Shield" },
   { key: "instance",   label: "Instancia",         icon: "Server" },
   { key: "preflight",  label: "Preflight",         icon: "ShieldCheck" },
+  { key: "simulation", label: "Simulación",        icon: "FlaskConical" },
   { key: "mapping",    label: "Mapping",           icon: "ArrowLeftRight" },
   { key: "routing",    label: "Routing",           icon: "Route" },
   { key: "e2e",        label: "Validación E2E",    icon: "Zap" },
