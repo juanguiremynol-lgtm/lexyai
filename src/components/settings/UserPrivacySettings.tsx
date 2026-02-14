@@ -218,6 +218,41 @@ export function UserPrivacySettings() {
               </li>
             </ul>
           </div>
+
+          {/* New: Exfiltration & Network Protections */}
+          <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center gap-2 mb-3">
+              <Shield className="h-5 w-5 text-purple-600" />
+              <h4 className="font-medium text-purple-800 dark:text-purple-200">
+                Protección contra Exfiltración de Datos
+              </h4>
+            </div>
+            <p className="text-sm text-purple-700 dark:text-purple-300 mb-2">
+              Capas adicionales de seguridad que protegen sus datos de filtraciones accidentales o maliciosas:
+            </p>
+            <ul className="space-y-1.5 text-sm text-purple-700 dark:text-purple-300">
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span><strong>Proxy de Egreso:</strong> Todas las comunicaciones externas pasan por un punto de control que solo permite dominios autorizados</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span><strong>Escáner de PII:</strong> Cada paquete de datos saliente es analizado para detectar y bloquear información personal (cédulas, correos, nombres)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span><strong>Límite de tráfico:</strong> Control de velocidad por organización (60 solicitudes/minuto) para prevenir extracción masiva</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span><strong>Alertas de Seguridad:</strong> Atenia AI monitorea automáticamente exportaciones masivas, escalamiento de permisos y patrones anómalos</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span><strong>CSP Estricto:</strong> Política de seguridad de contenido que previene inyección de scripts y robo de datos desde el navegador</span>
+              </li>
+            </ul>
+          </div>
         </CardContent>
       </Card>
 

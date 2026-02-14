@@ -310,6 +310,21 @@ export function PlatformSecurityDashboard() {
               status="pass"
               detail="Purga automática configurable (90 días por defecto)"
             />
+            <SecurityCheck
+              title="Proxy de Egreso"
+              status="pass"
+              detail="Todas las llamadas externas pasan por egress-proxy con allowlist de dominios y escáner PII"
+            />
+            <SecurityCheck
+              title="Alertas de Seguridad"
+              status="pass"
+              detail="Detección autónoma de exportaciones masivas, escalamiento de permisos y violaciones de egreso"
+            />
+            <SecurityCheck
+              title="CSP Estricto"
+              status="pass"
+              detail="Content-Security-Policy bloquea iframes, scripts no autorizados y connect-src restringido"
+            />
           </div>
         </CardContent>
       </Card>
