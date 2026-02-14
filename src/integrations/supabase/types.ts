@@ -1359,6 +1359,192 @@ export type Database = {
         }
         Relationships: []
       }
+      atenia_e2e_test_registry: {
+        Row: {
+          consecutive_failures: number | null
+          created_at: string | null
+          expected_source_count: Json | null
+          id: string
+          is_sentinel: boolean | null
+          last_test_result: string | null
+          last_tested_at: string | null
+          organization_id: string
+          providers_to_test: string[]
+          radicado: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Insert: {
+          consecutive_failures?: number | null
+          created_at?: string | null
+          expected_source_count?: Json | null
+          id?: string
+          is_sentinel?: boolean | null
+          last_test_result?: string | null
+          last_tested_at?: string | null
+          organization_id: string
+          providers_to_test: string[]
+          radicado: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Update: {
+          consecutive_failures?: number | null
+          created_at?: string | null
+          expected_source_count?: Json | null
+          id?: string
+          is_sentinel?: boolean | null
+          last_test_result?: string | null
+          last_tested_at?: string | null
+          organization_id?: string
+          providers_to_test?: string[]
+          radicado?: string
+          work_item_id?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_e2e_test_registry_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_registry_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_e2e_test_results: {
+        Row: {
+          created_at: string | null
+          duration_ms: number | null
+          finished_at: string | null
+          id: string
+          organization_id: string
+          overall: string
+          radicado: string
+          registry_id: string | null
+          started_at: string
+          steps: Json
+          trigger: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: string
+          organization_id: string
+          overall: string
+          radicado: string
+          registry_id?: string | null
+          started_at?: string
+          steps?: Json
+          trigger: string
+          work_item_id: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string | null
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: string
+          organization_id?: string
+          overall?: string
+          radicado?: string
+          registry_id?: string | null
+          started_at?: string
+          steps?: Json
+          trigger?: string
+          work_item_id?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_e2e_test_results_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_registry_id_fkey"
+            columns: ["registry_id"]
+            isOneToOne: false
+            referencedRelation: "atenia_e2e_test_registry"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "atenia_e2e_test_results_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      atenia_preflight_checks: {
+        Row: {
+          created_at: string | null
+          decision: string | null
+          duration_ms: number | null
+          finished_at: string | null
+          id: string
+          organization_id: string | null
+          overall_status: string
+          providers_failed: number | null
+          providers_passed: number | null
+          providers_tested: number | null
+          results: Json
+          started_at: string
+          trigger: string
+        }
+        Insert: {
+          created_at?: string | null
+          decision?: string | null
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: string
+          organization_id?: string | null
+          overall_status?: string
+          providers_failed?: number | null
+          providers_passed?: number | null
+          providers_tested?: number | null
+          results?: Json
+          started_at?: string
+          trigger: string
+        }
+        Update: {
+          created_at?: string | null
+          decision?: string | null
+          duration_ms?: number | null
+          finished_at?: string | null
+          id?: string
+          organization_id?: string | null
+          overall_status?: string
+          providers_failed?: number | null
+          providers_passed?: number | null
+          providers_tested?: number | null
+          results?: Json
+          started_at?: string
+          trigger?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "atenia_preflight_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
