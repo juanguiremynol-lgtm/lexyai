@@ -14,6 +14,7 @@ import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, Alert
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
 import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
 import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
@@ -38,6 +39,7 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const { organization, isLoading: isOrgLoading } = useOrganization();
   const { isOwner, isAdmin, isLoading: isMembershipLoading } = useOrganizationMembership(organization?.id || null);
+  const { isPlatformAdmin } = usePlatformAdmin();
   const { prefs: mascotPrefs, updatePrefs: updateMascotPrefs } = useMascotPreferences();
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
@@ -220,8 +222,12 @@ export default function Settings() {
           <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
-          <TabsTrigger value="integrations">Integraciones</TabsTrigger>
-          <TabsTrigger value="export">Exportar</TabsTrigger>
+          {isPlatformAdmin && (
+            <TabsTrigger value="integrations">Integraciones ICARUS</TabsTrigger>
+          )}
+          {isPlatformAdmin && (
+            <TabsTrigger value="export">Exportar ICARUS</TabsTrigger>
+          )}
           <TabsTrigger value="privacy">
             <ShieldCheck className="h-4 w-4 mr-1" />
             Privacidad
@@ -501,84 +507,56 @@ export default function Settings() {
           <EstadosImport />
         </TabsContent>
 
-        <TabsContent value="integrations">
-          <div className="space-y-6">
+        {isPlatformAdmin && (
+          <TabsContent value="integrations">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    Importar Procesos (Excel) — Solo Super Admin
+                  </CardTitle>
+                  <CardDescription>
+                    Importa procesos desde un archivo Excel exportado de ICARUS (fallback)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <IcarusExcelImport />
+                  <Separator className="my-6" />
+                  <IcarusImportHistory />
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        )}
+
+        {isPlatformAdmin && (
+          <TabsContent value="export">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Importar Procesos (Excel)
+                  <FileText className="h-5 w-5" />
+                  Exportar para ICARUS — Solo Super Admin
                 </CardTitle>
                 <CardDescription>
-                  Importa procesos desde un archivo Excel exportado de tu sistema de gestión
+                  Descarga los radicados confirmados en formato CSV (fallback)
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <IcarusExcelImport />
-                <Separator className="my-6" />
-                <IcarusImportHistory />
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Este archivo incluye todas las radicaciones con estado{" "}
+                  <Badge variant="outline">RADICADO_CONFIRMED</Badge> o{" "}
+                  <Badge variant="outline">ICARUS_SYNC_PENDING</Badge> que tengan
+                  un número de radicado asignado.
+                </p>
+                <Button onClick={exportIcarus}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Descargar CSV
+                </Button>
               </CardContent>
             </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="export">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Exportar para Icarus
-              </CardTitle>
-              <CardDescription>
-                Descarga los radicados confirmados en formato CSV
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Este archivo incluye todas las radicaciones con estado{" "}
-                <Badge variant="outline">RADICADO_CONFIRMED</Badge> o{" "}
-                <Badge variant="outline">ICARUS_SYNC_PENDING</Badge> que tengan
-                un número de radicado asignado.
-              </p>
-              <Button onClick={exportIcarus}>
-                <Download className="h-4 w-4 mr-2" />
-                Descargar CSV
-              </Button>
-
-              <Separator className="my-6" />
-
-              <div className="space-y-4">
-                <h3 className="font-medium">Roadmap v2</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium mb-2">📧 Integración Gmail/Outlook</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Recepción automática de correos y clasificación de actas
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium mb-2">📄 OCR de Actas</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Extracción automática de radicado y juzgado del PDF
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium mb-2">📅 Calendario Colombiano</h4>
-                    <p className="text-sm text-muted-foreground">
-                      SLAs calculados en días hábiles con festivos
-                    </p>
-                  </div>
-                  <div className="p-4 border rounded-lg">
-                    <h4 className="font-medium mb-2">🏛️ Directorio de Juzgados</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Base de datos de juzgados por circuito con correos
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+          </TabsContent>
+        )}
 
         <TabsContent value="privacy">
           <UserPrivacySettings />

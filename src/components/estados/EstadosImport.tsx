@@ -252,7 +252,7 @@ export function EstadosImport() {
           Importar Estados desde Excel
         </CardTitle>
         <CardDescription>
-          Cargue el archivo Excel exportado de ICARUS con los estados de los procesos
+          Cargue el archivo Excel con los estados de los procesos
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

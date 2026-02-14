@@ -6,9 +6,9 @@ const WORKFLOWS = [
   {
     icon: Scale,
     title: "CGP / Civil",
-    badge: "ICARUS · CPNU",
+    badge: "CPNU · Publicaciones",
     description:
-      "Seguimiento de procesos del Código General del Proceso. Estados via ICARUS, actuaciones via CPNU con fallback a SAMAI.",
+      "Seguimiento de procesos del Código General del Proceso. Actuaciones via CPNU con fallback a SAMAI, estados via Publicaciones Procesales.",
     highlights: ["Términos legales automáticos", "Alertas de traslado y audiencia", "Línea de tiempo completa"],
   },
   {
@@ -38,7 +38,7 @@ const WORKFLOWS = [
   {
     icon: Briefcase,
     title: "Laboral",
-    badge: "ICARUS · CPNU",
+    badge: "CPNU · SAMAI",
     description:
       "Procesos laborales con seguimiento de términos, audiencias de conciliación y fallos.",
     highlights: ["Términos laborales", "Conciliación obligatoria", "Seguimiento de sentencias"],
