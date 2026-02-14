@@ -1,10 +1,11 @@
 /**
  * Admin Subscription Tab - READ-ONLY subscription status view for org admins
- * Subscription modifications are only available in the Platform Console
+ * With prominent link to Settings → Billing for plan management
  */
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Crown, 
@@ -13,11 +14,14 @@ import {
   CheckCircle2,
   Pause,
   XCircle,
-  Info
+  Info,
+  CreditCard,
+  ArrowRight,
 } from "lucide-react";
 import { useSubscription } from "@/contexts/SubscriptionContext";
 import { differenceInDays, format } from "date-fns";
 import { es } from "date-fns/locale";
+import { useNavigate } from "react-router-dom";
 
 const STATUS_BADGES: Record<string, { label: string; className: string; icon: typeof CheckCircle2 }> = {
   active: { 
@@ -44,8 +48,8 @@ const STATUS_BADGES: Record<string, { label: string; className: string; icon: ty
 
 export function AdminSubscriptionTab() {
   const { subscription, plan } = useSubscription();
+  const navigate = useNavigate();
 
-  // Calculate trial info
   const trialEndsAt = subscription?.trial_ends_at ? new Date(subscription.trial_ends_at) : null;
   const daysRemaining = trialEndsAt ? differenceInDays(trialEndsAt, new Date()) : 0;
   const isTrialing = subscription?.status === "trialing";
@@ -65,6 +69,25 @@ export function AdminSubscriptionTab() {
 
   return (
     <div className="space-y-6">
+      {/* Quick action: go to billing */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            <CreditCard className="h-5 w-5 text-primary" />
+            <div>
+              <p className="font-medium">Gestionar Facturación</p>
+              <p className="text-sm text-muted-foreground">
+                Compra más tiempo, cambia de plan o revisa facturas
+              </p>
+            </div>
+          </div>
+          <Button onClick={() => navigate("/settings?tab=billing")} variant="default" size="sm">
+            Ir a Facturación
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Current Status Card */}
       <Card>
         <CardHeader>
@@ -73,7 +96,7 @@ export function AdminSubscriptionTab() {
             Estado de Suscripción
           </CardTitle>
           <CardDescription>
-            Vista de solo lectura del estado actual de tu suscripción
+            Vista del estado actual de la suscripción de tu organización
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -144,8 +167,13 @@ export function AdminSubscriptionTab() {
       <Alert>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          Los cambios de suscripción (extensiones de prueba, activaciones, suspensiones) son administrados por el equipo de soporte de ATENIA. 
-          Contacta a soporte si necesitas modificar tu plan.
+          Para comprar más tiempo, cambiar de plan o gestionar métodos de pago, ve a{" "}
+          <button 
+            onClick={() => navigate("/settings?tab=billing")}
+            className="underline font-medium hover:text-primary transition-colors"
+          >
+            Configuración → Facturación
+          </button>.
         </AlertDescription>
       </Alert>
     </div>
