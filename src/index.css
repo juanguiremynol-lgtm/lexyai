@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Nunito:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -417,6 +417,103 @@
     --aqua-text-secondary: rgba(12, 20, 34, 0.72);
     --aqua-text-on-dark: rgba(255, 255, 255, 0.95);
   }
+
+  /* ============================================
+     PASTEL GIRLY THEME — Soft, Warm, Professional
+     ============================================ */
+  .pastel-girly {
+    color-scheme: light;
+
+    /* Core surfaces */
+    --background: 30 40% 98%;
+    --foreground: 280 10% 22%;
+
+    --card: 30 30% 99%;
+    --card-foreground: 280 12% 25%;
+
+    --popover: 30 30% 99%;
+    --popover-foreground: 280 12% 25%;
+
+    /* Primary: Dusty rose */
+    --primary: 330 45% 62%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Pale lavender */
+    --secondary: 280 30% 94%;
+    --secondary-foreground: 280 15% 35%;
+
+    /* Muted: Blush mist */
+    --muted: 330 20% 95%;
+    --muted-foreground: 280 8% 45%;
+
+    /* Accent: Peach cream */
+    --accent: 20 50% 92%;
+    --accent-foreground: 20 30% 35%;
+
+    /* Brand variations */
+    --brand-dark: 330 40% 45%;
+    --brand: 330 45% 62%;
+    --brand-light: 330 50% 72%;
+    --brand-muted: 330 30% 55%;
+
+    /* Gold becomes rose-gold */
+    --gold: 15 50% 60%;
+    --gold-foreground: 0 0% 100%;
+
+    /* Borders and focus */
+    --border: 330 20% 88%;
+    --input: 330 18% 92%;
+    --ring: 270 50% 75%;
+
+    /* Destructive: Soft coral */
+    --destructive: 0 55% 62%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Radius: Softer, rounder */
+    --radius: 1rem;
+
+    /* Sidebar */
+    --sidebar-background: 340 25% 97%;
+    --sidebar-foreground: 280 10% 30%;
+    --sidebar-primary: 330 45% 62%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 280 30% 94%;
+    --sidebar-accent-foreground: 280 15% 35%;
+    --sidebar-border: 330 15% 90%;
+    --sidebar-ring: 270 50% 75%;
+
+    /* Status colors */
+    --status-drafted: 280 8% 55%;
+    --status-sent: 230 40% 65%;
+    --status-pending: 35 55% 55%;
+    --status-received: 140 30% 55%;
+    --status-confirmed: 140 35% 50%;
+    --status-active: 270 40% 60%;
+    --status-closed: 280 8% 50%;
+
+    /* SLA colors */
+    --sla-safe: 140 35% 50%;
+    --sla-warning: 35 60% 55%;
+    --sla-critical: 0 50% 58%;
+
+    /* Chart colors */
+    --chart-1: 330 45% 62%;
+    --chart-2: 270 40% 68%;
+    --chart-3: 20 50% 65%;
+    --chart-4: 140 30% 58%;
+    --chart-5: 230 40% 65%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(330 45% 62%) 0%, hsl(270 40% 68%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(30 40% 98%) 0%, hsl(340 25% 96%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(30 30% 99%) 0%, hsl(330 20% 97%) 100%);
+
+    /* Shadows — warm pink tones */
+    --shadow-sm: 0 1px 3px hsl(330 25% 80% / 0.15);
+    --shadow-md: 0 4px 8px hsl(330 25% 80% / 0.12), 0 1px 3px hsl(330 25% 80% / 0.08);
+    --shadow-lg: 0 8px 20px hsl(330 25% 80% / 0.15), 0 2px 6px hsl(330 25% 80% / 0.08);
+    --shadow-xl: 0 16px 32px hsl(330 25% 80% / 0.18), 0 4px 12px hsl(330 25% 80% / 0.1);
+  }
 }
 
 /* Base styles */
@@ -482,6 +579,74 @@
       hsl(0 0% 0% / 0.03) 2px,
       hsl(0 0% 0% / 0.03) 4px
     );
+  }
+
+  /* Pastel Girly theme background */
+  .pastel-girly body {
+    font-family: 'Nunito', 'Quicksand', system-ui, sans-serif;
+    letter-spacing: 0.01em;
+    background:
+      radial-gradient(ellipse at 20% 50%, hsl(330 30% 96%) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, hsl(270 25% 96%) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 80%, hsl(20 35% 96%) 0%, transparent 50%),
+      hsl(30 40% 98%);
+    background-attachment: fixed;
+  }
+
+  /* Pastel Girly heart motif overlay (extremely subtle) */
+  .pastel-girly body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.02;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cpath d='M30 50 C15 35 5 25 15 15 C20 10 27 12 30 18 C33 12 40 10 45 15 C55 25 45 35 30 50Z' fill='%23d4829e' opacity='0.3'/%3E%3C/svg%3E");
+    background-size: 80px 80px;
+  }
+
+  /* Ensure pastel-girly app content is above the heart texture */
+  .pastel-girly body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Pastel Girly headings: use Nunito, not Cormorant */
+  .pastel-girly h1,
+  .pastel-girly h2,
+  .pastel-girly h3,
+  .pastel-girly h4,
+  .pastel-girly h5,
+  .pastel-girly h6 {
+    font-family: 'Nunito', system-ui, sans-serif;
+    font-weight: 700;
+  }
+
+  /* Pastel Girly selection color */
+  .pastel-girly ::selection {
+    background: hsl(330 40% 88%);
+    color: hsl(280 12% 25%);
+  }
+
+  /* Pastel Girly scrollbar */
+  .pastel-girly ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .pastel-girly ::-webkit-scrollbar-track {
+    background: hsl(330 20% 96%);
+    border-radius: 3px;
+  }
+
+  .pastel-girly ::-webkit-scrollbar-thumb {
+    background: hsl(330 25% 85%);
+    border-radius: 3px;
+  }
+
+  .pastel-girly ::-webkit-scrollbar-thumb:hover {
+    background: hsl(330 30% 78%);
   }
 
   /* Aqua theme - No body background (uses wallpaper) */
@@ -1122,6 +1287,153 @@
       transparent 100%
     );
     background-size: 200% 100%;
+  }
+
+
+  /* ============================================
+     PASTEL GIRLY — Component & Structural Overrides
+     ============================================ */
+
+  /* Buttons: pill-shaped */
+  .pastel-girly button,
+  .pastel-girly [role="button"],
+  .pastel-girly .inline-flex[class*="rounded"] {
+    border-radius: 9999px;
+  }
+
+  /* Exception: cards, dialogs, large containers — NOT pill */
+  .pastel-girly [data-slot="card"],
+  .pastel-girly [role="dialog"],
+  .pastel-girly [data-slot="dialog-content"],
+  .pastel-girly [data-slot="sheet-content"],
+  .pastel-girly .bg-card {
+    border-radius: 1.25rem;
+  }
+
+  /* Softer rounded corners on cards */
+  .pastel-girly .rounded-lg {
+    border-radius: 1rem;
+  }
+
+  .pastel-girly .rounded-md {
+    border-radius: 0.75rem;
+  }
+
+  /* Softer shadows */
+  .pastel-girly .shadow-sm {
+    box-shadow: 0 1px 3px hsl(330 25% 80% / 0.2), 0 0 0 1px hsl(330 20% 92% / 0.5);
+  }
+
+  .pastel-girly .shadow-md,
+  .pastel-girly .shadow {
+    box-shadow: 0 2px 8px hsl(330 25% 80% / 0.15), 0 0 0 1px hsl(330 20% 92% / 0.4);
+  }
+
+  .pastel-girly .shadow-lg {
+    box-shadow: 0 4px 16px hsl(330 25% 80% / 0.2), 0 0 0 1px hsl(330 20% 92% / 0.3);
+  }
+
+  /* Focus rings: lavender */
+  .pastel-girly *:focus-visible {
+    outline: 2px solid hsl(270 50% 75%);
+    outline-offset: 2px;
+  }
+
+  /* Tab styling */
+  .pastel-girly [role="tablist"] {
+    border-bottom-color: hsl(330 15% 92%);
+  }
+
+  .pastel-girly [role="tab"] {
+    border-radius: 9999px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    border-bottom: 3px solid transparent;
+  }
+
+  .pastel-girly [role="tab"]:hover:not([data-state="active"]) {
+    background: hsl(330 20% 96%);
+  }
+
+  .pastel-girly [role="tab"][data-state="active"] {
+    background: hsl(330 30% 94%);
+    color: hsl(330 45% 62%);
+    border-bottom-color: hsl(330 45% 62%);
+    box-shadow: 0 1px 4px hsl(330 30% 80% / 0.15);
+  }
+
+  /* Card hover */
+  .pastel-girly .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px hsl(330 30% 80% / 0.25), 0 0 0 1px hsl(330 25% 88% / 0.6);
+  }
+
+  /* Brand gradient text */
+  .pastel-girly .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(330 45% 62%) 0%, hsl(270 40% 68%) 50%, hsl(330 45% 62%) 100%);
+  }
+
+  /* Border glow */
+  .pastel-girly .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(330 45% 62% / 0.2), 0 0 20px -5px hsl(330 40% 70% / 0.15);
+  }
+
+  /* Glow on hover */
+  .pastel-girly .glow-on-hover {
+    transition: box-shadow 0.3s;
+  }
+
+  .pastel-girly .glow-on-hover:hover {
+    box-shadow: 0 0 20px 4px hsl(330 45% 68% / 0.25), 0 4px 12px -4px hsl(330 40% 65% / 0.2);
+  }
+
+  /* Pulse */
+  @keyframes pulse-brand-pastel {
+    0%, 100% {
+      box-shadow: 0 0 0 0 hsl(330 45% 62% / 0.4);
+    }
+    50% {
+      box-shadow: 0 0 0 8px hsl(330 45% 62% / 0);
+    }
+  }
+
+  .pastel-girly .pulse-brand {
+    animation: pulse-brand-pastel 2s ease-in-out infinite;
+  }
+
+  /* Shine */
+  .pastel-girly .brand-shine {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(330 45% 68% / 0.12) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+  }
+
+  /* Glass card */
+  .pastel-girly .glass-card {
+    background: hsl(30 30% 99% / 0.9);
+    border: 1px solid hsl(330 20% 90%);
+  }
+
+  /* Toasts */
+  .pastel-girly [data-sonner-toast] {
+    border-radius: 1rem;
+    border: 1px solid hsl(330 20% 90%);
+    font-family: 'Nunito', system-ui, sans-serif;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .pastel-girly *,
+    .pastel-girly *::before,
+    .pastel-girly *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
