@@ -176,3 +176,9 @@ verify_jwt = false
 
 [functions.provider-set-instance-secret]
 verify_jwt = false
+
+[functions.atenia-preflight-check]
+verify_jwt = false
+
+[functions.atenia-e2e-scheduled]
+verify_jwt = false
