@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports, ColombiaDepartments, ColombiaCountryInfo } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports, ColombiaDepartments } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
@@ -10,7 +10,7 @@ import {
   MapPin,
   Plane,
   Building,
-  Flag,
+  
   FileText, 
   Shield, 
   Clock, 
@@ -157,10 +157,6 @@ export default function Utilities() {
             <Building className="h-4 w-4" />
             Departamentos
           </TabsTrigger>
-          <TabsTrigger value="pais" className="flex items-center gap-2">
-            <Flag className="h-4 w-4" />
-            Colombia
-          </TabsTrigger>
           <TabsTrigger value="enlaces" className="flex items-center gap-2">
             <ExternalLink className="h-4 w-4" />
             Enlaces
@@ -234,9 +230,6 @@ export default function Utilities() {
           <ColombiaDepartments />
         </TabsContent>
 
-        <TabsContent value="pais" className="mt-6">
-          <ColombiaCountryInfo />
-        </TabsContent>
 
         <TabsContent value="enlaces" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
