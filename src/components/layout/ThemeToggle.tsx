@@ -1,4 +1,4 @@
-import { Moon, Sun, Monitor, Terminal, Waves } from "lucide-react";
+import { Moon, Sun, Monitor, Terminal, Waves, Flower2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -19,6 +19,9 @@ export function ThemeToggle() {
     }
     if (theme === "aqua") {
       return <Waves className="h-5 w-5 text-[hsl(187_80%_45%)]" />;
+    }
+    if (theme === "pastel-girly") {
+      return <Flower2 className="h-5 w-5 text-[hsl(330_45%_68%)]" />;
     }
     return (
       <>
@@ -52,6 +55,13 @@ export function ThemeToggle() {
           Oscuro
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem 
+          onClick={() => setTheme("pastel-girly")}
+          className={theme === "pastel-girly" ? "bg-accent" : ""}
+        >
+          <Flower2 className="mr-2 h-4 w-4" />
+          <span>Pastel 🌸</span>
+        </DropdownMenuItem>
         <DropdownMenuItem 
           onClick={() => setTheme("aqua")}
           className={theme === "aqua" ? "bg-accent" : ""}
