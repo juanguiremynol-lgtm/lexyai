@@ -211,4 +211,62 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
     priority: 4,
     cooldownMinutes: 1440,
   },
+
+  // === PRIVACY & SECURITY AWARENESS ===
+  {
+    id: "privacy_no_llm",
+    text: "No recopilamos, almacenamos ni utilizamos información de nuestros usuarios para alimentar, entrenar o mejorar modelos de IA (LLM). 🔒",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_guaranteed",
+    text: "Protección Garantizada: los administradores de plataforma NO pueden ver información personal, datos de clientes, ni actuaciones.",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_redacted",
+    text: "Toda información de soporte se entrega redactada: nombres, radicados y datos sensibles permanecen ocultos. 🛡️",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_encryption",
+    text: "El cifrado AES-256-GCM protege el 100% de campos sensibles en la plataforma.",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_org_isolation",
+    text: "Los miembros de organización solo ven su propia información personal. Tu privacidad es nuestra prioridad.",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_no_third_party",
+    text: "Sus datos, documentos, procesos y conversaciones nunca se envían a terceros para entrenamiento de IA.",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_ephemeral_ai",
+    text: "Las funcionalidades de IA integradas procesan su información de forma efímera y sin retención. 🤖",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
+  {
+    id: "privacy_no_generative_input",
+    text: "Ningún dato personal o profesional es utilizado como insumo para modelos generativos.",
+    contexts: ["GLOBAL", "SETTINGS"],
+    priority: 2,
+    cooldownMinutes: 1440,
+  },
 ];
