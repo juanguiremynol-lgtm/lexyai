@@ -38,7 +38,7 @@ export function TenantLayout() {
   }, []);
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       {/* Root container - app-content class ensures it renders above overlays */}
       <div className={cn(
         "app-content flex min-h-screen w-full",
