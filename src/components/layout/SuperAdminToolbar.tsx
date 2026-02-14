@@ -92,18 +92,22 @@ export function SuperAdminToolbar() {
     }
   }, []);
 
-  // ─── Master Sync (user's own work items only) ───
+  // ─── Master Sync (super admin's OWN work items only, not all org) ───
   const runMasterSync = useCallback(async () => {
-    if (!organization?.id || syncProgress.isRunning) return;
+    if (syncProgress.isRunning) return;
 
     setSyncProgress({ total: 0, completed: 0, success: 0, errors: 0, isRunning: true });
 
     try {
-      // Fetch eligible work items for this org
+      // Get the current user's ID
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      // Fetch eligible work items owned by THIS admin only
       const { data: workItems, error: fetchError } = await supabase
         .from("work_items")
         .select("id, workflow_type, radicado, stage, total_actuaciones")
-        .eq("organization_id", organization.id)
+        .eq("owner_id", user.id)
         .eq("monitoring_enabled", true)
         .in("workflow_type", SYNC_WORKFLOWS)
         .not("radicado", "is", null)
@@ -187,7 +191,7 @@ export function SuperAdminToolbar() {
         variant: "destructive",
       });
     }
-  }, [organization?.id, syncProgress.isRunning]);
+  }, [syncProgress.isRunning]);
 
   // Don't render if not platform admin
   if (adminLoading || !isPlatformAdmin) return null;
@@ -224,7 +228,7 @@ export function SuperAdminToolbar() {
           className="relative h-8 w-8 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
           onClick={runMasterSync}
           disabled={syncProgress.isRunning}
-          title="Sincronizar mis asuntos"
+          title="Sincronizar MIS asuntos (solo propios)"
         >
           {syncProgress.isRunning ? (
             <Loader2 className="h-4 w-4 animate-spin" />
