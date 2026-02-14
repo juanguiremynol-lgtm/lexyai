@@ -172,7 +172,7 @@ const App = () => (
             <Route path="process-status" element={<ErrorBoundary><ProcessStatus /></ErrorBoundary>} />
             <Route path="process-status/link-clients" element={<ErrorBoundary><UnlinkedProcessesPage /></ErrorBoundary>} />
             <Route path="process-status/test" element={<ErrorBoundary><ProcessStatusTest /></ErrorBoundary>} />
-            <Route path="process-status/test-icarus" element={<ErrorBoundary><IcarusTest /></ErrorBoundary>} />
+            <Route path="process-status/test-icarus" element={<PlatformRouteGuard><ErrorBoundary><IcarusTest /></ErrorBoundary></PlatformRouteGuard>} />
             <Route path="process-status/diagnostics/:runId" element={<ErrorBoundary><CrawlerDiagnostics /></ErrorBoundary>} />
             <Route path="api-debug" element={<ErrorBoundary><ApiDebugPage /></ErrorBoundary>} />
             <Route path="tasks" element={<ErrorBoundary><Tasks /></ErrorBoundary>} />

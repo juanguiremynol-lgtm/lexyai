@@ -3,8 +3,8 @@ import { Database, Globe, Server, ArrowLeftRight } from "lucide-react";
 
 const INTEGRATIONS = [
   {
-    name: "ICARUS",
-    description: "Consulta de estados procesales de la Rama Judicial",
+    name: "SAMAI Estados",
+    description: "Consulta de estados procesales de la Rama Judicial (CPACA)",
     type: "Estados",
   },
   {
