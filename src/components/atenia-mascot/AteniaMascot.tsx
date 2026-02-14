@@ -25,7 +25,7 @@ interface AteniaMascotProps {
 export function AteniaMascot({ className, userRole = "member" }: AteniaMascotProps) {
   const isMobile = useIsMobile();
   const { prefs, updatePrefs } = useMascotPreferences();
-  const { contexts, lastAction } = useMascotContext();
+  const { contexts, lastAction, dashboardStats } = useMascotContext();
   const [mascotState, setMascotState] = useState<MascotState>("IDLE");
   const [chatOpen, setChatOpen] = useState(false);
   const [prefillText, setPrefillText] = useState<string | null>(null);
@@ -34,7 +34,8 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
     contexts,
     userRole,
     lastAction,
-    prefs.tips_enabled && prefs.visible
+    prefs.tips_enabled && prefs.visible,
+    dashboardStats
   );
 
   // Sync mascot state with bubble and chat
