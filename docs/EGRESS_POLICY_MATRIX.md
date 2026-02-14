@@ -2,7 +2,10 @@
 
 > **Last updated:** 2026-02-14  
 > **Owner:** Platform Security  
-> **Enforcement:** `supabase/functions/egress-proxy/index.ts`
+> **Enforcement:** `supabase/functions/egress-proxy/index.ts`  
+> **Constants:** `src/lib/constants/sync-constraints.ts` (ALLOWED_OBSERVATION_KINDS)  
+> **DB ENUMs:** `observation_kind`, `observation_severity`  
+> **CI Gate:** `egress-proxy-validation` edge function (run post-migration on staging)
 
 ## Purpose Definitions
 

@@ -52,6 +52,59 @@ export const ALLOWED_ALERT_SEVERITIES = [
 
 export type AlertSeverity = typeof ALLOWED_ALERT_SEVERITIES[number];
 
+// ============= Observation Kind (DB ENUM: observation_kind) =============
+export const ALLOWED_OBSERVATION_KINDS = [
+  'GATE_FAILURE',
+  'PROVIDER_DEGRADED',
+  'CRON_PARTIAL',
+  'CRON_FAILED',
+  'GHOST_ITEMS',
+  'CLASSIFICATION_ANOMALY',
+  'STUCK_CONVERGENCE',
+  'SYNC_TIMEOUT',
+  'DATA_QUALITY',
+  'HEARTBEAT_OBSERVED',
+  'HEARTBEAT_SKIPPED',
+  'REMEDIATION_ATTEMPTED',
+  'PROVIDER_RECOVERED',
+  'EGRESS_VIOLATION',
+  'SECURITY_ALERT',
+  'PROVIDER_DEGRADED_WIRING',
+  'EXT_FAILURES',
+  'GHOST_ITEMS_WIRING',
+] as const;
+
+export type ObservationKind = typeof ALLOWED_OBSERVATION_KINDS[number];
+
+/** Observation kinds restricted to platform admins only */
+export const SECURITY_OBSERVATION_KINDS: readonly ObservationKind[] = [
+  'EGRESS_VIOLATION',
+  'SECURITY_ALERT',
+] as const;
+
+// ============= Observation Severity (DB ENUM: observation_severity) =============
+export const ALLOWED_OBSERVATION_SEVERITIES = ALLOWED_ALERT_SEVERITIES;
+export type ObservationSeverity = AlertSeverity;
+
+// ============= Validation Helpers (Observations) =============
+
+export function isValidObservationKind(value: string): value is ObservationKind {
+  return (ALLOWED_OBSERVATION_KINDS as readonly string[]).includes(value);
+}
+
+export function isValidObservationSeverity(value: string): value is ObservationSeverity {
+  return (ALLOWED_OBSERVATION_SEVERITIES as readonly string[]).includes(value);
+}
+
+/**
+ * Sanitize an observation kind, returning the value if valid or throwing
+ * to prevent silent constraint failures.
+ */
+export function validateObservationKind(value: string): ObservationKind {
+  if (isValidObservationKind(value)) return value;
+  throw new Error(`Invalid observation kind: "${value}". Allowed: ${ALLOWED_OBSERVATION_KINDS.join(', ')}`);
+}
+
 // ============= Alert Status =============
 export const ALLOWED_ALERT_STATUSES = [
   'PENDING',

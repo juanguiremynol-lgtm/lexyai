@@ -826,33 +826,33 @@ export type Database = {
           conversation_id: string | null
           created_at: string | null
           id: string
-          kind: string
+          kind: Database["public"]["Enums"]["observation_kind"]
           links: Json | null
           organization_id: string | null
           payload: Json | null
-          severity: string
+          severity: Database["public"]["Enums"]["observation_severity"]
           title: string
         }
         Insert: {
           conversation_id?: string | null
           created_at?: string | null
           id?: string
-          kind: string
+          kind: Database["public"]["Enums"]["observation_kind"]
           links?: Json | null
           organization_id?: string | null
           payload?: Json | null
-          severity?: string
+          severity?: Database["public"]["Enums"]["observation_severity"]
           title: string
         }
         Update: {
           conversation_id?: string | null
           created_at?: string | null
           id?: string
-          kind?: string
+          kind?: Database["public"]["Enums"]["observation_kind"]
           links?: Json | null
           organization_id?: string | null
           payload?: Json | null
-          severity?: string
+          severity?: Database["public"]["Enums"]["observation_severity"]
           title?: string
         }
         Relationships: [
@@ -10901,6 +10901,26 @@ export type Database = {
         | "NOTIFICACION_ESTADO"
         | "NOTIFICACION_ELECTRONICA"
         | "NOTIFICACION_GENERAL"
+      observation_kind:
+        | "GATE_FAILURE"
+        | "PROVIDER_DEGRADED"
+        | "CRON_PARTIAL"
+        | "CRON_FAILED"
+        | "GHOST_ITEMS"
+        | "CLASSIFICATION_ANOMALY"
+        | "STUCK_CONVERGENCE"
+        | "SYNC_TIMEOUT"
+        | "DATA_QUALITY"
+        | "HEARTBEAT_OBSERVED"
+        | "HEARTBEAT_SKIPPED"
+        | "REMEDIATION_ATTEMPTED"
+        | "PROVIDER_RECOVERED"
+        | "EGRESS_VIOLATION"
+        | "SECURITY_ALERT"
+        | "PROVIDER_DEGRADED_WIRING"
+        | "EXT_FAILURES"
+        | "GHOST_ITEMS_WIRING"
+      observation_severity: "INFO" | "WARNING" | "CRITICAL"
       peticion_phase:
         | "PETICION_RADICADA"
         | "CONSTANCIA_RADICACION"
@@ -11249,6 +11269,27 @@ export const Constants = {
         "NOTIFICACION_ELECTRONICA",
         "NOTIFICACION_GENERAL",
       ],
+      observation_kind: [
+        "GATE_FAILURE",
+        "PROVIDER_DEGRADED",
+        "CRON_PARTIAL",
+        "CRON_FAILED",
+        "GHOST_ITEMS",
+        "CLASSIFICATION_ANOMALY",
+        "STUCK_CONVERGENCE",
+        "SYNC_TIMEOUT",
+        "DATA_QUALITY",
+        "HEARTBEAT_OBSERVED",
+        "HEARTBEAT_SKIPPED",
+        "REMEDIATION_ATTEMPTED",
+        "PROVIDER_RECOVERED",
+        "EGRESS_VIOLATION",
+        "SECURITY_ALERT",
+        "PROVIDER_DEGRADED_WIRING",
+        "EXT_FAILURES",
+        "GHOST_ITEMS_WIRING",
+      ],
+      observation_severity: ["INFO", "WARNING", "CRITICAL"],
       peticion_phase: [
         "PETICION_RADICADA",
         "CONSTANCIA_RADICACION",

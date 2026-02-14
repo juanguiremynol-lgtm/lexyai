@@ -6,6 +6,12 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import {
+  type ObservationKind,
+  type ObservationSeverity,
+  validateObservationKind,
+  isValidObservationSeverity,
+} from "@/lib/constants/sync-constraints";
 
 // ============= TYPES =============
 
@@ -94,15 +100,27 @@ export async function addObservation(
   payload: Record<string, unknown> = {},
   links: Record<string, unknown> = {},
 ): Promise<void> {
-  await (supabase.from("atenia_ai_observations") as any).insert({
+  // Validate kind against centralized constants — fail loudly, never silently
+  const validKind = validateObservationKind(kind.toUpperCase());
+  const validSeverity = isValidObservationSeverity(severity.toUpperCase())
+    ? severity.toUpperCase()
+    : (() => { throw new Error(`Invalid observation severity: "${severity}"`); })();
+
+  const { error } = await (supabase.from("atenia_ai_observations") as any).insert({
     conversation_id: conversationId,
     organization_id: orgId,
-    kind,
-    severity,
+    kind: validKind,
+    severity: validSeverity,
     title,
     payload,
     links,
   });
+
+  if (error) {
+    // Hard error — never swallow insert failures
+    console.error(`[observation_insert_failure] kind=${validKind} fn=addObservation error=${error.message}`);
+    throw new Error(`Observation insert failed (kind=${validKind}): ${error.message}`);
+  }
 
   // Update counts
   await updateConversationCounts(conversationId);

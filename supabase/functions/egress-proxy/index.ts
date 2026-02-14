@@ -242,7 +242,7 @@ async function logViolation(
   }
 ) {
   try {
-    await supabaseAdmin.from("atenia_ai_observations").insert({
+    const { error } = await supabaseAdmin.from("atenia_ai_observations").insert({
       kind: "EGRESS_VIOLATION",
       severity: violation.type === "PII_DETECTED" ? "CRITICAL" : "WARNING",
       title: `Egress ${violation.type}: ${violation.caller} → ${violation.targetDomain} [${violation.purpose}]`,
@@ -259,8 +259,12 @@ async function logViolation(
         // NO raw body, NO headers, NO query strings
       },
     });
+    if (error) {
+      // Hard error logged — observation_insert_failure metric
+      console.error(`[observation_insert_failure] kind=EGRESS_VIOLATION fn=egress-proxy reason=${error.message}`);
+    }
   } catch (err) {
-    console.error("[egress-proxy] Failed to log violation:", err);
+    console.error(`[observation_insert_failure] kind=EGRESS_VIOLATION fn=egress-proxy reason=${err}`);
   }
 }
 
