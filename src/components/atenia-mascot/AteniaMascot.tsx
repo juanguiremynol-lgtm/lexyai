@@ -72,6 +72,7 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
   if (!prefs.visible) return null;
 
   function openChat(prefill?: string) {
+    console.log("[AteniaMascot] openChat called, current chatOpen:", chatOpen);
     setPrefillText(prefill ?? null);
     setChatOpen(true);
     dismissBubble();
@@ -79,6 +80,7 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
   }
 
   function closeChat() {
+    console.log("[AteniaMascot] closeChat called");
     setChatOpen(false);
     setPrefillText(null);
     trackMascotEvent("chat_closed");
@@ -90,9 +92,11 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
     "top-right": "top-20 right-6",
   };
 
+  console.log("[AteniaMascot] render, chatOpen:", chatOpen, "mascotState:", mascotState);
+
   return (
     <>
-      {/* Floating mascot — drop below Sheet z-index (50) when chat is open */}
+      {/* Floating mascot */}
       <div
         className={cn(
           "fixed",
@@ -130,7 +134,7 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
         />
       </div>
 
-      {/* Chat panel */}
+      {/* Chat panel — rendered at top level, portal handles z-index */}
       <AteniaChat
         open={chatOpen}
         onClose={closeChat}

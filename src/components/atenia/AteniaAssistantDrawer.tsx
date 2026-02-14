@@ -360,9 +360,14 @@ Genera un análisis breve (máximo 3 oraciones) y una recomendación.`;
 
   // ---- Render ----
 
+  // Debug: log open state changes
+  console.log("[AteniaAssistantDrawer] render, open=", open, "scope=", scope);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0">
+      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 z-[70] bg-background"
+        style={{ background: 'var(--ds-glass-bg-strong, hsl(var(--background)))' }}>
+
         {/* Header */}
         <SheetHeader className="p-4 pb-2 border-b">
           <SheetTitle className="flex items-center gap-2">
