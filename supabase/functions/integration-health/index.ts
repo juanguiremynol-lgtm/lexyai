@@ -316,7 +316,7 @@ const AUTH_TEST_ENDPOINTS: Record<string, (testId: string) => string> = {
   cpnu: (id) => `/snapshot?numero_radicacion=${id}`,
   samai: (id) => `/buscar?numero_radicacion=${id}`, // SAMAI uses /buscar which returns 200 + jobId
   tutelas: (id) => `/expediente/${id}`, // Tutelas uses path-based
-  publicaciones: (id) => `/buscar?radicado=${id}`, // Publicaciones uses /buscar for async jobs
+  publicaciones: (id) => `/snapshot/${id}`, // ── Bug 3 FIX: Publicaciones v3 uses path params, not query params ──
 };
 
 // Check auth by calling an authenticated endpoint (provider-specific - requires valid API key)
