@@ -240,6 +240,66 @@ Deno.serve(async (req) => {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // TEST B4: Exfil attempt — forbidden keys + large text blob (should 422)
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    const res = await callProxy({
+      target_url: "https://us.posthog.com/capture",
+      purpose: "analytics",
+      method: "POST",
+      body: {
+        event: "exfil_attempt",
+        password: "supersecret",
+        document_text: "A".repeat(600),
+        cedula: "1234567890",
+        properties: { page: "/drill" },
+      },
+      caller: "validation-B4-exfil-drill",
+      tenant_hash: "drill-tenant-001",
+    });
+    results.push({
+      test_id: "B4_EXFIL_LARGE_BLOB",
+      name: "Exfil with forbidden keys + large blob blocked",
+      passed: res.status === 422 && res.body.error === "EGRESS_PII_BLOCKED",
+      detail: `Status: ${res.status}, Patterns: ${JSON.stringify((res.body as any).patterns || [])}`,
+    });
+  } catch (err) {
+    results.push({
+      test_id: "B4_EXFIL_LARGE_BLOB",
+      name: "Exfil with forbidden keys + large blob blocked",
+      passed: false,
+      detail: `Exception: ${err instanceof Error ? err.message : "unknown"}`,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // TEST B5: Exfil to unknown domain with analytics purpose (should 403)
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    const res = await callProxy({
+      target_url: "https://evil-exfil.example.com/steal",
+      purpose: "analytics",
+      method: "POST",
+      body: { event: "test", properties: {} },
+      caller: "validation-B5-domain-exfil",
+      tenant_hash: "drill-tenant-001",
+    });
+    results.push({
+      test_id: "B5_DOMAIN_EXFIL",
+      name: "Analytics to unknown domain blocked (403)",
+      passed: res.status === 403 && res.body.error === "EGRESS_BLOCKED",
+      detail: `Status: ${res.status}, Error: ${res.body.error || "none"}`,
+    });
+  } catch (err) {
+    results.push({
+      test_id: "B5_DOMAIN_EXFIL",
+      name: "Analytics to unknown domain blocked (403)",
+      passed: false,
+      detail: `Exception: ${err instanceof Error ? err.message : "unknown"}`,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // TEST C1: Logging hygiene — check violations don't store raw payload
   // ═══════════════════════════════════════════════════════════════
   // Wait a moment for DB writes
