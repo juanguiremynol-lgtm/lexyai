@@ -31,16 +31,18 @@ export function ConstitutionArticles() {
     staleTime: 1000 * 60 * 30, // 30 min cache
   });
 
-  const filtered = articles?.filter((a) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      a.content?.toLowerCase().includes(q) ||
-      String(a.articleNumber).includes(q) ||
-      a.chapter?.name?.toLowerCase().includes(q) ||
-      a.title?.name?.toLowerCase().includes(q)
-    );
-  });
+  const filtered = articles
+    ?.filter((a) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        a.content?.toLowerCase().includes(q) ||
+        String(a.articleNumber).includes(q) ||
+        a.chapter?.name?.toLowerCase().includes(q) ||
+        a.title?.name?.toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => a.articleNumber - b.articleNumber);
 
   return (
     <div className="space-y-4">
