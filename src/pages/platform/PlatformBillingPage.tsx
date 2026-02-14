@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Settings,
   FileSpreadsheet,
+  Wand2,
 } from "lucide-react";
 import { BillingOverviewSection } from "@/components/platform/billing/BillingOverviewSection";
 import { BillingGatewaySection } from "@/components/platform/billing/BillingGatewaySection";
@@ -26,10 +27,12 @@ import { BillingDunningSection } from "@/components/platform/billing/BillingDunn
 import { BillingFraudSection } from "@/components/platform/billing/BillingFraudSection";
 import { BillingSettingsSection } from "@/components/platform/billing/BillingSettingsSection";
 import { BillingAccountingSection } from "@/components/platform/billing/BillingAccountingSection";
+import { PaymentProviderWizard } from "@/components/platform/billing/PaymentProviderWizard";
 
 const billingSubPages = [
   { id: "overview", label: "Resumen", icon: LayoutDashboard },
-  { id: "gateway", label: "Pasarela (Wompi)", icon: CreditCard },
+  { id: "gateway", label: "Pasarelas de Pago", icon: CreditCard },
+  { id: "gateway-wizard", label: "Asistente de Pasarela", icon: Wand2 },
   { id: "plans", label: "Planes y Precios", icon: Tag },
   { id: "discounts", label: "Descuentos y Vouchers", icon: Ticket },
   { id: "subscriptions", label: "Suscripciones", icon: Crown },
@@ -49,7 +52,7 @@ export default function PlatformBillingPage() {
     <div className="flex gap-6 min-h-[calc(100vh-8rem)]">
       {/* Left sidebar submenu */}
       <nav className="w-56 shrink-0 space-y-1">
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-amber-500/70 px-3 py-2">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-primary/70 px-3 py-2">
           Facturación
         </h2>
         {billingSubPages.map((page) => {
@@ -61,11 +64,11 @@ export default function PlatformBillingPage() {
               className={cn(
                 "flex items-center gap-2.5 w-full px-3 py-2 text-sm rounded-lg transition-all duration-200",
                 active
-                  ? "bg-amber-500/15 text-amber-400 border-l-2 border-amber-500 font-medium"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                  ? "bg-primary/15 text-primary border-l-2 border-primary font-medium"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
               )}
             >
-              <page.icon className={cn("h-4 w-4 shrink-0", active ? "text-amber-400" : "text-slate-500")} />
+              <page.icon className={cn("h-4 w-4 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
               {page.label}
             </button>
           );
@@ -76,6 +79,7 @@ export default function PlatformBillingPage() {
       <div className="flex-1 min-w-0">
         {activeSection === "overview" && <BillingOverviewSection />}
         {activeSection === "gateway" && <BillingGatewaySection />}
+        {activeSection === "gateway-wizard" && <PaymentProviderWizard />}
         {activeSection === "plans" && <BillingPlansSection />}
         {activeSection === "discounts" && <BillingDiscountsSection />}
         {activeSection === "subscriptions" && <BillingSubscriptionsSection />}
