@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator, 
@@ -8,6 +8,7 @@ import {
   Scale,
   BookOpen,
   MapPin,
+  Plane,
   FileText, 
   Shield, 
   Clock, 
@@ -137,6 +138,10 @@ export default function Utilities() {
             <MapPin className="h-4 w-4" />
             Mapas
           </TabsTrigger>
+          <TabsTrigger value="aeropuertos" className="flex items-center gap-2">
+            <Plane className="h-4 w-4" />
+            Aeropuertos
+          </TabsTrigger>
           {isPlatformAdmin && (
             <TabsTrigger value="snake" className="flex items-center gap-2">
               <Gamepad2 className="h-4 w-4" />
@@ -196,6 +201,10 @@ export default function Utilities() {
 
         <TabsContent value="mapas" className="mt-6">
           <ColombiaMaps />
+        </TabsContent>
+
+        <TabsContent value="aeropuertos" className="mt-6">
+          <ColombiaAirports />
         </TabsContent>
 
         {isPlatformAdmin && (
