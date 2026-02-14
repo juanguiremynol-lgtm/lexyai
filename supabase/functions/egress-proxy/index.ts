@@ -3,15 +3,23 @@
  *
  * ALL outbound HTTP calls to external services MUST be routed through this proxy.
  *
+ * SECURITY POLICY: deny-by-default on logging subsystem failure.
+ * If we cannot log a security violation, the risky operation is denied.
+ *
  * v2 Enhancements:
  * - Purpose-scoped allowlists (analytics, email, payments, judicial, ai, webhook)
  * - Server-only auth via x-egress-internal-token (service role SHA256)
  * - Per-purpose PII scanners (strict for analytics, relaxed for email/payments)
  * - Payload-free violation logging (no raw bodies/headers stored)
  * - Destination key support (named destinations instead of raw URLs)
+ * - Structural payload whitelist for security observations
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  validateObservationSeverity,
+  sanitizeSecurityPayload,
+} from "../_shared/sync-constraints.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -228,6 +236,7 @@ function checkRateLimit(tenantHash: string): boolean {
 
 // ── Payload-Free Violation Logger ────────────────────────────────────
 // CRITICAL: Never stores raw payloads, headers, or query strings
+// SECURITY POLICY: Returns false on log failure → caller MUST deny the operation
 async function logViolation(
   supabaseAdmin: ReturnType<typeof createClient>,
   violation: {
@@ -240,31 +249,40 @@ async function logViolation(
     payload_size_bucket: string;
     request_id: string;
   }
-) {
+): Promise<boolean> {
   try {
+    // Structural enforcement: only whitelisted keys via sanitizeSecurityPayload
+    const rawPayload = {
+      type: violation.type,
+      caller: violation.caller,
+      tenant_hash: violation.tenantHash,
+      purpose: violation.purpose,
+      target_domain: violation.targetDomain,
+      rule_triggered: violation.rule_triggered,
+      payload_size_bucket: violation.payload_size_bucket,
+      request_id: violation.request_id,
+      timestamp: new Date().toISOString(),
+    };
+    const cleanPayload = sanitizeSecurityPayload(rawPayload);
+
+    const severity = validateObservationSeverity(
+      violation.type === "PII_DETECTED" ? "CRITICAL" : "WARNING"
+    );
+
     const { error } = await supabaseAdmin.from("atenia_ai_observations").insert({
       kind: "EGRESS_VIOLATION",
-      severity: violation.type === "PII_DETECTED" ? "CRITICAL" : "WARNING",
+      severity,
       title: `Egress ${violation.type}: ${violation.caller} → ${violation.targetDomain} [${violation.purpose}]`,
-      payload: {
-        type: violation.type,
-        caller: violation.caller,
-        tenant_hash: violation.tenantHash,
-        purpose: violation.purpose,
-        target_domain: violation.targetDomain,
-        rule_triggered: violation.rule_triggered,
-        payload_size_bucket: violation.payload_size_bucket,
-        request_id: violation.request_id,
-        timestamp: new Date().toISOString(),
-        // NO raw body, NO headers, NO query strings
-      },
+      payload: cleanPayload,
     });
     if (error) {
-      // Hard error logged — observation_insert_failure metric
       console.error(`[observation_insert_failure] kind=EGRESS_VIOLATION fn=egress-proxy reason=${error.message}`);
+      return false;
     }
+    return true;
   } catch (err) {
     console.error(`[observation_insert_failure] kind=EGRESS_VIOLATION fn=egress-proxy reason=${err}`);
+    return false;
   }
 }
 
@@ -397,12 +415,16 @@ Deno.serve(async (req) => {
   // ── Guard 2: Purpose-scoped domain allowlist ──
   const domainCheck = isDomainAllowedForPurpose(targetUrl, purpose);
   if (!domainCheck.allowed) {
-    await logViolation(supabaseAdmin, {
+    const logged = await logViolation(supabaseAdmin, {
       type: "DOMAIN_BLOCKED",
       caller, tenantHash: tenant_hash, purpose, targetDomain,
       rule_triggered: "domain_not_in_purpose_allowlist",
       payload_size_bucket: sizeBucket, request_id: requestId,
     });
+    // Deny-by-default: if we can't log the violation, still deny
+    if (!logged) {
+      console.error(`[egress-proxy] DENY-BY-DEFAULT: log failure for DOMAIN_BLOCKED, request_id=${requestId}`);
+    }
     return new Response(
       JSON.stringify({ error: "EGRESS_BLOCKED", reason: `Domain not allowed for purpose '${purpose}'` }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -426,12 +448,16 @@ Deno.serve(async (req) => {
   // ── Guard 4: Purpose-specific PII scan ──
   const piiViolations = scanPayload(outboundBody, purpose);
   if (piiViolations.length > 0) {
-    await logViolation(supabaseAdmin, {
+    const logged = await logViolation(supabaseAdmin, {
       type: "PII_DETECTED",
       caller, tenantHash: tenant_hash, purpose, targetDomain,
       rule_triggered: piiViolations.map(v => v.pattern).join(","),
       payload_size_bucket: sizeBucket, request_id: requestId,
     });
+    // Deny-by-default: PII violation MUST be logged. If log fails, still deny the request.
+    if (!logged) {
+      console.error(`[egress-proxy] DENY-BY-DEFAULT: log failure for PII_DETECTED, request_id=${requestId}`);
+    }
     return new Response(
       JSON.stringify({
         error: "EGRESS_PII_BLOCKED",

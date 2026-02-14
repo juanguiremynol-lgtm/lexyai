@@ -1,8 +1,9 @@
 /**
  * PlatformSecurityDashboard — Encryption status, RLS coverage, data access logs,
- * and privacy controls for the platform console.
+ * security observations viewer, and privacy controls for the platform console.
  */
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,10 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Shield, Lock, Eye, ShieldCheck, ShieldAlert, Database, Clock, Users, RefreshCw, FileWarning } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Shield, Lock, Eye, ShieldCheck, ShieldAlert, Database, Clock, Users, RefreshCw, FileWarning, AlertTriangle, Radar } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { SECURITY_OBSERVATION_KINDS } from "@/lib/constants/sync-constraints";
 
 export function PlatformSecurityDashboard() {
   const queryClient = useQueryClient();
@@ -57,6 +60,28 @@ export function PlatformSecurityDashboard() {
       return data as any[];
     },
     refetchInterval: 15000,
+  });
+
+  // Security observations (platform admin only)
+  const [obsKindFilter, setObsKindFilter] = useState<string>("ALL");
+  const { data: securityObs, isLoading: obsLoading } = useQuery({
+    queryKey: ["security-observations", obsKindFilter],
+    queryFn: async () => {
+      let query = (supabase.from("atenia_ai_observations") as any)
+        .select("id, kind, severity, title, payload, created_at, organization_id, conversation_id")
+        .in("kind", [...SECURITY_OBSERVATION_KINDS])
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (obsKindFilter !== "ALL") {
+        query = query.eq("kind", obsKindFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as any[];
+    },
+    refetchInterval: 30000,
   });
 
   // Toggle encryption status
@@ -269,6 +294,114 @@ export function PlatformSecurityDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Security Observations Viewer (Platform Admin Only) */}
+      <Card className="bg-white/[0.03] border-white/10">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Radar className="h-4 w-4 text-red-400" />
+              <CardTitle className="text-white text-base">Observaciones de Seguridad</CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              <Select value={obsKindFilter} onValueChange={setObsKindFilter}>
+                <SelectTrigger className="w-[180px] h-7 text-xs bg-white/5 border-white/10 text-white/70">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Todos los tipos</SelectItem>
+                  {SECURITY_OBSERVATION_KINDS.map(kind => (
+                    <SelectItem key={kind} value={kind}>{kind}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white/30 hover:text-white/60 h-7"
+                onClick={() => queryClient.invalidateQueries({ queryKey: ["security-observations"] })}
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Actualizar
+              </Button>
+            </div>
+          </div>
+          <CardDescription className="text-white/30 text-xs">
+            Últimas 50 violaciones de egreso y alertas de seguridad — solo visible para admins de plataforma
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[400px]">
+            {obsLoading ? (
+              <div className="text-white/30 text-center py-8">Cargando observaciones...</div>
+            ) : !securityObs?.length ? (
+              <div className="text-white/30 text-center py-8 flex flex-col items-center gap-2">
+                <ShieldCheck className="h-8 w-8 text-white/15" />
+                <span>Sin observaciones de seguridad recientes</span>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/10 hover:bg-transparent">
+                    <TableHead className="text-white/40 text-xs">Fecha</TableHead>
+                    <TableHead className="text-white/40 text-xs">Tipo</TableHead>
+                    <TableHead className="text-white/40 text-xs">Severidad</TableHead>
+                    <TableHead className="text-white/40 text-xs">Título</TableHead>
+                    <TableHead className="text-white/40 text-xs">Detalles</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {securityObs.map((obs: any) => (
+                    <TableRow key={obs.id} className="border-white/5 hover:bg-white/5">
+                      <TableCell className="text-white/50 text-xs whitespace-nowrap">
+                        {format(new Date(obs.created_at), "dd/MM HH:mm:ss", { locale: es })}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={`text-[10px] ${
+                          obs.kind === "EGRESS_VIOLATION"
+                            ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                            : "bg-red-500/20 text-red-400 border-red-500/30"
+                        }`}>
+                          {obs.kind === "EGRESS_VIOLATION" ? "Egreso" : "Seguridad"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={`text-[10px] ${
+                          obs.severity === "CRITICAL"
+                            ? "bg-red-500/20 text-red-400 border-red-500/30"
+                            : obs.severity === "WARNING"
+                            ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                            : "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
+                        }`}>
+                          {obs.severity}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-white/70 text-xs max-w-[250px] truncate" title={obs.title}>
+                        {obs.title}
+                      </TableCell>
+                      <TableCell className="text-white/40 text-xs max-w-[200px]">
+                        {obs.payload?.request_id && (
+                          <span className="font-mono text-[10px]" title="Correlation ID">
+                            {obs.payload.request_id.substring(0, 8)}…
+                          </span>
+                        )}
+                        {obs.payload?.rule_id && (
+                          <Badge variant="outline" className="text-[10px] border-white/10 text-white/40 ml-1">
+                            {obs.payload.rule_id}
+                          </Badge>
+                        )}
+                        {obs.payload?.type && !obs.payload?.rule_id && (
+                          <span className="text-[10px]">{obs.payload.type}</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </ScrollArea>
+        </CardContent>
+      </Card>
 
       {/* Security Posture Summary */}
       <Card className="bg-white/[0.03] border-white/10">
