@@ -6,8 +6,11 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { validateRadicado } from "@/lib/constants";
-import { Loader2, Search, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
+import { Loader2, Search, CheckCircle, AlertTriangle, XCircle, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { detectWorkflowTypeEnhanced, type SuggestedWorkflowType } from "@/lib/icarus-workflow-detection";
+import { WORKFLOW_TYPES, WORKFLOW_TYPES_ORDER, type WorkflowType } from "@/lib/workflow-constants";
 
 interface NewProcessDialogProps {
   open: boolean;
@@ -28,8 +31,11 @@ interface CpnuResult {
 
 export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDialogProps) {
   const [radicado, setRadicado] = useState("");
+  const [workflowType, setWorkflowType] = useState<WorkflowType>("CGP");
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>('idle');
   const [cpnuResult, setCpnuResult] = useState<CpnuResult | null>(null);
+  const [detectedType, setDetectedType] = useState<SuggestedWorkflowType | null>(null);
+  const [detectedConfidence, setDetectedConfidence] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -39,6 +45,8 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
     setRadicado(cleaned);
     setVerificationStatus('idle');
     setCpnuResult(null);
+    setDetectedType(null);
+    setDetectedConfidence("");
     setErrorMessage("");
   };
 
@@ -94,6 +102,16 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
           fecha_radicacion: result.fecha_radicacion,
         });
         setVerificationStatus('found');
+        
+        // Auto-detect workflow type from CPNU data
+        const detection = detectWorkflowTypeEnhanced({
+          despacho: result.despacho,
+          tipo_proceso: result.tipo_proceso,
+        });
+        if (detection.suggestedType !== 'UNKNOWN') {
+          setDetectedType(detection.suggestedType);
+          setDetectedConfidence(detection.confidence);
+        }
       } else {
         setVerificationStatus('not_found');
         setErrorMessage("No se encontró en CPNU. Puede crear el proceso y actualizarlo después con ICARUS.");
@@ -136,7 +154,7 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       
       const workItemData = {
         radicado,
-        workflow_type: "CGP" as const,
+        workflow_type: workflowType as any,
         stage: "PROCESS",
         status: "ACTIVE" as const,
         source: cpnuVerified ? 'CRAWLER' as const : 'MANUAL' as const,
@@ -166,8 +184,11 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
       
       // Reset form
       setRadicado("");
+      setWorkflowType("CGP");
       setVerificationStatus('idle');
       setCpnuResult(null);
+      setDetectedType(null);
+      setDetectedConfidence("");
       setErrorMessage("");
       
       onSuccess(newWorkItem.id);
@@ -181,8 +202,11 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
 
   const handleClose = () => {
     setRadicado("");
+    setWorkflowType("CGP");
     setVerificationStatus('idle');
     setCpnuResult(null);
+    setDetectedType(null);
+    setDetectedConfidence("");
     setErrorMessage("");
     onOpenChange(false);
   };
@@ -223,7 +247,58 @@ export function NewProcessDialog({ open, onOpenChange, onSuccess }: NewProcessDi
             </p>
           </div>
 
-          {/* Verification Status */}
+          {/* Workflow Type Selector */}
+          <div className="space-y-2">
+            <Label htmlFor="workflowType">Categoría / Pipeline *</Label>
+            <Select value={workflowType} onValueChange={(v) => setWorkflowType(v as WorkflowType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WORKFLOW_TYPES_ORDER.filter(wt => wt !== 'PENAL_906' && wt !== 'GOV_PROCEDURE' && wt !== 'PETICION').map(wt => (
+                  <SelectItem key={wt} value={wt}>
+                    {WORKFLOW_TYPES[wt].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Mismatch Warning */}
+          {detectedType && detectedType !== workflowType && verificationStatus === 'found' && (
+            <Alert className="border-amber-500/50 bg-amber-500/10">
+              <Info className="h-4 w-4 text-amber-600" />
+              <AlertDescription className="text-sm">
+                <p className="font-medium text-amber-700 dark:text-amber-400">
+                  Atenía detectó una categoría diferente
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Según el despacho y tipo de proceso, este caso pertenece al pipeline{' '}
+                  <strong className="text-foreground">{WORKFLOW_TYPES[detectedType]?.label}</strong>
+                  {detectedConfidence === 'HIGH' && ' (alta confianza)'}.
+                  {' '}Usted seleccionó <strong className="text-foreground">{WORKFLOW_TYPES[workflowType]?.label}</strong>.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2"
+                  onClick={() => setWorkflowType(detectedType as WorkflowType)}
+                >
+                  Usar {WORKFLOW_TYPES[detectedType]?.shortLabel} en su lugar
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Detection confirmation when matching */}
+          {detectedType && detectedType === workflowType && verificationStatus === 'found' && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+              <span>Atenía confirma: este caso corresponde a <strong>{WORKFLOW_TYPES[workflowType]?.shortLabel}</strong></span>
+            </div>
+          )}
+
           {verificationStatus === 'verifying' && (
             <Alert>
               <Loader2 className="h-4 w-4 animate-spin" />

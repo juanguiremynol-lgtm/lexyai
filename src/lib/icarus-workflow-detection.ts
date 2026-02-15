@@ -154,3 +154,98 @@ export function detectWorkflowType(despacho: string): WorkflowDetectionResult {
     matchedKeywords: [],
   };
 }
+
+// PENAL detection keywords
+const PENAL_KEYWORDS = [
+  'penal',
+  'garantías',
+  'conocimiento',
+  'ejecución de penas',
+  'sistema acusatorio',
+  'ley 906',
+];
+
+/**
+ * Enhanced detection using multiple signals (despacho, tipo_proceso, jurisdiccion)
+ * Used by demo modal and creation wizard when more context is available.
+ */
+export function detectWorkflowTypeEnhanced(signals: {
+  despacho?: string | null;
+  tipo_proceso?: string | null;
+  jurisdiccion?: string | null;
+}): WorkflowDetectionResult {
+  const { despacho, tipo_proceso, jurisdiccion } = signals;
+  
+  // Combine all signals into one search corpus
+  const parts = [despacho, tipo_proceso, jurisdiccion].filter(Boolean).map(s => s!.toLowerCase().trim());
+  const combined = parts.join(' | ');
+  
+  if (!combined) {
+    return { suggestedType: 'UNKNOWN', confidence: 'LOW', matchedKeywords: [] };
+  }
+
+  const matchedKeywords: string[] = [];
+  
+  // Check Penal first (specific keywords)
+  for (const kw of PENAL_KEYWORDS) {
+    if (combined.includes(kw)) matchedKeywords.push(kw);
+  }
+  if (matchedKeywords.length > 0) {
+    return { suggestedType: 'UNKNOWN', confidence: matchedKeywords.length >= 2 ? 'HIGH' : 'MEDIUM', matchedKeywords };
+    // Note: PENAL_906 is not in SuggestedWorkflowType, so fall through to despacho-based
+  }
+  
+  // Try despacho-based detection first (most reliable)
+  if (despacho) {
+    const despachoResult = detectWorkflowType(despacho);
+    if (despachoResult.suggestedType !== 'UNKNOWN') {
+      // Boost confidence if other signals corroborate
+      let confidence = despachoResult.confidence;
+      const extraMatches = [...despachoResult.matchedKeywords];
+      
+      if (tipo_proceso) {
+        const tp = tipo_proceso.toLowerCase();
+        if (despachoResult.suggestedType === 'CPACA' && (tp.includes('nulidad') || tp.includes('reparación') || tp.includes('contractual'))) {
+          confidence = 'HIGH';
+          extraMatches.push(tipo_proceso);
+        }
+        if (despachoResult.suggestedType === 'CGP' && (tp.includes('ejecutivo') || tp.includes('ordinario') || tp.includes('verbal'))) {
+          confidence = 'HIGH';
+          extraMatches.push(tipo_proceso);
+        }
+        if (despachoResult.suggestedType === 'LABORAL' && (tp.includes('ordinario laboral') || tp.includes('fuero sindical'))) {
+          confidence = 'HIGH';
+          extraMatches.push(tipo_proceso);
+        }
+      }
+      
+      if (jurisdiccion) {
+        const j = jurisdiccion.toLowerCase();
+        if (despachoResult.suggestedType === 'CPACA' && j.includes('administrativ')) {
+          confidence = 'HIGH';
+        }
+        if (despachoResult.suggestedType === 'CGP' && (j.includes('ordinaria') || j.includes('civil'))) {
+          confidence = 'HIGH';
+        }
+      }
+      
+      return { suggestedType: despachoResult.suggestedType, confidence, matchedKeywords: extraMatches };
+    }
+  }
+  
+  // Fallback: check jurisdiccion alone
+  if (jurisdiccion) {
+    const j = jurisdiccion.toLowerCase();
+    if (j.includes('administrativ') || j.includes('contencioso')) {
+      return { suggestedType: 'CPACA', confidence: 'MEDIUM', matchedKeywords: [jurisdiccion] };
+    }
+    if (j.includes('ordinaria') || j.includes('civil')) {
+      return { suggestedType: 'CGP', confidence: 'LOW', matchedKeywords: [jurisdiccion] };
+    }
+    if (j.includes('laboral')) {
+      return { suggestedType: 'LABORAL', confidence: 'MEDIUM', matchedKeywords: [jurisdiccion] };
+    }
+  }
+  
+  return { suggestedType: 'UNKNOWN', confidence: 'LOW', matchedKeywords: [] };
+}
