@@ -380,6 +380,24 @@ Deno.serve(async (req) => {
     const rawBodyText = await snapRes.text().catch(() => "");
     const contentTypeHeader = snapRes.headers.get("content-type") || "";
 
+    // ── Handle 429 Rate Limiting from external provider ──
+    if (snapRes.status === 429) {
+      const retryAfterHeader = snapRes.headers.get("Retry-After");
+      const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) || 60 : 60;
+      await writeTrace(db, runId, source, instance, "EXT_PROVIDER_RATE_LIMITED", "429", false, snapLatency, {
+        retry_after_seconds: retryAfterSec,
+        provider_case_id: source.provider_case_id,
+      });
+      await writeTrace(db, runId, source, instance, "TERMINAL", "RATE_LIMITED", false, Date.now() - startTime, {
+        outcome: "RATE_LIMITED",
+        retry_after_seconds: retryAfterSec,
+      });
+      return new Response(
+        JSON.stringify({ ok: false, code: "RATE_LIMITED", retry_after_seconds: retryAfterSec, duration_ms: Date.now() - startTime }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── Trace: EXT_PROVIDER_RESPONSE — now captures redacted error body for 4xx/5xx ──
     const bodyKind = contentTypeHeader.includes("json") ? "JSON" : "TEXT";
     // Redact error body: first 4KB, strip any strings that look like secrets/keys
@@ -641,6 +659,12 @@ Deno.serve(async (req) => {
     const validation = validateSnapshotAgainstContract(snapData, connector?.schema_version || "v1");
     const mappingResult = applyMappingSpec(snapData, effectiveSpec);
 
+    // ── 3A: Field validation — drop records missing required fields ──
+    const REQUIRED_ACT_FIELDS = ["description", "work_item_id"];
+    // Note: work_item_id is added by normalizer, so only validate description here
+    const preValidationCount = acts.length;
+    const dropReasons: { index: number; missing: string[] }[] = [];
+
     await writeTrace(db, runId, source, instance, "MAPPING_APPLIED", "OK", true, 0, {
       canonical_acts: mappingResult.canonicalActs.length,
       canonical_pubs: mappingResult.canonicalPubs.length,
@@ -649,6 +673,7 @@ Deno.serve(async (req) => {
       validation_ok: validation.ok,
       source_platform: isEstadosProvider ? "SAMAI_ESTADOS" : connector?.key || "unknown",
       data_kind: isEstadosProvider ? "estados" : "actuaciones",
+      records_pre_validation: preValidationCount,
     });
 
     // ── Stage 4: UPSERTED_CANONICAL ──
@@ -727,13 +752,36 @@ Deno.serve(async (req) => {
       const toInsert: any[] = [];
       let semanticDedupCount = 0;
       let fpDedupCount = 0;
+      let hashCollisions = 0;
+      let droppedMissingFields = 0;
 
       for (const record of normalized) {
+        // 3A: Validate required fields
+        if (!record.description || record.description.trim().length === 0) {
+          droppedMissingFields++;
+          dropReasons.push({ index: normalized.indexOf(record), missing: ["description"] });
+          console.warn(`[EXT_PROVIDER] Dropping record: missing description`, JSON.stringify(record).slice(0, 200));
+          continue;
+        }
+
         // Check fingerprint-level dedup first
         if (existingFpSet.has(record.hash_fingerprint)) {
           fpDedupCount++;
           const matched = (existingActs || []).find((e: any) => e.hash_fingerprint === record.hash_fingerprint);
-          if (matched) allConfirmedActIds.push(matched.id);
+          if (matched) {
+            // 3B: Hash collision guard — verify content actually matches
+            if (matched.description && record.description &&
+                extractActionPrefix(matched.description) !== extractActionPrefix(record.description) &&
+                matched.act_date !== record.act_date) {
+              console.error(`[HASH_COLLISION] Hash ${record.hash_fingerprint} matched existing record but content differs! existing_date=${matched.act_date} new_date=${record.act_date}`);
+              hashCollisions++;
+              // Insert with modified hash to avoid data loss
+              record.hash_fingerprint = record.hash_fingerprint + "_collision_" + Date.now();
+              toInsert.push(record);
+            } else {
+              allConfirmedActIds.push(matched.id);
+            }
+          }
           continue;
         }
         // Check semantic dedup: full normalized text
@@ -752,7 +800,7 @@ Deno.serve(async (req) => {
         toInsert.push(record);
       }
 
-      console.log(`[EXT_PROVIDER] Dedup: ${normalized.length} incoming, ${fpDedupCount} fp-matched, ${semanticDedupCount} semantic-matched, ${toInsert.length} genuinely new`);
+      console.log(`[EXT_PROVIDER] Dedup: ${normalized.length} incoming, ${fpDedupCount} fp-matched, ${semanticDedupCount} semantic-matched, ${toInsert.length} genuinely new, ${droppedMissingFields} dropped-invalid, ${hashCollisions} hash-collisions`);
 
       if (toInsert.length > 0) {
         const { data: inserted, error: upsertErr } = await db

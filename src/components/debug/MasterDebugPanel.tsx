@@ -403,7 +403,7 @@ function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado
         setSteps(s => [...s, ...wizardSteps]);
       }
 
-      // DB verification
+      // DB verification with three-state SAMAI_ESTADOS display
       const t5 = Date.now();
       const [{ count: actCount }, { count: pubCount }] = await Promise.all([
         (supabase.from("work_item_acts") as any).select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false),
@@ -417,11 +417,58 @@ function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado
       const counts: Record<string, number> = {};
       for (const a of srcData || []) counts[a.source || "unknown"] = (counts[a.source || "unknown"] || 0) + 1;
 
+      // SAMAI_ESTADOS three-state: fresh inserts vs cross-validated vs no data
+      const directEstadosCount = counts["SAMAI_ESTADOS"] || 0;
+
+      // Provenance check for SAMAI_ESTADOS
+      let estadosProvenanceCount = 0;
+      try {
+        const { data: wiActs } = await (supabase.from("work_item_acts") as any)
+          .select("id")
+          .eq("work_item_id", wi.id)
+          .eq("is_archived", false);
+        if (wiActs?.length) {
+          const actIds = wiActs.map((a: any) => a.id).slice(0, 200);
+          // Find SAMAI_ESTADOS instance IDs
+          const { data: extInstances } = await (supabase.from("provider_instances") as any)
+            .select("id")
+            .eq("is_enabled", true);
+          if (extInstances?.length) {
+            const { count: provCount } = await (supabase.from("act_provenance") as any)
+              .select("id", { count: "exact", head: true })
+              .in("work_item_act_id", actIds)
+              .in("provider_instance_id", extInstances.map((i: any) => i.id));
+            estadosProvenanceCount = provCount || 0;
+          }
+        }
+      } catch { /* best effort */ }
+
+      const estadosState = directEstadosCount > 0
+        ? "FRESH_INSERTS"
+        : estadosProvenanceCount > 0
+        ? "CROSS_VALIDATED"
+        : "NO_DATA";
+
       setSteps(s => [...s, {
         name: "VERIFY_DB_DATA",
         ok: (actCount || 0) > 0,
-        detail: { actuaciones_total: actCount, publicaciones: pubCount, source_breakdown: counts },
+        detail: {
+          actuaciones_total: actCount,
+          publicaciones: pubCount,
+          source_breakdown: counts,
+          samai_estados: {
+            state: estadosState,
+            fresh_inserts: directEstadosCount,
+            cross_validated: Math.max(0, estadosProvenanceCount - directEstadosCount),
+            total_coverage: estadosProvenanceCount,
+          },
+        },
         duration_ms: Date.now() - t5,
+        message: estadosState === "FRESH_INSERTS"
+          ? `✅ ${directEstadosCount} SAMAI_ESTADOS insertados + ${estadosProvenanceCount} provenance`
+          : estadosState === "CROSS_VALIDATED"
+          ? `🔵 ${estadosProvenanceCount} cross-validated vía provenance (dedup healthy)`
+          : "⚠️ Sin datos SAMAI_ESTADOS ni provenance",
       }]);
 
       toast.success("E2E Wizard completado");

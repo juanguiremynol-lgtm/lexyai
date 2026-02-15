@@ -274,18 +274,31 @@ export async function runAteniaE2ETest(
     const totalEstadosEvidence = (directEstadosCount || 0) + provenanceEstadosCount;
     const hasEstados = totalEstadosEvidence > 0;
 
+    // Determine three-state classification for SAMAI_ESTADOS
+    const estadosState = (directEstadosCount || 0) > 0
+      ? "FRESH_INSERTS"
+      : provenanceEstadosCount > 0
+      ? "CROSS_VALIDATED"
+      : "NO_DATA";
+
     steps.push({
       name: "VERIFY_DB_DATA",
       ok: (actsCount || 0) > 0,
       detail: {
         actuaciones_total: actsCount || 0,
         publicaciones: pubsCount || 0,
-        samai_estados_direct: directEstadosCount || 0,
-        samai_estados_via_provenance: provenanceEstadosCount,
+        samai_estados: {
+          state: estadosState,
+          fresh_inserts: directEstadosCount || 0,
+          cross_validated: Math.max(0, provenanceEstadosCount - (directEstadosCount || 0)),
+          total_coverage: totalEstadosEvidence,
+        },
         has_estados: hasEstados,
-        note: provenanceEstadosCount > 0 && (directEstadosCount || 0) === 0
+        note: estadosState === "CROSS_VALIDATED"
           ? "Records deduped against existing SAMAI data — provenance confirms SAMAI_ESTADOS coverage"
-          : undefined,
+          : estadosState === "FRESH_INSERTS"
+          ? `${directEstadosCount} net-new records inserted from SAMAI_ESTADOS`
+          : "No SAMAI_ESTADOS data found — check mapping and upsert path",
       },
       duration_ms: Date.now() - s5,
     });
@@ -324,7 +337,15 @@ export async function runAteniaE2ETest(
     } else {
       analysisParts.push(`🔴 Secreto NO descifrable: ${readinessDetail.failure_reason || "unknown"}`);
     }
-    analysisParts.push(`📊 Actuaciones: ${actsCount || 0} (SAMAI_ESTADOS directo: ${directEstadosCount || 0}, vía provenance: ${provenanceEstadosCount}), Publicaciones: ${pubsCount || 0}`);
+    // Three-state SAMAI_ESTADOS summary
+    if (estadosState === "FRESH_INSERTS") {
+      analysisParts.push(`✅ SAMAI_ESTADOS: ${directEstadosCount} registros insertados + ${provenanceEstadosCount} provenance`);
+    } else if (estadosState === "CROSS_VALIDATED") {
+      analysisParts.push(`🔵 SAMAI_ESTADOS: ${provenanceEstadosCount} cross-validated vía provenance (dedup saludable)`);
+    } else {
+      analysisParts.push(`🔴 SAMAI_ESTADOS: sin datos ni provenance — revisar mapping/upsert`);
+    }
+    analysisParts.push(`📊 Actuaciones: ${actsCount || 0}, Publicaciones: ${pubsCount || 0}`);
     if (Object.keys(sourceCounts).length > 0) {
       analysisParts.push(`📦 Fuentes: ${Object.entries(sourceCounts).map(([k, v]) => `${k}(${v})`).join(", ")}`);
     }
