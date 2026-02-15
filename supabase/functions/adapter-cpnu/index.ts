@@ -1290,12 +1290,22 @@ async function orchestrateSearch(
           }
         } else if (typeof p.sujetosProcesales === 'string' && p.sujetosProcesales.trim()) {
           // CPNU search endpoint returns sujetosProcesales as pipe-separated string
-          // e.g. "TIERRADENTRO  | OFELIA MERCEDES MAYA MARTINEZ"
+          // Format can be: "Demandante: NAME | Demandado: NAME" OR just "NAME | NAME"
           const parts = p.sujetosProcesales.split('|').map((s: string) => s.trim().replace(/\.+$/, '')).filter(Boolean);
-          for (const name of parts) {
-            sujetos.push({ tipo: 'Parte', nombre: name });
+          for (const raw of parts) {
+            // Check for "Role: Name" format (e.g., "Demandante: OFELIA MERCEDES MAYA MARTINEZ")
+            const roleMatch = raw.match(/^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante)\s*:\s*(.+)$/i);
+            if (roleMatch) {
+              const tipo = roleMatch[1].trim();
+              const nombre = roleMatch[2].trim().replace(/\.+$/, '');
+              sujetos.push({ tipo, nombre });
+              if (/demandante|accionante|actor|tutelante/i.test(tipo) && !parsedDemandante) parsedDemandante = nombre;
+              if (/demandado|accionado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
+            } else {
+              sujetos.push({ tipo: 'Parte', nombre: raw });
+            }
           }
-          console.log(`[QUERY_LIST] Parsed sujetosProcesales string: ${parts.length} parties: ${parts.join(', ')}`);
+          console.log(`[QUERY_LIST] Parsed sujetosProcesales string: ${parts.length} parties, demandante=${parsedDemandante}, demandado=${parsedDemandado}`);
         }
         
         results.push({
