@@ -6,7 +6,7 @@
  */
 
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,8 @@ import { AlertCircle, Sparkles, ShieldCheck, Eye, Zap, ArrowRight, Activity, Lay
 import { useDemoLookup } from "@/hooks/useDemoLookup";
 import { DemoResultModal } from "./DemoResultModal";
 import { AndroMouthFrame } from "./AndroMouthFrame";
+import { track } from "@/lib/analytics/wrapper";
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import type { DemoResult } from "./demo-types";
 
 export interface DemoLookupWidgetProps {
@@ -51,6 +53,10 @@ export function DemoLookupWidget({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleCtaClick = (ctaType: string) => {
+    track(ANALYTICS_EVENTS.DEMO_CTA_CLICKED, { cta_type: ctaType });
+  };
 
   const content = (
     <div className={className}>
@@ -208,7 +214,7 @@ export function DemoLookupWidget({
         {/* CTA */}
         {ctaMode === "signup" && (
           <div className="text-center pt-3">
-            <Button asChild size="sm">
+            <Button asChild size="sm" onClick={() => handleCtaClick("signup")}>
               <Link to="/auth?signup=true">
                 Crear cuenta gratis
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -218,7 +224,7 @@ export function DemoLookupWidget({
         )}
         {ctaMode === "requestDemo" && (
           <div className="text-center pt-3">
-            <Button asChild size="sm" variant="outline">
+            <Button asChild size="sm" variant="outline" onClick={() => handleCtaClick("request_demo")}>
               <Link to="/auth?signup=true">
                 Solicitar demo personalizada
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -246,9 +252,13 @@ export function DemoLookupWidget({
   return content;
 }
 
-/** Compact result summary shown inline after lookup */
+/** Compact result summary shown inline after lookup — preserves query params */
 function CompactResultSummary({ data, radicado }: { data: DemoResult; radicado: string }) {
   const { resumen } = data;
+  // Preserve current frame param when navigating to full view
+  let [searchParams] = useSearchParams();
+  const frame = searchParams.get("frame") || "androMouth";
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-2">
       {resumen.despacho && (
@@ -275,7 +285,7 @@ function CompactResultSummary({ data, radicado }: { data: DemoResult; radicado: 
         )}
       </div>
       <Button asChild size="sm" variant="outline" className="w-full text-xs">
-        <Link to={`/demo?radicado=${radicado}&variant=full`}>
+        <Link to={`/demo?radicado=${radicado}&variant=full&frame=${frame}&autorun=1`}>
           Ver timeline completo →
         </Link>
       </Button>

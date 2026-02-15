@@ -51,6 +51,12 @@ export const ANALYTICS_EVENTS = {
 
   // Exports
   EXPORT_GENERATED: "export_generated",
+
+  // Demo (public)
+  DEMO_VIEW: "demo_view",
+  DEMO_LOOKUP_SUBMITTED: "demo_lookup_submitted",
+  DEMO_LOOKUP_RESULT: "demo_lookup_result",
+  DEMO_CTA_CLICKED: "demo_cta_clicked",
 } as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
@@ -69,6 +75,10 @@ export const EVENT_PROPERTIES: Record<string, string[]> = {
   [ANALYTICS_EVENTS.ALERT_FIRED]: ["rule_type"],
   [ANALYTICS_EVENTS.ASSISTANT_ACTION_EXECUTED]: ["action", "status_code"],
   [ANALYTICS_EVENTS.AUTH_LOGIN_FAILURE]: ["status_code"],
+  [ANALYTICS_EVENTS.DEMO_VIEW]: ["variant", "frame", "has_radicado", "source"],
+  [ANALYTICS_EVENTS.DEMO_LOOKUP_SUBMITTED]: ["radicado_length", "category"],
+  [ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT]: ["outcome", "providers_with_data", "latency_bucket"],
+  [ANALYTICS_EVENTS.DEMO_CTA_CLICKED]: ["cta_type"],
 };
 
 // ── Property Validators / Normalizers ────────────────────────────────
