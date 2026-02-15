@@ -1381,9 +1381,13 @@ Deno.serve(async (req) => {
         gates["enqueue_diario"] = { name: "Enqueue Diario", ok: false, value: "ERROR", detail: err.message?.slice(0, 200) ?? "Error" };
       }
 
-      // Gate B: Watchdog Vivo
+      // Gate B: Watchdog Vivo (checks both atenia_ai_actions AND atenia_cron_runs)
       try {
         const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        let foundSignal = false;
+        let lastSignalAt: string | null = null;
+
+        // Primary: check atenia_ai_actions for heartbeat_observe
         let query = supabase
           .from("atenia_ai_actions")
           .select("created_at")
@@ -1392,12 +1396,33 @@ Deno.serve(async (req) => {
           .limit(1);
         if (orgId) query = query.eq("organization_id", orgId);
         const { data } = await query.maybeSingle();
+        if (data) {
+          foundSignal = true;
+          lastSignalAt = data.created_at;
+        }
+
+        // Fallback: check atenia_cron_runs HEARTBEAT
+        if (!foundSignal) {
+          const { data: cronHb } = await supabase
+            .from("atenia_cron_runs")
+            .select("finished_at")
+            .eq("job_name", "HEARTBEAT")
+            .eq("status", "OK")
+            .gte("finished_at", twoHoursAgo)
+            .order("finished_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (cronHb) {
+            foundSignal = true;
+            lastSignalAt = cronHb.finished_at;
+          }
+        }
 
         gates["watchdog_vivo"] = {
           name: "Watchdog Vivo",
-          ok: !!data,
-          value: data ? "Activo" : "Inactivo",
-          detail: data ? `Último heartbeat: ${data.created_at}` : "Sin heartbeat en 2 horas",
+          ok: foundSignal,
+          value: foundSignal ? "Activo" : "Inactivo",
+          detail: foundSignal ? `Último heartbeat: ${lastSignalAt}` : "Sin heartbeat en 2 horas",
         };
       } catch (err: any) {
         gates["watchdog_vivo"] = { name: "Watchdog Vivo", ok: false, value: "ERROR", detail: err.message?.slice(0, 200) ?? "Error" };
@@ -1465,9 +1490,12 @@ Deno.serve(async (req) => {
         gates["sin_omitidos"] = { name: "Sin Omitidos", ok: true, value: "OK", detail: "Verificación pendiente" };
       }
 
-      // Gate F: Heartbeat Vivo (more recent check)
+      // Gate F: Heartbeat Vivo (more recent check — checks both sources)
       try {
         const fortyFiveMinAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+        let foundSignal = false;
+
+        // Primary: atenia_ai_actions
         let hbQuery = supabase
           .from("atenia_ai_actions")
           .select("created_at")
@@ -1476,12 +1504,26 @@ Deno.serve(async (req) => {
           .limit(1);
         if (orgId) hbQuery = hbQuery.eq("organization_id", orgId);
         const { data } = await hbQuery.maybeSingle();
+        if (data) foundSignal = true;
+
+        // Fallback: atenia_cron_runs HEARTBEAT
+        if (!foundSignal) {
+          const { data: cronHb } = await supabase
+            .from("atenia_cron_runs")
+            .select("finished_at")
+            .eq("job_name", "HEARTBEAT")
+            .eq("status", "OK")
+            .gte("finished_at", fortyFiveMinAgo)
+            .limit(1)
+            .maybeSingle();
+          if (cronHb) foundSignal = true;
+        }
 
         gates["heartbeat_vivo"] = {
           name: "Heartbeat Vivo",
-          ok: !!data,
-          value: data ? "Activo" : "Sin señal",
-          detail: data ? "Heartbeat activo en últimos 45 min" : "Sin heartbeat en 45 minutos",
+          ok: foundSignal,
+          value: foundSignal ? "Activo" : "Sin señal",
+          detail: foundSignal ? "Heartbeat activo en últimos 45 min" : "Sin heartbeat en 45 minutos",
         };
       } catch (err: any) {
         gates["heartbeat_vivo"] = { name: "Heartbeat Vivo", ok: false, value: "ERROR", detail: err.message?.slice(0, 200) ?? "Error" };
@@ -1665,6 +1707,47 @@ Deno.serve(async (req) => {
           },
           { onConflict: "job_name,scheduled_for" }
         );
+      } catch (_) { /* non-fatal */ }
+
+      // ── FIX: Write heartbeat_observe action so watchdog/heartbeat gates detect it ──
+      // Gates (watchdog_vivo, heartbeat_vivo) query atenia_ai_actions for action_type='heartbeat_observe'
+      // but HEARTBEAT mode was only writing to atenia_cron_runs — gates always showed inactive.
+      try {
+        // Get all org IDs that were processed (or use a platform-level org)
+        const orgIdsProcessed = outputs
+          .filter((o: any) => o && !o.skipped)
+          .map((o: any) => o.org_id)
+          .filter(Boolean);
+
+        // If no specific orgs, write a platform-level heartbeat for all active orgs
+        const { data: activeOrgs } = await supabase
+          .from("work_items")
+          .select("organization_id")
+          .eq("monitoring_enabled", true)
+          .not("organization_id", "is", null)
+          .not("radicado", "is", null);
+
+        const allOrgIds = [...new Set(
+          (activeOrgs || []).map((o: any) => o.organization_id).filter(Boolean)
+        )];
+
+        for (const oid of allOrgIds.slice(0, 20)) {
+          try {
+            await supabase.from("atenia_ai_actions").insert({
+              organization_id: oid,
+              action_type: "heartbeat_observe",
+              autonomy_tier: "OBSERVE",
+              reasoning: `Heartbeat servidor (HEARTBEAT mode) — org procesada.`,
+              status: "EXECUTED",
+              action_result: "logged",
+              evidence: {
+                source: "atenia-ai-supervisor-heartbeat-mode",
+                ran: runModes,
+                timestamp: new Date().toISOString(),
+              },
+            });
+          } catch (_) { /* non-fatal per org */ }
+        }
       } catch (_) { /* non-fatal */ }
 
       const snap = await getStatusSnapshot(supabase);

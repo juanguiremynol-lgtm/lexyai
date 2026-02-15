@@ -166,13 +166,58 @@ Deno.serve(async (req) => {
       });
     } catch { /* non-blocking */ }
 
-    // Fire-and-forget Atenia AI post-sync
-    supabase.functions.invoke("atenia-ai-supervisor", {
-      body: { mode: "POST_DAILY_SYNC" },
-    }).catch(() => {});
+    // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL (budget exhausted) runs ──
+    const partialOrgs = allResults.filter(r => r.status === "PARTIAL" || r.status === "CONTINUING");
+    if (partialOrgs.length > 0 && !isContinuation) {
+      // Only auto-continue on first run; continuations are handled below per-org
+    }
+    for (const partialResult of partialOrgs) {
+      try {
+        // Find the cursor position from the ledger
+        const { data: ledgerRow } = await supabase
+          .from("auto_sync_daily_ledger")
+          .select("cursor_last_work_item_id")
+          .eq("id", partialResult.ledger_id)
+          .maybeSingle();
+
+        const cursor = ledgerRow?.cursor_last_work_item_id;
+        if (cursor) {
+          console.log(`[daily-sync] Scheduling continuation for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)}`);
+          // Fire-and-forget continuation via fetch (non-blocking)
+          fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${supabaseServiceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              org_id: partialResult.org_id,
+              resume_after_id: cursor,
+              is_continuation: true,
+              continuation_of: partialResult.ledger_id,
+            }),
+          }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
+        }
+      } catch (contErr) {
+        console.warn(`[daily-sync] Failed to schedule continuation for org ${partialResult.org_id}:`, contErr);
+      }
+    }
+
+    // Fire-and-forget Atenia AI post-sync (only after non-continuation completes)
+    if (!isContinuation || partialOrgs.length === 0) {
+      supabase.functions.invoke("atenia-ai-supervisor", {
+        body: { mode: "POST_DAILY_SYNC" },
+      }).catch(() => {});
+    }
 
     return new Response(
-      JSON.stringify({ ok: true, run_id: runId, duration_ms: durationMs, orgs: allResults }),
+      JSON.stringify({
+        ok: true,
+        run_id: runId,
+        duration_ms: durationMs,
+        orgs: allResults,
+        continuations_scheduled: partialOrgs.length,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error: any) {
@@ -331,8 +376,8 @@ async function syncOrganization(
     const totalAttempted = itemsSucceeded + itemsFailed;
     let finalStatus: string;
     if (failureReason === "BUDGET_EXHAUSTED") {
-      // ── Bug 1: Use BUDGET_EXHAUSTED as status so continuation evaluator can find it ──
-      finalStatus = "PARTIAL";
+      // Use CONTINUING status so it's not counted as a terminal failure
+      finalStatus = "PARTIAL"; // Will be upgraded when continuation completes
     } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
       finalStatus = "SUCCESS";
     } else if (itemsSucceeded > 0 && totalAttempted > 0) {
@@ -493,7 +538,7 @@ async function updateLedger(supabase: any, ledgerId: string, fields: Record<stri
   }
 }
 
-// ─── Auto-demonitor (condensed from original) ───
+// ─── Auto-demonitor (condensed from original) + Ghost item cleanup ───
 
 async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
   try {
@@ -506,6 +551,7 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
     const threshold = aiConfig?.auto_demonitor_after_404s ?? 5;
     if (threshold <= 0) return;
 
+    // ── Source 1: work_items.consecutive_404_count (original path) ──
     const { data: rawCandidates } = await supabase
       .from("work_items")
       .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at, monitoring_enabled")
@@ -513,9 +559,46 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       .eq("monitoring_enabled", true)
       .gte("consecutive_404_count", threshold);
 
-    if (!rawCandidates || rawCandidates.length === 0) return;
+    // ── Source 2: atenia_ai_work_item_state (ghost items path) ──
+    // This catches items tracked by the supervisor that have high consecutive_not_found
+    // but whose work_items.consecutive_404_count may not be in sync.
+    const { data: ghostStates } = await supabase
+      .from("atenia_ai_work_item_state")
+      .select("work_item_id, consecutive_not_found, last_error_code")
+      .eq("organization_id", orgId)
+      .gte("consecutive_not_found", threshold);
 
-    const candidates = await enrichDemonitorCandidates(supabase, rawCandidates);
+    // Get ghost item IDs not already in rawCandidates
+    const rawCandidateIds = new Set((rawCandidates || []).map((c: any) => c.id));
+    const ghostOnlyIds = (ghostStates || [])
+      .map((g: any) => g.work_item_id)
+      .filter((id: string) => !rawCandidateIds.has(id));
+
+    let allCandidates = [...(rawCandidates || [])];
+
+    if (ghostOnlyIds.length > 0) {
+      const { data: ghostItems } = await supabase
+        .from("work_items")
+        .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at, monitoring_enabled")
+        .in("id", ghostOnlyIds)
+        .eq("monitoring_enabled", true);
+
+      if (ghostItems) {
+        // Merge consecutive_404_count from atenia_ai_work_item_state
+        for (const gi of ghostItems) {
+          const state = (ghostStates || []).find((g: any) => g.work_item_id === gi.id);
+          if (state) {
+            gi.consecutive_404_count = Math.max(gi.consecutive_404_count || 0, state.consecutive_not_found);
+            gi.last_error_code = gi.last_error_code || state.last_error_code;
+          }
+        }
+        allCandidates = [...allCandidates, ...ghostItems];
+      }
+    }
+
+    if (allCandidates.length === 0) return;
+
+    const candidates = await enrichDemonitorCandidates(supabase, allCandidates);
 
     const candidateIds = candidates.map((c: any) => c.id);
     const { data: pendingRetries } = await (supabase.from("sync_retry_queue") as any)
@@ -540,6 +623,21 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       })
       .in("id", demonitorIds);
 
+    // ── FIX: Reset atenia_ai_work_item_state for demonitored items ──
+    // This clears the ghost items from the sin_omitidos gate
+    for (const id of demonitorIds) {
+      try {
+        await supabase
+          .from("atenia_ai_work_item_state")
+          .update({
+            consecutive_not_found: 0,
+            consecutive_other_errors: 0,
+            last_error_code: "DEMONITORED",
+          })
+          .eq("work_item_id", id);
+      } catch { /* non-blocking */ }
+    }
+
     // Audit trail
     for (const item of toDemonitor.slice(0, 10)) {
       try {
@@ -547,7 +645,7 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
           organization_id: orgId,
           action_type: "AUTO_DEMONITOR",
           autonomy_tier: "ACT",
-          reasoning: `Radicado ${item.radicado || "N/A"}: ${item.consecutive_404_count} 404s consecutivos (umbral: ${threshold}).`,
+          reasoning: `Radicado ${item.radicado || "N/A"}: ${item.consecutive_404_count} 404s consecutivos (umbral: ${threshold}). Ghost items policy aplicada.`,
           target_entity_type: "WORK_ITEM",
           target_entity_id: item.id,
           action_taken: "monitoring_disabled",
@@ -557,7 +655,7 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       } catch { /* non-blocking */ }
     }
 
-    console.log(`[daily-sync] Auto-demonitor: ${toDemonitor.length} items`);
+    console.log(`[daily-sync] Auto-demonitor: ${toDemonitor.length} items (incl. ${ghostOnlyIds.length} ghost items)`);
   } catch (err) {
     console.warn("[daily-sync] Auto-demonitor error:", err);
   }

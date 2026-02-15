@@ -142,6 +142,24 @@ Deno.serve(async (req) => {
           });
         } else {
           results.push({ org_id: org.id, status: "OK" });
+
+          // ── FIX: Write heartbeat_observe action directly as redundancy ──
+          // The supervisor HEARTBEAT mode now writes these too, but this ensures
+          // the signal exists even if supervisor's write fails for this org.
+          try {
+            await supabase.from("atenia_ai_actions").insert({
+              organization_id: org.id,
+              action_type: "heartbeat_observe",
+              autonomy_tier: "OBSERVE",
+              reasoning: `Heartbeat servidor OK para org ${org.name}.`,
+              status: "EXECUTED",
+              action_result: "logged",
+              evidence: {
+                source: "atenia-server-heartbeat",
+                timestamp: new Date().toISOString(),
+              },
+            });
+          } catch (_) { /* non-fatal */ }
         }
       } catch (err) {
         const reason = (err as Error).name === "AbortError"
