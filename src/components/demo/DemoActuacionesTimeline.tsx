@@ -91,15 +91,14 @@ function getActTypeStyle(tipo: string | null): {
   };
 }
 
-function getSourceBadge(source?: string) {
-  switch (source) {
-    case "CPNU":
-      return { label: "CPNU", className: "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300 border-sky-200 dark:border-sky-800" };
-    case "SAMAI":
-      return { label: "SAMAI", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800" };
-    default:
-      return null;
-  }
+function getSourceBadges(act: DemoActuacion): { label: string; className: string }[] {
+  const sources = act.sources || (act.source ? [act.source] : []);
+  const badgeMap: Record<string, { label: string; className: string }> = {
+    CPNU: { label: "CPNU", className: "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300 border-sky-200 dark:border-sky-800" },
+    SAMAI: { label: "SAMAI", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800" },
+    Tutelas: { label: "Tutelas", className: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300 border-rose-200 dark:border-rose-800" },
+  };
+  return sources.map(s => badgeMap[s]).filter(Boolean);
 }
 
 export function DemoActuacionesTimeline({ actuaciones }: Props) {
@@ -178,7 +177,7 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
           const style = getActTypeStyle(act.tipo);
           const Icon = style.icon;
           const isExpanded = expanded.has(i);
-          const sourceBadge = getSourceBadge(act.source);
+          const sourceBadges = getSourceBadges(act);
           const hasLongDesc = act.descripcion.length > 150;
 
           return (
@@ -205,11 +204,11 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
                           Más reciente
                         </Badge>
                       )}
-                      {sourceBadge && (
-                        <Badge variant="outline" className={`text-[10px] ${sourceBadge.className}`}>
-                          {sourceBadge.label}
+                      {sourceBadges.map((sb, si) => (
+                        <Badge key={si} variant="outline" className={`text-[10px] ${sb.className}`}>
+                          {sb.label}
                         </Badge>
-                      )}
+                      ))}
                     </div>
                   </div>
                 </div>
