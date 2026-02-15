@@ -5,7 +5,8 @@
   .animate-mascot-antenna,
   .animate-mascot-happy-eyes,
   .animate-bubble-enter,
-  .animate-bubble-exit {
+  .animate-bubble-exit,
+  .andro-frame-breathe {
     animation: none !important;
     transition: none !important;
   }
@@ -53,4 +54,13 @@
 }
 .animate-bubble-exit {
   animation: bubble-exit 0.2s ease-in forwards;
+}
+
+/* Andro Demo Frame — subtle breathing for the mascot silhouette */
+@keyframes andro-frame-breathe {
+  0%, 100% { transform: scale(1) translateY(0); }
+  50% { transform: scale(1.005) translateY(-2px); }
+}
+.andro-frame-breathe {
+  animation: andro-frame-breathe 5s ease-in-out infinite;
 }
