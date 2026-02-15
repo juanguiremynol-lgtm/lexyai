@@ -648,13 +648,27 @@ export function CreateWorkItemWizard({
                   >
                     {lookupStatus === 'loading' ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Consultando APIs externas...
+                        <svg viewBox="0 0 48 48" className="h-5 w-5 mr-2 animate-spin" aria-hidden="true">
+                          <circle cx="24" cy="3" r="2" fill="currentColor" />
+                          <line x1="24" y1="4" x2="24" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <rect x="8" y="10" width="32" height="28" rx="8" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="2" />
+                          <circle cx="17" cy="24" r="4" fill="currentColor" />
+                          <circle cx="31" cy="24" r="4" fill="currentColor" />
+                          <ellipse cx="24" cy="33" rx="4" ry="2" fill="currentColor" opacity="0.6" />
+                        </svg>
+                        Espera, Andro IA está buscando tu proceso...
                       </>
                     ) : (
                       <>
-                        <Search className="h-4 w-4 mr-2" />
-                        Buscar Proceso
+                        <svg viewBox="0 0 48 48" className="h-5 w-5 mr-2" aria-hidden="true">
+                          <circle cx="24" cy="3" r="2" fill="currentColor" />
+                          <line x1="24" y1="4" x2="24" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <rect x="8" y="10" width="32" height="28" rx="8" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="2" />
+                          <circle cx="17" cy="24" r="3" fill="currentColor" />
+                          <circle cx="31" cy="24" r="3" fill="currentColor" />
+                          <line x1="18" y1="33" x2="30" y2="33" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                        Buscar con Andro IA
                       </>
                     )}
                   </Button>
