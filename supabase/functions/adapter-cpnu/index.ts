@@ -1289,18 +1289,29 @@ async function orchestrateSearch(
             if (/demandado|accionado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
           }
         } else if (typeof p.sujetosProcesales === 'string' && p.sujetosProcesales.trim()) {
-          // CPNU search endpoint returns sujetosProcesales as pipe-separated string
-          // Format can be: "Demandante: NAME | Demandado: NAME" OR just "NAME | NAME"
-          const parts = p.sujetosProcesales.split('|').map((s: string) => s.trim().replace(/\.+$/, '')).filter(Boolean);
+          // CPNU search endpoint returns sujetosProcesales as a delimited string.
+          // Supported separators: | ; / newline, and double-or-more spaces (when no other sep found)
+          const rawStr = p.sujetosProcesales.trim();
+          let parts: string[];
+          if (/[|;\/\n]/.test(rawStr)) {
+            parts = rawStr.split(/[|;\/\n]/).map((s: string) => s.trim().replace(/\.+$/, '')).filter(Boolean);
+          } else if (/\s{2,}/.test(rawStr)) {
+            parts = rawStr.split(/\s{2,}/).map((s: string) => s.trim().replace(/\.+$/, '')).filter(Boolean);
+          } else {
+            parts = [rawStr.trim().replace(/\.+$/, '')];
+          }
+
+          // Role label regex — covers accented and unaccented variants
+          const ROLE_RE = /^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante|Solicitante|Convocado|Convocante)\s*:\s*(.+)$/i;
+
           for (const raw of parts) {
-            // Check for "Role: Name" format (e.g., "Demandante: OFELIA MERCEDES MAYA MARTINEZ")
-            const roleMatch = raw.match(/^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante)\s*:\s*(.+)$/i);
+            const roleMatch = raw.match(ROLE_RE);
             if (roleMatch) {
               const tipo = roleMatch[1].trim();
               const nombre = roleMatch[2].trim().replace(/\.+$/, '');
               sujetos.push({ tipo, nombre });
-              if (/demandante|accionante|actor|tutelante/i.test(tipo) && !parsedDemandante) parsedDemandante = nombre;
-              if (/demandado|accionado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
+              if (/demandante|accionante|actor|tutelante|solicitante|convocante/i.test(tipo) && !parsedDemandante) parsedDemandante = nombre;
+              if (/demandado|accionado|convocado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
             } else {
               sujetos.push({ tipo: 'Parte', nombre: raw });
             }
