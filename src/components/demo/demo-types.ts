@@ -51,8 +51,9 @@ export interface ProviderOutcome {
 
 export interface CategoryInference {
   category: string;
-  confidence: "HIGH" | "MEDIUM" | "LOW";
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
   signals: string[];
+  caveats?: string[];
 }
 
 export interface MetadataConflict {

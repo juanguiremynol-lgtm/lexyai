@@ -103,9 +103,13 @@ export function DemoEstadosList({ estados }: Props) {
 
   if (estados.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
+      <div className="text-center py-12 text-muted-foreground space-y-2">
         <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
-        <p className="font-medium">No se encontraron estados para este radicado.</p>
+        <p className="font-medium">No se encontraron estados publicados para este radicado.</p>
+        <p className="text-sm max-w-md mx-auto">
+          No todos los despachos publican estados electrónicamente. En tu cuenta,
+          Andromeda monitorea todas las fuentes disponibles de forma automática.
+        </p>
       </div>
     );
   }
