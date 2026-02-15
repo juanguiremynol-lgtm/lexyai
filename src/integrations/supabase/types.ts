@@ -1678,10 +1678,12 @@ export type Database = {
       }
       auto_sync_daily_ledger: {
         Row: {
+          chain_id: string | null
           completed_at: string | null
           continuation_of: string | null
           created_at: string
           cursor_last_work_item_id: string | null
+          dead_letter_count: number | null
           error_summary: Json | null
           expected_total_items: number | null
           failure_reason: string | null
@@ -1697,18 +1699,22 @@ export type Database = {
           metadata: Json | null
           organization_id: string
           retry_count: number | null
+          run_cutoff_time: string | null
           run_date: string
           run_id: string | null
           scheduled_for: string
           started_at: string | null
           status: Database["public"]["Enums"]["daily_sync_status"]
+          timeout_count: number | null
           updated_at: string
         }
         Insert: {
+          chain_id?: string | null
           completed_at?: string | null
           continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null
+          dead_letter_count?: number | null
           error_summary?: Json | null
           expected_total_items?: number | null
           failure_reason?: string | null
@@ -1724,18 +1730,22 @@ export type Database = {
           metadata?: Json | null
           organization_id: string
           retry_count?: number | null
+          run_cutoff_time?: string | null
           run_date: string
           run_id?: string | null
           scheduled_for: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["daily_sync_status"]
+          timeout_count?: number | null
           updated_at?: string
         }
         Update: {
+          chain_id?: string | null
           completed_at?: string | null
           continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null
+          dead_letter_count?: number | null
           error_summary?: Json | null
           expected_total_items?: number | null
           failure_reason?: string | null
@@ -1751,11 +1761,13 @@ export type Database = {
           metadata?: Json | null
           organization_id?: string
           retry_count?: number | null
+          run_cutoff_time?: string | null
           run_date?: string
           run_id?: string | null
           scheduled_for?: string
           started_at?: string | null
           status?: Database["public"]["Enums"]["daily_sync_status"]
+          timeout_count?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -8743,6 +8755,63 @@ export type Database = {
             foreignKeyName: "sync_audit_log_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sync_item_failure_tracker: {
+        Row: {
+          consecutive_failures: number
+          created_at: string
+          dead_lettered: boolean
+          dead_lettered_at: string | null
+          dead_lettered_run_id: string | null
+          last_failure_at: string | null
+          last_failure_reason: string | null
+          organization_id: string
+          reset_at: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          created_at?: string
+          dead_lettered?: boolean
+          dead_lettered_at?: string | null
+          dead_lettered_run_id?: string | null
+          last_failure_at?: string | null
+          last_failure_reason?: string | null
+          organization_id: string
+          reset_at?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          consecutive_failures?: number
+          created_at?: string
+          dead_lettered?: boolean
+          dead_lettered_at?: string | null
+          dead_lettered_run_id?: string | null
+          last_failure_at?: string | null
+          last_failure_reason?: string | null
+          organization_id?: string
+          reset_at?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_item_failure_tracker_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_item_failure_tracker_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: true
             referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
