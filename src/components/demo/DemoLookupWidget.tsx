@@ -11,11 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Sparkles, ShieldCheck, Eye, Zap, ArrowRight, Activity, LayoutGrid, Building2 } from "lucide-react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useDemoLookup } from "@/hooks/useDemoLookup";
 import { DemoResultModal } from "./DemoResultModal";
 import { AndroMouthFrame } from "./AndroMouthFrame";
 import { track } from "@/lib/analytics/wrapper";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { DemoShareButton } from "./DemoShareButton";
 import type { DemoResult } from "./demo-types";
 
 export interface DemoLookupWidgetProps {
@@ -59,9 +61,20 @@ export function DemoLookupWidget({
   };
 
   const content = (
+    <TooltipProvider>
     <div className={className}>
       {/* Header */}
-      <div className="text-center space-y-2 mb-4">
+      <div className="text-center space-y-2 mb-4 relative">
+        {/* Share button — top-right */}
+        <div className="absolute right-0 top-0">
+          <DemoShareButton
+            variant={variant}
+            frame={frame}
+            radicado={demo.radicado}
+            hasResults={demo.state === "RESULT"}
+            iconOnly={variant === "compact"}
+          />
+        </div>
         <Badge variant="outline" className="text-xs px-3 py-1">
           <Sparkles className="h-3 w-3 mr-1" />
           Prueba en vivo
@@ -243,6 +256,7 @@ export function DemoLookupWidget({
         />
       )}
     </div>
+    </TooltipProvider>
   );
 
   if (frame === "androMouth") {
