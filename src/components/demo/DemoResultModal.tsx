@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   X, Scale, MapPin, Calendar, FileText, Activity, LayoutGrid,
-  Building2, Clock, ArrowRight,
+  Building2, Clock, ArrowRight, User, Users,
 } from "lucide-react";
 import { DemoActuacionesTimeline } from "./DemoActuacionesTimeline";
 import { DemoEstadosList } from "./DemoEstadosList";
@@ -116,6 +116,12 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                 )}
                 {resumen.jurisdiccion && (
                   <InfoItem icon={Scale} label="Jurisdicción" value={resumen.jurisdiccion} />
+                )}
+                {resumen.demandante && (
+                  <InfoItem icon={User} label="Demandante / Accionante" value={resumen.demandante} />
+                )}
+                {resumen.demandado && (
+                  <InfoItem icon={Users} label="Demandado / Accionado" value={resumen.demandado} />
                 )}
                 {resumen.tipo_proceso && (
                   <InfoItem icon={FileText} label="Tipo" value={resumen.tipo_proceso} />

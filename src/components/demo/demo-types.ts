@@ -16,6 +16,8 @@ export interface DemoResumen {
   ultima_actuacion_tipo: string | null;
   total_actuaciones: number;
   total_estados: number;
+  demandante: string | null;
+  demandado: string | null;
 }
 
 export interface DemoActuacion {
