@@ -42,6 +42,7 @@ import CheckoutSuccess from "./pages/CheckoutSuccess";
 import MockCheckoutPage from "./pages/MockCheckoutPage";
 import JoinPage from "./pages/JoinPage";
 import VoucherRedeemPage from "./pages/VoucherRedeemPage";
+import DemoPage from "./pages/DemoPage";
 import EstadosHoy from "./pages/EstadosHoy";
 import ActuacionesHoy from "./pages/ActuacionesHoy";
 
@@ -103,6 +104,8 @@ const App = () => (
           
           {/* Root landing page - public marketing page */}
           <Route path="/" element={<ErrorBoundary><PublicLandingPage /></ErrorBoundary>} />
+          <Route path="/demo" element={<ErrorBoundary><DemoPage /></ErrorBoundary>} />
+          <Route path="/prueba" element={<ErrorBoundary><DemoPage /></ErrorBoundary>} />
           
           {/* Auth routes */}
           <Route path="/auth" element={<Auth />} />
