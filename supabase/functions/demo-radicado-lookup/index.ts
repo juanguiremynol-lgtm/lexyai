@@ -19,6 +19,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { parseCpnuSujetos } from "../_shared/partyNormalization.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,50 +135,13 @@ interface DemoResumen {
   demandante: string | null;
   demandado: string | null;
 }
-
-// ═══════════════════════════════════════════
-// PARTY PARSING from sujetosProcesales string
-// ═══════════════════════════════════════════
-const DEMANDANTE_RE = /demandante|accionante|actor|tutelante|solicitante|convocante/i;
-const DEMANDADO_RE = /demandado|accionado|convocado|procesado/i;
-const ROLE_RE = /^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante|Solicitante|Convocado|Convocante|Procesado)\s*:\s*(.+)$/i;
-
+// Party parsing delegated to _shared/partyNormalization.ts (parseCpnuSujetos)
 function parseSujetosString(raw: unknown): { demandante: string | null; demandado: string | null } {
-  if (!raw || typeof raw !== "string") return { demandante: null, demandado: null };
-  const str = raw.trim();
-  if (!str) return { demandante: null, demandado: null };
-
-  // Split by multiple separators
-  let parts: string[];
-  if (/[|;\/\n]/.test(str)) {
-    parts = str.split(/[|;\/\n]/).map(s => s.trim()).filter(Boolean);
-  } else if (/\s{2,}/.test(str)) {
-    parts = str.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
-  } else {
-    parts = [str];
-  }
-
-  let demandante: string | null = null;
-  let demandado: string | null = null;
-
-  for (const part of parts) {
-    const match = part.match(ROLE_RE);
-    if (match) {
-      const role = match[1];
-      const name = match[2].trim().replace(/\.+$/, "").trim();
-      if (!name) continue;
-      if (DEMANDANTE_RE.test(role) && !demandante) demandante = name;
-      if (DEMANDADO_RE.test(role) && !demandado) demandado = name;
-    }
-  }
-
-  // Fallback: if no role prefix found but we have exactly 2 parts
-  if (!demandante && !demandado && parts.length === 2) {
-    demandante = parts[0].replace(/\.+$/, "").trim() || null;
-    demandado = parts[1].replace(/\.+$/, "").trim() || null;
-  }
-
-  return { demandante, demandado };
+  const result = parseCpnuSujetos(raw);
+  return {
+    demandante: result.demandante || null,
+    demandado: result.demandado || null,
+  };
 }
 
 interface DemoActuacion {
