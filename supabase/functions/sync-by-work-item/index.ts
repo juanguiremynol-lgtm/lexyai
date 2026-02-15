@@ -18,6 +18,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
+import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1904,10 +1905,11 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     // === END PAGINATION ===
     
     // ============= EXTRACT SUJETOS FOR DEMANDANTES/DEMANDADOS =============
+    // Use canonicalizeRole from shared module for consistent role mapping
     const demandantes = sujetos
       .filter(s => {
-        const tipoSujeto = String(s.tipoSujeto || s.tipo || '').toLowerCase();
-        return tipoSujeto.includes('demandante') || tipoSujeto.includes('accionante');
+        const tipoSujeto = String(s.tipoSujeto || s.tipo || '');
+        return canonicalizeRole(tipoSujeto) === 'DEMANDANTE';
       })
       .map(s => String(s.nombreRazonSocial || s.nombre || ''))
       .filter(Boolean)
@@ -1915,22 +1917,21 @@ async function fetchFromCpnu(radicado: string): Promise<FetchResult> {
     
     const demandados = sujetos
       .filter(s => {
-        const tipoSujeto = String(s.tipoSujeto || s.tipo || '').toLowerCase();
-        return tipoSujeto.includes('demandado') || tipoSujeto.includes('accionado');
+        const tipoSujeto = String(s.tipoSujeto || s.tipo || '');
+        return canonicalizeRole(tipoSujeto) === 'DEMANDADO';
       })
       .map(s => String(s.nombreRazonSocial || s.nombre || ''))
       .filter(Boolean)
       .join(' | ');
     
-    // Fallback: Extract from sujetosProcesalesResumen if sujetos array is empty
+    // Fallback: Extract from sujetosProcesalesResumen string using shared parser
     let demandanteFallback: string | undefined;
     let demandadoFallback: string | undefined;
     if (sujetos.length === 0 && resumenBusqueda?.sujetosProcesalesResumen) {
       const resumen = String(resumenBusqueda.sujetosProcesalesResumen);
-      const demandanteMatch = resumen.match(/Demandante:\s*([^|]+)/i);
-      const demandadoMatch = resumen.match(/Demandado:\s*([^|]+)/i);
-      if (demandanteMatch) demandanteFallback = demandanteMatch[1].trim();
-      if (demandadoMatch) demandadoFallback = demandadoMatch[1].trim();
+      const parsed = parseSujetosProcesalesString(resumen);
+      demandanteFallback = parsed.demandante;
+      demandadoFallback = parsed.demandado;
     }
     
     // ============= MAP ACTUACIONES WITH ALL CPNU FIELDS =============
@@ -3942,22 +3943,16 @@ Deno.serve(async (req) => {
     }
 
     // ============= EXTRACT SUJETOS PROCESALES (demandantes/demandados) =============
-    // This overrides caseMetadata.demandante/demandado with more complete data from sujetos
+    // Uses canonicalizeRole from shared partyNormalization module
     if (fetchResult.sujetos && fetchResult.sujetos.length > 0) {
       const demandantes = fetchResult.sujetos
-        .filter(s => {
-          const tipo = s.tipo.toLowerCase();
-          return tipo.includes('demandante') || tipo.includes('accionante') || tipo.includes('ofendido');
-        })
+        .filter(s => canonicalizeRole(s.tipo) === 'DEMANDANTE')
         .map(s => s.nombre)
         .filter(Boolean)
         .join(' | ');
       
       const demandados = fetchResult.sujetos
-        .filter(s => {
-          const tipo = s.tipo.toLowerCase();
-          return tipo.includes('demandado') || tipo.includes('accionado') || tipo.includes('procesado');
-        })
+        .filter(s => canonicalizeRole(s.tipo) === 'DEMANDADO')
         .map(s => s.nombre)
         .filter(Boolean)
         .join(' | ');
