@@ -25,6 +25,7 @@ import { DemoAteniaMascot } from "./DemoAteniaMascot";
 import { getCategoryDisplayName } from "./demo-pipeline-stages";
 import { Link } from "react-router-dom";
 import type { DemoResult, ProviderOutcome } from "./demo-types";
+import { detectDemoAmbiguity } from "./demo-ambiguity";
 import { useMemo, useState } from "react";
 import {
   Collapsible,
@@ -55,6 +56,11 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
   const categoryMeta = useMemo(() => {
     if (!data?.category_inference) return null;
     return CATEGORY_LABELS[data.category_inference.category] || CATEGORY_LABELS.DESCONOCIDA;
+  }, [data]);
+
+  const ambiguity = useMemo(() => {
+    if (!data) return null;
+    return detectDemoAmbiguity(data);
   }, [data]);
 
   if (!data) return null;
@@ -154,6 +160,29 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                     {category_inference.caveats.map((caveat, i) => (
                       <p key={i} className="text-sm text-muted-foreground">{caveat}</p>
                     ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Ambiguity Notice — tutela hints or surprising classification */}
+            {ambiguity?.hasAmbiguity && ambiguity.ambiguityNotice && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                  <div className="space-y-2">
+                    <p className="text-sm text-foreground">{ambiguity.ambiguityNotice}</p>
+                    {ambiguity.hasTutelaHints && ambiguity.tutelaHintSources.length > 0 && (
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        <p className="font-medium">Indicios encontrados:</p>
+                        {ambiguity.tutelaHintSources.map((hint, i) => (
+                          <p key={i}>• {hint}</p>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Puedes cambiar el pipeline en la pestaña "Pipeline" para previsualizar cualquier flujo de trabajo.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -280,7 +309,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               )}
 
               <TabsContent value="kanban" className="mt-4">
-                <DemoPipelineKanban />
+                <DemoPipelineKanban ambiguity={ambiguity} />
               </TabsContent>
             </Tabs>
 
