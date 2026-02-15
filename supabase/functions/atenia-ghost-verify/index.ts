@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
       .eq("id", runId);
 
     // If recheck succeeded (data found), item is NOT a ghost
-    if (recheckStatus === "FOUND_COMPLETE") {
+    if (recheckStatus === "FOUND_COMPLETE" || recheckStatus === "FOUND_PARTIAL") {
       await finalizeRun(supabase, runId, work_item_id, orgId, "RESOLVED", 
         "El recheck encontró datos. El item no es fantasma — posible recuperación del proveedor.", "NO_ACTION");
       return json({
@@ -250,21 +250,25 @@ Deno.serve(async (req) => {
       actionTaken = "INCIDENT_CREATED";
 
       // Create system incident
-      const { data: incident } = await supabase
+      const { data: incident, error: incidentErr } = await supabase
         .from("atenia_ai_conversations")
         .insert({
           title: `[SISTEMA] Falla de sync detectada para categoría ${category}`,
-          scope: "platform",
-          channel: "auto",
-          status: "open",
-          severity: "critical",
+          scope: "ORG",
+          channel: "SYSTEM",
+          status: "OPEN",
+          severity: "CRITICAL",
           summary: classificationReason,
+          organization_id: orgId,
           related_work_item_ids: [work_item_id],
           related_workflows: [category],
         })
         .select("id")
         .single();
 
+      if (incidentErr) {
+        console.error("[ghost-verify] Failed to create incident:", incidentErr.message);
+      }
       incidentId = incident?.id || null;
 
       // Log action
