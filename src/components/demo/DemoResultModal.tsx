@@ -22,6 +22,9 @@ import { DemoWorkItemCard } from "./DemoWorkItemCard";
 import { DemoAteniaMascot } from "./DemoAteniaMascot";
 import { Link } from "react-router-dom";
 import type { DemoResult } from "./demo-types";
+import { detectWorkflowTypeEnhanced } from "@/lib/icarus-workflow-detection";
+import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
+import { useMemo } from "react";
 
 interface DemoResultModalProps {
   open: boolean;
@@ -30,8 +33,27 @@ interface DemoResultModalProps {
 }
 
 export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalProps) {
+  const detection = useMemo(() => {
+    if (!data) return { suggestedType: 'UNKNOWN' as const, confidence: 'LOW' as const, matchedKeywords: [] };
+    return detectWorkflowTypeEnhanced({
+      despacho: data.resumen.despacho,
+      tipo_proceso: data.resumen.tipo_proceso,
+      jurisdiccion: data.resumen.jurisdiccion,
+    });
+  }, [data]);
+
   if (!data) return null;
   const { resumen, actuaciones, estados } = data;
+
+  const detectedMeta = detection.suggestedType !== 'UNKNOWN'
+    ? WORKFLOW_TYPES[detection.suggestedType]
+    : null;
+
+  const confidenceLabel: Record<string, string> = {
+    HIGH: 'Alta confianza',
+    MEDIUM: 'Confianza media',
+    LOW: 'Confianza baja',
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -39,16 +61,24 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-muted/30">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline" className="font-mono text-xs">
                 {resumen.radicado_display}
               </Badge>
               <Badge className="text-xs bg-primary/10 text-primary border-primary/20">
                 Demo
               </Badge>
+              {detectedMeta && (
+                <Badge className="text-xs bg-accent/15 text-accent-foreground border-accent/30 border">
+                  📂 {detectedMeta.label}
+                  <span className="ml-1 opacity-60">({confidenceLabel[detection.confidence]})</span>
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Así se vería este proceso en Andromeda
+              {detectedMeta 
+                ? `Atenía identificó este caso como ${detectedMeta.shortLabel} — pipeline: ${detectedMeta.label}`
+                : 'Así se vería este proceso en Andromeda'}
             </p>
           </div>
           <Button
