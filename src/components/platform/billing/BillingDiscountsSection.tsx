@@ -228,7 +228,7 @@ export function BillingDiscountsSection() {
 
   const getRedeemUrl = () => {
     if (!createdVoucher?.raw_token) return "";
-    return `${window.location.origin}/v/redeem/${createdVoucher.raw_token}`;
+    return `https://andromeda.legal/v/redeem/${createdVoucher.raw_token}`;
   };
 
   return (
