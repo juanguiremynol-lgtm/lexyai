@@ -11073,6 +11073,10 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      daily_sync_health_snapshot: {
+        Args: { p_days?: number; p_target_date?: string }
+        Returns: Json
+      }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_data_protection_summary: { Args: never; Returns: Json }
       get_login_sync_status: {

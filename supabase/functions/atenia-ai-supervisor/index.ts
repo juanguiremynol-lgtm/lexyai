@@ -2142,26 +2142,51 @@ Deno.serve(async (req) => {
     // Also process queue after audit
     const queueResult = await runQueueWorker(supabase, dryRun);
 
-    // Compute platform-wide sync KPIs
+    // Compute platform-wide sync KPIs + consolidated health snapshot
     let platformKPIs: PlatformSyncKPIs | null = null;
+    let healthSnapshot: Record<string, unknown> | null = null;
     if (input.mode === "POST_DAILY_SYNC" || input.mode === "MANUAL_AUDIT") {
       try {
         platformKPIs = await computePlatformSyncKPIs(supabase, runDate, orgKPIs, orgIds);
         console.log(`[atenia-ai-supervisor] Platform KPIs: ${platformKPIs.pct_fully_synced}% synced, p95_conv=${platformKPIs.p95_convergence_seconds}s, DL=${platformKPIs.total_dead_lettered_items}, avg_chain=${platformKPIs.avg_chain_length}`);
+      } catch (err) {
+        console.warn("[atenia-ai-supervisor] Platform KPI computation failed:", err);
+      }
 
-        // Log platform KPIs as an AI action for the daily digest
+      // Call consolidated health snapshot DB function (7-day lookback)
+      try {
+        const { data: snapshot } = await supabase.rpc("daily_sync_health_snapshot", {
+          p_days: 7,
+          p_target_date: runDate,
+        });
+        healthSnapshot = snapshot as Record<string, unknown> | null;
+        const problemOrgs = (healthSnapshot?.problem_orgs_today as unknown[]) || [];
+        console.log(`[atenia-ai-supervisor] Health snapshot: ${problemOrgs.length} problem orgs today`);
+      } catch (err) {
+        console.warn("[atenia-ai-supervisor] Health snapshot RPC failed:", err);
+      }
+
+      // Log combined KPI + health snapshot report
+      const reportOrg = orgIds[0] ?? "a0000000-0000-0000-0000-000000000001";
+      const problemCount = healthSnapshot
+        ? ((healthSnapshot.problem_orgs_today as unknown[]) || []).length
+        : 0;
+      try {
         await logAction(supabase, {
           actor: "ATENIA",
-          organization_id: orgIds[0] ?? "a0000000-0000-0000-0000-000000000001",
+          organization_id: reportOrg,
           action_type: "DAILY_SYNC_KPI_REPORT",
           autonomy_tier: "OBSERVE",
-          reasoning: `Informe de KPIs del sync diario: ${platformKPIs.pct_fully_synced}% orgs completadas, ${platformKPIs.total_dead_lettered_items} ítems en dead-letter.`,
-          summary: `Sync diario: ${platformKPIs.orgs_fully_synced}/${platformKPIs.total_orgs} orgs OK, p95 convergencia ${platformKPIs.p95_convergence_seconds ?? 0}s`,
-          evidence: platformKPIs as unknown as Record<string, unknown>,
+          reasoning: `Informe consolidado del sync diario: ${platformKPIs?.pct_fully_synced ?? 0}% orgs completadas, ${platformKPIs?.total_dead_lettered_items ?? 0} ítems en dead-letter, ${problemCount} orgs con problemas.`,
+          summary: `Sync diario: ${platformKPIs?.orgs_fully_synced ?? 0}/${platformKPIs?.total_orgs ?? 0} orgs OK, p95 convergencia ${platformKPIs?.p95_convergence_seconds ?? 0}s`,
+          evidence: {
+            ...(platformKPIs as unknown as Record<string, unknown> ?? {}),
+            health_snapshot: healthSnapshot,
+          },
           is_reversible: false,
         });
       } catch (err) {
-        console.warn("[atenia-ai-supervisor] Platform KPI computation failed:", err);
+        console.warn("[atenia-ai-supervisor] KPI report logging failed:", err);
       }
     }
 
@@ -2176,6 +2201,7 @@ Deno.serve(async (req) => {
       run_date: runDate,
       organizations_audited: allReports.length,
       platform_sync_kpis: platformKPIs,
+      health_snapshot: healthSnapshot,
       queue_processed: queueResult,
       duration_ms: durationMs,
     });
