@@ -170,12 +170,26 @@ export function DemoRadicadoSection() {
                 disabled={isLoading}
               >
                 {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <svg viewBox="0 0 48 48" className="h-5 w-5 animate-spin" aria-hidden="true">
+                    <circle cx="24" cy="3" r="2" fill="currentColor" />
+                    <line x1="24" y1="4" x2="24" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <rect x="8" y="10" width="32" height="28" rx="8" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="2" />
+                    <circle cx="17" cy="24" r="4" fill="currentColor" />
+                    <circle cx="31" cy="24" r="4" fill="currentColor" />
+                    <ellipse cx="24" cy="33" rx="4" ry="2" fill="currentColor" opacity="0.6" />
+                  </svg>
                 ) : (
-                  <Search className="h-4 w-4" />
+                  <svg viewBox="0 0 48 48" className="h-5 w-5" aria-hidden="true">
+                    <circle cx="24" cy="3" r="2" fill="currentColor" />
+                    <line x1="24" y1="4" x2="24" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <rect x="8" y="10" width="32" height="28" rx="8" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="2" />
+                    <circle cx="17" cy="24" r="3" fill="currentColor" />
+                    <circle cx="31" cy="24" r="3" fill="currentColor" />
+                    <line x1="18" y1="33" x2="30" y2="33" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
                 )}
                 <span className="ml-2 hidden sm:inline">
-                  {isLoading ? "Consultando..." : "Buscar"}
+                  {isLoading ? "Buscando..." : "Buscar con Andro IA"}
                 </span>
               </Button>
             </div>
@@ -183,9 +197,16 @@ export function DemoRadicadoSection() {
             {/* Loading state */}
             {isLoading && (
               <div className="flex items-center justify-center gap-3 py-6">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <svg viewBox="0 0 48 48" className="h-6 w-6 animate-spin text-primary" aria-hidden="true">
+                  <circle cx="24" cy="3" r="2" fill="currentColor" />
+                  <line x1="24" y1="4" x2="24" y2="10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <rect x="8" y="10" width="32" height="28" rx="8" fill="currentColor" opacity="0.15" stroke="currentColor" strokeWidth="2" />
+                  <circle cx="17" cy="24" r="4" fill="currentColor" />
+                  <circle cx="31" cy="24" r="4" fill="currentColor" />
+                  <ellipse cx="24" cy="33" rx="4" ry="2" fill="currentColor" opacity="0.6" />
+                </svg>
                 <div className="text-center">
-                  <p className="text-sm font-medium">Consultando fuentes judiciales...</p>
+                  <p className="text-sm font-medium">Espera, Andro IA está buscando tu proceso...</p>
                   <p className="text-xs text-muted-foreground">
                     CPNU · Publicaciones · SAMAI · SAMAI Estados
                   </p>
