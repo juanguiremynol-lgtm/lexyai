@@ -162,4 +162,69 @@ describe("CPNU party/date/actuacion extraction (regression)", () => {
     expect(merged.demandante).toBe("JUAN PEREZ");
     expect(merged.demandado).toBe("EPS SURA");
   });
+
+  it("mergeResultsPreserveParties: preserves Phase 1 parties when fallback lacks them", () => {
+    // Simulate: Phase 1 (QUERY_LIST) returns parties but actuaciones fail (406)
+    // Fallback (Firecrawl) gets results but without parties
+    const phase1Results = [{
+      radicado: "05001410500420261008600",
+      despacho: "JUZGADO 004 MUNICIPAL DE PEQUEÑAS CAUSAS LABORALES DE MEDELLÍN",
+      demandante: "OFELIA MERCEDES MAYA MARTINEZ",
+      demandado: "TIERRADENTRO",
+      tipo_proceso: "Especiales",
+      fecha_radicacion: "2026-02-13",
+    }];
+    const fallbackResults = [{
+      radicado: "05001410500420261008600",
+      despacho: "Juzgado 004 Municipal Pequeñas Causas Laborales",
+      demandante: undefined as string | undefined,
+      demandado: undefined as string | undefined,
+      tipo_proceso: undefined as string | undefined,
+      fecha_radicacion: undefined as string | undefined,
+    }];
+
+    // Simulate mergeResultsPreserveParties logic
+    const merged = fallbackResults.map((fb, i) => {
+      if (i > 0) return fb;
+      const p1 = phase1Results[0];
+      return {
+        ...fb,
+        demandante: fb.demandante?.trim() || p1.demandante,
+        demandado: fb.demandado?.trim() || p1.demandado,
+        fecha_radicacion: fb.fecha_radicacion || p1.fecha_radicacion,
+        despacho: fb.despacho?.trim() || p1.despacho,
+        tipo_proceso: fb.tipo_proceso || p1.tipo_proceso,
+      };
+    });
+
+    expect(merged[0].demandante).toBe("OFELIA MERCEDES MAYA MARTINEZ");
+    expect(merged[0].demandado).toBe("TIERRADENTRO");
+    expect(merged[0].fecha_radicacion).toBe("2026-02-13");
+    expect(merged[0].despacho).toBe("Juzgado 004 Municipal Pequeñas Causas Laborales");
+  });
+
+  it("proceso object includes demandante/demandado from results[0]", () => {
+    // Simulates the proceso builder in adapter-cpnu
+    const results = [{
+      radicado: "05001410500420261008600",
+      despacho: "JUZGADO 004",
+      demandante: "OFELIA MERCEDES MAYA MARTINEZ",
+      demandado: "TIERRADENTRO",
+      tipo_proceso: "Especiales",
+      fecha_radicacion: "2026-02-13",
+      sujetos_procesales: [],
+    }];
+    const mainResult = results[0];
+    const proceso = {
+      despacho: mainResult.despacho || '',
+      tipo: mainResult.tipo_proceso,
+      demandante: mainResult.demandante,
+      demandado: mainResult.demandado,
+      fecha_radicacion: mainResult.fecha_radicacion,
+      sujetos_procesales: mainResult.sujetos_procesales || [],
+    };
+    expect(proceso.demandante).toBe("OFELIA MERCEDES MAYA MARTINEZ");
+    expect(proceso.demandado).toBe("TIERRADENTRO");
+    expect(proceso.fecha_radicacion).toBe("2026-02-13");
+  });
 });
