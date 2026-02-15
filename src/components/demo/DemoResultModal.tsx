@@ -1,7 +1,7 @@
 /**
  * DemoResultModal — Full-screen modal showing demo radicado results
  *
- * Presents: Resumen card, Actuaciones timeline, Estados list,
+ * Presents: Resumen card, Coverage summary, Actuaciones timeline, Estados list,
  * Work Item preview, Mini Kanban sandbox, Andro IA mascot bubble.
  * All ephemeral — no DB, no localStorage.
  */
@@ -13,7 +13,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   X, Scale, MapPin, Calendar, FileText, Activity, LayoutGrid,
-  Building2, Clock, ArrowRight, User, Users,
+  Building2, Clock, ArrowRight, User, Users, CheckCircle2, XCircle,
+  AlertTriangle, Info, ChevronDown, ChevronUp, Zap,
 } from "lucide-react";
 import { DemoActuacionesTimeline } from "./DemoActuacionesTimeline";
 import { DemoEstadosList } from "./DemoEstadosList";
@@ -21,10 +22,23 @@ import { DemoMiniKanban } from "./DemoMiniKanban";
 import { DemoWorkItemCard } from "./DemoWorkItemCard";
 import { DemoAteniaMascot } from "./DemoAteniaMascot";
 import { Link } from "react-router-dom";
-import type { DemoResult } from "./demo-types";
-import { detectWorkflowTypeEnhanced } from "@/lib/icarus-workflow-detection";
-import { WORKFLOW_TYPES } from "@/lib/workflow-constants";
-import { useMemo } from "react";
+import type { DemoResult, ProviderOutcome } from "./demo-types";
+import { useMemo, useState } from "react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+
+// Category display mapping
+const CATEGORY_LABELS: Record<string, { label: string; shortLabel: string; emoji: string }> = {
+  CGP: { label: "Código General del Proceso", shortLabel: "CGP", emoji: "⚖️" },
+  CPACA: { label: "Contencioso Administrativo", shortLabel: "CPACA", emoji: "🏛️" },
+  TUTELA: { label: "Acción de Tutela", shortLabel: "Tutela", emoji: "🛡️" },
+  LABORAL: { label: "Laboral", shortLabel: "Laboral", emoji: "👷" },
+  PENAL_906: { label: "Penal (Ley 906)", shortLabel: "Penal", emoji: "🔒" },
+  DESCONOCIDA: { label: "Sin clasificar", shortLabel: "Sin clasificar", emoji: "❓" },
+};
 
 interface DemoResultModalProps {
   open: boolean;
@@ -33,32 +47,24 @@ interface DemoResultModalProps {
 }
 
 export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalProps) {
-  const detection = useMemo(() => {
-    if (!data) return { suggestedType: 'UNKNOWN' as const, confidence: 'LOW' as const, matchedKeywords: [] };
-    // Collect actuaciones text for tutela detection signals
-    const actuacionesText = data.actuaciones.map(a => 
-      [a.tipo, a.descripcion, a.anotacion].filter(Boolean).join(' ')
-    );
-    return detectWorkflowTypeEnhanced({
-      despacho: data.resumen.despacho,
-      tipo_proceso: data.resumen.tipo_proceso,
-      jurisdiccion: data.resumen.jurisdiccion,
-      actuacionesText,
-    });
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+
+  const categoryMeta = useMemo(() => {
+    if (!data?.category_inference) return null;
+    return CATEGORY_LABELS[data.category_inference.category] || CATEGORY_LABELS.DESCONOCIDA;
   }, [data]);
 
   if (!data) return null;
-  const { resumen, actuaciones, estados } = data;
-
-  const detectedMeta = detection.suggestedType !== 'UNKNOWN'
-    ? WORKFLOW_TYPES[detection.suggestedType]
-    : null;
+  const { resumen, actuaciones, estados, meta, category_inference, conflicts } = data;
 
   const confidenceLabel: Record<string, string> = {
-    HIGH: 'Alta confianza',
-    MEDIUM: 'Confianza media',
-    LOW: 'Confianza baja',
+    HIGH: "Alta confianza",
+    MEDIUM: "Confianza media",
+    LOW: "Confianza baja",
   };
+
+  const providersChecked = meta.providers_checked || meta.provider_outcomes?.length || 0;
+  const providersWithData = meta.providers_with_data || meta.sources?.length || 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -73,30 +79,94 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               <Badge className="text-xs bg-primary/10 text-primary border-primary/20">
                 Demo
               </Badge>
-              {detectedMeta && (
+              {categoryMeta && category_inference && (
                 <Badge className="text-xs bg-accent/15 text-accent-foreground border-accent/30 border">
-                  📂 {detectedMeta.label}
-                  <span className="ml-1 opacity-60">({confidenceLabel[detection.confidence]})</span>
+                  {categoryMeta.emoji} {categoryMeta.label}
+                  <span className="ml-1 opacity-60">({confidenceLabel[category_inference.confidence]})</span>
                 </Badge>
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              {detectedMeta 
-                ? `Atenía identificó este caso como ${detectedMeta.shortLabel} — pipeline: ${detectedMeta.label}`
-                : 'Así se vería este proceso en Andromeda'}
+              {categoryMeta && category_inference && category_inference.category !== "DESCONOCIDA"
+                ? `Andromeda identificó este caso como ${categoryMeta.shortLabel}`
+                : "Así se vería este proceso en Andromeda"}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
             <X className="h-4 w-4" />
           </Button>
         </div>
 
         <ScrollArea className="flex-1 h-[calc(95vh-140px)] sm:h-[calc(90vh-140px)]">
           <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+            {/* Coverage Summary Bar */}
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium">Cobertura de fuentes</span>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {providersWithData} de {providersChecked} fuentes con datos
+                  </Badge>
+                  {meta.fetched_at && (
+                    <span className="text-xs text-muted-foreground">
+                      Consultado: {new Date(meta.fetched_at).toLocaleTimeString("es-CO")}
+                    </span>
+                  )}
+                </div>
+                <Collapsible open={sourcesOpen} onOpenChange={setSourcesOpen}>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="text-xs gap-1.5 h-7">
+                      <Info className="h-3.5 w-3.5" />
+                      Ver fuentes
+                      {sourcesOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-3">
+                    <ProviderOutcomesPanel outcomes={meta.provider_outcomes || []} />
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+              {providersWithData > 1 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  ✓ Múltiples fuentes coincidieron para este radicado — los datos han sido consolidados y deduplicados.
+                </p>
+              )}
+            </div>
+
+            {/* Conflicts Banner */}
+            {conflicts && conflicts.length > 0 && (
+              <div className="rounded-lg border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-4">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                      Las fuentes reportan datos diferentes
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      {conflicts.map((c, i) => (
+                        <div key={i} className="text-xs text-amber-700 dark:text-amber-400">
+                          <span className="font-medium capitalize">{c.field}:</span>{" "}
+                          {c.variants.map((v, j) => (
+                            <span key={j}>
+                              {j > 0 && " vs "}
+                              <span className="font-mono">{v.value}</span>
+                              <span className="opacity-60"> ({v.provider})</span>
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-amber-600/80 dark:text-amber-400/60 mt-1">
+                      Andromeda muestra el primer valor encontrado. En tu cuenta podrías revisar cada fuente en detalle.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Resumen Card */}
             <div className="rounded-lg border bg-card p-5 space-y-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
@@ -196,8 +266,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                       Un vistazo a cómo Andromeda organizaría este caso en tu pipeline.
                     </p>
                   </div>
-
-                   <div className="grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <DemoWorkItemCard resumen={resumen} />
                     <DemoMiniKanban resumen={resumen} />
                   </div>
@@ -241,6 +310,56 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Provider outcomes detail panel */
+function ProviderOutcomesPanel({ outcomes }: { outcomes: ProviderOutcome[] }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+      {outcomes.map((o) => {
+        const isSuccess = o.outcome === "success";
+        const isNoData = o.outcome === "no-data";
+        const isError = o.outcome === "error" || o.outcome === "timeout";
+        const isSkipped = o.outcome === "skipped";
+
+        return (
+          <div
+            key={o.name}
+            className={`rounded-md border p-3 text-xs ${
+              isSuccess
+                ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-800/50"
+                : isNoData
+                ? "bg-muted/30 border-border"
+                : isError
+                ? "bg-red-50/50 dark:bg-red-950/20 border-red-200/50 dark:border-red-800/50"
+                : "bg-muted/20 border-border/50"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-medium truncate">{o.label || o.name}</span>
+              {isSuccess && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />}
+              {isNoData && <XCircle className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />}
+              {isError && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
+              {isSkipped && <Info className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />}
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              {isSuccess && (
+                <span>
+                  {o.actuaciones_count > 0 && `${o.actuaciones_count} act.`}
+                  {o.actuaciones_count > 0 && o.estados_count > 0 && " · "}
+                  {o.estados_count > 0 && `${o.estados_count} est.`}
+                  {o.actuaciones_count === 0 && o.estados_count === 0 && "Metadatos"}
+                </span>
+              )}
+              {isNoData && <span>Sin datos para este radicado</span>}
+              {isError && <span>No disponible</span>}
+              {isSkipped && <span>No configurada</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

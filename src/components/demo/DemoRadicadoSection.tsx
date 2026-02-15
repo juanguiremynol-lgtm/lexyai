@@ -208,7 +208,7 @@ export function DemoRadicadoSection() {
                 <div className="text-center">
                   <p className="text-sm font-medium">Espera, Andro IA está buscando tu proceso...</p>
                   <p className="text-xs text-muted-foreground">
-                    CPNU · Publicaciones · SAMAI · SAMAI Estados
+                    CPNU · SAMAI · Publicaciones · Tutelas · SAMAI Estados
                   </p>
                 </div>
               </div>

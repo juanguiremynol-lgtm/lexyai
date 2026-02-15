@@ -88,15 +88,14 @@ function getEstadoStyle(tipo: string): {
   };
 }
 
-function getSourceBadge(source?: string) {
-  switch (source) {
-    case "SAMAI Estados":
-      return { label: "SAMAI Estados", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800" };
-    case "Publicaciones":
-      return { label: "Publicaciones", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" };
-    default:
-      return null;
-  }
+function getSourceBadges(estado: DemoEstado): { label: string; className: string }[] {
+  const sources = estado.sources || (estado.source ? [estado.source] : []);
+  const badgeMap: Record<string, { label: string; className: string }> = {
+    "SAMAI Estados": { label: "SAMAI Estados", className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800" },
+    "Publicaciones": { label: "Publicaciones", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" },
+    "Tutelas": { label: "Tutelas", className: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300 border-rose-200 dark:border-rose-800" },
+  };
+  return sources.map(s => badgeMap[s]).filter(Boolean);
 }
 
 export function DemoEstadosList({ estados }: Props) {
@@ -126,11 +125,13 @@ export function DemoEstadosList({ estados }: Props) {
         </div>
         {/* Source summary */}
         <div className="flex gap-1.5">
-          {Array.from(new Set(estados.map(e => e.source).filter(Boolean))).map(src => {
-            const badge = getSourceBadge(src);
+          {Array.from(new Set(estados.flatMap(e => e.sources || (e.source ? [e.source] : [])).filter(Boolean))).map(src => {
+            const count = estados.filter(e => (e.sources || [e.source]).includes(src)).length;
+            const badges = getSourceBadges({ tipo: "", fecha: "", descripcion: null, sources: [src as string] });
+            const badge = badges[0];
             return badge ? (
               <Badge key={src} variant="outline" className={`text-[10px] ${badge.className}`}>
-                {badge.label} ({estados.filter(e => e.source === src).length})
+                {badge.label} ({count})
               </Badge>
             ) : null;
           })}
@@ -142,7 +143,7 @@ export function DemoEstadosList({ estados }: Props) {
         {visible.map((estado, i) => {
           const style = getEstadoStyle(estado.tipo);
           const Icon = style.icon;
-          const sourceBadge = getSourceBadge(estado.source);
+          const sourceBadges = getSourceBadges(estado);
 
           return (
             <div
@@ -164,11 +165,11 @@ export function DemoEstadosList({ estados }: Props) {
                         Más reciente
                       </Badge>
                     )}
-                    {sourceBadge && (
-                      <Badge variant="outline" className={`text-[10px] ${sourceBadge.className}`}>
-                        {sourceBadge.label}
+                    {sourceBadges.map((sb, si) => (
+                      <Badge key={si} variant="outline" className={`text-[10px] ${sb.className}`}>
+                        {sb.label}
                       </Badge>
-                    )}
+                    ))}
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
