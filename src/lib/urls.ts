@@ -7,17 +7,25 @@ const CANONICAL_BASE = "https://andromeda.legal";
 
 /**
  * Returns the canonical public base URL for all user-facing links.
- * - Production & preview: always https://andromeda.legal
- * - Dev (localhost): http://localhost:5173
+ *
+ * Priority:
+ * 1. VITE_PUBLIC_APP_URL env var (works in both dev and prod)
+ * 2. If running on localhost/127.0.0.1 → use window.location.origin (dev only)
+ * 3. Any other hosted environment → hardcoded canonical domain (never leaks Lovable)
  */
 export function getPublicBaseUrl(): string {
-  if (import.meta.env.DEV) {
-    return "http://localhost:5173";
-  }
   const envUrl = import.meta.env.VITE_PUBLIC_APP_URL;
-  if (envUrl && typeof envUrl === "string" && envUrl.length > 0) {
-    return envUrl.replace(/\/+$/, "");
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    return envUrl.trim().replace(/\/+$/, "");
   }
+  // Dev fallback: only if actually on localhost
+  if (import.meta.env.DEV) {
+    const host = typeof window !== "undefined" ? window.location.hostname : "";
+    if (host === "localhost" || host === "127.0.0.1") {
+      return window.location.origin;
+    }
+  }
+  // Any hosted environment (Lovable preview, production, etc.)
   return CANONICAL_BASE;
 }
 
