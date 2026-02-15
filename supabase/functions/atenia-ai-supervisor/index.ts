@@ -958,6 +958,186 @@ async function runQueueWorker(
   return { claimed: (jobs ?? []).length, results };
 }
 
+// ─── Daily Sync KPIs (per-org) ───────────────────────────────────────
+
+interface DailySyncKPIs {
+  fully_synced: boolean;
+  chain_length: number;
+  convergence_seconds: number | null;
+  chain_start: string | null;
+  chain_end: string | null;
+  last_status: string | null;
+  last_failure_reason: string | null;
+  total_succeeded: number;
+  total_failed: number;
+  total_skipped: number;
+  dead_letter_count: number;
+  timeout_count: number;
+  dead_lettered_items: Array<{ work_item_id: string; consecutive_failures: number; last_failure_reason: string | null }>;
+  hit_max_continuations: boolean;
+}
+
+async function computeDailySyncKPIs(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  runDate: string,
+): Promise<DailySyncKPIs> {
+  const defaults: DailySyncKPIs = {
+    fully_synced: false,
+    chain_length: 0,
+    convergence_seconds: null,
+    chain_start: null,
+    chain_end: null,
+    last_status: null,
+    last_failure_reason: null,
+    total_succeeded: 0,
+    total_failed: 0,
+    total_skipped: 0,
+    dead_letter_count: 0,
+    timeout_count: 0,
+    dead_lettered_items: [],
+    hit_max_continuations: false,
+  };
+
+  try {
+    // Get all ledger rows for this org/date
+    const { data: rows } = await supabase
+      .from("auto_sync_daily_ledger")
+      .select("status, started_at, finished_at, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, failure_reason, chain_id, metadata")
+      .eq("organization_id", orgId)
+      .eq("run_date", runDate)
+      .order("created_at", { ascending: true });
+
+    if (!rows || rows.length === 0) return defaults;
+
+    const lastRow = rows[rows.length - 1];
+    const firstRow = rows[0];
+
+    const chainLength = rows.length;
+    const totalSucceeded = rows.reduce((s: number, r: any) => s + (r.items_succeeded || 0), 0);
+    const totalFailed = rows.reduce((s: number, r: any) => s + (r.items_failed || 0), 0);
+    const totalSkipped = rows.reduce((s: number, r: any) => s + (r.items_skipped || 0), 0);
+    const totalDeadLettered = rows.reduce((s: number, r: any) => s + (r.dead_letter_count || 0), 0);
+    const totalTimeouts = rows.reduce((s: number, r: any) => s + (r.timeout_count || 0), 0);
+
+    let convergenceSec: number | null = null;
+    if (firstRow.started_at && lastRow.finished_at) {
+      convergenceSec = Math.round(
+        (new Date(lastRow.finished_at).getTime() - new Date(firstRow.started_at).getTime()) / 1000
+      );
+    }
+
+    const fullySynced = lastRow.status === "SUCCESS" && totalSkipped === 0;
+    const hitMax = lastRow.failure_reason === "MAX_CONTINUATIONS_REACHED" ||
+      rows.some((r: any) => r.metadata?.continuation_count === "MAX_CONTINUATIONS_REACHED");
+
+    // Dead-lettered items for this org
+    const { data: dlItems } = await supabase
+      .from("sync_item_failure_tracker")
+      .select("work_item_id, consecutive_failures, last_failure_reason")
+      .eq("organization_id", orgId)
+      .eq("dead_lettered", true)
+      .limit(50);
+
+    return {
+      fully_synced: fullySynced,
+      chain_length: chainLength,
+      convergence_seconds: convergenceSec,
+      chain_start: firstRow.started_at,
+      chain_end: lastRow.finished_at,
+      last_status: lastRow.status,
+      last_failure_reason: lastRow.failure_reason,
+      total_succeeded: totalSucceeded,
+      total_failed: totalFailed,
+      total_skipped: totalSkipped,
+      dead_letter_count: totalDeadLettered,
+      timeout_count: totalTimeouts,
+      dead_lettered_items: (dlItems || []).map((d: any) => ({
+        work_item_id: d.work_item_id,
+        consecutive_failures: d.consecutive_failures,
+        last_failure_reason: d.last_failure_reason,
+      })),
+      hit_max_continuations: hitMax,
+    };
+  } catch (err) {
+    console.warn(`[atenia-ai] KPI computation failed for org=${orgId}:`, err);
+    return defaults;
+  }
+}
+
+// ─── Platform-wide Sync KPIs ─────────────────────────────────────────
+
+interface PlatformSyncKPIs {
+  total_orgs: number;
+  orgs_fully_synced: number;
+  orgs_partial: number;
+  orgs_failed: number;
+  orgs_not_started: number;
+  pct_fully_synced: number;
+  p95_convergence_seconds: number | null;
+  orgs_hitting_max_continuations: number;
+  total_dead_lettered_items: number;
+  avg_chain_length: number;
+}
+
+async function computePlatformSyncKPIs(
+  supabase: SupabaseAdmin,
+  runDate: string,
+  orgKPIs: Map<string, DailySyncKPIs>,
+  allOrgIds: string[],
+): Promise<PlatformSyncKPIs> {
+  const totalOrgs = allOrgIds.length;
+  let fullySynced = 0;
+  let partial = 0;
+  let failed = 0;
+  let notStarted = 0;
+  let maxContHit = 0;
+  let totalDL = 0;
+  const convergenceTimes: number[] = [];
+  const chainLengths: number[] = [];
+
+  for (const orgId of allOrgIds) {
+    const kpi = orgKPIs.get(orgId);
+    if (!kpi || kpi.chain_length === 0) {
+      notStarted++;
+      continue;
+    }
+    if (kpi.fully_synced) fullySynced++;
+    else if (kpi.last_status === "FAILED") failed++;
+    else partial++;
+
+    if (kpi.hit_max_continuations) maxContHit++;
+    totalDL += kpi.dead_lettered_items.length;
+    if (kpi.convergence_seconds !== null) convergenceTimes.push(kpi.convergence_seconds);
+    chainLengths.push(kpi.chain_length);
+  }
+
+  // p95 convergence
+  let p95Conv: number | null = null;
+  if (convergenceTimes.length > 0) {
+    convergenceTimes.sort((a, b) => a - b);
+    const idx = Math.min(Math.floor(convergenceTimes.length * 0.95), convergenceTimes.length - 1);
+    p95Conv = convergenceTimes[idx];
+  }
+
+  const avgChain = chainLengths.length > 0
+    ? Math.round((chainLengths.reduce((a, b) => a + b, 0) / chainLengths.length) * 10) / 10
+    : 0;
+
+  return {
+    total_orgs: totalOrgs,
+    orgs_fully_synced: fullySynced,
+    orgs_partial: partial,
+    orgs_failed: failed,
+    orgs_not_started: notStarted,
+    pct_fully_synced: totalOrgs > 0 ? Math.round((fullySynced / totalOrgs) * 100) : 0,
+    p95_convergence_seconds: p95Conv,
+    orgs_hitting_max_continuations: maxContHit,
+    total_dead_lettered_items: totalDL,
+    avg_chain_length: avgChain,
+  };
+}
+
 // ─── V2: Post-Daily Audit with State Tracking ────────────────────────
 
 async function runPostDailyAuditV2(
@@ -974,10 +1154,14 @@ async function runPostDailyAuditV2(
   // Use existing audit flow
   const report = await auditOrganization(supabase, orgId, runDate, mode);
 
+  // Compute daily sync KPIs for this org
+  const syncKPIs = await computeDailySyncKPIs(supabase, orgId, runDate);
+  (report as any).daily_sync_kpis = syncKPIs;
+
   let autoDemonitored = 0;
   let queued = 0;
 
-  if (dryRun) return { report, autoDemonitored: 0, queued: 0 };
+  if (dryRun) return { report, autoDemonitored: 0, queued: 0, syncKPIs };
 
   // V2: Update work item state for each diagnostic and auto-demonitor
   for (const d of (report.diagnostics || []) as DiagnosticEntry[]) {
@@ -1034,7 +1218,7 @@ async function runPostDailyAuditV2(
     }
   }
 
-  return { report, autoDemonitored, queued };
+  return { report, autoDemonitored, queued, syncKPIs };
 }
 
 // ─── Status Snapshot (for GET /atenia-ai-supervisor) ─────────────────
@@ -1581,6 +1765,7 @@ Deno.serve(async (req) => {
 
             let totalDemonitored = 0;
             let totalQueued = 0;
+            const hbOrgKPIs = new Map<string, DailySyncKPIs>();
 
             for (const orgId of orgIds) {
               if (Date.now() - startTime > 50000) break;
@@ -1593,7 +1778,14 @@ Deno.serve(async (req) => {
               );
               totalDemonitored += res.autoDemonitored;
               totalQueued += res.queued;
+              if (res.syncKPIs) hbOrgKPIs.set(orgId, res.syncKPIs);
             }
+
+            // Platform KPIs from heartbeat audit
+            let hbPlatformKPIs: PlatformSyncKPIs | null = null;
+            try {
+              hbPlatformKPIs = await computePlatformSyncKPIs(supabase, runDate, hbOrgKPIs, orgIds);
+            } catch { /* non-fatal */ }
 
             outputs.push({
               mode: m,
@@ -1601,6 +1793,7 @@ Deno.serve(async (req) => {
               orgs: orgIds.length,
               autoDemonitored: totalDemonitored,
               queued: totalQueued,
+              platform_sync_kpis: hbPlatformKPIs,
             });
           } else if (m === "PROCESS_QUEUE") {
             const res = await runQueueWorker(supabase, dryRun);
@@ -1923,6 +2116,7 @@ Deno.serve(async (req) => {
     );
 
     const allReports: unknown[] = [];
+    const orgKPIs = new Map<string, DailySyncKPIs>();
 
     for (const orgId of orgIds) {
       try {
@@ -1934,6 +2128,7 @@ Deno.serve(async (req) => {
           dryRun,
         );
         allReports.push(res.report);
+        if (res.syncKPIs) orgKPIs.set(orgId, res.syncKPIs);
       } catch (err) {
         console.error(`[atenia-ai] Org ${orgId} audit failed:`, err);
       }
@@ -1947,6 +2142,29 @@ Deno.serve(async (req) => {
     // Also process queue after audit
     const queueResult = await runQueueWorker(supabase, dryRun);
 
+    // Compute platform-wide sync KPIs
+    let platformKPIs: PlatformSyncKPIs | null = null;
+    if (input.mode === "POST_DAILY_SYNC" || input.mode === "MANUAL_AUDIT") {
+      try {
+        platformKPIs = await computePlatformSyncKPIs(supabase, runDate, orgKPIs, orgIds);
+        console.log(`[atenia-ai-supervisor] Platform KPIs: ${platformKPIs.pct_fully_synced}% synced, p95_conv=${platformKPIs.p95_convergence_seconds}s, DL=${platformKPIs.total_dead_lettered_items}, avg_chain=${platformKPIs.avg_chain_length}`);
+
+        // Log platform KPIs as an AI action for the daily digest
+        await logAction(supabase, {
+          actor: "ATENIA",
+          organization_id: orgIds[0] ?? "a0000000-0000-0000-0000-000000000001",
+          action_type: "DAILY_SYNC_KPI_REPORT",
+          autonomy_tier: "OBSERVE",
+          reasoning: `Informe de KPIs del sync diario: ${platformKPIs.pct_fully_synced}% orgs completadas, ${platformKPIs.total_dead_lettered_items} ítems en dead-letter.`,
+          summary: `Sync diario: ${platformKPIs.orgs_fully_synced}/${platformKPIs.total_orgs} orgs OK, p95 convergencia ${platformKPIs.p95_convergence_seconds ?? 0}s`,
+          evidence: platformKPIs as unknown as Record<string, unknown>,
+          is_reversible: false,
+        });
+      } catch (err) {
+        console.warn("[atenia-ai-supervisor] Platform KPI computation failed:", err);
+      }
+    }
+
     const durationMs = Date.now() - startTime;
     console.log(
       `[atenia-ai-supervisor] Complete in ${durationMs}ms. ${allReports.length} reports generated.`,
@@ -1957,6 +2175,7 @@ Deno.serve(async (req) => {
       mode: input.mode,
       run_date: runDate,
       organizations_audited: allReports.length,
+      platform_sync_kpis: platformKPIs,
       queue_processed: queueResult,
       duration_ms: durationMs,
     });
