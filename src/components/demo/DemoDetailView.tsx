@@ -160,23 +160,19 @@ export function DemoDetailView() {
                     <Activity className="h-3.5 w-3.5" />
                     Actuaciones ({item.actuaciones.length})
                   </TabsTrigger>
-                  {item.estados.length > 0 && (
-                    <TabsTrigger value="estados" className="gap-1.5">
-                      <LayoutGrid className="h-3.5 w-3.5" />
-                      Estados ({item.estados.length})
-                    </TabsTrigger>
-                  )}
+                  <TabsTrigger value="estados" className="gap-1.5">
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    Estados ({item.estados.length})
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="actuaciones" className="mt-4">
                   <DemoActuacionesTimeline actuaciones={item.actuaciones} />
                 </TabsContent>
 
-                {item.estados.length > 0 && (
-                  <TabsContent value="estados" className="mt-4">
-                    <DemoEstadosList estados={item.estados} />
-                  </TabsContent>
-                )}
+                <TabsContent value="estados" className="mt-4">
+                  <DemoEstadosList estados={item.estados} />
+                </TabsContent>
               </Tabs>
             ) : (
               <div className="rounded-lg border bg-muted/20 p-8 text-center space-y-2">
