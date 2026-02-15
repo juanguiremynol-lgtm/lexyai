@@ -123,26 +123,26 @@ export function DemoRadicadoSection() {
       >
         <AndroMouthFrame>
           {/* Header */}
-          <div className="text-center space-y-4 mb-10">
-            <Badge variant="outline" className="text-sm px-4 py-1.5">
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+          <div className="text-center space-y-2 mb-4">
+            <Badge variant="outline" className="text-xs px-3 py-1">
+              <Sparkles className="h-3 w-3 mr-1" />
               Prueba en vivo
             </Badge>
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight">
               Prueba Andromeda con tu{" "}
               <span className="text-primary">radicado real</span>
             </h2>
-            <p className="text-black text-lg max-w-2xl mx-auto">
+            <p className="text-black text-sm max-w-lg mx-auto">
               Ingresa un número de radicado y mira en segundos cómo Andro IA
               organiza las actuaciones, estados, y gestiona tu caso.
             </p>
-            <p className="text-sm text-black">
+            <p className="text-xs text-black">
               Consulta en tiempo real. Sin registro. Sin almacenamiento de datos.
             </p>
           </div>
 
           {/* Input area */}
-          <div className="max-w-xl mx-auto space-y-4">
+          <div className="max-w-md mx-auto space-y-3">
             <div className="flex gap-3">
               <div className="relative flex-1">
                 <Input
@@ -156,7 +156,7 @@ export function DemoRadicadoSection() {
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ej: 05001400300220250105400"
-                  className="h-12 text-base font-mono pr-20"
+                  className="h-10 text-sm font-mono pr-16"
                   maxLength={30}
                   disabled={isLoading}
                 />
@@ -165,8 +165,8 @@ export function DemoRadicadoSection() {
                 </span>
               </div>
               <Button
-                size="lg"
-                className="h-12 px-6"
+                size="sm"
+                className="h-10 px-4"
                 onClick={() => handleLookup()}
                 disabled={isLoading}
               >
@@ -264,7 +264,7 @@ export function DemoRadicadoSection() {
             )}
 
             {/* Trust badges */}
-            <div className="flex flex-wrap justify-center gap-4 pt-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap justify-center gap-3 pt-2 text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Datos no almacenados
