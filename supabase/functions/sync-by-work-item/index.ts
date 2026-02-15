@@ -2392,8 +2392,11 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
         headers,
       });
     } else {
-      // Radicado-based search (async — triggers /search, then poll /job/{id})
-      console.log(`[sync-by-work-item] Calling TUTELAS: POST /search with radicado=${identifier}`);
+      // Radicado-based search — FIRE-AND-FORGET pattern
+      // TUTELAS jobs take 2-10 minutes to complete. Don't poll inline.
+      // Instead, create the job and return immediately with scrapingInitiated=true.
+      // The deferred poller (process-retry-queue) will pick up the result later.
+      console.log(`[sync-by-work-item] Calling TUTELAS: POST /search with radicado=${identifier} (fire-and-forget)`);
       
       const scrapingResult = await triggerTutelasScrapingJob(identifier, baseUrl, apiKeyInfo);
       
@@ -2409,51 +2412,22 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
         };
       }
       
-      // Poll for result
+      // Return immediately — don't poll. The caller will enqueue a deferred retry.
       const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/job/${scrapingResult.jobId}`;
-      const pollResult = await pollForScrapingResult(pollUrl, headers, 'TUTELAS');
+      console.log(`[sync-by-work-item] TUTELAS: Job ${scrapingResult.jobId} created. Returning for deferred polling.`);
       
-      if (!pollResult.ok || !pollResult.data) {
-        return { 
-          ok: false, 
-          actuaciones: [], 
-          error: pollResult.error || 'TUTELAS polling failed', 
-          provider: 'tutelas-api',
-          isEmpty: true,
-          latencyMs: Date.now() - startTime,
-          httpStatus: 408,
-          scrapingInitiated: true,
-          scrapingJobId: scrapingResult.jobId,
-          scrapingMessage: `TUTELAS job ${scrapingResult.jobId} did not complete.`,
-        };
-      }
-      
-      // Normalize the polled response
-      const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
-      const normalized = normalizeTutelasResponse(resultData);
-      
-      // Extract tutela_code and corte metadata
-      const tutelaCode = (resultData.tutela_code || resultData.codigo_tutela || resultData.expediente) as string;
-      const corteStatusRaw = String(resultData.estado || resultData.corte_status || resultData.estado_seleccion || '');
-      const sentenciaRef = (resultData.sentencia || resultData.sentencia_ref || resultData.numero_sentencia) as string;
-      
-      // Enrich caseMetadata with Corte Constitucional fields
-      const enrichedMetadata = {
-        ...normalized.metadata,
-        // Store in the fields that mergeTutelaMetadata expects
-      };
-      
-      return {
-        ok: normalized.actuaciones.length > 0 || !!normalized.expedienteUrl,
-        actuaciones: normalized.actuaciones,
-        expedienteUrl: normalized.expedienteUrl,
-        caseMetadata: {
-          ...enrichedMetadata,
-          // Corte-specific fields stored as extra properties for mergeTutelaMetadata
-        } as FetchResult['caseMetadata'] & { tutela_code?: string; corte_status?: string; sentencia_ref?: string },
+      return { 
+        ok: false, 
+        actuaciones: [], 
+        error: 'SCRAPING_INITIATED', 
         provider: 'tutelas-api',
+        isEmpty: true,
         latencyMs: Date.now() - startTime,
-        httpStatus: 200,
+        httpStatus: 202,
+        scrapingInitiated: true,
+        scrapingJobId: scrapingResult.jobId,
+        scrapingPollUrl: pollUrl,
+        scrapingMessage: `TUTELAS job ${scrapingResult.jobId} created. Deferred polling scheduled.`,
       };
     }
 
@@ -2461,55 +2435,25 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
       if (response!.status === 404) {
         console.log(`[sync-by-work-item] TUTELAS: Record not found (404) for ${identifier}. Auto-triggering scraping...`);
         
-        // Attempt to trigger scraping job via /search (POST)
+        // Fire-and-forget: create job, don't poll inline
         const scrapingResult = await triggerTutelasScrapingJob(identifier, baseUrl, apiKeyInfo);
         
         if (scrapingResult.ok && scrapingResult.jobId) {
-          console.log(`[sync-by-work-item] TUTELAS: Scraping job triggered: jobId=${scrapingResult.jobId}. Now polling for results...`);
-          
           const pollUrl = scrapingResult.pollUrl || `${baseUrl.replace(/\/+$/, '')}/job/${scrapingResult.jobId}`;
-          const pollResult = await pollForScrapingResult(pollUrl, headers, 'TUTELAS');
+          console.log(`[sync-by-work-item] TUTELAS: 404 fallback — job ${scrapingResult.jobId} created for deferred polling.`);
           
-          if (pollResult.ok && pollResult.data) {
-            console.log(`[sync-by-work-item] TUTELAS: Scraping completed! Extracting actuaciones...`);
-            
-            const resultData = (pollResult.data.result || pollResult.data) as Record<string, unknown>;
-            const normalized = normalizeTutelasResponse(resultData);
-            
-            if (normalized.actuaciones.length > 0) {
-              console.log(`[sync-by-work-item] TUTELAS: Scraping found ${normalized.actuaciones.length} actuaciones!`);
-              
-              // Extract Corte metadata
-              const tutelaCode = (resultData.tutela_code || resultData.codigo_tutela || resultData.expediente) as string;
-              const corteStatusRaw = String(resultData.estado || resultData.corte_status || '');
-              const sentenciaRef = (resultData.sentencia || resultData.sentencia_ref || resultData.numero_sentencia) as string;
-              
-              return {
-                ok: true,
-                actuaciones: normalized.actuaciones,
-                expedienteUrl: normalized.expedienteUrl,
-                caseMetadata: {
-                  ...normalized.metadata,
-                } as any,
-                provider: 'tutelas-api',
-                latencyMs: Date.now() - startTime,
-                httpStatus: 200,
-              };
-            }
-          }
-          
-          console.log(`[sync-by-work-item] TUTELAS: Polling failed/timed out. Returning timeout error.`);
           return { 
             ok: false, 
             actuaciones: [], 
-            error: 'SCRAPING_TIMEOUT', 
+            error: 'SCRAPING_INITIATED', 
             provider: 'tutelas-api',
             isEmpty: true,
             latencyMs: Date.now() - startTime,
-            httpStatus: 408,
+            httpStatus: 202,
             scrapingInitiated: true,
             scrapingJobId: scrapingResult.jobId,
-            scrapingMessage: `Scraping job ${scrapingResult.jobId} did not complete within 60 seconds.`,
+            scrapingPollUrl: pollUrl,
+            scrapingMessage: `TUTELAS 404 fallback: job ${scrapingResult.jobId} created. Deferred polling scheduled.`,
           };
         } else {
           console.log(`[sync-by-work-item] TUTELAS: Scraping trigger failed: ${scrapingResult.error}`);
