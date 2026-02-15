@@ -1,7 +1,7 @@
 /* ── AndroMouthFrame — PNG-based mascot hero ── */
 
 .androHero {
-  padding: clamp(16px, 4vw, 60px) 16px;
+  padding: clamp(12px, 3vw, 60px) 12px;
   display: grid;
   place-items: center;
 }
@@ -56,7 +56,6 @@
   justify-content: center;
   padding: 2% 3%;
   pointer-events: auto;
-  /* Subtle depth inside the mouth cavity */
   border-radius: 20px;
 }
 
@@ -67,19 +66,72 @@
   overflow-y: auto;
 }
 
-/* ── Responsive: narrow screens ── */
-@media (max-width: 768px) {
+/* ── Tablet: 768–1023px ── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .androHero {
+    padding: clamp(12px, 2vw, 32px) 8px;
+  }
+
+  .androStage {
+    width: min(820px, 100%);
+    /* Slightly taller ratio so mouth area has more room */
+    aspect-ratio: 1460 / 1050;
+  }
+
+  .androFrameImg {
+    -webkit-mask-image: radial-gradient(
+      ellipse at center,
+      rgba(0,0,0,1) 50%,
+      rgba(0,0,0,0.9) 62%,
+      rgba(0,0,0,0.5) 80%,
+      rgba(0,0,0,0) 100%
+    );
+    mask-image: radial-gradient(
+      ellipse at center,
+      rgba(0,0,0,1) 50%,
+      rgba(0,0,0,0.9) 62%,
+      rgba(0,0,0,0.5) 80%,
+      rgba(0,0,0,0) 100%
+    );
+  }
+}
+
+/* ── Mobile: <768px — compact face ── */
+@media (max-width: 767px) {
+  .androHero {
+    padding: 8px 6px;
+  }
+
   .androStage {
     width: 100%;
     aspect-ratio: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .androFrameImg {
     position: relative;
     inset: auto;
-    width: 100%;
+    width: 85%;
+    max-width: 360px;
     height: auto;
     display: block;
+    margin: 0 auto;
+    -webkit-mask-image: radial-gradient(
+      ellipse at center,
+      rgba(0,0,0,1) 40%,
+      rgba(0,0,0,0.85) 55%,
+      rgba(0,0,0,0.4) 75%,
+      rgba(0,0,0,0) 95%
+    );
+    mask-image: radial-gradient(
+      ellipse at center,
+      rgba(0,0,0,1) 40%,
+      rgba(0,0,0,0.85) 55%,
+      rgba(0,0,0,0.4) 75%,
+      rgba(0,0,0,0) 95%
+    );
   }
 
   .androMouthSlot {
@@ -88,9 +140,9 @@
     top: auto !important;
     width: 100% !important;
     height: auto !important;
-    margin-top: -28%;
+    margin-top: -22%;
     padding: 0 4%;
-    padding-bottom: 8%;
+    padding-bottom: 12px;
   }
 }
 
