@@ -1250,6 +1250,7 @@ async function orchestrateSearch(
   debugExcerpt: string;
   sourcesTried: string[];
   retryExhausted: boolean;
+  phase1Results: SearchResult[];
 }> {
   let results: SearchResult[] = [];
   let events: ProcessEvent[] = [];
@@ -1464,7 +1465,7 @@ async function orchestrateSearch(
     }
   }
   
-  return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted };
+  return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted, phase1Results };
 }
 
 // ============= MAIN HANDLER =============
@@ -1549,7 +1550,7 @@ Deno.serve(async (req) => {
       // Run orchestrated search with retries and fallbacks
       const orchestration = await orchestrateSearch(radicadoStr, supabase, runId, attempts, startTime);
       
-      const { results, events, classification, debugExcerpt, sourcesTried, retryExhausted } = orchestration;
+      let { results, events, classification, debugExcerpt, sourcesTried, retryExhausted, phase1Results } = orchestration;
 
       // CRITICAL: Determine status based on classification
       // Technical errors should result in 'FAILED', not 'EMPTY' (which implies "no encontrado")

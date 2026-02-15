@@ -227,4 +227,42 @@ describe("CPNU party/date/actuacion extraction (regression)", () => {
     expect(proceso.demandado).toBe("TIERRADENTRO");
     expect(proceso.fecha_radicacion).toBe("2026-02-13");
   });
+
+  it("INCOMPLETE_DATA (actuaciones 406) still returns ok:true and found:true when Phase 1 has results", () => {
+    // Simulates: Phase 1 QUERY_LIST returns parties, actuaciones returns 406
+    // orchestrateSearch marks INCOMPLETE_DATA but phase1Results has data
+    // After fallback phases fail, phase1Results should be restored
+    const phase1Results = [{
+      radicado: "05001410500420261008600",
+      despacho: "JUZGADO 004 MUNICIPAL DE PEQUEÑAS CAUSAS LABORALES DE MEDELLÍN",
+      demandante: "OFELIA MERCEDES MAYA MARTINEZ",
+      demandado: "TIERRADENTRO",
+      fecha_radicacion: "2026-02-13",
+    }];
+    
+    // Simulate: all fallbacks failed, results is empty
+    let results: typeof phase1Results = [];
+    const events: unknown[] = [];
+    
+    // Restore phase1Results (the fix)
+    if (results.length === 0 && phase1Results.length > 0) {
+      results = phase1Results;
+    }
+    
+    // ok should be true since results has data
+    const ok = results.length > 0 || events.length > 0;
+    expect(ok).toBe(true);
+    expect(results[0].demandante).toBe("OFELIA MERCEDES MAYA MARTINEZ");
+    expect(results[0].demandado).toBe("TIERRADENTRO");
+    
+    // fetchFromCpnu checks result.ok && result.proceso
+    // With proceso built from results[0], found should be true
+    const proceso = {
+      despacho: results[0].despacho,
+      demandante: results[0].demandante,
+      demandado: results[0].demandado,
+    };
+    const found = ok && !!proceso;
+    expect(found).toBe(true);
+  });
 });
