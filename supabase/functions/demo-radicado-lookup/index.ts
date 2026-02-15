@@ -173,8 +173,9 @@ interface DemoResumen {
 
 interface CategoryInference {
   category: string;
-  confidence: "HIGH" | "MEDIUM" | "LOW";
+  confidence: "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
   signals: string[];
+  caveats?: string[];  // prospect-friendly notes about confidence gaps
 }
 
 // Party parsing delegated to _shared/partyNormalization.ts
@@ -647,31 +648,47 @@ async function fetchSamaiEstados(radicado: string, baseUrl: string, apiKey: stri
 
 function inferCategory(results: ProviderResult[], radicado: string): CategoryInference {
   const signals: string[] = [];
+  const caveats: string[] = [];
   const scores: Record<string, number> = { CGP: 0, CPACA: 0, TUTELA: 0, LABORAL: 0, PENAL_906: 0 };
 
-  // Provider-based scoring
-  for (const r of results) {
-    if (r.found_status === "NOT_FOUND") continue;
-    const weight = r.found_status === "FOUND_COMPLETE" ? 2 : 1;
+  // Track which domain-specific providers returned data
+  const tutelasResult = results.find(r => r.provider === "Tutelas");
+  const samaiResult = results.find(r => r.provider === "SAMAI");
+  const samaiEstadosResult = results.find(r => r.provider === "SAMAI Estados");
+  const cpnuResult = results.find(r => r.provider === "CPNU");
 
-    if (r.provider === "Tutelas" && r.outcome === "success") {
-      scores.TUTELA += 3 * weight;
-      signals.push(`${r.provider} returned data (strong tutela signal)`);
-    }
-    if (r.provider === "SAMAI Estados" && r.outcome === "success") {
-      scores.CPACA += 2 * weight;
-      signals.push(`${r.provider} returned data (CPACA signal)`);
-    }
-    if (r.provider === "SAMAI" && r.outcome === "success") {
-      scores.CPACA += 1 * weight;
-      signals.push(`${r.provider} returned data`);
-    }
-    if (r.provider === "CPNU" && r.outcome === "success") {
-      scores.CGP += 1; // CPNU hits many categories, weak signal alone
-    }
+  const tutelasHit = tutelasResult?.outcome === "success" && tutelasResult.found_status !== "NOT_FOUND";
+  const samaiHit = samaiResult?.outcome === "success" && samaiResult.found_status !== "NOT_FOUND";
+  const samaiEstadosHit = samaiEstadosResult?.outcome === "success" && samaiEstadosResult.found_status !== "NOT_FOUND";
+  const cpnuHit = cpnuResult?.outcome === "success" && cpnuResult.found_status !== "NOT_FOUND";
+
+  // ── Provider dominance weights ──
+  // Tutelas provider hit = very strong TUTELA signal
+  if (tutelasHit) {
+    const weight = tutelasResult!.found_status === "FOUND_COMPLETE" ? 2 : 1;
+    scores.TUTELA += 5 * weight;
+    signals.push("API de Tutelas confirmó datos (señal fuerte de tutela)");
   }
 
-  // Metadata-based scoring
+  // SAMAI / SAMAI Estados hit = strong CPACA signal
+  if (samaiEstadosHit) {
+    const weight = samaiEstadosResult!.found_status === "FOUND_COMPLETE" ? 2 : 1;
+    scores.CPACA += 4 * weight;
+    signals.push("SAMAI Estados confirmó datos (señal fuerte de CPACA)");
+  }
+  if (samaiHit) {
+    const weight = samaiResult!.found_status === "FOUND_COMPLETE" ? 2 : 1;
+    scores.CPACA += 3 * weight;
+    signals.push("SAMAI confirmó datos (señal CPACA)");
+  }
+
+  // CPNU alone is a weak signal — it covers all categories
+  if (cpnuHit) {
+    scores.CGP += 1;
+    signals.push("CPNU confirmó datos (señal genérica)");
+  }
+
+  // ── Metadata-based scoring ──
   for (const r of results) {
     if (!r.metadata) continue;
     const despacho = (r.metadata.despacho || "").toLowerCase();
@@ -679,63 +696,114 @@ function inferCategory(results: ProviderResult[], radicado: string): CategoryInf
 
     if (despacho.includes("administrativo") || despacho.includes("contencioso") || despacho.includes("consejo de estado")) {
       scores.CPACA += 3;
-      signals.push(`Despacho: ${r.metadata.despacho} (administrativo)`);
+      signals.push(`Despacho administrativo: ${r.metadata.despacho}`);
     }
     if (despacho.includes("laboral") || tipoProceso.includes("laboral")) {
       scores.LABORAL += 3;
-      signals.push(`Despacho/tipo: laboral`);
+      signals.push("Despacho/tipo laboral");
     }
     if (despacho.includes("penal") || tipoProceso.includes("penal") || tipoProceso.includes("906")) {
       scores.PENAL_906 += 3;
-      signals.push(`Despacho/tipo: penal`);
+      signals.push("Despacho/tipo penal");
     }
     if (despacho.includes("civil") || despacho.includes("familia") || despacho.includes("promiscuo")) {
       scores.CGP += 2;
-      signals.push(`Despacho: ${r.metadata.despacho}`);
+      signals.push(`Despacho civil/familia: ${r.metadata.despacho}`);
+    }
+    // Tutela keywords in despacho text
+    if (despacho.includes("tutela") || despacho.includes("constitucional") || despacho.includes("amparo")) {
+      scores.TUTELA += 3;
+      signals.push("Despacho menciona tutela/constitucional");
     }
   }
 
-  // Actuaciones text scanning for tutela keywords
+  // ── Actuaciones text scanning for tutela keywords ──
+  // Count distinct tutela-type actuaciones for stronger signal
+  let tutelaKeywordFound = false;
+  let tutelaActCount = 0;
+  const tutelaPatterns = ["tutela", "acción de tutela", "auto admite tutela", "sentencia tutela", "fallo tutela", "impugnación tutela"];
   for (const r of results) {
     for (const act of r.actuaciones) {
-      const text = [act.tipo, act.descripcion].join(" ").toLowerCase();
-      if (text.includes("tutela") || text.includes("acción de tutela") || text.includes("auto admite tutela")) {
-        scores.TUTELA += 2;
-        signals.push("Tutela keyword found in actuaciones");
-        break;
+      const text = [act.tipo, act.descripcion, act.anotacion].filter(Boolean).join(" ").toLowerCase();
+      if (tutelaPatterns.some(p => text.includes(p))) {
+        tutelaActCount++;
       }
     }
   }
-
-  // Radicado jurisdiccion code (positions 5-6)
-  const jurCode = radicado.slice(5, 7);
-  if (["33", "34"].includes(jurCode)) { scores.CPACA += 1; signals.push(`Jurisdicción code ${jurCode} (Administrativo)`); }
-  if (["10", "12", "22", "18", "42", "53"].includes(jurCode)) { scores.PENAL_906 += 1; signals.push(`Jurisdicción code ${jurCode} (Penal)`); }
-  if (["13", "21", "41"].includes(jurCode)) { scores.LABORAL += 1; signals.push(`Jurisdicción code ${jurCode} (Laboral)`); }
-  if (["11", "23", "31", "40"].includes(jurCode)) { scores.CGP += 1; signals.push(`Jurisdicción code ${jurCode} (Civil)`); }
-  if (["14", "15", "44", "50"].includes(jurCode)) { scores.CGP += 1; signals.push(`Jurisdicción code ${jurCode} (Familia/Promiscuo)`); }
-
-  // Tutela signal from despacho text (tribunals hearing tutelas)
-  for (const r of results) {
-    if (!r.metadata?.despacho) continue;
-    const despachoLower = (r.metadata.despacho).toLowerCase();
-    if (despachoLower.includes("tutela")) {
-      scores.TUTELA += 3;
-      signals.push("Despacho mentions tutela");
-    }
+  if (tutelaActCount > 0) {
+    // Each tutela-type actuación adds +2, capped at +8
+    const tutelaBonus = Math.min(tutelaActCount * 2, 8);
+    scores.TUTELA += tutelaBonus;
+    signals.push(`${tutelaActCount} actuación(es) con palabras clave de tutela`);
+    tutelaKeywordFound = true;
   }
 
-  // Find winner
+  // ── Radicado jurisdiction code (positions 5-6) — weak signal only ──
+  const jurCode = radicado.slice(5, 7);
+  if (["33", "34"].includes(jurCode)) { scores.CPACA += 1; signals.push(`Código jurisdicción ${jurCode} (Administrativo)`); }
+  if (["10", "12", "22", "18", "42", "53"].includes(jurCode)) { scores.PENAL_906 += 1; signals.push(`Código jurisdicción ${jurCode} (Penal)`); }
+  if (["13", "21", "41"].includes(jurCode)) { scores.LABORAL += 1; signals.push(`Código jurisdicción ${jurCode} (Laboral)`); }
+  if (["11", "23", "31", "40"].includes(jurCode)) { scores.CGP += 1; signals.push(`Código jurisdicción ${jurCode} (Civil)`); }
+  if (["14", "15", "44", "50"].includes(jurCode)) { scores.CGP += 1; signals.push(`Código jurisdicción ${jurCode} (Familia/Promiscuo)`); }
+
+  // ── Find winner ──
   const entries = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const [topCat, topScore] = entries[0];
   const [, secondScore] = entries[1] || [null, 0];
 
   if (topScore === 0) {
-    return { category: "DESCONOCIDA", confidence: "LOW", signals: ["Sin señales suficientes"] };
+    return { category: "DESCONOCIDA", confidence: "UNCERTAIN", signals: ["Sin señales suficientes"], caveats: ["No fue posible determinar la categoría de este proceso."] };
   }
 
-  const confidence = topScore >= 5 ? "HIGH" : (topScore >= 3 && topScore > secondScore * 1.5 ? "MEDIUM" : "LOW");
-  return { category: topCat, confidence, signals };
+  // ── Confidence determination with cross-validation ──
+  let confidence: "HIGH" | "MEDIUM" | "LOW" | "UNCERTAIN";
+
+  // HIGH: dominant provider confirms + strong score
+  if (topScore >= 8) {
+    confidence = "HIGH";
+  }
+  // MEDIUM: good score with clear separation
+  else if (topScore >= 4 && topScore > secondScore * 1.5) {
+    confidence = "MEDIUM";
+  }
+  // LOW: some signal but not strong
+  else if (topScore >= 2) {
+    confidence = "LOW";
+  }
+  // UNCERTAIN: too close or too weak
+  else {
+    confidence = "UNCERTAIN";
+  }
+
+  // ── Cross-validation caveats ──
+  // CPACA inferred but SAMAI/SAMAI Estados didn't confirm
+  if (topCat === "CPACA" && !samaiHit && !samaiEstadosHit) {
+    if (confidence === "MEDIUM") confidence = "LOW";
+    caveats.push("Las fuentes especializadas en lo Contencioso Administrativo (SAMAI) no confirmaron datos para este radicado. Mostramos lo encontrado en otras fuentes.");
+  }
+
+  // TUTELA inferred but Tutelas provider didn't confirm
+  if (topCat === "TUTELA" && !tutelasHit) {
+    if (confidence === "HIGH") confidence = "MEDIUM";
+    if (confidence === "MEDIUM" && !tutelaKeywordFound) confidence = "LOW";
+    caveats.push("La fuente especializada en tutelas no retornó datos para este radicado. La clasificación se basa en señales del despacho y las actuaciones.");
+  }
+
+  // If score is very close between top two → uncertain
+  if (topScore > 0 && secondScore > 0 && topScore - secondScore <= 1) {
+    confidence = "UNCERTAIN";
+    caveats.push("Las señales son ambiguas entre varias categorías posibles.");
+  }
+
+  // Total data is zero actuaciones + zero estados → can't be confident
+  const totalActs = results.reduce((s, r) => s + r.actuaciones.length, 0);
+  const totalEst = results.reduce((s, r) => s + r.estados.length, 0);
+  if (totalActs === 0 && totalEst === 0) {
+    if (confidence !== "UNCERTAIN") confidence = "LOW";
+    caveats.push("No se encontraron actuaciones ni estados publicados. El despacho puede no publicar información electrónicamente.");
+  }
+
+  return { category: topCat, confidence, signals, caveats: caveats.length > 0 ? caveats : undefined };
 }
 
 // ═══════════════════════════════════════════

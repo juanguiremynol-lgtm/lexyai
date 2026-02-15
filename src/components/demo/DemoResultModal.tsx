@@ -38,6 +38,7 @@ const CATEGORY_LABELS: Record<string, { label: string; shortLabel: string; emoji
   LABORAL: { label: "Laboral", shortLabel: "Laboral", emoji: "👷" },
   PENAL_906: { label: "Penal (Ley 906)", shortLabel: "Penal", emoji: "🔒" },
   DESCONOCIDA: { label: "Sin clasificar", shortLabel: "Sin clasificar", emoji: "❓" },
+  UNCERTAIN: { label: "Categoría por confirmar", shortLabel: "Por confirmar", emoji: "🔍" },
 };
 
 interface DemoResultModalProps {
@@ -61,6 +62,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
     HIGH: "Alta confianza",
     MEDIUM: "Confianza media",
     LOW: "Confianza baja",
+    UNCERTAIN: "Por confirmar",
   };
 
   const providersChecked = meta.providers_checked || meta.provider_outcomes?.length || 0;
@@ -80,14 +82,18 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                 Demo
               </Badge>
               {categoryMeta && category_inference && (
-                <Badge className="text-xs bg-accent/15 text-accent-foreground border-accent/30 border">
+                <Badge className={`text-xs border ${
+                  category_inference.confidence === "UNCERTAIN" 
+                    ? "bg-muted/30 text-muted-foreground border-border" 
+                    : "bg-accent/15 text-accent-foreground border-accent/30"
+                }`}>
                   {categoryMeta.emoji} {categoryMeta.label}
                   <span className="ml-1 opacity-60">({confidenceLabel[category_inference.confidence]})</span>
                 </Badge>
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              {categoryMeta && category_inference && category_inference.category !== "DESCONOCIDA"
+              {categoryMeta && category_inference && category_inference.confidence !== "UNCERTAIN" && category_inference.category !== "DESCONOCIDA"
                 ? `Andromeda identificó este caso como ${categoryMeta.shortLabel}`
                 : "Así se vería este proceso en Andromeda"}
             </p>
@@ -135,6 +141,20 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                 </p>
               )}
             </div>
+
+            {/* Category Caveats Banner */}
+            {category_inference?.caveats && category_inference.caveats.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    {category_inference.caveats.map((caveat, i) => (
+                      <p key={i} className="text-sm text-muted-foreground">{caveat}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Conflicts Banner */}
             {conflicts && conflicts.length > 0 && (

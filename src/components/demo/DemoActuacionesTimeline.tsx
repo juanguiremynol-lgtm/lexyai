@@ -125,9 +125,13 @@ export function DemoActuacionesTimeline({ actuaciones }: Props) {
 
   if (actuaciones.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
+      <div className="text-center py-12 text-muted-foreground space-y-2">
         <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
-        <p className="font-medium">No se encontraron actuaciones para este radicado.</p>
+        <p className="font-medium">No se encontraron actuaciones publicadas para este radicado.</p>
+        <p className="text-sm max-w-md mx-auto">
+          Esto puede ocurrir cuando el despacho no publica actuaciones electrónicamente
+          o el proceso es muy reciente.
+        </p>
       </div>
     );
   }
