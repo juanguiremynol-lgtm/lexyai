@@ -18,9 +18,11 @@ import {
 } from "lucide-react";
 import { DemoActuacionesTimeline } from "./DemoActuacionesTimeline";
 import { DemoEstadosList } from "./DemoEstadosList";
-import { DemoMiniKanban } from "./DemoMiniKanban";
-import { DemoWorkItemCard } from "./DemoWorkItemCard";
+import { DemoPipelineKanban } from "./DemoPipelineKanban";
+import { DemoDetailView } from "./DemoDetailView";
+import { DemoPipelineProvider } from "./DemoPipelineContext";
 import { DemoAteniaMascot } from "./DemoAteniaMascot";
+import { getCategoryDisplayName } from "./demo-pipeline-stages";
 import { Link } from "react-router-dom";
 import type { DemoResult, ProviderOutcome } from "./demo-types";
 import { useMemo, useState } from "react";
@@ -69,6 +71,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
   const providersWithData = meta.providers_with_data || meta.sources?.length || 0;
 
   return (
+    <DemoPipelineProvider data={data}>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl w-[98vw] sm:w-[95vw] h-[95vh] sm:h-[90vh] p-0 gap-0 overflow-hidden rounded-lg">
         {/* Header */}
@@ -277,20 +280,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
               )}
 
               <TabsContent value="kanban" className="mt-4">
-                <div className="space-y-6">
-                  <div>
-                    <h4 className="text-sm font-medium mb-1 text-muted-foreground">
-                      Así se vería en tu espacio de trabajo
-                    </h4>
-                    <p className="text-xs text-muted-foreground mb-4">
-                      Un vistazo a cómo Andromeda organizaría este caso en tu pipeline.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <DemoWorkItemCard resumen={resumen} />
-                    <DemoMiniKanban resumen={resumen} />
-                  </div>
-                </div>
+                <DemoPipelineKanban />
               </TabsContent>
             </Tabs>
 
@@ -353,6 +343,8 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
         </div>
       </DialogContent>
     </Dialog>
+    <DemoDetailView />
+    </DemoPipelineProvider>
   );
 }
 
