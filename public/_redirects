@@ -1,5 +1,9 @@
-# SPA fallback for /demo and /prueba deep links (with any query params)
-/demo/*  /demo/index.html  200
+# Exact path match for /demo and /prueba (covers ?fbclid=... etc.)
+/demo    /demo/index.html  200
+/prueba  /prueba/index.html  200
+
+# Sub-path fallback for /demo/* and /prueba/* deep links
+/demo/*    /demo/index.html  200
 /prueba/*  /prueba/index.html  200
 
 # General SPA fallback for all other routes
