@@ -532,6 +532,113 @@
   }
 
   /* ============================================
+     RUSTIC WOOD THEME — Weathered Timber, Parchment, Overgrowth
+     ============================================ */
+  .rustic-wood {
+    color-scheme: dark;
+
+    /* Primary: Muted Brass/Amber */
+    --primary: 38 60% 45%;
+    --primary-foreground: 30 20% 95%;
+
+    /* Secondary: Dark Walnut */
+    --secondary: 25 30% 18%;
+    --secondary-foreground: 35 25% 85%;
+
+    /* Background: Espresso wood base */
+    --background: 25 35% 12%;
+    --foreground: 35 20% 88%;
+
+    /* Card: Parchment beige */
+    --card: 35 35% 82%;
+    --card-foreground: 25 40% 15%;
+
+    /* Popover: Dark leather */
+    --popover: 25 30% 16%;
+    --popover-foreground: 35 20% 88%;
+
+    /* Muted: Worn cork */
+    --muted: 30 20% 22%;
+    --muted-foreground: 30 15% 55%;
+
+    /* Accent: Moss green, earthy */
+    --accent: 90 25% 25%;
+    --accent-foreground: 80 30% 75%;
+
+    /* Brand variations — amber/brass */
+    --brand-dark: 38 50% 30%;
+    --brand: 38 60% 45%;
+    --brand-light: 38 55% 58%;
+    --brand-muted: 38 40% 40%;
+
+    /* Gold: Brass tone */
+    --gold: 38 55% 48%;
+    --gold-foreground: 25 40% 10%;
+
+    /* Destructive: Clay red */
+    --destructive: 8 50% 45%;
+    --destructive-foreground: 30 20% 95%;
+
+    /* Borders: Wood grain edges */
+    --border: 30 25% 25%;
+    --input: 35 30% 78%;
+    --ring: 38 55% 50%;
+
+    /* Radius: Slightly rounded, handcrafted feel */
+    --radius: 0.625rem;
+
+    /* Sidebar: Darkened timber */
+    --sidebar-background: 25 30% 10%;
+    --sidebar-foreground: 35 18% 80%;
+    --sidebar-primary: 38 60% 45%;
+    --sidebar-primary-foreground: 30 20% 95%;
+    --sidebar-accent: 30 20% 18%;
+    --sidebar-accent-foreground: 38 50% 65%;
+    --sidebar-border: 30 25% 20%;
+    --sidebar-ring: 38 55% 50%;
+
+    /* Status colors — earthy tones */
+    --status-drafted: 30 15% 50%;
+    --status-sent: 200 35% 50%;
+    --status-pending: 38 55% 50%;
+    --status-received: 120 30% 42%;
+    --status-confirmed: 90 35% 40%;
+    --status-active: 38 60% 55%;
+    --status-closed: 25 15% 40%;
+
+    /* SLA colors */
+    --sla-safe: 90 35% 42%;
+    --sla-warning: 38 65% 50%;
+    --sla-critical: 8 55% 48%;
+
+    /* Chart colors — earthy palette */
+    --chart-1: 38 60% 48%;
+    --chart-2: 90 30% 42%;
+    --chart-3: 15 45% 45%;
+    --chart-4: 200 30% 48%;
+    --chart-5: 330 20% 45%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(38 60% 45%) 0%, hsl(25 45% 35%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(25 35% 14%) 0%, hsl(25 35% 10%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(35 35% 84%) 0%, hsl(35 30% 78%) 100%);
+
+    /* Shadows — warm, dark wood */
+    --shadow-sm: 0 1px 3px hsl(25 40% 8% / 0.4);
+    --shadow-md: 0 4px 10px hsl(25 40% 6% / 0.5), 0 2px 4px hsl(25 40% 6% / 0.3);
+    --shadow-lg: 0 10px 25px hsl(25 40% 5% / 0.6), 0 4px 8px hsl(25 40% 5% / 0.4);
+    --shadow-xl: 0 20px 40px hsl(25 40% 4% / 0.7), 0 8px 16px hsl(25 40% 4% / 0.5);
+
+    /* Rustic-specific variables */
+    --rustic-wood-panel: hsl(25 30% 16%);
+    --rustic-parchment: hsl(35 35% 82%);
+    --rustic-cork: hsl(30 25% 55%);
+    --rustic-leather: hsl(20 35% 14%);
+    --rustic-brass: hsl(38 55% 48%);
+    --rustic-moss: hsl(90 25% 30%);
+  }
+
+  /* ============================================
      PASTEL GIRLY THEME — Soft, Warm, Professional
      ============================================ */
   .pastel-girly {
@@ -818,6 +925,106 @@
   .aqua ::-webkit-scrollbar-thumb:hover {
     background: hsl(187 80% 42% / 0.5);
   }
+
+  /* ── Rustic Wood theme background ── */
+  html.rustic-wood body {
+    background-color: hsl(25 35% 12%);
+    background-image: url('/images/rustic-wood-bg.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+
+  /* Vine overlay on edges */
+  html.rustic-wood body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9998;
+    background-image: url('/images/rustic-vines-overlay.png');
+    background-size: cover;
+    background-position: center;
+    opacity: 0.55;
+    mix-blend-mode: screen;
+  }
+
+  /* Vignette overlay */
+  html.rustic-wood body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, hsl(25 40% 5% / 0.6) 100%);
+  }
+
+  /* Make main content above overlays */
+  html.rustic-wood body > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Transparent bg so wood shows through */
+  html.rustic-wood .bg-background,
+  html.rustic-wood main,
+  html.rustic-wood .flex-1.overflow-y-auto {
+    background: transparent !important;
+  }
+
+  html.rustic-wood #root {
+    min-height: 100vh;
+    background: transparent !important;
+  }
+
+  /* Rustic cards: parchment look */
+  html.rustic-wood .bg-card {
+    background: hsl(35 35% 82%) !important;
+    color: hsl(25 40% 15%);
+  }
+
+  /* Rustic selection */
+  .rustic-wood ::selection {
+    background: hsl(38 55% 48% / 0.4);
+    color: hsl(25 40% 12%);
+  }
+
+  /* Rustic scrollbar */
+  .rustic-wood ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .rustic-wood ::-webkit-scrollbar-track {
+    background: hsl(25 30% 14%);
+    border-radius: 4px;
+  }
+
+  .rustic-wood ::-webkit-scrollbar-thumb {
+    background: hsl(38 40% 35%);
+    border-radius: 4px;
+  }
+
+  .rustic-wood ::-webkit-scrollbar-thumb:hover {
+    background: hsl(38 50% 42%);
+  }
+
+  /* Rustic headings: serif for rustic gravitas */
+  .rustic-wood h1,
+  .rustic-wood h2,
+  .rustic-wood h3,
+  .rustic-wood h4 {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-weight: 600;
+  }
+
+  /* Dialogs/sheets: opaque so text is readable */
+  html.rustic-wood [role="dialog"],
+  html.rustic-wood [data-radix-popper-content-wrapper],
+  html.rustic-wood .fixed[class*="bg-background"] {
+    background: hsl(25 30% 16%) !important;
+  }
   
   h1, h2, h3, h4, h5, h6 {
     @apply font-display font-semibold tracking-tight;
@@ -947,6 +1154,10 @@
     text-shadow: 0 0 8px hsl(120 100% 45% / 0.5);
   }
 
+  .rustic-wood .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(38 60% 45%) 0%, hsl(38 55% 58%) 50%, hsl(38 60% 45%) 100%);
+  }
+
   /* Legacy alias */
   .text-gold-gradient {
     @apply text-brand-gradient;
@@ -969,6 +1180,10 @@
   /* Legacy alias */
   .border-gold-glow {
     @apply border-brand-glow;
+  }
+
+  .rustic-wood .border-brand-glow {
+    box-shadow: 0 0 0 1px hsl(38 55% 48% / 0.3), 0 0 16px -4px hsl(38 55% 48% / 0.2);
   }
 
   /* Card hover effect - adapts to theme */
@@ -998,7 +1213,13 @@
   @keyframes brand-shine {
     0% {
       background-position: -200% center;
-    }
+  }
+
+  .rustic-wood .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px -6px hsl(25 40% 5% / 0.6), 
+                0 0 0 1px hsl(38 55% 48% / 0.2);
+  }
     100% {
       background-position: 200% center;
     }

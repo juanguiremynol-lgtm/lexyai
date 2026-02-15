@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "matrix" | "aqua" | "pastel-girly" | "deep-space" | "system";
+type Theme = "light" | "dark" | "matrix" | "aqua" | "pastel-girly" | "deep-space" | "rustic-wood" | "system";
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
@@ -13,9 +13,9 @@ export function useTheme() {
   useEffect(() => {
     const root = window.document.documentElement;
     
-    root.classList.remove("light", "dark", "matrix", "aqua", "pastel-girly", "deep-space");
+    root.classList.remove("light", "dark", "matrix", "aqua", "pastel-girly", "deep-space", "rustic-wood");
     
-    let effectiveTheme: "light" | "dark" | "matrix" | "aqua" | "pastel-girly" | "deep-space";
+    let effectiveTheme: "light" | "dark" | "matrix" | "aqua" | "pastel-girly" | "deep-space" | "rustic-wood";
     
     if (theme === "system") {
       effectiveTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -29,7 +29,6 @@ export function useTheme() {
     localStorage.setItem("atenia-theme", theme);
     
     // Update color-scheme for proper browser styling
-    // Matrix, Aqua, Deep Space themes use dark color scheme; pastel-girly uses light
     root.style.colorScheme = (effectiveTheme === "light" || effectiveTheme === "pastel-girly") ? "light" : "dark";
   }, [theme]);
 
@@ -41,7 +40,7 @@ export function useTheme() {
     
     const handleChange = () => {
       const root = window.document.documentElement;
-      root.classList.remove("light", "dark", "matrix", "aqua", "pastel-girly", "deep-space");
+      root.classList.remove("light", "dark", "matrix", "aqua", "pastel-girly", "deep-space", "rustic-wood");
       root.classList.add(mediaQuery.matches ? "dark" : "light");
       root.style.colorScheme = mediaQuery.matches ? "dark" : "light";
     };
