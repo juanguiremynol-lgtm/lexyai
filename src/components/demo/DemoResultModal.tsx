@@ -242,7 +242,7 @@ function ResultsBody({
 
   return (
     <>
-      {/* Coverage Summary Bar */}
+      {/* Coverage Summary Bar + Cache Status */}
       <div className="rounded-lg border bg-card p-3 sm:p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-3">
           <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
@@ -253,19 +253,34 @@ function ResultsBody({
             <Badge variant="secondary" className="text-xs">
               {providersWithData}/{providersChecked} fuentes
             </Badge>
+            {meta.served_from_cache && (
+              <Badge variant="outline" className="text-xs text-blue-600 border-blue-200 dark:text-blue-400 dark:border-blue-800">
+                <Clock className="h-3 w-3 mr-1" />
+                {meta.cache_age_minutes != null && meta.cache_age_minutes > 0
+                  ? `Caché (hace ${meta.cache_age_minutes} min)`
+                  : "Caché"}
+              </Badge>
+            )}
           </div>
-          <Collapsible open={sourcesOpen} onOpenChange={setSourcesOpen}>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-xs gap-1.5 h-7">
-                <Info className="h-3.5 w-3.5" />
-                {isMobile ? "Fuentes" : "Ver fuentes"}
-                {sourcesOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-              <ProviderOutcomesPanel outcomes={meta.provider_outcomes || []} />
-            </CollapsibleContent>
-          </Collapsible>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground">
+              {meta.refreshed_at
+                ? `Actualizado ${new Date(meta.refreshed_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}`
+                : ""}
+            </span>
+            <Collapsible open={sourcesOpen} onOpenChange={setSourcesOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-xs gap-1.5 h-7">
+                  <Info className="h-3.5 w-3.5" />
+                  {isMobile ? "Fuentes" : "Ver fuentes"}
+                  {sourcesOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3">
+                <ProviderOutcomesPanel outcomes={meta.provider_outcomes || []} />
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
         </div>
         {providersWithData > 1 && (
           <p className="text-xs text-muted-foreground mt-2">

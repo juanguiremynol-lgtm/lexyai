@@ -85,6 +85,11 @@ export interface DemoResult {
     provider_outcomes?: ProviderOutcome[];
     fetched_at: string;
     demo: boolean;
+    // Cache metadata
+    served_from_cache?: boolean;
+    cache_age_minutes?: number | null;
+    refreshed_at?: string;
+    provider_details?: Record<string, { status: string; count: number; latency_ms: number }>;
   };
 }
 
