@@ -19,9 +19,9 @@ interface Props {
  * Tweak these to adjust where the card sits inside the mouth.
  */
 const MOUTH_SLOT = {
-  left: "18%",
+  left: "22%",
   top: "36%",
-  width: "64%",
+  width: "56%",
   height: "38%",
 } as const;
 
