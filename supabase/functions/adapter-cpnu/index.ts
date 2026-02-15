@@ -100,6 +100,9 @@ interface AdapterResponse {
     tipo?: string;
     clase?: string;
     contenido_radicacion?: string;
+    demandante?: string;
+    demandado?: string;
+    fecha_radicacion?: string;
     sujetos_procesales: SujetoProcesal[];
     actuaciones: ProcessEvent[];
     estados_electronicos: EstadoElectronico[];
@@ -253,6 +256,34 @@ function truncate(str: string, maxLen: number): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Merge fallback results with Phase 1 results, preserving parties from Phase 1
+ * when fallback results lack them. This prevents party loss when CPNU QUERY_LIST
+ * returns parties but actuaciones fetch fails (406), triggering fallback.
+ */
+function mergeResultsPreserveParties(
+  phase1Results: SearchResult[],
+  fallbackResults: SearchResult[]
+): SearchResult[] {
+  if (phase1Results.length === 0) return fallbackResults;
+  if (fallbackResults.length === 0) return phase1Results;
+  
+  // Use fallback as base, but fill in missing parties from Phase 1
+  const phase1Main = phase1Results[0];
+  return fallbackResults.map((fb, i) => {
+    if (i > 0) return fb; // Only merge first result
+    return {
+      ...fb,
+      demandante: fb.demandante?.trim() || phase1Main.demandante,
+      demandado: fb.demandado?.trim() || phase1Main.demandado,
+      fecha_radicacion: fb.fecha_radicacion || phase1Main.fecha_radicacion,
+      despacho: fb.despacho?.trim() || phase1Main.despacho,
+      tipo_proceso: fb.tipo_proceso || phase1Main.tipo_proceso,
+      sujetos_procesales: (fb.sujetos_procesales?.length ? fb.sujetos_procesales : phase1Main.sujetos_procesales),
+    };
+  });
 }
 
 // ============= COMPLETENESS VALIDATION =============
@@ -1222,6 +1253,8 @@ async function orchestrateSearch(
 }> {
   let results: SearchResult[] = [];
   let events: ProcessEvent[] = [];
+  // Preserve Phase 1 results (with parties) when fallbacks only add events
+  let phase1Results: SearchResult[] = [];
   let classification: Classification = 'UNKNOWN';
   let debugExcerpt = '';
   const sourcesTried: string[] = [];
@@ -1279,8 +1312,11 @@ async function orchestrateSearch(
         debugExcerpt = JSON.stringify(apiResult.data).substring(0, 10000);
         return { results, events, classification, debugExcerpt, sourcesTried, retryExhausted: false };
       } else {
-        console.log(`CPNU API returned incomplete data: missing ${completeness.missingFields.join(', ')}`);
-        if (runId) await addStep(supabase, runId, 'INCOMPLETE_DATA', false, `Missing: ${completeness.missingFields.join(', ')}`);
+        // CRITICAL: Preserve Phase 1 results (which contain parties from QUERY_LIST)
+        // so fallback phases only supplement events/actuaciones, not overwrite parties
+        phase1Results = [...results];
+        console.log(`CPNU API returned incomplete data: missing ${completeness.missingFields.join(', ')}. Preserving ${phase1Results.length} results with parties for merge.`);
+        if (runId) await addStep(supabase, runId, 'INCOMPLETE_DATA', false, `Missing: ${completeness.missingFields.join(', ')}. Parties preserved: demandante=${results[0]?.demandante}, demandado=${results[0]?.demandado}`);
         classification = 'INCOMPLETE_DATA';
       }
     }
@@ -1307,7 +1343,8 @@ async function orchestrateSearch(
       lastExternalClassification = externalResult.classification || 'UNKNOWN';
       
       if (externalResult.success && externalResult.results.length > 0) {
-        results = externalResult.results;
+        // Merge: use fallback results but preserve Phase 1 parties if fallback lacks them
+        results = mergeResultsPreserveParties(phase1Results, externalResult.results);
         events = externalResult.events;
         classification = 'SUCCESS';
         debugExcerpt = `External API success: ${results.length} results, ${events.length} events`;
@@ -1374,7 +1411,8 @@ async function orchestrateSearch(
       const parseResult = parseSearchResultsFromContent(fcResult.markdown, fcResult.html || '', radicadoStr);
       
       if (parseResult.results.length > 0) {
-        results = parseResult.results;
+        // Merge: preserve Phase 1 parties if Firecrawl lacks them
+        results = mergeResultsPreserveParties(phase1Results, parseResult.results);
         events = parseActuacionesFromMarkdown(fcResult.markdown, radicadoStr, 'https://consultaprocesos.ramajudicial.gov.co');
         
         const completeness = validateCompleteness(results, events);
@@ -1391,6 +1429,16 @@ async function orchestrateSearch(
     } else {
       debugExcerpt = fcResult.error || 'Firecrawl failed';
       classification = fcResult.classification || 'UNKNOWN';
+    }
+  }
+  
+  // === Restore Phase 1 results if all fallbacks failed but Phase 1 had data ===
+  if (results.length === 0 && phase1Results.length > 0) {
+    console.log(`[FINAL] Restoring Phase 1 results (${phase1Results.length}) with parties: demandante=${phase1Results[0]?.demandante}, demandado=${phase1Results[0]?.demandado}`);
+    results = phase1Results;
+    // Mark as partial success since we have search results but no actuaciones
+    if (classification !== 'SUCCESS') {
+      classification = 'INCOMPLETE_DATA';
     }
   }
   
@@ -1532,6 +1580,10 @@ Deno.serve(async (req) => {
       }
 
       // Build proceso object for normalized response
+      // CRITICAL: Also merge Phase 1 results parties if current results lack them
+      if (phase1Results.length > 0 && results.length === 0) {
+        results = phase1Results;
+      }
       let proceso: AdapterResponse['proceso'] | undefined;
       if (results.length > 0 || events.length > 0) {
         const mainResult = results[0] || {};
@@ -1540,6 +1592,10 @@ Deno.serve(async (req) => {
           tipo: mainResult.tipo_proceso,
           clase: mainResult.clase_proceso,
           contenido_radicacion: mainResult.contenido_radicacion,
+          // Include demandante/demandado in proceso so sync-by-radicado can read them
+          demandante: mainResult.demandante,
+          demandado: mainResult.demandado,
+          fecha_radicacion: mainResult.fecha_radicacion,
           sujetos_procesales: mainResult.sujetos_procesales || [],
           actuaciones: events,
           estados_electronicos: [], // Would be populated if available
