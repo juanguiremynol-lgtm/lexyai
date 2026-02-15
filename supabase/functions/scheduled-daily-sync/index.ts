@@ -19,12 +19,19 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-/** Hard budget: 140s of the ~150s edge function limit */
-const HARD_BUDGET_MS = 140_000;
+/**
+ * Hard budget: wall-clock milliseconds before the function stops processing.
+ * Configurable via DAILY_SYNC_BUDGET_MS env var.
+ * Default 140s stays safely below the 150s Free-tier limit.
+ * On paid instances (400s wall-clock) set to e.g. 380000.
+ */
+const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "140000");
 /** Items per cursor page */
-const PAGE_SIZE = 5;
+const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 /** Success threshold for OK vs PARTIAL */
 const SUCCESS_THRESHOLD = 0.9;
+/** Max chained continuations to prevent infinite loops */
+const MAX_CONTINUATIONS = Number(Deno.env.get("DAILY_SYNC_MAX_CONTINUATIONS") || "10");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -54,6 +61,7 @@ Deno.serve(async (req) => {
     resume_after_id?: string;
     is_continuation?: boolean;
     continuation_of?: string;
+    continuation_count?: number;
   } = {};
   try {
     if (req.method === "POST") {
@@ -64,8 +72,18 @@ Deno.serve(async (req) => {
   const isContinuation = bodyParams.is_continuation === true;
   const resumeAfterId = bodyParams.resume_after_id || undefined;
   const continuationOf = bodyParams.continuation_of || undefined;
+  const continuationCount = bodyParams.continuation_count ?? 0;
 
-  console.log(`[daily-sync] START run_id=${runId} continuation=${isContinuation} resume=${resumeAfterId?.slice(0, 8) ?? 'none'}`);
+  // Guard: max continuations to prevent infinite loops
+  if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
+    console.warn(`[daily-sync] MAX_CONTINUATIONS (${MAX_CONTINUATIONS}) reached — stopping chain`);
+    return new Response(
+      JSON.stringify({ ok: false, reason: "MAX_CONTINUATIONS_REACHED", continuation_count: continuationCount }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  console.log(`[daily-sync] START run_id=${runId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS}`);
 
   try {
     if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase configuration");
@@ -167,7 +185,6 @@ Deno.serve(async (req) => {
     } catch { /* non-blocking */ }
 
     // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL (budget exhausted) runs ──
-    // FIX: Allow continuations to chain recursively (removed !isContinuation guard)
     const partialOrgs = allResults.filter(r => r.status === "PARTIAL" || r.status === "CONTINUING");
     for (const partialResult of partialOrgs) {
       try {
@@ -178,8 +195,22 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
+
+        // No-progress detection: if cursor didn't advance, stop chaining
+        if (cursor && cursor === resumeAfterId) {
+          console.warn(`[daily-sync] No progress detected for org=${partialResult.org_id} — cursor unchanged (${cursor.slice(0, 8)}). Stopping chain.`);
+          continue;
+        }
+
+        // No-synced-items detection: if this run synced 0 items, stop chaining
+        if (partialResult.synced === 0) {
+          console.warn(`[daily-sync] No items synced for org=${partialResult.org_id} — stopping chain to prevent infinite loop.`);
+          continue;
+        }
+
         if (cursor) {
-          console.log(`[daily-sync] Scheduling continuation for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} (chain=${isContinuation ? 'yes' : 'first'})`);
+          const nextCount = continuationCount + 1;
+          console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)}`);
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
@@ -191,6 +222,7 @@ Deno.serve(async (req) => {
               resume_after_id: cursor,
               is_continuation: true,
               continuation_of: partialResult.ledger_id,
+              continuation_count: nextCount,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
         }
@@ -211,8 +243,14 @@ Deno.serve(async (req) => {
         ok: true,
         run_id: runId,
         duration_ms: durationMs,
+        budget_ms: HARD_BUDGET_MS,
+        continuation_count: continuationCount,
+        max_continuations: MAX_CONTINUATIONS,
+        is_continuation: isContinuation,
         orgs: allResults,
         continuations_scheduled: partialOrgs.length,
+        total_synced: totalSynced,
+        total_errors: totalErrors,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
@@ -403,6 +441,9 @@ async function syncOrganization(
         duration_ms: Date.now() - globalStart,
         page_size: PAGE_SIZE,
         budget_ms: HARD_BUDGET_MS,
+        continuation_count: isContinuation ? (continuationOf ? 'chained' : 'first') : 'initial',
+        items_processed: itemsSucceeded + itemsFailed,
+        remaining_estimate: itemsSkipped,
       },
     });
 
