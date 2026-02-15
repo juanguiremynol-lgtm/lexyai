@@ -1,0 +1,6 @@
+# SPA fallback for /demo and /prueba deep links (with any query params)
+/demo/*  /demo/index.html  200
+/prueba/*  /prueba/index.html  200
+
+# General SPA fallback for all other routes
+/*  /index.html  200
