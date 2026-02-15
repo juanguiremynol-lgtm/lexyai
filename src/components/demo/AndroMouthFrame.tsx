@@ -20,9 +20,9 @@ interface Props {
  */
 const MOUTH_SLOT = {
   left: "22%",
-  top: "36%",
+  top: "32%",
   width: "56%",
-  height: "38%",
+  height: "42%",
 } as const;
 
 export function AndroMouthFrame({ children }: Props) {
