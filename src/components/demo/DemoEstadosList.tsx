@@ -1,6 +1,6 @@
 /**
  * DemoEstadosList — Premium display of estados/publicaciones in demo mode
- * Rich color-coded cards with source badges and full information.
+ * Rich color-coded cards with source badges, PDF attachments, and full information.
  * Props-only, no Supabase.
  */
 
@@ -18,6 +18,8 @@ import {
   Mail,
   Bell,
   LayoutGrid,
+  ExternalLink,
+  FileDown,
 } from "lucide-react";
 import type { DemoEstado } from "./demo-types";
 
@@ -196,6 +198,39 @@ export function DemoEstadosList({ estados }: Props) {
                   <p className="text-sm text-foreground leading-relaxed">
                     {estado.descripcion}
                   </p>
+                </div>
+              )}
+
+              {/* PDF Attachments */}
+              {estado.attachments && estado.attachments.length > 0 && (
+                <div className="pl-9 mt-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {estado.attachments.slice(0, 2).map((att, ai) => (
+                      <a
+                        key={ai}
+                        href={att.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-md px-2.5 py-1.5 transition-colors"
+                        title="Se abre en una nueva pestaña"
+                      >
+                        {att.type === 'pdf' ? (
+                          <FileDown className="h-3.5 w-3.5 flex-shrink-0" />
+                        ) : (
+                          <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
+                        )}
+                        <span className="truncate max-w-[150px]">{att.label || 'Ver PDF'}</span>
+                        {att.provider && (
+                          <span className="text-[10px] opacity-60">({att.provider})</span>
+                        )}
+                      </a>
+                    ))}
+                    {estado.attachments.length > 2 && (
+                      <span className="text-xs text-muted-foreground">
+                        +{estado.attachments.length - 2} documento{estado.attachments.length - 2 > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

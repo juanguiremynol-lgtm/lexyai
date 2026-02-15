@@ -148,11 +148,19 @@ interface DemoActuacion {
   sources: string[];  // provenance: which providers contributed
 }
 
+interface DemoEstadoAttachment {
+  type: 'pdf' | 'link';
+  url: string;
+  label?: string;
+  provider?: string;
+}
+
 interface DemoEstado {
   tipo: string;
   fecha: string;
   descripcion: string | null;
   sources: string[];  // provenance
+  attachments?: DemoEstadoAttachment[];
 }
 
 interface DemoResumen {
@@ -450,11 +458,45 @@ async function fetchPublicaciones(radicado: string, baseUrl: string, apiKey: str
           else tipo = truncate(String(p.tipo || "Estado"), 80) || "Estado";
         }
         const cleanTitulo = tituloStr.replace(/\.pdf$/i, "").trim();
+
+        // Extract PDF attachments
+        const attachments: DemoEstadoAttachment[] = [];
+        const seenUrls = new Set<string>();
+        const candidateUrlKeys = ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url'];
+        for (const key of candidateUrlKeys) {
+          const val = p[key];
+          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
+            seenUrls.add(val);
+            attachments.push({
+              type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link',
+              url: val,
+              label: val.toLowerCase().includes('.pdf') ? 'Ver PDF' : 'Ver documento',
+              provider,
+            });
+          }
+        }
+        // Check for URLs in arrays (e.g., documentos: [{url: ...}])
+        if (Array.isArray(p.documentos)) {
+          for (const doc of p.documentos) {
+            const docUrl = doc?.url || doc?.pdf_url || doc?.enlace;
+            if (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https') && !seenUrls.has(docUrl)) {
+              seenUrls.add(docUrl);
+              attachments.push({
+                type: docUrl.toLowerCase().includes('.pdf') ? 'pdf' : 'link',
+                url: docUrl,
+                label: doc?.titulo || doc?.label || 'Ver documento',
+                provider,
+              });
+            }
+          }
+        }
+
         return {
           tipo,
           fecha: fecha || "",
           descripcion: cleanTitulo ? redactPIIFromText(truncate(cleanTitulo, 200) || "") : (p.descripcion ? redactPIIFromText(truncate(String(p.descripcion), 200) || "") : null),
           sources: [provider],
+          attachments: attachments.length > 0 ? attachments : undefined,
         };
       })
       .filter((e: DemoEstado) => e.fecha || e.descripcion);
@@ -545,12 +587,25 @@ async function fetchTutelas(radicado: string, baseUrl: string, apiKey: string): 
     // Extract estados
     const rawEstados = Array.isArray(result?.estados) ? result.estados : [];
     const estados: DemoEstado[] = rawEstados
-      .map((e: any) => ({
-        tipo: truncate(String(e.tipo || e.actuacion || "Estado"), 120) || "Estado",
-        fecha: normalizeDate(e.fecha || e.fechaEstado || e.fechaProvidencia),
-        descripcion: e.descripcion ? redactPIIFromText(truncate(String(e.descripcion), 200) || "") : null,
-        sources: [provider],
-      }))
+      .map((e: any) => {
+        // Extract PDF attachments from Tutelas
+        const attachments: DemoEstadoAttachment[] = [];
+        const seenUrls = new Set<string>();
+        for (const key of ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url']) {
+          const val = e[key];
+          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
+            seenUrls.add(val);
+            attachments.push({ type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link', url: val, label: 'Ver documento', provider });
+          }
+        }
+        return {
+          tipo: truncate(String(e.tipo || e.actuacion || "Estado"), 120) || "Estado",
+          fecha: normalizeDate(e.fecha || e.fechaEstado || e.fechaProvidencia),
+          descripcion: e.descripcion ? redactPIIFromText(truncate(String(e.descripcion), 200) || "") : null,
+          sources: [provider],
+          attachments: attachments.length > 0 ? attachments : undefined,
+        };
+      })
       .filter((e: DemoEstado) => e.fecha || e.descripcion);
 
     const hasData = actuaciones.length > 0 || estados.length > 0 || result?.despacho;
@@ -617,11 +672,22 @@ async function fetchSamaiEstados(radicado: string, baseUrl: string, apiKey: stri
         const fecha = normalizeDate(e["Fecha Providencia"] ?? e["Fecha Estado"] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? "");
         const actuacion = String(e["Actuación"] ?? e.actuacion ?? e.tipo ?? "");
         const anotacion = String(e["Anotación"] ?? e.anotacion ?? e.descripcion ?? "");
+        // Extract PDF attachments from SAMAI Estados
+        const attachments: DemoEstadoAttachment[] = [];
+        const seenUrls = new Set<string>();
+        for (const key of ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url', 'Documento']) {
+          const val = e[key];
+          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
+            seenUrls.add(val);
+            attachments.push({ type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link', url: val, label: 'Ver documento', provider });
+          }
+        }
         return {
           tipo: actuacion ? truncate(actuacion, 120) || "Estado SAMAI" : "Estado SAMAI",
           fecha: fecha || "",
           descripcion: anotacion ? redactPIIFromText(truncate(anotacion, 200) || "") : (actuacion ? redactPIIFromText(truncate(actuacion, 200) || "") : null),
           sources: [provider],
+          attachments: attachments.length > 0 ? attachments : undefined,
         };
       })
       .filter((e: DemoEstado) => e.fecha || e.descripcion);
@@ -864,9 +930,20 @@ function dedupeEstados(all: DemoEstado[]): DemoEstado[] {
       if (est.descripcion && (!existing.descripcion || est.descripcion.length > (existing.descripcion?.length || 0))) {
         existing.descripcion = est.descripcion;
       }
+      // Merge attachments (union by normalized URL)
+      if (est.attachments && est.attachments.length > 0) {
+        if (!existing.attachments) existing.attachments = [];
+        const existingUrls = new Set(existing.attachments.map(a => a.url));
+        for (const att of est.attachments) {
+          if (!existingUrls.has(att.url)) {
+            existing.attachments.push(att);
+            existingUrls.add(att.url);
+          }
+        }
+      }
     } else {
       keyMap.set(key, merged.length);
-      merged.push({ ...est, sources: [...est.sources] });
+      merged.push({ ...est, sources: [...est.sources], attachments: est.attachments ? [...est.attachments] : undefined });
     }
   }
 
