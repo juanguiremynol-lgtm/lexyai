@@ -1,10 +1,13 @@
 /**
  * useDemoLookup — Reusable hook for demo radicado lookup logic.
- * Extracts state machine from DemoRadicadoSection for reuse in widgets.
+ * Extracts state machine for reuse in widgets.
+ * Includes analytics instrumentation (no PII).
  */
 
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { track } from "@/lib/analytics/wrapper";
+import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import type { DemoResult, DemoError } from "@/components/demo/demo-types";
 
 export type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
@@ -12,6 +15,14 @@ export type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
 interface UseDemoLookupOptions {
   initialRadicado?: string;
   onComplete?: (result: DemoResult) => void;
+}
+
+function toLatencyBucket(ms: number): string {
+  if (ms < 1000) return "<1s";
+  if (ms < 3000) return "1-3s";
+  if (ms < 5000) return "3-5s";
+  if (ms < 10000) return "5-10s";
+  return ">10s";
 }
 
 export function useDemoLookup(options: UseDemoLookupOptions = {}) {
@@ -40,9 +51,16 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
         return;
       }
 
+      // Analytics: lookup submitted (no PII — only length)
+      track(ANALYTICS_EVENTS.DEMO_LOOKUP_SUBMITTED, {
+        radicado_length: digits.length,
+        category: "AUTO",
+      });
+
       setState("LOADING");
       setError(null);
       setInputError(null);
+      const startTime = Date.now();
 
       try {
         const { data, error: fnError } = await supabase.functions.invoke(
@@ -50,25 +68,49 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
           { body: { radicado: digits } }
         );
 
+        const latencyMs = Date.now() - startTime;
+
         if (fnError) throw new Error(fnError.message || "Error de conexión");
 
         if (data?.error) {
-          if (data.error === "RATE_LIMITED") {
+          const errorType = data.error;
+          if (errorType === "RATE_LIMITED") {
             setError({ type: "RATE_LIMITED", message: data.message, retryAfter: data.retry_after_seconds });
-          } else if (data.error === "NOT_FOUND") {
+          } else if (errorType === "NOT_FOUND") {
             setError({ type: "NOT_FOUND", message: data.message || "No se encontraron datos para este radicado." });
           } else {
-            setError({ type: data.error, message: data.message || "Error desconocido" });
+            setError({ type: errorType, message: data.message || "Error desconocido" });
           }
+          track(ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT, {
+            outcome: errorType === "NOT_FOUND" ? "NOT_FOUND" : "ERROR",
+            providers_with_data: 0,
+            latency_bucket: toLatencyBucket(latencyMs),
+          });
           setState("ERROR");
           return;
         }
+
+        // Analytics: success
+        const providersWithData = data.meta?.providers_with_data || data.meta?.sources?.length || 0;
+        const outcome = providersWithData > 0
+          ? (data.meta?.providers_checked === providersWithData ? "FOUND_COMPLETE" : "FOUND_PARTIAL")
+          : "NOT_FOUND";
+        track(ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT, {
+          outcome,
+          providers_with_data: providersWithData,
+          latency_bucket: toLatencyBucket(latencyMs),
+        });
 
         setDemoData(data);
         setModalOpen(true);
         setState("RESULT");
         options.onComplete?.(data);
       } catch (err) {
+        track(ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT, {
+          outcome: "ERROR",
+          providers_with_data: 0,
+          latency_bucket: toLatencyBucket(Date.now() - startTime),
+        });
         setError({
           type: "NETWORK",
           message: "No se pudo conectar con el servidor. Verifica tu conexión e intenta de nuevo.",
