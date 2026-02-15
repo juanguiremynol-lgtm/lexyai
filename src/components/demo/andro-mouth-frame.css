@@ -22,6 +22,26 @@
   height: 100%;
   object-fit: contain;
   pointer-events: none;
+
+  /* Feathered edges — fade PNG perimeter to transparent */
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    rgba(0,0,0,1) 55%,
+    rgba(0,0,0,0.95) 65%,
+    rgba(0,0,0,0.7) 78%,
+    rgba(0,0,0,0) 100%
+  );
+  mask-image: radial-gradient(
+    ellipse at center,
+    rgba(0,0,0,1) 55%,
+    rgba(0,0,0,0.95) 65%,
+    rgba(0,0,0,0.7) 78%,
+    rgba(0,0,0,0) 100%
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
   user-select: none;
   z-index: 1;
 }
