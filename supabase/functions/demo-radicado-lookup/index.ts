@@ -1161,6 +1161,37 @@ Deno.serve(async (req: Request) => {
     return json({ status: "OK" }, 200);
   }
 
+  // ═══ CACHE WARMING ACTION ═══
+  // Accepts { action: "warm_cache", radicados: ["23-digit", ...] }
+  // Intended for cron or manual pre-warming of frequently demoed radicados.
+  if (body?.action === "warm_cache" && Array.isArray(body?.radicados)) {
+    const radicados = body.radicados
+      .map((r: string) => String(r).replace(/\D/g, ""))
+      .filter((r: string) => r.length === 23)
+      .slice(0, 20); // Max 20 per call
+    console.log(`[demo] Cache warming ${radicados.length} radicados`);
+    const warmResults: Record<string, string> = {};
+    for (const rad of radicados) {
+      try {
+        // Recursive self-call with the radicado — reuses the full pipeline
+        const selfUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/demo-radicado-lookup`;
+        const resp = await fetch(selfUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ radicado: rad }),
+        });
+        const data = await resp.json();
+        warmResults[maskRadicado(rad)] = data.error ? `error: ${data.error}` : `ok (${data.meta?.actuaciones_count || 0} acts, ${data.meta?.estados_count || 0} est)`;
+      } catch (err) {
+        warmResults[maskRadicado(rad)] = `failed: ${String(err).slice(0, 80)}`;
+      }
+    }
+    return json({ action: "warm_cache", results: warmResults }, 200);
+  }
+
   const t0 = Date.now();
 
   try {
@@ -1252,6 +1283,10 @@ Deno.serve(async (req: Request) => {
     const ESTADOS_CRITICAL_PROVIDERS = new Set(["Publicaciones", "SAMAI Estados", "Tutelas"]);
     const isRetryEstados = body?.action === "retry_estados";
 
+    // If we have cached data (fresh or stale), skip retries — we already have fallback content.
+    // This avoids the 23s worst-case (20s timeout + 2 retries) when cache can serve instantly.
+    const hasCache = !!cached;
+
     // ═══ PHASE 2: Fan out to providers (with retries for critical ones) ═══
     const providerPromises = DEMO_PROVIDER_REGISTRY.map(async (config) => {
       // If retry_estados mode, only re-call estados-critical providers
@@ -1287,8 +1322,9 @@ Deno.serve(async (req: Request) => {
         } as ProviderResult;
       }
 
-      // Critical estados providers get up to 2 retries on timeout/error
-      const maxRetries = ESTADOS_CRITICAL_PROVIDERS.has(config.name) ? 2 : 0;
+      // Critical estados providers get up to 2 retries on cold cache only.
+      // When cache exists, skip retries to avoid 23s worst-case latency.
+      const maxRetries = (!hasCache && ESTADOS_CRITICAL_PROVIDERS.has(config.name)) ? 2 : 0;
       return fetchWithRetry(config, baseUrl, apiKey, maxRetries);
     });
 
@@ -1346,7 +1382,81 @@ Deno.serve(async (req: Request) => {
     const sourcesWithData = results.filter(r => r.outcome === "success");
     const dataFound = sourcesWithData.length > 0 || actuaciones.length > 0 || estados.length > 0;
 
-    if (!dataFound) {
+    // ═══ LAST-RESORT FALLBACK: work_item_publicaciones (read-only) ═══
+    // Only triggered when: (a) no cache existed AND (b) all providers failed.
+    // This recovers data for radicados that are already tracked as work items.
+    if (!dataFound && !cached) {
+      try {
+        console.log("[demo] All providers failed on cold cache — trying work_item_publicaciones fallback");
+        // Find work_item by radicado
+        const { data: wi } = await supabaseAdmin
+          .from("work_items")
+          .select("id")
+          .eq("radicado", radicado)
+          .maybeSingle();
+
+        if (wi) {
+          // Read estados from work_item_publicaciones
+          const { data: pubs } = await supabaseAdmin
+            .from("work_item_publicaciones")
+            .select("title, annotation, pdf_url, published_at, fecha_fijacion, source, sources")
+            .eq("work_item_id", wi.id)
+            .eq("is_archived", false)
+            .order("published_at", { ascending: false, nullsFirst: false })
+            .limit(30);
+
+          if (pubs && pubs.length > 0) {
+            console.log(`[demo] Fallback found ${pubs.length} publicaciones from work_item ${wi.id}`);
+            for (const pub of pubs) {
+              const fecha = normalizeDate(pub.published_at || pub.fecha_fijacion);
+              const attachments: DemoEstadoAttachment[] = [];
+              if (pub.pdf_url && typeof pub.pdf_url === "string" && pub.pdf_url.startsWith("https")) {
+                attachments.push({
+                  type: pub.pdf_url.toLowerCase().includes(".pdf") ? "pdf" : "link",
+                  url: pub.pdf_url,
+                  label: "Ver PDF",
+                  provider: "DB Fallback",
+                });
+              }
+              estados.push({
+                tipo: truncate(String(pub.title || "Estado"), 120) || "Estado",
+                fecha: fecha || "",
+                descripcion: pub.annotation ? redactPIIFromText(truncate(String(pub.annotation), 200) || "") : null,
+                sources: Array.isArray(pub.sources) ? pub.sources : [pub.source || "DB"],
+                attachments: attachments.length > 0 ? attachments : undefined,
+              });
+            }
+          }
+
+          // Also read actuaciones from work_item_acts as fallback
+          const { data: acts } = await supabaseAdmin
+            .from("work_item_acts")
+            .select("act_date, act_type, description, annotation, source")
+            .eq("work_item_id", wi.id)
+            .order("act_date", { ascending: false, nullsFirst: false })
+            .limit(50);
+
+          if (acts && acts.length > 0) {
+            console.log(`[demo] Fallback found ${acts.length} actuaciones from work_item ${wi.id}`);
+            for (const act of acts) {
+              actuaciones.push({
+                fecha: normalizeDate(act.act_date) || "",
+                tipo: truncate(String(act.act_type || ""), 120),
+                descripcion: act.description ? redactPIIFromText(truncate(String(act.description), 300) || "") : "",
+                anotacion: act.annotation ? redactPIIFromText(truncate(String(act.annotation), 200) || "") : null,
+                sources: [act.source || "DB"],
+              });
+            }
+          }
+        }
+      } catch (fbErr) {
+        console.warn("[demo] work_item fallback failed (non-blocking):", fbErr);
+      }
+    }
+
+    const finalDataFound = sourcesWithData.length > 0 || actuaciones.length > 0 || estados.length > 0;
+
+    if (!finalDataFound) {
       return json({
         error: "NOT_FOUND",
         message: "No se encontraron datos para este radicado. Verifica que el número sea correcto.",
