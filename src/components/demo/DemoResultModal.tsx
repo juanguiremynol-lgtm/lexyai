@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/drawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   X, Scale, MapPin, Calendar, FileText, Activity, LayoutGrid,
@@ -77,7 +76,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
     return (
       <DemoPipelineProvider data={data}>
         <Dialog open={open} onOpenChange={onOpenChange}>
-          <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 gap-0 overflow-hidden rounded-lg">
+          <DialogContent className="max-w-5xl w-[95vw] h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden rounded-lg flex flex-col">
             <ResultsContent data={data} onClose={() => onOpenChange(false)} />
           </DialogContent>
         </Dialog>
@@ -186,7 +185,7 @@ function ResultsContent({
           </div>
         </div>
       ) : (
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: "touch" as any }}>
           <div className="p-6 space-y-6">
             <ResultsBody
               data={data}
@@ -198,7 +197,7 @@ function ResultsContent({
               providersWithData={providersWithData}
             />
           </div>
-        </ScrollArea>
+        </div>
       )}
 
       {/* Fixed Footer */}
@@ -405,21 +404,19 @@ function ResultsBody({
 
       {/* Tabs: Actuaciones, Estados, Pipeline */}
       <Tabs defaultValue="actuaciones" className="w-full">
-        <TabsList className={`w-full ${isMobile ? "grid" : "justify-start"}`} style={isMobile ? { gridTemplateColumns: `repeat(${2 + (estados.length > 0 ? 1 : 0)}, 1fr)` } : undefined}>
+        <TabsList className={`w-full ${isMobile ? "grid grid-cols-3" : "justify-start"}`}>
           <TabsTrigger value="actuaciones" className="gap-1 text-xs sm:text-sm">
             <Activity className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Actuaciones</span>
             <span className="sm:hidden">Act.</span>
             <span className="text-xs opacity-60">({actuaciones.length})</span>
           </TabsTrigger>
-          {estados.length > 0 && (
-            <TabsTrigger value="estados" className="gap-1 text-xs sm:text-sm">
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Estados</span>
-              <span className="sm:hidden">Est.</span>
-              <span className="text-xs opacity-60">({estados.length})</span>
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="estados" className="gap-1 text-xs sm:text-sm">
+            <LayoutGrid className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Estados</span>
+            <span className="sm:hidden">Est.</span>
+            <span className="text-xs opacity-60">({estados.length})</span>
+          </TabsTrigger>
           <TabsTrigger value="kanban" className="gap-1 text-xs sm:text-sm">
             <LayoutGrid className="h-3.5 w-3.5" />
             Pipeline
@@ -430,11 +427,9 @@ function ResultsBody({
           <DemoActuacionesTimeline actuaciones={actuaciones} />
         </TabsContent>
 
-        {estados.length > 0 && (
-          <TabsContent value="estados" className="mt-3 sm:mt-4">
-            <DemoEstadosList estados={estados} />
-          </TabsContent>
-        )}
+        <TabsContent value="estados" className="mt-3 sm:mt-4">
+          <DemoEstadosList estados={estados} />
+        </TabsContent>
 
         <TabsContent value="kanban" className="mt-3 sm:mt-4">
           <DemoPipelineKanban ambiguity={ambiguity} />
