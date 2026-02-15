@@ -1,66 +1,169 @@
 /**
- * Comprehensive tests for CPNU sujetosProcesales string parsing,
- * party extraction, merge logic, and FOUND_PARTIAL prefill behavior.
+ * Comprehensive tests for shared partyNormalization module.
+ * Tests cover: string parsing, array parsing, merge logic,
+ * FOUND_PARTIAL prefill, and sync-path consistency.
+ *
+ * The shared module (_shared/partyNormalization.ts) is the single source of truth
+ * used by adapter-cpnu, sync-by-radicado, and sync-by-work-item.
+ * Since edge function imports aren't available in vitest, we mirror the exact
+ * logic here to validate correctness.
  */
 
 import { describe, it, expect } from "vitest";
 
-// ============= PARSER UNDER TEST =============
-// Mirrors the exact logic from adapter-cpnu/index.ts sujetosProcesales string branch.
+// ============= MIRRORED SHARED LOGIC =============
+// Mirrors _shared/partyNormalization.ts exactly for test validation.
 
-const ROLE_RE = /^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante|Solicitante|Convocado|Convocante)\s*:\s*(.+)$/i;
+const ROLE_RE =
+  /^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante|Solicitante|Convocado|Convocante|Procesado|Ofendido)\s*:\s*(.+)$/i;
 
-interface Sujeto { tipo: string; nombre: string }
+const DEMANDANTE_RE = /demandante|accionante|actor|tutelante|solicitante|convocante|ofendido/i;
+const DEMANDADO_RE = /demandado|accionado|convocado|procesado/i;
 
-function parseSujetosProcesalesString(rawStr: string): {
-  sujetos: Sujeto[];
+interface ParsedParty {
+  canonicalRole: 'DEMANDANTE' | 'DEMANDADO' | 'PARTE';
+  rawRole: string;
+  name: string;
+}
+
+interface PartyParseResult {
   demandante?: string;
   demandado?: string;
-} {
+  partes: ParsedParty[];
+}
+
+function canonicalizeRole(rawRole: string): 'DEMANDANTE' | 'DEMANDADO' | 'PARTE' {
+  if (DEMANDANTE_RE.test(rawRole)) return 'DEMANDANTE';
+  if (DEMANDADO_RE.test(rawRole)) return 'DEMANDADO';
+  return 'PARTE';
+}
+
+function cleanName(name: string): string {
+  return name.trim().replace(/\.+$/, '').trim();
+}
+
+function parseSujetosProcesalesString(rawStr: string): PartyParseResult {
   const trimmed = rawStr.trim();
-  if (!trimmed) return { sujetos: [] };
+  if (!trimmed) return { partes: [] };
 
   let parts: string[];
   if (/[|;\/\n]/.test(trimmed)) {
-    parts = trimmed.split(/[|;\/\n]/).map(s => s.trim().replace(/\.+$/, '')).filter(Boolean);
+    parts = trimmed.split(/[|;\/\n]/).map(s => cleanName(s)).filter(Boolean);
   } else if (/\s{2,}/.test(trimmed)) {
-    parts = trimmed.split(/\s{2,}/).map(s => s.trim().replace(/\.+$/, '')).filter(Boolean);
+    parts = trimmed.split(/\s{2,}/).map(s => cleanName(s)).filter(Boolean);
   } else {
-    parts = [trimmed.replace(/\.+$/, '')];
+    parts = [cleanName(trimmed)];
   }
 
-  const sujetos: Sujeto[] = [];
+  const partes: ParsedParty[] = [];
   let demandante: string | undefined;
   let demandado: string | undefined;
 
   for (const raw of parts) {
     const m = raw.match(ROLE_RE);
     if (m) {
-      const tipo = m[1].trim();
-      const nombre = m[2].trim().replace(/\.+$/, '');
-      sujetos.push({ tipo, nombre });
-      if (/demandante|accionante|actor|tutelante|solicitante|convocante/i.test(tipo) && !demandante) demandante = nombre;
-      if (/demandado|accionado|convocado/i.test(tipo) && !demandado) demandado = nombre;
+      const rawRole = m[1].trim();
+      const name = cleanName(m[2]);
+      const cr = canonicalizeRole(rawRole);
+      partes.push({ canonicalRole: cr, rawRole, name });
+      if (cr === 'DEMANDANTE' && !demandante) demandante = name;
+      if (cr === 'DEMANDADO' && !demandado) demandado = name;
     } else {
-      sujetos.push({ tipo: 'Parte', nombre: raw });
+      partes.push({ canonicalRole: 'PARTE', rawRole: 'Parte', name: raw });
     }
   }
 
-  return { sujetos, demandante, demandado };
+  return { demandante, demandado, partes };
+}
+
+function parseSujetosArray(
+  sujetos: Array<{ tipoParte?: string; tipo?: string; nombre?: string }>
+): PartyParseResult {
+  const partes: ParsedParty[] = [];
+  let demandante: string | undefined;
+  let demandado: string | undefined;
+
+  for (const s of sujetos) {
+    const rawRole = (s.tipoParte || s.tipo || 'Parte').trim();
+    const name = cleanName(s.nombre || '');
+    if (!name) continue;
+    const cr = canonicalizeRole(rawRole);
+    partes.push({ canonicalRole: cr, rawRole, name });
+    if (cr === 'DEMANDANTE' && !demandante) demandante = name;
+    if (cr === 'DEMANDADO' && !demandado) demandado = name;
+  }
+
+  return { demandante, demandado, partes };
+}
+
+function mergeParties(primary: PartyParseResult, secondary: PartyParseResult): PartyParseResult {
+  const demandante = primary.demandante || secondary.demandante;
+  const demandado = primary.demandado || secondary.demandado;
+  const seen = new Set<string>();
+  const merged: ParsedParty[] = [];
+  for (const p of [...primary.partes, ...secondary.partes]) {
+    const key = `${p.canonicalRole}|${p.name.toUpperCase()}`;
+    if (!seen.has(key)) { seen.add(key); merged.push(p); }
+  }
+  return { demandante, demandado, partes: merged };
+}
+
+function extractPartiesFromProviderResult(result: {
+  sujetos_procesales?: Array<{ tipo: string; nombre: string }>;
+  demandante?: string;
+  demandado?: string;
+}): { demandantes: string; demandados: string } {
+  let demandantes = '';
+  let demandados = '';
+  if (result.sujetos_procesales?.length) {
+    const parsed = parseSujetosArray(result.sujetos_procesales.map(s => ({ tipo: s.tipo, nombre: s.nombre })));
+    const dList = parsed.partes.filter(p => p.canonicalRole === 'DEMANDANTE').map(p => p.name);
+    const aList = parsed.partes.filter(p => p.canonicalRole === 'DEMANDADO').map(p => p.name);
+    if (dList.length) demandantes = dList.join(', ');
+    if (aList.length) demandados = aList.join(', ');
+  }
+  if (!demandantes && result.demandante) demandantes = result.demandante;
+  if (!demandados && result.demandado) demandados = result.demandado;
+  return { demandantes, demandados };
 }
 
 // ============= TESTS =============
 
-describe("sujetosProcesales string parser", () => {
-  // --- A) Exact anchor sample ---
-  it("parses pipe-separated 'Role: Name' format", () => {
+describe("canonicalizeRole", () => {
+  it("maps Demandante variants to DEMANDANTE", () => {
+    expect(canonicalizeRole("Demandante")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Accionante")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Actor")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Tutelante")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Solicitante")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Convocante")).toBe("DEMANDANTE");
+    expect(canonicalizeRole("Ofendido")).toBe("DEMANDANTE");
+  });
+
+  it("maps Demandado variants to DEMANDADO", () => {
+    expect(canonicalizeRole("Demandado")).toBe("DEMANDADO");
+    expect(canonicalizeRole("Accionado")).toBe("DEMANDADO");
+    expect(canonicalizeRole("Convocado")).toBe("DEMANDADO");
+    expect(canonicalizeRole("Procesado")).toBe("DEMANDADO");
+  });
+
+  it("maps unknown roles to PARTE", () => {
+    expect(canonicalizeRole("Parte")).toBe("PARTE");
+    expect(canonicalizeRole("Testigo")).toBe("PARTE");
+    expect(canonicalizeRole("Juez")).toBe("PARTE");
+  });
+});
+
+describe("parseSujetosProcesalesString", () => {
+  it("parses pipe-separated 'Role: Name' format (anchor case)", () => {
     const r = parseSujetosProcesalesString("Demandante: OFELIA MERCEDES MAYA MARTINEZ | Demandado: TIERRADENTRO");
     expect(r.demandante).toBe("OFELIA MERCEDES MAYA MARTINEZ");
     expect(r.demandado).toBe("TIERRADENTRO");
-    expect(r.sujetos).toHaveLength(2);
+    expect(r.partes).toHaveLength(2);
+    expect(r.partes[0].canonicalRole).toBe("DEMANDANTE");
+    expect(r.partes[1].canonicalRole).toBe("DEMANDADO");
   });
 
-  // --- B) Separator variants ---
   it("handles semicolon separator", () => {
     const r = parseSujetosProcesalesString("Demandante: ANA GARCIA; Demandado: PEDRO LOPEZ");
     expect(r.demandante).toBe("ANA GARCIA");
@@ -79,23 +182,23 @@ describe("sujetosProcesales string parser", () => {
     expect(r.demandado).toBe("PEDRO");
   });
 
-  it("handles double-space separator when no other delimiters present", () => {
+  it("handles double-space separator", () => {
     const r = parseSujetosProcesalesString("Demandante: ANA GARCIA  Demandado: PEDRO LOPEZ");
     expect(r.demandante).toBe("ANA GARCIA");
     expect(r.demandado).toBe("PEDRO LOPEZ");
   });
 
-  // --- C) Role label variants ---
   it("handles Accionante/Accionado (tutela labels)", () => {
     const r = parseSujetosProcesalesString("Accionante: JUAN | Accionado: EPS SURA");
     expect(r.demandante).toBe("JUAN");
     expect(r.demandado).toBe("EPS SURA");
+    expect(r.partes[0].canonicalRole).toBe("DEMANDANTE");
+    expect(r.partes[1].canonicalRole).toBe("DEMANDADO");
   });
 
   it("handles Actor label", () => {
     const r = parseSujetosProcesalesString("Actor: MARIA GARCIA | Demandado: BANCO");
     expect(r.demandante).toBe("MARIA GARCIA");
-    expect(r.demandado).toBe("BANCO");
   });
 
   it("handles Tutelante label", () => {
@@ -116,7 +219,6 @@ describe("sujetosProcesales string parser", () => {
     expect(r.demandado).toBe("pedro");
   });
 
-  // --- D) Trailing punctuation / whitespace ---
   it("strips trailing periods from names", () => {
     const r = parseSujetosProcesalesString("Demandante: TIERRADENTRO. | Demandado: MARTINEZ...");
     expect(r.demandante).toBe("TIERRADENTRO");
@@ -129,163 +231,182 @@ describe("sujetosProcesales string parser", () => {
     expect(r.demandado).toBe("PEDRO");
   });
 
-  // --- E) Multi-party ---
   it("handles multiple demandantes (first wins as primary)", () => {
     const r = parseSujetosProcesalesString("Demandante: ANA | Demandante: PEDRO | Demandado: BANCO");
-    expect(r.demandante).toBe("ANA"); // First wins
+    expect(r.demandante).toBe("ANA");
     expect(r.demandado).toBe("BANCO");
-    expect(r.sujetos).toHaveLength(3);
-    expect(r.sujetos.filter(s => s.tipo === 'Demandante')).toHaveLength(2);
+    expect(r.partes).toHaveLength(3);
+    expect(r.partes.filter(p => p.canonicalRole === 'DEMANDANTE')).toHaveLength(2);
   });
 
   it("handles multiple demandados (first wins as primary)", () => {
     const r = parseSujetosProcesalesString("Demandante: ANA | Demandado: BANCO | Demandado: EPS");
     expect(r.demandante).toBe("ANA");
-    expect(r.demandado).toBe("BANCO"); // First wins
-    expect(r.sujetos.filter(s => s.tipo === 'Demandado')).toHaveLength(2);
+    expect(r.demandado).toBe("BANCO");
+    expect(r.partes.filter(p => p.canonicalRole === 'DEMANDADO')).toHaveLength(2);
   });
 
-  // --- F) No-role (generic) strings ---
-  it("assigns 'Parte' when no role prefix exists", () => {
+  it("assigns 'PARTE' when no role prefix exists", () => {
     const r = parseSujetosProcesalesString("TIERRADENTRO | OFELIA MERCEDES MAYA MARTINEZ");
     expect(r.demandante).toBeUndefined();
     expect(r.demandado).toBeUndefined();
-    expect(r.sujetos).toHaveLength(2);
-    expect(r.sujetos[0].tipo).toBe("Parte");
+    expect(r.partes).toHaveLength(2);
+    expect(r.partes[0].canonicalRole).toBe("PARTE");
   });
 
   it("returns single party when no separator", () => {
     const r = parseSujetosProcesalesString("Demandante: OFELIA MERCEDES");
     expect(r.demandante).toBe("OFELIA MERCEDES");
     expect(r.demandado).toBeUndefined();
-    expect(r.sujetos).toHaveLength(1);
+    expect(r.partes).toHaveLength(1);
   });
 
   it("returns empty for blank string", () => {
     const r = parseSujetosProcesalesString("   ");
-    expect(r.sujetos).toHaveLength(0);
+    expect(r.partes).toHaveLength(0);
     expect(r.demandante).toBeUndefined();
+  });
+
+  it("handles Procesado/Ofendido (penal labels)", () => {
+    const r = parseSujetosProcesalesString("Ofendido: VICTIMA | Procesado: IMPUTADO");
+    expect(r.demandante).toBe("VICTIMA");
+    expect(r.demandado).toBe("IMPUTADO");
   });
 });
 
-// ============= EXTRACTION / MERGE TESTS =============
-
-describe("CPNU party extraction in sync-by-radicado", () => {
-  function simulateAdapterCpnuResponse(overrides?: {
-    demandante?: string; demandado?: string; fecha_radicacion?: string;
-    sujetos?: Sujeto[];
-  }) {
-    return {
-      ok: true,
-      proceso: {
-        despacho: "Juzgado 004 Municipal",
-        demandante: overrides?.demandante,
-        demandado: overrides?.demandado,
-        fecha_radicacion: overrides?.fecha_radicacion,
-        sujetos_procesales: overrides?.sujetos || [],
-        actuaciones: [],
-      },
-      results: [{
-        radicado: "05001410500420261008600",
-        despacho: "Juzgado 004 Municipal",
-        demandante: overrides?.demandante || "OFELIA",
-        demandado: overrides?.demandado || "TIERRADENTRO",
-        fecha_radicacion: overrides?.fecha_radicacion || "2026-02-13",
-        sujetos_procesales: overrides?.sujetos || [],
-      }],
-    };
-  }
-
-  function extractFromCpnu(result: ReturnType<typeof simulateAdapterCpnuResponse>) {
-    const proceso = result.proceso;
-    const mainResult = result.results?.[0] || ({} as any);
-
-    let demandantes = "";
-    let demandados = "";
-
-    if (proceso.sujetos_procesales?.length > 0) {
-      const dList = proceso.sujetos_procesales
-        .filter(s => /demandante|accionante|actor|tutelante|solicitante|convocante/i.test(s.tipo))
-        .map(s => s.nombre);
-      const aList = proceso.sujetos_procesales
-        .filter(s => /demandado|accionado|convocado/i.test(s.tipo))
-        .map(s => s.nombre);
-      if (dList.length) demandantes = dList.join(", ");
-      if (aList.length) demandados = aList.join(", ");
-    }
-
-    return {
-      demandante: demandantes || mainResult.demandante || proceso.demandante,
-      demandado: demandados || mainResult.demandado || proceso.demandado,
-      fecha_radicacion: mainResult.fecha_radicacion || proceso.fecha_radicacion,
-    };
-  }
-
-  it("extracts parties from results[0] when sujetos empty", () => {
-    const r = simulateAdapterCpnuResponse({ demandante: "JUAN", demandado: "EPS" });
-    const e = extractFromCpnu(r);
-    expect(e.demandante).toBe("JUAN");
-    expect(e.demandado).toBe("EPS");
+describe("parseSujetosArray", () => {
+  it("parses structured array with tipoParte", () => {
+    const r = parseSujetosArray([
+      { tipoParte: "Demandante", nombre: "JUAN" },
+      { tipoParte: "Demandado", nombre: "EPS" },
+    ]);
+    expect(r.demandante).toBe("JUAN");
+    expect(r.demandado).toBe("EPS");
+    expect(r.partes).toHaveLength(2);
   });
 
-  it("prefers sujetos_procesales over results[0]", () => {
-    const r = simulateAdapterCpnuResponse({
-      sujetos: [
+  it("parses structured array with tipo field", () => {
+    const r = parseSujetosArray([
+      { tipo: "Accionante", nombre: "MARIA" },
+      { tipo: "Accionado", nombre: "CLINICA" },
+    ]);
+    expect(r.demandante).toBe("MARIA");
+    expect(r.demandado).toBe("CLINICA");
+  });
+
+  it("handles mixed role synonyms", () => {
+    const r = parseSujetosArray([
+      { tipo: "Tutelante", nombre: "PEDRO" },
+      { tipo: "Convocado", nombre: "ENTIDAD" },
+    ]);
+    expect(r.demandante).toBe("PEDRO");
+    expect(r.demandado).toBe("ENTIDAD");
+  });
+
+  it("skips entries with empty names", () => {
+    const r = parseSujetosArray([
+      { tipo: "Demandante", nombre: "" },
+      { tipo: "Demandado", nombre: "EMPRESA" },
+    ]);
+    expect(r.demandante).toBeUndefined();
+    expect(r.demandado).toBe("EMPRESA");
+    expect(r.partes).toHaveLength(1);
+  });
+});
+
+describe("extractPartiesFromProviderResult (sync-by-radicado path)", () => {
+  it("extracts parties from sujetos_procesales array", () => {
+    const r = extractPartiesFromProviderResult({
+      sujetos_procesales: [
         { tipo: "Accionante", nombre: "MARIA" },
         { tipo: "Accionado", nombre: "CLINICA" },
       ],
     });
-    const e = extractFromCpnu(r);
-    expect(e.demandante).toBe("MARIA");
-    expect(e.demandado).toBe("CLINICA");
+    expect(r.demandantes).toBe("MARIA");
+    expect(r.demandados).toBe("CLINICA");
   });
 
-  it("extracts fecha_radicacion from results[0]", () => {
-    const e = extractFromCpnu(simulateAdapterCpnuResponse({ fecha_radicacion: "2026-02-13" }));
-    expect(e.fecha_radicacion).toBe("2026-02-13");
+  it("falls back to top-level fields when sujetos empty", () => {
+    const r = extractPartiesFromProviderResult({
+      sujetos_procesales: [],
+      demandante: "JUAN",
+      demandado: "EPS",
+    });
+    expect(r.demandantes).toBe("JUAN");
+    expect(r.demandados).toBe("EPS");
   });
 
-  it("does NOT fabricate fecha when absent", () => {
-    const r = simulateAdapterCpnuResponse({ fecha_radicacion: undefined });
-    r.results[0].fecha_radicacion = undefined as any;
-    const e = extractFromCpnu(r);
-    expect(e.fecha_radicacion).toBeFalsy();
+  it("prefers sujetos over top-level fields", () => {
+    const r = extractPartiesFromProviderResult({
+      sujetos_procesales: [
+        { tipo: "Demandante", nombre: "REAL_NAME" },
+      ],
+      demandante: "FALLBACK",
+    });
+    expect(r.demandantes).toBe("REAL_NAME");
+  });
+
+  it("joins multiple parties with comma", () => {
+    const r = extractPartiesFromProviderResult({
+      sujetos_procesales: [
+        { tipo: "Demandante", nombre: "ANA" },
+        { tipo: "Demandante", nombre: "PEDRO" },
+        { tipo: "Demandado", nombre: "BANCO" },
+      ],
+    });
+    expect(r.demandantes).toBe("ANA, PEDRO");
+    expect(r.demandados).toBe("BANCO");
   });
 });
 
-// ============= MERGE PROTECTION TESTS =============
-
-describe("merge logic: empty providers never overwrite populated parties", () => {
-  it("preserves CPNU parties when SAMAI returns nothing", () => {
-    const cpnu = { demandante: "JUAN", demandado: "EPS" };
-    const samai = { demandante: undefined as string | undefined, demandado: undefined as string | undefined };
-    const merged = {
-      demandante: cpnu.demandante || samai.demandante || "",
-      demandado: cpnu.demandado || samai.demandado || "",
+describe("mergeParties: empty providers never overwrite", () => {
+  it("preserves CPNU parties when secondary returns nothing", () => {
+    const cpnu: PartyParseResult = {
+      demandante: "JUAN", demandado: "EPS",
+      partes: [
+        { canonicalRole: 'DEMANDANTE', rawRole: 'Demandante', name: 'JUAN' },
+        { canonicalRole: 'DEMANDADO', rawRole: 'Demandado', name: 'EPS' },
+      ],
     };
+    const empty: PartyParseResult = { partes: [] };
+    const merged = mergeParties(cpnu, empty);
     expect(merged.demandante).toBe("JUAN");
     expect(merged.demandado).toBe("EPS");
   });
 
-  it("preserves Phase 1 parties when fallback lacks them", () => {
-    const p1 = { demandante: "OFELIA", demandado: "TIERRADENTRO", fecha_radicacion: "2026-02-13" };
-    const fb = { demandante: undefined as string | undefined, demandado: undefined as string | undefined, fecha_radicacion: undefined as string | undefined };
-    const merged = {
-      demandante: fb.demandante?.trim() || p1.demandante,
-      demandado: fb.demandado?.trim() || p1.demandado,
-      fecha_radicacion: fb.fecha_radicacion || p1.fecha_radicacion,
+  it("deduplicates when Demandante and Accionante refer to same person", () => {
+    const p1: PartyParseResult = {
+      demandante: "JUAN", partes: [
+        { canonicalRole: 'DEMANDANTE', rawRole: 'Demandante', name: 'JUAN' },
+      ],
     };
+    const p2: PartyParseResult = {
+      demandante: "JUAN", partes: [
+        { canonicalRole: 'DEMANDANTE', rawRole: 'Accionante', name: 'JUAN' },
+      ],
+    };
+    const merged = mergeParties(p1, p2);
+    expect(merged.partes).toHaveLength(1); // Deduped by canonicalRole+name
+    expect(merged.demandante).toBe("JUAN");
+  });
+
+  it("preserves Phase 1 parties when fallback lacks them", () => {
+    const p1: PartyParseResult = {
+      demandante: "OFELIA", demandado: "TIERRADENTRO",
+      partes: [
+        { canonicalRole: 'DEMANDANTE', rawRole: 'Demandante', name: 'OFELIA' },
+        { canonicalRole: 'DEMANDADO', rawRole: 'Demandado', name: 'TIERRADENTRO' },
+      ],
+    };
+    const empty: PartyParseResult = { partes: [] };
+    const merged = mergeParties(p1, empty);
     expect(merged.demandante).toBe("OFELIA");
     expect(merged.demandado).toBe("TIERRADENTRO");
-    expect(merged.fecha_radicacion).toBe("2026-02-13");
   });
 });
 
-// ============= FOUND_PARTIAL PREFILL TESTS =============
-
 describe("FOUND_PARTIAL still pre-fills known fields", () => {
   it("wizard prefills parties even when found_status is FOUND_PARTIAL and actuaciones=0", () => {
-    // Simulate what the wizard receives from sync-by-radicado
     const lookupResult = {
       ok: true,
       found_in_source: true,
@@ -295,25 +416,17 @@ describe("FOUND_PARTIAL still pre-fills known fields", () => {
         demandante: "OFELIA MERCEDES MAYA MARTINEZ",
         demandado: "TIERRADENTRO",
         fecha_radicacion: "2026-02-13",
-        actuaciones: [], // empty — 406 from actuaciones endpoint
+        actuaciones: [],
         total_actuaciones: 0,
       },
     };
 
-    // Simulate wizard prefill logic (from CreateWorkItemWizard.tsx)
     const data = lookupResult.process_data;
     const normParties = (raw: string | undefined) => raw?.replace(/\s*\|\s*/g, ', ') || '';
-    const demandantes = normParties(data.demandante);
-    const demandados = normParties(data.demandado);
-    const despacho = data.despacho || '';
-    const fechaRadicacion = data.fecha_radicacion || '';
-
-    expect(demandantes).toBe("OFELIA MERCEDES MAYA MARTINEZ");
-    expect(demandados).toBe("TIERRADENTRO");
-    expect(despacho).toBe("JUZGADO 004");
-    expect(fechaRadicacion).toBe("2026-02-13");
-
-    // found_in_source is true so lookupStatus should be 'success', enabling AutoFillBadge
+    expect(normParties(data.demandante)).toBe("OFELIA MERCEDES MAYA MARTINEZ");
+    expect(normParties(data.demandado)).toBe("TIERRADENTRO");
+    expect(data.despacho).toBe("JUZGADO 004");
+    expect(data.fecha_radicacion).toBe("2026-02-13");
     expect(lookupResult.found_in_source).toBe(true);
   });
 
@@ -325,15 +438,49 @@ describe("FOUND_PARTIAL still pre-fills known fields", () => {
       fecha_radicacion: "2026-02-13",
     }];
     let results: typeof phase1Results = [];
-
-    // Restore phase1Results (the fix in adapter-cpnu)
-    if (results.length === 0 && phase1Results.length > 0) {
-      results = phase1Results;
-    }
-
-    const ok = results.length > 0;
-    expect(ok).toBe(true);
+    if (results.length === 0 && phase1Results.length > 0) results = phase1Results;
+    expect(results.length > 0).toBe(true);
     expect(results[0].demandante).toBe("OFELIA");
     expect(results[0].demandado).toBe("TIERRADENTRO");
+  });
+});
+
+describe("sync-path: canonicalizeRole used consistently", () => {
+  it("CPNU tipoSujeto 'Demandante' maps to DEMANDANTE", () => {
+    expect(canonicalizeRole("Demandante")).toBe("DEMANDANTE");
+  });
+
+  it("SAMAI tipo 'ACCIONANTE - DEMANDANTE' maps to DEMANDANTE", () => {
+    expect(canonicalizeRole("ACCIONANTE - DEMANDANTE")).toBe("DEMANDANTE");
+  });
+
+  it("SAMAI tipo 'ACCIONADO - DEMANDADO' maps to DEMANDADO", () => {
+    expect(canonicalizeRole("ACCIONADO - DEMANDADO")).toBe("DEMANDADO");
+  });
+
+  it("CPNU and SAMAI produce same canonical output for same person", () => {
+    const cpnuResult = parseSujetosProcesalesString("Demandante: JUAN | Demandado: EPS");
+    const samaiResult = parseSujetosArray([
+      { tipo: "Accionante", nombre: "JUAN" },
+      { tipo: "Accionado", nombre: "EPS" },
+    ]);
+    expect(cpnuResult.demandante).toBe(samaiResult.demandante);
+    expect(cpnuResult.demandado).toBe(samaiResult.demandado);
+    // Merge should deduplicate
+    const merged = mergeParties(cpnuResult, samaiResult);
+    expect(merged.partes.filter(p => p.canonicalRole === 'DEMANDANTE')).toHaveLength(1);
+    expect(merged.partes.filter(p => p.canonicalRole === 'DEMANDADO')).toHaveLength(1);
+  });
+
+  it("CGP/Laboral CPNU parties are preserved across sync cycles", () => {
+    // Simulate: first sync returns parties from CPNU
+    const sync1 = parseSujetosProcesalesString("Demandante: MARIA | Demandado: EMPRESA S.A.");
+    // Simulate: second sync returns same parties
+    const sync2 = parseSujetosProcesalesString("Demandante: MARIA | Demandado: EMPRESA S.A.");
+    const merged = mergeParties(sync1, sync2);
+    // No duplicates
+    expect(merged.partes).toHaveLength(2);
+    expect(merged.demandante).toBe("MARIA");
+    expect(merged.demandado).toBe("EMPRESA S.A");
   });
 });

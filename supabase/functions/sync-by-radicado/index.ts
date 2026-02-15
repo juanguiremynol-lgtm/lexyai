@@ -13,6 +13,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getCategoryStrategy, determineFoundStatus, shouldTriggerFallback, type ProviderKey, type FoundStatus } from "../_shared/providerStrategy.ts";
+import { extractPartiesFromProviderResult, canonicalizeRole } from "../_shared/partyNormalization.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -486,39 +487,12 @@ async function fetchFromCpnu(
       const mainResult = result.results?.[0] || {};
       
       // Extract parties from sujetos_procesales
-      let demandantes = '';
-      let demandados = '';
-      
-      if (proceso.sujetos_procesales?.length > 0) {
-        const demandantesList = proceso.sujetos_procesales
-          .filter((s: { tipo: string }) => 
-            s.tipo?.toLowerCase().includes('demandante') || 
-            s.tipo?.toLowerCase().includes('actor') ||
-            s.tipo?.toLowerCase().includes('accionante') ||
-            s.tipo?.toLowerCase().includes('tutelante')
-          )
-          .map((s: { nombre: string }) => s.nombre);
-        const demandadosList = proceso.sujetos_procesales
-          .filter((s: { tipo: string }) => 
-            s.tipo?.toLowerCase().includes('demandado') ||
-            s.tipo?.toLowerCase().includes('accionado')
-          )
-          .map((s: { nombre: string }) => s.nombre);
-        
-        if (demandantesList.length) demandantes = demandantesList.join(', ');
-        if (demandadosList.length) demandados = demandadosList.join(', ');
-        
-        // Fallback: if sujetos all have generic "Parte" tipo (from pipe-string parsing),
-        // use proceso-level demandante/demandado fields if available
-        if (!demandantes && !demandados) {
-          const allGeneric = proceso.sujetos_procesales.every(
-            (s: { tipo: string }) => s.tipo === 'Parte'
-          );
-          if (allGeneric) {
-            console.log(`[sync-by-radicado] CPNU sujetos all generic "Parte", falling back to proceso-level fields`);
-          }
-        }
-      }
+      // Use shared party normalization for consistent extraction
+      const { demandantes, demandados } = extractPartiesFromProviderResult({
+        sujetos_procesales: proceso.sujetos_procesales,
+        demandante: proceso.demandante || mainResult.demandante,
+        demandado: proceso.demandado || mainResult.demandado,
+      });
 
       // Map actuaciones — adapter-cpnu returns ProcessEvent objects with event_date/description/detail
       // so we must handle both naming conventions
