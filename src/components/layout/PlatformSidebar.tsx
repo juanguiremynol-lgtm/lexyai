@@ -21,6 +21,7 @@ import {
   CreditCard,
   Bell,
   Sparkles,
+  FlaskConical,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -62,6 +63,7 @@ const platformNavItems = [
   { title: "Directorio", url: "/platform/courthouse-directory", icon: Building2 },
   { title: "Proveedores Ext.", url: "/platform/external-providers", icon: Cable },
   { title: "Analíticas", url: "/platform/analytics", icon: BarChart3 },
+  { title: "Demo Analytics", url: "/platform/demo-analytics", icon: FlaskConical },
 ];
 
 export function PlatformSidebar() {

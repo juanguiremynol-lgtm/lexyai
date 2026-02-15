@@ -3976,6 +3976,120 @@ export type Database = {
         }
         Relationships: []
       }
+      demo_events: {
+        Row: {
+          category_inferred: string | null
+          confidence: string | null
+          conflicts_count: number | null
+          created_at: string
+          cta_type: string | null
+          event_name: string
+          frame: string | null
+          has_actuaciones: boolean | null
+          has_estados: boolean | null
+          id: string
+          ip_hash: string | null
+          latency_ms: number | null
+          outcome: string | null
+          payload: Json | null
+          providers_checked: number | null
+          providers_with_data: number | null
+          radicado_hash: string | null
+          radicado_length: number | null
+          referrer_domain: string | null
+          route: string | null
+          session_id: string | null
+          user_agent_bucket: string | null
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          variant: string | null
+        }
+        Insert: {
+          category_inferred?: string | null
+          confidence?: string | null
+          conflicts_count?: number | null
+          created_at?: string
+          cta_type?: string | null
+          event_name: string
+          frame?: string | null
+          has_actuaciones?: boolean | null
+          has_estados?: boolean | null
+          id?: string
+          ip_hash?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          payload?: Json | null
+          providers_checked?: number | null
+          providers_with_data?: number | null
+          radicado_hash?: string | null
+          radicado_length?: number | null
+          referrer_domain?: string | null
+          route?: string | null
+          session_id?: string | null
+          user_agent_bucket?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          variant?: string | null
+        }
+        Update: {
+          category_inferred?: string | null
+          confidence?: string | null
+          conflicts_count?: number | null
+          created_at?: string
+          cta_type?: string | null
+          event_name?: string
+          frame?: string | null
+          has_actuaciones?: boolean | null
+          has_estados?: boolean | null
+          id?: string
+          ip_hash?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          payload?: Json | null
+          providers_checked?: number | null
+          providers_with_data?: number | null
+          radicado_hash?: string | null
+          radicado_length?: number | null
+          referrer_domain?: string | null
+          route?: string | null
+          session_id?: string | null
+          user_agent_bucket?: string | null
+          utm_campaign?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          variant?: string | null
+        }
+        Relationships: []
+      }
+      demo_rate_limit_counters: {
+        Row: {
+          count: number
+          id: string
+          key: string
+          updated_at: string
+          window_start: string
+          window_type: string
+        }
+        Insert: {
+          count?: number
+          id?: string
+          key: string
+          updated_at?: string
+          window_start: string
+          window_type: string
+        }
+        Update: {
+          count?: number
+          id?: string
+          key?: string
+          updated_at?: string
+          window_start?: string
+          window_type?: string
+        }
+        Relationships: []
+      }
       desacato_incidents: {
         Row: {
           apertura_date: string | null
@@ -10698,6 +10812,21 @@ export type Database = {
       }
     }
     Views: {
+      demo_events_daily_stats: {
+        Row: {
+          avg_latency_ms: number | null
+          category_inferred: string | null
+          day: string | null
+          event_count: number | null
+          event_name: string | null
+          outcome: string | null
+          p95_latency_ms: number | null
+          referrer_domain: string | null
+          route: string | null
+          unique_sessions: number | null
+        }
+        Relationships: []
+      }
       migration_health_check: {
         Row: {
           dupe_groups: number | null

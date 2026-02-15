@@ -17,6 +17,7 @@ import { DemoResultModal } from "./DemoResultModal";
 import { AndroMouthFrame } from "./AndroMouthFrame";
 import { track } from "@/lib/analytics/wrapper";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { trackDemoView, trackDemoCtaClicked } from "@/lib/demo-telemetry";
 import { DemoShareButton } from "./DemoShareButton";
 import type { DemoResult } from "./demo-types";
 
@@ -48,8 +49,13 @@ export function DemoLookupWidget({
 }: DemoLookupWidgetProps) {
   const demo = useDemoLookup({ initialRadicado, onComplete });
 
-  // Auto-run on mount if requested
+  // Track demo view + auto-run on mount
   useEffect(() => {
+    trackDemoView({
+      variant,
+      frame,
+      has_radicado: !!(initialRadicado && initialRadicado.replace(/\D/g, "").length === 23),
+    });
     if (autoRun && initialRadicado && initialRadicado.replace(/\D/g, "").length === 23) {
       demo.handleLookup(initialRadicado);
     }
@@ -58,6 +64,7 @@ export function DemoLookupWidget({
 
   const handleCtaClick = (ctaType: string) => {
     track(ANALYTICS_EVENTS.DEMO_CTA_CLICKED, { cta_type: ctaType });
+    trackDemoCtaClicked(ctaType);
   };
 
   const content = (
