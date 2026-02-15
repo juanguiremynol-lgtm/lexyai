@@ -31,12 +31,20 @@ export interface DemoActuacion {
   sources?: string[];  // provenance: all contributing providers
 }
 
+export interface DemoEstadoAttachment {
+  type: 'pdf' | 'link';
+  url: string;
+  label?: string;
+  provider?: string;
+}
+
 export interface DemoEstado {
   tipo: string;
   fecha: string;
   descripcion: string | null;
   source?: string;     // legacy single source
   sources?: string[];  // provenance
+  attachments?: DemoEstadoAttachment[];
 }
 
 export interface ProviderOutcome {
