@@ -21,9 +21,7 @@ const corsHeaders = {
 
 /**
  * Hard budget: wall-clock milliseconds before the function stops processing.
- * Configurable via DAILY_SYNC_BUDGET_MS env var.
  * Default 140s stays safely below the 150s Free-tier limit.
- * On paid instances (400s wall-clock) set to e.g. 380000.
  */
 const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "140000");
 /** Items per cursor page */
@@ -32,6 +30,10 @@ const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 const SUCCESS_THRESHOLD = 0.9;
 /** Max chained continuations to prevent infinite loops */
 const MAX_CONTINUATIONS = Number(Deno.env.get("DAILY_SYNC_MAX_CONTINUATIONS") || "10");
+/** Per-item external API timeout (ms). Default 20s. */
+const ITEM_TIMEOUT_MS = Number(Deno.env.get("DAILY_SYNC_ITEM_TIMEOUT_MS") || "20000");
+/** Consecutive failures before dead-lettering an item */
+const DEAD_LETTER_THRESHOLD = 3;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -62,6 +64,8 @@ Deno.serve(async (req) => {
     is_continuation?: boolean;
     continuation_of?: string;
     continuation_count?: number;
+    run_cutoff_time?: string;
+    chain_id?: string;
   } = {};
   try {
     if (req.method === "POST") {
@@ -73,17 +77,21 @@ Deno.serve(async (req) => {
   const resumeAfterId = bodyParams.resume_after_id || undefined;
   const continuationOf = bodyParams.continuation_of || undefined;
   const continuationCount = bodyParams.continuation_count ?? 0;
+  // Item 1: run_cutoff_time — initial run sets it, continuations reuse it
+  const runCutoffTime = bodyParams.run_cutoff_time || (isContinuation ? undefined : new Date().toISOString());
+  // Chain ID: same across all continuations of one daily run
+  const chainId = bodyParams.chain_id || runId;
 
   // Guard: max continuations to prevent infinite loops
   if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
     console.warn(`[daily-sync] MAX_CONTINUATIONS (${MAX_CONTINUATIONS}) reached — stopping chain`);
     return new Response(
-      JSON.stringify({ ok: false, reason: "MAX_CONTINUATIONS_REACHED", continuation_count: continuationCount }),
+      JSON.stringify({ ok: false, reason: "MAX_CONTINUATIONS_REACHED", continuation_count: continuationCount, chain_id: chainId }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
-  console.log(`[daily-sync] START run_id=${runId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS}`);
+  console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'}`);
 
   try {
     if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase configuration");
@@ -108,6 +116,7 @@ Deno.serve(async (req) => {
               JSON.stringify({
                 ok: false,
                 run_id: runId,
+                chain_id: chainId,
                 delayed: true,
                 reason: "preflight_critical",
                 preflight: { overall: pfData.overall, decision: pfData.decision },
@@ -121,7 +130,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Bug 1 Step 5: Clean up stuck RUNNING entries from previous days ──
+    // ── Clean up stuck RUNNING entries from previous days ──
     const todayStr = new Date().toISOString().slice(0, 10);
     try {
       await supabase
@@ -147,7 +156,7 @@ Deno.serve(async (req) => {
     }
     console.log(`[daily-sync] ${orgIds.length} org(s) with eligible items`);
 
-    const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; ledger_id?: string }> = [];
+    const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string }> = [];
 
     for (const orgId of orgIds) {
       if (Date.now() - startTime > HARD_BUDGET_MS) {
@@ -158,18 +167,20 @@ Deno.serve(async (req) => {
         const result = await syncOrganization(
           supabase, supabaseUrl, supabaseServiceKey, orgId, runId, startTime,
           isContinuation ? resumeAfterId : undefined,
-          isContinuation, continuationOf,
+          isContinuation, continuationOf, runCutoffTime, chainId,
         );
         allResults.push(result);
       } catch (orgError: any) {
         console.error(`[daily-sync] Org ${orgId} fatal:`, orgError.message);
-        allResults.push({ org_id: orgId, status: "FAILED", synced: 0, errors: 1 });
+        allResults.push({ org_id: orgId, status: "FAILED", synced: 0, errors: 1, dead_lettered: 0, timeouts: 0 });
       }
     }
 
     const durationMs = Date.now() - startTime;
     const totalSynced = allResults.reduce((s, r) => s + r.synced, 0);
     const totalErrors = allResults.reduce((s, r) => s + r.errors, 0);
+    const totalDeadLettered = allResults.reduce((s, r) => s + r.dead_lettered, 0);
+    const totalTimeouts = allResults.reduce((s, r) => s + r.timeouts, 0);
 
     // Legacy job_runs log
     try {
@@ -180,7 +191,7 @@ Deno.serve(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: durationMs,
         processed_count: totalSynced,
-        metadata: { run_id: runId, results: allResults.slice(0, 20) },
+        metadata: { run_id: runId, chain_id: chainId, continuation_count: continuationCount, results: allResults.slice(0, 20) },
       });
     } catch { /* non-blocking */ }
 
@@ -190,11 +201,13 @@ Deno.serve(async (req) => {
       try {
         const { data: ledgerRow } = await supabase
           .from("auto_sync_daily_ledger")
-          .select("cursor_last_work_item_id")
+          .select("cursor_last_work_item_id, run_cutoff_time")
           .eq("id", partialResult.ledger_id)
           .maybeSingle();
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
+        // Reuse the run_cutoff_time from ledger (or from our current value)
+        const effectiveCutoff = ledgerRow?.run_cutoff_time || runCutoffTime;
 
         // No-progress detection: if cursor didn't advance, stop chaining
         if (cursor && cursor === resumeAfterId) {
@@ -210,7 +223,7 @@ Deno.serve(async (req) => {
 
         if (cursor) {
           const nextCount = continuationCount + 1;
-          console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)}`);
+          console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId}`);
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
@@ -223,6 +236,8 @@ Deno.serve(async (req) => {
               is_continuation: true,
               continuation_of: partialResult.ledger_id,
               continuation_count: nextCount,
+              run_cutoff_time: effectiveCutoff,
+              chain_id: chainId,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
         }
@@ -242,22 +257,26 @@ Deno.serve(async (req) => {
       JSON.stringify({
         ok: true,
         run_id: runId,
+        chain_id: chainId,
         duration_ms: durationMs,
         budget_ms: HARD_BUDGET_MS,
         continuation_count: continuationCount,
         max_continuations: MAX_CONTINUATIONS,
         is_continuation: isContinuation,
+        run_cutoff_time: runCutoffTime,
         orgs: allResults,
         continuations_scheduled: partialOrgs.length,
         total_synced: totalSynced,
         total_errors: totalErrors,
+        total_dead_lettered: totalDeadLettered,
+        total_timeouts: totalTimeouts,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error: any) {
     console.error("[daily-sync] Fatal:", error.message);
     return new Response(
-      JSON.stringify({ ok: false, error: error.message, run_id: runId }),
+      JSON.stringify({ ok: false, error: error.message, run_id: runId, chain_id: chainId }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
@@ -275,14 +294,35 @@ async function syncOrganization(
   resumeAfterId?: string,
   isContinuation: boolean = false,
   continuationOf?: string,
-): Promise<{ org_id: string; status: string; synced: number; errors: number; ledger_id?: string }> {
-  console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation}`);
+  runCutoffTime?: string,
+  chainId?: string,
+): Promise<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string }> {
+  console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation} cutoff=${runCutoffTime ?? 'none'}`);
 
   let ledgerId: string;
 
   if (isContinuation && continuationOf) {
-    // For continuations, create a new ledger row linked to the original
+    // Item 2: For continuations, check that the org isn't already being synced
+    // by verifying there's no other RUNNING ledger entry for today (besides the chain we belong to)
     const today = new Date().toISOString().slice(0, 10);
+    
+    const { data: runningEntries } = await supabase
+      .from("auto_sync_daily_ledger")
+      .select("id, chain_id, last_heartbeat_at")
+      .eq("organization_id", orgId)
+      .eq("run_date", today)
+      .eq("status", "RUNNING");
+    
+    const activeOtherChain = (runningEntries || []).find((e: any) => 
+      e.chain_id && e.chain_id !== chainId &&
+      e.last_heartbeat_at && new Date(e.last_heartbeat_at) > new Date(Date.now() - 5 * 60 * 1000)
+    );
+    
+    if (activeOtherChain) {
+      console.warn(`[daily-sync] org=${orgId} skip continuation: another chain ${activeOtherChain.chain_id} is active`);
+      return { org_id: orgId, status: "SKIPPED_LOCK", synced: 0, errors: 0, dead_lettered: 0, timeouts: 0 };
+    }
+
     const { data: newLedger, error: insertErr } = await supabase
       .from("auto_sync_daily_ledger")
       .insert({
@@ -291,9 +331,12 @@ async function syncOrganization(
         scheduled_for: new Date().toISOString(),
         status: "RUNNING",
         run_id: runId,
+        chain_id: chainId,
+        run_cutoff_time: runCutoffTime,
         is_continuation: true,
         continuation_of: continuationOf,
         started_at: new Date().toISOString(),
+        last_heartbeat_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -311,26 +354,44 @@ async function syncOrganization(
     const lock = lockResult as { acquired: boolean; ledger_id: string; status: string; reason?: string };
     if (!lock.acquired) {
       console.log(`[daily-sync] org=${orgId} skip: ${lock.reason}`);
-      return { org_id: orgId, status: lock.status, synced: 0, errors: 0, ledger_id: lock.ledger_id };
+      return { org_id: orgId, status: lock.status, synced: 0, errors: 0, dead_lettered: 0, timeouts: 0, ledger_id: lock.ledger_id };
     }
     ledgerId = lock.ledger_id;
+
+    // Write chain_id and run_cutoff_time to ledger on initial acquisition
+    await supabase
+      .from("auto_sync_daily_ledger")
+      .update({ chain_id: chainId, run_cutoff_time: runCutoffTime })
+      .eq("id", ledgerId);
   }
 
   let itemsSucceeded = 0;
   let itemsFailed = 0;
   let itemsSkipped = 0;
+  let deadLetterCount = 0;
+  let timeoutCount = 0;
   let cursorLastId: string | null = null;
   let failureReason: string | null = null;
-  const errorSummary: Array<{ work_item_id: string; radicado?: string; error: string; ts: string }> = [];
+  const errorSummary: Array<{ work_item_id: string; radicado?: string; error: string; ts: string; is_timeout?: boolean; is_dead_letter?: boolean }> = [];
 
   try {
+    // Item 3: Load dead-lettered item IDs for this org to exclude them
+    const { data: deadLetterRows } = await supabase
+      .from("sync_item_failure_tracker")
+      .select("work_item_id")
+      .eq("organization_id", orgId)
+      .eq("dead_lettered", true);
+    const deadLetteredIds = (deadLetterRows || []).map((r: any) => r.work_item_id);
+
     // Count total eligible items — for continuations, count from resume point
     const allItems = await selectEligibleWorkItems(supabase, orgId, {
       afterId: isContinuation ? resumeAfterId : undefined,
+      cutoffTime: runCutoffTime,
+      excludeIds: deadLetteredIds,
     });
     const expectedTotal = allItems.length;
 
-    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} continuation=${isContinuation}`);
+    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} dead_lettered_excluded=${deadLetteredIds.length} continuation=${isContinuation}`);
 
     // Write ledger RUNNING with expected_total
     await updateLedger(supabase, ledgerId, {
@@ -356,6 +417,8 @@ async function syncOrganization(
       pageItems = await selectEligibleWorkItems(supabase, orgId, {
         afterId: cursor,
         limit: PAGE_SIZE,
+        cutoffTime: runCutoffTime,
+        excludeIds: deadLetteredIds,
       });
 
       if (pageItems.length === 0) break;
@@ -370,16 +433,29 @@ async function syncOrganization(
         }
 
         try {
-          await syncSingleItem(supabase, item, orgId);
+          // Item 5: Per-item timeout wrapper
+          await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS);
           itemsSucceeded++;
+          // Item 3: Reset failure counter on success
+          await resetItemFailures(supabase, item.id);
         } catch (err: any) {
+          const isTimeout = err.message?.includes("ITEM_TIMEOUT");
+          if (isTimeout) timeoutCount++;
           itemsFailed++;
           errorSummary.push({
             work_item_id: item.id,
             radicado: item.radicado,
             error: (err.message || String(err)).substring(0, 200),
             ts: new Date().toISOString(),
+            is_timeout: isTimeout,
           });
+          // Item 3: Track consecutive failure
+          const wasDeadLettered = await trackItemFailure(supabase, item.id, orgId, runId, err.message);
+          if (wasDeadLettered) {
+            deadLetterCount++;
+            errorSummary[errorSummary.length - 1].is_dead_letter = true;
+            console.warn(`[daily-sync] DEAD-LETTERED item=${item.id.slice(0, 8)} radicado=${item.radicado} after ${DEAD_LETTER_THRESHOLD} consecutive failures`);
+          }
           // CONTINUE — never abort on single item failure
         }
 
@@ -396,7 +472,9 @@ async function syncOrganization(
         items_failed: itemsFailed,
         items_skipped: itemsSkipped,
         cursor_last_work_item_id: cursorLastId,
-        error_summary: errorSummary.slice(0, 50), // cap stored errors
+        error_summary: errorSummary.slice(0, 50),
+        dead_letter_count: deadLetterCount,
+        timeout_count: timeoutCount,
       });
     } while (pageItems.length === PAGE_SIZE && !failureReason);
 
@@ -410,8 +488,7 @@ async function syncOrganization(
     const totalAttempted = itemsSucceeded + itemsFailed;
     let finalStatus: string;
     if (failureReason === "BUDGET_EXHAUSTED") {
-      // Use CONTINUING status so it's not counted as a terminal failure
-      finalStatus = "PARTIAL"; // Will be upgraded when continuation completes
+      finalStatus = "PARTIAL";
     } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
       finalStatus = "SUCCESS";
     } else if (itemsSucceeded > 0 && totalAttempted > 0) {
@@ -420,7 +497,7 @@ async function syncOrganization(
     } else if (itemsSucceeded === 0 && totalAttempted > 0) {
       finalStatus = "FAILED";
     } else if (expectedTotal === 0) {
-      finalStatus = "SUCCESS"; // No items to sync
+      finalStatus = "SUCCESS";
     } else {
       finalStatus = "FAILED";
     }
@@ -436,22 +513,30 @@ async function syncOrganization(
       error_summary: errorSummary.slice(0, 50),
       finished_at: new Date().toISOString(),
       expected_total_items: expectedTotal,
+      dead_letter_count: deadLetterCount,
+      timeout_count: timeoutCount,
       metadata: {
         run_id: runId,
+        chain_id: chainId,
+        run_cutoff_time: runCutoffTime,
         duration_ms: Date.now() - globalStart,
         page_size: PAGE_SIZE,
         budget_ms: HARD_BUDGET_MS,
+        item_timeout_ms: ITEM_TIMEOUT_MS,
         continuation_count: isContinuation ? (continuationOf ? 'chained' : 'first') : 'initial',
         items_processed: itemsSucceeded + itemsFailed,
         remaining_estimate: itemsSkipped,
+        dead_letter_count: deadLetterCount,
+        timeout_count: timeoutCount,
+        dead_lettered_excluded: deadLetteredIds.length,
       },
     });
 
-    // Auto-demonitor policy (from existing logic, condensed)
+    // Auto-demonitor policy
     await runAutoDemonitor(supabase, orgId);
 
-    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ / ${expectedTotal}`);
-    return { org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed, ledger_id: ledgerId };
+    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal}`);
+    return { org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed, dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId };
 
   } catch (error: any) {
     // Fatal org-level error
@@ -467,20 +552,41 @@ async function syncOrganization(
   }
 }
 
+// ─── Item 5: Sync a single work item with timeout ───
+
+async function syncSingleItemWithTimeout(supabase: any, item: EligibleWorkItem, orgId: string, timeoutMs: number): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    await syncSingleItem(supabase, item, orgId, controller.signal);
+  } catch (err: any) {
+    if (err.name === "AbortError" || controller.signal.aborted) {
+      throw new Error(`ITEM_TIMEOUT: sync for ${item.id.slice(0, 8)} exceeded ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Sync a single work item (acts + pubs) ───
 
-async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: string): Promise<void> {
+async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: string, signal?: AbortSignal): Promise<void> {
   // Sync actuaciones
   const { data: syncResult, error: syncError } = await supabase.functions.invoke(
     "sync-by-work-item",
     { body: { work_item_id: item.id, _scheduled: true } },
   );
+  
+  // Check abort between calls
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  
   if (syncError) throw syncError;
 
   const syncOk = shouldCountAsSuccess(syncResult);
 
-  // FIX: ALWAYS update last_synced_at after attempting sync (even partial success)
-  // This ensures continuation runs don't re-select already-attempted items
+  // ALWAYS update last_synced_at after attempting sync
   await supabase
     .from("work_items")
     .update({ last_synced_at: new Date().toISOString() })
@@ -492,6 +598,8 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
     shouldRunPublicaciones(syncResult) &&
     (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)
   ) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    
     if (item.workflow_type === "PENAL_906") {
       try {
         await (supabase.from("sync_retry_queue") as any).upsert(
@@ -533,11 +641,69 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
   }
 }
 
+// ─── Item 3: Per-item failure tracking ───
+
+async function trackItemFailure(supabase: any, workItemId: string, orgId: string, runId: string, errorMsg?: string): Promise<boolean> {
+  try {
+    // Upsert failure tracker
+    const { data: existing } = await supabase
+      .from("sync_item_failure_tracker")
+      .select("consecutive_failures, dead_lettered")
+      .eq("work_item_id", workItemId)
+      .maybeSingle();
+
+    if (existing?.dead_lettered) return false; // Already dead-lettered
+
+    const newCount = (existing?.consecutive_failures || 0) + 1;
+    const shouldDeadLetter = newCount >= DEAD_LETTER_THRESHOLD;
+
+    await supabase
+      .from("sync_item_failure_tracker")
+      .upsert({
+        work_item_id: workItemId,
+        organization_id: orgId,
+        consecutive_failures: newCount,
+        last_failure_at: new Date().toISOString(),
+        last_failure_reason: (errorMsg || "unknown").substring(0, 500),
+        dead_lettered: shouldDeadLetter,
+        dead_lettered_at: shouldDeadLetter ? new Date().toISOString() : null,
+        dead_lettered_run_id: shouldDeadLetter ? runId : null,
+      }, { onConflict: "work_item_id" });
+
+    return shouldDeadLetter;
+  } catch (err) {
+    console.warn(`[daily-sync] Failed to track item failure for ${workItemId}:`, err);
+    return false;
+  }
+}
+
+async function resetItemFailures(supabase: any, workItemId: string): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from("sync_item_failure_tracker")
+      .select("consecutive_failures")
+      .eq("work_item_id", workItemId)
+      .maybeSingle();
+
+    if (existing && existing.consecutive_failures > 0) {
+      await supabase
+        .from("sync_item_failure_tracker")
+        .update({
+          consecutive_failures: 0,
+          dead_lettered: false,
+          dead_lettered_at: null,
+          dead_lettered_run_id: null,
+          reset_at: new Date().toISOString(),
+        })
+        .eq("work_item_id", workItemId);
+    }
+  } catch { /* non-blocking */ }
+}
+
 // ─── Ledger update helper ───
 
 async function updateLedger(supabase: any, ledgerId: string, fields: Record<string, any>): Promise<void> {
   try {
-    // Use direct table update instead of RPC for new columns
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
       last_heartbeat_at: new Date().toISOString(),
@@ -554,6 +720,8 @@ async function updateLedger(supabase: any, ledgerId: string, fields: Record<stri
     if (fields.error_summary !== undefined) updatePayload.error_summary = fields.error_summary;
     if (fields.finished_at) updatePayload.finished_at = fields.finished_at;
     if (fields.metadata) updatePayload.metadata = fields.metadata;
+    if (fields.dead_letter_count !== undefined) updatePayload.dead_letter_count = fields.dead_letter_count;
+    if (fields.timeout_count !== undefined) updatePayload.timeout_count = fields.timeout_count;
 
     if (fields.status === "RUNNING" && !updatePayload.started_at) {
       updatePayload.started_at = new Date().toISOString();
@@ -581,7 +749,6 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
     const threshold = aiConfig?.auto_demonitor_after_404s ?? 5;
     if (threshold <= 0) return;
 
-    // ── Source 1: work_items.consecutive_404_count (original path) ──
     const { data: rawCandidates } = await supabase
       .from("work_items")
       .select("id, radicado, consecutive_404_count, consecutive_failures, last_error_code, last_synced_at, monitoring_enabled")
@@ -589,16 +756,12 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       .eq("monitoring_enabled", true)
       .gte("consecutive_404_count", threshold);
 
-    // ── Source 2: atenia_ai_work_item_state (ghost items path) ──
-    // This catches items tracked by the supervisor that have high consecutive_not_found
-    // but whose work_items.consecutive_404_count may not be in sync.
     const { data: ghostStates } = await supabase
       .from("atenia_ai_work_item_state")
       .select("work_item_id, consecutive_not_found, last_error_code")
       .eq("organization_id", orgId)
       .gte("consecutive_not_found", threshold);
 
-    // Get ghost item IDs not already in rawCandidates
     const rawCandidateIds = new Set((rawCandidates || []).map((c: any) => c.id));
     const ghostOnlyIds = (ghostStates || [])
       .map((g: any) => g.work_item_id)
@@ -614,7 +777,6 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
         .eq("monitoring_enabled", true);
 
       if (ghostItems) {
-        // Merge consecutive_404_count from atenia_ai_work_item_state
         for (const gi of ghostItems) {
           const state = (ghostStates || []).find((g: any) => g.work_item_id === gi.id);
           if (state) {
@@ -653,8 +815,6 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       })
       .in("id", demonitorIds);
 
-    // ── FIX: Reset atenia_ai_work_item_state for demonitored items ──
-    // This clears the ghost items from the sin_omitidos gate
     for (const id of demonitorIds) {
       try {
         await supabase
@@ -668,7 +828,6 @@ async function runAutoDemonitor(supabase: any, orgId: string): Promise<void> {
       } catch { /* non-blocking */ }
     }
 
-    // Audit trail
     for (const item of toDemonitor.slice(0, 10)) {
       try {
         await supabase.from("atenia_ai_actions").insert({

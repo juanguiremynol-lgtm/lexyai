@@ -31,6 +31,10 @@ export interface SelectOptions {
   afterId?: string;
   /** If true, only return items updated in the last 7 days (login sync) */
   onlyRecentlyAccessed?: boolean;
+  /** Snapshot boundary: only include items created_at <= this timestamp */
+  cutoffTime?: string;
+  /** Work item IDs to exclude (e.g. dead-lettered items) */
+  excludeIds?: string[];
 }
 
 /**
@@ -42,6 +46,8 @@ export interface SelectOptions {
  *   - stage NOT IN TERMINAL_STAGES
  *   - radicado IS NOT NULL
  *   - organization_id matches
+ *   - created_at <= cutoffTime (if provided, for snapshot stability)
+ *   - id NOT IN excludeIds (if provided, for dead-letter exclusion)
  *
  * Results are ordered by id ASC for deterministic cursor pagination.
  */
@@ -74,11 +80,23 @@ export async function selectEligibleWorkItems(
     query = query.gte("updated_at", cutoff);
   }
 
+  // Item 1: Snapshot boundary — exclude items created after the run started
+  if (options?.cutoffTime) {
+    query = query.lte("created_at", options.cutoffTime);
+  }
+
   const { data, error } = await query;
   if (error) throw error;
 
-  // Filter to valid 23-digit radicados
-  return (data || []).filter(
+  let items = (data || []).filter(
     (item: any) => item.radicado && item.radicado.replace(/\D/g, "").length === 23,
   );
+
+  // Item 3: Exclude dead-lettered items
+  if (options?.excludeIds && options.excludeIds.length > 0) {
+    const excludeSet = new Set(options.excludeIds);
+    items = items.filter((item: any) => !excludeSet.has(item.id));
+  }
+
+  return items;
 }
