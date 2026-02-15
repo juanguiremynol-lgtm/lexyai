@@ -3,18 +3,21 @@
  *
  * Shows work_items with monitoring enabled but repeated failures,
  * with recommended actions per item based on error classification.
+ * 
+ * V2: Integrates ghost verification flow with control-run evidence.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ghost, RefreshCw, Loader2, AlertTriangle, PauseCircle, Search, Plug } from "lucide-react";
+import { Ghost, RefreshCw, Loader2, PauseCircle, Search, Plug, FlaskConical, CheckCircle2, AlertTriangle, ShieldAlert } from "lucide-react";
 import { NormalizedErrorCode, getErrorLabel, getRecommendedAction } from "@/lib/sync/errorCodes";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { GhostVerificationBadge } from "./GhostVerificationBadge";
 
 interface GhostItem {
   work_item_id: string;
@@ -28,6 +31,8 @@ interface GhostItem {
   last_observed_at: string;
   radicado?: string;
   workflow_type?: string;
+  ghost_verification_status?: string | null;
+  ghost_verification_run_id?: string | null;
 }
 
 function classifyAction(item: GhostItem): {
@@ -35,8 +40,16 @@ function classifyAction(item: GhostItem): {
   variant: "destructive" | "secondary" | "outline" | "default";
   icon: React.ReactNode;
 } {
+  // If already verified as SYSTEM_ISSUE, different action
+  if (item.ghost_verification_status === "SYSTEM_ISSUE") {
+    return { label: "Problema Sistema", variant: "destructive", icon: <ShieldAlert className="h-3 w-3" /> };
+  }
+  if (item.ghost_verification_status === "ITEM_SPECIFIC") {
+    return { label: "Revisar Radicado", variant: "secondary", icon: <Search className="h-3 w-3" /> };
+  }
+
   if (item.consecutive_not_found >= 5) {
-    return { label: "Suspender", variant: "destructive", icon: <PauseCircle className="h-3 w-3" /> };
+    return { label: "Verificar", variant: "default", icon: <FlaskConical className="h-3 w-3" /> };
   }
   const code = item.last_error_code?.toUpperCase() ?? '';
   if (code.includes('MISSING_PLATFORM_INSTANCE')) {
@@ -59,10 +72,11 @@ function errorSeverityBadge(item: GhostItem) {
 }
 
 export function AteniaGhostItems() {
+  const queryClient = useQueryClient();
+
   const { data: ghostItems, isLoading, refetch } = useQuery({
     queryKey: ["atenia-ghost-items"],
     queryFn: async () => {
-      // Get items with failures from atenia_ai_work_item_state
       const { data: states, error } = await (supabase
         .from("atenia_ai_work_item_state") as any)
         .select(`
@@ -86,25 +100,57 @@ export function AteniaGhostItems() {
       }
       if (!states || states.length === 0) return [];
 
-      // Fetch radicados for these items
       const workItemIds = states.map((s: any) => s.work_item_id);
       const { data: workItems } = await supabase
         .from("work_items")
-        .select("id, radicado, workflow_type, monitoring_enabled")
+        .select("id, radicado, workflow_type, monitoring_enabled, ghost_verification_status, ghost_verification_run_id")
         .in("id", workItemIds);
 
       const wiMap = new Map((workItems || []).map((wi: any) => [wi.id, wi]));
 
-      // Only show items still monitored
       return states
         .map((s: any) => {
           const wi = wiMap.get(s.work_item_id);
           if (!wi || !wi.monitoring_enabled) return null;
-          return { ...s, radicado: wi.radicado, workflow_type: wi.workflow_type } as GhostItem;
+          return {
+            ...s,
+            radicado: wi.radicado,
+            workflow_type: wi.workflow_type,
+            ghost_verification_status: wi.ghost_verification_status,
+            ghost_verification_run_id: wi.ghost_verification_run_id,
+          } as GhostItem;
         })
         .filter(Boolean) as GhostItem[];
     },
     staleTime: 60_000,
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: async (item: GhostItem) => {
+      const { data, error } = await supabase.functions.invoke("atenia-ghost-verify", {
+        body: {
+          work_item_id: item.work_item_id,
+          organization_id: item.organization_id,
+          trigger: "MANUAL",
+        },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["atenia-ghost-items"] });
+      const cls = data.classification;
+      if (cls === "SYSTEM_ISSUE") {
+        toast.error("⚠️ Problema de sistema detectado. El control run también falló. Incidente creado.");
+      } else if (cls === "ITEM_SPECIFIC") {
+        toast.info("Verificación completa: el problema es específico de este radicado. Rutas de sync funcionan correctamente.");
+      } else if (cls === "RESOLVED") {
+        toast.success("El item se recuperó durante la verificación. Ya no es fantasma.");
+      } else {
+        toast.warning(`Resultado inconcluso: ${data.decision_reason}`);
+      }
+    },
+    onError: () => toast.error("Error al ejecutar verificación ghost"),
   });
 
   const handleRetry = async (item: GhostItem) => {
@@ -116,6 +162,17 @@ export function AteniaGhostItems() {
       toast.success(`Reintento iniciado para ${item.radicado || item.work_item_id.slice(0, 8)}`);
     } catch {
       toast.error("Error al reintentar sincronización");
+    }
+  };
+
+  const handleAction = (item: GhostItem) => {
+    const action = classifyAction(item);
+    if (action.label === "Verificar") {
+      verifyMutation.mutate(item);
+    } else if (action.label === "Reintentar") {
+      handleRetry(item);
+    } else {
+      toast.info(`Acción "${action.label}" requiere intervención manual. Radicado: ${item.radicado || item.work_item_id.slice(0, 8)}`);
     }
   };
 
@@ -136,6 +193,9 @@ export function AteniaGhostItems() {
             </Button>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Items con fallos repetidos. Use "Verificar" para ejecutar un control-run comparativo antes de clasificar.
+        </p>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -155,6 +215,7 @@ export function AteniaGhostItems() {
                   <th className="text-left py-2 px-2 font-medium">Tipo</th>
                   <th className="text-center py-2 px-2 font-medium">Fallos</th>
                   <th className="text-left py-2 px-2 font-medium">Último Error</th>
+                  <th className="text-left py-2 px-2 font-medium">Verificación</th>
                   <th className="text-left py-2 px-2 font-medium">Último Éxito</th>
                   <th className="text-left py-2 px-2 font-medium">Acción</th>
                 </tr>
@@ -187,6 +248,9 @@ export function AteniaGhostItems() {
                           {errorCode}
                         </span>
                       </td>
+                      <td className="py-2 px-2">
+                        <GhostVerificationBadge status={item.ghost_verification_status} />
+                      </td>
                       <td className="py-2 px-2 text-xs text-muted-foreground">
                         {item.last_success_at
                           ? formatDistanceToNow(new Date(item.last_success_at), { addSuffix: true, locale: es })
@@ -197,13 +261,15 @@ export function AteniaGhostItems() {
                           variant={action.variant}
                           size="sm"
                           className="h-6 text-xs gap-1"
-                          onClick={() => {
-                            if (action.label === "Reintentar") handleRetry(item);
-                            else toast.info(`Acción "${action.label}" requiere intervención manual. Radicado: ${item.radicado || item.work_item_id.slice(0, 8)}`);
-                          }}
+                          onClick={() => handleAction(item)}
+                          disabled={verifyMutation.isPending}
                           title={`${action.label}: ${getRecommendedAction(item.last_error_code as NormalizedErrorCode)}`}
                         >
-                          {action.icon}
+                          {verifyMutation.isPending ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            action.icon
+                          )}
                           {action.label}
                         </Button>
                       </td>

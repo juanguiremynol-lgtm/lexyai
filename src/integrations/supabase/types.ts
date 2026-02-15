@@ -3351,6 +3351,54 @@ export type Database = {
           },
         ]
       }
+      control_radicados: {
+        Row: {
+          category: string
+          city: string | null
+          created_at: string
+          created_by: string | null
+          dane_code: string | null
+          id: string
+          is_active: boolean
+          jurisdiction_hint: string | null
+          last_verified_at: string | null
+          last_verified_status: string | null
+          notes: string | null
+          radicado: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          city?: string | null
+          created_at?: string
+          created_by?: string | null
+          dane_code?: string | null
+          id?: string
+          is_active?: boolean
+          jurisdiction_hint?: string | null
+          last_verified_at?: string | null
+          last_verified_status?: string | null
+          notes?: string | null
+          radicado: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          city?: string | null
+          created_at?: string
+          created_by?: string | null
+          dane_code?: string | null
+          id?: string
+          is_active?: boolean
+          jurisdiction_hint?: string | null
+          last_verified_at?: string | null
+          last_verified_status?: string | null
+          notes?: string | null
+          radicado?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       courthouse_directory: {
         Row: {
           account_type_norm: string
@@ -4664,6 +4712,106 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ghost_verification_runs: {
+        Row: {
+          action_taken: string | null
+          classification: string
+          classification_reason: string | null
+          completed_at: string | null
+          consecutive_failures: number
+          control_category: string | null
+          control_providers_attempted: string[] | null
+          control_providers_succeeded: string[] | null
+          control_radicado: string | null
+          control_radicado_id: string | null
+          control_run_status: string | null
+          control_trace_id: string | null
+          created_at: string
+          id: string
+          incident_id: string | null
+          organization_id: string
+          recheck_providers_attempted: string[] | null
+          recheck_providers_succeeded: string[] | null
+          recheck_status: string | null
+          recheck_trace_id: string | null
+          started_at: string
+          trigger_reason: string
+          work_item_id: string
+        }
+        Insert: {
+          action_taken?: string | null
+          classification?: string
+          classification_reason?: string | null
+          completed_at?: string | null
+          consecutive_failures?: number
+          control_category?: string | null
+          control_providers_attempted?: string[] | null
+          control_providers_succeeded?: string[] | null
+          control_radicado?: string | null
+          control_radicado_id?: string | null
+          control_run_status?: string | null
+          control_trace_id?: string | null
+          created_at?: string
+          id?: string
+          incident_id?: string | null
+          organization_id: string
+          recheck_providers_attempted?: string[] | null
+          recheck_providers_succeeded?: string[] | null
+          recheck_status?: string | null
+          recheck_trace_id?: string | null
+          started_at?: string
+          trigger_reason: string
+          work_item_id: string
+        }
+        Update: {
+          action_taken?: string | null
+          classification?: string
+          classification_reason?: string | null
+          completed_at?: string | null
+          consecutive_failures?: number
+          control_category?: string | null
+          control_providers_attempted?: string[] | null
+          control_providers_succeeded?: string[] | null
+          control_radicado?: string | null
+          control_radicado_id?: string | null
+          control_run_status?: string | null
+          control_trace_id?: string | null
+          created_at?: string
+          id?: string
+          incident_id?: string | null
+          organization_id?: string
+          recheck_providers_attempted?: string[] | null
+          recheck_providers_succeeded?: string[] | null
+          recheck_status?: string | null
+          recheck_trace_id?: string | null
+          started_at?: string
+          trigger_reason?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ghost_verification_runs_control_radicado_id_fkey"
+            columns: ["control_radicado_id"]
+            isOneToOne: false
+            referencedRelation: "control_radicados"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ghost_verification_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
@@ -10082,6 +10230,9 @@ export type Database = {
           freshness_tier: string | null
           freshness_violation_at: string | null
           freshness_violation_notified: boolean | null
+          ghost_candidate_at: string | null
+          ghost_verification_run_id: string | null
+          ghost_verification_status: string | null
           id: string
           is_flagged: boolean | null
           last_action_date: string | null
@@ -10123,6 +10274,7 @@ export type Database = {
           monitoring_disabled_meta: Json | null
           monitoring_disabled_reason: string | null
           monitoring_enabled: boolean | null
+          monitoring_mode: string | null
           monitoring_suspended_at: string | null
           monitoring_suspended_reason: string | null
           naturaleza_proceso: string | null
@@ -10240,6 +10392,9 @@ export type Database = {
           freshness_tier?: string | null
           freshness_violation_at?: string | null
           freshness_violation_notified?: boolean | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -10281,6 +10436,7 @@ export type Database = {
           monitoring_disabled_meta?: Json | null
           monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
           monitoring_suspended_at?: string | null
           monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
@@ -10398,6 +10554,9 @@ export type Database = {
           freshness_tier?: string | null
           freshness_violation_at?: string | null
           freshness_violation_notified?: boolean | null
+          ghost_candidate_at?: string | null
+          ghost_verification_run_id?: string | null
+          ghost_verification_status?: string | null
           id?: string
           is_flagged?: boolean | null
           last_action_date?: string | null
@@ -10439,6 +10598,7 @@ export type Database = {
           monitoring_disabled_meta?: Json | null
           monitoring_disabled_reason?: string | null
           monitoring_enabled?: boolean | null
+          monitoring_mode?: string | null
           monitoring_suspended_at?: string | null
           monitoring_suspended_reason?: string | null
           naturaleza_proceso?: string | null
