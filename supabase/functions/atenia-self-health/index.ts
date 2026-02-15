@@ -33,7 +33,10 @@ Deno.serve(async (req) => {
 
   try {
     // Check 1: Last heartbeat (any org) within 45 min
-    const { data: lastHeartbeat } = await supabase
+    // Check both atenia_ai_actions (heartbeat_observe) AND atenia_cron_runs (HEARTBEAT)
+    let heartbeatAge = Infinity;
+
+    const { data: lastHeartbeatAction } = await supabase
       .from("atenia_ai_actions")
       .select("created_at")
       .eq("action_type", "heartbeat_observe")
@@ -41,9 +44,24 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const heartbeatAge = lastHeartbeat
-      ? Date.now() - new Date(lastHeartbeat.created_at).getTime()
-      : Infinity;
+    if (lastHeartbeatAction) {
+      heartbeatAge = Date.now() - new Date(lastHeartbeatAction.created_at).getTime();
+    }
+
+    // Also check atenia_cron_runs HEARTBEAT as fallback signal
+    const { data: lastCronHeartbeat } = await supabase
+      .from("atenia_cron_runs")
+      .select("finished_at")
+      .eq("job_name", "HEARTBEAT")
+      .eq("status", "OK")
+      .order("finished_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastCronHeartbeat) {
+      const cronAge = Date.now() - new Date(lastCronHeartbeat.finished_at).getTime();
+      heartbeatAge = Math.min(heartbeatAge, cronAge);
+    }
 
     checks.push({
       name: "HEARTBEAT_ALIVE",
