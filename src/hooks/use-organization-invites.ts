@@ -140,7 +140,7 @@ export function useOrganizationInvites(organizationId: string | null) {
         .eq("id", organizationId)
         .single();
 
-      const inviteUrl = `${window.location.origin}/invite/accept?token=${token}`;
+      const inviteUrl = `https://andromeda.legal/invite/accept?token=${token}`;
       
       await supabase.from("email_outbox").insert({
         organization_id: organizationId,
@@ -215,7 +215,7 @@ export function useOrganizationInvites(organizationId: string | null) {
         .eq("id", organizationId)
         .single();
 
-      const inviteUrl = `${window.location.origin}/invite/accept?token=${token}`;
+      const inviteUrl = `https://andromeda.legal/invite/accept?token=${token}`;
       
       await supabase.from("email_outbox").insert({
         organization_id: organizationId,

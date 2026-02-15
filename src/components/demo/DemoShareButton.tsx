@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { toast } from "@/hooks/use-toast";
 import { track } from "@/lib/analytics/wrapper";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { getPublicBaseUrl } from "@/lib/urls";
 
 interface DemoShareButtonProps {
   variant: "full" | "compact";
@@ -22,7 +23,7 @@ interface DemoShareButtonProps {
   iconOnly?: boolean;
 }
 
-const PUBLIC_APP_URL = import.meta.env.VITE_PUBLIC_APP_URL ?? "https://andromeda.legal";
+const PUBLIC_APP_URL = getPublicBaseUrl();
 
 /** Build a canonical /demo share URL with current widget state */
 export function buildDemoShareUrl({

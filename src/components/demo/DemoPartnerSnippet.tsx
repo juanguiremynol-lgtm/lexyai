@@ -7,6 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Check, Copy, ExternalLink } from "lucide-react";
+import { toPublicUrl } from "@/lib/urls";
 
 interface DemoPartnerSnippetProps {
   variant?: "compact" | "full";
@@ -21,8 +22,7 @@ export function DemoPartnerSnippet({
 }: DemoPartnerSnippetProps) {
   const [copied, setCopied] = useState(false);
 
-  const baseUrl = "https://lexyai.lovable.app";
-  const url = `${baseUrl}/demo?variant=${variant}&frame=${frame}`;
+  const url = toPublicUrl("/demo", { variant, frame });
 
   const handleCopy = async () => {
     try {
