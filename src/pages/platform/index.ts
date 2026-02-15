@@ -22,3 +22,4 @@ export { default as PlatformGeminiPage } from "./PlatformGeminiPage";
 export { default as PlatformSecurityPage } from "./PlatformSecurityPage";
 export { default as PlatformEmailProviderPage } from "./PlatformEmailProviderPage";
 export { default as PlatformAnalyticsPage } from "./PlatformAnalyticsPage";
+export { default as PlatformDemoAnalyticsPage } from "./PlatformDemoAnalyticsPage";

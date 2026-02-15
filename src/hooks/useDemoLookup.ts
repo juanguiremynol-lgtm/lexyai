@@ -8,6 +8,7 @@ import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { track } from "@/lib/analytics/wrapper";
 import { ANALYTICS_EVENTS } from "@/lib/analytics/events";
+import { trackDemoLookupSubmitted, trackDemoLookupResult, getDemoSessionId } from "@/lib/demo-telemetry";
 import type { DemoResult, DemoError } from "@/components/demo/demo-types";
 
 export type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
@@ -56,6 +57,11 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
         radicado_length: digits.length,
         category: "AUTO",
       });
+      // Server-side telemetry (bypasses ad blockers)
+      trackDemoLookupSubmitted({
+        radicado_raw: digits,
+        radicado_length: digits.length,
+      });
 
       setState("LOADING");
       setError(null);
@@ -63,6 +69,21 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
       const startTime = Date.now();
 
       try {
+        // Check server-side rate limits first
+        const sessionId = getDemoSessionId();
+        const { data: rlData } = await supabase.functions.invoke("demo-telemetry", {
+          body: { action: "rate-check", session_id: sessionId, radicado: digits },
+        });
+        if (rlData && rlData.allowed === false) {
+          setError({
+            type: "RATE_LIMITED",
+            message: "Estamos recibiendo demasiadas solicitudes. Por favor espera unos minutos e intenta de nuevo.",
+            retryAfter: rlData.retry_after_seconds || 60,
+          });
+          setState("ERROR");
+          return;
+        }
+
         const { data, error: fnError } = await supabase.functions.invoke(
           "demo-radicado-lookup",
           { body: { radicado: digits } }
@@ -86,6 +107,11 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
             providers_with_data: 0,
             latency_bucket: toLatencyBucket(latencyMs),
           });
+          trackDemoLookupResult({
+            outcome: errorType === "NOT_FOUND" ? "NOT_FOUND" : "ERROR",
+            providers_with_data: 0,
+            latency_ms: latencyMs,
+          });
           setState("ERROR");
           return;
         }
@@ -100,6 +126,17 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
           providers_with_data: providersWithData,
           latency_bucket: toLatencyBucket(latencyMs),
         });
+        trackDemoLookupResult({
+          outcome,
+          category_inferred: data.category_inference?.category,
+          confidence: data.category_inference?.confidence,
+          providers_checked: data.meta?.providers_checked,
+          providers_with_data: providersWithData,
+          latency_ms: latencyMs,
+          has_estados: (data.estados?.length || 0) > 0,
+          has_actuaciones: (data.actuaciones?.length || 0) > 0,
+          conflicts_count: data.conflicts?.length || 0,
+        });
 
         setDemoData(data);
         setModalOpen(true);
@@ -110,6 +147,11 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
           outcome: "ERROR",
           providers_with_data: 0,
           latency_bucket: toLatencyBucket(Date.now() - startTime),
+        });
+        trackDemoLookupResult({
+          outcome: "ERROR",
+          providers_with_data: 0,
+          latency_ms: Date.now() - startTime,
         });
         setError({
           type: "NETWORK",
