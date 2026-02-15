@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Loader2, AlertCircle, Sparkles, ShieldCheck, Eye, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { DemoResultModal } from "./DemoResultModal";
-import { AndroDemoFrame } from "./AndroDemoFrame";
+import { AndroMouthFrame } from "./AndroMouthFrame";
 import type { DemoResult, DemoError } from "./demo-types";
 
 type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
@@ -121,7 +121,7 @@ export function DemoRadicadoSection() {
         id="demo"
         className="py-20 md:py-28 bg-gradient-to-b from-muted/30 via-muted/50 to-muted/30"
       >
-        <AndroDemoFrame>
+        <AndroMouthFrame>
           {/* Header */}
           <div className="text-center space-y-4 mb-10">
             <Badge variant="outline" className="text-sm px-4 py-1.5">
@@ -279,7 +279,7 @@ export function DemoRadicadoSection() {
               </span>
             </div>
           </div>
-        </AndroDemoFrame>
+        </AndroMouthFrame>
       </section>
 
       <DemoResultModal
