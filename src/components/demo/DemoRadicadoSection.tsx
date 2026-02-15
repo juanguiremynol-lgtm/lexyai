@@ -132,11 +132,11 @@ export function DemoRadicadoSection() {
               Prueba Andromeda con tu{" "}
               <span className="text-primary">radicado real</span>
             </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
+            <p className="text-black text-lg max-w-2xl mx-auto">
               Ingresa un radicado colombiano y mira en segundos cómo Andromeda
               organiza las actuaciones, estados, y gestiona tu caso.
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-black">
               Consulta en tiempo real. Sin registro. Sin almacenamiento de datos.
             </p>
           </div>
