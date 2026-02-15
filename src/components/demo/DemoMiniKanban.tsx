@@ -64,11 +64,11 @@ export function DemoMiniKanban({ resumen }: Props) {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 rounded-lg border bg-card/60 p-3 sm:p-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium flex items-center gap-2">
           <Scale className="h-4 w-4 text-primary" />
-          Pipeline de gestión — Arrastra la tarjeta
+          Pipeline — Arrastra la tarjeta
         </h4>
         <Badge variant="outline" className="text-xs">
           Sandbox interactivo
@@ -85,15 +85,17 @@ export function DemoMiniKanban({ resumen }: Props) {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="grid grid-cols-5 gap-2 min-h-[180px]">
-          {DEMO_STAGES.map((stage) => (
-            <DemoColumn
-              key={stage.id}
-              stage={stage}
-              hasCard={currentStage === stage.id}
-              resumen={resumen}
-            />
-          ))}
+        <div className="overflow-x-auto -mx-1 px-1 pb-2">
+          <div className="grid grid-cols-5 gap-2 min-h-[180px] min-w-[500px]">
+            {DEMO_STAGES.map((stage) => (
+              <DemoColumn
+                key={stage.id}
+                stage={stage}
+                hasCard={currentStage === stage.id}
+                resumen={resumen}
+              />
+            ))}
+          </div>
         </div>
 
         <DragOverlay>
@@ -128,15 +130,15 @@ function DemoColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "rounded-lg border border-dashed p-2 transition-colors min-h-[150px]",
+        "rounded-lg border-2 border-dashed p-2 transition-colors min-h-[150px]",
         isOver
-          ? "border-primary bg-primary/5"
-          : "border-border bg-muted/20"
+          ? "border-primary bg-primary/10"
+          : "border-border/60 bg-muted/30"
       )}
     >
-      <div className="flex items-center gap-1.5 mb-2">
-        <div className={cn("h-2 w-2 rounded-full", stage.color)} />
-        <span className="text-xs font-medium truncate">{stage.label}</span>
+      <div className="flex items-center gap-1.5 mb-2 bg-muted/50 rounded px-1.5 py-1">
+        <div className={cn("h-2.5 w-2.5 rounded-full flex-shrink-0", stage.color)} />
+        <span className="text-xs font-semibold truncate">{stage.label}</span>
       </div>
       {hasCard && <DemoCard resumen={resumen} />}
     </div>

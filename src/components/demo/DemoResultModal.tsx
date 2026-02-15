@@ -35,7 +35,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-5xl w-[98vw] sm:w-[95vw] h-[95vh] sm:h-[90vh] p-0 gap-0 overflow-hidden rounded-lg">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-muted/30">
           <div className="space-y-1">
@@ -60,15 +60,15 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
           </Button>
         </div>
 
-        <ScrollArea className="flex-1 h-[calc(90vh-140px)]">
-          <div className="p-6 space-y-6">
+        <ScrollArea className="flex-1 h-[calc(95vh-140px)] sm:h-[calc(90vh-140px)]">
+          <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
             {/* Resumen Card */}
             <div className="rounded-lg border bg-card p-5 space-y-4">
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 <Scale className="h-5 w-5 text-primary" />
                 Resumen del Proceso
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                 {resumen.despacho && (
                   <InfoItem icon={Building2} label="Despacho" value={resumen.despacho} />
                 )}
@@ -156,13 +156,9 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-1">
-                      <DemoWorkItemCard resumen={resumen} />
-                    </div>
-                    <div className="md:col-span-2">
-                      <DemoMiniKanban resumen={resumen} />
-                    </div>
+                   <div className="grid grid-cols-1 gap-4">
+                    <DemoWorkItemCard resumen={resumen} />
+                    <DemoMiniKanban resumen={resumen} />
                   </div>
                 </div>
               </TabsContent>
@@ -191,8 +187,8 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
         </ScrollArea>
 
         {/* Footer CTA */}
-        <div className="border-t bg-muted/30 px-6 py-4 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
+        <div className="border-t bg-muted/30 px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             ¿Quieres gestionar este y todos tus procesos?
           </p>
           <Button asChild>
