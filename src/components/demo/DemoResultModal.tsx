@@ -4,6 +4,8 @@
  * Mobile/Tablet (<1024px): Vaul Drawer (full-screen bottom sheet).
  */
 
+import type { EstadosStatus } from "@/hooks/useDemoLookup";
+
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Drawer,
@@ -15,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   X, Scale, MapPin, Calendar, FileText, Activity, LayoutGrid,
   Building2, Clock, ArrowRight, User, Users, CheckCircle2, XCircle,
-  AlertTriangle, Info, ChevronDown, ChevronUp, Zap,
+  AlertTriangle, Info, ChevronDown, ChevronUp, Zap, RefreshCw, Loader2,
 } from "lucide-react";
 import { DemoActuacionesTimeline } from "./DemoActuacionesTimeline";
 import { DemoEstadosList } from "./DemoEstadosList";
@@ -65,9 +67,12 @@ interface DemoResultModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   data: DemoResult | null;
+  estadosStatus?: EstadosStatus;
+  retryingEstados?: boolean;
+  onRetryEstados?: () => void;
 }
 
-export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalProps) {
+export function DemoResultModal({ open, onOpenChange, data, estadosStatus = "READY", retryingEstados = false, onRetryEstados }: DemoResultModalProps) {
   const isDesktop = useIsDesktop();
 
   if (!data) return null;
@@ -77,7 +82,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
       <DemoPipelineProvider data={data}>
         <Dialog open={open} onOpenChange={onOpenChange}>
           <DialogContent className="max-w-5xl w-[95vw] h-[90vh] max-h-[90vh] p-0 gap-0 overflow-hidden rounded-lg flex flex-col">
-            <ResultsContent data={data} onClose={() => onOpenChange(false)} />
+            <ResultsContent data={data} onClose={() => onOpenChange(false)} estadosStatus={estadosStatus} retryingEstados={retryingEstados} onRetryEstados={onRetryEstados} />
           </DialogContent>
         </Dialog>
         <DemoDetailView />
@@ -90,7 +95,7 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
     <DemoPipelineProvider data={data}>
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent className="h-[100dvh] max-h-[100dvh] rounded-t-none p-0 [&>div:first-child]:hidden">
-          <ResultsContent data={data} onClose={() => onOpenChange(false)} isMobile />
+          <ResultsContent data={data} onClose={() => onOpenChange(false)} isMobile estadosStatus={estadosStatus} retryingEstados={retryingEstados} onRetryEstados={onRetryEstados} />
         </DrawerContent>
       </Drawer>
       <DemoDetailView />
@@ -103,10 +108,16 @@ function ResultsContent({
   data,
   onClose,
   isMobile = false,
+  estadosStatus = "READY",
+  retryingEstados = false,
+  onRetryEstados,
 }: {
   data: DemoResult;
   onClose: () => void;
   isMobile?: boolean;
+  estadosStatus?: EstadosStatus;
+  retryingEstados?: boolean;
+  onRetryEstados?: () => void;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
@@ -180,6 +191,9 @@ function ResultsContent({
               setSourcesOpen={setSourcesOpen}
               providersChecked={providersChecked}
               providersWithData={providersWithData}
+              estadosStatus={estadosStatus}
+              retryingEstados={retryingEstados}
+              onRetryEstados={onRetryEstados}
               isMobile
             />
           </div>
@@ -195,6 +209,9 @@ function ResultsContent({
               setSourcesOpen={setSourcesOpen}
               providersChecked={providersChecked}
               providersWithData={providersWithData}
+              estadosStatus={estadosStatus}
+              retryingEstados={retryingEstados}
+              onRetryEstados={onRetryEstados}
             />
           </div>
         </div>
@@ -227,6 +244,9 @@ function ResultsBody({
   setSourcesOpen,
   providersChecked,
   providersWithData,
+  estadosStatus = "READY",
+  retryingEstados = false,
+  onRetryEstados,
   isMobile = false,
 }: {
   data: DemoResult;
@@ -236,6 +256,9 @@ function ResultsBody({
   setSourcesOpen: (v: boolean) => void;
   providersChecked: number;
   providersWithData: number;
+  estadosStatus?: EstadosStatus;
+  retryingEstados?: boolean;
+  onRetryEstados?: () => void;
   isMobile?: boolean;
 }) {
   const { resumen, actuaciones, estados, meta, category_inference, conflicts } = data;
@@ -430,7 +453,11 @@ function ResultsBody({
             <LayoutGrid className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Estados</span>
             <span className="sm:hidden">Est.</span>
-            <span className="text-xs opacity-60">({estados.length})</span>
+            {estadosStatus === "LOADING" || retryingEstados ? (
+              <Loader2 className="h-3 w-3 animate-spin opacity-60" />
+            ) : (
+              <span className="text-xs opacity-60">({estados.length})</span>
+            )}
           </TabsTrigger>
           <TabsTrigger value="kanban" className="gap-1 text-xs sm:text-sm">
             <LayoutGrid className="h-3.5 w-3.5" />
@@ -443,7 +470,65 @@ function ResultsBody({
         </TabsContent>
 
         <TabsContent value="estados" className="mt-3 sm:mt-4">
-          <DemoEstadosList estados={estados} />
+          {(estadosStatus === "LOADING" || retryingEstados) && estados.length === 0 ? (
+            <div className="text-center py-12 space-y-3">
+              <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary" />
+              <p className="text-sm font-medium">Consultando publicaciones oficiales...</p>
+              <p className="text-xs text-muted-foreground">
+                Verificando Publicaciones Procesales y SAMAI Estados
+              </p>
+            </div>
+          ) : estadosStatus === "DEGRADED" && estados.length === 0 ? (
+            <div className="text-center py-12 space-y-4">
+              <AlertTriangle className="h-10 w-10 mx-auto text-muted-foreground opacity-50" />
+              <div className="space-y-1">
+                <p className="font-medium text-sm">Las fuentes de estados están lentas</p>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  Algunos despachos tardan en publicar electrónicamente. Ya reintentamos automáticamente — puedes intentar de nuevo o volver en unos minutos.
+                </p>
+                {meta.estados_degraded_providers && meta.estados_degraded_providers.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Fuentes pendientes: {meta.estados_degraded_providers.join(", ")}
+                  </p>
+                )}
+              </div>
+              {onRetryEstados && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetryEstados}
+                  disabled={retryingEstados}
+                  className="gap-2"
+                >
+                  {retryingEstados ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Reintentar Estados
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <DemoEstadosList estados={estados} />
+              {estadosStatus === "PARTIAL" && onRetryEstados && (
+                <div className="mt-3 flex items-center justify-center gap-2">
+                  <span className="text-xs text-muted-foreground">Algunas fuentes no respondieron.</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onRetryEstados}
+                    disabled={retryingEstados}
+                    className="gap-1 text-xs h-7"
+                  >
+                    {retryingEstados ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Reintentar
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="kanban" className="mt-3 sm:mt-4">

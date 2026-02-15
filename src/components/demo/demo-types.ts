@@ -90,6 +90,9 @@ export interface DemoResult {
     cache_age_minutes?: number | null;
     refreshed_at?: string;
     provider_details?: Record<string, { status: string; count: number; latency_ms: number }>;
+    // Estados completeness
+    estados_status?: "READY" | "DEGRADED" | "PARTIAL";
+    estados_degraded_providers?: string[];
   };
 }
 
