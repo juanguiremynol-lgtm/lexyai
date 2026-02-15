@@ -136,9 +136,6 @@ export function DemoRadicadoSection() {
               Ingresa un número de radicado y mira en segundos cómo Andro IA
               organiza las actuaciones, estados, y gestiona tu caso.
             </p>
-            <p className="text-xs text-black">
-              Consulta en tiempo real. Sin registro. Sin almacenamiento de datos.
-            </p>
           </div>
 
           {/* Input area */}
