@@ -494,7 +494,8 @@ async function fetchFromCpnu(
           .filter((s: { tipo: string }) => 
             s.tipo?.toLowerCase().includes('demandante') || 
             s.tipo?.toLowerCase().includes('actor') ||
-            s.tipo?.toLowerCase().includes('accionante')
+            s.tipo?.toLowerCase().includes('accionante') ||
+            s.tipo?.toLowerCase().includes('tutelante')
           )
           .map((s: { nombre: string }) => s.nombre);
         const demandadosList = proceso.sujetos_procesales
@@ -506,6 +507,17 @@ async function fetchFromCpnu(
         
         if (demandantesList.length) demandantes = demandantesList.join(', ');
         if (demandadosList.length) demandados = demandadosList.join(', ');
+        
+        // Fallback: if sujetos all have generic "Parte" tipo (from pipe-string parsing),
+        // use proceso-level demandante/demandado fields if available
+        if (!demandantes && !demandados) {
+          const allGeneric = proceso.sujetos_procesales.every(
+            (s: { tipo: string }) => s.tipo === 'Parte'
+          );
+          if (allGeneric) {
+            console.log(`[sync-by-radicado] CPNU sujetos all generic "Parte", falling back to proceso-level fields`);
+          }
+        }
       }
 
       // Map actuaciones — adapter-cpnu returns ProcessEvent objects with event_date/description/detail

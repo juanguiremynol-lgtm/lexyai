@@ -1276,23 +1276,64 @@ async function orchestrateSearch(
     if (Array.isArray(procesos) && procesos.length > 0) {
       for (const p of procesos) {
         const sujetos: SujetoProcesal[] = [];
+        let parsedDemandante: string | undefined;
+        let parsedDemandado: string | undefined;
+
         if (Array.isArray(p.sujetosProcesales)) {
+          // Detail endpoint format: array of {tipoParte, nombre}
           for (const s of p.sujetosProcesales) {
-            sujetos.push({ tipo: s.tipoParte || 'Parte', nombre: s.nombre || '' });
+            const tipo = s.tipoParte || 'Parte';
+            const nombre = (s.nombre || '').trim();
+            sujetos.push({ tipo, nombre });
+            if (/demandante|accionante|actor|tutelante/i.test(tipo) && !parsedDemandante) parsedDemandante = nombre;
+            if (/demandado|accionado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
           }
+        } else if (typeof p.sujetosProcesales === 'string' && p.sujetosProcesales.trim()) {
+          // CPNU search endpoint returns sujetosProcesales as pipe-separated string
+          // e.g. "TIERRADENTRO  | OFELIA MERCEDES MAYA MARTINEZ"
+          const parts = p.sujetosProcesales.split('|').map((s: string) => s.trim().replace(/\.+$/, '')).filter(Boolean);
+          for (const name of parts) {
+            sujetos.push({ tipo: 'Parte', nombre: name });
+          }
+          console.log(`[QUERY_LIST] Parsed sujetosProcesales string: ${parts.length} parties: ${parts.join(', ')}`);
         }
         
         results.push({
-          radicado: p.numero || p.radicado || radicadoStr,
+          radicado: p.numero || p.radicado || p.llaveProceso || radicadoStr,
           despacho: p.despacho || p.nombreDespacho || '',
-          demandante: p.demandante,
-          demandado: p.demandado,
+          demandante: p.demandante || parsedDemandante,
+          demandado: p.demandado || parsedDemandado,
           tipo_proceso: p.tipoProceso || p.clase,
-          fecha_radicacion: p.fechaRadicacion || p.fecha,
+          clase_proceso: p.claseProceso || p.subclaseProceso,
+          fecha_radicacion: p.fechaRadicacion || p.fechaProceso || p.fecha,
           id_proceso: p.idProceso || p.id,
           sujetos_procesales: sujetos,
           detail_url: p.idProceso ? `https://consultaprocesos.ramajudicial.gov.co/Procesos/Detalle?idProceso=${p.idProceso}` : undefined,
         });
+      }
+      
+      // If parties not yet resolved from search (string format has no roles),
+      // try FETCH_DETAIL to get structured sujetos with proper tipoParte labels
+      if (results.length > 0 && results[0].id_proceso && !results[0].demandante && !results[0].demandado) {
+        const detailCandidates = CPNU_API_CANDIDATES.detail(results[0].id_proceso);
+        const detailResult = await cpnuFetchJson(detailCandidates, 'FETCH_DETAIL', attempts);
+        if (detailResult.success && detailResult.data) {
+          const detail = detailResult.data;
+          if (Array.isArray(detail.sujetosProcesales)) {
+            const detailSujetos: SujetoProcesal[] = detail.sujetosProcesales.map((s: any) => ({
+              tipo: s.tipoParte || 'Parte',
+              nombre: (s.nombre || '').trim(),
+            }));
+            if (detailSujetos.length > 0) {
+              results[0].sujetos_procesales = detailSujetos;
+              const dem = detailSujetos.find((s: SujetoProcesal) => /demandante|accionante|actor|tutelante/i.test(s.tipo));
+              const ddo = detailSujetos.find((s: SujetoProcesal) => /demandado|accionado/i.test(s.tipo));
+              if (dem) results[0].demandante = dem.nombre;
+              if (ddo) results[0].demandado = ddo.nombre;
+              console.log(`[FETCH_DETAIL] Got structured sujetos: demandante=${results[0].demandante}, demandado=${results[0].demandado}`);
+            }
+          }
+        }
       }
       
       // Try to fetch actuaciones
