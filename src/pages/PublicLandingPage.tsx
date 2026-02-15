@@ -15,6 +15,7 @@ import { AndroIASection } from "@/components/landing/AndroIASection";
 import { WorkflowsSection } from "@/components/landing/WorkflowsSection";
 import { AlertsAndEmailSection } from "@/components/landing/AlertsAndEmailSection";
 import { IntegrationsSection } from "@/components/landing/IntegrationsSection";
+import { ColombiaJudicialSection } from "@/components/landing/ColombiaJudicialSection";
 import { CTASection } from "@/components/landing/CTASection";
 
 export default function PublicLandingPage() {
@@ -47,6 +48,7 @@ export default function PublicLandingPage() {
       <WorkflowsSection />
       <AlertsAndEmailSection />
       <IntegrationsSection />
+      <ColombiaJudicialSection />
       <CTASection isAuthenticated={isAuthenticated} onGoToApp={handleGoToApp} />
     </div>
   );
