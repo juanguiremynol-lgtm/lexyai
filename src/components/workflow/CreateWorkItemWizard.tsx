@@ -65,6 +65,7 @@ import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
 import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
+import { WizardProcessPreview } from "./WizardProcessPreview";
 import { toast } from "sonner";
 
 interface CreateWorkItemWizardProps {
@@ -660,12 +661,10 @@ export function CreateWorkItemWizard({
                   
                   {/* Lookup Result */}
                   {lookupStatus === 'success' && lookupResult?.found_in_source && (
-                    <ProcessPreview 
-                      data={lookupResult.process_data} 
-                      cgpPhase={lookupResult.cgp_phase}
-                      classificationReason={lookupResult.classification_reason}
-                      sourceUsed={lookupResult.source_used}
-                      eventsCount={lookupResult.new_events_count}
+                    <WizardProcessPreview
+                      lookupResult={lookupResult}
+                      radicado={radicado}
+                      workflowType={workflowType || undefined}
                     />
                   )}
                   
@@ -873,29 +872,38 @@ export function CreateWorkItemWizard({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Juzgado / Despacho</Label>
+                        <Label className="flex items-center gap-2">
+                          Juzgado / Despacho
+                          <AutoFillBadge filled={!!authorityName && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={authorityName}
                           onChange={(e) => setAuthorityName(e.target.value)}
-                          placeholder="Ej: Juzgado 1 Civil del Circuito"
+                          placeholder={lookupStatus === 'success' && !authorityName ? 'No encontrado — completa manualmente' : 'Ej: Juzgado 1 Civil del Circuito'}
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Demandante(s)</Label>
+                        <Label className="flex items-center gap-2">
+                          Demandante(s)
+                          <AutoFillBadge filled={!!demandantes && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={demandantes}
                           onChange={(e) => setDemandantes(e.target.value)}
-                          placeholder="Nombre del demandante"
+                          placeholder={lookupStatus === 'success' && !demandantes ? 'No encontrado — completa manualmente' : 'Nombre del demandante'}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Demandado(s)</Label>
+                        <Label className="flex items-center gap-2">
+                          Demandado(s)
+                          <AutoFillBadge filled={!!demandados && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={demandados}
                           onChange={(e) => setDemandados(e.target.value)}
-                          placeholder="Nombre del demandado"
+                          placeholder={lookupStatus === 'success' && !demandados ? 'No encontrado — completa manualmente' : 'Nombre del demandado'}
                         />
                       </div>
                     </div>
@@ -945,28 +953,37 @@ export function CreateWorkItemWizard({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label>Juzgado / Tribunal</Label>
+                      <Label className="flex items-center gap-2">
+                        Juzgado / Tribunal
+                        <AutoFillBadge filled={!!authorityName && lookupStatus === 'success'} />
+                      </Label>
                       <Input
                         value={authorityName}
                         onChange={(e) => setAuthorityName(e.target.value)}
-                        placeholder="Ej: Tribunal Administrativo de Cundinamarca"
+                        placeholder={lookupStatus === 'success' && !authorityName ? 'No encontrado — completa manualmente' : 'Ej: Tribunal Administrativo de Cundinamarca'}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Demandante(s)</Label>
+                        <Label className="flex items-center gap-2">
+                          Demandante(s)
+                          <AutoFillBadge filled={!!demandantes && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={demandantes}
                           onChange={(e) => setDemandantes(e.target.value)}
-                          placeholder="Nombre del demandante"
+                          placeholder={lookupStatus === 'success' && !demandantes ? 'No encontrado — completa manualmente' : 'Nombre del demandante'}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Demandado(s)</Label>
+                        <Label className="flex items-center gap-2">
+                          Demandado(s)
+                          <AutoFillBadge filled={!!demandados && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={demandados}
                           onChange={(e) => setDemandados(e.target.value)}
-                          placeholder="Nombre del demandado"
+                          placeholder={lookupStatus === 'success' && !demandados ? 'No encontrado — completa manualmente' : 'Nombre del demandado'}
                         />
                       </div>
                     </div>
@@ -997,16 +1014,33 @@ export function CreateWorkItemWizard({
                 {workflowType === 'TUTELA' && (
                   <>
                     <div className="space-y-2">
-                      <Label>Accionado</Label>
+                      <Label className="flex items-center gap-2">
+                        Accionado
+                        <AutoFillBadge filled={!!accionado && lookupStatus === 'success'} />
+                      </Label>
                       <Input
                         value={accionado}
                         onChange={(e) => setAccionado(e.target.value)}
-                        placeholder="Ej: EPS Sanitas"
+                        placeholder={lookupStatus === 'success' && !accionado ? 'No encontrado — completa manualmente' : 'Ej: EPS Sanitas'}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        Accionante (Demandante)
+                        <AutoFillBadge filled={!!demandantes && lookupStatus === 'success'} />
+                      </Label>
+                      <Input
+                        value={demandantes}
+                        onChange={(e) => setDemandantes(e.target.value)}
+                        placeholder={lookupStatus === 'success' && !demandantes ? 'No encontrado — completa manualmente' : 'Nombre del accionante'}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Fecha de Radicación</Label>
+                        <Label className="flex items-center gap-2">
+                          Fecha de Radicación
+                          <AutoFillBadge filled={!!tutelaFilingDate && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           type="date"
                           value={tutelaFilingDate}
@@ -1014,11 +1048,16 @@ export function CreateWorkItemWizard({
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Juzgado</Label>
+                        <Label className="flex items-center gap-2">
+                          Juzgado
+                          <AutoFillBadge filled={!!authorityName && lookupStatus === 'success'} />
+                        </Label>
                         <Input
                           value={authorityName}
                           onChange={(e) => setAuthorityName(e.target.value)}
-                          placeholder="Ej: Juzgado 1 Civil Municipal"
+                          placeholder={lookupStatus === 'success' && !authorityName ? 'No encontrado — completa manualmente' : 'Ej: Juzgado 1 Civil Municipal'}
+                          readOnly={!!authorityName && lookupStatus === 'success'}
+                          className={authorityName && lookupStatus === 'success' ? 'bg-muted/50' : ''}
                         />
                       </div>
                     </div>
@@ -1198,101 +1237,14 @@ export function CreateWorkItemWizard({
     </Dialog>
   );
 }
-
-// Process Preview Component
-function ProcessPreview({
-  data,
-  cgpPhase,
-  classificationReason,
-  sourceUsed,
-  eventsCount,
-}: {
-  data?: ProcessData;
-  cgpPhase: 'FILING' | 'PROCESS';
-  classificationReason?: string;
-  sourceUsed?: string | null;
-  eventsCount: number;
-}) {
-  if (!data) return null;
-  
+// --- Helper: Auto-fill badge ---
+function AutoFillBadge({ filled }: { filled: boolean }) {
+  if (!filled) return null;
   return (
-    <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-5 w-5 text-primary" />
-          <span className="font-medium">Proceso encontrado</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={cgpPhase === 'PROCESS' ? 'default' : 'secondary'}>
-            {cgpPhase === 'PROCESS' ? 'Proceso (Admitido)' : 'Radicación (Pendiente)'}
-          </Badge>
-          {sourceUsed && (
-            <Badge variant="outline" className="text-xs">
-              {sourceUsed}
-            </Badge>
-          )}
-        </div>
-      </div>
-      
-      <Separator />
-      
-      <div className="grid gap-2 text-sm">
-        {data.despacho && (
-          <div className="flex items-start gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div>
-              <span className="text-muted-foreground">Despacho:</span>
-              <span className="ml-2">{data.despacho}</span>
-            </div>
-          </div>
-        )}
-        
-        {(data.demandante || data.demandado) && (
-          <div className="flex items-start gap-2">
-            <Users className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div className="flex-1 space-y-1">
-              {data.demandante && (
-                <div>
-                  <span className="text-muted-foreground">Demandante:</span>
-                  <span className="ml-2">{data.demandante}</span>
-                </div>
-              )}
-              {data.demandado && (
-                <div>
-                  <span className="text-muted-foreground">Demandado:</span>
-                  <span className="ml-2">{data.demandado}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {data.tipo_proceso && (
-          <div className="flex items-start gap-2">
-            <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div>
-              <span className="text-muted-foreground">Tipo:</span>
-              <span className="ml-2">{data.tipo_proceso}</span>
-            </div>
-          </div>
-        )}
-        
-        {eventsCount > 0 && (
-          <div className="flex items-start gap-2">
-            <Calendar className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-            <div>
-              <span className="text-muted-foreground">Actuaciones:</span>
-              <span className="ml-2">{eventsCount}</span>
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {classificationReason && (
-        <p className="text-xs text-muted-foreground bg-background/50 p-2 rounded">
-          {classificationReason}
-        </p>
-      )}
-    </div>
+    <Badge variant="outline" className="text-[10px] h-4 px-1.5 bg-primary/10 text-primary border-primary/20">
+      Auto-llenado
+    </Badge>
   );
 }
+
+// ProcessPreview moved to WizardProcessPreview.tsx
