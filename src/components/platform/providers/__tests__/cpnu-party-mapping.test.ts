@@ -228,6 +228,35 @@ describe("CPNU party/date/actuacion extraction (regression)", () => {
     expect(proceso.fecha_radicacion).toBe("2026-02-13");
   });
 
+  it("parses 'Role: Name' format from sujetosProcesales string", () => {
+    // Simulates the CPNU search endpoint returning "Demandante: NAME | Demandado: NAME"
+    const sujetosProcesalesStr = "Demandante: OFELIA MERCEDES MAYA MARTINEZ | Demandado: TIERRADENTRO";
+    const parts = sujetosProcesalesStr.split('|').map(s => s.trim().replace(/\.+$/, '')).filter(Boolean);
+
+    let parsedDemandante: string | undefined;
+    let parsedDemandado: string | undefined;
+    const sujetos: { tipo: string; nombre: string }[] = [];
+
+    for (const raw of parts) {
+      const roleMatch = raw.match(/^(Demandante|Demandado|Accionante|Accionado|Actor|Tutelante)\s*:\s*(.+)$/i);
+      if (roleMatch) {
+        const tipo = roleMatch[1].trim();
+        const nombre = roleMatch[2].trim().replace(/\.+$/, '');
+        sujetos.push({ tipo, nombre });
+        if (/demandante|accionante|actor|tutelante/i.test(tipo) && !parsedDemandante) parsedDemandante = nombre;
+        if (/demandado|accionado/i.test(tipo) && !parsedDemandado) parsedDemandado = nombre;
+      } else {
+        sujetos.push({ tipo: 'Parte', nombre: raw });
+      }
+    }
+
+    expect(parsedDemandante).toBe("OFELIA MERCEDES MAYA MARTINEZ");
+    expect(parsedDemandado).toBe("TIERRADENTRO");
+    expect(sujetos).toHaveLength(2);
+    expect(sujetos[0].tipo).toBe("Demandante");
+    expect(sujetos[1].tipo).toBe("Demandado");
+  });
+
   it("INCOMPLETE_DATA (actuaciones 406) still returns ok:true and found:true when Phase 1 has results", () => {
     // Simulates: Phase 1 QUERY_LIST returns parties, actuaciones returns 406
     // orchestrateSearch marks INCOMPLETE_DATA but phase1Results has data
