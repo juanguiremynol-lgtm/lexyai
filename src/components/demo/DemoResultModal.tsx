@@ -297,6 +297,29 @@ export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalPro
             {/* Andro IA mascot */}
             <DemoAteniaMascot actuacionesCount={actuaciones.length} />
 
+            {/* Dev-only debug panel — provider fan-out verification */}
+            {import.meta.env.DEV && (
+              <details className="rounded-lg border border-dashed border-muted-foreground/30 p-3 text-xs font-mono">
+                <summary className="cursor-pointer text-muted-foreground font-medium">
+                  🔧 Debug: Provider Fan-out ({meta.provider_outcomes?.length || 0} providers)
+                </summary>
+                <div className="mt-2 space-y-1">
+                  <p>providers_checked = {providersChecked} [{meta.provider_outcomes?.map(o => o.name).join(", ")}]</p>
+                  <p>providers_with_data = {providersWithData}</p>
+                  <div className="mt-1 space-y-0.5">
+                    {meta.provider_outcomes?.map(o => (
+                      <p key={o.name} className={o.outcome === "success" ? "text-emerald-600" : o.outcome === "no-data" ? "text-muted-foreground" : "text-red-500"}>
+                        {o.name}: {o.outcome} | {o.found_status} | {o.latency_ms}ms | acts={o.actuaciones_count} est={o.estados_count}
+                      </p>
+                    ))}
+                  </div>
+                  <p className="mt-1">category: {category_inference?.category} ({category_inference?.confidence})</p>
+                  <p>signals: [{category_inference?.signals?.join(", ")}]</p>
+                  {category_inference?.caveats && <p>caveats: [{category_inference.caveats.join(" | ")}]</p>}
+                </div>
+              </details>
+            )}
+
             {/* CTA */}
             <div className="rounded-lg border bg-primary/5 p-6 text-center space-y-3">
               <h4 className="text-lg font-semibold">
