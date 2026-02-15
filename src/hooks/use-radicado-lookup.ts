@@ -31,9 +31,12 @@ export interface ProcessData {
   provider_summary?: Record<string, { ok: boolean; found: boolean; actuaciones_count?: number; error?: string }>;
 }
 
+export type FoundStatus = "FOUND_COMPLETE" | "FOUND_PARTIAL" | "NOT_FOUND";
+
 export interface LookupResult {
   ok: boolean;
   found_in_source: boolean;
+  found_status?: FoundStatus;
   source_used: string | null;
   sources_checked: string[];
   sources_found?: string[];
@@ -196,6 +199,7 @@ export function useRadicadoLookup(): UseRadicadoLookupReturn {
       const lookupResult: LookupResult = {
         ok: data.ok,
         found_in_source: data.found_in_source,
+        found_status: data.found_status || (data.found_in_source ? "FOUND_COMPLETE" : "NOT_FOUND"),
         source_used: data.source_used,
         sources_checked: data.sources_checked || [],
         new_events_count: data.new_events_count,
