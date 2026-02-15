@@ -1,73 +1,94 @@
+/* ── AndroMouthFrame — PNG-based mascot hero ── */
+
 .androHero {
-  padding: clamp(32px, 6vw, 90px) 16px;
+  padding: clamp(16px, 4vw, 60px) 16px;
   display: grid;
   place-items: center;
 }
 
 .androStage {
   position: relative;
-  width: min(1100px, 100%);
-  aspect-ratio: 1200 / 700;
+  width: min(1200px, 100%);
+  /* Match the PNG's natural aspect ratio (roughly 1.45:1) */
+  aspect-ratio: 1460 / 960;
   overflow: visible;
 }
 
-.androSvg {
+/* Robot face PNG — behind everything */
+.androFrameImg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
   z-index: 1;
 }
 
-/* Card container sits exactly in the mouth cutout coordinates */
-.mouthCardSlot {
+/* Card container positioned inside the mouth opening */
+.androMouthSlot {
   position: absolute;
-  left: 22.5%;
-  top: 35.7%;
-  width: 55%;
-  height: 37.2%;
   z-index: 2;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2% 3%;
   pointer-events: auto;
+  /* Subtle depth inside the mouth cavity */
+  border-radius: 20px;
 }
 
-/* Ensure card fills the slot cleanly */
-.mouthCardSlot > * {
+/* Card inside the slot */
+.androMouthSlot > * {
   width: 100%;
-  height: 100%;
-  border-radius: 24px;
-  box-shadow: 0 12px 30px rgba(12, 18, 40, 0.16);
-  overflow: auto;
+  max-height: 100%;
+  overflow-y: auto;
 }
 
-/* Responsive: narrow screens */
-@media (max-width: 640px) {
+/* ── Responsive: narrow screens ── */
+@media (max-width: 768px) {
   .androStage {
-    aspect-ratio: 1 / 1;
+    width: 100%;
+    aspect-ratio: auto;
   }
-  .mouthCardSlot {
-    left: 6%;
-    top: 34%;
-    width: 88%;
-    height: 42%;
+
+  .androFrameImg {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .androMouthSlot {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-top: -28%;
+    padding: 0 4%;
+    padding-bottom: 8%;
   }
 }
 
-/* Breathing animation — respects reduced motion */
+/* ── Breathing animation — respects reduced motion ── */
 @media (prefers-reduced-motion: no-preference) {
-  .androSvg {
+  .androFrameImg {
     animation: androBreath 5s ease-in-out infinite;
-    transform-origin: 50% 55%;
+    transform-origin: 50% 45%;
   }
+
   @keyframes androBreath {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.01); }
+    50% { transform: scale(1.008); }
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .androSvg {
+  .androFrameImg {
     animation: none !important;
   }
 }
