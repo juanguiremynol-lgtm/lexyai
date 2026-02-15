@@ -53,7 +53,14 @@ export function WizardProcessPreview({ lookupResult, radicado, workflowType }: W
       <div className="flex items-center justify-between px-4 pt-4">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-primary" />
-          <span className="font-display font-semibold text-sm">Proceso Encontrado</span>
+          <span className="font-display font-semibold text-sm">
+            {lookupResult.found_status === 'FOUND_PARTIAL' ? 'Proceso Encontrado (parcial)' : 'Proceso Encontrado'}
+          </span>
+          {lookupResult.found_status === 'FOUND_PARTIAL' && (
+            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+              Datos parciales
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {lookupResult.cgp_phase && (
