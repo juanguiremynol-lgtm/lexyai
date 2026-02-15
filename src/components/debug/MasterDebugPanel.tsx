@@ -209,14 +209,22 @@ function SecretReadinessTab() {
         .select("id, name, key")
         .eq("is_enabled", true);
 
-      if (!connectors?.length) {
-        toast.info("No hay conectores activos");
-        setResults([]);
-        return;
+      const out: any[] = [];
+
+      // Show built-in providers first
+      for (const b of BUILTIN_CONNECTORS) {
+        out.push({
+          connector_id: b.id,
+          connector_name: b.name,
+          is_builtin: true,
+          can_decrypt: true, // Built-in = no secret needed
+        });
       }
 
-      const out: any[] = [];
-      for (const c of connectors) {
+      // Then check external connectors
+      for (const c of connectors || []) {
+        // Skip if it's a built-in duplicate
+        if (BUILTIN_CONNECTORS.some(b => b.key.toLowerCase() === c.key?.toLowerCase())) continue;
         try {
           const resp = await fetch(
             `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/provider-secret-readiness?connector_id=${encodeURIComponent(c.id)}`,
@@ -227,13 +235,13 @@ function SecretReadinessTab() {
             }
           );
           const data = await resp.json();
-          out.push({ ...data, connector_id: c.id, connector_name: c.name });
+          out.push({ ...data, connector_id: c.id, connector_name: c.name, is_builtin: false });
         } catch (err: any) {
-          out.push({ status: "ERROR", can_decrypt: false, connector_id: c.id, connector_name: c.name });
+          out.push({ status: "ERROR", can_decrypt: false, connector_id: c.id, connector_name: c.name, is_builtin: false });
         }
       }
       setResults(out);
-      toast.success(`Readiness checked for ${out.length} connector(s)`);
+      toast.success(`Readiness checked for ${out.length} provider(s)`);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -244,7 +252,7 @@ function SecretReadinessTab() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Verifica el estado de secretos de todos los conectores activos</p>
+        <p className="text-sm text-muted-foreground">Verifica el estado de secretos de todos los proveedores</p>
         <Button variant="outline" size="sm" onClick={check} disabled={loading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
           Verificar
@@ -258,19 +266,37 @@ function SecretReadinessTab() {
               key={i}
               className={cn(
                 "flex items-center justify-between p-2.5 rounded-lg border text-sm",
-                r.can_decrypt ? "bg-emerald-500/10 border-emerald-500/30" : "bg-destructive/10 border-destructive/30"
+                r.is_builtin
+                  ? "bg-blue-500/10 border-blue-500/30"
+                  : r.can_decrypt ? "bg-emerald-500/10 border-emerald-500/30" : "bg-destructive/10 border-destructive/30"
               )}
             >
               <div className="flex items-center gap-2">
-                {r.can_decrypt ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-destructive" />}
+                {r.is_builtin ? (
+                  <Server className="h-4 w-4 text-blue-500" />
+                ) : r.can_decrypt ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-destructive" />
+                )}
                 <span className="font-medium">{r.connector_name || r.connector_id}</span>
-                <Badge variant="outline" className="text-[10px]">{r.instance_scope || "PLATFORM"}</Badge>
+                {r.is_builtin ? (
+                  <Badge variant="info" className="text-[10px]">BUILT-IN</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">{r.instance_scope || "PLATFORM"}</Badge>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                {r.platform_key_mode && <Badge variant="secondary" className="text-[10px]">{r.platform_key_mode}</Badge>}
-                <Badge variant={r.can_decrypt ? "secondary" : "destructive"} className="text-[10px]">
-                  {r.can_decrypt ? "OK" : r.failure_reason || "FAIL"} {r.key_version ? `v${r.key_version}` : ""}
-                </Badge>
+                {r.is_builtin ? (
+                  <span className="text-xs text-blue-400">Edge function directa — sin secreto requerido</span>
+                ) : (
+                  <>
+                    {r.platform_key_mode && <Badge variant="secondary" className="text-[10px]">{r.platform_key_mode}</Badge>}
+                    <Badge variant={r.can_decrypt ? "secondary" : "destructive"} className="text-[10px]">
+                      {r.can_decrypt ? "OK" : r.failure_reason || "FAIL"} {r.key_version ? `v${r.key_version}` : ""}
+                    </Badge>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -303,46 +329,102 @@ function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado
 
       if (!wi) { toast.error(`No existe work_item con radicado ${normalized}`); return; }
 
-      // Use first resolved connector
-      let connector = resolvedConnectors[0];
+      // Separate built-in and external connectors
+      const builtinConnectors = resolvedConnectors.filter(c => c.is_builtin);
+      const externalConnectors = resolvedConnectors.filter(c => !c.is_builtin);
 
-      if (!connector) { toast.error("No se encontró conector. Seleccione uno manualmente."); return; }
+      // ── Built-in E2E flow ──
+      for (const builtin of builtinConnectors) {
+        setSteps(s => [...s, {
+          name: `BUILTIN_${builtin.key.toUpperCase()}_IDENTIFIED`,
+          ok: true,
+          detail: { type: "built-in", key: builtin.key, scope: builtin.scope },
+          message: `Edge function directa`,
+        }]);
 
-      setSteps(s => [...s, { name: "CONNECTOR_RESOLVED", ok: true, detail: { id: connector!.id, name: connector!.name, key: connector!.key } }]);
-
-      // Find instance
-      const { data: instances } = await (supabase.from("provider_instances") as any)
-        .select("id, scope")
-        .eq("connector_id", connector.id)
-        .eq("is_enabled", true)
-        .limit(1);
-
-      const instance = instances?.[0];
-      if (!instance) {
-        setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: false, message: `No hay instancia activa para ${connector!.name}` }]);
-        toast.error(`No hay instancia PLATFORM activa para ${connector!.name}`);
-        return;
+        // Call the actual sync
+        const t1 = Date.now();
+        try {
+          const { data: syncData, error: syncErr } = await supabase.functions.invoke("sync-by-work-item", {
+            body: { work_item_id: wi.id },
+          });
+          setSteps(s => [...s, {
+            name: `BUILTIN_${builtin.key.toUpperCase()}_SYNC`,
+            ok: !syncErr && syncData?.ok !== false,
+            detail: syncErr ? { error: syncErr.message } : {
+              provider: syncData?.provider,
+              actuaciones: syncData?.actuaciones_count ?? syncData?.total_actuaciones,
+              status: syncData?.scrape_status || syncData?.code,
+            },
+            duration_ms: Date.now() - t1,
+          }]);
+        } catch (err: any) {
+          setSteps(s => [...s, {
+            name: `BUILTIN_${builtin.key.toUpperCase()}_SYNC`,
+            ok: false,
+            detail: { error: err.message },
+            duration_ms: Date.now() - t1,
+          }]);
+        }
       }
 
-      setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: true, detail: { id: instance.id, scope: instance.scope } }]);
+      // ── External E2E flow (existing logic) ──
+      for (const connector of externalConnectors) {
+        setSteps(s => [...s, { name: "CONNECTOR_RESOLVED", ok: true, detail: { id: connector.id, name: connector.name, key: connector.key, type: "external" } }]);
 
-      const { data, error } = await supabase.functions.invoke("provider-wizard-run-e2e", {
-        body: { work_item_id: wi.id, connector_id: connector.id, instance_id: instance.id, input_type: "RADICADO", value: normalized },
-      });
+        // Find instance
+        const { data: instances } = await (supabase.from("provider_instances") as any)
+          .select("id, scope")
+          .eq("connector_id", connector.id)
+          .eq("is_enabled", true)
+          .limit(1);
 
-      if (error) throw error;
+        const instance = instances?.[0];
+        if (!instance) {
+          setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: false, message: `No hay instancia activa para ${connector.name}` }]);
+          continue;
+        }
 
-      const wizardSteps = (data?.steps || []).map((s: any) => ({
-        name: s.step || s.name,
-        ok: s.status === "OK" || s.ok === true,
-        status: s.status,
-        detail: s.detail,
-        duration_ms: s.duration_ms,
-      }));
-      setSteps(s => [...s, ...wizardSteps]);
+        setSteps(s => [...s, { name: "INSTANCE_RESOLVE", ok: true, detail: { id: instance.id, scope: instance.scope } }]);
 
-      if (data?.ok) toast.success("E2E Wizard completado");
-      else toast.warning("E2E Wizard completado con errores");
+        const { data, error } = await supabase.functions.invoke("provider-wizard-run-e2e", {
+          body: { work_item_id: wi.id, connector_id: connector.id, instance_id: instance.id, input_type: "RADICADO", value: normalized },
+        });
+
+        if (error) throw error;
+
+        const wizardSteps = (data?.steps || []).map((s: any) => ({
+          name: s.step || s.name,
+          ok: s.status === "OK" || s.ok === true,
+          status: s.status,
+          detail: s.detail,
+          duration_ms: s.duration_ms,
+        }));
+        setSteps(s => [...s, ...wizardSteps]);
+      }
+
+      // DB verification
+      const t5 = Date.now();
+      const [{ count: actCount }, { count: pubCount }] = await Promise.all([
+        (supabase.from("work_item_acts") as any).select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false),
+        supabase.from("work_item_publicaciones").select("id", { count: "exact", head: true }).eq("work_item_id", wi.id).eq("is_archived", false),
+      ]);
+
+      const { data: srcData } = await (supabase.from("work_item_acts") as any)
+        .select("source")
+        .eq("work_item_id", wi.id)
+        .eq("is_archived", false);
+      const counts: Record<string, number> = {};
+      for (const a of srcData || []) counts[a.source || "unknown"] = (counts[a.source || "unknown"] || 0) + 1;
+
+      setSteps(s => [...s, {
+        name: "VERIFY_DB_DATA",
+        ok: (actCount || 0) > 0,
+        detail: { actuaciones_total: actCount, publicaciones: pubCount, source_breakdown: counts },
+        duration_ms: Date.now() - t5,
+      }]);
+
+      toast.success("E2E Wizard completado");
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -350,15 +432,18 @@ function E2EWizardTab({ radicado, workflowType, resolvedConnectors }: { radicado
     }
   };
 
-  const resolvedName = resolvedConnectors.length > 0
-    ? resolvedConnectors.map(c => c.name).join(", ")
-    : "Sin proveedores";
+  const builtinNames = resolvedConnectors.filter(c => c.is_builtin).map(c => c.name);
+  const externalNames = resolvedConnectors.filter(c => !c.is_builtin).map(c => c.name);
+  const resolvedLabel = [
+    ...builtinNames.map(n => `${n} (built-in)`),
+    ...externalNames,
+  ].join(", ") || "Sin proveedores";
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Resolve → Sync → Trace para el radicado con conector: <strong>{resolvedName}</strong>
+          E2E para el radicado con: <strong>{resolvedLabel}</strong>
         </p>
         <Button variant="outline" size="sm" onClick={run} disabled={loading || radicado.replace(/\D/g, "").length !== 23}>
           {loading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
@@ -416,8 +501,8 @@ function PipelineDebugTab({ radicado, workflowType, resolvedConnectors }: {
         setSteps(s => [...s, { name: `${config.secondary!.toUpperCase()}_HEALTH`, ok: !se2, detail: sd2, duration_ms: Date.now() - t2b }]);
       }
 
-      // External provider test — use resolved connectors
-      const extConnectors = resolvedConnectors;
+      // External provider test — only non-built-in connectors
+      const extConnectors = resolvedConnectors.filter(c => !c.is_builtin);
 
       for (const connector of extConnectors) {
         const t3 = Date.now();
@@ -488,7 +573,7 @@ function PipelineDebugTab({ radicado, workflowType, resolvedConnectors }: {
   };
 
   const config = BUILTIN_PROVIDERS[workflowType];
-  const extConnectors = resolvedConnectors;
+  const extConnectors = resolvedConnectors.filter(c => !c.is_builtin);
 
   return (
     <div className="space-y-3">
@@ -572,8 +657,8 @@ function SyncTestTab({ radicado, workflowType, resolvedConnectors }: {
         duration_ms: Date.now() - t3,
       }]);
 
-      // External provider sync — use resolved connectors
-      const extConnectors = resolvedConnectors;
+      // External provider sync — only non-built-in connectors
+      const extConnectors = resolvedConnectors.filter(c => !c.is_builtin);
 
       for (const connector of extConnectors) {
         const { data: instances } = await (supabase.from("provider_instances") as any)
@@ -644,7 +729,7 @@ function SyncTestTab({ radicado, workflowType, resolvedConnectors }: {
     }
   };
 
-  const extConnectors = resolvedConnectors;
+  const extConnectors = resolvedConnectors.filter(c => !c.is_builtin);
   const extNames = extConnectors.map(c => c.name).join(", ");
 
   return (
@@ -789,6 +874,11 @@ function ExternalProviderStatusTab({ connectors, loading: connectorsLoading }: {
                 <span className="font-medium">{c.name}</span>
                 <span className="text-xs text-muted-foreground ml-2 font-mono">{c.key}</span>
               </div>
+              {c.is_builtin ? (
+                <Badge variant="info" className="text-[10px]">BUILT-IN</Badge>
+              ) : (
+                <Badge className="text-[10px] bg-purple-500/20 text-purple-400 border-purple-500/30">EXTERNAL</Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-[10px]">{c.scope}</Badge>
