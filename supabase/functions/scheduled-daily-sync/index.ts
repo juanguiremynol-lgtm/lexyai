@@ -167,13 +167,10 @@ Deno.serve(async (req) => {
     } catch { /* non-blocking */ }
 
     // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL (budget exhausted) runs ──
+    // FIX: Allow continuations to chain recursively (removed !isContinuation guard)
     const partialOrgs = allResults.filter(r => r.status === "PARTIAL" || r.status === "CONTINUING");
-    if (partialOrgs.length > 0 && !isContinuation) {
-      // Only auto-continue on first run; continuations are handled below per-org
-    }
     for (const partialResult of partialOrgs) {
       try {
-        // Find the cursor position from the ledger
         const { data: ledgerRow } = await supabase
           .from("auto_sync_daily_ledger")
           .select("cursor_last_work_item_id")
@@ -182,8 +179,7 @@ Deno.serve(async (req) => {
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
         if (cursor) {
-          console.log(`[daily-sync] Scheduling continuation for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)}`);
-          // Fire-and-forget continuation via fetch (non-blocking)
+          console.log(`[daily-sync] Scheduling continuation for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} (chain=${isContinuation ? 'yes' : 'first'})`);
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
@@ -442,13 +438,12 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
 
   const syncOk = shouldCountAsSuccess(syncResult);
 
-  // Update last_synced_at only on true success
-  if (syncOk) {
-    await supabase
-      .from("work_items")
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq("id", item.id);
-  }
+  // FIX: ALWAYS update last_synced_at after attempting sync (even partial success)
+  // This ensures continuation runs don't re-select already-attempted items
+  await supabase
+    .from("work_items")
+    .update({ last_synced_at: new Date().toISOString() })
+    .eq("id", item.id);
 
   // Sync publicaciones if act sync succeeded and workflow supports it
   if (
@@ -456,7 +451,6 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
     shouldRunPublicaciones(syncResult) &&
     (PUBLICACIONES_WORKFLOWS as readonly string[]).includes(item.workflow_type)
   ) {
-    // For PENAL_906 heavy cases, enqueue instead of inline
     if (item.workflow_type === "PENAL_906") {
       try {
         await (supabase.from("sync_retry_queue") as any).upsert(
@@ -477,7 +471,6 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
         );
       } catch { /* non-blocking */ }
     } else {
-      // Heavy item delay
       if ((item.total_actuaciones || 0) >= 100) {
         await new Promise((r) => setTimeout(r, 2000));
       }
@@ -492,11 +485,7 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
   }
 
   // If sync wasn't successful and wasn't scraping_pending, this is a soft failure
-  // but we still count it as processed (the item was attempted)
   if (!syncOk && !isScrapingPending(syncResult)) {
-    // Item returned a provider error but didn't throw — still counts as attempted
-    // Don't throw here; the caller already counted it as success if we reach this point
-    // Actually we need to signal failure if sync wasn't ok
     if (syncResult?.ok === false) {
       throw new Error(syncResult?.message || syncResult?.code || "sync returned ok=false");
     }
