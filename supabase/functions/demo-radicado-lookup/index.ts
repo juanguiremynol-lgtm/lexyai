@@ -4,9 +4,10 @@
  * Zero-auth, zero-DB-write lookup for the landing page "Prueba Andromeda" experience.
  * All external calls route through direct fetch with purpose "judicial_demo".
  * 
- * DB Fallback: If external providers return 0 estados but a matching work_item
- * exists in the database, we read existing work_item_publicaciones as a fallback
- * to ensure estados + PDF links are always surfaced when data exists.
+ * Three-Phase Architecture:
+ * Phase 1: Check demo_radicado_cache for instant render
+ * Phase 2: Fan-out to all providers in parallel (always)
+ * Phase 3: Strict append-only merge + cache update
  * 
  * Provider Registry:
  * - CPNU (actuaciones + basic metadata)
@@ -1039,6 +1040,115 @@ interface MetadataConflict {
 }
 
 // ═══════════════════════════════════════════
+// CACHE HELPERS
+// ═══════════════════════════════════════════
+
+function getSupabaseAdmin() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    { auth: { persistSession: false } },
+  );
+}
+
+interface CachedPayload {
+  proceso: Record<string, any>;
+  partes: any[];
+  actuaciones: DemoActuacion[];
+  estados: DemoEstado[];
+}
+
+function mergeWithStrictRules(cached: CachedPayload, fresh: CachedPayload): CachedPayload {
+  const merged = { ...cached };
+
+  // ACTUACIONES: append new, never delete existing (dedupe by fecha|tipo key)
+  const existingActKeys = new Set(
+    (cached.actuaciones || []).map(a => `${a.fecha}|${(a.tipo || "").toLowerCase().trim().slice(0, 60)}`)
+  );
+  const newActs = (fresh.actuaciones || []).filter(a => {
+    const key = `${a.fecha}|${(a.tipo || "").toLowerCase().trim().slice(0, 60)}`;
+    return !existingActKeys.has(key);
+  });
+  merged.actuaciones = [...(cached.actuaciones || []), ...newActs];
+
+  // ESTADOS: append new, never delete existing
+  const existingEstKeys = new Set(
+    (cached.estados || []).map(e => `${e.fecha}|${(e.tipo || "").toLowerCase().trim().slice(0, 40)}`)
+  );
+  const newEstados = (fresh.estados || []).filter(e => {
+    const key = `${e.fecha}|${(e.tipo || "").toLowerCase().trim().slice(0, 40)}`;
+    return !existingEstKeys.has(key);
+  });
+  merged.estados = [...(cached.estados || []), ...newEstados];
+
+  // Enrich attachments on existing estados that were missing them
+  for (const freshEst of (fresh.estados || [])) {
+    if (freshEst.attachments && freshEst.attachments.length > 0) {
+      const key = `${freshEst.fecha}|${(freshEst.tipo || "").toLowerCase().trim().slice(0, 40)}`;
+      const existing = merged.estados.find(e =>
+        `${e.fecha}|${(e.tipo || "").toLowerCase().trim().slice(0, 40)}` === key
+      );
+      if (existing && (!existing.attachments || existing.attachments.length === 0)) {
+        existing.attachments = freshEst.attachments;
+      } else if (existing && existing.attachments) {
+        // Merge attachment URLs
+        const existingUrls = new Set(existing.attachments.map(a => a.url));
+        for (const att of freshEst.attachments) {
+          if (!existingUrls.has(att.url)) {
+            existing.attachments.push(att);
+          }
+        }
+      }
+    }
+  }
+
+  // Merge provenance sources on matched records
+  for (const freshAct of (fresh.actuaciones || [])) {
+    const key = `${freshAct.fecha}|${(freshAct.tipo || "").toLowerCase().trim().slice(0, 60)}`;
+    const existing = merged.actuaciones.find(a =>
+      `${a.fecha}|${(a.tipo || "").toLowerCase().trim().slice(0, 60)}` === key
+    );
+    if (existing) {
+      for (const src of freshAct.sources) {
+        if (!existing.sources.includes(src)) existing.sources.push(src);
+      }
+      // Prefer richer text
+      if (freshAct.descripcion && freshAct.descripcion.length > (existing.descripcion?.length || 0)) {
+        existing.descripcion = freshAct.descripcion;
+      }
+    }
+  }
+
+  // PARTES: enrich, never remove
+  const existingPartyKeys = new Set((cached.partes || []).map((p: any) => `${p.tipo}|${p.nombre}`));
+  const newPartes = (fresh.partes || []).filter((p: any) => !existingPartyKeys.has(`${p.tipo}|${p.nombre}`));
+  merged.partes = [...(cached.partes || []), ...newPartes];
+
+  // PROCESO: enrich optional fields, never overwrite non-empty with empty
+  if (fresh.proceso) {
+    if (!merged.proceso) merged.proceso = {};
+    for (const [key, value] of Object.entries(fresh.proceso)) {
+      if (value && (!merged.proceso[key] || merged.proceso[key] === "" || merged.proceso[key] === null)) {
+        merged.proceso[key] = value;
+      }
+    }
+  }
+
+  return merged;
+}
+
+function simpleHash(obj: unknown): string {
+  const str = JSON.stringify(obj);
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return hash.toString(36);
+}
+
+// ═══════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════
 Deno.serve(async (req: Request) => {
@@ -1075,12 +1185,34 @@ Deno.serve(async (req: Request) => {
       return json({ error: "INVALID_RADICADO", message: `El radicado debe tener exactamente 23 dígitos numéricos (tiene ${radicado.length}).` }, 200);
     }
 
-    // 3. Fan-out to ALL registered providers in parallel
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // ═══ PHASE 1: Check cache ═══
+    let cached: any = null;
+    let isFresh = false;
+    let cacheAgeMinutes: number | null = null;
+    try {
+      const { data: cacheRow } = await supabaseAdmin
+        .from("demo_radicado_cache")
+        .select("*")
+        .eq("radicado_normalized", radicado)
+        .maybeSingle();
+      if (cacheRow) {
+        cached = cacheRow;
+        const ageMs = Date.now() - new Date(cacheRow.last_refresh_at).getTime();
+        cacheAgeMinutes = Math.round(ageMs / 60000);
+        const ttlMs = (cacheRow.cache_ttl_hours || 24) * 3600 * 1000;
+        isFresh = ageMs < ttlMs;
+      }
+    } catch (cacheErr) {
+      console.warn("[demo] Cache read failed (non-blocking):", cacheErr);
+    }
+
+    // ═══ PHASE 2: Always fan out to providers ═══
     const providerPromises = DEMO_PROVIDER_REGISTRY.map(async (config) => {
       const baseUrl = config.envBaseUrl ? Deno.env.get(config.envBaseUrl) : null;
       const apiKey = resolveApiKey(config.envApiKey);
 
-      // CPNU doesn't need baseUrl/apiKey
       if (config.name !== "CPNU" && (!baseUrl || !apiKey)) {
         console.log(`[demo] ${config.name} skipped: missing config (BASE_URL=${!!baseUrl}, API_KEY=${!!apiKey})`);
         return {
@@ -1121,7 +1253,7 @@ Deno.serve(async (req: Request) => {
       console.log(`[demo] ${r.provider}: outcome=${r.outcome}, found=${r.found_status}, acts=${r.actuaciones.length}, estados=${r.estados.length}, latency=${r.latency_ms}ms${r.error ? `, error=${r.error}` : ""}`);
     }
 
-    // 4. Collect and dedupe all actuaciones + estados
+    // 4. Collect and dedupe all actuaciones + estados from providers
     const allActs: DemoActuacion[] = [];
     const allEstados: DemoEstado[] = [];
     for (const r of results) {
@@ -1129,66 +1261,42 @@ Deno.serve(async (req: Request) => {
       allEstados.push(...r.estados);
     }
 
-    const actuaciones = dedupeActuaciones(allActs);
-    let estados = dedupeEstados(allEstados);
+    const freshActuaciones = dedupeActuaciones(allActs);
+    const freshEstados = dedupeEstados(allEstados);
 
-    // ── DB FALLBACK: if no estados from providers, check existing DB data ──
-    if (estados.length === 0) {
-      try {
-        const supabaseAdmin = createClient(
-          Deno.env.get("SUPABASE_URL")!,
-          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-          { auth: { persistSession: false } },
-        );
-        // Find work item by normalized radicado
-        const { data: wiRows } = await supabaseAdmin
-          .from("work_items")
-          .select("id")
-          .eq("radicado", radicado)
-          .limit(1);
-        const wi = wiRows?.[0];
-        if (wi) {
-          const { data: pubs } = await supabaseAdmin
-            .from("work_item_publicaciones")
-            .select("title, annotation, pdf_url, published_at, fecha_fijacion, tipo_publicacion, source, sources, entry_url")
-            .eq("work_item_id", wi.id)
-            .eq("is_archived", false)
-            .order("fecha_fijacion", { ascending: false, nullsFirst: false })
-            .limit(30);
-          if (pubs && pubs.length > 0) {
-            console.log(`[demo] DB fallback: found ${pubs.length} publicaciones for work_item ${wi.id}`);
-            const dbEstados: DemoEstado[] = pubs.map((p: any) => {
-              const fecha = normalizeDate(p.fecha_fijacion ?? p.published_at);
-              const attachments: DemoEstadoAttachment[] = [];
-              if (p.pdf_url && typeof p.pdf_url === "string" && p.pdf_url.startsWith("https")) {
-                attachments.push({
-                  type: p.pdf_url.toLowerCase().includes(".pdf") ? "pdf" : "link",
-                  url: p.pdf_url,
-                  label: "Ver PDF",
-                  provider: p.source || "DB",
-                });
-              }
-              if (p.entry_url && typeof p.entry_url === "string" && p.entry_url.startsWith("https") && p.entry_url !== p.pdf_url) {
-                attachments.push({ type: "link", url: p.entry_url, label: "Ver entrada", provider: p.source || "DB" });
-              }
-              const srcArr: string[] = Array.isArray(p.sources) && p.sources.length > 0 ? p.sources : [p.source || "DB"];
-              return {
-                tipo: p.tipo_publicacion || "Estado",
-                fecha: fecha || "",
-                descripcion: p.title ? redactPIIFromText(truncate(String(p.title), 200) || "") : (p.annotation ? redactPIIFromText(truncate(String(p.annotation), 200) || "") : null),
-                sources: srcArr,
-                attachments: attachments.length > 0 ? attachments : undefined,
-              };
-            }).filter((e: DemoEstado) => e.fecha || e.descripcion);
-            estados = dedupeEstados([...estados, ...dbEstados]);
-          }
-        }
-      } catch (dbErr) {
-        console.warn("[demo] DB fallback failed (non-blocking):", dbErr);
-      }
+    // ═══ PHASE 3: Merge with cache (strict append-only) ═══
+    const cachedPayload: CachedPayload = cached ? {
+      proceso: cached.proceso || {},
+      partes: cached.partes || [],
+      actuaciones: cached.actuaciones || [],
+      estados: cached.estados || [],
+    } : { proceso: {}, partes: [], actuaciones: [], estados: [] };
+
+    // Build fresh proceso metadata from provider results
+    const freshProceso: Record<string, any> = {};
+    const freshPartes: any[] = [];
+    for (const r of results) {
+      if (r.metadata?.despacho && !freshProceso.despacho) freshProceso.despacho = r.metadata.despacho;
+      if (r.metadata?.tipo_proceso && !freshProceso.tipo_proceso) freshProceso.tipo_proceso = r.metadata.tipo_proceso;
+      if (r.metadata?.fecha_radicacion && !freshProceso.fecha_radicacion) freshProceso.fecha_radicacion = r.metadata.fecha_radicacion;
+      if (r.parties?.demandante) freshPartes.push({ tipo: "demandante", nombre: r.parties.demandante });
+      if (r.parties?.demandado) freshPartes.push({ tipo: "demandado", nombre: r.parties.demandado });
     }
 
-    // 5. Check if any data was found
+    const freshPayload: CachedPayload = {
+      proceso: freshProceso,
+      partes: freshPartes,
+      actuaciones: freshActuaciones,
+      estados: freshEstados,
+    };
+
+    const merged = mergeWithStrictRules(cachedPayload, freshPayload);
+
+    // Re-dedupe the merged arrays (handles cross-cache + fresh duplicates cleanly)
+    const actuaciones = dedupeActuaciones(merged.actuaciones);
+    const estados = dedupeEstados(merged.estados);
+
+    // 5. Check if any data was found (from providers OR cache)
     const sourcesWithData = results.filter(r => r.outcome === "success");
     const dataFound = sourcesWithData.length > 0 || actuaciones.length > 0 || estados.length > 0;
 
@@ -1210,6 +1318,19 @@ Deno.serve(async (req: Request) => {
 
     // 6. Merge metadata + detect conflicts
     const { resumen, conflicts } = mergeMetadata(results, radicado);
+    // Enrich resumen from cached proceso if providers didn't provide
+    if (!resumen.despacho && merged.proceso.despacho) resumen.despacho = merged.proceso.despacho;
+    if (!resumen.tipo_proceso && merged.proceso.tipo_proceso) resumen.tipo_proceso = merged.proceso.tipo_proceso;
+    if (!resumen.fecha_radicacion && merged.proceso.fecha_radicacion) resumen.fecha_radicacion = merged.proceso.fecha_radicacion;
+    // Enrich parties from cached partes
+    if (!resumen.demandante) {
+      const cachedDem = merged.partes.find((p: any) => p.tipo === "demandante");
+      if (cachedDem) resumen.demandante = cachedDem.nombre;
+    }
+    if (!resumen.demandado) {
+      const cachedDdo = merged.partes.find((p: any) => p.tipo === "demandado");
+      if (cachedDdo) resumen.demandado = cachedDdo.nombre;
+    }
     resumen.total_actuaciones = actuaciones.length;
     resumen.total_estados = estados.length;
     resumen.ultima_actuacion_fecha = actuaciones[0]?.fecha || estados[0]?.fecha || null;
@@ -1229,7 +1350,40 @@ Deno.serve(async (req: Request) => {
       estados_count: r.estados.length,
     }));
 
-    // 9. Build response
+    // ═══ Write merged result to cache (non-blocking) ═══
+    const providerResultsMeta: Record<string, any> = {};
+    for (const r of results) {
+      providerResultsMeta[r.provider] = {
+        status: r.outcome,
+        count: r.actuaciones.length + r.estados.length,
+        latency_ms: r.latency_ms,
+      };
+    }
+    const contentHash = simpleHash({ actuaciones, estados, proceso: merged.proceso });
+
+    supabaseAdmin
+      .from("demo_radicado_cache")
+      .upsert({
+        radicado_normalized: radicado,
+        radicado: radicado,
+        inferred_category: categoryInference.category,
+        proceso: merged.proceso,
+        partes: merged.partes,
+        actuaciones: actuaciones.slice(0, 100),
+        estados: estados.slice(0, 50),
+        provider_results: providerResultsMeta,
+        providers_consulted: results.length,
+        providers_succeeded: sourcesWithData.length,
+        last_refresh_at: new Date().toISOString(),
+        content_hash: contentHash,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "radicado_normalized" })
+      .then(({ error }) => {
+        if (error) console.warn("[demo] Cache write failed:", error.message);
+        else console.log("[demo] Cache updated for radicado", maskRadicado(radicado));
+      });
+
+    // 9. Build response with _meta
     const response = {
       resumen,
       actuaciones: actuaciones.slice(0, 50),
@@ -1246,6 +1400,11 @@ Deno.serve(async (req: Request) => {
         provider_outcomes: providerOutcomes,
         fetched_at: new Date().toISOString(),
         demo: true,
+        // Cache metadata
+        served_from_cache: !!cached && isFresh,
+        cache_age_minutes: cacheAgeMinutes,
+        refreshed_at: new Date().toISOString(),
+        provider_details: providerResultsMeta,
       },
     };
 

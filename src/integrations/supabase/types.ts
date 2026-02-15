@@ -4063,6 +4063,66 @@ export type Database = {
         }
         Relationships: []
       }
+      demo_radicado_cache: {
+        Row: {
+          actuaciones: Json | null
+          cache_ttl_hours: number | null
+          content_hash: string | null
+          created_at: string | null
+          estados: Json | null
+          id: string
+          inferred_category: string | null
+          last_refresh_at: string
+          partes: Json | null
+          proceso: Json | null
+          provider_results: Json | null
+          providers_consulted: number | null
+          providers_succeeded: number | null
+          radicado: string
+          radicado_normalized: string
+          tutela_detail: Json | null
+          updated_at: string | null
+        }
+        Insert: {
+          actuaciones?: Json | null
+          cache_ttl_hours?: number | null
+          content_hash?: string | null
+          created_at?: string | null
+          estados?: Json | null
+          id?: string
+          inferred_category?: string | null
+          last_refresh_at?: string
+          partes?: Json | null
+          proceso?: Json | null
+          provider_results?: Json | null
+          providers_consulted?: number | null
+          providers_succeeded?: number | null
+          radicado: string
+          radicado_normalized: string
+          tutela_detail?: Json | null
+          updated_at?: string | null
+        }
+        Update: {
+          actuaciones?: Json | null
+          cache_ttl_hours?: number | null
+          content_hash?: string | null
+          created_at?: string | null
+          estados?: Json | null
+          id?: string
+          inferred_category?: string | null
+          last_refresh_at?: string
+          partes?: Json | null
+          proceso?: Json | null
+          provider_results?: Json | null
+          providers_consulted?: number | null
+          providers_succeeded?: number | null
+          radicado?: string
+          radicado_normalized?: string
+          tutela_detail?: Json | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       demo_rate_limit_counters: {
         Row: {
           count: number
