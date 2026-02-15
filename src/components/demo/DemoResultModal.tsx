@@ -35,10 +35,15 @@ interface DemoResultModalProps {
 export function DemoResultModal({ open, onOpenChange, data }: DemoResultModalProps) {
   const detection = useMemo(() => {
     if (!data) return { suggestedType: 'UNKNOWN' as const, confidence: 'LOW' as const, matchedKeywords: [] };
+    // Collect actuaciones text for tutela detection signals
+    const actuacionesText = data.actuaciones.map(a => 
+      [a.tipo, a.descripcion, a.anotacion].filter(Boolean).join(' ')
+    );
     return detectWorkflowTypeEnhanced({
       despacho: data.resumen.despacho,
       tipo_proceso: data.resumen.tipo_proceso,
       jurisdiccion: data.resumen.jurisdiccion,
+      actuacionesText,
     });
   }, [data]);
 

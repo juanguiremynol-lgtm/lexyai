@@ -165,18 +165,45 @@ const PENAL_KEYWORDS = [
   'ley 906',
 ];
 
+// Actuaciones text patterns that indicate tutela
+const TUTELA_ACTUACION_PATTERNS = [
+  'tutela',
+  'auto admite tutela',
+  'sentencia tutela',
+  'acción de tutela',
+  'impugnación tutela',
+  'fallo tutela',
+];
+
 /**
- * Enhanced detection using multiple signals (despacho, tipo_proceso, jurisdiccion)
+ * Enhanced detection using multiple signals (despacho, tipo_proceso, jurisdiccion, actuaciones text)
  * Used by demo modal and creation wizard when more context is available.
  */
 export function detectWorkflowTypeEnhanced(signals: {
   despacho?: string | null;
   tipo_proceso?: string | null;
   jurisdiccion?: string | null;
+  actuacionesText?: string[] | null;
 }): WorkflowDetectionResult {
-  const { despacho, tipo_proceso, jurisdiccion } = signals;
+  const { despacho, tipo_proceso, jurisdiccion, actuacionesText } = signals;
   
-  // Combine all signals into one search corpus
+  // Check actuaciones text for tutela signals FIRST (highest priority override)
+  if (actuacionesText && actuacionesText.length > 0) {
+    const combined = actuacionesText.join(' ').toLowerCase();
+    const tutelaMatches: string[] = [];
+    for (const pattern of TUTELA_ACTUACION_PATTERNS) {
+      if (combined.includes(pattern)) tutelaMatches.push(pattern);
+    }
+    if (tutelaMatches.length > 0) {
+      return {
+        suggestedType: 'TUTELA',
+        confidence: tutelaMatches.length >= 2 ? 'HIGH' : 'MEDIUM',
+        matchedKeywords: tutelaMatches,
+      };
+    }
+  }
+  
+  // Combine text signals
   const parts = [despacho, tipo_proceso, jurisdiccion].filter(Boolean).map(s => s!.toLowerCase().trim());
   const combined = parts.join(' | ');
   
@@ -192,14 +219,12 @@ export function detectWorkflowTypeEnhanced(signals: {
   }
   if (matchedKeywords.length > 0) {
     return { suggestedType: 'UNKNOWN', confidence: matchedKeywords.length >= 2 ? 'HIGH' : 'MEDIUM', matchedKeywords };
-    // Note: PENAL_906 is not in SuggestedWorkflowType, so fall through to despacho-based
   }
   
   // Try despacho-based detection first (most reliable)
   if (despacho) {
     const despachoResult = detectWorkflowType(despacho);
     if (despachoResult.suggestedType !== 'UNKNOWN') {
-      // Boost confidence if other signals corroborate
       let confidence = despachoResult.confidence;
       const extraMatches = [...despachoResult.matchedKeywords];
       
