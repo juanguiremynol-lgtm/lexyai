@@ -133,7 +133,7 @@ export function DemoRadicadoSection() {
               <span className="text-primary">radicado real</span>
             </h2>
             <p className="text-black text-lg max-w-2xl mx-auto">
-              Ingresa un radicado colombiano y mira en segundos cómo Andromeda
+              Ingresa un número de radicado y mira en segundos cómo Andro IA
               organiza las actuaciones, estados, y gestiona tu caso.
             </p>
             <p className="text-sm text-black">
