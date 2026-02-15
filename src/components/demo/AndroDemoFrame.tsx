@@ -3,7 +3,7 @@
  * Andro IA mascot face silhouette. The face acts as a visual frame
  * with a "visor" cutout where the demo content sits.
  *
- * Uses inline SVG with a mask to create the window region.
+ * Uses inline SVG with themed gradients for visibility on dark backgrounds.
  * Respects prefers-reduced-motion for the breathing animation.
  */
 
@@ -16,134 +16,182 @@ interface Props {
 export function AndroDemoFrame({ children }: Props) {
   return (
     <div className="relative w-full max-w-4xl mx-auto px-4">
-      {/* ── Mascot face silhouette (desktop: visible, mobile: simplified accents) ── */}
+      {/* ── Mascot face silhouette (desktop only) ── */}
       <div className="hidden md:block absolute inset-0 pointer-events-none" aria-hidden="true">
-        <svg
-          viewBox="0 0 800 700"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full andro-frame-breathe"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            {/* Gradient for the face fill */}
-            <linearGradient id="faceGrad" x1="400" y1="0" x2="400" y2="700" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.08" />
-              <stop offset="50%" stopColor="hsl(var(--primary))" stopOpacity="0.05" />
-              <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.02" />
-            </linearGradient>
-
-            {/* Glow around the visor cutout */}
-            <filter id="visorGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="8" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-
-            {/* Soft outer shadow for depth */}
-            <filter id="faceShadow">
-              <feDropShadow dx="0" dy="4" stdDeviation="12" floodColor="hsl(var(--primary))" floodOpacity="0.08" />
-            </filter>
-          </defs>
-
-          {/* ── Head outline ── */}
-          {/* 
-            A rounded-rectangle head shape with a slight chin taper.
-            The central "visor" area is left open for the demo module.
-          */}
-          <path
-            d="
-              M 400 30
-              C 560 30, 680 100, 700 220
-              C 720 340, 700 460, 660 530
-              C 620 600, 540 660, 400 670
-              C 260 660, 180 600, 140 530
-              C 100 460, 80 340, 100 220
-              C 120 100, 240 30, 400 30
-              Z
-            "
-            fill="url(#faceGrad)"
-            stroke="hsl(var(--primary))"
-            strokeWidth="1.5"
-            strokeOpacity="0.12"
-            filter="url(#faceShadow)"
-          />
-
-          {/* ── Antenna ── */}
-          <line
-            x1="400" y1="30" x2="400" y2="0"
-            stroke="hsl(var(--primary))"
-            strokeWidth="2"
-            strokeOpacity="0.15"
-            strokeLinecap="round"
-          />
-          <circle
-            cx="400" cy="0" r="5"
-            fill="hsl(var(--primary))"
-            fillOpacity="0.12"
-          />
-
-          {/* ── Eyes (above the visor) ── */}
-          <ellipse
-            cx="290" cy="175"
-            rx="28" ry="20"
-            fill="hsl(var(--primary))"
-            fillOpacity="0.06"
-            stroke="hsl(var(--primary))"
-            strokeWidth="1"
-            strokeOpacity="0.1"
-          />
-          <ellipse
-            cx="510" cy="175"
-            rx="28" ry="20"
-            fill="hsl(var(--primary))"
-            fillOpacity="0.06"
-            stroke="hsl(var(--primary))"
-            strokeWidth="1"
-            strokeOpacity="0.1"
-          />
-          {/* Eye pupils */}
-          <circle cx="290" cy="175" r="8" fill="hsl(var(--primary))" fillOpacity="0.1" />
-          <circle cx="510" cy="175" r="8" fill="hsl(var(--primary))" fillOpacity="0.1" />
-
-          {/* ── Visor border glow ── */}
-          <rect
-            x="120" y="220" width="560" height="320" rx="24"
+        {/* Extend SVG beyond container for dramatic effect */}
+        <div className="absolute -inset-x-16 -top-20 -bottom-12">
+          <svg
+            viewBox="0 0 800 750"
             fill="none"
-            stroke="hsl(var(--primary))"
-            strokeWidth="1.5"
-            strokeOpacity="0.08"
-            filter="url(#visorGlow)"
-          />
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-full h-full andro-frame-breathe"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <defs>
+              {/* Face fill — visible on dark backgrounds */}
+              <linearGradient id="faceGrad" x1="400" y1="0" x2="400" y2="750" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.18" />
+                <stop offset="40%" stopColor="hsl(var(--primary))" stopOpacity="0.10" />
+                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.04" />
+              </linearGradient>
 
-          {/* ── Mouth (below the visor) ── */}
-          <path
-            d="M 340 580 Q 400 610, 460 580"
-            stroke="hsl(var(--primary))"
-            strokeWidth="2"
-            strokeOpacity="0.1"
-            fill="none"
-            strokeLinecap="round"
-          />
-        </svg>
+              {/* Visor inner glow */}
+              <filter id="visorGlow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="12" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+
+              {/* Eye glow */}
+              <filter id="eyeGlow">
+                <feGaussianBlur stdDeviation="6" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+
+              {/* Outer shadow */}
+              <filter id="faceShadow">
+                <feDropShadow dx="0" dy="6" stdDeviation="18" floodColor="hsl(var(--primary))" floodOpacity="0.15" />
+              </filter>
+
+              {/* Antenna tip glow */}
+              <radialGradient id="antennaGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+
+            {/* ── Head outline ── */}
+            <path
+              d="
+                M 400 50
+                C 570 50, 700 130, 720 260
+                C 740 390, 720 510, 675 585
+                C 630 660, 545 720, 400 730
+                C 255 720, 170 660, 125 585
+                C 80 510, 60 390, 80 260
+                C 100 130, 230 50, 400 50
+                Z
+              "
+              fill="url(#faceGrad)"
+              stroke="hsl(var(--primary))"
+              strokeWidth="2"
+              strokeOpacity="0.25"
+              filter="url(#faceShadow)"
+            />
+
+            {/* ── Antenna ── */}
+            <line
+              x1="400" y1="50" x2="400" y2="10"
+              stroke="hsl(var(--primary))"
+              strokeWidth="2.5"
+              strokeOpacity="0.35"
+              strokeLinecap="round"
+            />
+            {/* Antenna glow orb */}
+            <circle cx="400" cy="8" r="14" fill="url(#antennaGlow)" />
+            <circle
+              cx="400" cy="8" r="5"
+              fill="hsl(var(--primary))"
+              fillOpacity="0.4"
+            />
+
+            {/* ── Eyes (above the visor) ── */}
+            {/* Left eye */}
+            <ellipse
+              cx="280" cy="195"
+              rx="32" ry="22"
+              fill="hsl(var(--primary))"
+              fillOpacity="0.08"
+              stroke="hsl(var(--primary))"
+              strokeWidth="1.5"
+              strokeOpacity="0.2"
+              filter="url(#eyeGlow)"
+            />
+            <circle cx="280" cy="195" r="10" fill="hsl(var(--primary))" fillOpacity="0.2" />
+            <circle cx="280" cy="195" r="4" fill="hsl(var(--primary))" fillOpacity="0.35" />
+
+            {/* Right eye */}
+            <ellipse
+              cx="520" cy="195"
+              rx="32" ry="22"
+              fill="hsl(var(--primary))"
+              fillOpacity="0.08"
+              stroke="hsl(var(--primary))"
+              strokeWidth="1.5"
+              strokeOpacity="0.2"
+              filter="url(#eyeGlow)"
+            />
+            <circle cx="520" cy="195" r="10" fill="hsl(var(--primary))" fillOpacity="0.2" />
+            <circle cx="520" cy="195" r="4" fill="hsl(var(--primary))" fillOpacity="0.35" />
+
+            {/* ── Visor border glow (frames the demo content) ── */}
+            <rect
+              x="110" y="245" width="580" height="340" rx="28"
+              fill="none"
+              stroke="hsl(var(--primary))"
+              strokeWidth="2"
+              strokeOpacity="0.15"
+              filter="url(#visorGlow)"
+            />
+            {/* Inner visor highlight line */}
+            <rect
+              x="115" y="250" width="570" height="330" rx="24"
+              fill="none"
+              stroke="hsl(var(--primary))"
+              strokeWidth="0.5"
+              strokeOpacity="0.08"
+            />
+
+            {/* ── Mouth (below the visor) ── */}
+            <path
+              d="M 330 630 Q 400 665, 470 630"
+              stroke="hsl(var(--primary))"
+              strokeWidth="2.5"
+              strokeOpacity="0.2"
+              fill="none"
+              strokeLinecap="round"
+            />
+
+            {/* ── Ear accents ── */}
+            <path
+              d="M 75 300 Q 55 350, 65 400"
+              stroke="hsl(var(--primary))"
+              strokeWidth="1.5"
+              strokeOpacity="0.12"
+              fill="none"
+              strokeLinecap="round"
+            />
+            <path
+              d="M 725 300 Q 745 350, 735 400"
+              stroke="hsl(var(--primary))"
+              strokeWidth="1.5"
+              strokeOpacity="0.12"
+              fill="none"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
       </div>
 
-      {/* ── Mobile: subtle top/bottom accent lines ── */}
+      {/* ── Mobile: subtle top accent with mini mascot cues ── */}
       <div className="md:hidden mb-4" aria-hidden="true">
-        <svg viewBox="0 0 400 40" className="w-full h-8 andro-frame-breathe" preserveAspectRatio="xMidYMid meet">
+        <svg viewBox="0 0 400 50" className="w-full h-10 andro-frame-breathe" preserveAspectRatio="xMidYMid meet">
+          {/* Head curve */}
           <path
-            d="M 40 35 Q 200 5, 360 35"
+            d="M 30 45 Q 200 5, 370 45"
             stroke="hsl(var(--primary))"
-            strokeWidth="1.5"
-            strokeOpacity="0.15"
+            strokeWidth="2"
+            strokeOpacity="0.25"
             fill="none"
             strokeLinecap="round"
           />
-          {/* Mini eyes */}
-          <circle cx="160" cy="22" r="4" fill="hsl(var(--primary))" fillOpacity="0.1" />
-          <circle cx="240" cy="22" r="4" fill="hsl(var(--primary))" fillOpacity="0.1" />
+          {/* Eyes */}
+          <circle cx="155" cy="28" r="5" fill="hsl(var(--primary))" fillOpacity="0.2" />
+          <circle cx="155" cy="28" r="2" fill="hsl(var(--primary))" fillOpacity="0.4" />
+          <circle cx="245" cy="28" r="5" fill="hsl(var(--primary))" fillOpacity="0.2" />
+          <circle cx="245" cy="28" r="2" fill="hsl(var(--primary))" fillOpacity="0.4" />
           {/* Antenna */}
-          <line x1="200" y1="8" x2="200" y2="0" stroke="hsl(var(--primary))" strokeWidth="1.5" strokeOpacity="0.15" strokeLinecap="round" />
-          <circle cx="200" cy="0" r="2.5" fill="hsl(var(--primary))" fillOpacity="0.12" />
+          <line x1="200" y1="10" x2="200" y2="0" stroke="hsl(var(--primary))" strokeWidth="2" strokeOpacity="0.3" strokeLinecap="round" />
+          <circle cx="200" cy="0" r="3" fill="hsl(var(--primary))" fillOpacity="0.3" />
         </svg>
       </div>
 
@@ -151,8 +199,8 @@ export function AndroDemoFrame({ children }: Props) {
       <div className="relative z-10">
         <div className="
           md:bg-card/80 md:backdrop-blur-sm
-          md:border md:border-border/30
-          md:rounded-2xl md:shadow-lg
+          md:border md:border-primary/10
+          md:rounded-2xl md:shadow-lg md:shadow-primary/5
           md:px-8 md:py-10
         ">
           {children}
@@ -163,10 +211,10 @@ export function AndroDemoFrame({ children }: Props) {
       <div className="md:hidden mt-4" aria-hidden="true">
         <svg viewBox="0 0 400 30" className="w-full h-6" preserveAspectRatio="xMidYMid meet">
           <path
-            d="M 100 5 Q 200 28, 300 5"
+            d="M 80 5 Q 200 30, 320 5"
             stroke="hsl(var(--primary))"
-            strokeWidth="1.5"
-            strokeOpacity="0.12"
+            strokeWidth="2"
+            strokeOpacity="0.2"
             fill="none"
             strokeLinecap="round"
           />
