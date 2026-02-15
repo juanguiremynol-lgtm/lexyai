@@ -22,6 +22,8 @@ interface DemoShareButtonProps {
   iconOnly?: boolean;
 }
 
+const PUBLIC_APP_URL = import.meta.env.VITE_PUBLIC_APP_URL ?? "https://andromeda.legal";
+
 /** Build a canonical /demo share URL with current widget state */
 export function buildDemoShareUrl({
   baseUrl,
@@ -82,7 +84,7 @@ export function DemoShareButton({
 
   const normalizedRadicado = radicado.replace(/\D/g, "");
   const shareUrl = buildDemoShareUrl({
-    baseUrl: window.location.origin,
+    baseUrl: PUBLIC_APP_URL,
     variant,
     frame,
     radicado: normalizedRadicado.length === 23 ? normalizedRadicado : undefined,
