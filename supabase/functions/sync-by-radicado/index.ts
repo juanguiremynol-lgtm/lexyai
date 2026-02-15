@@ -279,11 +279,8 @@ function enrichFromRadicado(radicado: string, processData: ProcessData): Process
     enriched.tipo_proceso = ESP_NAMES[espCode] || undefined;
   }
 
-  // Derive filing date from radicado year if not provided
-  if (!enriched.fecha_radicacion && yearCode) {
-    // We only know the year, not the exact date
-    enriched.fecha_radicacion = `${yearCode}-01-01`;
-  }
+  // NOTE: Do NOT fabricate fecha_radicacion from year code.
+  // Using "{year}-01-01" is misleading — leave blank with "not found" if truly missing.
 
   return enriched;
 }
@@ -478,6 +475,8 @@ async function fetchFromCpnu(
 
     if (result.ok && result.proceso) {
       const proceso = result.proceso;
+      // Also read from results[0] — adapter-cpnu puts demandante/demandado/fecha_radicacion there
+      const mainResult = result.results?.[0] || {};
       
       // Extract parties from sujetos_procesales
       let demandantes = '';
@@ -502,10 +501,12 @@ async function fetchFromCpnu(
         if (demandadosList.length) demandados = demandadosList.join(', ');
       }
 
+      // Map actuaciones — adapter-cpnu returns ProcessEvent objects with event_date/description/detail
+      // so we must handle both naming conventions
       const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
-        fecha: (act.fecha_actuacion || act.fecha || '') as string,
-        actuacion: (act.actuacion || '') as string,
-        anotacion: (act.anotacion || '') as string,
+        fecha: (act.fecha_actuacion || act.fecha || act.event_date || '') as string,
+        actuacion: (act.actuacion || act.title || act.description || '') as string,
+        anotacion: (act.anotacion || act.detail || '') as string,
       }));
 
       return {
@@ -513,15 +514,19 @@ async function fetchFromCpnu(
         found: true,
         source: 'CPNU',
         processData: {
-          despacho: proceso.despacho,
+          despacho: proceso.despacho || mainResult.despacho,
           ciudad: proceso.ciudad,
           departamento: proceso.departamento,
-          demandante: demandantes || proceso.demandante,
-          demandado: demandados || proceso.demandado,
-          tipo_proceso: proceso.tipo,
-          clase_proceso: proceso.clase,
-          fecha_radicacion: proceso.fecha_radicacion,
-          sujetos_procesales: proceso.sujetos_procesales,
+          // FIX: Fall back to results[0].demandante/demandado (where adapter-cpnu stores them)
+          demandante: demandantes || mainResult.demandante || proceso.demandante,
+          demandado: demandados || mainResult.demandado || proceso.demandado,
+          tipo_proceso: proceso.tipo || mainResult.tipo_proceso,
+          clase_proceso: proceso.clase || mainResult.clase_proceso,
+          // FIX: Fall back to results[0].fecha_radicacion
+          fecha_radicacion: mainResult.fecha_radicacion || proceso.fecha_radicacion,
+          sujetos_procesales: proceso.sujetos_procesales?.length > 0 
+            ? proceso.sujetos_procesales 
+            : mainResult.sujetos_procesales,
           actuaciones,
           total_actuaciones: actuaciones.length,
         },
