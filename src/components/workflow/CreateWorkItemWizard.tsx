@@ -63,7 +63,7 @@ import { COLOMBIAN_DEPARTMENTS } from "@/lib/constants";
 import { CGP_CUANTIA_CONFIG } from "@/lib/cgp-constants";
 import { MEDIOS_DE_CONTROL, type MedioDeControl } from "@/lib/cpaca-constants";
 import { useCreateWorkItem, type CreateWorkItemData } from "@/hooks/use-create-work-item";
-import { useRadicadoLookup, type ProcessData } from "@/hooks/use-radicado-lookup";
+import { useRadicadoLookup } from "@/hooks/use-radicado-lookup";
 import { normalizeRadicadoInput, formatRadicadoDisplay } from "@/lib/radicado-utils";
 import { WizardProcessPreview } from "./WizardProcessPreview";
 import { toast } from "sonner";
