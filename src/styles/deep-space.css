@@ -90,9 +90,8 @@ html.deep-space body::after {
   background-size: 256px 256px;
 }
 
-/* Content above overlays */
-html.deep-space .app-content,
-html.deep-space body > * {
+/* Content above overlays — exclude Radix portal containers so dialogs keep their z-index */
+html.deep-space .app-content {
   position: relative;
   z-index: 1;
 }
