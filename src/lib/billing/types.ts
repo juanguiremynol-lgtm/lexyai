@@ -10,7 +10,7 @@ export type CheckoutSessionStatus = 'PENDING' | 'COMPLETED' | 'CANCELED' | 'EXPI
 
 export type InvoiceStatus = 'DRAFT' | 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
 
-export type BillingProvider = 'mock' | 'stripe' | 'wompi' | 'payu' | 'placetopay' | 'mercadopago' | 'epayco';
+export type BillingProvider = 'mock' | 'stripe' | 'wompi' | 'payu' | 'placetopay' | 'mercadopago' | 'epayco' | 'paypal' | 'baloto_gana';
 
 export interface PricingConfig {
   id: string;
