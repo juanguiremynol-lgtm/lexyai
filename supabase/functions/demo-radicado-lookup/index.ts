@@ -103,9 +103,14 @@ const DANE_CITIES: Record<string, { city: string; dept: string }> = {
 };
 
 const JURISDICCION_MAP: Record<string, string> = {
-  "31": "Civil", "33": "Administrativo", "40": "Penal",
-  "41": "Laboral", "44": "Familia", "50": "Promiscuo",
-  "23": "Civil", "14": "Promiscuo Municipal",
+  "10": "Penal Circuito", "11": "Civil Circuito", "12": "Penal Municipal",
+  "13": "Laboral Circuito", "14": "Promiscuo Municipal", "15": "Familia",
+  "18": "Ejecución Penas", "20": "Tribunal Civil", "21": "Tribunal Laboral",
+  "22": "Tribunal Penal", "23": "Civil", "31": "Civil",
+  "33": "Administrativo", "34": "Administrativo Tribunal",
+  "40": "Civil Municipal", "41": "Laboral Municipal",
+  "42": "Penal Adolescentes", "44": "Familia",
+  "50": "Promiscuo", "53": "Penal Municipal",
 };
 
 // ═══════════════════════════════════════════
@@ -702,11 +707,23 @@ function inferCategory(results: ProviderResult[], radicado: string): CategoryInf
     }
   }
 
-  // Radicado jurisdiccion code
+  // Radicado jurisdiccion code (positions 5-6)
   const jurCode = radicado.slice(5, 7);
-  if (jurCode === "33") { scores.CPACA += 1; signals.push("Jurisdicción code 33 (Administrativo)"); }
-  if (jurCode === "40") { scores.PENAL_906 += 1; signals.push("Jurisdicción code 40 (Penal)"); }
-  if (jurCode === "41") { scores.LABORAL += 1; signals.push("Jurisdicción code 41 (Laboral)"); }
+  if (["33", "34"].includes(jurCode)) { scores.CPACA += 1; signals.push(`Jurisdicción code ${jurCode} (Administrativo)`); }
+  if (["10", "12", "22", "18", "42", "53"].includes(jurCode)) { scores.PENAL_906 += 1; signals.push(`Jurisdicción code ${jurCode} (Penal)`); }
+  if (["13", "21", "41"].includes(jurCode)) { scores.LABORAL += 1; signals.push(`Jurisdicción code ${jurCode} (Laboral)`); }
+  if (["11", "23", "31", "40"].includes(jurCode)) { scores.CGP += 1; signals.push(`Jurisdicción code ${jurCode} (Civil)`); }
+  if (["14", "15", "44", "50"].includes(jurCode)) { scores.CGP += 1; signals.push(`Jurisdicción code ${jurCode} (Familia/Promiscuo)`); }
+
+  // Tutela signal from despacho text (tribunals hearing tutelas)
+  for (const r of results) {
+    if (!r.metadata?.despacho) continue;
+    const despachoLower = (r.metadata.despacho).toLowerCase();
+    if (despachoLower.includes("tutela")) {
+      scores.TUTELA += 3;
+      signals.push("Despacho mentions tutela");
+    }
+  }
 
   // Find winner
   const entries = Object.entries(scores).sort((a, b) => b[1] - a[1]);
