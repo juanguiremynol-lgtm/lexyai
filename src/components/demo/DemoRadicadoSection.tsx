@@ -129,7 +129,7 @@ export function DemoRadicadoSection() {
               Prueba en vivo
             </Badge>
             <h2 className="text-xl md:text-2xl font-bold tracking-tight">
-              Prueba Andromeda con tu{" "}
+              Prueba Andro IA con tu{" "}
               <span className="text-primary">radicado real</span>
             </h2>
             <p className="text-black text-sm max-w-lg mx-auto">
