@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: blob: https://*.supabase.co;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co;
+      frame-src 'self';
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    " />
+
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="canonical" href="https://lexyai.lovable.app/demo" />
+
+    <title>Prueba Andro IA — Demo en vivo | Andromeda</title>
+    <meta name="description" content="Ingresa un radicado colombiano y mira en segundos cómo Andro IA organiza actuaciones, estados y gestiona tu caso. Sin registro." />
+    <meta name="author" content="Andromeda" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Prueba Andro IA con un radicado real" />
+    <meta property="og:description" content="Pega un radicado y ve partes, despacho, actuaciones y estados en segundos — más un pipeline Kanban. Impulsado por Andro IA." />
+    <meta property="og:image" content="https://lexyai.lovable.app/og-demo-v4.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Prueba Andro IA — Demo de Andromeda" />
+    <meta property="og:url" content="https://lexyai.lovable.app/demo" />
+    <meta property="og:site_name" content="Andromeda" />
+    <meta property="og:locale" content="es_CO" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@AndromedaLegal" />
+    <meta name="twitter:title" content="Prueba Andro IA con un radicado real" />
+    <meta name="twitter:description" content="Pega un radicado y ve partes, despacho, actuaciones y estados en segundos — más un pipeline Kanban." />
+    <meta name="twitter:image" content="https://lexyai.lovable.app/og-demo-v4.png" />
+    <meta name="twitter:image:alt" content="Prueba Andro IA — Demo de Andromeda" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  </head>
+
+  <body>
+    <div id="root">
+      <div id="atenia-loader" style="
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        background: hsl(220 25% 5%);
+        transition: opacity 0.4s ease-out;
+      ">
+        <style>
+          @keyframes atenia-pulse {
+            0%, 100% { opacity: 0.55; transform: scale(1); filter: drop-shadow(0 0 8px rgba(212,160,23,0.3)); }
+            50% { opacity: 1; transform: scale(1.06); filter: drop-shadow(0 0 24px rgba(212,160,23,0.6)); }
+          }
+          @keyframes atenia-fade-text {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+          }
+          #atenia-loader svg { animation: atenia-pulse 2s ease-in-out infinite; }
+          #atenia-loader .loader-text { 
+            margin-top: 20px; font-family: Inter, system-ui, sans-serif; font-size: 14px;
+            color: rgba(255,255,255,0.7); letter-spacing: 0.05em;
+            animation: atenia-fade-text 2s ease-in-out infinite;
+          }
+          #atenia-loader .loader-brand {
+            margin-top: 8px; font-family: Inter, system-ui, sans-serif; font-size: 11px;
+            color: rgba(255,255,255,0.35); letter-spacing: 0.15em; text-transform: uppercase;
+          }
+        </style>
+        <svg viewBox="0 0 48 48" width="64" height="64" fill="none" aria-hidden="true">
+          <ellipse cx="24" cy="26" rx="22" ry="8" stroke="rgba(212,160,23,0.7)" stroke-width="1.5" fill="none"/>
+          <circle cx="24" cy="22" r="14" fill="rgba(10,20,50,0.9)" stroke="rgba(14,165,233,0.6)" stroke-width="1.5"/>
+          <text x="24" y="28" text-anchor="middle" font-family="serif" font-size="18" font-weight="bold" fill="rgba(212,160,23,1)">A</text>
+          <circle cx="16" cy="15" r="1" fill="rgba(14,165,233,0.8)"/>
+          <circle cx="32" cy="18" r="0.8" fill="rgba(212,160,23,0.8)"/>
+          <circle cx="28" cy="13" r="0.6" fill="white" opacity="0.5"/>
+        </svg>
+        <div class="loader-text">Cargando...</div>
+        <div class="loader-brand">Andromeda</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      const observer = new MutationObserver(() => {
+        const root = document.getElementById('root');
+        if (root && root.children.length > 1) {
+          const loader = document.getElementById('atenia-loader');
+          if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.remove(), 400);
+          }
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.getElementById('root'), { childList: true });
+    </script>
+  </body>
+</html>
