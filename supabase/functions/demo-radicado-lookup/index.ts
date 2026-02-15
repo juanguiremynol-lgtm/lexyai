@@ -1208,8 +1208,67 @@ Deno.serve(async (req: Request) => {
       console.warn("[demo] Cache read failed (non-blocking):", cacheErr);
     }
 
-    // ═══ PHASE 2: Always fan out to providers ═══
+    // ═══ Provider retry helper (bounded: up to maxRetries with exp backoff + jitter) ═══
+    async function fetchWithRetry(
+      config: ProviderConfig,
+      baseUrl: string | null,
+      apiKey: string | null,
+      maxRetries: number,
+    ): Promise<ProviderResult> {
+      let lastResult: ProviderResult | null = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+          // Exponential backoff: 400ms, 1200ms + jitter
+          const delay = Math.min(400 * Math.pow(3, attempt - 1), 3000) + Math.random() * 200;
+          await new Promise(r => setTimeout(r, delay));
+          console.log(`[demo] Retry ${attempt}/${maxRetries} for ${config.name}`);
+        }
+        try {
+          lastResult = await config.fetchFn(radicado, baseUrl || "", apiKey || "");
+          // Don't retry on success, no-data (explicit NOT_FOUND), or skipped
+          if (lastResult.outcome === "success" || lastResult.outcome === "no-data" || lastResult.outcome === "skipped") {
+            if (attempt > 0) lastResult = { ...lastResult, error: `OK after ${attempt} retries` };
+            return lastResult;
+          }
+          // Retry on timeout or error
+        } catch (err) {
+          lastResult = {
+            provider: config.name,
+            outcome: "error" as ProviderOutcome,
+            found_status: "NOT_FOUND" as FoundStatus,
+            latency_ms: 0,
+            actuaciones: [],
+            estados: [],
+            metadata: null,
+            parties: null,
+            error: String(err),
+          };
+        }
+      }
+      return lastResult!;
+    }
+
+    // Critical estados providers that get retries
+    const ESTADOS_CRITICAL_PROVIDERS = new Set(["Publicaciones", "SAMAI Estados", "Tutelas"]);
+    const isRetryEstados = body?.action === "retry_estados";
+
+    // ═══ PHASE 2: Fan out to providers (with retries for critical ones) ═══
     const providerPromises = DEMO_PROVIDER_REGISTRY.map(async (config) => {
+      // If retry_estados mode, only re-call estados-critical providers
+      if (isRetryEstados && !ESTADOS_CRITICAL_PROVIDERS.has(config.name)) {
+        return {
+          provider: config.name,
+          outcome: "skipped" as ProviderOutcome,
+          found_status: "NOT_FOUND" as FoundStatus,
+          latency_ms: 0,
+          actuaciones: [],
+          estados: [],
+          metadata: null,
+          parties: null,
+          error: "Skipped (retry_estados mode)",
+        } as ProviderResult;
+      }
+
       const baseUrl = config.envBaseUrl ? Deno.env.get(config.envBaseUrl) : null;
       const apiKey = resolveApiKey(config.envApiKey);
 
@@ -1228,22 +1287,9 @@ Deno.serve(async (req: Request) => {
         } as ProviderResult;
       }
 
-      try {
-        return await config.fetchFn(radicado, baseUrl || "", apiKey || "");
-      } catch (err) {
-        console.error(`[demo] ${config.name} uncaught error:`, err);
-        return {
-          provider: config.name,
-          outcome: "error" as ProviderOutcome,
-          found_status: "NOT_FOUND" as FoundStatus,
-          latency_ms: 0,
-          actuaciones: [],
-          estados: [],
-          metadata: null,
-          parties: null,
-          error: String(err),
-        } as ProviderResult;
-      }
+      // Critical estados providers get up to 2 retries on timeout/error
+      const maxRetries = ESTADOS_CRITICAL_PROVIDERS.has(config.name) ? 2 : 0;
+      return fetchWithRetry(config, baseUrl, apiKey, maxRetries);
     });
 
     const results = await Promise.all(providerPromises);
@@ -1383,7 +1429,25 @@ Deno.serve(async (req: Request) => {
         else console.log("[demo] Cache updated for radicado", maskRadicado(radicado));
       });
 
-    // 9. Build response with _meta
+    // 9. Determine estados completeness status
+    const estadosCriticalProviders = results.filter(r => ESTADOS_CRITICAL_PROVIDERS.has(r.provider));
+    const estadosCriticalPending = estadosCriticalProviders.filter(r => r.outcome === "timeout" || r.outcome === "error");
+    const estadosCriticalExplicitNotFound = estadosCriticalProviders.filter(r => r.outcome === "no-data" || r.outcome === "success");
+    let estados_status: "READY" | "DEGRADED" | "PARTIAL";
+    if (estados.length > 0) {
+      // We have estados — but were some critical providers still failing?
+      estados_status = estadosCriticalPending.length > 0 ? "PARTIAL" : "READY";
+    } else if (estadosCriticalExplicitNotFound.length === estadosCriticalProviders.length && estadosCriticalProviders.length > 0) {
+      // All critical providers responded explicitly with no-data — this is legit
+      estados_status = "READY";
+    } else if (estadosCriticalPending.length > 0) {
+      // No estados AND some critical providers timed out — degraded
+      estados_status = "DEGRADED";
+    } else {
+      estados_status = "READY";
+    }
+
+    // Build response with _meta
     const response = {
       resumen,
       actuaciones: actuaciones.slice(0, 50),
@@ -1405,6 +1469,9 @@ Deno.serve(async (req: Request) => {
         cache_age_minutes: cacheAgeMinutes,
         refreshed_at: new Date().toISOString(),
         provider_details: providerResultsMeta,
+        // Estados completeness
+        estados_status,
+        estados_degraded_providers: estadosCriticalPending.map(r => r.provider),
       },
     };
 

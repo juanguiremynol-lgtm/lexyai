@@ -12,6 +12,7 @@ import { trackDemoLookupSubmitted, trackDemoLookupResult, getDemoSessionId } fro
 import type { DemoResult, DemoError } from "@/components/demo/demo-types";
 
 export type DemoState = "IDLE" | "LOADING" | "RESULT" | "ERROR";
+export type EstadosStatus = "LOADING" | "READY" | "DEGRADED" | "PARTIAL";
 
 interface UseDemoLookupOptions {
   initialRadicado?: string;
@@ -33,6 +34,8 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
   const [demoData, setDemoData] = useState<DemoResult | null>(null);
   const [error, setError] = useState<DemoError | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [estadosStatus, setEstadosStatus] = useState<EstadosStatus>("LOADING");
+  const [retryingEstados, setRetryingEstados] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const normalizedDigits = radicado.replace(/\D/g, "");
@@ -64,6 +67,7 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
       });
 
       setState("LOADING");
+      setEstadosStatus("LOADING");
       setError(null);
       setInputError(null);
       const startTime = Date.now();
@@ -141,6 +145,9 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
         setDemoData(data);
         setModalOpen(true);
         setState("RESULT");
+        // Set estados status from meta
+        const estStatus = data.meta?.estados_status || (data.estados?.length > 0 ? "READY" : "READY");
+        setEstadosStatus(estStatus as EstadosStatus);
         options.onComplete?.(data);
       } catch (err) {
         track(ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT, {
@@ -175,6 +182,55 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
     handleLookup(example);
   }, [handleLookup]);
 
+  const handleRetryEstados = useCallback(async () => {
+    if (retryingEstados || !demoData) return;
+    setRetryingEstados(true);
+    setEstadosStatus("LOADING");
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke(
+        "demo-radicado-lookup",
+        { body: { radicado: normalizedDigits, action: "retry_estados" } }
+      );
+      if (fnError || data?.error) {
+        setEstadosStatus("DEGRADED");
+        return;
+      }
+      // Merge new estados into existing data (append-only)
+      const newEstados = data.estados || [];
+      const existingKeys = new Set(
+        (demoData.estados || []).map((e: any) => `${e.fecha}|${(e.tipo || "").slice(0, 40)}`)
+      );
+      const freshEstados = newEstados.filter((e: any) => {
+        const key = `${e.fecha}|${(e.tipo || "").slice(0, 40)}`;
+        return !existingKeys.has(key);
+      });
+      const mergedEstados = [...(demoData.estados || []), ...freshEstados];
+      const updatedData = {
+        ...demoData,
+        estados: mergedEstados,
+        resumen: { ...demoData.resumen, total_estados: mergedEstados.length },
+        meta: {
+          ...demoData.meta,
+          estados_count: mergedEstados.length,
+          estados_status: data.meta?.estados_status || (mergedEstados.length > 0 ? "READY" : "DEGRADED"),
+          estados_degraded_providers: data.meta?.estados_degraded_providers || [],
+          refreshed_at: new Date().toISOString(),
+        },
+      };
+      setDemoData(updatedData);
+      setEstadosStatus(updatedData.meta.estados_status as EstadosStatus);
+      track(ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT, {
+        outcome: "RETRY_ESTADOS",
+        providers_with_data: data.meta?.providers_with_data || 0,
+        latency_bucket: "retry",
+      });
+    } catch {
+      setEstadosStatus("DEGRADED");
+    } finally {
+      setRetryingEstados(false);
+    }
+  }, [retryingEstados, demoData, normalizedDigits]);
+
   const handleInputChange = useCallback((value: string) => {
     const digits = value.replace(/\D/g, "").slice(0, 23);
     setRadicado(digits);
@@ -200,6 +256,8 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
     demoData,
     error,
     modalOpen,
+    estadosStatus,
+    retryingEstados,
     inputRef,
     setModalOpen,
     setRadicado,
@@ -208,5 +266,6 @@ export function useDemoLookup(options: UseDemoLookupOptions = {}) {
     handleTryExample,
     handleInputChange,
     handleKeyDown,
+    handleRetryEstados,
   };
 }

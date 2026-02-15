@@ -260,6 +260,9 @@ export function DemoLookupWidget({
           open={demo.modalOpen}
           onOpenChange={demo.setModalOpen}
           data={demo.demoData}
+          estadosStatus={demo.estadosStatus}
+          retryingEstados={demo.retryingEstados}
+          onRetryEstados={demo.handleRetryEstados}
         />
       )}
     </div>
