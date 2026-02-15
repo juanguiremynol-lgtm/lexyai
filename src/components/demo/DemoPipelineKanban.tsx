@@ -3,24 +3,32 @@
  * 
  * Reuses UnifiedKanbanBoard with in-memory state from DemoPipelineContext.
  * Category-aware stages, drag & drop, card interactions — all demo-safe.
+ * Includes category preview selector when ambiguity is detected.
  */
 
 import { useCallback, useMemo } from "react";
 import { UnifiedKanbanBoard, type KanbanStage } from "@/components/kanban/UnifiedKanbanBoard";
 import { useDemoPipeline, type DemoWorkItem } from "./DemoPipelineContext";
-import { getDemoStages } from "./demo-pipeline-stages";
+import { getDemoStages, type DemoCategory } from "./demo-pipeline-stages";
 import { DemoPipelineCard } from "./DemoPipelineCard";
+import { DemoCategorySelector } from "./DemoCategorySelector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RotateCcw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import type { AmbiguityResult } from "./demo-ambiguity";
 
-export function DemoPipelineKanban() {
-  const { items, moveItem, reset, openDetail, deleteItem } = useDemoPipeline();
+interface Props {
+  ambiguity?: AmbiguityResult | null;
+}
+
+export function DemoPipelineKanban({ ambiguity }: Props) {
+  const { items, moveItem, reset, openDetail, deleteItem, categoryOverride, setCategoryOverride } = useDemoPipeline();
 
   // Determine category from first non-sample item
   const mainItem = items.find(i => !i.isSample);
   const category = mainItem?.category || "UNCERTAIN";
+  const inferredCategory = ambiguity?.inferredCategory || category;
 
   const stages = useMemo(() => getDemoStages(category), [category]);
 
@@ -43,6 +51,8 @@ export function DemoPipelineKanban() {
       onDelete={() => deleteItem(item.id)}
     />
   ), [openDetail, deleteItem]);
+
+  const showSelector = ambiguity?.hasAmbiguity;
 
   return (
     <div className="space-y-4">
@@ -70,6 +80,18 @@ export function DemoPipelineKanban() {
         Arrastra las tarjetas entre columnas. Haz clic en una tarjeta para ver el detalle completo.
         Los cambios son solo demostrativos y no se guardan.
       </p>
+
+      {/* Category Preview Selector — shown when ambiguity detected */}
+      {showSelector && (
+        <DemoCategorySelector
+          inferredCategory={inferredCategory}
+          selectedCategory={categoryOverride || inferredCategory}
+          onCategoryChange={(cat) =>
+            setCategoryOverride(cat === inferredCategory ? null : cat)
+          }
+          hint={ambiguity?.selectorHint}
+        />
+      )}
 
       {/* Kanban Board — same component as production */}
       <UnifiedKanbanBoard<DemoWorkItem, KanbanStage>

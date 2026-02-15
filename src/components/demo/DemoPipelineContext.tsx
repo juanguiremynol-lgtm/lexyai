@@ -37,6 +37,8 @@ interface DemoPipelineState {
   items: DemoWorkItem[];
   selectedItemId: string | null;
   isDetailOpen: boolean;
+  /** Presentation-only category override (does not change inference data) */
+  categoryOverride: DemoCategory | null;
   // Actions
   moveItem: (itemId: string, newStage: string) => void;
   deleteItem: (itemId: string) => void;
@@ -44,6 +46,7 @@ interface DemoPipelineState {
   openDetail: (itemId: string) => void;
   closeDetail: () => void;
   reset: () => void;
+  setCategoryOverride: (category: DemoCategory | null) => void;
 }
 
 const DemoPipelineCtx = createContext<DemoPipelineState | null>(null);
@@ -129,6 +132,7 @@ export function DemoPipelineProvider({ data, children }: ProviderProps) {
   const [items, setItems] = useState<DemoWorkItem[]>(initialItems);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [categoryOverride, setCategoryOverride] = useState<DemoCategory | null>(null);
 
   const moveItem = useCallback((itemId: string, newStage: string) => {
     setItems(prev => prev.map(item =>
@@ -161,19 +165,34 @@ export function DemoPipelineProvider({ data, children }: ProviderProps) {
     setItems(buildDemoItems(data));
     setSelectedItemId(null);
     setIsDetailOpen(false);
+    setCategoryOverride(null);
   }, [data]);
+
+  // When category override changes, re-map items to use new stage config
+  const handleCategoryOverride = useCallback((cat: DemoCategory | null) => {
+    setCategoryOverride(cat);
+    if (cat) {
+      setItems(prev => prev.map(item => ({
+        ...item,
+        category: cat,
+        stage: getInitialStage(cat),
+      })));
+    }
+  }, []);
 
   const value = useMemo<DemoPipelineState>(() => ({
     items,
     selectedItemId,
     isDetailOpen,
+    categoryOverride,
     moveItem,
     deleteItem,
     selectItem,
     openDetail,
     closeDetail,
     reset,
-  }), [items, selectedItemId, isDetailOpen, moveItem, deleteItem, selectItem, openDetail, closeDetail, reset]);
+    setCategoryOverride: handleCategoryOverride,
+  }), [items, selectedItemId, isDetailOpen, categoryOverride, moveItem, deleteItem, selectItem, openDetail, closeDetail, reset, handleCategoryOverride]);
 
   return (
     <DemoPipelineCtx.Provider value={value}>
