@@ -4,6 +4,10 @@
  * Zero-auth, zero-DB-write lookup for the landing page "Prueba Andromeda" experience.
  * All external calls route through direct fetch with purpose "judicial_demo".
  * 
+ * DB Fallback: If external providers return 0 estados but a matching work_item
+ * exists in the database, we read existing work_item_publicaciones as a fallback
+ * to ensure estados + PDF links are always surfaced when data exists.
+ * 
  * Provider Registry:
  * - CPNU (actuaciones + basic metadata)
  * - SAMAI (actuaciones + basic metadata)
@@ -424,7 +428,7 @@ async function fetchPublicaciones(radicado: string, baseUrl: string, apiKey: str
   const provider = "Publicaciones";
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 20000); // Publicaciones API is slow
     const resp = await fetch(`${baseUrl}/snapshot/${radicado}`, {
       method: "GET",
       headers: { "x-api-key": apiKey },
@@ -1126,7 +1130,63 @@ Deno.serve(async (req: Request) => {
     }
 
     const actuaciones = dedupeActuaciones(allActs);
-    const estados = dedupeEstados(allEstados);
+    let estados = dedupeEstados(allEstados);
+
+    // ── DB FALLBACK: if no estados from providers, check existing DB data ──
+    if (estados.length === 0) {
+      try {
+        const supabaseAdmin = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          { auth: { persistSession: false } },
+        );
+        // Find work item by normalized radicado
+        const { data: wiRows } = await supabaseAdmin
+          .from("work_items")
+          .select("id")
+          .eq("radicado", radicado)
+          .limit(1);
+        const wi = wiRows?.[0];
+        if (wi) {
+          const { data: pubs } = await supabaseAdmin
+            .from("work_item_publicaciones")
+            .select("title, annotation, pdf_url, published_at, fecha_fijacion, tipo_publicacion, source, sources, entry_url")
+            .eq("work_item_id", wi.id)
+            .eq("is_archived", false)
+            .order("fecha_fijacion", { ascending: false, nullsFirst: false })
+            .limit(30);
+          if (pubs && pubs.length > 0) {
+            console.log(`[demo] DB fallback: found ${pubs.length} publicaciones for work_item ${wi.id}`);
+            const dbEstados: DemoEstado[] = pubs.map((p: any) => {
+              const fecha = normalizeDate(p.fecha_fijacion ?? p.published_at);
+              const attachments: DemoEstadoAttachment[] = [];
+              if (p.pdf_url && typeof p.pdf_url === "string" && p.pdf_url.startsWith("https")) {
+                attachments.push({
+                  type: p.pdf_url.toLowerCase().includes(".pdf") ? "pdf" : "link",
+                  url: p.pdf_url,
+                  label: "Ver PDF",
+                  provider: p.source || "DB",
+                });
+              }
+              if (p.entry_url && typeof p.entry_url === "string" && p.entry_url.startsWith("https") && p.entry_url !== p.pdf_url) {
+                attachments.push({ type: "link", url: p.entry_url, label: "Ver entrada", provider: p.source || "DB" });
+              }
+              const srcArr: string[] = Array.isArray(p.sources) && p.sources.length > 0 ? p.sources : [p.source || "DB"];
+              return {
+                tipo: p.tipo_publicacion || "Estado",
+                fecha: fecha || "",
+                descripcion: p.title ? redactPIIFromText(truncate(String(p.title), 200) || "") : (p.annotation ? redactPIIFromText(truncate(String(p.annotation), 200) || "") : null),
+                sources: srcArr,
+                attachments: attachments.length > 0 ? attachments : undefined,
+              };
+            }).filter((e: DemoEstado) => e.fecha || e.descripcion);
+            estados = dedupeEstados([...estados, ...dbEstados]);
+          }
+        }
+      } catch (dbErr) {
+        console.warn("[demo] DB fallback failed (non-blocking):", dbErr);
+      }
+    }
 
     // 5. Check if any data was found
     const sourcesWithData = results.filter(r => r.outcome === "success");
