@@ -11493,6 +11493,7 @@ export type Database = {
           unmapped: number
         }[]
       }
+      canonicalize_legal_text: { Args: { p_text: string }; Returns: string }
       check_and_increment_login_sync: {
         Args: {
           p_max_per_day?: number

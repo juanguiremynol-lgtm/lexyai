@@ -106,7 +106,11 @@ XII. CONTACTO
 - Privacidad / habeas data: ${OPERADOR.correoPrivacidad}`;
 
 /**
- * Compute SHA-256 hash of a string (browser-compatible)
+ * DEV-ONLY: Compute SHA-256 hash of a string (browser-compatible).
+ * 
+ * WARNING: This function is for local development/debugging ONLY.
+ * In production, hashes are computed server-side via pgcrypto + canonicalize_legal_text().
+ * Never use this for compliance-critical hash comparisons.
  */
 export async function computeTextHash(text: string): Promise<string> {
   const encoder = new TextEncoder();
