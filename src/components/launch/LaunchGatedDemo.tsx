@@ -1,17 +1,10 @@
 /**
- * LaunchGatedDemo — Wraps DemoPage with pre-launch gating.
- * During PRELAUNCH: shows countdown, does NOT call external APIs.
+ * LaunchGatedDemo — The demo is NEVER gated.
+ * It remains fully accessible pre-launch and post-launch as the primary conversion asset.
+ * This wrapper exists for consistency but always renders the real DemoPage.
  */
-import { useLaunchGate } from "@/hooks/use-launch-gate";
 import DemoPage from "@/pages/DemoPage";
-import { PrelaunchDemoPage } from "./PrelaunchDemoPage";
 
 export function LaunchGatedDemo() {
-  const { isLive } = useLaunchGate();
-
-  if (!isLive) {
-    return <PrelaunchDemoPage />;
-  }
-
   return <DemoPage />;
 }
