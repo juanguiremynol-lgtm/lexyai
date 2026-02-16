@@ -36,6 +36,7 @@ import {
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import { sanitizeRowsForExport, sanitizeCellValue } from "@/lib/spreadsheet-sanitize";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -244,7 +245,7 @@ export function BillingAccountingSection() {
   }
 
   function exportCSV() {
-    const data = buildExportData();
+    const data = sanitizeRowsForExport(buildExportData());
     if (!data.length) return;
     const headers = Object.keys(data[0]);
     const csvRows = [
@@ -263,7 +264,7 @@ export function BillingAccountingSection() {
   }
 
   function exportExcel() {
-    const data = buildExportData();
+    const data = sanitizeRowsForExport(buildExportData());
     if (!data.length) return;
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();

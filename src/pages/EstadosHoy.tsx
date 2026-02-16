@@ -50,6 +50,7 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
@@ -363,7 +364,7 @@ export default function EstadosHoy() {
 
   const handleExport = useCallback(() => {
     if (!data?.items?.length) { toast.error("No hay datos para exportar"); return; }
-    const rows = data.items.map((i) => ({
+    const rows = data.items.map((i) => sanitizeRowForExport({
       Radicado: i.radicado || "",
       Despacho: i.despacho || i.authority_name || "",
       "Demandante(s)": i.demandantes || "",
