@@ -116,6 +116,24 @@ SELECT cron.schedule(
 );
 ```
 
+## 7. Daily Ops Report — 08:30 COT (13:30 UTC)
+
+Generates a comprehensive TXT report with all diagnostic tools, KPIs, and evidence.
+
+```sql
+SELECT cron.schedule(
+  'atenia-daily-ops-report',
+  '30 13 * * *',  -- 08:30 COT = 13:30 UTC
+  $$
+  SELECT net.http_post(
+    url := 'https://qvuukbqcvlnvmcvcruji.supabase.co/functions/v1/atenia-daily-report',
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dXVrYnFjdmxudm1jdmNydWppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMzcwNDMsImV4cCI6MjA4MTkxMzA0M30.ueXyei3v_gYAISV47psLmCmHTfIgCRTfdZnFSaNAQho"}'::jsonb,
+    body := concat('{"time": "', now(), '"}')::jsonb
+  ) AS request_id;
+  $$
+);
+```
+
 ## Verification
 
 List active cron jobs:

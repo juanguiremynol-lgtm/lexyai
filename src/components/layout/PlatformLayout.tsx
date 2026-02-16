@@ -24,6 +24,7 @@ const routeTitles: Record<string, string> = {
   "/platform/email-provider": "Integración de Proveedor de Email",
   "/platform/system": "Estado del Sistema",
   "/platform/atenia-ai": "Andro IA — Centro de Comando",
+  "/platform/daily-ops-reports": "Reportes Diarios de Operaciones",
 };
 
 export function PlatformLayout() {
