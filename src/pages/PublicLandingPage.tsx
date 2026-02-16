@@ -1,15 +1,17 @@
 /**
  * Public Landing Page — Andromeda
  * 
- * Marketing/landing page showcasing Andromeda's features
- * with Andro IA as the flagship AI assistant.
+ * In PRELAUNCH: Shows countdown hero + waitlist + marketing sections.
+ * In LIVE: Shows normal landing with auth CTAs.
  */
 
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useLaunchGate } from "@/hooks/use-launch-gate";
 
 import { HeroSection } from "@/components/landing/HeroSection";
+import { CountdownHero } from "@/components/launch/CountdownHero";
 import { DemoRadicadoSection } from "@/components/demo/DemoRadicadoSection";
 import { AndroIASection } from "@/components/landing/AndroIASection";
 import { WorkflowsSection } from "@/components/landing/WorkflowsSection";
@@ -21,6 +23,7 @@ import { CTASection } from "@/components/landing/CTASection";
 export default function PublicLandingPage() {
   const navigate = useNavigate();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const { isLive } = useLaunchGate();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -42,8 +45,12 @@ export default function PublicLandingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <HeroSection isAuthenticated={isAuthenticated} onGoToApp={handleGoToApp} />
-      <DemoRadicadoSection />
+      {isLive ? (
+        <HeroSection isAuthenticated={isAuthenticated} onGoToApp={handleGoToApp} />
+      ) : (
+        <CountdownHero />
+      )}
+      {isLive && <DemoRadicadoSection />}
       <AndroIASection />
       <WorkflowsSection />
       <AlertsAndEmailSection />

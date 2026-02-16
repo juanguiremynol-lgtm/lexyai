@@ -313,6 +313,18 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true }, 200);
     }
 
+    // ═══ PRE-LAUNCH GATE (server-side enforcement) ═══
+    const LAUNCH_AT = new Date("2026-03-01T05:00:00Z");
+    const launchMode = Deno.env.get("LAUNCH_MODE") || "AUTO";
+    const isPrelaunch = launchMode === "FORCE_PRELAUNCH" || (launchMode !== "FORCE_LIVE" && new Date() < LAUNCH_AT);
+    if (isPrelaunch && body.action === "rate-check") {
+      return json({
+        blocked: true,
+        reason: "PRELAUNCH",
+        launchAt: LAUNCH_AT.toISOString(),
+      }, 403);
+    }
+
     const supabase = getServiceClient();
     const ip = getClientIp(req);
     const ipHash = await hashIp(ip);
