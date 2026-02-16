@@ -2,7 +2,7 @@
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
 
-export type PlanName = 'trial' | 'basic' | 'standard' | 'unlimited';
+export type PlanName = 'trial' | 'basic' | 'standard' | 'business' | 'unlimited';
 
 export interface SubscriptionPlan {
   id: string;
@@ -51,6 +51,7 @@ export const PLAN_COLORS: Record<PlanName, string> = {
   trial: 'bg-muted text-muted-foreground',
   basic: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
   standard: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  business: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
   unlimited: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
 };
 
