@@ -1,20 +1,28 @@
 /**
  * LegalTermsPage — Public page showing the full T&C and Privacy Policy.
- * Accessible from footer and Settings > Legal.
+ * 
+ * PUBLIC tabs: Terms text + version history (no user data)
+ * AUTHENTICATED tab: User's own acceptance summary (no IP/user_agent — data minimization)
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { TERMS_FULL_TEXT, TERMS_VERSION, TERMS_LAST_UPDATED, OPERADOR, PRIVACY_POLICY_URL } from "@/lib/terms-text";
+import { fetchActiveTerms, getUserAcceptanceHistory, type ActiveTermsData } from "@/lib/terms-service";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Download, FileText, History, ShieldCheck } from "lucide-react";
-import { getUserAcceptanceHistory } from "@/lib/terms-service";
+import { Download, FileText, History, ShieldCheck, Loader2 } from "lucide-react";
 
 export default function LegalTermsPage() {
   const [tab, setTab] = useState("terms");
+
+  // Fetch canonical terms from DB
+  const { data: activeTerms, isLoading: termsLoading } = useQuery({
+    queryKey: ["active-terms-legal"],
+    queryFn: fetchActiveTerms,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const { data: versions } = useQuery({
     queryKey: ["terms-versions"],
@@ -27,16 +35,18 @@ export default function LegalTermsPage() {
     },
   });
 
+  // Only fetch acceptance history for authenticated users — summary only (no PII)
   const { data: acceptanceHistory } = useQuery({
     queryKey: ["terms-acceptance-history"],
     queryFn: getUserAcceptanceHistory,
   });
 
   const handleDownload = () => {
-    const blob = new Blob([TERMS_FULL_TEXT], { type: "text/plain;charset=utf-8" });
+    if (!activeTerms) return;
+    const blob = new Blob([activeTerms.termsText], { type: "text/plain;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Terminos_ANDROMEDA_${TERMS_VERSION}.txt`;
+    link.download = `Terminos_ANDROMEDA_${activeTerms.termsVersion}.txt`;
     link.click();
   };
 
@@ -45,7 +55,7 @@ export default function LegalTermsPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">Legal</h1>
         <p className="text-[#a0b4d0]">
-          Términos y Condiciones de Uso, Política de Privacidad y registros de aceptación.
+          Términos y Condiciones de Uso, Política de Privacidad e historial de versiones.
         </p>
       </div>
 
@@ -74,28 +84,41 @@ export default function LegalTermsPage() {
                 <CardTitle className="text-white">
                   Términos y Condiciones de Uso
                 </CardTitle>
-                <p className="text-sm text-[#a0b4d0] mt-1">
-                  Versión {TERMS_VERSION} · Actualizado: {TERMS_LAST_UPDATED}
-                </p>
+                {activeTerms && (
+                  <p className="text-sm text-[#a0b4d0] mt-1">
+                    Versión {activeTerms.termsVersion} · Actualizado: {activeTerms.termsLastUpdated}
+                  </p>
+                )}
               </div>
               <Button variant="outline" size="sm" onClick={handleDownload}
+                disabled={!activeTerms}
                 className="border-[#1a3a6a]/50 text-[#a0b4d0] hover:text-white hover:bg-[#1a3a6a]/30">
                 <Download className="h-4 w-4 mr-2" />
                 Descargar
               </Button>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans max-h-[70vh] overflow-y-auto">
-                {TERMS_FULL_TEXT}
-              </pre>
-              <div className="mt-6 p-4 rounded-lg bg-[#d4a017]/5 border border-[#d4a017]/15">
-                <p className="text-xs text-[#a0b4d0]">
-                  <strong>Operador:</strong> {OPERADOR.razonSocial} · NIT {OPERADOR.nit}<br />
-                  <strong>Domicilio:</strong> {OPERADOR.domicilio}<br />
-                  <strong>Contacto:</strong> {OPERADOR.correoGeneral} · Tel: {OPERADOR.telefono}<br />
-                  <strong>Privacidad:</strong> {OPERADOR.correoPrivacidad}
-                </p>
-              </div>
+              {termsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-[#d4a017]" />
+                </div>
+              ) : activeTerms ? (
+                <>
+                  <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans max-h-[70vh] overflow-y-auto">
+                    {activeTerms.termsText}
+                  </pre>
+                  <div className="mt-6 p-4 rounded-lg bg-[#d4a017]/5 border border-[#d4a017]/15">
+                    <p className="text-xs text-[#a0b4d0]">
+                      <strong>Operador:</strong> {activeTerms.operador.razonSocial} · NIT {activeTerms.operador.nit}<br />
+                      <strong>Domicilio:</strong> {activeTerms.operador.domicilio}<br />
+                      <strong>Contacto:</strong> {activeTerms.operador.correo} · Tel: {activeTerms.operador.telefono}<br />
+                      <strong>Privacidad:</strong> {activeTerms.operador.correoPrivacidad}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[#a0b4d0]">No se pudieron cargar los términos.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -134,6 +157,7 @@ export default function LegalTermsPage() {
           </Card>
         </TabsContent>
 
+        {/* User acceptance summary — authenticated only, no PII (no IP/user_agent) */}
         {acceptanceHistory && acceptanceHistory.length > 0 && (
           <TabsContent value="acceptance">
             <Card className="border-[#1a3a6a]/40 bg-[#0c1529]/80">
@@ -149,7 +173,12 @@ export default function LegalTermsPage() {
                     >
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium text-white">
-                          Versión {a.terms_version}
+                          Versión T&C: {a.terms_version}
+                          {a.privacy_policy_version && (
+                            <span className="text-[#a0b4d0] font-normal ml-2">
+                              · Política: {a.privacy_policy_version}
+                            </span>
+                          )}
                         </span>
                         <span className="text-xs text-[#a0b4d0]">
                           {new Date(a.accepted_at).toLocaleString("es-CO")}

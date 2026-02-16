@@ -69,8 +69,8 @@ export default function Auth() {
   };
 
   const handleGoogleSignIn = async () => {
-    // For new users, require terms first
-    // Since we can't know if it's a new user before OAuth, we show terms before redirect
+    // Pre-acceptance gate: show terms BEFORE initiating OAuth
+    // This ensures acceptance happens before the redirect, not after
     if (!termsAccepted) {
       setPendingGoogleSignIn(true);
       setShowTerms(true);
@@ -86,12 +86,15 @@ export default function Auth() {
   }) => {
     setGoogleLoading(true);
     try {
-      // Store terms data in sessionStorage so we can record it after OAuth redirect
+      // Store terms data in sessionStorage as optimization (not compliance-critical).
+      // The DB pending_terms_acceptance flag is the hard gate — if sessionStorage
+      // fails (privacy mode, ITP, etc.), the TermsReAcceptanceGuard will catch it.
       sessionStorage.setItem(
         "pending_terms_acceptance",
         JSON.stringify({
           ...terms,
           acceptanceMethod: "registration_google",
+          scrollGated: true,
         })
       );
 
@@ -107,7 +110,9 @@ export default function Auth() {
     }
   };
 
-  // After OAuth redirect, record terms acceptance
+  // After OAuth redirect, attempt to record terms acceptance from sessionStorage.
+  // This is an optimization — if it fails, the TermsReAcceptanceGuard + 
+  // profiles.pending_terms_acceptance flag will enforce acceptance server-side.
   useEffect(() => {
     const recordPendingAcceptance = async () => {
       const pending = sessionStorage.getItem("pending_terms_acceptance");
@@ -118,10 +123,14 @@ export default function Auth() {
 
       try {
         const termsPayload = JSON.parse(pending);
-        await recordTermsAcceptance(termsPayload);
-        sessionStorage.removeItem("pending_terms_acceptance");
+        const result = await recordTermsAcceptance(termsPayload);
+        if (result.success) {
+          sessionStorage.removeItem("pending_terms_acceptance");
+        }
+        // If it fails, the guard will catch it — don't block the user here
       } catch (err) {
         console.error("Failed to record terms acceptance after OAuth:", err);
+        // Non-fatal: the guard will enforce acceptance
       }
     };
     recordPendingAcceptance();
@@ -145,7 +154,6 @@ export default function Auth() {
         toast.success("Bienvenido a Andromeda");
         navigate("/dashboard");
       } else {
-        // Record terms acceptance AFTER successful signup
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -156,11 +164,12 @@ export default function Auth() {
         });
         if (error) throw error;
 
-        // Record terms acceptance
+        // Record terms acceptance server-side
         if (termsData) {
           await recordTermsAcceptance({
             ...termsData,
             acceptanceMethod: "registration_web",
+            scrollGated: true,
           });
         }
 
