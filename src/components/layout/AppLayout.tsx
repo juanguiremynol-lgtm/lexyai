@@ -4,12 +4,13 @@ import { TopBar } from "./TopBar";
 import { Outlet } from "react-router-dom";
 import { EstadosTicker } from "@/components/ticker";
 import { RenewalTickerTop, RenewalTickerBottom } from "@/components/billing/RenewalTicker";
+import { ProfileBubble } from "@/components/profile/ProfileBubble";
 import { SuspendedPaywall } from "@/components/billing/SuspendedPaywall";
 import { BetaTrialBanner } from "@/components/billing/BetaTrialBanner";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
-import { ensureUserOrganization, backfillOrganizationId } from "@/lib/onboarding-service";
+import { ensureUserOrganization, backfillOrganizationId, autoPopulateProfileFromOAuth } from "@/lib/onboarding-service";
 
 export function AppLayout() {
   const { theme } = useTheme();
@@ -20,9 +21,10 @@ export function AppLayout() {
     const initOrganization = async () => {
       const result = await ensureUserOrganization();
       if (result.success && result.organizationId) {
-        // Backfill organization_id for existing data
         await backfillOrganizationId(result.organizationId);
       }
+      // Auto-populate profile from OAuth claims (only fills empty fields)
+      await autoPopulateProfileFromOAuth();
     };
     initOrganization();
   }, []);
@@ -52,6 +54,7 @@ export function AppLayout() {
       </div>
       {/* Suspended paywall overlays everything */}
       <SuspendedPaywall />
+      <ProfileBubble />
     </SidebarProvider>
   );
 }

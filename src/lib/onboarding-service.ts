@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { extractProfileClaims, getMissingProfileFields } from './oauth-claim-mapper';
 
 const TRIAL_DAYS = 90;
 
@@ -73,13 +74,14 @@ export async function ensureUserOrganization(): Promise<OnboardingResult> {
       ? `Organización de ${user.user_metadata.full_name}`
       : `Organización ${user.email?.split('@')[0] || 'Nueva'}`;
 
-    // 1. Create organization
+    // 1. Create personal organization
     const { data: newOrg, error: orgError } = await supabase
       .from('organizations')
       .insert({
         name: orgName,
         created_by: user.id,
         is_active: true,
+        type: 'personal',
       })
       .select()
       .single();
@@ -194,5 +196,58 @@ export async function backfillOrganizationId(organizationId: string): Promise<vo
     }
   } catch (error) {
     console.error('Backfill error:', error);
+  }
+}
+
+/**
+ * Auto-populate profile fields from OAuth claims.
+ * Only fills empty fields (does not overwrite user-edited data).
+ * Returns true if profile is now complete.
+ */
+export async function autoPopulateProfileFromOAuth(): Promise<boolean> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    // Extract claims from the OAuth provider
+    const provider = user.app_metadata?.provider || user.user_metadata?.iss;
+    const claims = extractProfileClaims(provider, user.user_metadata);
+
+    // Get current profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, avatar_url, email, address, profile_completed_at')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // If profile is already complete, no need to update
+    if (profile?.profile_completed_at) return true;
+
+    // Build update object: only fill empty fields
+    const updates: Record<string, unknown> = {};
+
+    if (!profile?.full_name && claims.full_name) updates.full_name = claims.full_name;
+    if (!profile?.avatar_url && claims.avatar_url) updates.avatar_url = claims.avatar_url;
+    if (!profile?.email && (claims.email || user.email)) updates.email = claims.email || user.email;
+
+    // Determine auth provider
+    if (provider) updates.auth_provider = provider;
+
+    if (Object.keys(updates).length > 0) {
+      await supabase
+        .from('profiles')
+        .update(updates)
+        .eq('id', user.id);
+    }
+
+    // Check if profile is now complete (all required fields present)
+    const finalName = (updates.full_name as string) || profile?.full_name;
+    const finalAvatar = (updates.avatar_url as string) || profile?.avatar_url;
+    const finalAddress = profile?.address;
+
+    return !!(finalName && finalAvatar && finalAddress);
+  } catch (error) {
+    console.error('Auto-populate profile error:', error);
+    return false;
   }
 }

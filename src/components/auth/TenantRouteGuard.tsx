@@ -25,7 +25,7 @@ interface TenantRouteGuardProps {
   children: ReactNode;
 }
 
-type GuardState = 'checking' | 'authorized' | 'unauthorized' | 'error' | 'no-session' | 'no-org-access';
+type GuardState = 'checking' | 'authorized' | 'unauthorized' | 'error' | 'no-session' | 'no-org-access' | 'profile-incomplete';
 
 export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
   const location = useLocation();
@@ -103,8 +103,21 @@ export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
           return;
         }
 
-        // Authorized - has org membership
-        console.log('[TenantRouteGuard] Access AUTHORIZED (org member)');
+        // Step 4: Check profile completion (non-platform-admins must complete profile)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('profile_completed_at')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (!profile?.profile_completed_at) {
+          console.log('[TenantRouteGuard] Profile INCOMPLETE - redirecting to onboarding');
+          if (isMounted) setState('profile-incomplete');
+          return;
+        }
+
+        // Authorized - has org membership + complete profile
+        console.log('[TenantRouteGuard] Access AUTHORIZED (org member, profile complete)');
         if (isMounted) setState('authorized');
 
       } catch (err) {
@@ -150,6 +163,11 @@ export function TenantRouteGuard({ children }: TenantRouteGuardProps) {
   // State: No session - redirect to login
   if (state === 'no-session') {
     return <Navigate to="/auth" state={{ from: location }} replace />;
+  }
+
+  // State: Profile incomplete - redirect to onboarding
+  if (state === 'profile-incomplete') {
+    return <Navigate to="/onboarding/profile" state={{ from: location }} replace />;
   }
 
   // State: No organization access - show dedicated error page
