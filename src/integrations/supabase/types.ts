@@ -7271,6 +7271,45 @@ export type Database = {
           },
         ]
       }
+      privacy_policy_versions: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          database_validity_clause_present: boolean
+          effective_date: string
+          id: string
+          text: string
+          text_hash: string
+          title: string
+          version: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          database_validity_clause_present?: boolean
+          effective_date?: string
+          id?: string
+          text: string
+          text_hash: string
+          title?: string
+          version: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          database_validity_clause_present?: boolean
+          effective_date?: string
+          id?: string
+          text?: string
+          text_hash?: string
+          title?: string
+          version?: string
+        }
+        Relationships: []
+      }
       process_estados: {
         Row: {
           created_at: string
@@ -9350,6 +9389,105 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      terms_acceptance: {
+        Row: {
+          acceptance_method: string
+          accepted_at: string
+          checkbox_age: boolean
+          checkbox_marketing: boolean
+          checkbox_terms: boolean
+          created_at: string
+          id: string
+          ip_address: string | null
+          locale: string | null
+          operador_nit: string
+          operador_razon_social: string
+          privacy_policy_text_hash: string | null
+          privacy_policy_version: string | null
+          terms_last_updated_date: string
+          terms_text_hash: string
+          terms_version: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          acceptance_method?: string
+          accepted_at?: string
+          checkbox_age?: boolean
+          checkbox_marketing?: boolean
+          checkbox_terms?: boolean
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          locale?: string | null
+          operador_nit?: string
+          operador_razon_social?: string
+          privacy_policy_text_hash?: string | null
+          privacy_policy_version?: string | null
+          terms_last_updated_date: string
+          terms_text_hash: string
+          terms_version: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          acceptance_method?: string
+          accepted_at?: string
+          checkbox_age?: boolean
+          checkbox_marketing?: boolean
+          checkbox_terms?: boolean
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          locale?: string | null
+          operador_nit?: string
+          operador_razon_social?: string
+          privacy_policy_text_hash?: string | null
+          privacy_policy_version?: string | null
+          terms_last_updated_date?: string
+          terms_text_hash?: string
+          terms_version?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      terms_versions: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          last_updated: string
+          text: string
+          text_hash: string
+          title: string
+          version: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_updated?: string
+          text: string
+          text_hash: string
+          title?: string
+          version: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          last_updated?: string
+          text?: string
+          text_hash?: string
+          title?: string
+          version?: string
+        }
+        Relationships: []
       }
       trial_vouchers: {
         Row: {
@@ -11471,6 +11609,10 @@ export type Database = {
           p_status: Database["public"]["Enums"]["daily_sync_status"]
         }
         Returns: undefined
+      }
+      user_has_accepted_current_terms: {
+        Args: { p_user_id?: string }
+        Returns: boolean
       }
     }
     Enums: {

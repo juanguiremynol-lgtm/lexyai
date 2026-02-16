@@ -62,6 +62,12 @@ export function PublicLayout() {
               <Link to="/pricing" className="hover:text-white transition-colors">
                 Precios
               </Link>
+              <Link to="/legal/terms" className="hover:text-white transition-colors">
+                Términos y Condiciones
+              </Link>
+              <Link to="/legal/privacy" className="hover:text-white transition-colors">
+                Privacidad
+              </Link>
               <a href="/#andro-ia" className="hover:text-white transition-colors">
                 Andro IA
               </a>

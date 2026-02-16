@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -243,6 +243,10 @@ export default function Settings() {
           <TabsTrigger value="privacy">
             <ShieldCheck className="h-4 w-4 mr-1" />
             Privacidad
+          </TabsTrigger>
+          <TabsTrigger value="legal">
+            <Scale className="h-4 w-4 mr-1" />
+            Legal
           </TabsTrigger>
           <TabsTrigger value="atenia">
             <Bot className="h-4 w-4 mr-1" />
@@ -572,6 +576,47 @@ export default function Settings() {
 
         <TabsContent value="privacy">
           <UserPrivacySettings />
+        </TabsContent>
+
+        <TabsContent value="legal">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Términos y Condiciones
+              </CardTitle>
+              <CardDescription>
+                Consulta los Términos y Condiciones vigentes, Política de Privacidad y tu historial de aceptaciones.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-3">
+                <Button variant="outline" asChild>
+                  <a href="/legal/terms" target="_blank" rel="noopener noreferrer">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Ver Términos Vigentes
+                  </a>
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href="/legal/privacy" target="_blank" rel="noopener noreferrer">
+                    <Shield className="h-4 w-4 mr-2" />
+                    Política de Privacidad
+                  </a>
+                </Button>
+              </div>
+              <Separator />
+              <p className="text-sm text-muted-foreground">
+                Los Términos y Condiciones, la Política de Tratamiento de Datos Personales y tu historial
+                de aceptaciones están disponibles en la sección <a href="/legal" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">Legal</a>.
+              </p>
+              <div className="p-3 rounded-lg bg-muted/50 border">
+                <p className="text-xs text-muted-foreground">
+                  <strong>Operador:</strong> LEX ET LITTERAE S.A.S. · NIT 901782559-8<br />
+                  <strong>Contacto privacidad:</strong> erikajohana123@hotmail.com
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="atenia" className="space-y-6">

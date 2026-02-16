@@ -15,6 +15,8 @@ import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import SuperAdminAccess from "./pages/SuperAdminAccess";
+import LegalTermsPage from "./pages/LegalTermsPage";
+import { TermsReAcceptanceGuard } from "./components/legal/TermsReAcceptanceGuard";
 import PlatformAuthProvidersPage from "./pages/platform/PlatformAuthProvidersPage";
 import { LaunchGatedAuth } from "@/components/launch/LaunchGatedAuth";
 import { LaunchGatedDemo } from "@/components/launch/LaunchGatedDemo";
@@ -130,6 +132,9 @@ const App = () => (
             <Route path="/checkout" element={<ErrorBoundary><CheckoutSuccess /></ErrorBoundary>} />
             <Route path="/join" element={<ErrorBoundary><JoinPage /></ErrorBoundary>} />
             <Route path="/v/redeem/:token" element={<ErrorBoundary><VoucherRedeemPage /></ErrorBoundary>} />
+            <Route path="/legal" element={<ErrorBoundary><LegalTermsPage /></ErrorBoundary>} />
+            <Route path="/legal/terms" element={<ErrorBoundary><LegalTermsPage /></ErrorBoundary>} />
+            <Route path="/legal/privacy" element={<ErrorBoundary><LegalTermsPage /></ErrorBoundary>} />
           </Route>
           
           {/* Legacy root redirects to app (for authenticated users) */}
@@ -156,13 +161,15 @@ const App = () => (
           {/* ============================================ */}
           <Route path="/app" element={
             <TenantRouteGuard>
-              <OrganizationProvider>
-                <SubscriptionProvider>
-                  <ImpersonationProvider>
-                    <TenantLayout />
-                  </ImpersonationProvider>
-                </SubscriptionProvider>
-              </OrganizationProvider>
+              <TermsReAcceptanceGuard>
+                <OrganizationProvider>
+                  <SubscriptionProvider>
+                    <ImpersonationProvider>
+                      <TenantLayout />
+                    </ImpersonationProvider>
+                  </SubscriptionProvider>
+                </OrganizationProvider>
+              </TermsReAcceptanceGuard>
             </TenantRouteGuard>
           }>
             <Route index element={<Navigate to="/app/dashboard" replace />} />
