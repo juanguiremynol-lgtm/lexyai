@@ -2,6 +2,24 @@
 
 > Last updated: 2026-02-16
 
+## 0. Current State: Beta Trial Only
+
+**All users are on TRIAL during beta.** No paid plans are active.
+
+| Constant | Value |
+|----------|-------|
+| `BETA_TRIAL_DURATION_MONTHS` | 3 |
+| `BETA_TRIAL_MAX_CLIENTS` | 10 |
+| `BETA_TRIAL_MAX_WORK_ITEMS` | 25 |
+| `BETA_TRIAL_MAX_MONITORED_ITEMS` | 25 |
+| `BETA_TRIAL_SYNC_ENABLED` | true |
+
+- Sign-up: Google OAuth only
+- Plan assignment: automatic TRIAL on org creation (`create_trial_subscription` trigger)
+- Trial period: `trial_ends_at = now() + 90 days`
+- Paid tiers (BASIC, PLUS, BUSINESS) will be introduced after billing system is live
+- All paid plan rows in `subscription_plans` are `active = false` during beta
+
 ## 1. User Types
 
 ### Individual Mode (Basic/Standard/Trial Plans)

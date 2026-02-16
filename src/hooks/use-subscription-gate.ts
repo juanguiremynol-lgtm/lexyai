@@ -18,13 +18,12 @@ interface SubscriptionGate {
 
 /**
  * Hook to check subscription status and feature gating
- * Returns gate status for UI to enable/disable features
+ * During beta, all users are TRIAL.
  */
 export function useSubscriptionGate(): SubscriptionGate {
   const { subscription, isTrialing, isExpired, trialDaysRemaining, isActive } = useSubscription();
 
   return useMemo(() => {
-    // Map subscription status to gate status
     let status: SubscriptionStatus = 'TRIAL';
     let canWrite = true;
     let canRead = true;
@@ -33,7 +32,6 @@ export function useSubscriptionGate(): SubscriptionGate {
     let bannerType: SubscriptionGate['bannerType'] = null;
 
     if (!subscription) {
-      // No subscription - treat as expired
       status = 'EXPIRED';
       canWrite = false;
       statusMessage = 'No tienes una suscripción activa.';
@@ -41,30 +39,28 @@ export function useSubscriptionGate(): SubscriptionGate {
     } else if (subscription.status === 'canceled' || subscription.status === 'expired') {
       status = 'EXPIRED';
       canWrite = false;
-      statusMessage = 'Tu suscripción ha expirado. Actualiza tu plan para continuar.';
+      statusMessage = 'Tu período beta trial ha terminado. Contacta a soporte para continuar.';
       bannerType = 'expired';
     } else if (subscription.status === 'past_due') {
-      // Past due - allow read but not write
       status = 'SUSPENDED';
       canWrite = false;
       isSuspended = true;
-      statusMessage = 'Tu cuenta está suspendida por falta de pago.';
+      statusMessage = 'Tu cuenta está suspendida.';
       bannerType = 'suspended';
     } else if (isTrialing) {
       status = 'TRIAL';
       
       if (trialDaysRemaining === 0) {
-        // Trial just expired
         status = 'EXPIRED';
         canWrite = false;
-        statusMessage = 'Tu período de prueba ha terminado.';
+        statusMessage = 'Tu período beta trial ha terminado.';
         bannerType = 'expired';
-      } else if (trialDaysRemaining <= 7) {
-        statusMessage = `Tu período de prueba termina en ${trialDaysRemaining} día${trialDaysRemaining > 1 ? 's' : ''}.`;
+      } else if (trialDaysRemaining <= 14) {
+        statusMessage = `Tu beta trial termina en ${trialDaysRemaining} día${trialDaysRemaining > 1 ? 's' : ''}.`;
         bannerType = 'trial';
       } else {
-        statusMessage = `${trialDaysRemaining} días de prueba restantes.`;
-        bannerType = null; // Don't show banner if > 7 days
+        statusMessage = `${trialDaysRemaining} días de beta trial restantes.`;
+        bannerType = null;
       }
     } else if (subscription.status === 'active') {
       status = 'ACTIVE';
@@ -93,7 +89,6 @@ export function useSubscriptionGate(): SubscriptionGate {
 export function useCanPerformAction(action: 'create' | 'update' | 'delete' | 'import'): boolean {
   const { canWrite } = useSubscriptionGate();
   
-  // All write actions require canWrite
   if (['create', 'update', 'delete', 'import'].includes(action)) {
     return canWrite;
   }

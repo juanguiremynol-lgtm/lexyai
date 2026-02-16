@@ -1,11 +1,8 @@
-import { AlertTriangle, Calendar, Zap, XCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { AlertTriangle, Calendar, XCircle } from 'lucide-react';
 import { useSubscriptionGate } from '@/hooks/use-subscription-gate';
-import { useNavigate } from 'react-router-dom';
 
 export function SubscriptionBanner() {
   const { bannerType, statusMessage, daysLeft, isExpired, isSuspended } = useSubscriptionGate();
-  const navigate = useNavigate();
 
   // Don't show banner if not needed
   if (!bannerType) {
@@ -27,12 +24,6 @@ export function SubscriptionBanner() {
     }
   };
 
-  const getButtonText = () => {
-    if (isExpired) return 'Reactivar';
-    if (isSuspended) return 'Resolver';
-    return 'Ver planes';
-  };
-
   return (
     <div className={`flex items-center justify-between gap-4 px-4 py-2 text-sm ${
       isUrgent 
@@ -43,15 +34,6 @@ export function SubscriptionBanner() {
         {getIcon()}
         <span>{statusMessage}</span>
       </div>
-      <Button
-        size="sm"
-        variant={isUrgent ? 'default' : 'outline'}
-        onClick={() => navigate('/pricing')}
-        className="flex-shrink-0"
-      >
-        <Zap className="h-3 w-3 mr-1" />
-        {getButtonText()}
-      </Button>
     </div>
   );
 }

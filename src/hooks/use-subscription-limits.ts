@@ -3,37 +3,27 @@ import { toast } from 'sonner';
 
 type EntityType = 'client' | 'filing' | 'process' | 'tutela' | 'peticion' | 'admin';
 
-const ENTITY_LABELS: Record<EntityType, string> = {
-  client: 'cliente',
-  filing: 'proceso',
-  process: 'proceso monitoreado',
-  tutela: 'tutela',
-  peticion: 'petición',
-  admin: 'proceso administrativo',
-};
-
 export function useSubscriptionLimits() {
   const { usage, plan, isActive, isExpired, isTrialing, trialDaysRemaining } = useSubscription();
 
   const checkCanCreate = (entityType: EntityType): boolean => {
     if (isExpired) {
-      toast.error('Tu suscripción ha expirado', {
-        description: 'Actualiza tu plan para continuar usando ATENIA.',
+      toast.error('Tu beta trial ha expirado', {
+        description: 'Contacta a soporte para continuar usando ATENIA.',
       });
       return false;
     }
 
     if (!isActive) {
       toast.error('Suscripción inactiva', {
-        description: 'Activa tu suscripción para crear nuevos registros.',
+        description: 'Tu beta trial no está activo.',
       });
       return false;
     }
 
-    // Check if trial is about to expire
     if (isTrialing && trialDaysRemaining <= 3 && trialDaysRemaining > 0) {
-      toast.warning(`Tu período de prueba termina en ${trialDaysRemaining} día${trialDaysRemaining > 1 ? 's' : ''}`, {
-        description: 'Considera actualizar tu plan para no perder acceso.',
+      toast.warning(`Tu beta trial termina en ${trialDaysRemaining} día${trialDaysRemaining > 1 ? 's' : ''}`, {
+        description: 'Los planes pagos se anunciarán próximamente.',
       });
     }
 
@@ -41,17 +31,17 @@ export function useSubscriptionLimits() {
     if (entityType === 'client') {
       if (!usage.canAddClient) {
         toast.error('Límite de clientes alcanzado', {
-          description: `Tu plan ${plan?.display_name || ''} permite hasta ${usage.maxClients} clientes. Actualiza tu plan para agregar más.`,
+          description: `El beta trial permite hasta ${usage.maxClients} clientes.`,
         });
         return false;
       }
       return true;
     }
 
-    // Filing/process check (filings, tutelas, peticiones, procesos, admin)
+    // Filing/process check
     if (!usage.canAddFiling) {
-      toast.error(`Límite de procesos alcanzado`, {
-        description: `Tu plan ${plan?.display_name || ''} permite hasta ${usage.maxFilings} procesos. Actualiza tu plan para agregar más.`,
+      toast.error('Límite de procesos alcanzado', {
+        description: `El beta trial permite hasta ${usage.maxFilings} procesos.`,
       });
       return false;
     }
@@ -60,7 +50,6 @@ export function useSubscriptionLimits() {
   };
 
   const getUsageWarning = (): { type: 'client' | 'filing' | null; percent: number; message: string } | null => {
-    // Check if approaching limits (80% or more)
     if (usage.maxClients && usage.usagePercentClients >= 80) {
       return {
         type: 'client',
