@@ -7477,6 +7477,7 @@ export type Database = {
           last_welcome_date: string | null
           mascot_preferences: Json | null
           organization_id: string | null
+          pending_terms_acceptance: boolean
           phone: string | null
           profile_completed_at: string | null
           reminder_email: string | null
@@ -7509,6 +7510,7 @@ export type Database = {
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
+          pending_terms_acceptance?: boolean
           phone?: string | null
           profile_completed_at?: string | null
           reminder_email?: string | null
@@ -7541,6 +7543,7 @@ export type Database = {
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
+          pending_terms_acceptance?: boolean
           phone?: string | null
           profile_completed_at?: string | null
           reminder_email?: string | null
@@ -9405,6 +9408,8 @@ export type Database = {
           operador_razon_social: string
           privacy_policy_text_hash: string | null
           privacy_policy_version: string | null
+          scroll_gated: boolean | null
+          server_received_at: string | null
           terms_last_updated_date: string
           terms_text_hash: string
           terms_version: string
@@ -9425,6 +9430,8 @@ export type Database = {
           operador_razon_social?: string
           privacy_policy_text_hash?: string | null
           privacy_policy_version?: string | null
+          scroll_gated?: boolean | null
+          server_received_at?: string | null
           terms_last_updated_date: string
           terms_text_hash: string
           terms_version: string
@@ -9445,6 +9452,8 @@ export type Database = {
           operador_razon_social?: string
           privacy_policy_text_hash?: string | null
           privacy_policy_version?: string | null
+          scroll_gated?: boolean | null
+          server_received_at?: string | null
           terms_last_updated_date?: string
           terms_text_hash?: string
           terms_version?: string
@@ -11501,6 +11510,24 @@ export type Database = {
         Returns: Json
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
+      get_active_terms: {
+        Args: never
+        Returns: {
+          operador_correo: string
+          operador_correo_privacidad: string
+          operador_domicilio: string
+          operador_nit: string
+          operador_razon_social: string
+          operador_telefono: string
+          privacy_text: string
+          privacy_text_hash: string
+          privacy_version: string
+          terms_last_updated: string
+          terms_text: string
+          terms_text_hash: string
+          terms_version: string
+        }[]
+      }
       get_data_protection_summary: { Args: never; Returns: Json }
       get_effective_limits: { Args: { p_org_id: string }; Returns: Json }
       get_login_sync_status: {
@@ -11611,7 +11638,7 @@ export type Database = {
         Returns: undefined
       }
       user_has_accepted_current_terms: {
-        Args: { p_user_id?: string }
+        Args: { p_user_id: string }
         Returns: boolean
       }
     }

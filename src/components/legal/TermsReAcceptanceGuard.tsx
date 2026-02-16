@@ -1,7 +1,11 @@
 /**
  * TermsReAcceptanceGuard — Wraps protected routes.
  * If the user hasn't accepted the current terms version, shows the acceptance modal.
- * Blocks all app usage until accepted (re-acceptance on version change).
+ * 
+ * This is the UX layer. Server-side enforcement is provided by:
+ * - DB function: user_has_accepted_current_terms()  
+ * - DB trigger: profiles.pending_terms_acceptance flag
+ * - The guard checks BOTH the DB function AND the pending flag
  */
 import { ReactNode, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,8 +43,20 @@ export function TermsReAcceptanceGuard({ children }: Props) {
         return;
       }
 
-      const accepted = await hasAcceptedCurrentTerms();
-      setNeedsAcceptance(!accepted);
+      // Check both: DB function + profile pending flag
+      const [accepted, profileResult] = await Promise.all([
+        hasAcceptedCurrentTerms(),
+        supabase
+          .from("profiles")
+          .select("pending_terms_acceptance")
+          .eq("id", session.user.id)
+          .maybeSingle()
+      ]);
+
+      const pendingFlag = profileResult.data?.pending_terms_acceptance ?? false;
+      
+      // Need acceptance if: server says not accepted OR profile is flagged
+      setNeedsAcceptance(!accepted || pendingFlag);
       setChecking(false);
     };
     check();
@@ -57,6 +73,7 @@ export function TermsReAcceptanceGuard({ children }: Props) {
       checkboxAge: data.checkboxAge,
       checkboxMarketing: data.checkboxMarketing,
       acceptanceMethod: "reacceptance_web",
+      scrollGated: true,
     });
 
     if (result.success) {

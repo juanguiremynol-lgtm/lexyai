@@ -1,14 +1,16 @@
 /**
  * TermsAcceptanceModal — Full-screen modal that shows T&C + Privacy Notice.
  * Enforces scroll-to-bottom before enabling checkboxes.
- * Used during registration and re-acceptance flows.
+ * 
+ * CANONICAL SOURCE: Text is fetched from the database via fetchActiveTerms().
+ * The frontend file terms-text.ts is only used as a dev fallback.
  */
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Download, Printer, FileText, ShieldCheck, Loader2 } from "lucide-react";
-import { TERMS_FULL_TEXT, TERMS_VERSION, TERMS_LAST_UPDATED, OPERADOR } from "@/lib/terms-text";
+import { fetchActiveTerms, type ActiveTermsData } from "@/lib/terms-service";
 
 interface TermsAcceptanceModalProps {
   onAccept: (data: {
@@ -32,57 +34,71 @@ export function TermsAcceptanceModal({
   const [checkMarketing, setCheckMarketing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Detect scroll to bottom
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const threshold = 50;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-    if (atBottom && !hasScrolledToEnd) {
-      setHasScrolledToEnd(true);
-    }
-  }, [hasScrolledToEnd]);
+  // Fetch canonical terms from DB
+  const [termsData, setTermsData] = useState<ActiveTermsData | null>(null);
+  const [termsLoading, setTermsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchActiveTerms().then((data) => {
+      setTermsData(data);
+      setTermsLoading(false);
+    });
+  }, []);
 
   // Attach scroll listener to the viewport inside ScrollArea
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    // ScrollArea from radix wraps content in a viewport div
+    if (!el || termsLoading) return;
     const viewport = el.querySelector("[data-radix-scroll-area-viewport]") as HTMLElement;
     if (viewport) {
-      viewport.addEventListener("scroll", () => {
+      const handler = () => {
         const threshold = 50;
         const atBottom =
           viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < threshold;
         if (atBottom && !hasScrolledToEnd) {
           setHasScrolledToEnd(true);
         }
-      });
+      };
+      viewport.addEventListener("scroll", handler);
+      return () => viewport.removeEventListener("scroll", handler);
     }
-  }, [hasScrolledToEnd]);
+  }, [hasScrolledToEnd, termsLoading]);
 
-  const canSubmit = hasScrolledToEnd && checkTerms && checkAge && !loading;
+  const canSubmit = hasScrolledToEnd && checkTerms && checkAge && !loading && !termsLoading;
 
   const handleDownload = () => {
-    const blob = new Blob([TERMS_FULL_TEXT], { type: "text/plain;charset=utf-8" });
+    if (!termsData) return;
+    const blob = new Blob([termsData.termsText], { type: "text/plain;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Terminos_Condiciones_ANDROMEDA_${TERMS_VERSION}.txt`;
+    link.download = `Terminos_Condiciones_ANDROMEDA_${termsData.termsVersion}.txt`;
     link.click();
   };
 
   const handlePrint = () => {
+    if (!termsData) return;
     const printWindow = window.open("", "_blank");
     if (printWindow) {
       printWindow.document.write(`
         <html><head><title>Términos y Condiciones - ANDROMEDA</title>
         <style>body{font-family:serif;max-width:800px;margin:40px auto;padding:20px;line-height:1.8;white-space:pre-wrap;}</style>
-        </head><body>${TERMS_FULL_TEXT}</body></html>
+        </head><body>${termsData.termsText}</body></html>
       `);
       printWindow.document.close();
       printWindow.print();
     }
   };
+
+  if (termsLoading || !termsData) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-[#d4a017]" />
+          <p className="text-sm text-[#a0b4d0]">Cargando términos y condiciones...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -100,7 +116,7 @@ export function TermsAcceptanceModal({
                   : "Términos y Condiciones de Uso"}
               </h2>
               <p className="text-xs text-[#a0b4d0]">
-                ANDROMEDA (Colombia) — Versión {TERMS_VERSION} · Actualizado: {TERMS_LAST_UPDATED}
+                ANDROMEDA (Colombia) — Versión {termsData.termsVersion} · Actualizado: {termsData.termsLastUpdated}
               </p>
             </div>
           </div>
@@ -136,12 +152,12 @@ export function TermsAcceptanceModal({
           </div>
         </div>
 
-        {/* Scrollable Terms Text */}
+        {/* Scrollable Terms Text — rendered from DB */}
         <div ref={scrollRef} className="flex-1 min-h-0">
           <ScrollArea className="h-[40vh]">
             <div className="px-6 py-4">
               <pre className="whitespace-pre-wrap text-sm text-[#c0d0e8] leading-relaxed font-sans">
-                {TERMS_FULL_TEXT}
+                {termsData.termsText}
               </pre>
             </div>
           </ScrollArea>
@@ -224,8 +240,8 @@ export function TermsAcceptanceModal({
           <div className="flex items-start gap-2 p-3 rounded-lg bg-[#d4a017]/5 border border-[#d4a017]/15">
             <ShieldCheck className="h-4 w-4 text-[#d4a017] mt-0.5 shrink-0" />
             <p className="text-xs text-[#a0b4d0]/80">
-              Operador: {OPERADOR.razonSocial} · NIT {OPERADOR.nit} ·{" "}
-              {OPERADOR.domicilio}
+              Operador: {termsData.operador.razonSocial} · NIT {termsData.operador.nit} ·{" "}
+              {termsData.operador.domicilio}
             </p>
           </div>
 
