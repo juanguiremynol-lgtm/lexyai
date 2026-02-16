@@ -34,6 +34,7 @@ const SUPPORT_CHIPS: StarterChip[] = [
   { label: "🔍 Datos faltantes", prompt: "¿Por qué faltan estados o actuaciones en este asunto?" },
   { label: "👁️ Vigilar hasta próximo sync", prompt: "Quiero que me notifiques después del próximo sync diario si este asunto sigue sin actualizarse" },
   { label: "🚫 ¿Está excluido (dead-letter)?", prompt: "¿Este asunto está excluido del sync automático por fallos repetidos?" },
+  { label: "👤 ¿Por qué veo datos parciales?", prompt: "Soy administrador de organización pero no veo todos los detalles de los asuntos de mis miembros. ¿Es normal?" },
   { label: "Explicar este error", prompt: "Explícame qué significa este error y cómo solucionarlo" },
 ];
 
