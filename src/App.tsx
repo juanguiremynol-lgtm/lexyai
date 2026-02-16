@@ -13,6 +13,10 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 // Pages
 import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
+import SuperAdminAccess from "./pages/SuperAdminAccess";
+import PlatformAuthProvidersPage from "./pages/platform/PlatformAuthProvidersPage";
+import { LaunchGatedAuth } from "@/components/launch/LaunchGatedAuth";
+import { LaunchGatedDemo } from "@/components/launch/LaunchGatedDemo";
 import Dashboard from "./pages/Dashboard";
 import Clients from "./pages/Clients";
 import ClientDetail from "./pages/ClientDetail";
@@ -106,13 +110,16 @@ const App = () => (
           
           {/* Root landing page - public marketing page */}
           <Route path="/" element={<ErrorBoundary><PublicLandingPage /></ErrorBoundary>} />
-          <Route path="/demo" element={<ErrorBoundary><DemoPage /></ErrorBoundary>} />
-          <Route path="/prueba" element={<ErrorBoundary><DemoPage /></ErrorBoundary>} />
+          <Route path="/demo" element={<ErrorBoundary><LaunchGatedDemo /></ErrorBoundary>} />
+          <Route path="/prueba" element={<ErrorBoundary><LaunchGatedDemo /></ErrorBoundary>} />
           
-          {/* Auth routes */}
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/auth/login" element={<Auth />} />
-          <Route path="/auth/signup" element={<Auth />} />
+          {/* Auth routes — launch-gated for normal users */}
+          <Route path="/auth" element={<LaunchGatedAuth />} />
+          <Route path="/auth/login" element={<LaunchGatedAuth />} />
+          <Route path="/auth/signup" element={<LaunchGatedAuth />} />
+          
+          {/* Super Admin access — NEVER launch-gated */}
+          <Route path="/super-admin-access" element={<SuperAdminAccess />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           
           {/* Public routes with PublicLayout */}
@@ -232,6 +239,7 @@ const App = () => (
             <Route path="analytics" element={<ErrorBoundary><PlatformAnalyticsPage /></ErrorBoundary>} />
             <Route path="demo-analytics" element={<ErrorBoundary><PlatformDemoAnalyticsPage /></ErrorBoundary>} />
             <Route path="daily-ops-reports" element={<ErrorBoundary><PlatformDailyOpsReportsPage /></ErrorBoundary>} />
+            <Route path="auth-providers" element={<ErrorBoundary><PlatformAuthProvidersPage /></ErrorBoundary>} />
             <Route path="billing-test" element={
               <OrganizationProvider>
                 <SubscriptionProvider>

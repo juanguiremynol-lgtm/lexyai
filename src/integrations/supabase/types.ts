@@ -1718,6 +1718,42 @@ export type Database = {
           },
         ]
       }
+      auth_provider_settings: {
+        Row: {
+          created_at: string
+          display_name: string
+          enabled: boolean
+          id: string
+          notes: string | null
+          provider_key: string
+          required_secret_keys: string[]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          enabled?: boolean
+          id?: string
+          notes?: string | null
+          provider_key: string
+          required_secret_keys?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          enabled?: boolean
+          id?: string
+          notes?: string | null
+          provider_key?: string
+          required_secret_keys?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       auto_sync_daily_ledger: {
         Row: {
           chain_id: string | null
@@ -9512,6 +9548,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      waitlist_signups: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          ip_hash: string | null
+          referrer: string | null
+          source_route: string | null
+          utm_campaign: string | null
+          utm_content: string | null
+          utm_medium: string | null
+          utm_source: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          ip_hash?: string | null
+          referrer?: string | null
+          source_route?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          ip_hash?: string | null
+          referrer?: string | null
+          source_route?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+        }
+        Relationships: []
       }
       webhook_tokens: {
         Row: {
