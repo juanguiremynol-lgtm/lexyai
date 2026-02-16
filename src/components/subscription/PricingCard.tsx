@@ -6,7 +6,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
-import { Check, Crown, Sparkles, Star, Zap, Loader2 } from 'lucide-react';
+import { Check, Crown, Sparkles, Star, Users, Zap, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ const PLAN_ICONS: Record<PlanName, React.ReactNode> = {
   trial: <Sparkles className="h-6 w-6" />,
   basic: <Star className="h-6 w-6" />,
   standard: <Zap className="h-6 w-6" />,
+  business: <Users className="h-6 w-6" />,
   unlimited: <Crown className="h-6 w-6" />,
 };
 

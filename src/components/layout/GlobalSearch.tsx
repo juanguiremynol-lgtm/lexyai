@@ -191,9 +191,10 @@ async function getSearchContext(): Promise<SearchContext | null> {
 
   const orgId = profile?.organization_id || undefined;
 
-  // Check if admin/owner in org
+  // Check if admin/owner in org AND on business tier
   let isAdmin = false;
   if (orgId) {
+    // Check membership role
     const { data: membership } = await supabase
       .from("organization_memberships")
       .select("role")
@@ -201,7 +202,33 @@ async function getSearchContext(): Promise<SearchContext | null> {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    isAdmin = membership?.role === "OWNER" || membership?.role === "ADMIN";
+    const hasAdminRole = membership?.role === "OWNER" || membership?.role === "ADMIN";
+
+    if (hasAdminRole) {
+      // Defense-in-depth: verify business tier subscription
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("status, plan:subscription_plans!inner(name)")
+        .eq("organization_id", orgId)
+        .in("status", ["active", "trialing"])
+        .maybeSingle();
+
+      const planName = (sub?.plan as any)?.name;
+      const hasBusinessTier = planName === "business" || planName === "unlimited";
+
+      // Also check billing_subscription_state
+      const { data: billing } = await supabase
+        .from("billing_subscription_state")
+        .select("plan_code, status")
+        .eq("organization_id", orgId)
+        .maybeSingle();
+
+      const hasBillingBusiness = billing &&
+        ["ACTIVE", "TRIAL"].includes(billing.status || "") &&
+        ["BUSINESS", "ENTERPRISE", "UNLIMITED"].includes(billing.plan_code || "");
+
+      isAdmin = hasBusinessTier || !!hasBillingBusiness;
+    }
   }
 
   return { userId: user.id, organizationId: orgId, isAdmin };
