@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { parseColombianDate, computeActuacionHash, normalizeActuacionText } from "@/lib/rama-judicial-api";
 import { toast } from "sonner";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   COLOMBIAN_DEPARTMENTS,
   formatDateColombia,
@@ -217,22 +218,19 @@ export default function CGPDetail() {
   // CLEANUP: Removed orphan "Actualizar API" sync button per ATENIA sync policy.
   // Sync is automatic: daily cron 7AM COT + login sync (3/day max).
 
-  // Delete mutation
-  const deleteCGPItem = useMutation({
-    mutationFn: async () => {
-      const isWorkItem = cgpItem?._isWorkItem;
-      const tableName = isWorkItem ? "work_items" : "cgp_items";
-      const { error } = await (supabase.from(tableName) as any).delete().eq("id", id!);
-      if (error) throw error;
-    },
+  // Soft-delete (hard-delete disabled via RLS)
+  const { archiveSingle: softDeleteCGP, isArchiving: isDeleting } = useSoftDeleteWorkItems({
     onSuccess: () => {
-      toast.success("Caso CGP eliminado");
       navigate("/app/cgp");
     },
-    onError: (error) => {
-      toast.error("Error: " + error.message);
-    },
   });
+  const deleteCGPItem = {
+    mutate: () => {
+      if (!id) return;
+      softDeleteCGP(id);
+    },
+    isPending: isDeleting,
+  };
 
   const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -329,7 +327,7 @@ export default function CGPDetail() {
               <AlertDialogHeader>
                 <AlertDialogTitle>¿Eliminar este caso?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Esta acción no se puede deshacer. Se eliminarán todos los datos asociados.
+                  El caso será eliminado de tu vista. Podrás recuperarlo con Andro IA en los próximos 10 días.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

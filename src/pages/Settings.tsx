@@ -143,14 +143,23 @@ export default function Settings() {
       return;
     }
 
+    // Sanitize formula injection helper
+    const sanitizeCell = (val: string) => {
+      const trimmed = val.trimStart();
+      if (trimmed.length > 0 && ["=", "+", "-", "@"].includes(trimmed[0])) {
+        return "'" + val;
+      }
+      return val;
+    };
+
     const csvContent = [
       ["Radicado", "Juzgado", "Tipo", "Titulo", "Fecha Actualización"].join(","),
       ...data.map((f) => {
         return [
-          f.radicado,
-          `"${f.authority_name || ""}"`,
-          f.workflow_type,
-          `"${f.title || ""}"`,
+          sanitizeCell(f.radicado),
+          `"${sanitizeCell(f.authority_name || "")}"`,
+          sanitizeCell(f.workflow_type),
+          `"${sanitizeCell(f.title || "")}"`,
           new Date(f.updated_at).toLocaleDateString("es-CO"),
         ].join(",");
       }),

@@ -297,6 +297,19 @@ export function AdminAuditLogsTab() {
 
       // Build CSV
       const headers = ["Fecha", "Acción", "Tipo Entidad", "ID Entidad", "Actor", "Severidad", "Resumen", "Metadata JSON"];
+      const escapeCSV = (val: string) => {
+        // Sanitize formula injection: prefix dangerous strings with apostrophe
+        let sanitized = val;
+        const trimmed = sanitized.trimStart();
+        if (trimmed.length > 0 && ["=", "+", "-", "@"].includes(trimmed[0])) {
+          sanitized = "'" + sanitized;
+        }
+        if (sanitized.includes(",") || sanitized.includes('"') || sanitized.includes("\n")) {
+          return `"${sanitized.replace(/"/g, '""')}"`;
+        }
+        return sanitized;
+      };
+
       const rows = filteredExport.map(log => [
         format(new Date(log.created_at), "yyyy-MM-dd HH:mm:ss"),
         log.action,
@@ -307,14 +320,6 @@ export function AdminAuditLogsTab() {
         ACTION_LABELS[log.action] || log.action,
         JSON.stringify(log.metadata),
       ]);
-
-      // Escape CSV values
-      const escapeCSV = (val: string) => {
-        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-          return `"${val.replace(/"/g, '""')}"`;
-        }
-        return val;
-      };
 
       const csvContent = [
         headers.join(","),

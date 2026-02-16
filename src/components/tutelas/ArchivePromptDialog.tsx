@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,32 +35,39 @@ export function ArchivePromptDialog({
   onDeleted,
 }: ArchivePromptDialogProps) {
   const queryClient = useQueryClient();
-
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      if (!itemId) return;
-
-      if (itemType === "peticion") {
-        await supabase.from("peticion_alerts").delete().eq("peticion_id", itemId);
-        const { error } = await supabase.from("peticiones").delete().eq("id", itemId);
-        if (error) throw error;
-      } else {
-        // For work_items (tutela, filing, process, work_item)
-        const { error } = await supabase.from("work_items").delete().eq("id", itemId);
-        if (error) throw error;
-      }
-    },
+  const { archiveSingle, isArchiving } = useSoftDeleteWorkItems({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work-items"] });
       queryClient.invalidateQueries({ queryKey: ["peticiones"] });
-      toast.success("Registro eliminado exitosamente");
       onOpenChange(false);
       onDeleted?.();
     },
-    onError: (error) => {
-      toast.error("Error al eliminar: " + error.message);
-    },
   });
+
+  const deleteMutation = {
+    mutate: () => {
+      if (!itemId) return;
+      if (itemType === "peticion") {
+        // Peticiones are a separate table; soft-delete doesn't apply
+        supabase.from("peticion_alerts").delete().eq("peticion_id", itemId).then(() => {
+          supabase.from("peticiones").delete().eq("id", itemId).then(({ error }) => {
+            if (error) {
+              toast.error("Error al eliminar: " + error.message);
+            } else {
+              queryClient.invalidateQueries({ queryKey: ["peticiones"] });
+              toast.success("Registro eliminado exitosamente");
+              onOpenChange(false);
+              onDeleted?.();
+            }
+          });
+        });
+      } else {
+        // Use soft-delete for work_items
+        archiveSingle(itemId);
+      }
+    },
+    isPending: isArchiving,
+  };
 
   const postponeMutation = useMutation({
     mutationFn: async () => {

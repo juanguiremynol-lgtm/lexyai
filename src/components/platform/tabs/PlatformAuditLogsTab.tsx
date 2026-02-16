@@ -110,16 +110,25 @@ export function PlatformAuditLogsTab() {
     // Export max 5000 rows
     const exportData = filteredLogs.slice(0, 5000);
 
+    // Sanitize formula injection helper
+    const sanitizeCell = (val: string) => {
+      const trimmed = val.trimStart();
+      if (trimmed.length > 0 && ["=", "+", "-", "@"].includes(trimmed[0])) {
+        return "'" + val;
+      }
+      return val;
+    };
+
     const csvContent = [
       ["Fecha", "Organización", "Acción", "Tipo Entidad", "ID Entidad", "Actor", "Metadata"].join(","),
       ...exportData.map((log) => [
         format(new Date(log.created_at), "yyyy-MM-dd HH:mm:ss"),
-        `"${log.organization_name}"`,
-        log.action,
-        log.entity_type,
-        log.entity_id || "",
-        log.actor_type,
-        `"${JSON.stringify(log.metadata).replace(/"/g, '""')}"`,
+        `"${sanitizeCell(log.organization_name)}"`,
+        sanitizeCell(log.action),
+        sanitizeCell(log.entity_type),
+        sanitizeCell(log.entity_id || ""),
+        sanitizeCell(log.actor_type),
+        `"${sanitizeCell(JSON.stringify(log.metadata).replace(/"/g, '""'))}"`,
       ].join(",")),
     ].join("\n");
 
