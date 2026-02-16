@@ -9,6 +9,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSoftDeleteWorkItems } from "@/hooks/use-soft-delete-work-items";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -170,26 +171,16 @@ export function PenalPipeline() {
     onError: () => toast.error("Error al actualizar bandera"),
   });
 
-  // Bulk delete mutation
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      await supabase.from("work_item_acts").delete().in("work_item_id", ids);
-      const { error } = await supabase.from("work_items").delete().in("id", ids);
-      if (error) throw error;
-      return ids;
-    },
-    onSuccess: (ids) => {
+  // Bulk soft-delete (hard-delete is disabled via RLS)
+  const { archiveBulk, isArchiving: isBulkDeleting } = useSoftDeleteWorkItems({
+    onSuccess: () => {
       INVALIDATE_QUERIES.forEach((queryKey) => {
         queryClient.invalidateQueries({ queryKey });
       });
       setSelectedIds(new Set());
       setIsSelectionMode(false);
       setDeleteDialog(false);
-      toast.success(
-        `${ids.length} elemento${ids.length !== 1 ? "s" : ""} eliminado${ids.length !== 1 ? "s" : ""}`
-      );
     },
-    onError: () => toast.error("Error al eliminar elementos"),
   });
 
   // Selection handlers
@@ -369,7 +360,7 @@ export function PenalPipeline() {
           onSelectAll={selectAll}
           onClearSelection={clearSelection}
           onBulkDelete={() => setDeleteDialog(true)}
-          isDeleting={bulkDeleteMutation.isPending}
+          isDeleting={isBulkDeleting}
         />
       )}
 
@@ -377,8 +368,8 @@ export function PenalPipeline() {
         open={deleteDialog}
         onOpenChange={setDeleteDialog}
         selectedCount={selectedIds.size}
-        onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
-        isDeleting={bulkDeleteMutation.isPending}
+        onConfirm={() => archiveBulk(Array.from(selectedIds))}
+        isDeleting={isBulkDeleting}
       />
 
       {/* Single delete dialog */}

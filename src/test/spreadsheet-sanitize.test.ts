@@ -26,8 +26,21 @@ describe("sanitizeCellValue", () => {
     expect(sanitizeCellValue("@SUM(A1:A10)")).toBe("'@SUM(A1:A10)");
   });
 
-  it("prefixes after left whitespace", () => {
+  it("prefixes after left whitespace (spaces)", () => {
     expect(sanitizeCellValue("  =SUM(A1)")).toBe("'  =SUM(A1)");
+  });
+
+  it("prefixes after tab + formula char", () => {
+    expect(sanitizeCellValue("\t=SUM(A1)")).toBe("'\t=SUM(A1)");
+    expect(sanitizeCellValue("\t+cmd")).toBe("'\t+cmd");
+  });
+
+  it("prefixes after CRLF + formula char", () => {
+    expect(sanitizeCellValue("\r\n=HYPERLINK()")).toBe("'\r\n=HYPERLINK()");
+  });
+
+  it("prefixes after mixed whitespace + formula char", () => {
+    expect(sanitizeCellValue("  \t  @SUM")).toBe("'  \t  @SUM");
   });
 
   it("does not modify safe strings", () => {
