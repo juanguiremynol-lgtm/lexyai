@@ -20,6 +20,7 @@ import {
   Clock,
   ArrowRight,
   Bell,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -34,6 +35,7 @@ interface SearchResult {
   badgeVariant?: "default" | "secondary" | "outline" | "destructive";
   route: string;
   relevance: number;
+  isOrgItem?: boolean; // true if admin is viewing another user's item
 }
 
 interface GroupedResults {
@@ -116,7 +118,47 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
   );
 }
 
-// ── Relevance scoring ──
+// ── Radicado normalization (strip non-digits) ──
+function normalizeRadicado(input: string): string {
+  return input.replace(/[^0-9]/g, "");
+}
+
+// ── Enhanced relevance scoring ──
+function scoreWorkItemResult(
+  item: { radicado: string | null; title: string | null; demandantes: string | null; demandados: string | null; authority_name: string | null },
+  query: string
+): number {
+  const q = query.toLowerCase().trim();
+  const qDigits = normalizeRadicado(q);
+
+  // 1. Exact radicado match (highest priority)
+  if (item.radicado) {
+    const normalizedRad = normalizeRadicado(item.radicado);
+    if (normalizedRad === qDigits && qDigits.length > 0) return 1;
+    if (normalizedRad.startsWith(qDigits) && qDigits.length > 0) return 2;
+    if (item.radicado.toLowerCase().includes(q)) return 3;
+  }
+
+  // 2. Title match
+  const title = (item.title || "").toLowerCase();
+  if (title === q) return 4;
+  if (title.startsWith(q)) return 5;
+  if (title.includes(q)) return 6;
+
+  // 3. Party name match
+  const demandantes = (item.demandantes || "").toLowerCase();
+  const demandados = (item.demandados || "").toLowerCase();
+  if (demandantes.startsWith(q) || demandados.startsWith(q)) return 7;
+  if (demandantes.includes(q) || demandados.includes(q)) return 8;
+
+  // 4. Authority/courthouse match
+  const authority = (item.authority_name || "").toLowerCase();
+  if (authority.startsWith(q)) return 9;
+  if (authority.includes(q)) return 10;
+
+  return 11;
+}
+
 function scoreResult(result: { title: string; subtitle: string }, query: string): number {
   const q = query.toLowerCase();
   const title = result.title.toLowerCase();
@@ -130,6 +172,41 @@ function scoreResult(result: { title: string; subtitle: string }, query: string)
 // ── Abort-controller-aware search ──
 let searchAbortController: AbortController | null = null;
 
+interface SearchContext {
+  userId: string;
+  organizationId?: string;
+  isAdmin: boolean;
+}
+
+async function getSearchContext(): Promise<SearchContext | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  // Get org from profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("organization_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const orgId = profile?.organization_id || undefined;
+
+  // Check if admin/owner in org
+  let isAdmin = false;
+  if (orgId) {
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", orgId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    isAdmin = membership?.role === "OWNER" || membership?.role === "ADMIN";
+  }
+
+  return { userId: user.id, organizationId: orgId, isAdmin };
+}
+
 async function performSearch(query: string, organizationId?: string): Promise<GroupedResults> {
   if (!query || query.length < 1) {
     return { work_items: [], clients: [], actuaciones: [] };
@@ -138,60 +215,95 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   if (searchAbortController) searchAbortController.abort();
   searchAbortController = new AbortController();
 
-  const { data: user } = await supabase.auth.getUser();
-  if (!user.user) return { work_items: [], clients: [], actuaciones: [] };
+  const ctx = await getSearchContext();
+  if (!ctx) return { work_items: [], clients: [], actuaciones: [] };
 
   const searchPattern = `%${query}%`;
-  const limitPerType = 7;
+  const limitPerType = 10;
+
+  // Build work items query with permission scoping
+  const buildWorkItemsQuery = () => {
+    let q = supabase
+      .from("work_items")
+      .select("id, workflow_type, stage, radicado, title, demandantes, demandados, authority_name, authority_city, owner_id, updated_at")
+      .is("deleted_at", null)
+      .or(`radicado.ilike.${searchPattern},title.ilike.${searchPattern},demandantes.ilike.${searchPattern},demandados.ilike.${searchPattern},authority_name.ilike.${searchPattern}`)
+      .limit(limitPerType)
+      .order("updated_at", { ascending: false });
+
+    if (ctx.isAdmin && ctx.organizationId) {
+      // Admin: see all org items
+      q = q.eq("organization_id", ctx.organizationId);
+    } else if (ctx.organizationId) {
+      // Normal member: only own items
+      q = q.eq("organization_id", ctx.organizationId).eq("owner_id", ctx.userId);
+    } else {
+      // No org: fallback to owner
+      q = q.eq("owner_id", ctx.userId);
+    }
+
+    return q;
+  };
+
+  const buildClientsQuery = () => {
+    let q = supabase
+      .from("clients")
+      .select("id, name, id_number, city, email")
+      .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
+      .limit(limitPerType);
+
+    if (ctx.isAdmin && ctx.organizationId) {
+      q = q.eq("organization_id", ctx.organizationId);
+    } else if (ctx.organizationId) {
+      q = q.eq("organization_id", ctx.organizationId).eq("owner_id", ctx.userId);
+    } else {
+      q = q.eq("owner_id", ctx.userId);
+    }
+
+    return q;
+  };
+
+  const buildActuacionesQuery = () => {
+    let q = supabase
+      .from("actuaciones")
+      .select("id, work_item_id, act_type_guess, normalized_text, act_date")
+      .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
+      .order("act_date", { ascending: false })
+      .limit(limitPerType);
+
+    if (ctx.isAdmin && ctx.organizationId) {
+      q = q.eq("organization_id", ctx.organizationId);
+    } else if (ctx.organizationId) {
+      q = q.eq("organization_id", ctx.organizationId).eq("owner_id", ctx.userId);
+    } else {
+      q = q.eq("owner_id", ctx.userId);
+    }
+
+    return q;
+  };
 
   const [workItemsResult, clientsResult, actuacionesResult] = await Promise.all([
-    (() => {
-      let q = supabase
-        .from("work_items")
-        .select("id, workflow_type, stage, radicado, title, demandantes, demandados, authority_name, updated_at")
-        .or(`radicado.ilike.${searchPattern},title.ilike.${searchPattern},demandantes.ilike.${searchPattern},demandados.ilike.${searchPattern},authority_name.ilike.${searchPattern}`)
-        .limit(limitPerType)
-        .order("updated_at", { ascending: false });
-      if (organizationId) q = q.eq("organization_id", organizationId);
-      else q = q.eq("owner_id", user.user!.id);
-      return q;
-    })(),
-    (() => {
-      let q = supabase
-        .from("clients")
-        .select("id, name, id_number, city, email")
-        .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
-        .limit(limitPerType);
-      if (organizationId) q = q.eq("organization_id", organizationId);
-      else q = q.eq("owner_id", user.user!.id);
-      return q;
-    })(),
-    (() => {
-      let q = supabase
-        .from("actuaciones")
-        .select("id, work_item_id, act_type_guess, normalized_text, act_date")
-        .or(`normalized_text.ilike.${searchPattern},act_type_guess.ilike.${searchPattern}`)
-        .order("act_date", { ascending: false })
-        .limit(limitPerType);
-      if (organizationId) q = q.eq("organization_id", organizationId);
-      else q = q.eq("owner_id", user.user!.id);
-      return q;
-    })(),
+    buildWorkItemsQuery(),
+    buildClientsQuery(),
+    buildActuacionesQuery(),
   ]);
 
   const workItems: SearchResult[] = (workItemsResult.data || []).map((item) => {
-    const result = {
+    const parties = [item.demandantes, item.demandados].filter(Boolean).join(" vs ");
+    const subtitleParts = [parties, item.authority_name, item.authority_city].filter(Boolean);
+    const isOrgItem = ctx.isAdmin && item.owner_id !== ctx.userId;
+
+    return {
       id: item.id,
       type: "work_item" as const,
       title: item.radicado || item.title || "Sin radicado",
-      subtitle: [item.demandantes, item.demandados].filter(Boolean).join(" vs ") || item.authority_name || "Sin partes",
+      subtitle: subtitleParts.join(" · ") || "Sin información",
       badge: item.workflow_type,
       badgeVariant: "secondary" as const,
       route: `/app/work-items/${item.id}`,
-      relevance: 5,
+      relevance: scoreWorkItemResult(item, query),
+      isOrgItem,
     };
-    result.relevance = scoreResult(result, query);
-    return result;
   }).sort((a, b) => a.relevance - b.relevance);
 
   const clients: SearchResult[] = (clientsResult.data || []).map((client) => {
@@ -272,27 +384,25 @@ export function GlobalSearch() {
     return () => document.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
-  // Search from 1 character
+  // Search from 2 characters
   const { data: results, isLoading } = useQuery({
     queryKey: ["global-search", debouncedQuery, organization?.id],
     queryFn: () => performSearch(debouncedQuery, organization?.id),
-    enabled: debouncedQuery.length >= 1,
+    enabled: debouncedQuery.length >= 2,
     staleTime: 30000,
   });
 
-  const hasQuery = query.trim().length >= 1;
+  const hasQuery = query.trim().length >= 2;
 
   // Build navigable items list for keyboard nav
   const navigableItems = useMemo(() => {
     if (hasQuery && results) {
-      // Live results
       return [
         ...results.work_items,
         ...results.clients,
         ...results.actuaciones,
       ].map((r) => ({ ...r, kind: "result" as const }));
     }
-    // Predictions panel: recent items + category shortcuts
     const items: Array<{ kind: "recent" | "shortcut"; id: string; route: string; label?: string }> = [];
     recentItems.forEach((r) => items.push({ kind: "recent", id: r.id, route: r.route }));
     CATEGORY_SHORTCUTS.forEach((s, i) => items.push({ kind: "shortcut", id: `shortcut-${i}`, route: s.route, label: s.label }));
@@ -420,6 +530,12 @@ export function GlobalSearch() {
                     {result.badge && (
                       <Badge variant={result.badgeVariant} className="text-[10px] px-1.5 py-0 h-4 flex-shrink-0">
                         {result.badge}
+                      </Badge>
+                    )}
+                    {result.isOrgItem && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 flex-shrink-0 text-muted-foreground border-dashed gap-1">
+                        <Eye className="h-2.5 w-2.5" />
+                        Org
                       </Badge>
                     )}
                   </div>
@@ -550,7 +666,7 @@ export function GlobalSearch() {
         <Input
           ref={inputRef}
           type="search"
-          placeholder='Buscar radicado, cliente, juzgado...  ("/" para enfocar)'
+          placeholder='Buscar radicado, partes, juzgado...  ("/" para enfocar)'
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
