@@ -58,12 +58,11 @@ Deno.test("rejects unknown action types in EXECUTE mode", async () => {
   }
 });
 
-Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
+Deno.test("ACTION_ALLOWLIST contains only safe action types (no sync actions)", () => {
+  // Mirrors the actual ACTION_ALLOWLIST in atenia-assistant/index.ts
+  // HARD CONSTRAINT: NO sync/retry/refresh actions. Syncing is daily-cron-only.
   const allowlist = [
-    "RUN_SYNC_WORK_ITEM",
-    "RUN_SYNC_PUBLICACIONES_WORK_ITEM",
     "TOGGLE_MONITORING",
-    "RUN_MASTER_SYNC_SCOPE",
     "ESCALATE_TO_ADMIN_QUEUE",
     "CREATE_USER_REPORT",
     "INVITE_USER_TO_ORG",
@@ -72,10 +71,25 @@ Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
     "ORG_USAGE_SUMMARY",
     "CREATE_SUPPORT_TICKET",
     "EXPLAIN_CURRENT_PAGE",
+    "GET_BILLING_SUMMARY",
+    "GET_SUBSCRIPTION_STATUS",
+    "GENERATE_PAYMENT_CERTIFICATE",
+    "TOGGLE_TICKER",
+    "GRANT_SUPPORT_ACCESS",
+    "REVOKE_SUPPORT_ACCESS",
+    "GET_ANALYTICS_STATUS",
+    "UPDATE_ORG_ANALYTICS",
+    "UNLOCK_DANGER_ZONE",
+    "GENERATE_SUPPORT_BUNDLE",
+    "RUN_DIAGNOSTIC_PLAYBOOK",
+    "CREATE_SYNC_WATCH",
   ];
 
-  // Verify no SQL-execution actions
-  const forbidden = ["EXECUTE_SQL", "RAW_QUERY", "DROP_TABLE", "ALTER_TABLE", "DELETE_ALL"];
+  // Verify no SQL-execution or sync actions
+  const forbidden = [
+    "EXECUTE_SQL", "RAW_QUERY", "DROP_TABLE", "ALTER_TABLE", "DELETE_ALL",
+    "RUN_SYNC_WORK_ITEM", "RUN_SYNC_PUBLICACIONES_WORK_ITEM", "RUN_MASTER_SYNC_SCOPE",
+  ];
   for (const f of forbidden) {
     if (allowlist.includes(f)) {
       throw new Error(`Forbidden action ${f} found in allowlist`);
@@ -83,17 +97,18 @@ Deno.test("ACTION_ALLOWLIST contains only safe action types", () => {
   }
 });
 
-Deno.test("CONFIRM_REQUIRED actions are correctly classified", () => {
+Deno.test("CONFIRM_REQUIRED actions are correctly classified (no sync actions)", () => {
   const confirmRequired = [
     "TOGGLE_MONITORING",
-    "RUN_MASTER_SYNC_SCOPE",
     "INVITE_USER_TO_ORG",
     "REMOVE_USER_FROM_ORG",
     "CHANGE_MEMBER_ROLE",
+    "UPDATE_ORG_ANALYTICS",
+    "UNLOCK_DANGER_ZONE",
+    "GRANT_SUPPORT_ACCESS",
+    "TOGGLE_TICKER",
   ];
   const safe = [
-    "RUN_SYNC_WORK_ITEM",
-    "RUN_SYNC_PUBLICACIONES_WORK_ITEM",
     "ESCALATE_TO_ADMIN_QUEUE",
     "CREATE_USER_REPORT",
     "ORG_USAGE_SUMMARY",
@@ -102,6 +117,11 @@ Deno.test("CONFIRM_REQUIRED actions are correctly classified", () => {
     "GET_BILLING_SUMMARY",
     "GET_SUBSCRIPTION_STATUS",
     "GENERATE_PAYMENT_CERTIFICATE",
+    "REVOKE_SUPPORT_ACCESS",
+    "GET_ANALYTICS_STATUS",
+    "GENERATE_SUPPORT_BUNDLE",
+    "RUN_DIAGNOSTIC_PLAYBOOK",
+    "CREATE_SYNC_WATCH",
   ];
 
   // These are the rules from the edge function

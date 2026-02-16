@@ -72,9 +72,19 @@ function formatTxt(json: Record<string, unknown>): string {
   section("Entitlement Limits", json.entitlements);
 
   lines.push("── Redaction Manifest ──");
-  lines.push("  All secrets, tokens, API keys: REDACTED");
-  lines.push("  User IDs: included (needed for support correlation)");
-  lines.push("  Radicados: included (needed for case identification)");
+  const manifest = json.redaction_manifest as Record<string, unknown> | null;
+  if (manifest) {
+    lines.push(`  Version: ${manifest.redaction_version}`);
+    lines.push(`  Fields removed: ${(manifest.fields_removed as string[])?.join(", ")}`);
+    lines.push(`  Fields included (for correlation): ${(manifest.fields_included_for_correlation as string[])?.join(", ")}`);
+    lines.push(`  PII policy: ${manifest.pii_policy}`);
+    lines.push(`  Storage: ${manifest.storage_policy}`);
+    lines.push(`  TTL: ${manifest.ttl_days} days`);
+  } else {
+    lines.push("  All secrets, tokens, API keys: REDACTED");
+    lines.push("  User IDs: included (needed for support correlation)");
+    lines.push("  Radicados: included (needed for case identification)");
+  }
   lines.push("");
   lines.push("═══════════════════════════════════════════════");
   lines.push("  END OF BUNDLE");
@@ -266,6 +276,17 @@ Deno.serve(async (req) => {
         chain_count: Object.keys(chains).length,
       };
     }
+
+    // Redaction manifest (first-class artifact)
+    bundle.redaction_manifest = {
+      redaction_version: "1.0",
+      fields_removed: ["auth_headers", "secrets", "tokens", "api_keys", "service_role_key", "anon_key"],
+      fields_included_for_correlation: ["user_id", "org_id", "work_item_id", "radicado"],
+      pii_policy: "No raw emails except current user. No IP addresses. No cross-user PII.",
+      secret_detection: "Strings matching sk_/pk_/Bearer/ey* patterns redacted. Keys containing secret/token/password/credential redacted.",
+      storage_policy: "Private to requesting user. Sharing requires explicit consent via support_access_grants.",
+      ttl_days: 30,
+    };
 
     // Generate TXT
     const txt = formatTxt(bundle);

@@ -321,6 +321,24 @@ Deno.serve(async (req) => {
         const evidence: Record<string, unknown> = {};
 
         if (workItemId) {
+          // SCOPE CHECK: verify user has access to this work item via RLS-enforced userClient
+          const { data: wiAccess } = await userClient
+            .from("work_items")
+            .select("id, organization_id")
+            .eq("id", workItemId)
+            .maybeSingle();
+
+          if (!wiAccess) {
+            result = {
+              playbook: "DEAD_LETTER_STATUS",
+              summary: "No se encontró el asunto o no tienes acceso.",
+              evidence: {},
+              recommended_actions: ["Verifica que el radicado esté correcto."],
+              next_cron_estimate: null,
+            };
+            break;
+          }
+
           const { data: aiState } = await adminClient
             .from("atenia_ai_work_item_state")
             .select("*")
