@@ -2,26 +2,17 @@ import { ReactNode, useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSubscription } from "@/contexts/SubscriptionContext";
 import { useOrganization } from "@/contexts/OrganizationContext";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Clock, CreditCard } from "lucide-react";
+import { AlertTriangle, Clock, Sparkles } from "lucide-react";
 
 interface SubscriptionGateProps {
   children: ReactNode;
-  /**
-   * If true, allows read-only access for expired subscriptions
-   * (they can view but not create/edit)
-   */
   allowReadOnly?: boolean;
 }
 
 /**
  * SubscriptionGate - Restricts access based on subscription status
- * 
- * Use this component to wrap routes or sections that require active subscription.
- * - During trial: allows full access
- * - Active subscription: allows full access
- * - Expired/suspended: blocks access and shows upgrade prompt
+ * During beta, all users are on TRIAL.
  */
 export function SubscriptionGate({ children, allowReadOnly = false }: SubscriptionGateProps) {
   const navigate = useNavigate();
@@ -33,26 +24,22 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
   useEffect(() => {
     if (isLoading) return;
 
-    // Allow if in active trial
     if (isTrialing && trialDaysRemaining > 0) {
       setShouldBlock(false);
       return;
     }
 
-    // Allow if billing state is TRIAL or ACTIVE
     const billingStatus = billingSubscription?.status;
     if (billingStatus === "TRIAL" || billingStatus === "ACTIVE") {
       setShouldBlock(false);
       return;
     }
 
-    // Allow if legacy subscription is active/trialing
     if (subscription?.status === "active" || subscription?.status === "trialing") {
       setShouldBlock(false);
       return;
     }
 
-    // Block for expired/suspended/canceled
     if (subscription?.status && ["expired", "suspended", "canceled"].includes(subscription.status)) {
       setShouldBlock(true);
       return;
@@ -62,7 +49,6 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
       return;
     }
 
-    // Default: allow if no subscription info yet
     setShouldBlock(false);
   }, [isLoading, subscription, billingSubscription, isTrialing, trialDaysRemaining, isActive]);
 
@@ -82,23 +68,17 @@ export function SubscriptionGate({ children, allowReadOnly = false }: Subscripti
             <div className="mx-auto w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
-            <CardTitle>Suscripción requerida</CardTitle>
+            <CardTitle>Beta trial expirado</CardTitle>
             <CardDescription>
-              Tu período de prueba ha expirado. Actualiza tu plan para continuar usando Andromeda.
+              Tu período de prueba beta ha terminado. Contacta a soporte para continuar usando ATENIA.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="text-center text-sm text-muted-foreground">
               Estado: <span className="font-medium text-destructive">{billingSubscription?.status || subscription?.status || "Sin suscripción"}</span>
             </div>
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => navigate("/pricing")} className="w-full">
-                <CreditCard className="h-4 w-4 mr-2" />
-                Ver planes y precios
-              </Button>
-              <Button variant="outline" onClick={() => navigate("/settings?tab=billing")} className="w-full">
-                Gestionar facturación
-              </Button>
+            <div className="text-center text-sm text-muted-foreground">
+              Los planes pagos se anunciarán próximamente.
             </div>
           </CardContent>
         </Card>
@@ -117,17 +97,10 @@ export function useSubscriptionAccess() {
   
   const canWrite = () => {
     if (isLoading) return false;
-    
-    // Allow if in trial
     if (isTrialing && trialDaysRemaining > 0) return true;
-    
-    // Allow if billing state is TRIAL or ACTIVE
     const billingStatus = billingSubscription?.status;
     if (billingStatus === "TRIAL" || billingStatus === "ACTIVE") return true;
-    
-    // Allow if active legacy subscription
     if (subscription?.status === "active" || subscription?.status === "trialing") return true;
-    
     return false;
   };
 
@@ -144,10 +117,8 @@ export function useSubscriptionAccess() {
  * TrialWarningBanner - Shows a warning when trial is ending soon
  */
 export function TrialWarningBanner() {
-  const navigate = useNavigate();
   const { isTrialing, trialDaysRemaining } = useSubscription();
 
-  // Only show if trialing and <= 14 days remaining
   if (!isTrialing || trialDaysRemaining > 14) {
     return null;
   }
@@ -164,18 +135,11 @@ export function TrialWarningBanner() {
         <Clock className="h-4 w-4" />
         <span>
           {isUrgent 
-            ? `¡Atención! Tu período de prueba termina en ${trialDaysRemaining} día${trialDaysRemaining !== 1 ? "s" : ""}.`
-            : `Tu período de prueba termina en ${trialDaysRemaining} días.`
+            ? `¡Atención! Tu beta trial termina en ${trialDaysRemaining} día${trialDaysRemaining !== 1 ? "s" : ""}.`
+            : `Tu beta trial termina en ${trialDaysRemaining} días.`
           }
         </span>
       </div>
-      <Button 
-        variant={isUrgent ? "destructive" : "outline"} 
-        size="sm"
-        onClick={() => navigate("/pricing")}
-      >
-        Elegir plan
-      </Button>
     </div>
   );
 }

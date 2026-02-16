@@ -2,7 +2,19 @@
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
 
+// Future tiers kept for extensibility; only 'trial' is active during beta
 export type PlanName = 'trial' | 'basic' | 'standard' | 'business' | 'unlimited';
+
+// ============= BETA TRIAL CONSTANTS =============
+// These define the current beta trial offering.
+// All users are TRIAL during beta. Paid tiers come later.
+export const BETA_TRIAL_DURATION_MONTHS = 3;
+export const BETA_TRIAL_MAX_CLIENTS = 10;
+export const BETA_TRIAL_MAX_WORK_ITEMS = 25;
+export const BETA_TRIAL_MAX_MONITORED_ITEMS = 25;
+export const BETA_TRIAL_SYNC_ENABLED = true;
+export const BETA_TRIAL_LABEL = 'Beta Trial';
+export const BETA_TRIAL_DESCRIPTION = 'Acceso completo por 3 meses durante el período beta.';
 
 export interface SubscriptionPlan {
   id: string;
@@ -56,7 +68,7 @@ export const PLAN_COLORS: Record<PlanName, string> = {
 };
 
 export const STATUS_LABELS: Record<SubscriptionStatus, string> = {
-  trialing: 'Período de prueba',
+  trialing: 'Beta Trial',
   active: 'Activa',
   past_due: 'Pago pendiente',
   canceled: 'Cancelada',

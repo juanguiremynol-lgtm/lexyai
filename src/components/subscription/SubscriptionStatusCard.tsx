@@ -1,74 +1,60 @@
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useSubscription } from '@/contexts/SubscriptionContext';
-import { formatCOP, STATUS_COLORS, STATUS_LABELS, PLAN_COLORS } from '@/lib/subscription-constants';
-import { AlertTriangle, Calendar, CheckCircle2, Crown, Zap } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { STATUS_COLORS, STATUS_LABELS, BETA_TRIAL_LABEL } from '@/lib/subscription-constants';
+import { Calendar, CheckCircle2, Sparkles } from 'lucide-react';
 
 export function SubscriptionStatusCard() {
   const { subscription, plan, usage, isTrialing, isExpired, trialDaysRemaining, isLoading } = useSubscription();
-  const navigate = useNavigate();
 
   if (isLoading || !subscription || !plan) {
     return null;
   }
 
   const statusColor = STATUS_COLORS[subscription.status] || STATUS_COLORS.expired;
-  const planColor = PLAN_COLORS[plan.name as keyof typeof PLAN_COLORS] || PLAN_COLORS.trial;
 
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Crown className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Suscripción</CardTitle>
+            <Sparkles className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">{BETA_TRIAL_LABEL}</CardTitle>
           </div>
           <Badge className={statusColor}>
             {STATUS_LABELS[subscription.status]}
           </Badge>
         </div>
-        <CardDescription className="flex items-center gap-2">
-          <Badge variant="outline" className={planColor}>
-            {plan.display_name}
-          </Badge>
-          {plan.price_cop > 0 && (
-            <span className="text-sm text-muted-foreground">
-              {formatCOP(plan.price_cop)}/mes
-            </span>
-          )}
+        <CardDescription>
+          Acceso completo durante el período beta
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Trial warning */}
-        {isTrialing && (
+        {/* Trial period info */}
+        {isTrialing && trialDaysRemaining > 0 && (
           <div className={`flex items-center gap-2 p-3 rounded-lg ${
-            trialDaysRemaining <= 7 ? 'bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200' : 'bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200'
+            trialDaysRemaining <= 14 ? 'bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200' : 'bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200'
           }`}>
             <Calendar className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">
-              {trialDaysRemaining > 0
-                ? `${trialDaysRemaining} día${trialDaysRemaining > 1 ? 's' : ''} restantes de prueba`
-                : 'Tu período de prueba ha terminado'
-              }
+              {trialDaysRemaining} día{trialDaysRemaining > 1 ? 's' : ''} restantes de beta trial
             </span>
           </div>
         )}
 
-        {/* Expired warning */}
+        {/* Trial expired */}
         {isExpired && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            <Calendar className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">
-              Tu suscripción ha expirado. Actualiza tu plan para continuar.
+              Tu período de prueba beta ha terminado. Contacta a soporte para continuar.
             </span>
           </div>
         )}
 
-        {/* Usage progress */}
+        {/* Usage progress — clients */}
         {plan.max_clients && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
@@ -81,6 +67,7 @@ export function SubscriptionStatusCard() {
           </div>
         )}
 
+        {/* Usage progress — work items */}
         {plan.max_filings && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
@@ -93,29 +80,26 @@ export function SubscriptionStatusCard() {
           </div>
         )}
 
-        {/* Unlimited badge */}
-        {!plan.max_clients && !plan.max_filings && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
-            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-            <span className="text-sm font-medium">
-              Plan ilimitado - Sin restricciones
-            </span>
+        {/* Trial end date */}
+        {subscription.trial_ends_at && (
+          <div className="pt-2 border-t text-sm text-muted-foreground">
+            <div className="flex justify-between">
+              <span>Beta trial termina:</span>
+              <span className="font-medium">
+                {new Date(subscription.trial_ends_at).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </span>
+            </div>
           </div>
         )}
-      </CardContent>
 
-      {(isTrialing || isExpired || plan.name !== 'unlimited') && (
-        <CardFooter>
-          <Button
-            onClick={() => navigate('/pricing')}
-            className="w-full"
-            variant={isExpired ? 'default' : 'outline'}
-          >
-            <Zap className="h-4 w-4 mr-2" />
-            {isExpired ? 'Reactivar suscripción' : 'Ver planes'}
-          </Button>
-        </CardFooter>
-      )}
+        {/* Beta badge */}
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary">
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+          <span className="text-sm font-medium">
+            Programa Beta — Los planes pagos se anunciarán próximamente
+          </span>
+        </div>
+      </CardContent>
     </Card>
   );
 }
