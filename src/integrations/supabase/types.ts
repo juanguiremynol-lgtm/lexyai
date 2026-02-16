@@ -6488,9 +6488,11 @@ export type Database = {
           estados_staleness_threshold_days: number | null
           id: string
           is_active: boolean | null
+          max_member_seats: number
           name: string
           show_estados_ticker: boolean
           slug: string | null
+          type: string
           updated_at: string
         }
         Insert: {
@@ -6509,9 +6511,11 @@ export type Database = {
           estados_staleness_threshold_days?: number | null
           id?: string
           is_active?: boolean | null
+          max_member_seats?: number
           name: string
           show_estados_ticker?: boolean
           slug?: string | null
+          type?: string
           updated_at?: string
         }
         Update: {
@@ -6530,9 +6534,11 @@ export type Database = {
           estados_staleness_threshold_days?: number | null
           id?: string
           is_active?: boolean | null
+          max_member_seats?: number
           name?: string
           show_estados_ticker?: boolean
           slug?: string | null
+          type?: string
           updated_at?: string
         }
         Relationships: []
@@ -7376,6 +7382,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          address: string | null
           auth_provider: string | null
           avatar_url: string | null
           created_at: string
@@ -7395,6 +7402,8 @@ export type Database = {
           last_welcome_date: string | null
           mascot_preferences: Json | null
           organization_id: string | null
+          phone: string | null
+          profile_completed_at: string | null
           reminder_email: string | null
           reparto_directory: Json | null
           signature_block: string | null
@@ -7405,6 +7414,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          address?: string | null
           auth_provider?: string | null
           avatar_url?: string | null
           created_at?: string
@@ -7424,6 +7434,8 @@ export type Database = {
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
+          phone?: string | null
+          profile_completed_at?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
@@ -7434,6 +7446,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          address?: string | null
           auth_provider?: string | null
           avatar_url?: string | null
           created_at?: string
@@ -7453,6 +7466,8 @@ export type Database = {
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
+          phone?: string | null
+          profile_completed_at?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
           signature_block?: string | null
@@ -11363,6 +11378,7 @@ export type Database = {
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
       is_org_member: { Args: { org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
+      is_profile_complete: { Args: { p_user_id: string }; Returns: boolean }
       log_sensitive_access: {
         Args: {
           p_columns?: string[]

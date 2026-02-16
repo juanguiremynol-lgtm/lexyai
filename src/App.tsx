@@ -13,6 +13,7 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 // Pages
 import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
+import OnboardingProfile from "./pages/OnboardingProfile";
 import SuperAdminAccess from "./pages/SuperAdminAccess";
 import PlatformAuthProvidersPage from "./pages/platform/PlatformAuthProvidersPage";
 import { LaunchGatedAuth } from "@/components/launch/LaunchGatedAuth";
@@ -120,6 +121,7 @@ const App = () => (
           
           {/* Super Admin access — NEVER launch-gated */}
           <Route path="/super-admin-access" element={<SuperAdminAccess />} />
+          <Route path="/onboarding/profile" element={<OnboardingProfile />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           
           {/* Public routes with PublicLayout */}
