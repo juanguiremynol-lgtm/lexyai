@@ -8716,6 +8716,63 @@ export type Database = {
           },
         ]
       }
+      support_bundles: {
+        Row: {
+          bundle_type: string
+          consent_shared: boolean
+          created_at: string
+          id: string
+          json_content: Json
+          organization_id: string | null
+          route_context: string | null
+          shared_via_grant_id: string | null
+          txt_content: string
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          bundle_type?: string
+          consent_shared?: boolean
+          created_at?: string
+          id?: string
+          json_content?: Json
+          organization_id?: string | null
+          route_context?: string | null
+          shared_via_grant_id?: string | null
+          txt_content: string
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          bundle_type?: string
+          consent_shared?: boolean
+          created_at?: string
+          id?: string
+          json_content?: Json
+          organization_id?: string | null
+          route_context?: string | null
+          shared_via_grant_id?: string | null
+          txt_content?: string
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_bundles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_bundles_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_audit_log: {
         Row: {
           acts_count_after: number
@@ -9009,6 +9066,66 @@ export type Database = {
           },
           {
             foreignKeyName: "sync_traces_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sync_watches: {
+        Row: {
+          condition_params: Json
+          condition_type: string
+          created_at: string
+          evaluated_at: string | null
+          expires_at: string
+          id: string
+          notification_result: Json | null
+          notified_at: string | null
+          organization_id: string | null
+          status: string
+          user_id: string
+          work_item_id: string | null
+        }
+        Insert: {
+          condition_params?: Json
+          condition_type: string
+          created_at?: string
+          evaluated_at?: string | null
+          expires_at?: string
+          id?: string
+          notification_result?: Json | null
+          notified_at?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id: string
+          work_item_id?: string | null
+        }
+        Update: {
+          condition_params?: Json
+          condition_type?: string
+          created_at?: string
+          evaluated_at?: string | null
+          expires_at?: string
+          id?: string
+          notification_result?: Json | null
+          notified_at?: string | null
+          organization_id?: string | null
+          status?: string
+          user_id?: string
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_watches_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sync_watches_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"

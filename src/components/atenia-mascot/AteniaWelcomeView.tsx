@@ -29,11 +29,12 @@ interface CapabilityGroup {
 }
 
 const SUPPORT_CHIPS: StarterChip[] = [
-  { label: "¿Por qué no sincronizó mi asunto?", prompt: "¿Por qué no se sincronizó mi asunto? Analiza los traces recientes." },
-  { label: "Ejecutar diagnóstico de radicado", prompt: "Ejecuta un diagnóstico completo para mi radicado actual" },
+  { label: "¿Por qué no actualizó hoy?", prompt: "¿Por qué no se actualizó mi asunto hoy? Diagnostica el estado del sync diario." },
+  { label: "📦 Generar bundle de soporte", prompt: "Genera un bundle de diagnóstico de soporte para este contexto" },
+  { label: "🔍 Datos faltantes", prompt: "¿Por qué faltan estados o actuaciones en este asunto?" },
+  { label: "👁️ Vigilar hasta próximo sync", prompt: "Quiero que me notifiques después del próximo sync diario si este asunto sigue sin actualizarse" },
+  { label: "🚫 ¿Está excluido (dead-letter)?", prompt: "¿Este asunto está excluido del sync automático por fallos repetidos?" },
   { label: "Explicar este error", prompt: "Explícame qué significa este error y cómo solucionarlo" },
-  { label: "¿Qué significa 'Missing stages: MAPPING_APPLIED'?", prompt: "¿Qué significa el error 'Missing stages: MAPPING_APPLIED' y cómo se soluciona?" },
-  { label: "¿Mis conectores están sanos?", prompt: "¿Cómo puedo verificar que mis conectores están funcionando correctamente?" },
 ];
 
 const WORK_ITEM_CHIPS: StarterChip[] = [
@@ -74,7 +75,7 @@ function buildCapabilityGroups(isPlatformAdmin: boolean, isOrgAdmin: boolean): C
   const groups: CapabilityGroup[] = [
     {
       title: "Soporte y diagnóstico",
-      description: "Diagnósticos de sync, explicación de errores, pasos de solución",
+      description: "Diagnósticos, bundles de soporte, vigilancia de sync",
       icon: <Wrench className="h-4 w-4" />,
       chips: SUPPORT_CHIPS,
     },

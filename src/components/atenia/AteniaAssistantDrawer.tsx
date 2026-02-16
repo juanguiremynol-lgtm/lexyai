@@ -93,10 +93,7 @@ interface AteniaAssistantDrawerProps {
 type DrawerTab = "chat" | "report";
 
 const ACTION_LABELS: Record<string, string> = {
-  RUN_SYNC_WORK_ITEM: "Ejecutar sincronización",
-  RUN_SYNC_PUBLICACIONES_WORK_ITEM: "Sincronizar publicaciones",
   TOGGLE_MONITORING: "Cambiar monitoreo",
-  RUN_MASTER_SYNC_SCOPE: "Sincronización masiva",
   ESCALATE_TO_ADMIN_QUEUE: "Escalar a administrador",
   CREATE_USER_REPORT: "Crear reporte",
   TOGGLE_TICKER: "Cambiar ticker de estados",
@@ -110,6 +107,9 @@ const ACTION_LABELS: Record<string, string> = {
   EXPLAIN_CURRENT_PAGE: "Explicar esta página",
   GET_ANALYTICS_STATUS: "Ver estado de analíticas",
   UPDATE_ORG_ANALYTICS: "Cambiar analíticas de organización",
+  GENERATE_SUPPORT_BUNDLE: "Generar bundle de soporte",
+  RUN_DIAGNOSTIC_PLAYBOOK: "Ejecutar diagnóstico",
+  CREATE_SYNC_WATCH: "Vigilar hasta próximo sync",
 };
 
 const QUICK_QUESTIONS = [

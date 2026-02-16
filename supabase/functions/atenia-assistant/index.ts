@@ -37,11 +37,10 @@ function checkRateLimit(userId: string): boolean {
 }
 
 // ---- Action allowlist ----
+// HARD CONSTRAINT: NO sync/retry/refresh actions. Syncing is daily-cron-only.
+// Removed: RUN_SYNC_WORK_ITEM, RUN_SYNC_PUBLICACIONES_WORK_ITEM, RUN_MASTER_SYNC_SCOPE
 const ACTION_ALLOWLIST = new Set([
-  "RUN_SYNC_WORK_ITEM",
-  "RUN_SYNC_PUBLICACIONES_WORK_ITEM",
   "TOGGLE_MONITORING",
-  "RUN_MASTER_SYNC_SCOPE",
   "ESCALATE_TO_ADMIN_QUEUE",
   "CREATE_USER_REPORT",
   "UNLOCK_DANGER_ZONE",
@@ -49,14 +48,17 @@ const ACTION_ALLOWLIST = new Set([
   "TOGGLE_TICKER",
   "GET_BILLING_SUMMARY",
   "GET_SUBSCRIPTION_STATUS",
-  // New org-admin actions
+  // Org-admin actions
   "INVITE_USER_TO_ORG",
   "REMOVE_USER_FROM_ORG",
   "CHANGE_MEMBER_ROLE",
   "ORG_USAGE_SUMMARY",
-  // Support actions
+  // Support actions (read-only + ticket creation)
   "CREATE_SUPPORT_TICKET",
   "EXPLAIN_CURRENT_PAGE",
+  "GENERATE_SUPPORT_BUNDLE",
+  "RUN_DIAGNOSTIC_PLAYBOOK",
+  "CREATE_SYNC_WATCH",
   // Privacy & support access grant actions
   "GRANT_SUPPORT_ACCESS",
   "REVOKE_SUPPORT_ACCESS",
@@ -78,9 +80,9 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "GENERATE_PAYMENT_CERTIFICATE":
     case "REVOKE_SUPPORT_ACCESS":
     case "GET_ANALYTICS_STATUS":
-      return "SAFE";
-    case "RUN_SYNC_WORK_ITEM":
-    case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
+    case "GENERATE_SUPPORT_BUNDLE":
+    case "RUN_DIAGNOSTIC_PLAYBOOK":
+    case "CREATE_SYNC_WATCH":
       return "SAFE";
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
@@ -91,7 +93,6 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "CHANGE_MEMBER_ROLE":
     case "UNLOCK_DANGER_ZONE":
     case "TOGGLE_MONITORING":
-    case "RUN_MASTER_SYNC_SCOPE":
       return "CONFIRM_REQUIRED";
     default:
       return "CONFIRM_REQUIRED";
@@ -133,7 +134,12 @@ function redactSecrets(obj: unknown): unknown {
 // ---- System prompt ----
 const SYSTEM_PROMPT = `You are Atenia AI, the attending assistant for the ATENIA legal-tech platform.
 
-ROLE: You help users understand the status of their judicial work items (procesos), diagnose sync failures, summarize recent actuaciones/estados/alerts, and propose safe operational actions.
+ROLE: You help users understand the status of their judicial work items (procesos), diagnose issues using read-only evidence, summarize recent actuaciones/estados/alerts, and propose safe operational actions.
+
+HARD CONSTRAINT — DAILY-SYNC-ONLY MODEL (NON-NEGOTIABLE):
+- You MUST NOT propose, execute, or suggest any user-triggered sync, re-sync, retry, manual refresh, warm cache, or provider data fetch.
+- Syncing is EXCLUSIVELY handled by the daily cron pipeline. You may only READ, DIAGNOSE, EXPLAIN, and help users submit evidence to support.
+- When users ask "why didn't my data update?", explain the daily sync schedule (07:00 COT) and recommend "Watch until next run" or generating a Support Bundle. NEVER suggest manually triggering a sync.
 
 CRITICAL RULES (NON-NEGOTIABLE):
 1. Answer ONLY from the provided CONTEXT. If information is missing, say exactly what data you need.
@@ -174,17 +180,17 @@ List any active alerts with severity and message.
 
 **E) Acciones recomendadas**
 Always include 2-4 of these based on context:
-- If sync errors exist: propose ESCALATE_TO_ADMIN_QUEUE or CREATE_USER_REPORT
+- If sync errors exist: propose ESCALATE_TO_ADMIN_QUEUE, CREATE_USER_REPORT, or GENERATE_SUPPORT_BUNDLE
 - If monitoring is off: propose TOGGLE_MONITORING to re-enable
+- If user wants updates: propose CREATE_SYNC_WATCH to be notified after next daily run
+- If data is missing/stale: propose RUN_DIAGNOSTIC_PLAYBOOK with appropriate playbook
 - Always offer CREATE_SUPPORT_TICKET as last option
+- NEVER propose sync/retry/refresh actions
 
 5. STRICT RELEVANCE: If the user asks about ONE case, respond about THAT case only. Never include org-level process counts, total monitored items, or org health metrics unless explicitly asked.
 
-ALLOWLISTED ACTIONS:
-- RUN_SYNC_WORK_ITEM: Trigger a sync for a specific work item
-- RUN_SYNC_PUBLICACIONES_WORK_ITEM: Trigger publication sync for a work item
+ALLOWLISTED ACTIONS (NO SYNC ACTIONS — DAILY CRON ONLY):
 - TOGGLE_MONITORING: Enable/disable monitoring for a work item (CONFIRM_REQUIRED)
-- RUN_MASTER_SYNC_SCOPE: Run master sync (platform admin only, CONFIRM_REQUIRED)
 - ESCALATE_TO_ADMIN_QUEUE: Escalate issue to admin queue
 - CREATE_USER_REPORT: Create a structured report for the supervisor panel
 - UNLOCK_DANGER_ZONE: Temporarily enable the Danger Zone in Settings for 12 hours (CONFIRM_REQUIRED)
@@ -199,14 +205,18 @@ ALLOWLISTED ACTIONS:
 - GET_BILLING_SUMMARY: Read-only: return a summary of billing/subscription status (SAFE)
 - GET_SUBSCRIPTION_STATUS: Read-only: return current subscription details (SAFE)
 - INVITE_USER_TO_ORG: Invite a user to the organization by email (CONFIRM_REQUIRED). Params: { email: string, role?: "MEMBER"|"ADMIN" }
-  RBAC: Only org_admin (OWNER or ADMIN role). Deny for members and no-org users.
 - REMOVE_USER_FROM_ORG: Remove a member from the organization (CONFIRM_REQUIRED). Params: { user_id: string }
-  RBAC: Only org_admin. Cannot remove self. Cannot remove OWNER unless you are also OWNER.
 - CHANGE_MEMBER_ROLE: Change a member's role (CONFIRM_REQUIRED). Params: { user_id: string, new_role: "MEMBER"|"ADMIN" }
-  RBAC: Only org_admin. Cannot change own role. Cannot promote to OWNER.
-- ORG_USAGE_SUMMARY: Read-only org stats: seats used, monitors active, work items count (SAFE). Any org member can view.
-- CREATE_SUPPORT_TICKET: Create a structured support ticket with auto-gathered metadata (SAFE). Params: { subject: string, description: string }
-- EXPLAIN_CURRENT_PAGE: Contextual help based on the user's current route (SAFE). Params: { route: string, page_context?: string }
+- ORG_USAGE_SUMMARY: Read-only org stats: seats used, monitors active, work items count (SAFE)
+- CREATE_SUPPORT_TICKET: Create a structured support ticket with auto-gathered metadata (SAFE)
+- EXPLAIN_CURRENT_PAGE: Contextual help based on the user's current route (SAFE)
+- GENERATE_SUPPORT_BUNDLE: Generate a read-only diagnostic bundle with TXT + JSON evidence (SAFE). Call andro-support-bundle edge function.
+- RUN_DIAGNOSTIC_PLAYBOOK: Run a read-only diagnostic check (SAFE). Params: { playbook: "WHY_NO_UPDATES"|"MISSING_DATA"|"PERMISSIONS_CHECK"|"DEAD_LETTER_STATUS" }
+- CREATE_SYNC_WATCH: Create a "notify me after next daily sync" watch (SAFE). Params: { work_item_id: string, condition_type: "ZERO_ESTADOS"|"NO_NEW_ACTUACIONES"|"STILL_FAILING"|"STILL_DEAD_LETTERED" }
+- GRANT_SUPPORT_ACCESS: Grant temporary support access to a platform admin (CONFIRM_REQUIRED)
+- REVOKE_SUPPORT_ACCESS: Immediately revoke all active support access grants (SAFE)
+- GET_ANALYTICS_STATUS: Read-only: return analytics config (SAFE)
+- UPDATE_ORG_ANALYTICS: Update analytics settings (CONFIRM_REQUIRED)
 - GRANT_SUPPORT_ACCESS: Grant temporary support access to a platform admin (CONFIRM_REQUIRED). Params: { access_type: "REDACTED"|"DIRECT_VIEW", reason: string, duration_minutes?: number (max 30) }
   POLICY: The user MUST explicitly request this. NEVER propose proactively. Always explain:
   "⚠️ Esto dará acceso temporal al equipo de soporte para ver [redacted info/su pantalla directamente]. Máximo 30 minutos. Puede revocar en cualquier momento desde Configuración > Privacidad."
@@ -580,27 +590,52 @@ async function executeAction(
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
   switch (action.type) {
-    case "RUN_SYNC_WORK_ITEM": {
-      const resp = await fetch(`${supabaseUrl}/functions/v1/sync-by-work-item`, {
+    // REMOVED: RUN_SYNC_WORK_ITEM, RUN_SYNC_PUBLICACIONES_WORK_ITEM, RUN_MASTER_SYNC_SCOPE
+    // Syncing is daily-cron-only. No user-triggered sync actions allowed.
+
+    case "GENERATE_SUPPORT_BUNDLE": {
+      const resp = await fetch(`${supabaseUrl}/functions/v1/andro-support-bundle`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ work_item_id: action.params?.work_item_id }),
+        body: JSON.stringify({
+          work_item_id: action.params?.work_item_id,
+          route_context: action.params?.route_context,
+        }),
       });
       const result = await resp.json().catch(() => ({ status: resp.status }));
       return { ok: resp.ok, result };
     }
 
-    case "RUN_SYNC_PUBLICACIONES_WORK_ITEM": {
-      const resp = await fetch(`${supabaseUrl}/functions/v1/sync-publicaciones-by-work-item`, {
+    case "RUN_DIAGNOSTIC_PLAYBOOK": {
+      const resp = await fetch(`${supabaseUrl}/functions/v1/andro-diagnose`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ work_item_id: action.params?.work_item_id }),
+        body: JSON.stringify({
+          playbook: action.params?.playbook,
+          work_item_id: action.params?.work_item_id,
+        }),
+      });
+      const result = await resp.json().catch(() => ({ status: resp.status }));
+      return { ok: resp.ok, result };
+    }
+
+    case "CREATE_SYNC_WATCH": {
+      const resp = await fetch(`${supabaseUrl}/functions/v1/andro-create-watch`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          work_item_id: action.params?.work_item_id,
+          condition_type: action.params?.condition_type,
+        }),
       });
       const result = await resp.json().catch(() => ({ status: resp.status }));
       return { ok: resp.ok, result };
@@ -625,23 +660,7 @@ async function executeAction(
       return { ok: true, result: data };
     }
 
-    case "RUN_MASTER_SYNC_SCOPE": {
-      if (!ctx.user?.is_platform_admin) throw new Error("Forbidden: platform admin required");
-      const resp = await fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          scope: action.params?.scope || "MONITORING_ONLY",
-          organization_id: action.params?.org_id,
-          force_refresh: false,
-        }),
-      });
-      const result = await resp.json().catch(() => ({ status: resp.status }));
-      return { ok: resp.ok, result };
-    }
+    // REMOVED: RUN_MASTER_SYNC_SCOPE — syncing is daily-cron-only
 
     case "ESCALATE_TO_ADMIN_QUEUE": {
       const { data, error } = await adminClient
