@@ -11121,6 +11121,7 @@ export type Database = {
       }
       freshness_tier_priority: { Args: { tier: string }; Returns: number }
       get_data_protection_summary: { Args: never; Returns: Json }
+      get_effective_limits: { Args: { p_org_id: string }; Returns: Json }
       get_login_sync_status: {
         Args: {
           p_max_per_day?: number
