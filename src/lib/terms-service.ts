@@ -4,6 +4,12 @@
  * CANONICAL SOURCE: All terms text and hashes come from the DATABASE via get_active_terms().
  * The frontend file terms-text.ts is a DEV-ONLY fallback and must never be used
  * as the compliance source of truth.
+ * 
+ * HASH POLICY: Hashes are ALWAYS server-computed via pgcrypto + canonicalize_legal_text().
+ * The client NEVER computes compliance-critical hashes.
+ * 
+ * PRIVACY POLICY: Acceptance records include privacy_policy_version and privacy_policy_text_hash.
+ * Re-acceptance is required if EITHER the T&C or Privacy Policy version changes.
  */
 import { supabase } from "@/integrations/supabase/client";
 import {
