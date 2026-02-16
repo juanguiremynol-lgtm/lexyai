@@ -85,7 +85,7 @@ export function CountdownHero() {
           <img
             src={logo}
             alt="Andromeda"
-            className="h-44 md:h-56 w-auto object-contain drop-shadow-[0_0_40px_rgba(212,160,23,0.3)]"
+            className="h-52 md:h-[17rem] w-auto object-contain drop-shadow-[0_0_40px_rgba(212,160,23,0.3)]"
           />
         </div>
 
