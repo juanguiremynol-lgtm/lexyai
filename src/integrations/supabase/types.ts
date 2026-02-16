@@ -1359,6 +1359,48 @@ export type Database = {
         }
         Relationships: []
       }
+      atenia_daily_ops_reports: {
+        Row: {
+          created_at: string
+          id: string
+          raw_run_metadata_json: Json | null
+          report_date: string
+          run_id: string
+          status: string
+          summary_json: Json | null
+          txt_content: string | null
+          txt_sha256: string | null
+          txt_storage_path: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          raw_run_metadata_json?: Json | null
+          report_date: string
+          run_id: string
+          status?: string
+          summary_json?: Json | null
+          txt_content?: string | null
+          txt_sha256?: string | null
+          txt_storage_path?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          raw_run_metadata_json?: Json | null
+          report_date?: string
+          run_id?: string
+          status?: string
+          summary_json?: Json | null
+          txt_content?: string | null
+          txt_sha256?: string | null
+          txt_storage_path?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       atenia_deep_dives: {
         Row: {
           conversation_id: string | null
