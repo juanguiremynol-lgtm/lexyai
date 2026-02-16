@@ -717,9 +717,11 @@ export type Database = {
       atenia_ai_conversations: {
         Row: {
           action_count: number | null
+          auto_escalated_at: string | null
           channel: string
           created_at: string | null
           created_by_user_id: string | null
+          first_remediation_at: string | null
           id: string
           last_activity_at: string | null
           message_count: number | null
@@ -728,6 +730,7 @@ export type Database = {
           related_providers: string[] | null
           related_work_item_ids: string[] | null
           related_workflows: string[] | null
+          remediation_disabled: boolean | null
           resolved_at: string | null
           resolved_by_user_id: string | null
           scope: string
@@ -739,9 +742,11 @@ export type Database = {
         }
         Insert: {
           action_count?: number | null
+          auto_escalated_at?: string | null
           channel?: string
           created_at?: string | null
           created_by_user_id?: string | null
+          first_remediation_at?: string | null
           id?: string
           last_activity_at?: string | null
           message_count?: number | null
@@ -750,6 +755,7 @@ export type Database = {
           related_providers?: string[] | null
           related_work_item_ids?: string[] | null
           related_workflows?: string[] | null
+          remediation_disabled?: boolean | null
           resolved_at?: string | null
           resolved_by_user_id?: string | null
           scope?: string
@@ -761,9 +767,11 @@ export type Database = {
         }
         Update: {
           action_count?: number | null
+          auto_escalated_at?: string | null
           channel?: string
           created_at?: string | null
           created_by_user_id?: string | null
+          first_remediation_at?: string | null
           id?: string
           last_activity_at?: string | null
           message_count?: number | null
@@ -772,6 +780,7 @@ export type Database = {
           related_providers?: string[] | null
           related_work_item_ids?: string[] | null
           related_workflows?: string[] | null
+          remediation_disabled?: boolean | null
           resolved_at?: string | null
           resolved_by_user_id?: string | null
           scope?: string
@@ -1405,12 +1414,15 @@ export type Database = {
         Row: {
           conversation_id: string | null
           created_at: string | null
+          dedupe_key: string | null
           diagnosis: string
           duration_ms: number | null
           finished_at: string | null
           gemini_analysis: string | null
           id: string
           included_in_digest: boolean | null
+          last_heartbeat_at: string | null
+          max_runtime_ms: number | null
           organization_id: string
           radicado: string
           recommended_actions: Json | null
@@ -1428,12 +1440,15 @@ export type Database = {
         Insert: {
           conversation_id?: string | null
           created_at?: string | null
+          dedupe_key?: string | null
           diagnosis?: string
           duration_ms?: number | null
           finished_at?: string | null
           gemini_analysis?: string | null
           id?: string
           included_in_digest?: boolean | null
+          last_heartbeat_at?: string | null
+          max_runtime_ms?: number | null
           organization_id: string
           radicado: string
           recommended_actions?: Json | null
@@ -1451,12 +1466,15 @@ export type Database = {
         Update: {
           conversation_id?: string | null
           created_at?: string | null
+          dedupe_key?: string | null
           diagnosis?: string
           duration_ms?: number | null
           finished_at?: string | null
           gemini_analysis?: string | null
           id?: string
           included_in_digest?: boolean | null
+          last_heartbeat_at?: string | null
+          max_runtime_ms?: number | null
           organization_id?: string
           radicado?: string
           recommended_actions?: Json | null
@@ -1552,6 +1570,9 @@ export type Database = {
         Row: {
           created_at: string | null
           duration_ms: number | null
+          fail_reason: string | null
+          failure_stage: string | null
+          failure_summary: string | null
           finished_at: string | null
           id: string
           organization_id: string
@@ -1567,6 +1588,9 @@ export type Database = {
         Insert: {
           created_at?: string | null
           duration_ms?: number | null
+          fail_reason?: string | null
+          failure_stage?: string | null
+          failure_summary?: string | null
           finished_at?: string | null
           id?: string
           organization_id: string
@@ -1582,6 +1606,9 @@ export type Database = {
         Update: {
           created_at?: string | null
           duration_ms?: number | null
+          fail_reason?: string | null
+          failure_stage?: string | null
+          failure_summary?: string | null
           finished_at?: string | null
           id?: string
           organization_id?: string
@@ -1620,6 +1647,7 @@ export type Database = {
       }
       atenia_preflight_checks: {
         Row: {
+          consecutive_failures_by_provider: Json | null
           created_at: string | null
           decision: string | null
           duration_ms: number | null
@@ -1635,6 +1663,7 @@ export type Database = {
           trigger: string
         }
         Insert: {
+          consecutive_failures_by_provider?: Json | null
           created_at?: string | null
           decision?: string | null
           duration_ms?: number | null
@@ -1650,6 +1679,7 @@ export type Database = {
           trigger: string
         }
         Update: {
+          consecutive_failures_by_provider?: Json | null
           created_at?: string | null
           decision?: string | null
           duration_ms?: number | null
@@ -1758,6 +1788,8 @@ export type Database = {
         Row: {
           chain_id: string | null
           completed_at: string | null
+          continuation_block_reason: string | null
+          continuation_enqueued: boolean | null
           continuation_of: string | null
           created_at: string
           cursor_last_work_item_id: string | null
@@ -1789,6 +1821,8 @@ export type Database = {
         Insert: {
           chain_id?: string | null
           completed_at?: string | null
+          continuation_block_reason?: string | null
+          continuation_enqueued?: boolean | null
           continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null
@@ -1820,6 +1854,8 @@ export type Database = {
         Update: {
           chain_id?: string | null
           completed_at?: string | null
+          continuation_block_reason?: string | null
+          continuation_enqueued?: boolean | null
           continuation_of?: string | null
           created_at?: string
           cursor_last_work_item_id?: string | null

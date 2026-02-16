@@ -7,6 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { deduplicateDeepDiveTrigger, updateDeepDiveHeartbeat } from "./atenia-deep-dive-ttl";
 
 export interface DeepDiveStep {
   name: string;
@@ -44,6 +45,10 @@ export async function executeDeepDive(
   const startTime = Date.now();
   const steps: DeepDiveStep[] = [];
 
+  // Dedup: check if already investigated recently for same trigger
+  const existingDiveId = await deduplicateDeepDiveTrigger(workItemId, triggerCriteria, triggerEvidence);
+  if (existingDiveId) return null;
+
   // Rate limit: max 1 per item per 4 hours
   const { data: recentDive } = await (supabase.from("atenia_deep_dives") as any)
     .select("id")
@@ -64,6 +69,8 @@ export async function executeDeepDive(
       trigger_evidence: triggerEvidence,
       status: "RUNNING",
       diagnosis: "",
+      dedupe_key: `${workItemId}_${triggerCriteria}`,
+      last_heartbeat_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -101,6 +108,9 @@ export async function executeDeepDive(
         days_since_creation: daysSinceCreation,
       },
     });
+
+    // Heartbeat after profile step
+    await updateDeepDiveHeartbeat(dive.id);
 
     // STEP 2: SYNC_HISTORY
     const s2 = Date.now();
