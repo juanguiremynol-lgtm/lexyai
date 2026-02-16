@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react";
+import { sanitizeCellValue } from "@/lib/spreadsheet-sanitize";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -121,12 +122,14 @@ export function AdminSupportToolsTab() {
             headers.join(","),
             ...rows.map(row => 
               headers.map(h => {
-                const val = (row as any)[h];
+                const raw = (row as any)[h];
+                const val = sanitizeCellValue(raw);
                 if (val === null || val === undefined) return "";
-                if (typeof val === "string" && (val.includes(",") || val.includes('"') || val.includes("\n"))) {
-                  return `"${val.replace(/"/g, '""')}"`;
+                const str = String(val);
+                if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+                  return `"${str.replace(/"/g, '""')}"`;
                 }
-                return String(val);
+                return str;
               }).join(",")
             )
           ].join("\n");

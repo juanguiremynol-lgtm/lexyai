@@ -153,9 +153,9 @@ describe("Test 4: Secret non-leakage", () => {
 // Test 5: AI action safety — analytics actions
 // ============================================================
 describe("Test 5: AI action safety — analytics actions", () => {
+  // UPDATED: Sync actions removed (daily-cron-only model)
   const ACTION_ALLOWLIST = new Set([
-    "RUN_SYNC_WORK_ITEM", "RUN_SYNC_PUBLICACIONES_WORK_ITEM",
-    "TOGGLE_MONITORING", "RUN_MASTER_SYNC_SCOPE",
+    "TOGGLE_MONITORING",
     "ESCALATE_TO_ADMIN_QUEUE", "CREATE_USER_REPORT",
     "UNLOCK_DANGER_ZONE", "GENERATE_PAYMENT_CERTIFICATE",
     "TOGGLE_TICKER", "GET_BILLING_SUMMARY", "GET_SUBSCRIPTION_STATUS",
@@ -163,6 +163,7 @@ describe("Test 5: AI action safety — analytics actions", () => {
     "ORG_USAGE_SUMMARY", "CREATE_SUPPORT_TICKET", "EXPLAIN_CURRENT_PAGE",
     "GRANT_SUPPORT_ACCESS", "REVOKE_SUPPORT_ACCESS",
     "GET_ANALYTICS_STATUS", "UPDATE_ORG_ANALYTICS",
+    "GENERATE_SUPPORT_BUNDLE", "RUN_DIAGNOSTIC_PLAYBOOK", "CREATE_SYNC_WATCH",
   ]);
 
   function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
@@ -177,8 +178,9 @@ describe("Test 5: AI action safety — analytics actions", () => {
       case "GET_SUBSCRIPTION_STATUS":
       case "GENERATE_PAYMENT_CERTIFICATE":
       case "REVOKE_SUPPORT_ACCESS":
-      case "RUN_SYNC_WORK_ITEM":
-      case "RUN_SYNC_PUBLICACIONES_WORK_ITEM":
+      case "GENERATE_SUPPORT_BUNDLE":
+      case "RUN_DIAGNOSTIC_PLAYBOOK":
+      case "CREATE_SYNC_WATCH":
         return "SAFE";
       default:
         return "CONFIRM_REQUIRED";
@@ -224,7 +226,7 @@ describe("Test 5: AI action safety — analytics actions", () => {
       "ORG_USAGE_SUMMARY", "EXPLAIN_CURRENT_PAGE",
     ];
     const mutating = [
-      "UPDATE_ORG_ANALYTICS", "TOGGLE_MONITORING", "RUN_MASTER_SYNC_SCOPE",
+      "UPDATE_ORG_ANALYTICS", "TOGGLE_MONITORING",
       "INVITE_USER_TO_ORG", "REMOVE_USER_FROM_ORG", "CHANGE_MEMBER_ROLE",
       "UNLOCK_DANGER_ZONE", "TOGGLE_TICKER", "GRANT_SUPPORT_ACCESS",
     ];
