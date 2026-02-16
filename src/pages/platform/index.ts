@@ -23,3 +23,4 @@ export { default as PlatformSecurityPage } from "./PlatformSecurityPage";
 export { default as PlatformEmailProviderPage } from "./PlatformEmailProviderPage";
 export { default as PlatformAnalyticsPage } from "./PlatformAnalyticsPage";
 export { default as PlatformDemoAnalyticsPage } from "./PlatformDemoAnalyticsPage";
+export { default as PlatformDailyOpsReportsPage } from "./PlatformDailyOpsReportsPage";
