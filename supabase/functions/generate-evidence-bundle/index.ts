@@ -1,11 +1,11 @@
 /**
  * generate-evidence-bundle — Produces a Markdown evidence bundle for a work item sync.
  *
- * Triggers sync-by-work-item + sync-publicaciones-by-work-item, then collects:
- *   A) Effective chain per subchain (ACTUACIONES + ESTADOS)
- *   B) Trace evidence per provider attempt
- *   C) DB evidence (canonical counts, provenance)
- *   D) Summary for UI proof
+ * AUTHORIZATION:
+ *   - Owner: can generate for their own work items
+ *   - Org Admin (BUSINESS tier): can generate for any work item in their org
+ *   - Super Admin: must use support_access_grants (not implemented in this endpoint)
+ *   - All others: 403
  *
  * Input: { work_item_id: string, run_sync?: boolean }
  * Output: { ok, markdown, summary }
@@ -17,6 +17,66 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// ─── Authorization helper (same pattern as delete-work-items) ───
+interface AuthContext {
+  userId: string;
+  organizationId: string | null;
+  membershipRole: string | null;
+  isBusinessTier: boolean;
+}
+
+async function resolveAuthContext(
+  serviceClient: ReturnType<typeof createClient>,
+  userId: string
+): Promise<AuthContext> {
+  const { data: profile } = await serviceClient
+    .from("profiles")
+    .select("organization_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const orgId = profile?.organization_id ?? null;
+  let membershipRole: string | null = null;
+  let isBusinessTier = false;
+
+  if (orgId) {
+    const { data: membership } = await serviceClient
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", orgId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    membershipRole = membership?.role ?? null;
+
+    const { data: billing } = await serviceClient
+      .from("billing_subscription_state")
+      .select("plan_code")
+      .eq("organization_id", orgId)
+      .maybeSingle();
+
+    isBusinessTier = ["BUSINESS", "ENTERPRISE"].includes(billing?.plan_code ?? "");
+  }
+
+  return { userId, organizationId: orgId, membershipRole, isBusinessTier };
+}
+
+function canAccessWorkItem(
+  auth: AuthContext,
+  workItem: { owner_id: string; organization_id: string | null }
+): boolean {
+  if (workItem.owner_id === auth.userId) return true;
+  if (
+    auth.isBusinessTier &&
+    auth.organizationId &&
+    workItem.organization_id === auth.organizationId &&
+    (auth.membershipRole === "OWNER" || auth.membershipRole === "ADMIN")
+  ) {
+    return true;
+  }
+  return false;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -40,10 +100,7 @@ Deno.serve(async (req) => {
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-    const {
-      data: { user },
-      error: authErr,
-    } = await userClient.auth.getUser();
+    const { data: { user }, error: authErr } = await userClient.auth.getUser();
     if (authErr || !user) {
       return new Response(JSON.stringify({ error: "Invalid token" }), {
         status: 401,
@@ -67,13 +124,22 @@ Deno.serve(async (req) => {
       .from("work_items")
       .select("id, radicado, workflow_type, organization_id, owner_id, scrape_status, last_crawled_at")
       .eq("id", work_item_id)
-      .single();
+      .maybeSingle();
 
     if (wiErr || !workItem) {
       return new Response(JSON.stringify({ error: "Work item not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── AUTHORIZATION CHECK ──
+    const auth = await resolveAuthContext(adminDb, user.id);
+    if (!canAccessWorkItem(auth, workItem)) {
+      return new Response(
+        JSON.stringify({ error: "Access denied", code: "FORBIDDEN" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const bundleTimestamp = new Date().toISOString();
@@ -98,7 +164,7 @@ Deno.serve(async (req) => {
       syncPubResult = await pubResp.json().catch(() => ({ error: "parse_failed" }));
     }
 
-    // A) Effective chain per subchain via provider-list-effective-routing
+    // A) Effective chain via provider-list-effective-routing
     const routingResp = await fetch(`${supabaseUrl}/functions/v1/provider-list-effective-routing`, {
       method: "POST",
       headers: { Authorization: authHeader, "Content-Type": "application/json" },
@@ -106,7 +172,7 @@ Deno.serve(async (req) => {
     });
     const routingData = await routingResp.json().catch(() => ({ resolutions: [] }));
 
-    // B) Trace evidence (last hour for this work item)
+    // B) Trace evidence (last hour)
     const { data: traces } = await adminDb
       .from("sync_traces")
       .select("*")
@@ -148,13 +214,12 @@ Deno.serve(async (req) => {
     const pubs = pubsRes.data || [];
     const provenance = provenanceRes.data || [];
 
-    // Build Markdown
+    // Build Markdown (redact organization_id from output)
     let md = `# Evidence Bundle — External Enrichment Proof\n\n`;
     md += `**Generated:** ${bundleTimestamp}\n`;
     md += `**Work Item ID:** \`${work_item_id}\`\n`;
     md += `**Radicado:** ${workItem.radicado || "(sin radicado)"}\n`;
     md += `**Workflow:** ${workItem.workflow_type}\n`;
-    md += `**Organization:** ${workItem.organization_id}\n`;
     md += `**Scrape Status:** ${workItem.scrape_status || "N/A"}\n`;
     md += `**Last Crawled:** ${workItem.last_crawled_at || "never"}\n\n`;
 
