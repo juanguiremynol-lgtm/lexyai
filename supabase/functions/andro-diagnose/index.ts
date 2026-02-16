@@ -18,7 +18,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-type Playbook = "WHY_NO_UPDATES" | "MISSING_DATA" | "PERMISSIONS_CHECK" | "DEAD_LETTER_STATUS";
+type Playbook = "WHY_NO_UPDATES" | "MISSING_DATA" | "PERMISSIONS_CHECK" | "DEAD_LETTER_STATUS" | "PARTIAL_ADMIN_VIEW";
 
 interface DiagnosticResult {
   playbook: Playbook;
@@ -404,6 +404,51 @@ Deno.serve(async (req) => {
             };
           }
         }
+        break;
+      }
+
+      case "PARTIAL_ADMIN_VIEW": {
+        // Explains why Business org admins see incomplete data in child tables
+        const evidence: Record<string, unknown> = {
+          user_id: user.id,
+          org_id: orgId,
+          membership_role: membershipRole,
+          is_org_admin: isOrgAdmin,
+          tier,
+          is_business: isBusiness,
+        };
+
+        const childTablesOwnerOnly = [
+          "process_events", "tasks", "documents", "cgp_deadlines",
+          "cgp_term_instances", "cgp_milestones", "hearings",
+          "work_item_deadlines", "work_item_reminders", "desacato_incidents",
+          "evidence_snapshots",
+        ];
+        evidence.owner_only_tables = childTablesOwnerOnly;
+
+        const summaryParts: string[] = [];
+        const actions: string[] = [];
+
+        if (!isBusiness || !isOrgAdmin) {
+          summaryParts.push("Este diagnóstico es relevante solo para administradores de organización en plan Business/Enterprise.");
+          summaryParts.push(`Tu rol actual: ${membershipRole}, plan: ${tier}.`);
+          actions.push("Si crees que deberías tener acceso org-wide, verifica tu plan y rol con tu administrador.");
+        } else {
+          summaryParts.push("Como administrador Business, puedes ver todos los asuntos (work items), clientes y actuaciones de tu organización.");
+          summaryParts.push("Sin embargo, los detalles internos de cada asunto (tareas, documentos, hitos, audiencias, vencimientos, etc.) actualmente solo son visibles para el abogado asignado (owner).");
+          summaryParts.push("Esto significa que al abrir el asunto de otro miembro, podrás ver la información principal pero no los sub-registros detallados.");
+          summaryParts.push("Esta es una restricción conocida del beta que será expandida próximamente.");
+          actions.push("Para obtener información detallada de un asunto de otro miembro, solicítale directamente o genera un bundle de soporte.");
+          actions.push("La visibilidad org-wide para tablas de detalle se implementará en una actualización futura.");
+        }
+
+        result = {
+          playbook: "PARTIAL_ADMIN_VIEW",
+          summary: summaryParts.join(" "),
+          evidence,
+          recommended_actions: actions,
+          next_cron_estimate: null,
+        };
         break;
       }
 
