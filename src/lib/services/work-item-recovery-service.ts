@@ -3,6 +3,11 @@
  * 
  * Handles recovery of soft-deleted work items within the 10-day window.
  * Used by Atenia AI to restore items on user request.
+ *
+ * AUTHORIZATION (enforced BEFORE Andro IA decision):
+ *   MEMBER: only own items (work_items.owner_id = requestedByUserId)
+ *   ORG ADMIN (BUSINESS): any item in their org
+ *   SUPER ADMIN: only via support_access_grants (not handled here)
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -11,6 +16,40 @@ export interface RecoveryResult {
   success: boolean;
   error?: string;
   recoveredItem?: { id: string; radicado: string };
+}
+
+// ─── Authorization helper ───────────────────────────────────
+async function canActOnWorkItem(
+  supabase: SupabaseClient,
+  userId: string,
+  workItem: { owner_id?: string; organization_id?: string | null }
+): Promise<boolean> {
+  // Owner can always act on their own items
+  if (workItem.owner_id === userId) return true;
+
+  // Check if user is org admin on a BUSINESS tier
+  if (workItem.organization_id) {
+    const { data: membership } = await supabase
+      .from("organization_memberships")
+      .select("role")
+      .eq("organization_id", workItem.organization_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (membership && (membership.role === "OWNER" || membership.role === "ADMIN")) {
+      const { data: billing } = await supabase
+        .from("billing_subscription_state")
+        .select("plan_code")
+        .eq("organization_id", workItem.organization_id)
+        .maybeSingle();
+
+      if (billing && ["BUSINESS", "ENTERPRISE"].includes(billing.plan_code ?? "")) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 export async function recoverSoftDeletedWorkItem(
@@ -22,10 +61,10 @@ export async function recoverSoftDeletedWorkItem(
     requestedByUserId: string;
   }
 ): Promise<RecoveryResult> {
-  // 1. Find the soft-deleted item
+  // 1. Find the soft-deleted item (including owner_id for authz check)
   let query = supabase
     .from("work_items")
-    .select("id, radicado, organization_id, deleted_at, purge_after, deleted_by, workflow_type, stage");
+    .select("id, radicado, organization_id, owner_id, deleted_at, purge_after, deleted_by, workflow_type, stage");
 
   if (options.workItemId) {
     query = query.eq("id", options.workItemId);
@@ -48,7 +87,16 @@ export async function recoverSoftDeletedWorkItem(
     };
   }
 
-  // 2. Check if within recovery window
+  // 2. AUTHORIZATION CHECK — before any restore action
+  const authorized = await canActOnWorkItem(supabase, options.requestedByUserId, item);
+  if (!authorized) {
+    return {
+      success: false,
+      error: "No tienes permiso para restaurar este asunto. Solo el propietario o un administrador de organización (plan Business) puede restaurar asuntos.",
+    };
+  }
+
+  // 3. Check if within recovery window
   if (item.purge_after && new Date(item.purge_after) < new Date()) {
     return {
       success: false,
@@ -56,7 +104,7 @@ export async function recoverSoftDeletedWorkItem(
     };
   }
 
-  // 3. Restore the work item
+  // 4. Restore the work item
   const { error: restoreError } = await supabase
     .from("work_items")
     .update({
@@ -72,7 +120,7 @@ export async function recoverSoftDeletedWorkItem(
     return { success: false, error: `Error al restaurar: ${restoreError.message}` };
   }
 
-  // 4. Update soft delete log
+  // 5. Update soft delete log
   const actionId = crypto.randomUUID();
 
   await supabase
@@ -85,7 +133,7 @@ export async function recoverSoftDeletedWorkItem(
     .eq("work_item_id", item.id)
     .eq("status", "DELETED");
 
-  // 5. Log recovery action
+  // 6. Log recovery action
   await supabase.from("atenia_ai_actions").insert({
     id: actionId,
     action_type: "RESTORE_SOFT_DELETED_WORK_ITEM",
@@ -105,6 +153,9 @@ export async function recoverSoftDeletedWorkItem(
       was_purge_after: item.purge_after,
       deleted_by: item.deleted_by,
       restored_by: options.requestedByUserId,
+      authorization: {
+        is_owner: item.owner_id === options.requestedByUserId,
+      },
     },
   });
 
