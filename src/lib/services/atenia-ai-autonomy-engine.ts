@@ -19,6 +19,10 @@ import {
 } from './atenia-freshness-policies';
 import { evaluateDeepDiveTriggers } from './atenia-deep-dive';
 import { refreshE2ERegistry, runScheduledE2EBatch } from './atenia-e2e-registry';
+import { enforceDeepDiveTTL } from './atenia-deep-dive-ttl';
+import { evaluateIncidentPolicy } from './atenia-incident-policy';
+import { remediateGhostItems } from './atenia-ghost-remediation';
+import { guaranteeContinuation } from './atenia-continuation-guarantee';
 
 // ============= TYPES =============
 
@@ -623,11 +627,69 @@ export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResu
 
     allPlans.push(...cont, ...retries, ...suspend, ...provHealth, ...heavy, ...freshClass, ...freshViol, ...userAlerts, ...autoDemote, ...postRecovery, ...escalation);
 
+    // B: Deep dive TTL enforcement
+    try {
+      const timedOut = await enforceDeepDiveTTL();
+      if (timedOut > 0) {
+        allPlans.push({ action_type: 'DEEP_DIVE_TTL_ENFORCEMENT', status: 'EXECUTED', reason: `${timedOut} deep dive(s) excedieron TTL y fueron marcados TIMED_OUT.` });
+      }
+    } catch { /* non-blocking */ }
+
     // Deep dive triggers (max 2 per cycle)
     try {
       const divesTriggered = await evaluateDeepDiveTriggers(orgId);
       if (divesTriggered > 0) {
         allPlans.push({ action_type: 'DEEP_DIVE_TRIGGERS', status: 'EXECUTED', reason: `${divesTriggered} deep dive(s) activados.` });
+      }
+    } catch { /* non-blocking */ }
+
+    // C: Incident policy engine
+    try {
+      const incidentResult = await evaluateIncidentPolicy(orgId);
+      if (incidentResult.remediated + incidentResult.auto_resolved + incidentResult.escalated > 0) {
+        allPlans.push({
+          action_type: 'INCIDENT_POLICY',
+          status: 'EXECUTED',
+          reason: `Incidentes: ${incidentResult.remediated} remediados, ${incidentResult.auto_resolved} auto-resueltos, ${incidentResult.escalated} escalados.`,
+        });
+      }
+    } catch { /* non-blocking */ }
+
+    // D: Ghost item remediation
+    try {
+      const ghostResult = await remediateGhostItems(orgId);
+      if (ghostResult.ghost_items.length > 0) {
+        allPlans.push({
+          action_type: 'GHOST_REMEDIATION',
+          status: 'EXECUTED',
+          reason: `${ghostResult.ghost_items.length} fantasma(s): ${ghostResult.bootstrapped} bootstrap, ${ghostResult.quarantined} cuarentena.`,
+          evidence: {
+            ghost_radicados: ghostResult.ghost_items.map(g => g.radicado),
+            bootstrapped: ghostResult.bootstrapped,
+            quarantined: ghostResult.quarantined,
+          },
+        });
+      }
+    } catch { /* non-blocking */ }
+
+    // E: Continuation guarantee
+    try {
+      const contResults = await guaranteeContinuation(orgId);
+      for (const cr of contResults) {
+        if (!cr.continuation_enqueued && cr.block_reason) {
+          allPlans.push({
+            action_type: 'CONTINUATION_BLOCKED',
+            status: 'EXECUTED',
+            reason: `Chain PARTIAL sin continuación: ${cr.block_reason}.`,
+            evidence: { ledger_id: cr.ledger_id, block_reason: cr.block_reason },
+          });
+        } else if (cr.continuation_enqueued) {
+          allPlans.push({
+            action_type: 'CONTINUATION_GUARANTEED',
+            status: 'EXECUTED',
+            reason: `Continuación encolada para ledger ${cr.ledger_id.slice(0, 8)}.`,
+          });
+        }
       }
     } catch { /* non-blocking */ }
 
@@ -655,7 +717,7 @@ export async function runAutonomyCycle(orgId: string): Promise<AutonomyCycleResu
         .maybeSingle();
       if (!recentE2E) {
         const e2eResult = await runScheduledE2EBatch(orgId, 'SCHEDULED');
-        allPlans.push({ action_type: 'SCHEDULED_E2E_BATCH', status: 'EXECUTED', reason: `E2E: ${e2eResult.passed}✅ ${e2eResult.failed}❌ / ${e2eResult.total}` });
+        allPlans.push({ action_type: 'SCHEDULED_E2E_BATCH', status: 'EXECUTED', reason: `E2E: ${e2eResult.passed}✅ ${e2eResult.failed}❌ ${e2eResult.skipped}⏭ / ${e2eResult.total}` });
       }
     } catch { /* non-blocking */ }
   } catch (err) {

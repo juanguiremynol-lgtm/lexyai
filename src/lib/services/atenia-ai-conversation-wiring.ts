@@ -98,9 +98,28 @@ export async function persistHeartbeatToConversations(
     }
   }
 
-  // 3. Ghost items → conversation
+  // 3. Ghost items → conversation (with identifiers for actionability)
   if (ghostItems.length > 0) {
     const count = ghostItems.reduce((s, o) => s + (o.data?.count ?? 1), 0);
+    // Extract individual item identifiers from observation data
+    const itemDetails = ghostItems.flatMap(o => {
+      const data = o.data;
+      if (data?.ghost_item_ids && data?.ghost_radicados) {
+        return (data.ghost_item_ids as string[]).map((id: string, i: number) => ({
+          id: id.slice(0, 8),
+          radicado: (data.ghost_radicados as string[])[i] ?? "?",
+        }));
+      }
+      if (data?.work_item_ids) {
+        return (data.work_item_ids as string[]).map((id: string) => ({ id: id.slice(0, 8), radicado: "?" }));
+      }
+      return [];
+    });
+
+    const itemList = itemDetails.length > 0
+      ? ` IDs: ${itemDetails.map(d => `${d.radicado}(${d.id})`).join(", ")}`
+      : "";
+
     const incident: IncidentData = {
       orgId,
       channel: 'HEARTBEAT',
@@ -112,7 +131,7 @@ export async function persistHeartbeatToConversations(
       const convId = await findOrCreateConversation(incident);
       if (convId) {
         await addObservation(convId, orgId, 'GHOST_ITEMS_WIRING', 'WARNING',
-          `${count} asuntos monitoreados sin sincronización inicial`, { count });
+          `${count} asuntos monitoreados sin sincronización inicial.${itemList}`, { count, item_details: itemDetails });
       }
     } catch (err) {
       console.warn('[conv-wiring] Ghost items conv error:', err);
