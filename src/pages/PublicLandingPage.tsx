@@ -50,7 +50,7 @@ export default function PublicLandingPage() {
       ) : (
         <CountdownHero />
       )}
-      {isLive && <DemoRadicadoSection />}
+      <DemoRadicadoSection />
       <AndroIASection />
       <WorkflowsSection />
       <AlertsAndEmailSection />
