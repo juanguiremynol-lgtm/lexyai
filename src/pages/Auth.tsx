@@ -10,6 +10,8 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import logo from "@/assets/andromeda-logo.png";
 import { ShieldAlert } from "lucide-react";
+import { TermsAcceptanceModal } from "@/components/legal/TermsAcceptanceModal";
+import { recordTermsAcceptance } from "@/lib/terms-service";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,6 +24,16 @@ export default function Auth() {
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const navigate = useNavigate();
 
+  // Terms acceptance state
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsData, setTermsData] = useState<{
+    checkboxTerms: boolean;
+    checkboxAge: boolean;
+    checkboxMarketing: boolean;
+  } | null>(null);
+  const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+
   useEffect(() => {
     const checkEnrollment = async () => {
       const { data, error } = await supabase.rpc("is_beta_enrollment_open");
@@ -31,22 +43,99 @@ export default function Auth() {
     checkEnrollment();
   }, []);
 
+  // When switching to signup, reset terms state
+  useEffect(() => {
+    if (isLogin) {
+      setShowTerms(false);
+      setTermsAccepted(false);
+      setTermsData(null);
+    }
+  }, [isLogin]);
+
+  const handleTermsAccept = async (data: {
+    checkboxTerms: boolean;
+    checkboxAge: boolean;
+    checkboxMarketing: boolean;
+  }) => {
+    setTermsData(data);
+    setTermsAccepted(true);
+    setShowTerms(false);
+
+    // If this was triggered by Google sign-in, proceed
+    if (pendingGoogleSignIn) {
+      setPendingGoogleSignIn(false);
+      await doGoogleSignIn(data);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
+    // For new users, require terms first
+    // Since we can't know if it's a new user before OAuth, we show terms before redirect
+    if (!termsAccepted) {
+      setPendingGoogleSignIn(true);
+      setShowTerms(true);
+      return;
+    }
+    await doGoogleSignIn(termsData!);
+  };
+
+  const doGoogleSignIn = async (terms: {
+    checkboxTerms: boolean;
+    checkboxAge: boolean;
+    checkboxMarketing: boolean;
+  }) => {
     setGoogleLoading(true);
     try {
+      // Store terms data in sessionStorage so we can record it after OAuth redirect
+      sessionStorage.setItem(
+        "pending_terms_acceptance",
+        JSON.stringify({
+          ...terms,
+          acceptanceMethod: "registration_google",
+        })
+      );
+
       const { error } = await lovable.auth.signInWithOAuth("google", {
         redirect_uri: window.location.origin,
       });
       if (error) throw error;
     } catch (error: any) {
       toast.error(error.message || "Error al iniciar sesión con Google");
+      sessionStorage.removeItem("pending_terms_acceptance");
     } finally {
       setGoogleLoading(false);
     }
   };
 
+  // After OAuth redirect, record terms acceptance
+  useEffect(() => {
+    const recordPendingAcceptance = async () => {
+      const pending = sessionStorage.getItem("pending_terms_acceptance");
+      if (!pending) return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      try {
+        const termsPayload = JSON.parse(pending);
+        await recordTermsAcceptance(termsPayload);
+        sessionStorage.removeItem("pending_terms_acceptance");
+      } catch (err) {
+        console.error("Failed to record terms acceptance after OAuth:", err);
+      }
+    };
+    recordPendingAcceptance();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // For signup, require terms acceptance
+    if (!isLogin && !termsAccepted) {
+      setShowTerms(true);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -56,6 +145,7 @@ export default function Auth() {
         toast.success("Bienvenido a Andromeda");
         navigate("/dashboard");
       } else {
+        // Record terms acceptance AFTER successful signup
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -65,6 +155,15 @@ export default function Auth() {
           },
         });
         if (error) throw error;
+
+        // Record terms acceptance
+        if (termsData) {
+          await recordTermsAcceptance({
+            ...termsData,
+            acceptanceMethod: "registration_web",
+          });
+        }
+
         toast.success("Cuenta creada exitosamente");
         navigate("/dashboard");
       }
@@ -77,6 +176,11 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-[#070b1a]">
+      {/* Terms Acceptance Modal */}
+      {showTerms && (
+        <TermsAcceptanceModal onAccept={handleTermsAccept} loading={false} />
+      )}
+
       {/* Cosmic background — matches landing */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-[600px] h-[600px] rounded-full bg-[#1a3a6a]/20 blur-[120px]" />
@@ -147,6 +251,13 @@ export default function Auth() {
             {googleLoading ? "Conectando..." : "Continuar con Google"}
           </Button>
 
+          {/* Terms acceptance badge for signup */}
+          {!isLogin && termsAccepted && (
+            <div className="mb-4 p-2 rounded-lg bg-green-500/10 border border-green-500/30 text-center">
+              <p className="text-xs text-green-400">✓ Términos y Condiciones aceptados</p>
+            </div>
+          )}
+
           <div className="relative my-5">
             <Separator className="bg-[#1a3a6a]/50" />
             <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#0c1529] px-3 text-xs text-[#a0b4d0]/60">
@@ -199,10 +310,23 @@ export default function Auth() {
                 className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
               />
             </div>
+
+            {/* For signup: Show terms button if not yet accepted */}
+            {!isLogin && !termsAccepted && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowTerms(true)}
+                className="w-full border-[#d4a017]/30 text-[#d4a017] hover:bg-[#d4a017]/10"
+              >
+                Leer y aceptar Términos y Condiciones
+              </Button>
+            )}
+
             <Button 
               type="submit" 
               className="w-full mt-6 bg-gradient-to-r from-[#d4a017] to-[#e8b830] text-[#070b1a] font-bold hover:from-[#e8b830] hover:to-[#f0c848] shadow-[0_0_30px_rgba(212,160,23,0.3)]" 
-              disabled={loading}
+              disabled={loading || (!isLogin && !termsAccepted)}
             >
               {loading ? "Cargando..." : isLogin ? "Iniciar Sesión" : "Crear Cuenta"}
             </Button>
@@ -215,6 +339,17 @@ export default function Auth() {
             >
               {isLogin ? "¿No tienes cuenta? Regístrate" : "¿Ya tienes cuenta? Inicia sesión"}
             </button>
+          </div>
+
+          {/* Legal links */}
+          <div className="mt-4 text-center">
+            <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="text-xs text-[#a0b4d0]/50 hover:text-[#a0b4d0] transition-colors">
+              Términos y Condiciones
+            </a>
+            <span className="text-[#a0b4d0]/30 mx-2">·</span>
+            <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" className="text-xs text-[#a0b4d0]/50 hover:text-[#a0b4d0] transition-colors">
+              Política de Privacidad
+            </a>
           </div>
         </CardContent>
       </Card>
