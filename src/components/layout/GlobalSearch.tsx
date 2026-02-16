@@ -248,11 +248,13 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   const buildClientsQuery = () => {
     let q = supabase
       .from("clients")
-      .select("id, name, id_number, city, email")
+      .select("id, name, id_number, city, email, owner_id")
+      .is("deleted_at", null)
       .or(`name.ilike.${searchPattern},id_number.ilike.${searchPattern},city.ilike.${searchPattern},email.ilike.${searchPattern}`)
       .limit(limitPerType);
 
     if (ctx.isAdmin && ctx.organizationId) {
+      // Admin: RLS now allows all org clients
       q = q.eq("organization_id", ctx.organizationId);
     } else if (ctx.organizationId) {
       q = q.eq("organization_id", ctx.organizationId).eq("owner_id", ctx.userId);
@@ -307,7 +309,8 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
   }).sort((a, b) => a.relevance - b.relevance);
 
   const clients: SearchResult[] = (clientsResult.data || []).map((client) => {
-    const result = {
+    const isOrgItem = ctx.isAdmin && client.owner_id !== ctx.userId;
+    const result: SearchResult = {
       id: client.id,
       type: "client" as const,
       title: client.name,
@@ -316,6 +319,7 @@ async function performSearch(query: string, organizationId?: string): Promise<Gr
       badgeVariant: "outline" as const,
       route: `/app/clients/${client.id}`,
       relevance: 5,
+      isOrgItem,
     };
     result.relevance = scoreResult(result, query);
     return result;
