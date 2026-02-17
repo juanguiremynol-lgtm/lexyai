@@ -290,3 +290,12 @@ verify_jwt = false
 
 [functions.demo-radicado-lookup]
 verify_jwt = false
+
+[functions.system-email-send]
+verify_jwt = false
+
+[functions.system-email-inbound-webhook]
+verify_jwt = false
+
+[functions.system-email-imap-connect]
+verify_jwt = false

@@ -56,6 +56,9 @@ const ERROR_HINTS: Record<string, string> = {
   RLS_DENIED: "Tu cuenta no tiene permisos para enviar. Verifica que eres Super Admin.",
   UNAUTHORIZED: "Sesión expirada. Vuelve a iniciar sesión.",
   FORBIDDEN: "Solo Super Admins pueden enviar emails desde la plataforma.",
+  DB_INSERT_FAILED: "El email se envió pero no se registró en la BD. Contacta soporte.",
+  INTERNAL_ERROR: "Error interno del servidor. Revisa los logs de la función.",
+  INVOKE_FAILED: "No se pudo contactar al servidor. Verifica tu conexión.",
 };
 
 export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps) {
@@ -94,17 +97,34 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
       });
 
       if (error) {
-        // Network / invocation error
-        setLastError({
-          code: "INVOKE_FAILED",
-          message: error.message || "Error al invocar la función de envío",
-          phase: "unknown",
-        });
+        // supabase.functions.invoke wraps non-2xx as FunctionsHttpError
+        // Try to parse the body for structured error
+        let parsed: any = null;
+        try {
+          if (error.context && typeof error.context.json === "function") {
+            parsed = await error.context.json();
+          }
+        } catch { /* ignore */ }
+
+        if (parsed?.error_code) {
+          setLastError({
+            code: parsed.error_code,
+            message: parsed.error_message || error.message,
+            phase: parsed.phase || "unknown",
+            details: parsed.provider_error || undefined,
+          });
+        } else {
+          setLastError({
+            code: "INVOKE_FAILED",
+            message: error.message || "Error al invocar la función de envío",
+            phase: "unknown",
+          });
+        }
         return;
       }
 
       if (data?.ok) {
-        setLastSuccessId(data.provider_message_id || "sent");
+        setLastSuccessId(data.resend_email_id || "sent");
         toast.success(data.message || "Email enviado exitosamente");
 
         // Invalidate sent view
@@ -116,12 +136,12 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
           onSent?.();
         }, 1500);
       } else {
-        // Structured error from edge function
+        // Structured error from edge function (2xx but ok=false shouldn't happen, but handle)
         setLastError({
           code: data?.error_code || "UNKNOWN",
-          message: data?.error_message || data?.error || "Error desconocido",
+          message: data?.error_message || "Error desconocido",
           phase: data?.phase || "unknown",
-          details: data?.provider_response || undefined,
+          details: data?.provider_error || undefined,
         });
       }
     } catch (err: unknown) {
