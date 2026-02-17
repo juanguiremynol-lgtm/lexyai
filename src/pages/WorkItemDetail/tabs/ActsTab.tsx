@@ -101,37 +101,35 @@ export function ActsTab({ workItem }: ActsTabProps) {
     );
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Diff view for recent changes */}
-      <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
-
-      {(!acts || acts.length === 0) ? (
+  if (!acts || acts.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-12">
-          <div className="text-center">
-            <div className="text-4xl mb-4">📭</div>
-            <h3 className="font-semibold mb-2">No se han encontrado actuaciones para este asunto</h3>
-            <p className="text-muted-foreground text-sm max-w-md mx-auto">
-              Las actuaciones aparecerán automáticamente cuando los sistemas judiciales
-              registren movimientos en este proceso.
-            </p>
-            {workItem.last_synced_at && (
-              <p className="text-xs text-muted-foreground mt-4">
-                Última búsqueda: {new Date(workItem.last_synced_at).toLocaleDateString("es-CO", {
-                  timeZone: "America/Bogota",
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+      <div className="space-y-4">
+        <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center">
+              <div className="text-4xl mb-4">📭</div>
+              <h3 className="font-semibold mb-2">No se han encontrado actuaciones para este asunto</h3>
+              <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                Las actuaciones aparecerán automáticamente cuando los sistemas judiciales
+                registren movimientos en este proceso.
               </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+              {workItem.last_synced_at && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  Última búsqueda: {new Date(workItem.last_synced_at).toLocaleDateString("es-CO", {
+                    timeZone: "America/Bogota",
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -139,6 +137,9 @@ export function ActsTab({ workItem }: ActsTabProps) {
 
   return (
     <div className="space-y-4">
+      {/* Diff view for recent changes */}
+      <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
+
       {/* Summary header */}
       <div className="rounded-lg border bg-card p-4">
         <div className="flex flex-col gap-3">
