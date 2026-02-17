@@ -44,6 +44,7 @@ import {
   Sparkles,
   AlertTriangle,
   Scale,
+  WifiOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -258,15 +259,15 @@ async function fetchEstadosHoy(
   }
   const discoveredCount = itemMap.size;
 
-  let courtOnlyCount = 0;
+  let courtPostedTotal = 0;
   for (const row of courtPostedResult.data || []) {
+    courtPostedTotal++;
     if (itemMap.has(row.id)) {
       const existing = itemMap.get(row.id)!;
       existing.match_reason = "both";
       existing.is_new = true;
     } else {
       itemMap.set(row.id, mapPubRow(row, "court_posted"));
-      courtOnlyCount++;
     }
   }
 
@@ -321,7 +322,7 @@ async function fetchEstadosHoy(
 
   items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  return { items, total: items.length, discoveredCount, courtPostedCount: courtOnlyCount, samaiEstadosCount };
+  return { items, total: items.length, discoveredCount, courtPostedCount: courtPostedTotal, samaiEstadosCount };
 }
 
 /* ── page component ── */
@@ -348,15 +349,43 @@ export default function EstadosHoy() {
     refetchInterval: 60_000,
   });
 
+  // Sync health check — warn users when sync is degraded
+  const { data: syncHealth } = useQuery({
+    queryKey: ["sync-health-estados", organization?.id],
+    queryFn: async () => {
+      if (!organization?.id) return { degraded: false };
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      const { data: report } = await supabase
+        .from("atenia_ai_reports")
+        .select("items_failed, items_synced_ok, items_synced_partial, total_work_items")
+        .eq("organization_id", organization.id)
+        .eq("report_date", todayStr)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!report) return { degraded: false };
+      const totalAttempted = (report.items_synced_ok ?? 0) + (report.items_synced_partial ?? 0) + (report.items_failed ?? 0);
+      const failRate = totalAttempted > 0 ? (report.items_failed ?? 0) / totalAttempted : 0;
+      return { degraded: failRate > 0.3 || (report.items_failed ?? 0) > 2, failRate, failed: report.items_failed ?? 0 };
+    },
+    enabled: !!organization?.id,
+    staleTime: 5 * 60_000,
+  });
+
   useEffect(() => {
     const handler = () => { refetch(); };
     globalThis.addEventListener("atenia-sync-complete", handler);
     return () => globalThis.removeEventListener("atenia-sync-complete", handler);
   }, [refetch]);
 
-  const deadlineItems = data?.items.filter((i) => {
+  const urgentItems = data?.items.filter((i) => {
     const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
     return u === "critical" || u === "warning";
+  }).length ?? 0;
+
+  const expiredItems = data?.items.filter((i) => {
+    const u = getDeadlineUrgency(i.terminos_inician ?? i.inicia_termino ?? null);
+    return u === "expired";
   }).length ?? 0;
 
   const label = windowLabel(window);
@@ -425,18 +454,39 @@ export default function EstadosHoy() {
               </span>
             </>
           )}
-          {deadlineItems > 0 && (
+          {urgentItems > 0 && (
             <>
               <span>·</span>
               <span className="flex items-center gap-1 text-destructive">
                 <AlertTriangle className="h-4 w-4" />
-                <strong>{deadlineItems}</strong> con términos urgentes
+                <strong>{urgentItems}</strong> con términos urgentes
+              </span>
+            </>
+          )}
+          {expiredItems > 0 && (
+            <>
+              <span>·</span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                <strong>{expiredItems}</strong> con términos vencidos
               </span>
             </>
           )}
           <span>·</span>
           <span><strong className="text-foreground">{data.total}</strong> total</span>
         </div>
+      )}
+
+      {/* Degraded sync warning */}
+      {syncHealth?.degraded && (
+        <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20">
+          <CardContent className="py-3 flex items-center gap-3">
+            <WifiOff className="h-4 w-4 text-orange-600 flex-shrink-0" />
+            <p className="text-sm text-orange-800 dark:text-orange-200">
+              <strong>Sincronización degradada:</strong> es posible que se muestren estados históricos como recientes o que falten resultados. Verifique directamente en el portal judicial o en el PDF del estado.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Ejecutoria info banner */}
@@ -503,6 +553,7 @@ function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavig
       className={cn(
         "cursor-pointer hover:shadow-md transition-shadow border-l-4",
         item.is_in_ejecutoria_window && "bg-green-50 dark:bg-green-950/20 border-green-200",
+        urgency === "expired" && !item.is_in_ejecutoria_window && "border-l-muted-foreground/50 bg-muted/30 opacity-75",
         urgency === "critical" && !item.is_in_ejecutoria_window && "border-l-destructive bg-destructive/5",
         urgency === "warning" && !item.is_in_ejecutoria_window && "border-l-orange-500 bg-orange-50 dark:bg-orange-950/10",
         urgency === "normal" && !item.is_in_ejecutoria_window && "border-l-primary/30",
@@ -522,6 +573,12 @@ function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavig
               <Badge variant="outline" className="text-xs text-green-700 border-green-300 bg-green-100 dark:bg-green-900/30">
                 <CheckCircle className="h-3 w-3 mr-1" />
                 En ejecutoria
+              </Badge>
+            )}
+            {urgency === "expired" && !item.is_in_ejecutoria_window && (
+              <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/40">
+                <Clock className="h-3 w-3 mr-1" />
+                Vencido
               </Badge>
             )}
             {urgency === "critical" && !item.is_in_ejecutoria_window && (
@@ -558,6 +615,7 @@ function EstadoCard({ item, onNavigate }: { item: EstadoHoyItemWithMeta; onNavig
             {(item.inicia_termino || item.terminos_inician) && (
               <span className={cn(
                 "flex items-center gap-1",
+                urgency === "expired" && "text-muted-foreground line-through",
                 urgency === "critical" && "text-destructive font-bold",
                 urgency === "warning" && "text-orange-600 dark:text-orange-400 font-medium",
                 item.is_in_ejecutoria_window && "text-green-700 dark:text-green-400 font-medium"
