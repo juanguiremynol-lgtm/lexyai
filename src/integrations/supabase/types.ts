@@ -9584,11 +9584,13 @@ export type Database = {
           bcc_raw: Json
           cc_raw: Json
           created_at: string
+          deleted_at: string | null
           direction: string
           folder: string
           from_raw: string
           html_body: string | null
           id: string
+          is_archived: boolean
           provider: string
           provider_message_id: string | null
           provider_status: string
@@ -9604,11 +9606,13 @@ export type Database = {
           bcc_raw?: Json
           cc_raw?: Json
           created_at?: string
+          deleted_at?: string | null
           direction: string
           folder?: string
           from_raw: string
           html_body?: string | null
           id?: string
+          is_archived?: boolean
           provider?: string
           provider_message_id?: string | null
           provider_status?: string
@@ -9624,11 +9628,13 @@ export type Database = {
           bcc_raw?: Json
           cc_raw?: Json
           created_at?: string
+          deleted_at?: string | null
           direction?: string
           folder?: string
           from_raw?: string
           html_body?: string | null
           id?: string
+          is_archived?: boolean
           provider?: string
           provider_message_id?: string | null
           provider_status?: string
@@ -12214,6 +12220,7 @@ export type Database = {
         Args: { p_retention_days?: number }
         Returns: number
       }
+      purge_trashed_emails: { Args: never; Returns: number }
       purge_work_item_acts_and_pubs: {
         Args: { p_work_item_id: string }
         Returns: undefined
