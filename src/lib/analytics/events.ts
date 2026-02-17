@@ -58,6 +58,11 @@ export const ANALYTICS_EVENTS = {
   DEMO_LOOKUP_RESULT: "demo_lookup_result",
   DEMO_CTA_CLICKED: "demo_cta_clicked",
   DEMO_SHARE_CLICKED: "demo_share_clicked",
+
+  // Landing / Marketing
+  LANDING_WORKFLOW_CARD_OPEN: "landing_workflow_card_open",
+  LANDING_CALCULATOR_INTERACTED: "landing_calculator_interacted",
+  LANDING_PLAN_RECOMMENDATION_CLICK: "landing_plan_recommendation_click",
 } as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
@@ -81,6 +86,9 @@ export const EVENT_PROPERTIES: Record<string, string[]> = {
   [ANALYTICS_EVENTS.DEMO_LOOKUP_RESULT]: ["outcome", "providers_with_data", "latency_bucket"],
   [ANALYTICS_EVENTS.DEMO_CTA_CLICKED]: ["cta_type"],
   [ANALYTICS_EVENTS.DEMO_SHARE_CLICKED]: ["variant", "frame", "has_radicado", "method"],
+  [ANALYTICS_EVENTS.LANDING_WORKFLOW_CARD_OPEN]: ["workflow_type"],
+  [ANALYTICS_EVENTS.LANDING_CALCULATOR_INTERACTED]: [],
+  [ANALYTICS_EVENTS.LANDING_PLAN_RECOMMENDATION_CLICK]: ["plan_name", "processes_count", "team_size"],
 };
 
 // ── Property Validators / Normalizers ────────────────────────────────
