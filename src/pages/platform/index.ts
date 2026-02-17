@@ -25,3 +25,4 @@ export { default as PlatformAnalyticsPage } from "./PlatformAnalyticsPage";
 export { default as PlatformDemoAnalyticsPage } from "./PlatformDemoAnalyticsPage";
 export { default as PlatformDailyOpsReportsPage } from "./PlatformDailyOpsReportsPage";
 export { default as PlatformJudicialSuspensionsPage } from "./PlatformJudicialSuspensionsPage";
+export { default as PlatformEmailConsolePage } from "./PlatformEmailConsolePage";

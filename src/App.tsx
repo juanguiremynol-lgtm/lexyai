@@ -78,6 +78,7 @@ import {
   PlatformDemoAnalyticsPage,
   PlatformDailyOpsReportsPage,
   PlatformJudicialSuspensionsPage,
+  PlatformEmailConsolePage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
@@ -245,6 +246,7 @@ const App = () => (
             <Route path="courthouse-directory" element={<ErrorBoundary><PlatformCourthouseDirectoryPage /></ErrorBoundary>} />
             <Route path="external-providers" element={<ErrorBoundary><PlatformExternalProvidersPage /></ErrorBoundary>} />
             <Route path="external-providers/wizard" element={<ErrorBoundary><PlatformProviderWizardPage /></ErrorBoundary>} />
+            <Route path="email-console" element={<ErrorBoundary><PlatformEmailConsolePage /></ErrorBoundary>} />
             <Route path="email-provider" element={<ErrorBoundary><PlatformEmailProviderPage /></ErrorBoundary>} />
             <Route path="analytics" element={<ErrorBoundary><PlatformAnalyticsPage /></ErrorBoundary>} />
             <Route path="demo-analytics" element={<ErrorBoundary><PlatformDemoAnalyticsPage /></ErrorBoundary>} />
