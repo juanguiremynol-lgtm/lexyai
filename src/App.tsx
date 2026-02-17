@@ -14,6 +14,7 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
+import VerifyAlertEmail from "./pages/VerifyAlertEmail";
 import SuperAdminAccess from "./pages/SuperAdminAccess";
 import LegalTermsPage from "./pages/LegalTermsPage";
 import { TermsReAcceptanceGuard } from "./components/legal/TermsReAcceptanceGuard";
@@ -126,6 +127,7 @@ const App = () => (
           {/* Super Admin access — NEVER launch-gated */}
           <Route path="/super-admin-access" element={<SuperAdminAccess />} />
           <Route path="/onboarding/profile" element={<OnboardingProfile />} />
+          <Route path="/verify-alert-email" element={<VerifyAlertEmail />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           
           {/* Public routes with PublicLayout */}

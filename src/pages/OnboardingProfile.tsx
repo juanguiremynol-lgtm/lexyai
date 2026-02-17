@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Camera, LogOut, Loader2, Shield } from "lucide-react";
+import { Camera, LogOut, Loader2, Shield, Mail } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -27,6 +28,8 @@ export default function OnboardingProfile() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [useDifferentAlertEmail, setUseDifferentAlertEmail] = useState(false);
+  const [alertEmail, setAlertEmail] = useState("");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -155,6 +158,31 @@ export default function OnboardingProfile() {
         .eq("id", user.id);
 
       if (profileError) throw profileError;
+
+      // Set alert email if user chose a different one
+      if (useDifferentAlertEmail && alertEmail.trim()) {
+        // Get user's first org membership
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (profile?.organization_id) {
+          try {
+            await supabase.functions.invoke("manage-alert-email", {
+              body: {
+                action: "set",
+                organization_id: profile.organization_id,
+                alert_email: alertEmail.trim(),
+              },
+            });
+          } catch (alertErr) {
+            console.warn("Alert email setup warning:", alertErr);
+            // Don't block onboarding for this
+          }
+        }
+      }
 
       // Invalidate profile queries so guards re-check
       queryClient.invalidateQueries({ queryKey: ["profile-completion"] });
@@ -308,6 +336,42 @@ export default function OnboardingProfile() {
                 placeholder="+57 300 123 4567"
                 className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
               />
+            </div>
+
+            {/* Alert Email section */}
+            <div className="space-y-3 p-4 rounded-lg border border-[#1a3a6a]/30 bg-[#0a1120]/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-[#d4a017]" />
+                  <Label className="text-sm text-[#a0b4d0]">
+                    ¿Recibir alertas en otro correo?
+                  </Label>
+                </div>
+                <Switch
+                  checked={useDifferentAlertEmail}
+                  onCheckedChange={setUseDifferentAlertEmail}
+                />
+              </div>
+              {useDifferentAlertEmail && (
+                <div className="space-y-2">
+                  <Input
+                    id="alertEmail"
+                    type="email"
+                    value={alertEmail}
+                    onChange={(e) => setAlertEmail(e.target.value)}
+                    placeholder="alertas@miempresa.com"
+                    className="bg-[#0a1120] border-[#1a3a6a]/50 text-white placeholder:text-[#a0b4d0]/40 focus:border-[#d4a017]/50 focus:ring-[#d4a017]/20"
+                  />
+                  <p className="text-xs text-[#a0b4d0]/60">
+                    Se enviará un enlace de verificación a este correo.
+                  </p>
+                </div>
+              )}
+              {!useDifferentAlertEmail && (
+                <p className="text-xs text-[#a0b4d0]/60">
+                  Las alertas se enviarán a tu email de inicio de sesión ({email}).
+                </p>
+              )}
             </div>
 
             {/* Privacy note */}
