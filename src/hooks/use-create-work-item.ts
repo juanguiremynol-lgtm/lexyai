@@ -194,6 +194,19 @@ export function useCreateWorkItem() {
     onSuccess: async (workItem) => {
       toast.success("Asunto creado exitosamente");
       
+      // Background sync: trigger publicaciones + actuaciones sync for items with valid radicado
+      // Fire-and-forget — don't block creation flow
+      const radicadoDigits = (workItem.radicado || '').replace(/\D/g, '');
+      if (workItem.id && radicadoDigits.length === 23) {
+        supabase.functions.invoke("sync-publicaciones-by-work-item", {
+          body: { work_item_id: workItem.id },
+        }).catch(err => console.warn("[use-create-work-item] Background publicaciones sync failed:", err));
+
+        supabase.functions.invoke("sync-by-work-item", {
+          body: { work_item_id: workItem.id },
+        }).catch(err => console.warn("[use-create-work-item] Background actuaciones sync failed:", err));
+      }
+
       // Create milestone reminders for judicial workflows
       try {
         const workItemForReminders = {
@@ -207,7 +220,6 @@ export function useCreateWorkItem() {
         };
         
         if (isEligibleForReminders(workItemForReminders)) {
-          // Use owner_id as org_id for now (simplified)
           await createRemindersForWorkItem(workItemForReminders, workItem.owner_id);
         }
       } catch (err) {
