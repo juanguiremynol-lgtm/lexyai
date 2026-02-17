@@ -63,6 +63,17 @@ export const DEFAULT_ALLOWED_PROPERTIES: string[] = [
   "data_kind",
   "entries_count",
   "export_type",
+  "variant",
+  "frame",
+  "has_radicado",
+  "source",
+  "method",
+  "radicado_length",
+  "category",
+  "outcome",
+  "providers_with_data",
+  "latency_bucket",
+  "cta_type",
 ];
 
 /** Properties that MUST NEVER be sent externally */
