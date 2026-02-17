@@ -302,3 +302,6 @@ verify_jwt = false
 
 [functions.system-email-inbound-status]
 verify_jwt = false
+
+[functions.system-email-forwarding-status]
+verify_jwt = false

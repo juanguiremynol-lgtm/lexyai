@@ -14,8 +14,15 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
   CheckCircle, Circle, Loader2, Mail, Send, Shield, Inbox,
   Power, AlertTriangle, ChevronRight, ChevronLeft, Webhook, Copy,
+  ExternalLink, MailCheck, RefreshCw, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,7 +54,7 @@ const STEPS = [
   { key: "provider", label: "Proveedor Outbound", icon: Mail },
   { key: "identity", label: "Identidad de Envío", icon: Shield },
   { key: "test", label: "Test de Envío", icon: Send },
-  { key: "inbound", label: "Webhook Inbound", icon: Webhook },
+  { key: "inbound", label: "Forwarding Inbound", icon: Inbox },
   { key: "activate", label: "Activar", icon: Power },
 ] as const;
 
@@ -400,28 +407,128 @@ function StepTestSend({ setupState, queryClient }: { setupState: SetupState | nu
 
 function StepResendInbound({ settings, setupState, queryClient }: { settings: EmailSettings | null; setupState: SetupState | null; queryClient: any }) {
   const [saving, setSaving] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testSent, setTestSent] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [secretStatus, setSecretStatus] = useState<{ hasSecret: boolean; lastEvent: { id: string; at: string } | null; hasRecentEvent: boolean } | null>(null);
-  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyResult, setVerifyResult] = useState<{
+    ok: boolean;
+    hint: string;
+    lastInboundAt?: string;
+    matchedMessageId?: string;
+    matchedSubject?: string;
+  } | null>(null);
+  const [secretStatus, setSecretStatus] = useState<{ hasSecret: boolean } | null>(null);
+  const [manualOverride, setManualOverride] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-inbound-webhook`;
-  const INBOUND_ADDRESS = "info@inbound.andromeda.legal";
+  const SOURCE_EMAIL = "info@andromeda.legal";
+  const FORWARD_TO = "info@inbound.andromeda.legal";
 
-  const handleSaveMode = async () => {
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado al portapapeles");
+  };
+
+  // ── Check secret status on mount ───────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.functions.invoke("system-email-inbound-status", { method: "GET" });
+        if (data?.ok) setSecretStatus({ hasSecret: data.hasSecret });
+      } catch { /* silent */ }
+    })();
+  }, []);
+
+  // ── Send test email to trigger forwarding ──────────
+  const handleSendTest = async () => {
+    setSendingTest(true);
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const { data, error } = await supabase.functions.invoke("system-email-send", {
+        body: {
+          to: [SOURCE_EMAIL],
+          subject: `ATENIA Forwarding Test — ${timestamp}`,
+          text: `Este es un email de prueba para verificar el forwarding de Hostinger.\n\nTimestamp: ${timestamp}\n\nSi recibes este email en la bandeja de ATENIA, el forwarding funciona correctamente.`,
+          html: `<p>Este es un email de prueba para verificar el forwarding de Hostinger.</p><p><strong>Timestamp:</strong> ${timestamp}</p><p>Si recibes este email en la bandeja de ATENIA, el forwarding funciona correctamente.</p>`,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error_message || "Error al enviar");
+
+      setTestSent(true);
+      toast.success(`Test enviado a ${SOURCE_EMAIL}. Espera 1-5 min y haz clic en "Verificar Forwarding".`);
+    } catch (err: any) {
+      toast.error(err.message || "Error al enviar test");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  // ── Verify forwarding via edge function ────────────
+  const handleVerifyForwarding = async () => {
+    setVerifying(true);
+    setVerifyResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("system-email-forwarding-status", {
+        method: "GET",
+        body: null,
+        headers: {},
+      });
+
+      // The function is GET but invoke sends POST by default; use query params approach
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No autenticado");
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-forwarding-status?since_minutes=30&subject_contains=ATENIA%20Forwarding%20Test`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }
+      );
+      const result = await res.json();
+
+      setVerifyResult(result);
+
+      if (result.ok) {
+        await (supabase.from("system_email_setup_state") as any)
+          .update({ step_inbound_ok: true, step_inbound_selected: true, last_error_code: null, last_error_message: null })
+          .eq("id", SETUP_STATE_ID);
+
+        await (supabase.from("system_email_settings") as any)
+          .update({ inbound_mode: "resend_inbound" })
+          .eq("id", settings?.id);
+
+        queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
+        queryClient.invalidateQueries({ queryKey: ["system-email-settings-wizard"] });
+        toast.success("¡Forwarding verificado! El inbound funciona correctamente.");
+      }
+    } catch (err: any) {
+      setVerifyResult({ ok: false, hint: err.message || "Error de verificación" });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // ── Manual override ────────────────────────────────
+  const handleManualOverride = async () => {
+    if (confirmText !== "FORWARDED") return;
     setSaving(true);
     try {
-      if (!settings?.id) throw new Error("No settings row");
+      await (supabase.from("system_email_setup_state") as any)
+        .update({ step_inbound_ok: true, step_inbound_selected: true })
+        .eq("id", SETUP_STATE_ID);
+
       await (supabase.from("system_email_settings") as any)
         .update({ inbound_mode: "resend_inbound" })
-        .eq("id", settings.id);
-
-      await (supabase.from("system_email_setup_state") as any)
-        .update({ step_inbound_selected: true })
-        .eq("id", SETUP_STATE_ID);
+        .eq("id", settings?.id);
 
       queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
       queryClient.invalidateQueries({ queryKey: ["system-email-settings-wizard"] });
-      toast.success("Modo inbound configurado");
+      toast.success("Paso marcado como completado (sin verificación)");
+      setManualOverride(false);
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -429,173 +536,250 @@ function StepResendInbound({ settings, setupState, queryClient }: { settings: Em
     }
   };
 
-  const handleVerifyInbound = async () => {
-    setVerifying(true);
-    setVerifyError(null);
-    setSecretStatus(null);
-    try {
-      const { data, error } = await supabase.functions.invoke("system-email-inbound-status", { method: "GET" });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || "Error desconocido");
-
-      setSecretStatus(data);
-
-      if (data.hasSecret && data.hasRecentEvent) {
-        // Mark step as complete
-        await (supabase.from("system_email_setup_state") as any)
-          .update({ step_inbound_ok: true, last_error_code: null, last_error_message: null })
-          .eq("id", SETUP_STATE_ID);
-        queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
-        toast.success("Inbound verificado ✓");
-      }
-    } catch (err: any) {
-      setVerifyError(err.message);
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copiado al portapapeles");
-  };
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Header */}
       <div>
-        <h3 className="text-lg font-semibold">Webhook de Entrada (Resend Inbound)</h3>
+        <h3 className="text-lg font-semibold">Reenvío de Hostinger → Resend Inbound</h3>
         <p className="text-sm text-muted-foreground">
-          Configura Resend para recibir correos entrantes en la plataforma vía webhook.
-          Hostinger sigue siendo tu buzón real — solo necesitas un reenvío.
+          Hostinger aloja el buzón real de <strong>{SOURCE_EMAIL}</strong>. Para que los emails 
+          aparezcan en la bandeja de ATENIA, necesitas que Hostinger reenvíe una copia al subdominio 
+          de Resend Inbound. Esto no modifica los registros MX de tu dominio.
         </p>
       </div>
 
-      {/* Hostinger Forwarding Banner */}
-      <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-2">
-        <div className="flex items-center gap-2">
-          <Inbox className="h-4 w-4 text-primary shrink-0" />
-          <p className="font-medium">Reenvío desde Hostinger</p>
-        </div>
-        <p className="text-muted-foreground">
-          Configura una regla de reenvío en Hostinger para que una copia de los emails a{" "}
-          <code className="text-xs bg-background px-1 rounded border">info@andromeda.legal</code> se reenvíe a:
+      {/* ── Why this step ── */}
+      <div className="p-4 rounded-lg border bg-muted/30 text-sm space-y-1">
+        <p className="font-medium flex items-center gap-2">
+          <Mail className="h-4 w-4 text-primary" /> ¿Por qué es necesario?
         </p>
-        <div className="flex items-center gap-2">
-          <code className="bg-background px-2 py-1 rounded text-xs break-all flex-1 border font-mono">
-            {INBOUND_ADDRESS}
-          </code>
-          <Button variant="ghost" size="sm" onClick={() => copyToClipboard(INBOUND_ADDRESS)} className="shrink-0">
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
+        <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+          <li>Hostinger es el servidor de correo real — no lo cambiamos.</li>
+          <li>Resend Inbound solo puede recibir email en el subdominio <code className="text-xs bg-background px-1 rounded border">inbound.andromeda.legal</code>.</li>
+          <li>El forwarding permite que ATENIA muestre emails recibidos sin migrar hosting de correo.</li>
+        </ul>
+      </div>
+
+      {/* ── Copy Card: Exact values ── */}
+      <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3">
+        <p className="text-sm font-medium">Valores de configuración:</p>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-2 p-2 rounded bg-background border">
+            <div>
+              <span className="text-xs text-muted-foreground block">Buzón origen</span>
+              <code className="text-sm font-mono">{SOURCE_EMAIL}</code>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => copyToClipboard(SOURCE_EMAIL)}>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-between gap-2 p-2 rounded bg-background border">
+            <div>
+              <span className="text-xs text-muted-foreground block">Reenviar a (Forward-To)</span>
+              <code className="text-sm font-mono font-semibold text-primary">{FORWARD_TO}</code>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => copyToClipboard(FORWARD_TO)}>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Esto permite que Resend reciba una copia y dispare el webhook sin afectar tu buzón en Hostinger.
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          Reenviar una <strong>copia</strong> — no eliminar el original.
         </p>
       </div>
 
-      {/* Setup Instructions */}
+      {/* ── Step-by-step Hostinger instructions ── */}
       <div className="p-4 rounded-lg bg-muted/50 text-sm space-y-3">
-        <p className="font-medium">Instrucciones de configuración:</p>
+        <p className="font-medium">Instrucciones paso a paso en Hostinger:</p>
         <ol className="list-decimal pl-4 space-y-2 text-muted-foreground">
-          <li>
-            Ve a <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="text-primary underline">resend.com → Domains</a> → tu dominio → <strong>Inbound</strong>
+          <li className="flex items-start gap-1">
+            <span>Ingresa a <a href="https://hpanel.hostinger.com" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-0.5">hpanel.hostinger.com <ExternalLink className="h-3 w-3" /></a></span>
           </li>
+          <li>Ve a <strong>Emails → Administrar</strong> para el dominio <code className="text-xs bg-background px-1 rounded border">andromeda.legal</code></li>
+          <li>Busca la sección <strong>"Reenviadores"</strong> o <strong>"Email Forwarding"</strong> (el nombre puede variar)</li>
           <li>
-            Configura el webhook URL:
-            <div className="flex items-center gap-2 mt-1">
-              <code className="bg-background px-2 py-1 rounded text-xs break-all flex-1 border">
-                {webhookUrl}
-              </code>
-              <Button variant="ghost" size="sm" onClick={() => copyToClipboard(webhookUrl)} className="shrink-0">
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
+            Crea un nuevo reenviador:
+            <div className="mt-1 pl-2 border-l-2 border-primary/30 space-y-1">
+              <p><strong>Desde:</strong> <code className="text-xs bg-background px-1 rounded border">{SOURCE_EMAIL}</code></p>
+              <p><strong>Hacia:</strong> <code className="text-xs bg-background px-1 rounded border">{FORWARD_TO}</code></p>
             </div>
           </li>
-          <li>
-            Eventos requeridos: <code className="text-xs bg-background px-1 rounded border">email.received</code>
-          </li>
-          <li>
-            Copia el <strong>Webhook Signing Secret</strong> de Resend (formato <code className="text-xs">whsec_...</code>) y guárdalo como secret:
-            <div className="flex items-center gap-2 mt-1">
-              <code className="bg-background px-2 py-1 rounded text-xs border">RESEND_INBOUND_WEBHOOK_SECRET</code>
-              <Button variant="ghost" size="sm" onClick={() => copyToClipboard("RESEND_INBOUND_WEBHOOK_SECRET")} className="shrink-0">
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </li>
-          <li>
-            Envía un email de prueba a <code className="text-xs bg-background px-1 rounded border">{INBOUND_ADDRESS}</code> y verifica abajo.
-          </li>
+          <li>Guarda la configuración y confirma que el reenviador queda <strong>activo</strong></li>
         </ol>
       </div>
 
-      {/* Secret Status Banner */}
+      {/* ── Resend Webhook Config (collapsed) ── */}
+      <Accordion type="single" collapsible>
+        <AccordionItem value="resend-config">
+          <AccordionTrigger className="text-sm">
+            <span className="flex items-center gap-2">
+              <Webhook className="h-4 w-4" /> Configuración de Resend Inbound Webhook
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-3 text-sm text-muted-foreground pt-2">
+              <ol className="list-decimal pl-4 space-y-2">
+                <li>
+                  Ve a <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="text-primary underline">resend.com → Domains</a> → tu dominio → <strong>Inbound</strong>
+                </li>
+                <li>
+                  Webhook URL:
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="bg-background px-2 py-1 rounded text-xs break-all flex-1 border">{webhookUrl}</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(webhookUrl)} className="shrink-0"><Copy className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </li>
+                <li>Evento: <code className="text-xs bg-background px-1 rounded border">email.received</code></li>
+                <li>
+                  Webhook Signing Secret → guárdalo como:
+                  <div className="flex items-center gap-2 mt-1">
+                    <code className="bg-background px-2 py-1 rounded text-xs border">RESEND_INBOUND_WEBHOOK_SECRET</code>
+                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard("RESEND_INBOUND_WEBHOOK_SECRET")} className="shrink-0"><Copy className="h-3.5 w-3.5" /></Button>
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* ── Troubleshooting ── */}
+        <AccordionItem value="troubleshooting">
+          <AccordionTrigger className="text-sm">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" /> Solución de problemas
+            </span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <ul className="space-y-2 text-sm text-muted-foreground pt-2">
+              <li className="flex items-start gap-2">
+                <Circle className="h-3 w-3 mt-1 shrink-0" />
+                <span><strong>Hostinger pide verificar destino:</strong> Confirma que <code className="text-xs">{FORWARD_TO}</code> puede recibir email (Resend Inbound configurado con los MX del subdominio).</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Circle className="h-3 w-3 mt-1 shrink-0" />
+                <span><strong>Reenvío demora:</strong> Algunos forwarders tienen retraso de 2-5 minutos. Espera y vuelve a verificar.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Circle className="h-3 w-3 mt-1 shrink-0" />
+                <span><strong>Emails en loop:</strong> Asegúrate de que el subdominio inbound NO reenvíe de vuelta al buzón principal.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Circle className="h-3 w-3 mt-1 shrink-0" />
+                <span><strong>Webhook rechaza (401):</strong> El secret <code className="text-xs">RESEND_INBOUND_WEBHOOK_SECRET</code> no coincide. Re-copia el valor desde Resend.</span>
+              </li>
+            </ul>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* ── Secret check banner ── */}
       {secretStatus && !secretStatus.hasSecret && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4">
-          <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+          <ShieldCheck className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-medium text-destructive">Secret faltante</p>
+            <p className="text-sm font-medium text-destructive">Secret de webhook faltante</p>
             <p className="text-sm text-muted-foreground">
-              <code className="text-xs">RESEND_INBOUND_WEBHOOK_SECRET</code> no está configurado en los secrets de las Edge Functions.
-              El webhook rechazará todas las solicitudes hasta que se configure.
+              <code className="text-xs">RESEND_INBOUND_WEBHOOK_SECRET</code> no está configurado. 
+              El webhook rechazará todos los eventos hasta que lo agregues.
             </p>
           </div>
         </div>
       )}
 
-      {/* Verification Result */}
-      {secretStatus && secretStatus.hasSecret && (
-        <div className={`p-4 rounded-lg border ${secretStatus.hasRecentEvent ? "bg-primary/10 border-primary/30" : "bg-muted border-border"}`}>
-          <div className="flex items-center gap-2">
-            {secretStatus.hasRecentEvent ? (
-              <CheckCircle className="h-5 w-5 text-primary" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-            )}
-            <span className="text-sm font-medium">
-              {secretStatus.hasRecentEvent
-                ? "Inbound verificado"
-                : "No hay eventos en las últimas 24h"}
-            </span>
-          </div>
-          {secretStatus.lastEvent && (
-            <p className="text-xs text-muted-foreground mt-1 font-mono">
-              Último evento: {new Date(secretStatus.lastEvent.at).toLocaleString("es-CO")} — ID: {secretStatus.lastEvent.id}
-            </p>
-          )}
-          {!secretStatus.hasRecentEvent && (
-            <p className="text-xs text-muted-foreground mt-1">
-              Envía un test email a <code>{INBOUND_ADDRESS}</code> o usa "Test Webhook" en el dashboard de Resend.
-            </p>
-          )}
+      {/* ── Verification Buttons ── */}
+      <div className="space-y-3">
+        <p className="text-sm font-medium">Verificación:</p>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={handleSendTest} disabled={sendingTest} variant="outline">
+            {sendingTest ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+            {testSent ? "Re-enviar test" : "Enviar Test Email"}
+          </Button>
+          <Button onClick={handleVerifyForwarding} disabled={verifying}>
+            {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Verificar Forwarding
+          </Button>
         </div>
-      )}
 
-      {verifyError && (
-        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/10">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-destructive" />
-            <span className="text-sm">{verifyError}</span>
+        {testSent && !verifyResult && (
+          <div className="p-3 rounded-lg border bg-muted/30 text-sm">
+            <p className="flex items-center gap-2">
+              <MailCheck className="h-4 w-4 text-primary" />
+              Test enviado a <strong>{SOURCE_EMAIL}</strong>. Espera 1-5 minutos para que Hostinger reenvíe, luego haz clic en <strong>"Verificar Forwarding"</strong>.
+            </p>
           </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="flex gap-2">
-        <Button onClick={handleSaveMode} disabled={saving}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-          Marcar como configurado
-        </Button>
-        <Button variant="outline" onClick={handleVerifyInbound} disabled={verifying}>
-          {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Webhook className="h-4 w-4 mr-2" />}
-          Verificar inbound
-        </Button>
+        )}
       </div>
+
+      {/* ── Verify result ── */}
+      {verifyResult && (
+        <div className={`p-4 rounded-lg border ${verifyResult.ok ? "bg-primary/10 border-primary/30" : "bg-destructive/5 border-destructive/30"}`}>
+          <div className="flex items-center gap-2">
+            {verifyResult.ok ? <CheckCircle className="h-5 w-5 text-primary" /> : <AlertTriangle className="h-5 w-5 text-destructive" />}
+            <span className="text-sm font-medium">{verifyResult.ok ? "¡Forwarding verificado!" : "No detectado aún"}</span>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">{verifyResult.hint}</p>
+          {verifyResult.matchedSubject && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              Asunto: {verifyResult.matchedSubject} — Recibido: {new Date(verifyResult.lastInboundAt!).toLocaleString("es-CO")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Manual override ── */}
+      {!setupState?.step_inbound_ok && (
+        <div className="pt-2 border-t">
+          {!manualOverride ? (
+            <button
+              onClick={() => setManualOverride(true)}
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              Ya lo configuré manualmente — marcar como hecho
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-sm">
+                <p className="text-destructive font-medium text-xs">⚠️ Bypass de verificación</p>
+                <p className="text-muted-foreground text-xs mt-1">
+                  Esto salta la verificación automática. Tu bandeja de entrada puede permanecer vacía si el forwarding no está funcionando.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={confirmText}
+                  onChange={e => setConfirmText(e.target.value.toUpperCase())}
+                  placeholder='Escribe "FORWARDED" para confirmar'
+                  className="max-w-xs text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={confirmText !== "FORWARDED" || saving}
+                  onClick={handleManualOverride}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                  Confirmar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setManualOverride(false); setConfirmText(""); }}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step completed badge */}
+      {setupState?.step_inbound_ok && (
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-primary/30 bg-primary/10">
+          <CheckCircle className="h-5 w-5 text-primary" />
+          <span className="text-sm font-medium">Forwarding inbound configurado y verificado</span>
+        </div>
+      )}
     </div>
   );
 }
-
-// ─── Step 5: Activate ───────────────────────────────────
 
 function StepActivate({ settings, setupState, queryClient }: { settings: EmailSettings | null; setupState: SetupState | null; queryClient: any }) {
   const [enabling, setEnabling] = useState(false);
