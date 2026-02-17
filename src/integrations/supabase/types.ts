@@ -6284,6 +6284,71 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          audience_scope: Database["public"]["Enums"]["notification_audience"]
+          body: string | null
+          category: Database["public"]["Enums"]["notification_category"]
+          created_at: string
+          dedupe_key: string | null
+          deep_link: string | null
+          dismissed_at: string | null
+          id: string
+          metadata: Json | null
+          org_id: string | null
+          read_at: string | null
+          severity: string
+          title: string
+          type: string
+          user_id: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          audience_scope: Database["public"]["Enums"]["notification_audience"]
+          body?: string | null
+          category: Database["public"]["Enums"]["notification_category"]
+          created_at?: string
+          dedupe_key?: string | null
+          deep_link?: string | null
+          dismissed_at?: string | null
+          id?: string
+          metadata?: Json | null
+          org_id?: string | null
+          read_at?: string | null
+          severity?: string
+          title: string
+          type?: string
+          user_id?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          audience_scope?: Database["public"]["Enums"]["notification_audience"]
+          body?: string | null
+          category?: Database["public"]["Enums"]["notification_category"]
+          created_at?: string
+          dedupe_key?: string | null
+          deep_link?: string | null
+          dismissed_at?: string | null
+          id?: string
+          metadata?: Json | null
+          org_id?: string | null
+          read_at?: string | null
+          severity?: string
+          title?: string
+          type?: string
+          user_id?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       org_alert_defaults: {
         Row: {
           alert_cadence_days: number
@@ -12014,6 +12079,17 @@ export type Database = {
         | "NOTIFICACION_ESTADO"
         | "NOTIFICACION_ELECTRONICA"
         | "NOTIFICACION_GENERAL"
+      notification_audience: "USER" | "ORG_ADMIN" | "SUPER_ADMIN"
+      notification_category:
+        | "TERMS"
+        | "WORK_ITEM_ALERTS"
+        | "ORG_ACTIVITY"
+        | "OPS_SYNC"
+        | "OPS_INCIDENTS"
+        | "OPS_E2E"
+        | "OPS_WATCHDOG"
+        | "OPS_REMEDIATION"
+        | "SYSTEM"
       observation_kind:
         | "GATE_FAILURE"
         | "PROVIDER_DEGRADED"
@@ -12381,6 +12457,18 @@ export const Constants = {
         "NOTIFICACION_ESTADO",
         "NOTIFICACION_ELECTRONICA",
         "NOTIFICACION_GENERAL",
+      ],
+      notification_audience: ["USER", "ORG_ADMIN", "SUPER_ADMIN"],
+      notification_category: [
+        "TERMS",
+        "WORK_ITEM_ALERTS",
+        "ORG_ACTIVITY",
+        "OPS_SYNC",
+        "OPS_INCIDENTS",
+        "OPS_E2E",
+        "OPS_WATCHDOG",
+        "OPS_REMEDIATION",
+        "SYSTEM",
       ],
       observation_kind: [
         "GATE_FAILURE",
