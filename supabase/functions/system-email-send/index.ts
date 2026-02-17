@@ -308,10 +308,46 @@ const PROVIDER_ADAPTERS: Record<string, (payload: SendPayload) => Promise<SendRe
 // ─── Helpers ────────────────────────────────────────────
 
 function parseEmailAddress(input: string): { email: string; name?: string } {
-  // Parse "Name <email>" format
   const match = input.match(/^(.+?)\s*<(.+?)>$/);
   if (match) return { name: match[1].trim(), email: match[2].trim() };
   return { email: input.trim() };
+}
+
+// ─── Email Template Wrapper ─────────────────────────────
+
+const LOGO_URL = "https://qvuukbqcvlnvmcvcruji.supabase.co/storage/v1/object/public/email-assets/andromeda-logo.png";
+
+function wrapWithBrandedHeader(htmlBody: string): string {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;">
+    <tr><td align="center" style="padding:24px 16px 0;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <!-- Header with logo -->
+        <tr><td align="center" style="padding:24px 32px;background-color:#0c1529;border-radius:12px 12px 0 0;">
+          <img src="${LOGO_URL}" alt="Andromeda" width="160" height="auto" style="display:block;max-width:160px;height:auto;" />
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:32px;background-color:#ffffff;">
+          ${htmlBody}
+        </td></tr>
+        <!-- Footer -->
+        <tr><td align="center" style="padding:16px 32px;background-color:#f8f9fa;border-radius:0 0 12px 12px;border-top:1px solid #e5e7eb;">
+          <p style="margin:0;font-size:12px;color:#6b7280;">
+            Enviado desde <strong>Andromeda</strong> · info@andromeda.legal
+          </p>
+          <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">
+            © ${new Date().getFullYear()} Andromeda Legal. Todos los derechos reservados.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+    <tr><td style="height:24px;"></td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 // ─── Main Handler ───────────────────────────────────────
@@ -397,11 +433,15 @@ Deno.serve(async (req) => {
       ? `${settings.from_name} <${settings.from_email}>`
       : settings.from_email;
 
+    // Wrap HTML with branded header/footer
+    const rawHtml = html?.trim() || undefined;
+    const brandedHtml = rawHtml ? wrapWithBrandedHeader(rawHtml) : undefined;
+
     const sendPayload: SendPayload = {
       from: fromField,
       to: toArray,
       subject: subject.trim(),
-      html: html?.trim() || undefined,
+      html: brandedHtml,
       text: text?.trim() || undefined,
       reply_to: settings.reply_to || undefined,
       cc: cc ? (Array.isArray(cc) ? cc : [cc]) : undefined,

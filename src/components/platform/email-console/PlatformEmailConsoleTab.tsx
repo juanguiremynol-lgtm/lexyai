@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2, Shield, Wrench } from "lucide-react";
+import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2, Shield, Wrench, Archive, Trash2 } from "lucide-react";
 import { InboxView } from "./InboxView";
 import { SentView } from "./SentView";
 import { ComposeDialog } from "./ComposeDialog";
@@ -111,8 +111,14 @@ export function PlatformEmailConsoleTab() {
           <TabsTrigger value="inbox" className="gap-1.5">
             <Inbox className="h-4 w-4" /> Bandeja
           </TabsTrigger>
+          <TabsTrigger value="archived" className="gap-1.5">
+            <Archive className="h-4 w-4" /> Archivados
+          </TabsTrigger>
           <TabsTrigger value="sent" className="gap-1.5">
             <SendHorizonal className="h-4 w-4" /> Enviados
+          </TabsTrigger>
+          <TabsTrigger value="trash" className="gap-1.5">
+            <Trash2 className="h-4 w-4" /> Papelera
           </TabsTrigger>
           <TabsTrigger value="debug" className="gap-1.5">
             <Shield className="h-4 w-4" /> Debug
@@ -123,10 +129,16 @@ export function PlatformEmailConsoleTab() {
         </TabsList>
 
         <TabsContent value="inbox">
-          <InboxView />
+          <InboxView viewMode="inbox" />
+        </TabsContent>
+        <TabsContent value="archived">
+          <InboxView viewMode="archived" />
         </TabsContent>
         <TabsContent value="sent">
           <SentView />
+        </TabsContent>
+        <TabsContent value="trash">
+          <InboxView viewMode="trash" />
         </TabsContent>
         <TabsContent value="debug">
           <EmailProviderDebugPanel />
