@@ -17,7 +17,7 @@ import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 import { HearingReminderSettings } from "@/components/settings/HearingReminderSettings";
-import { JudicialSuspensionsSettings } from "@/components/settings/JudicialSuspensionsSettings";
+
 import { MasterDeleteSection } from "@/components/settings/MasterDeleteSection";
 import { PurgeLegacyDataSection } from "@/components/settings/PurgeLegacyDataSection";
 import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection";
@@ -231,7 +231,7 @@ export default function Settings() {
           )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
-          <TabsTrigger value="suspensiones">Suspensiones</TabsTrigger>
+          
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
           {isPlatformAdmin && (
@@ -440,9 +440,6 @@ export default function Settings() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="suspensiones">
-          <JudicialSuspensionsSettings />
-        </TabsContent>
 
         <TabsContent value="sla">
           <Card>

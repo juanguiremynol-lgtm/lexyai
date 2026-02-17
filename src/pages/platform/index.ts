@@ -24,3 +24,4 @@ export { default as PlatformEmailProviderPage } from "./PlatformEmailProviderPag
 export { default as PlatformAnalyticsPage } from "./PlatformAnalyticsPage";
 export { default as PlatformDemoAnalyticsPage } from "./PlatformDemoAnalyticsPage";
 export { default as PlatformDailyOpsReportsPage } from "./PlatformDailyOpsReportsPage";
+export { default as PlatformJudicialSuspensionsPage } from "./PlatformJudicialSuspensionsPage";
