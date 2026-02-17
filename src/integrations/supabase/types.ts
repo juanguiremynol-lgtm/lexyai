@@ -4743,6 +4743,36 @@ export type Database = {
           },
         ]
       }
+      email_verification_tokens: {
+        Row: {
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          token_hash: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          expires_at?: string
+          id?: string
+          token_hash: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          token_hash?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       emails: {
         Row: {
           body_html: string | null
@@ -7665,8 +7695,10 @@ export type Database = {
           firma_abogado_nombre_completo: string | null
           firma_abogado_tp: string | null
           full_name: string | null
+          generic_email_verified: boolean | null
           hearing_reminder_days: Json | null
           id: string
+          is_generic_email: boolean | null
           last_estados_import_at: string | null
           last_welcome_date: string | null
           mascot_preferences: Json | null
@@ -7698,8 +7730,10 @@ export type Database = {
           firma_abogado_nombre_completo?: string | null
           firma_abogado_tp?: string | null
           full_name?: string | null
+          generic_email_verified?: boolean | null
           hearing_reminder_days?: Json | null
           id: string
+          is_generic_email?: boolean | null
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
@@ -7731,8 +7765,10 @@ export type Database = {
           firma_abogado_nombre_completo?: string | null
           firma_abogado_tp?: string | null
           full_name?: string | null
+          generic_email_verified?: boolean | null
           hearing_reminder_days?: Json | null
           id?: string
+          is_generic_email?: boolean | null
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
           mascot_preferences?: Json | null
