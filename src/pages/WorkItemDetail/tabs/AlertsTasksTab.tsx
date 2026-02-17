@@ -1,14 +1,14 @@
 /**
- * Alerts & Tasks Tab - Shows milestone reminders, alerts, and tasks for the work item
+ * Alerts & Tasks Tab - Shows milestone reminders, alerts, and user-created tasks
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureValidSession } from "@/lib/supabase-query-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Bell, 
@@ -25,6 +25,7 @@ import {
   Gavel,
   RotateCcw,
   X,
+  Plus,
 } from "lucide-react";
 import { format, formatDistanceToNow, isPast } from "date-fns";
 import { es } from "date-fns/locale";
@@ -38,19 +39,12 @@ import {
   useDismissReminder 
 } from "@/hooks/use-work-item-reminders";
 import { REMINDER_CONFIG, type ReminderType, type WorkItemReminder } from "@/lib/reminders/reminder-types";
+import { useWorkItemTasks } from "@/hooks/use-work-item-tasks";
+import { TaskCard } from "@/components/work-items/tasks/TaskCard";
+import { CreateTaskDialog } from "@/components/work-items/tasks/CreateTaskDialog";
 
 interface AlertsTasksTabProps {
   workItem: WorkItem & { _source?: string };
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  due_date: string | null;
-  status: "open" | "completed";
-  task_type: string | null;
-  created_at: string;
 }
 
 interface Alert {
@@ -73,43 +67,19 @@ const REMINDER_ICONS: Record<ReminderType, typeof FileText> = {
 };
 
 export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
-  // Fetch all active reminders (not just due ones) to show upcoming too
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+
+  // Fetch all active reminders
   const { data: activeReminders = [], isLoading: remindersLoading } = useActiveReminders({ 
     workItemId: workItem.id 
   });
   const snoozeMutation = useSnoozeReminder();
   const dismissMutation = useDismissReminder();
 
-  // Fetch tasks
-  const { data: tasks, isLoading: tasksLoading } = useQuery({
-    queryKey: ["work-item-tasks", workItem.id],
-    queryFn: async () => {
-      await ensureValidSession();
-      const legacyFilingId = workItem.legacy_filing_id;
-      
-      if (!legacyFilingId) return [];
-      
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("filing_id", legacyFilingId)
-        .order("due_at", { ascending: true, nullsFirst: false });
-      
-      if (error) throw error;
-      return (data || []).map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        description: null,
-        due_date: t.due_at,
-        status: t.status === "DONE" ? "completed" : "open",
-        task_type: t.type,
-        created_at: t.created_at,
-      })) as Task[];
-    },
-    enabled: !!workItem.id,
-  });
+  // Fetch new work_item_tasks
+  const { data: tasks = [], isLoading: tasksLoading } = useWorkItemTasks(workItem.id);
 
-  // Fetch alerts using work_item_id via entity_id
+  // Fetch alerts
   const { data: alerts, isLoading: alertsLoading } = useQuery({
     queryKey: ["work-item-alerts", workItem.id],
     queryFn: async () => {
@@ -140,11 +110,10 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
 
   const isLoading = tasksLoading || alertsLoading || remindersLoading;
 
-  const pendingTasks = tasks?.filter((t) => t.status === "open") || [];
-  const completedTasks = tasks?.filter((t) => t.status === "completed") || [];
+  const pendingTasks = tasks.filter((t) => t.status === "PENDIENTE");
+  const completedTasks = tasks.filter((t) => t.status === "COMPLETADA");
   const unreadAlerts = alerts?.filter((a) => !a.is_read) || [];
   
-  // Separate due vs upcoming reminders
   const now = new Date();
   const dueReminders = activeReminders.filter(r => new Date(r.next_run_at) <= now);
   const upcomingReminders = activeReminders.filter(r => new Date(r.next_run_at) > now);
@@ -168,7 +137,6 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
     dismissMutation.mutate(reminderId);
   };
 
-  // Render a single reminder card
   const renderReminderCard = (reminder: WorkItemReminder, isDue: boolean) => {
     const config = REMINDER_CONFIG[reminder.reminder_type];
     const Icon = REMINDER_ICONS[reminder.reminder_type];
@@ -247,7 +215,6 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
             </div>
           </div>
           
-          {/* CTA Button */}
           {isDue && (
             <div className="mt-3 pl-11">
               <Button 
@@ -255,7 +222,6 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
                 size="sm"
                 className="text-xs"
                 onClick={() => {
-                  // Scroll to Overview tab where milestones are
                   const tabsList = document.querySelector('[role="tablist"]');
                   const overviewTab = tabsList?.querySelector('[value="overview"]') as HTMLButtonElement;
                   overviewTab?.click();
@@ -288,14 +254,14 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
     );
   }
 
-  const hasTasks = (tasks?.length || 0) > 0;
+  const hasTasks = tasks.length > 0;
   const hasAlerts = (alerts?.length || 0) > 0;
   const hasReminders = activeReminders.length > 0;
   const isEmpty = !hasTasks && !hasAlerts && !hasReminders;
 
   return (
     <div className="space-y-6">
-      {/* Milestone Reminders Section - Show first as they are actionable */}
+      {/* Milestone Reminders Section */}
       {hasReminders && (
         <div className="space-y-4">
           <Card>
@@ -312,14 +278,12 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
             </CardHeader>
           </Card>
           
-          {/* Due reminders first */}
           {dueReminders.length > 0 && (
             <div className="space-y-2">
               {dueReminders.map(reminder => renderReminderCard(reminder, true))}
             </div>
           )}
           
-          {/* Upcoming reminders */}
           {upcomingReminders.length > 0 && (
             <>
               {dueReminders.length > 0 && (
@@ -402,19 +366,25 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         )}
       </div>
 
-      {/* Tasks Section */}
+      {/* Tasks Section - NEW */}
       <div className="space-y-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <CheckSquare className="h-5 w-5" />
-              Tareas
-              {pendingTasks.length > 0 && (
-                <Badge variant="secondary" className="ml-2">
-                  {pendingTasks.length} pendientes
-                </Badge>
-              )}
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <CheckSquare className="h-5 w-5" />
+                Tareas
+                {pendingTasks.length > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {pendingTasks.length} pendientes
+                  </Badge>
+                )}
+              </CardTitle>
+              <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Nueva Tarea
+              </Button>
+            </div>
           </CardHeader>
         </Card>
 
@@ -424,68 +394,34 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
               <div className="text-center">
                 <CheckSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-muted-foreground text-sm">Sin tareas registradas</p>
+                <p className="text-muted-foreground text-xs mt-1">
+                  Crea tareas personalizadas o desde plantillas legales para hacer seguimiento
+                </p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="mt-3"
+                  onClick={() => setCreateDialogOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Crear primera tarea
+                </Button>
               </div>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-2">
-            {/* Pending tasks first */}
-            {pendingTasks.map((task) => {
-              const isOverdue = task.due_date && isPast(new Date(task.due_date));
+            {pendingTasks.map((task) => (
+              <TaskCard key={task.id} task={task} />
+            ))}
 
-              return (
-                <Card 
-                  key={task.id} 
-                  className={cn(
-                    "transition-colors",
-                    isOverdue && "border-destructive bg-destructive/5"
-                  )}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <Checkbox disabled className="mt-1" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium">{task.title}</p>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                        )}
-                        {task.due_date && (
-                          <div className={cn(
-                            "flex items-center gap-1 text-sm mt-2",
-                            isOverdue ? "text-destructive" : "text-muted-foreground"
-                          )}>
-                            <Calendar className="h-3.5 w-3.5" />
-                            {format(new Date(task.due_date), "d MMM yyyy", { locale: es })}
-                            {isOverdue && <span className="ml-1">(vencida)</span>}
-                          </div>
-                        )}
-                      </div>
-                      {task.task_type && (
-                        <Badge variant="outline" className="text-xs">
-                          {task.task_type}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-
-            {/* Completed tasks */}
             {completedTasks.length > 0 && (
               <>
-                <p className="text-sm text-muted-foreground pt-4 pb-2">Completadas ({completedTasks.length})</p>
+                <p className="text-sm text-muted-foreground pt-4 pb-2">
+                  Completadas ({completedTasks.length})
+                </p>
                 {completedTasks.map((task) => (
-                  <Card key={task.id} className="bg-muted/30">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Checkbox checked disabled className="mt-1" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium line-through text-muted-foreground">{task.title}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <TaskCard key={task.id} task={task} />
                 ))}
               </>
             )}
@@ -493,20 +429,31 @@ export function AlertsTasksTab({ workItem }: AlertsTasksTabProps) {
         )}
       </div>
 
-      {/* Empty state */}
+      {/* Empty state - only when nothing at all */}
       {isEmpty && (
         <Card>
           <CardContent className="py-12">
             <div className="text-center">
               <Bell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <h3 className="font-semibold mb-2">Sin alertas, tareas ni recordatorios</h3>
-              <p className="text-muted-foreground text-sm">
-                Las alertas y recordatorios se crearán automáticamente según la actividad del caso.
+              <p className="text-muted-foreground text-sm mb-4">
+                Las alertas se crean automáticamente. También puedes crear tareas manuales.
               </p>
+              <Button onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Crear Tarea
+              </Button>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Create Task Dialog */}
+      <CreateTaskDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        workItemId={workItem.id}
+      />
     </div>
   );
 }

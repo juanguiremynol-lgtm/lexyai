@@ -10846,6 +10846,105 @@ export type Database = {
           },
         ]
       }
+      work_item_tasks: {
+        Row: {
+          alert_cadence_days: number | null
+          alert_channels: string[]
+          alert_enabled: boolean
+          assigned_to: string | null
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          description: string | null
+          due_date: string | null
+          id: string
+          organization_id: string | null
+          owner_id: string
+          priority: string
+          status: string
+          template_key: string | null
+          title: string
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          alert_cadence_days?: number | null
+          alert_channels?: string[]
+          alert_enabled?: boolean
+          assigned_to?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id: string
+          priority?: string
+          status?: string
+          template_key?: string | null
+          title: string
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          alert_cadence_days?: number | null
+          alert_channels?: string[]
+          alert_enabled?: boolean
+          assigned_to?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          description?: string | null
+          due_date?: string | null
+          id?: string
+          organization_id?: string | null
+          owner_id?: string
+          priority?: string
+          status?: string
+          template_key?: string | null
+          title?: string
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_tasks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_tasks_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_items: {
         Row: {
           acta_radicacion_url: string | null
