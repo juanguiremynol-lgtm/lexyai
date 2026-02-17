@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Mail, Shield, FileText, Database, Package, FileDown, Truck, Stamp, Search } from "lucide-react";
+import { ExternalLink, Mail, Shield, FileText, Database, Package, FileDown, Truck, Stamp, Search, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -13,6 +13,7 @@ const ILOVEPDF_URL = "https://www.ilovepdf.com/";
 const ENVIAMOS_URL = "https://enviamoscym.com/";
 const CERTIFICADOS_SNR_URL = "https://certificados.supernotariado.gov.co/certificado";
 const RUES_URL = "https://www.rues.org.co/";
+const CONSEJO_ESTADO_URL = "https://ventanillavirtual.consejodeestado.gov.co/";
 export default function Links() {
   return (
     <div className="space-y-6">
@@ -58,6 +59,10 @@ export default function Links() {
           <TabsTrigger value="rues" className="flex items-center gap-2">
             <Search className="h-4 w-4" />
             RUES
+          </TabsTrigger>
+          <TabsTrigger value="consejo-estado" className="flex items-center gap-2">
+            <Landmark className="h-4 w-4" />
+            Consejo de Estado
           </TabsTrigger>
         </TabsList>
 
@@ -361,6 +366,40 @@ export default function Links() {
                 >
                   <ExternalLink className="h-4 w-4" />
                   Abrir RUES
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="consejo-estado" className="mt-6">
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <Landmark className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl">Ventanilla Virtual — Consejo de Estado</CardTitle>
+                  <CardDescription className="mt-1">
+                    Portal de servicios virtuales del Consejo de Estado de Colombia
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Acceda a la ventanilla virtual del Consejo de Estado para radicación de demandas, consulta de procesos y demás trámites de la jurisdicción contencioso-administrativa.
+              </p>
+              <Button asChild>
+                <a
+                  href={CONSEJO_ESTADO_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir Ventanilla Virtual
                 </a>
               </Button>
             </CardContent>
