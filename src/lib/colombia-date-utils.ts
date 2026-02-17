@@ -120,14 +120,22 @@ export function formatActDate(dateStr: string | null): string {
 
 /**
  * Deadline urgency for estados based on terminos_inician.
+ *
+ * 'expired'  — deadline has already passed (overdue / vencido)
+ * 'critical' — deadline within 0–2 business days (upcoming urgent)
+ * 'warning'  — deadline within 3–5 days
+ * 'normal'   — deadline > 5 days away
+ * 'none'     — no deadline data
  */
-export function getDeadlineUrgency(terminosInician: string | null): 'critical' | 'warning' | 'normal' | 'none' {
+export type DeadlineUrgency = 'expired' | 'critical' | 'warning' | 'normal' | 'none';
+
+export function getDeadlineUrgency(terminosInician: string | null): DeadlineUrgency {
   if (!terminosInician) return 'none';
   try {
     const deadline = new Date(terminosInician + 'T12:00:00');
     const now = new Date();
     const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / 86400000);
-    if (diffDays <= 0) return 'critical';
+    if (diffDays < 0) return 'expired';
     if (diffDays <= 2) return 'critical';
     if (diffDays <= 5) return 'warning';
     return 'normal';
