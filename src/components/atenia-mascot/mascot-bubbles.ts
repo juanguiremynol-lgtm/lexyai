@@ -20,7 +20,8 @@ export type BubbleContext =
   | "AFTER_ADD"
   | "FIRST_SESSION"
   | "SYNC_ISSUES"
-  | "PAYMENT_DUE";
+  | "PAYMENT_DUE"
+  | "EMAIL";
 
 export const BUBBLE_DEFINITIONS: BubbleDef[] = [
   // === GLOBAL ===
@@ -285,5 +286,28 @@ export const BUBBLE_DEFINITIONS: BubbleDef[] = [
     contexts: ["SETTINGS"],
     priority: 2,
     cooldownMinutes: 1440,
+  },
+
+  // === EMAIL ===
+  {
+    id: "email_triage",
+    text: "¿Quieres que analice tus emails y los clasifique por prioridad?",
+    prefillPrompt: "Analiza los emails recibidos en info@andromeda.legal y clasifícalos por prioridad",
+    contexts: ["EMAIL"],
+    priority: 5,
+  },
+  {
+    id: "email_ticket",
+    text: "Puedo crear un ticket de soporte a partir de cualquier email. Selecciona uno y haz clic en 'Crear ticket'.",
+    contexts: ["EMAIL"],
+    priority: 4,
+    cooldownMinutes: 720,
+  },
+  {
+    id: "email_diagnose",
+    text: "¿Un email parece sospechoso o requiere acción urgente? Puedo diagnosticarlo.",
+    prefillPrompt: "Diagnostica los emails pendientes en info@andromeda.legal",
+    contexts: ["EMAIL"],
+    priority: 3,
   },
 ];

@@ -62,6 +62,21 @@ export function AteniaMascot({ className, userRole = "member" }: AteniaMascotPro
     }
   }, [prefs.visible]);
 
+  // Listen for external "open with prompt" events (e.g. from Email → Andro IA)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ prompt: string }>).detail;
+      if (detail?.prompt) {
+        setPrefillText(detail.prompt);
+        setChatOpen(true);
+        dismissBubble();
+        trackMascotEvent("external_open", { source: "email" });
+      }
+    };
+    window.addEventListener("atenia:open-with-prompt", handler);
+    return () => window.removeEventListener("atenia:open-with-prompt", handler);
+  }, [dismissBubble]);
+
   // Track bubble
   useEffect(() => {
     if (currentBubble) {

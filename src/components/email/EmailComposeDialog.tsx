@@ -14,9 +14,12 @@ import { Badge } from "@/components/ui/badge";
 import { Send, Save, Paperclip, X, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
+const PLATFORM_EMAIL = "info@andromeda.legal";
+
 interface EmailComposeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  replyTo?: { to: string; subject: string };
 }
 
 export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogProps) {
