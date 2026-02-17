@@ -41,6 +41,7 @@ import Hearings from "./pages/Hearings";
 import NotFound from "./pages/NotFound";
 import DocumentSearch from "./pages/DocumentSearch";
 import EmailInboxPage from "./pages/EmailInboxPage";
+import EmailPage from "./pages/EmailPage";
 import NewProcess from "./pages/NewProcess";
 import CpacaPage from "./pages/CpacaPage";
 import { UnlinkedProcessesPage } from "./components/processes";
@@ -210,6 +211,7 @@ const App = () => (
             <Route path="peticiones/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="admin-processes/:id" element={<ErrorBoundary><WorkItemDetailPage /></ErrorBoundary>} />
             <Route path="email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
+            <Route path="email" element={<ErrorBoundary><EmailPage /></ErrorBoundary>} />
             <Route path="cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
