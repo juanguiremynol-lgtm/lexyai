@@ -6281,6 +6281,72 @@ export type Database = {
           },
         ]
       }
+      org_alert_defaults: {
+        Row: {
+          alert_cadence_days: number
+          alert_channels: string[]
+          applies_to_workflow_types: string[] | null
+          created_at: string
+          email_digest_enabled: boolean
+          id: string
+          new_actuacion_alert: boolean
+          new_estado_alert: boolean
+          organization_id: string
+          staleness_alert_enabled: boolean
+          staleness_threshold_days: number
+          task_due_alert: boolean
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          alert_cadence_days?: number
+          alert_channels?: string[]
+          applies_to_workflow_types?: string[] | null
+          created_at?: string
+          email_digest_enabled?: boolean
+          id?: string
+          new_actuacion_alert?: boolean
+          new_estado_alert?: boolean
+          organization_id: string
+          staleness_alert_enabled?: boolean
+          staleness_threshold_days?: number
+          task_due_alert?: boolean
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          alert_cadence_days?: number
+          alert_channels?: string[]
+          applies_to_workflow_types?: string[] | null
+          created_at?: string
+          email_digest_enabled?: boolean
+          id?: string
+          new_actuacion_alert?: boolean
+          new_estado_alert?: boolean
+          organization_id?: string
+          staleness_alert_enabled?: boolean
+          staleness_threshold_days?: number
+          task_due_alert?: boolean
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_alert_defaults_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "org_alert_defaults_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       org_analytics_overrides: {
         Row: {
           allowed_properties_override: Json | null
@@ -6355,6 +6421,66 @@ export type Database = {
             foreignKeyName: "org_integration_settings_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_task_templates: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string
+          default_cadence_days: number | null
+          description: string | null
+          id: string
+          is_active: boolean
+          organization_id: string
+          priority: string
+          title: string
+          updated_at: string
+          workflow_types: string[] | null
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          created_by: string
+          default_cadence_days?: number | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          organization_id: string
+          priority?: string
+          title: string
+          updated_at?: string
+          workflow_types?: string[] | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string
+          default_cadence_days?: number | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          organization_id?: string
+          priority?: string
+          title?: string
+          updated_at?: string
+          workflow_types?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_task_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "org_task_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
