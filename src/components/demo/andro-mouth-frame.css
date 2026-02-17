@@ -73,12 +73,14 @@
   }
 
   .androStage {
+    position: static;
     width: min(820px, 100%);
     aspect-ratio: auto;
+    overflow: hidden;
   }
 
   .androFrameImg {
-    display: none;
+    display: none !important;
   }
 
   .androMouthSlot {
@@ -90,7 +92,6 @@
     padding: 0 4%;
   }
 }
-
 /* ── Mobile: <768px — hide robot frame ── */
 @media (max-width: 767px) {
   .androHero {
@@ -98,15 +99,17 @@
   }
 
   .androStage {
+    position: static;
     width: 100%;
     aspect-ratio: auto;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     align-items: center;
   }
 
   .androFrameImg {
-    display: none;
+    display: none !important;
   }
 
   .androMouthSlot {
@@ -119,7 +122,6 @@
     padding-bottom: 12px;
   }
 }
-
 /* ── Breathing animation — respects reduced motion ── */
 @media (prefers-reduced-motion: no-preference) {
   .androFrameImg {
