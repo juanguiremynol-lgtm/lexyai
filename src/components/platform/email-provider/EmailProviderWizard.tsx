@@ -47,6 +47,7 @@ import {
   ExternalLink,
   Info,
   HelpCircle,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { EmailProviderAIGuide } from "./EmailProviderAIGuide";
@@ -179,8 +180,11 @@ export function EmailProviderWizard() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [showValue, setShowValue] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; details?: unknown } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [sendTestResult, setSendTestResult] = useState<{ ok: boolean; message: string; test?: string; details?: unknown } | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
 
   // Fetch current status
   const { data: status, isLoading } = useQuery({
@@ -233,11 +237,27 @@ export function EmailProviderWizard() {
     setTestResult(null);
     try {
       const result = await callEmailProviderAdmin({ action: "test_connection" });
-      setTestResult({ ok: result.test === "passed" || result.test === "keys_present", message: result.message });
+      setTestResult({ ok: result.test === "passed" || result.test === "keys_present", message: result.message, details: result.details });
     } catch (err) {
       setTestResult({ ok: false, message: (err as Error).message });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setSendingTest(true);
+    setSendTestResult(null);
+    try {
+      const result = await callEmailProviderAdmin({
+        action: "send_test_email",
+        ...(testEmail.trim() ? { to_email: testEmail.trim() } : {}),
+      });
+      setSendTestResult(result);
+    } catch (err) {
+      setSendTestResult({ ok: false, message: (err as Error).message, test: "error" });
+    } finally {
+      setSendingTest(false);
     }
   };
 
@@ -491,14 +511,15 @@ export function EmailProviderWizard() {
                 </div>
               )}
 
-              {/* Step: Test Connection */}
+              {/* Step: Test Connection + E2E Test Email */}
               {effectiveStep === "test" && (
                 <div className="space-y-4">
+                  {/* Sub-step A: API Connection Test */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <TestTube className="h-5 w-5 text-primary" />
-                        Paso 3: Probar conexión
+                        Paso 3A: Verificar credenciales
                       </CardTitle>
                       <CardDescription>
                         Verificamos que las credenciales sean válidas y que el proveedor esté accesible.
@@ -529,12 +550,72 @@ export function EmailProviderWizard() {
                           <p className="text-sm text-muted-foreground mt-2">{testResult.message}</p>
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Sub-step B: Send Test Email (E2E pipeline test) */}
+                  <Card className={!testResult?.ok ? "opacity-60 pointer-events-none" : ""}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Mail className="h-5 w-5 text-primary" />
+                        Paso 3B: Enviar email de prueba (E2E)
+                      </CardTitle>
+                      <CardDescription>
+                        Envía un email real a través del pipeline completo para verificar que todo funciona de extremo a extremo.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex gap-2">
+                        <Input
+                          type="email"
+                          placeholder="Email destino (vacío = tu email)"
+                          value={testEmail}
+                          onChange={(e) => setTestEmail(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button onClick={handleSendTestEmail} disabled={sendingTest} className="gap-2 shrink-0">
+                          {sendingTest ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                          {sendingTest ? "Enviando..." : "Enviar prueba E2E"}
+                        </Button>
+                      </div>
+
+                      {sendTestResult && (
+                        <div className={`p-4 rounded-lg border ${
+                          sendTestResult.ok
+                            ? sendTestResult.test === "sent"
+                              ? "bg-emerald-500/10 border-emerald-500/30"
+                              : "bg-blue-500/10 border-blue-500/30"
+                            : "bg-destructive/10 border-destructive/30"
+                        }`}>
+                          <div className="flex items-center gap-2">
+                            {sendTestResult.ok ? (
+                              sendTestResult.test === "sent" ? (
+                                <CheckCircle className="h-5 w-5 text-emerald-500" />
+                              ) : (
+                                <Mail className="h-5 w-5 text-blue-500" />
+                              )
+                            ) : (
+                              <XCircle className="h-5 w-5 text-destructive" />
+                            )}
+                            <span className={`font-medium ${
+                              sendTestResult.ok
+                                ? sendTestResult.test === "sent" ? "text-emerald-600" : "text-blue-600"
+                                : "text-destructive"
+                            }`}>
+                              {sendTestResult.ok
+                                ? sendTestResult.test === "sent" ? "Email enviado" : "Email encolado"
+                                : "Error al enviar"}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-2">{sendTestResult.message}</p>
+                        </div>
+                      )}
 
                       <div className="flex items-start gap-2 p-3 rounded-lg bg-accent/50 border">
                         <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                         <p className="text-sm text-muted-foreground">
-                          La prueba verifica que la API Key sea válida y que el servicio responda correctamente.
-                          Si falla, revise que la clave sea correcta y que su cuenta esté activa.
+                          El email se envía a través del pipeline real (email_outbox → {currentProviderDef?.name}).
+                          Si lo recibes, el proveedor está listo para activarse.
                         </p>
                       </div>
                     </CardContent>
