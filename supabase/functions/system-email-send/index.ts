@@ -358,6 +358,13 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // ── Health check short-circuit ────────────────────
+    const clonedReq = req.clone();
+    const maybeBody = await clonedReq.json().catch(() => null);
+    if (maybeBody?.health_check) {
+      return json({ status: "OK", function: "system-email-send" });
+    }
+
     // ── Auth ──────────────────────────────────────────
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {

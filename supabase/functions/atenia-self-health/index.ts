@@ -125,6 +125,75 @@ Deno.serve(async (req) => {
           : `${stuckQueue} tarea(s) atascada(s) en cola`,
     });
 
+    // Check 5: Email Alert System Health
+    // Verifies: email settings enabled, provider configured, recent outbound emails succeeding
+    let emailAlertHealthy = true;
+    let emailAlertDetail = "";
+
+    try {
+      // 5a: Check system_email_settings
+      const { data: emailSettings } = await supabase
+        .from("system_email_settings")
+        .select("is_enabled, outbound_provider, from_email")
+        .maybeSingle();
+
+      if (!emailSettings?.is_enabled) {
+        emailAlertHealthy = false;
+        emailAlertDetail = "Email system disabled in settings";
+      } else if (!emailSettings.outbound_provider) {
+        emailAlertHealthy = false;
+        emailAlertDetail = "No outbound provider configured";
+      } else {
+        // 5b: Check recent email delivery success rate (last 6 hours)
+        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+        const { data: recentEmails } = await supabase
+          .from("system_email_messages")
+          .select("provider_status")
+          .eq("direction", "outbound")
+          .gte("created_at", sixHoursAgo)
+          .limit(50);
+
+        const emails = recentEmails || [];
+        if (emails.length === 0) {
+          emailAlertDetail = `Provider: ${emailSettings.outbound_provider}, from: ${emailSettings.from_email}. No emails in last 6h (no traffic).`;
+        } else {
+          const failed = emails.filter((e: any) => e.provider_status === "failed").length;
+          const failRate = Math.round((failed / emails.length) * 100);
+          if (failRate > 30) {
+            emailAlertHealthy = false;
+            emailAlertDetail = `Provider: ${emailSettings.outbound_provider}. ${failed}/${emails.length} emails failed (${failRate}%) in last 6h.`;
+          } else {
+            emailAlertDetail = `Provider: ${emailSettings.outbound_provider}. ${emails.length - failed}/${emails.length} emails OK (${100 - failRate}%) in last 6h.`;
+          }
+        }
+
+        // 5c: Check notification delivery pipeline — recent notifications created
+        const { count: recentNotifs } = await supabase
+          .from("notifications")
+          .select("*", { count: "exact", head: true })
+          .gte("created_at", sixHoursAgo);
+
+        emailAlertDetail += ` | ${recentNotifs ?? 0} notifications created (6h).`;
+
+        // 5d: Check alert_instances pipeline
+        const { count: recentAlerts } = await supabase
+          .from("alert_instances")
+          .select("*", { count: "exact", head: true })
+          .gte("fired_at", sixHoursAgo);
+
+        emailAlertDetail += ` | ${recentAlerts ?? 0} alert instances (6h).`;
+      }
+    } catch (emailErr) {
+      emailAlertHealthy = false;
+      emailAlertDetail = `Email check error: ${(emailErr as Error).message}`;
+    }
+
+    checks.push({
+      name: "EMAIL_ALERT_SYSTEM",
+      ok: emailAlertHealthy,
+      detail: emailAlertDetail,
+    });
+
     const allHealthy = checks.every((c) => c.ok);
 
     // If unhealthy, send urgent admin notification
