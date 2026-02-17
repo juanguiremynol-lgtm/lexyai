@@ -27,7 +27,8 @@ export type MascotEvent =
   | "support_ticket_created"
   | "org_usage_viewed"
   | "analytics_status_viewed"
-  | "analytics_config_changed";
+  | "analytics_config_changed"
+  | "external_open";
 
 export function trackMascotEvent(
   event: MascotEvent,

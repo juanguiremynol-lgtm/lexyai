@@ -1,11 +1,13 @@
 import type { MockEmail } from "./email-client-types";
 
+const PLATFORM_EMAIL = "info@andromeda.legal";
+
 export const MOCK_EMAILS: MockEmail[] = [
   {
     id: "1",
     folder: "inbox",
     from: { name: "Carlos Pérez", email: "carlos@ejemplo.com" },
-    to: ["info@andromeda.legal"],
+    to: [PLATFORM_EMAIL],
     subject: "Actualización del expediente 2024-00512",
     preview: "Buenos días, le informo que el juzgado ha emitido un nuevo auto en el expediente...",
     htmlBody: `<div style="font-family: sans-serif;">
@@ -23,7 +25,7 @@ export const MOCK_EMAILS: MockEmail[] = [
     id: "2",
     folder: "inbox",
     from: { name: "María López", email: "maria.lopez@tribunal.gov.co" },
-    to: ["info@andromeda.legal"],
+    to: [PLATFORM_EMAIL],
     subject: "Notificación de audiencia programada",
     preview: "Se le notifica que la audiencia del proceso No. 2023-08891 ha sido programada...",
     htmlBody: `<div style="font-family: sans-serif;">
@@ -39,7 +41,7 @@ export const MOCK_EMAILS: MockEmail[] = [
     id: "3",
     folder: "inbox",
     from: { name: "Soporte Andromeda", email: "soporte@andromeda.legal" },
-    to: ["info@andromeda.legal"],
+    to: [PLATFORM_EMAIL],
     subject: "Tu suscripción ha sido renovada",
     preview: "Tu plan Business ha sido renovado exitosamente por un período de 30 días...",
     htmlBody: `<div style="font-family: sans-serif;">
@@ -55,7 +57,7 @@ export const MOCK_EMAILS: MockEmail[] = [
     id: "4",
     folder: "inbox",
     from: { name: "Juan Rodríguez", email: "j.rodriguez@bufete.co" },
-    to: ["info@andromeda.legal"],
+    to: [PLATFORM_EMAIL],
     cc: ["contabilidad@bufete.co"],
     subject: "Re: Factura pendiente - Caso Martínez",
     preview: "Adjunto la factura corregida según lo acordado en nuestra última reunión...",
@@ -73,7 +75,7 @@ export const MOCK_EMAILS: MockEmail[] = [
   {
     id: "5",
     folder: "sent",
-    from: { name: "info@andromeda.legal", email: "info@andromeda.legal" },
+    from: { name: "Andromeda Legal", email: PLATFORM_EMAIL },
     to: ["carlos@ejemplo.com"],
     subject: "Re: Actualización del expediente 2024-00512",
     preview: "Gracias Carlos, revisaremos el documento y te confirmaremos...",
@@ -85,7 +87,7 @@ export const MOCK_EMAILS: MockEmail[] = [
   {
     id: "6",
     folder: "drafts",
-    from: { name: "info@andromeda.legal", email: "info@andromeda.legal" },
+    from: { name: "Andromeda Legal", email: PLATFORM_EMAIL },
     to: ["tribunal@rama.gov.co"],
     subject: "Solicitud de copias expediente 2025-001",
     preview: "Por medio de la presente solicito copias auténticas del expediente...",
@@ -98,7 +100,7 @@ export const MOCK_EMAILS: MockEmail[] = [
     id: "7",
     folder: "trash",
     from: { name: "Newsletter Legal", email: "news@legalweekly.com" },
-    to: ["info@andromeda.legal"],
+    to: [PLATFORM_EMAIL],
     subject: "Las 10 novedades jurídicas de esta semana",
     preview: "Descubre las novedades más importantes en el ámbito jurídico...",
     htmlBody: `<div style="font-family: sans-serif;"><p>Novedades jurídicas de la semana...</p></div>`,

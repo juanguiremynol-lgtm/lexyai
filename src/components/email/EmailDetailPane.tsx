@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { Reply, ReplyAll, Forward, Archive, Trash2, Paperclip, ArrowLeft } from "lucide-react";
+import { Reply, ReplyAll, Forward, Archive, Trash2, Paperclip, ArrowLeft, Bot, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -12,6 +12,29 @@ import type { MockEmail } from "./email-client-types";
 interface EmailDetailProps {
   email: MockEmail;
   onBack?: () => void;
+}
+
+/** Dispatch event to open Andro IA with email context pre-filled */
+function openAndroWithEmail(email: MockEmail, action: "register" | "diagnose" | "ticket") {
+  const actionLabels = {
+    register: "Registra este email en el sistema",
+    diagnose: "Diagnostica el contenido de este email",
+    ticket: "Crea un ticket de soporte basado en este email",
+  };
+
+  const prompt = `${actionLabels[action]}:
+
+📧 De: ${email.from.name} <${email.from.email}>
+📋 Asunto: ${email.subject}
+📅 Fecha: ${email.date}
+📝 Contenido: ${email.preview}
+
+Email dirigido a: info@andromeda.legal`;
+
+  // Dispatch mascot open event with prefilled prompt
+  window.dispatchEvent(
+    new CustomEvent("atenia:open-with-prompt", { detail: { prompt } })
+  );
 }
 
 export function EmailDetail({ email, onBack }: EmailDetailProps) {
@@ -44,7 +67,7 @@ export function EmailDetail({ email, onBack }: EmailDetailProps) {
               <span className="text-muted-foreground ml-1">&lt;{email.from.email}&gt;</span>
             </p>
             <p className="text-muted-foreground text-xs">
-              Para: {email.to.join(", ")}
+              Para: info@andromeda.legal
               {email.cc && email.cc.length > 0 && <> · CC: {email.cc.join(", ")}</>}
             </p>
           </div>
@@ -53,7 +76,7 @@ export function EmailDetail({ email, onBack }: EmailDetailProps) {
           </span>
         </div>
 
-        {/* Actions */}
+        {/* Email Actions */}
         <div className="flex gap-1 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => handleAction("Responder")}>
             <Reply className="h-3.5 w-3.5 mr-1" /> Responder
@@ -71,6 +94,41 @@ export function EmailDetail({ email, onBack }: EmailDetailProps) {
           <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleAction("Eliminar")}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
+        </div>
+
+        {/* Andro IA Integration Actions */}
+        <Separator />
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+            <Bot className="h-3.5 w-3.5 text-primary" />
+            Andro IA — Acciones inteligentes
+          </p>
+          <div className="flex gap-1.5 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-primary border-primary/30 hover:bg-primary/10"
+              onClick={() => openAndroWithEmail(email, "register")}
+            >
+              <Bot className="h-3.5 w-3.5 mr-1" /> Registrar en Atenia
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-primary border-primary/30 hover:bg-primary/10"
+              onClick={() => openAndroWithEmail(email, "diagnose")}
+            >
+              <Bot className="h-3.5 w-3.5 mr-1" /> Diagnosticar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-primary border-primary/30 hover:bg-primary/10"
+              onClick={() => openAndroWithEmail(email, "ticket")}
+            >
+              <Ticket className="h-3.5 w-3.5 mr-1" /> Crear ticket
+            </Button>
+          </div>
         </div>
       </div>
 

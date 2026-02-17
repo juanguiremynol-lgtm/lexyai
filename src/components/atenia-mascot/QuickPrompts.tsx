@@ -32,6 +32,11 @@ const QUICK_PROMPTS: Partial<Record<BubbleContext, QuickPrompt[]>> = {
     { label: "Ayuda con suscripción", prompt: "¿Cuál es el estado de mi suscripción?" },
     { label: "Cambiar plan", prompt: "¿Cómo puedo cambiar mi plan?" },
   ],
+  EMAIL: [
+    { label: "Clasificar emails", prompt: "Analiza los emails recibidos en info@andromeda.legal y clasifícalos por prioridad" },
+    { label: "Crear ticket", prompt: "Ayúdame a crear un ticket de soporte a partir de un email" },
+    { label: "Diagnosticar email", prompt: "Diagnostica los emails pendientes en info@andromeda.legal" },
+  ],
   SUPERVISOR: [
     { label: "Auditoría de salud", prompt: "Hazme una auditoría de salud de la plataforma" },
     { label: "Estado del sync diario", prompt: "¿Cómo va el sync diario de hoy?" },

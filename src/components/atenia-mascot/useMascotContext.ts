@@ -36,6 +36,9 @@ export function useMascotContext() {
     if (path.includes("/settings")) {
       pageContexts.push("SETTINGS");
     }
+    if (path.includes("/email")) {
+      pageContexts.push("EMAIL");
+    }
     if (path.includes("/atenia-ai") || path.includes("/platform")) {
       pageContexts.push("SUPERVISOR");
     }
