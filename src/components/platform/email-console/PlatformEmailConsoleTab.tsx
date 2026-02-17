@@ -1,5 +1,5 @@
 /**
- * PlatformEmailConsoleTab — Main console assembling Inbox, Sent, and Compose.
+ * PlatformEmailConsoleTab — Main console assembling Inbox, Sent, Compose, and Debug.
  * Includes active provider status banner with quick-switch link.
  */
 
@@ -10,10 +10,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2, Shield } from "lucide-react";
 import { InboxView } from "./InboxView";
 import { SentView } from "./SentView";
 import { ComposeDialog } from "./ComposeDialog";
+import { EmailProviderDebugPanel } from "./EmailProviderDebugPanel";
 
 const PROVIDER_LABELS: Record<string, string> = {
   resend: "Resend",
@@ -108,6 +109,9 @@ export function PlatformEmailConsoleTab() {
           <TabsTrigger value="sent" className="gap-1.5">
             <SendHorizonal className="h-4 w-4" /> Enviados
           </TabsTrigger>
+          <TabsTrigger value="debug" className="gap-1.5">
+            <Shield className="h-4 w-4" /> Debug Proveedores
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox">
@@ -115,6 +119,9 @@ export function PlatformEmailConsoleTab() {
         </TabsContent>
         <TabsContent value="sent">
           <SentView />
+        </TabsContent>
+        <TabsContent value="debug">
+          <EmailProviderDebugPanel />
         </TabsContent>
       </Tabs>
 

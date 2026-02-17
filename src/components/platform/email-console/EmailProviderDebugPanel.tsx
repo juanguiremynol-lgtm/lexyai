@@ -1,0 +1,645 @@
+/**
+ * EmailProviderDebugPanel — Full diagnostic console for all email providers.
+ * Shows: provider health, delivery pipeline stats, suppression list,
+ * recent delivery events, and Atenia AI health vigilance integration.
+ */
+
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Activity,
+  AlertTriangle,
+  Ban,
+  Brain,
+  CheckCircle,
+  Clock,
+  Loader2,
+  Mail,
+  RefreshCw,
+  Send,
+  Shield,
+  TestTube,
+  TrendingDown,
+  TrendingUp,
+  Wifi,
+  WifiOff,
+  XCircle,
+  Zap,
+} from "lucide-react";
+import { toast } from "sonner";
+import { formatDistanceToNow, format, subHours, subDays } from "date-fns";
+import { es } from "date-fns/locale";
+
+// ─── Types ──────────────────────────────────────────────────
+
+interface ProviderHealthResult {
+  provider: string;
+  status: "healthy" | "degraded" | "down" | "unconfigured";
+  latencyMs?: number;
+  message: string;
+  details?: Record<string, unknown>;
+  checkedAt: string;
+}
+
+interface DeliveryMetrics {
+  total: number;
+  pending: number;
+  sent: number;
+  failed: number;
+  failedPermanent: number;
+  cancelled: number;
+  avgDeliveryMs: number | null;
+  successRate: number;
+}
+
+interface DeliveryEvent {
+  id: string;
+  email_outbox_id: string | null;
+  event_type: string;
+  raw_payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+interface SuppressionEntry {
+  id: string;
+  email: string;
+  reason: string;
+  created_at: string;
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  resend: "Resend",
+  sendgrid: "SendGrid",
+  aws_ses: "Amazon SES",
+  mailgun: "Mailgun",
+  smtp: "SMTP Custom",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  healthy: "text-green-500",
+  degraded: "text-yellow-500",
+  down: "text-destructive",
+  unconfigured: "text-muted-foreground",
+};
+
+const STATUS_BADGES: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
+  healthy: { variant: "default", label: "Saludable" },
+  degraded: { variant: "secondary", label: "Degradado" },
+  down: { variant: "destructive", label: "Caído" },
+  unconfigured: { variant: "outline", label: "No configurado" },
+};
+
+// ─── Data fetchers ──────────────────────────────────────────
+
+async function fetchProviderHealth(): Promise<ProviderHealthResult[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("No autenticado");
+
+  // Get provider status
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-provider-admin`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw new Error("Failed to fetch provider status");
+
+  const results: ProviderHealthResult[] = [];
+  const activeProvider = data.active_provider;
+
+  for (const p of data.providers || []) {
+    const allConfigured = p.keys.every((k: { configured: boolean; required?: boolean }) => k.configured);
+    const isActive = p.provider === activeProvider;
+
+    if (!allConfigured && !isActive) {
+      results.push({
+        provider: p.provider,
+        status: "unconfigured",
+        message: `${p.keys.filter((k: { configured: boolean }) => !k.configured).length} clave(s) faltante(s)`,
+        checkedAt: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    // For the active provider, run a live connection test
+    if (isActive) {
+      try {
+        const start = performance.now();
+        const testRes = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-provider-admin`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ action: "test_connection" }),
+          }
+        );
+        const latencyMs = Math.round(performance.now() - start);
+        const testData = await testRes.json();
+
+        results.push({
+          provider: p.provider,
+          status: testData.test === "passed" || testData.test === "keys_present" ? "healthy" : "degraded",
+          latencyMs,
+          message: testData.message || "Test completado",
+          details: testData.details,
+          checkedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        results.push({
+          provider: p.provider,
+          status: "down",
+          message: `Error de conexión: ${(err as Error).message}`,
+          checkedAt: new Date().toISOString(),
+        });
+      }
+    } else {
+      results.push({
+        provider: p.provider,
+        status: allConfigured ? "healthy" : "unconfigured",
+        message: allConfigured ? "Claves configuradas (no activo)" : "Configuración incompleta",
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return results;
+}
+
+async function fetchDeliveryMetrics(hours = 24): Promise<DeliveryMetrics> {
+  const since = subHours(new Date(), hours).toISOString();
+
+  const { data, error } = await supabase
+    .from("email_outbox")
+    .select("status, sent_at, created_at")
+    .gte("created_at", since);
+
+  if (error) throw error;
+  const rows = data || [];
+
+  const total = rows.length;
+  const pending = rows.filter(r => r.status === "PENDING").length;
+  const sent = rows.filter(r => r.status === "SENT").length;
+  const failed = rows.filter(r => r.status === "FAILED").length;
+  const failedPermanent = rows.filter(r => r.status === "FAILED_PERMANENT").length;
+  const cancelled = rows.filter(r => r.status === "CANCELLED").length;
+
+  // Calculate avg delivery time for sent emails
+  const deliveryTimes = rows
+    .filter(r => r.status === "SENT" && r.sent_at && r.created_at)
+    .map(r => new Date(r.sent_at!).getTime() - new Date(r.created_at).getTime());
+
+  const avgDeliveryMs = deliveryTimes.length > 0
+    ? Math.round(deliveryTimes.reduce((a, b) => a + b, 0) / deliveryTimes.length)
+    : null;
+
+  const successRate = total > 0 ? Math.round((sent / total) * 100) : 100;
+
+  return { total, pending, sent, failed, failedPermanent, cancelled, avgDeliveryMs, successRate };
+}
+
+async function fetchRecentDeliveryEvents(limit = 30): Promise<DeliveryEvent[]> {
+  const { data, error } = await supabase
+    .from("email_delivery_events")
+    .select("id, email_outbox_id, event_type, raw_payload, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data || []) as DeliveryEvent[];
+}
+
+async function fetchSuppressions(limit = 50): Promise<SuppressionEntry[]> {
+  const { data, error } = await supabase
+    .from("email_suppressions")
+    .select("id, email, reason, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data || []) as SuppressionEntry[];
+}
+
+// ─── Sub-components ─────────────────────────────────────────
+
+function ProviderHealthCard({ result }: { result: ProviderHealthResult }) {
+  const badge = STATUS_BADGES[result.status];
+  const StatusIcon = result.status === "healthy" ? CheckCircle
+    : result.status === "degraded" ? AlertTriangle
+    : result.status === "down" ? XCircle
+    : WifiOff;
+
+  return (
+    <Card className="relative overflow-hidden">
+      <div className={`absolute top-0 left-0 w-1 h-full ${
+        result.status === "healthy" ? "bg-green-500"
+        : result.status === "degraded" ? "bg-yellow-500"
+        : result.status === "down" ? "bg-destructive"
+        : "bg-muted"
+      }`} />
+      <CardContent className="p-4 pl-5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <StatusIcon className={`h-5 w-5 ${STATUS_COLORS[result.status]}`} />
+            <div>
+              <p className="font-semibold text-sm">{PROVIDER_LABELS[result.provider] || result.provider}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{result.message}</p>
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant={badge.variant} className="text-xs">{badge.label}</Badge>
+            {result.latencyMs != null && (
+              <span className="text-[10px] text-muted-foreground">{result.latencyMs}ms</span>
+            )}
+          </div>
+        </div>
+        {result.details && Object.keys(result.details).length > 0 && (
+          <div className="mt-2 p-2 bg-muted/50 rounded text-[11px] font-mono space-y-0.5">
+            {Object.entries(result.details).map(([k, v]) => (
+              <div key={k}><span className="text-muted-foreground">{k}:</span> {String(v)}</div>
+            ))}
+          </div>
+        )}
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Verificado {formatDistanceToNow(new Date(result.checkedAt), { addSuffix: true, locale: es })}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricCard({ label, value, icon: Icon, trend, color }: {
+  label: string;
+  value: string | number;
+  icon: React.ElementType;
+  trend?: "up" | "down";
+  color?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg border bg-card">
+      <div className={`p-2 rounded-lg bg-muted ${color || ""}`}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-lg font-bold">{value}</p>
+      </div>
+      {trend && (
+        <div className="ml-auto">
+          {trend === "up" ? <TrendingUp className="h-4 w-4 text-green-500" /> : <TrendingDown className="h-4 w-4 text-destructive" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventTypeIcon({ type }: { type: string }) {
+  switch (type) {
+    case "delivered": return <CheckCircle className="h-3.5 w-3.5 text-green-500" />;
+    case "bounced":
+    case "bounce": return <XCircle className="h-3.5 w-3.5 text-destructive" />;
+    case "complained":
+    case "complaint": return <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />;
+    case "opened": return <Mail className="h-3.5 w-3.5 text-blue-500" />;
+    case "clicked": return <Zap className="h-3.5 w-3.5 text-primary" />;
+    default: return <Activity className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+}
+
+// ─── Atenia AI Health Dispatch ──────────────────────────────
+
+function dispatchAteniaEmailHealth(healthResults: ProviderHealthResult[], metrics: DeliveryMetrics) {
+  const degradedOrDown = healthResults.filter(r => r.status === "degraded" || r.status === "down");
+  const summary = [
+    `📊 Email Pipeline Health Report`,
+    `Proveedores verificados: ${healthResults.length}`,
+    degradedOrDown.length > 0
+      ? `⚠️ ${degradedOrDown.length} proveedor(es) con problemas: ${degradedOrDown.map(r => `${PROVIDER_LABELS[r.provider]}(${r.status})`).join(", ")}`
+      : `✅ Todos los proveedores saludables`,
+    ``,
+    `📈 Métricas últimas 24h:`,
+    `Total emails: ${metrics.total}`,
+    `Enviados: ${metrics.sent} | Pendientes: ${metrics.pending} | Fallidos: ${metrics.failed + metrics.failedPermanent}`,
+    `Tasa de éxito: ${metrics.successRate}%`,
+    metrics.avgDeliveryMs ? `Tiempo promedio de entrega: ${metrics.avgDeliveryMs}ms` : "",
+    metrics.successRate < 90 ? `\n🚨 ALERTA: Tasa de éxito por debajo del 90%. Investigar fallos inmediatamente.` : "",
+    degradedOrDown.length > 0 ? `\n🔍 Diagnóstico detallado:\n${degradedOrDown.map(r => `- ${PROVIDER_LABELS[r.provider]}: ${r.message}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+
+  window.dispatchEvent(new CustomEvent("atenia:open-with-prompt", {
+    detail: { prompt: summary },
+  }));
+}
+
+// ─── Main Component ─────────────────────────────────────────
+
+export function EmailProviderDebugPanel() {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("health");
+
+  const { data: healthResults, isLoading: healthLoading, refetch: refetchHealth } = useQuery({
+    queryKey: ["email-debug-health"],
+    queryFn: fetchProviderHealth,
+    staleTime: 60_000,
+  });
+
+  const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useQuery({
+    queryKey: ["email-debug-metrics"],
+    queryFn: () => fetchDeliveryMetrics(24),
+    staleTime: 30_000,
+  });
+
+  const { data: events, isLoading: eventsLoading } = useQuery({
+    queryKey: ["email-debug-events"],
+    queryFn: () => fetchRecentDeliveryEvents(30),
+    staleTime: 30_000,
+  });
+
+  const { data: suppressions, isLoading: suppressionsLoading } = useQuery({
+    queryKey: ["email-debug-suppressions"],
+    queryFn: () => fetchSuppressions(50),
+    staleTime: 60_000,
+  });
+
+  const overallStatus = useMemo(() => {
+    if (!healthResults) return "unknown";
+    if (healthResults.some(r => r.status === "down")) return "critical";
+    if (healthResults.some(r => r.status === "degraded")) return "warning";
+    return "ok";
+  }, [healthResults]);
+
+  const handleRefreshAll = () => {
+    refetchHealth();
+    refetchMetrics();
+    queryClient.invalidateQueries({ queryKey: ["email-debug-events"] });
+    queryClient.invalidateQueries({ queryKey: ["email-debug-suppressions"] });
+    toast.success("Diagnóstico actualizado");
+  };
+
+  const handleAteniaVigilance = () => {
+    if (healthResults && metrics) {
+      dispatchAteniaEmailHealth(healthResults, metrics);
+      toast.success("Informe enviado a Andro IA");
+    } else {
+      toast.error("Espere a que se carguen los datos");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${
+            overallStatus === "ok" ? "bg-green-500/10" :
+            overallStatus === "warning" ? "bg-yellow-500/10" :
+            overallStatus === "critical" ? "bg-destructive/10" : "bg-muted"
+          }`}>
+            <Shield className={`h-5 w-5 ${
+              overallStatus === "ok" ? "text-green-500" :
+              overallStatus === "warning" ? "text-yellow-500" :
+              overallStatus === "critical" ? "text-destructive" : "text-muted-foreground"
+            }`} />
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm">Debug de Proveedores de Email</h3>
+            <p className="text-xs text-muted-foreground">
+              {overallStatus === "ok" ? "Todos los sistemas operativos" :
+               overallStatus === "warning" ? "Hay proveedores degradados" :
+               overallStatus === "critical" ? "¡Proveedor(es) caído(s)!" : "Cargando..."}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleRefreshAll} className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" /> Refrescar
+          </Button>
+          <Button size="sm" onClick={handleAteniaVigilance} className="gap-1.5">
+            <Brain className="h-3.5 w-3.5" /> Vigilancia Andro IA
+          </Button>
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-4 w-full max-w-xl">
+          <TabsTrigger value="health" className="gap-1.5 text-xs">
+            <Wifi className="h-3.5 w-3.5" /> Salud
+          </TabsTrigger>
+          <TabsTrigger value="pipeline" className="gap-1.5 text-xs">
+            <Activity className="h-3.5 w-3.5" /> Pipeline
+          </TabsTrigger>
+          <TabsTrigger value="events" className="gap-1.5 text-xs">
+            <Zap className="h-3.5 w-3.5" /> Eventos
+          </TabsTrigger>
+          <TabsTrigger value="suppressions" className="gap-1.5 text-xs">
+            <Ban className="h-3.5 w-3.5" /> Supresiones
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ─── Health Tab ─── */}
+        <TabsContent value="health" className="space-y-4 mt-4">
+          {healthLoading ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-28" />)}
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {healthResults?.map(r => <ProviderHealthCard key={r.provider} result={r} />)}
+            </div>
+          )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <TestTube className="h-4 w-4 text-primary" />
+                Test rápido de envío
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Envíe un email de prueba a través del pipeline completo (email_outbox → process-email-outbox → proveedor activo)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("atenia:open-with-prompt", {
+                    detail: {
+                      prompt: "Quiero enviar un email de prueba a través del proveedor activo para verificar que el pipeline de envío funciona correctamente. ¿Puedes guiarme?",
+                    },
+                  }));
+                }}
+              >
+                <Send className="h-3.5 w-3.5" /> Enviar test vía Andro IA
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── Pipeline Tab ─── */}
+        <TabsContent value="pipeline" className="space-y-4 mt-4">
+          {metricsLoading ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-20" />)}
+            </div>
+          ) : metrics ? (
+            <>
+              <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
+                <MetricCard label="Total (24h)" value={metrics.total} icon={Mail} />
+                <MetricCard
+                  label="Tasa de Éxito"
+                  value={`${metrics.successRate}%`}
+                  icon={metrics.successRate >= 95 ? TrendingUp : TrendingDown}
+                  trend={metrics.successRate >= 95 ? "up" : "down"}
+                />
+                <MetricCard label="Enviados" value={metrics.sent} icon={CheckCircle} color="text-green-500" />
+                <MetricCard label="Pendientes" value={metrics.pending} icon={Clock} color="text-yellow-500" />
+                <MetricCard label="Fallidos" value={metrics.failed} icon={XCircle} color="text-destructive" />
+                <MetricCard label="Perm. Fallidos" value={metrics.failedPermanent} icon={Ban} color="text-destructive" />
+              </div>
+
+              {metrics.avgDeliveryMs && (
+                <Card>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <Clock className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Tiempo promedio de entrega</p>
+                      <p className="font-bold">
+                        {metrics.avgDeliveryMs < 1000
+                          ? `${metrics.avgDeliveryMs}ms`
+                          : `${(metrics.avgDeliveryMs / 1000).toFixed(1)}s`}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {(metrics.successRate < 90 || metrics.failedPermanent > 0) && (
+                <Card className="border-destructive/50 bg-destructive/5">
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-destructive">Atención requerida</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {metrics.successRate < 90 && `Tasa de éxito del ${metrics.successRate}% — por debajo del umbral (90%). `}
+                        {metrics.failedPermanent > 0 && `${metrics.failedPermanent} emails con fallo permanente (bounce/suppression). `}
+                        Use Andro IA para diagnóstico detallado.
+                      </p>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="mt-2 gap-1.5"
+                        onClick={handleAteniaVigilance}
+                      >
+                        <Brain className="h-3.5 w-3.5" /> Diagnosticar con Andro IA
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          ) : null}
+        </TabsContent>
+
+        {/* ─── Events Tab ─── */}
+        <TabsContent value="events" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Eventos de Entrega Recientes</CardTitle>
+              <CardDescription className="text-xs">
+                Webhooks procesados de los proveedores (delivered, bounced, complained, opened, clicked)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {eventsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-10" />)}
+                </div>
+              ) : events && events.length > 0 ? (
+                <ScrollArea className="h-[400px]">
+                  <div className="space-y-1">
+                    {events.map(event => (
+                      <div key={event.id} className="flex items-center gap-3 p-2 rounded hover:bg-muted/50 text-xs">
+                        <EventTypeIcon type={event.event_type} />
+                        <Badge variant="outline" className="text-[10px] font-mono shrink-0">
+                          {event.event_type}
+                        </Badge>
+                        <span className="text-muted-foreground truncate flex-1 font-mono text-[10px]">
+                          {event.email_outbox_id?.slice(0, 8) || "—"}
+                        </span>
+                        <span className="text-muted-foreground shrink-0">
+                          {formatDistanceToNow(new Date(event.created_at), { addSuffix: true, locale: es })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Sin eventos de entrega recientes. Los eventos se registran cuando los proveedores envían webhooks.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── Suppressions Tab ─── */}
+        <TabsContent value="suppressions" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Ban className="h-4 w-4 text-destructive" />
+                Lista de Supresiones
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Emails que han sido marcados como bounce o complaint. No se les enviarán más emails.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {suppressionsLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-10" />)}
+                </div>
+              ) : suppressions && suppressions.length > 0 ? (
+                <ScrollArea className="h-[350px]">
+                  <div className="space-y-1">
+                    {suppressions.map(s => (
+                      <div key={s.id} className="flex items-center gap-3 p-2 rounded hover:bg-muted/50 text-xs">
+                        <Ban className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        <span className="font-mono truncate">{s.email}</span>
+                        <Badge variant="secondary" className="text-[10px] shrink-0">{s.reason}</Badge>
+                        <span className="text-muted-foreground ml-auto shrink-0">
+                          {formatDistanceToNow(new Date(s.created_at), { addSuffix: true, locale: es })}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Sin supresiones registradas. ¡Buena señal! 🎉
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
