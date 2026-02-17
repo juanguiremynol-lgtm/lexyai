@@ -401,9 +401,11 @@ function StepTestSend({ setupState, queryClient }: { setupState: SetupState | nu
 function StepResendInbound({ settings, setupState, queryClient }: { settings: EmailSettings | null; setupState: SetupState | null; queryClient: any }) {
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [secretStatus, setSecretStatus] = useState<{ hasSecret: boolean; lastEvent: { id: string; at: string } | null; hasRecentEvent: boolean } | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-inbound-webhook`;
+  const INBOUND_ADDRESS = "info@inbound.andromeda.legal";
 
   const handleSaveMode = async () => {
     setSaving(true);
@@ -419,7 +421,7 @@ function StepResendInbound({ settings, setupState, queryClient }: { settings: Em
 
       queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
       queryClient.invalidateQueries({ queryKey: ["system-email-settings-wizard"] });
-      toast.success("Webhook inbound configurado");
+      toast.success("Modo inbound configurado");
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -427,31 +429,27 @@ function StepResendInbound({ settings, setupState, queryClient }: { settings: Em
     }
   };
 
-  const handleVerifyWebhook = async () => {
+  const handleVerifyInbound = async () => {
     setVerifying(true);
-    setVerifyResult(null);
+    setVerifyError(null);
+    setSecretStatus(null);
     try {
-      // Check if any events have arrived in system_email_events
-      const { data: events, error } = await (supabase.from("system_email_events") as any)
-        .select("id, event_id, created_at")
-        .eq("provider", "resend")
-        .order("created_at", { ascending: false })
-        .limit(1);
-
+      const { data, error } = await supabase.functions.invoke("system-email-inbound-status", { method: "GET" });
       if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Error desconocido");
 
-      if (events && events.length > 0) {
-        setVerifyResult({ ok: true, message: `Webhook funcionando. Último evento: ${new Date(events[0].created_at).toLocaleString("es-CO")}` });
+      setSecretStatus(data);
 
+      if (data.hasSecret && data.hasRecentEvent) {
+        // Mark step as complete
         await (supabase.from("system_email_setup_state") as any)
           .update({ step_inbound_ok: true, last_error_code: null, last_error_message: null })
           .eq("id", SETUP_STATE_ID);
         queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
-      } else {
-        setVerifyResult({ ok: false, message: "No se han recibido eventos aún. Envía un test desde Resend Dashboard → Inbound → Test Webhook." });
+        toast.success("Inbound verificado ✓");
       }
     } catch (err: any) {
-      setVerifyResult({ ok: false, message: err.message });
+      setVerifyError(err.message);
     } finally {
       setVerifying(false);
     }
@@ -468,9 +466,34 @@ function StepResendInbound({ settings, setupState, queryClient }: { settings: Em
         <h3 className="text-lg font-semibold">Webhook de Entrada (Resend Inbound)</h3>
         <p className="text-sm text-muted-foreground">
           Configura Resend para recibir correos entrantes en la plataforma vía webhook.
+          Hostinger sigue siendo tu buzón real — solo necesitas un reenvío.
         </p>
       </div>
 
+      {/* Hostinger Forwarding Banner */}
+      <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 text-sm space-y-2">
+        <div className="flex items-center gap-2">
+          <Inbox className="h-4 w-4 text-primary shrink-0" />
+          <p className="font-medium">Reenvío desde Hostinger</p>
+        </div>
+        <p className="text-muted-foreground">
+          Configura una regla de reenvío en Hostinger para que una copia de los emails a{" "}
+          <code className="text-xs bg-background px-1 rounded border">info@andromeda.legal</code> se reenvíe a:
+        </p>
+        <div className="flex items-center gap-2">
+          <code className="bg-background px-2 py-1 rounded text-xs break-all flex-1 border font-mono">
+            {INBOUND_ADDRESS}
+          </code>
+          <Button variant="ghost" size="sm" onClick={() => copyToClipboard(INBOUND_ADDRESS)} className="shrink-0">
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Esto permite que Resend reciba una copia y dispare el webhook sin afectar tu buzón en Hostinger.
+        </p>
+      </div>
+
+      {/* Setup Instructions */}
       <div className="p-4 rounded-lg bg-muted/50 text-sm space-y-3">
         <p className="font-medium">Instrucciones de configuración:</p>
         <ol className="list-decimal pl-4 space-y-2 text-muted-foreground">
@@ -489,34 +512,85 @@ function StepResendInbound({ settings, setupState, queryClient }: { settings: Em
             </div>
           </li>
           <li>
-            Copia el <strong>Webhook Secret</strong> de Resend y guárdalo en los Secrets de Edge Functions como:
-            <code className="bg-background px-2 py-0.5 rounded text-xs ml-1">RESEND_INBOUND_WEBHOOK_SECRET</code>
+            Eventos requeridos: <code className="text-xs bg-background px-1 rounded border">email.received</code>
           </li>
           <li>
-            Haz clic en <strong>"Test Webhook"</strong> en Resend y luego verifica abajo que el evento llegó.
+            Copia el <strong>Webhook Signing Secret</strong> de Resend (formato <code className="text-xs">whsec_...</code>) y guárdalo como secret:
+            <div className="flex items-center gap-2 mt-1">
+              <code className="bg-background px-2 py-1 rounded text-xs border">RESEND_INBOUND_WEBHOOK_SECRET</code>
+              <Button variant="ghost" size="sm" onClick={() => copyToClipboard("RESEND_INBOUND_WEBHOOK_SECRET")} className="shrink-0">
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </li>
+          <li>
+            Envía un email de prueba a <code className="text-xs bg-background px-1 rounded border">{INBOUND_ADDRESS}</code> y verifica abajo.
           </li>
         </ol>
       </div>
 
+      {/* Secret Status Banner */}
+      {secretStatus && !secretStatus.hasSecret && (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-4">
+          <AlertTriangle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-destructive">Secret faltante</p>
+            <p className="text-sm text-muted-foreground">
+              <code className="text-xs">RESEND_INBOUND_WEBHOOK_SECRET</code> no está configurado en los secrets de las Edge Functions.
+              El webhook rechazará todas las solicitudes hasta que se configure.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Verification Result */}
+      {secretStatus && secretStatus.hasSecret && (
+        <div className={`p-4 rounded-lg border ${secretStatus.hasRecentEvent ? "bg-primary/10 border-primary/30" : "bg-muted border-border"}`}>
+          <div className="flex items-center gap-2">
+            {secretStatus.hasRecentEvent ? (
+              <CheckCircle className="h-5 w-5 text-primary" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-yellow-500" />
+            )}
+            <span className="text-sm font-medium">
+              {secretStatus.hasRecentEvent
+                ? "Inbound verificado"
+                : "No hay eventos en las últimas 24h"}
+            </span>
+          </div>
+          {secretStatus.lastEvent && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              Último evento: {new Date(secretStatus.lastEvent.at).toLocaleString("es-CO")} — ID: {secretStatus.lastEvent.id}
+            </p>
+          )}
+          {!secretStatus.hasRecentEvent && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Envía un test email a <code>{INBOUND_ADDRESS}</code> o usa "Test Webhook" en el dashboard de Resend.
+            </p>
+          )}
+        </div>
+      )}
+
+      {verifyError && (
+        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/10">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+            <span className="text-sm">{verifyError}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
       <div className="flex gap-2">
         <Button onClick={handleSaveMode} disabled={saving}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
           Marcar como configurado
         </Button>
-        <Button variant="outline" onClick={handleVerifyWebhook} disabled={verifying}>
+        <Button variant="outline" onClick={handleVerifyInbound} disabled={verifying}>
           {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Webhook className="h-4 w-4 mr-2" />}
-          Verificar webhook
+          Verificar inbound
         </Button>
       </div>
-
-      {verifyResult && (
-        <div className={`p-4 rounded-lg border ${verifyResult.ok ? "bg-primary/10 border-primary/30" : "bg-destructive/10 border-destructive/30"}`}>
-          <div className="flex items-center gap-2">
-            {verifyResult.ok ? <CheckCircle className="h-5 w-5 text-primary" /> : <AlertTriangle className="h-5 w-5 text-destructive" />}
-            <span className="text-sm">{verifyResult.message}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

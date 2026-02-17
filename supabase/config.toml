@@ -299,3 +299,6 @@ verify_jwt = false
 
 [functions.system-email-imap-connect]
 verify_jwt = false
+
+[functions.system-email-inbound-status]
+verify_jwt = false

@@ -35,20 +35,21 @@ Deno.serve(async (req) => {
 
     // ── Verify Svix signature ───────────────────────
     const webhookSecret = Deno.env.get("RESEND_INBOUND_WEBHOOK_SECRET");
-    if (webhookSecret) {
-      const verified = await verifySvixSignature(
-        rawBody,
-        svixId,
-        svixTimestamp,
-        svixSignature,
-        webhookSecret
-      );
-      if (!verified) {
-        console.warn("[inbound-webhook] Signature verification failed");
-        return json({ error: "Invalid signature" }, 401);
-      }
-    } else {
-      console.warn("[inbound-webhook] RESEND_INBOUND_WEBHOOK_SECRET not set, skipping verification");
+    if (!webhookSecret) {
+      console.error("[inbound-webhook] RESEND_INBOUND_WEBHOOK_SECRET not set");
+      return json({ error: "Webhook secret not configured", error_code: "WEBHOOK_SECRET_MISSING" }, 500);
+    }
+
+    const verified = await verifySvixSignature(
+      rawBody,
+      svixId,
+      svixTimestamp,
+      svixSignature,
+      webhookSecret
+    );
+    if (!verified) {
+      console.warn("[inbound-webhook] Signature verification failed");
+      return json({ error: "Invalid signature" }, 401);
     }
 
     // ── Idempotency check ───────────────────────────
