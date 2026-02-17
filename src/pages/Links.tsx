@@ -3,7 +3,7 @@ import { ExternalLink, Mail, Shield, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=eyJrIjoiMjllZTNjNGYtNjYzMi00ZjUzLTgyMGYtNzE0OWNlZjM0YTY2IiwidCI6IjYyMmNiYTk4LTgwZjgtNDFmMy04ZGY1LThlYjk5OTAxNTk4YiIsImMiOjR9";
+
 const DIRECTORIO_RAMA_URL = "https://www.ramajudicial.gov.co/directorio-cuentas-de-correo-electronico";
 const TUTELA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/TutelaEnLinea";
 const DEMANDA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/demandaenlinea/";
@@ -33,43 +33,35 @@ export default function Links() {
         </TabsList>
 
         <TabsContent value="correos-externo" className="mt-6">
-          <Card>
+          <Card className="max-w-2xl">
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Mail className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Directorio Oficial — Rama Judicial</CardTitle>
-                    <CardDescription>
-                      Directorio de cuentas de correo electrónico publicado por la Rama Judicial (Power BI)
-                    </CardDescription>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <Mail className="h-8 w-8 text-primary" />
                 </div>
-                <Button variant="outline" size="sm" asChild>
-                  <a
-                    href={DIRECTORIO_RAMA_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Abrir en nueva pestaña
-                  </a>
-                </Button>
+                <div>
+                  <CardTitle className="text-xl">Directorio Oficial — Rama Judicial</CardTitle>
+                  <CardDescription className="mt-1">
+                    Directorio de cuentas de correo electrónico publicado por la Rama Judicial de Colombia (Power BI)
+                  </CardDescription>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="w-full h-[700px] border-t">
-                <iframe
-                  title="Directorio de Correos Judiciales — Rama Judicial"
-                  src={POWER_BI_EMBED_URL}
-                  className="w-full h-full"
-                  frameBorder="0"
-                  allowFullScreen
-                />
-              </div>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Consulte el directorio oficial de correos electrónicos de los despachos judiciales del país, publicado y mantenido por la Rama Judicial. El recurso se abre en una nueva pestaña en el sitio oficial.
+              </p>
+              <Button asChild>
+                <a
+                  href={DIRECTORIO_RAMA_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir Directorio Oficial
+                </a>
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
