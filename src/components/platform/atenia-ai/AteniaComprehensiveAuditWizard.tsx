@@ -62,6 +62,7 @@ const CHECK_DEFS = [
   { key: "email_gateway", label: "Email Gateway", icon: <Mail className="h-4 w-4" />, group: "debug" },
   { key: "sync_history", label: "Historial de Sync", icon: <Database className="h-4 w-4" />, group: "debug" },
   { key: "auto_debug_items", label: "Debug Agéntico (Work Items)", icon: <Crosshair className="h-4 w-4" />, group: "agentic" },
+  { key: "email_alert_diag", label: "Email & Alertas Autónomo", icon: <Bell className="h-4 w-4" />, group: "agentic" },
   { key: "ai_health_audit", label: "Auditoría AI (Gemini)", icon: <Brain className="h-4 w-4" />, group: "ai" },
 ] as const;
 
@@ -426,6 +427,86 @@ export function AteniaComprehensiveAuditWizard() {
     }
   };
 
+  const runEmailAlertDiag = async (): Promise<CheckResult> => {
+    try {
+      // Check email settings, delivery rate, notification pipeline, and last autonomous diagnostic
+      const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+      const [settingsRes, emailsRes, notifsRes, alertsRes, lastDiagRes] = await Promise.all([
+        supabase.from("system_email_settings").select("is_enabled, outbound_provider, from_email").maybeSingle(),
+        supabase.from("system_email_messages").select("provider_status").eq("direction", "outbound").gte("created_at", oneDayAgo).limit(200),
+        supabase.from("notifications").select("audience_scope").gte("created_at", sixHoursAgo).limit(500),
+        supabase.from("alert_instances").select("severity").gte("fired_at", sixHoursAgo).limit(500),
+        (supabase.from("atenia_ai_actions") as any).select("created_at, action_result, evidence").eq("action_type", "EMAIL_ALERT_DIAGNOSTIC").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+
+      const settings = settingsRes.data;
+      const emails = emailsRes.data || [];
+      const notifs = notifsRes.data || [];
+      const alerts = alertsRes.data || [];
+      const lastDiag = lastDiagRes.data;
+
+      const issues: string[] = [];
+      const details: Record<string, unknown> = {};
+
+      // Settings check
+      if (!settings?.is_enabled) issues.push("Email system disabled");
+      if (!settings?.outbound_provider) issues.push("No provider configured");
+      details.settings = { enabled: settings?.is_enabled, provider: settings?.outbound_provider, from: settings?.from_email };
+
+      // Delivery rate
+      const sentOk = emails.filter((e: any) => e.provider_status === "sent").length;
+      const sentFailed = emails.filter((e: any) => e.provider_status === "failed").length;
+      const deliveryRate = emails.length > 0 ? Math.round((sentOk / emails.length) * 100) : -1;
+      if (deliveryRate >= 0 && deliveryRate < 70) issues.push(`Low delivery rate: ${deliveryRate}%`);
+      details.delivery = { total: emails.length, ok: sentOk, failed: sentFailed, rate: deliveryRate };
+
+      // Notification scope distribution
+      const scopeCounts: Record<string, number> = {};
+      for (const n of notifs) { const s = (n as any).audience_scope || "?"; scopeCounts[s] = (scopeCounts[s] || 0) + 1; }
+      details.notifications_6h = { total: notifs.length, by_scope: scopeCounts };
+
+      // Alert instance distribution
+      const sevCounts: Record<string, number> = {};
+      for (const a of alerts) { const s = (a as any).severity || "?"; sevCounts[s] = (sevCounts[s] || 0) + 1; }
+      details.alerts_6h = { total: alerts.length, by_severity: sevCounts };
+
+      // Last autonomous diagnostic
+      if (lastDiag) {
+        const diagAge = Date.now() - new Date(lastDiag.created_at).getTime();
+        details.last_autonomous_diagnostic = {
+          age_hours: Math.round(diagAge / 3600000 * 10) / 10,
+          result: lastDiag.action_result,
+          healthy: (lastDiag.evidence as any)?.healthy,
+        };
+      } else {
+        details.last_autonomous_diagnostic = null;
+        issues.push("No autonomous diagnostic found — heartbeat may not be running");
+      }
+
+      const severity: "ok" | "warn" | "error" = issues.length === 0 ? "ok" : issues.some(i => i.includes("disabled") || i.includes("Low delivery")) ? "error" : "warn";
+
+      const summaryParts = [
+        settings?.outbound_provider ? `Provider: ${settings.outbound_provider}` : "No provider",
+        deliveryRate >= 0 ? `${deliveryRate}% delivery (24h)` : "No emails 24h",
+        `${notifs.length} notifs (6h)`,
+        `${alerts.length} alerts (6h)`,
+      ];
+
+      return {
+        status: severity === "ok" ? "ok" : severity === "warn" ? "warn" : "error",
+        label: "Email & Alertas Autónomo",
+        icon: <Bell className="h-4 w-4" />,
+        summary: issues.length === 0 ? summaryParts.join(" · ") : `⚠ ${issues.join("; ")} | ${summaryParts.join(" · ")}`,
+        details,
+        severity,
+      };
+    } catch (err: any) {
+      return { status: "error", label: "Email & Alertas Autónomo", icon: <Bell className="h-4 w-4" />, summary: `Error: ${err.message}`, severity: "error" };
+    }
+  };
+
   const CHECK_RUNNERS: Record<string, () => Promise<CheckResult>> = {
     daily_sync: runDailySync,
     assurance_gates: runAssuranceGates,
@@ -441,6 +522,7 @@ export function AteniaComprehensiveAuditWizard() {
     email_gateway: runEmailGateway,
     sync_history: runSyncHistory,
     auto_debug_items: runAutoDebugItems,
+    email_alert_diag: runEmailAlertDiag,
     ai_health_audit: runAIHealthAudit,
   };
 

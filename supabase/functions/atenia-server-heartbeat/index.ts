@@ -88,6 +88,149 @@ Deno.serve(async (req) => {
       console.warn("[server-heartbeat] E2E scheduled failed:", (e2eErr as Error).message);
     }
 
+    // ── Periodic email alert system diagnostic (every ~6h guard) ──
+    try {
+      const { data: recentEmailDiag } = await supabase
+        .from("atenia_ai_actions")
+        .select("id")
+        .eq("action_type", "EMAIL_ALERT_DIAGNOSTIC")
+        .gte("created_at", new Date(Date.now() - 5.5 * 60 * 60 * 1000).toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (!recentEmailDiag) {
+        console.log("[server-heartbeat] Running email alert system diagnostic...");
+
+        const diagnosticResults: Record<string, { ok: boolean; detail: string }> = {};
+
+        // 1. Check email settings
+        const { data: emailSettings } = await supabase
+          .from("system_email_settings")
+          .select("is_enabled, outbound_provider, from_email, reply_to")
+          .maybeSingle();
+
+        diagnosticResults.settings = {
+          ok: !!emailSettings?.is_enabled && !!emailSettings?.outbound_provider,
+          detail: emailSettings?.is_enabled
+            ? `Provider: ${emailSettings.outbound_provider}, From: ${emailSettings.from_email}`
+            : "Email system disabled or not configured",
+        };
+
+        // 2. Check email delivery rate (24h)
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data: dayEmails } = await supabase
+          .from("system_email_messages")
+          .select("provider_status, direction")
+          .eq("direction", "outbound")
+          .gte("created_at", oneDayAgo)
+          .limit(200);
+
+        const outbound = dayEmails || [];
+        const sentOk = outbound.filter((e: any) => e.provider_status === "sent").length;
+        const sentFailed = outbound.filter((e: any) => e.provider_status === "failed").length;
+        const deliveryRate = outbound.length > 0 ? Math.round((sentOk / outbound.length) * 100) : -1;
+
+        diagnosticResults.delivery = {
+          ok: deliveryRate === -1 || deliveryRate >= 70,
+          detail: deliveryRate === -1
+            ? "No outbound emails in last 24h"
+            : `${sentOk}/${outbound.length} delivered (${deliveryRate}%), ${sentFailed} failed`,
+        };
+
+        // 3. Check notification pipeline (all audience scopes)
+        const { data: notifCounts } = await supabase
+          .from("notifications")
+          .select("audience_scope")
+          .gte("created_at", oneDayAgo)
+          .limit(500);
+
+        const scopeCounts: Record<string, number> = {};
+        for (const n of notifCounts || []) {
+          const scope = (n as any).audience_scope || "UNKNOWN";
+          scopeCounts[scope] = (scopeCounts[scope] || 0) + 1;
+        }
+
+        diagnosticResults.notifications = {
+          ok: true,
+          detail: `24h notifications by scope: ${JSON.stringify(scopeCounts)} (total: ${(notifCounts || []).length})`,
+        };
+
+        // 4. Check alert_instances pipeline
+        const { data: alertCounts } = await supabase
+          .from("alert_instances")
+          .select("severity, status")
+          .gte("fired_at", oneDayAgo)
+          .limit(500);
+
+        const severityCounts: Record<string, number> = {};
+        for (const a of alertCounts || []) {
+          const sev = (a as any).severity || "UNKNOWN";
+          severityCounts[sev] = (severityCounts[sev] || 0) + 1;
+        }
+
+        diagnosticResults.alert_instances = {
+          ok: true,
+          detail: `24h alerts by severity: ${JSON.stringify(severityCounts)} (total: ${(alertCounts || []).length})`,
+        };
+
+        // 5. Edge function liveness for system-email-send
+        try {
+          const { error: efError } = await supabase.functions.invoke("system-email-send", {
+            body: { health_check: true },
+          });
+          diagnosticResults.email_edge_function = {
+            ok: !efError,
+            detail: efError ? `system-email-send unhealthy: ${efError.message}` : "system-email-send responsive",
+          };
+        } catch (efErr) {
+          diagnosticResults.email_edge_function = {
+            ok: false,
+            detail: `system-email-send error: ${(efErr as Error).message}`,
+          };
+        }
+
+        const allOk = Object.values(diagnosticResults).every((r) => r.ok);
+        const failedChecks = Object.entries(diagnosticResults)
+          .filter(([, r]) => !r.ok)
+          .map(([k, r]) => `${k}: ${r.detail}`);
+
+        // Log the diagnostic
+        await supabase.from("atenia_ai_actions").insert({
+          action_type: "EMAIL_ALERT_DIAGNOSTIC",
+          actor: "AI_AUTOPILOT",
+          scope: "PLATFORM",
+          autonomy_tier: allOk ? "OBSERVE" : "ACT",
+          reasoning: allOk
+            ? `Diagnóstico email/alertas OK: ${Object.keys(diagnosticResults).length} verificaciones pasadas. Delivery rate: ${deliveryRate}%.`
+            : `Diagnóstico email/alertas: ${failedChecks.length} fallo(s): ${failedChecks.join("; ")}`,
+          status: "EXECUTED",
+          action_result: allOk ? "logged" : "applied",
+          evidence: {
+            checks: diagnosticResults,
+            healthy: allOk,
+            delivery_rate_pct: deliveryRate,
+            timestamp: new Date().toISOString(),
+          },
+        });
+
+        // If critical failure, create an observation
+        if (!allOk && diagnosticResults.settings && !diagnosticResults.settings.ok) {
+          try {
+            await supabase.from("atenia_ai_observations").insert({
+              kind: "ANOMALY",
+              severity: "HIGH",
+              title: "⚠️ Sistema de email/alertas con fallos",
+              payload: { checks: diagnosticResults, failed: failedChecks },
+            });
+          } catch (_) { /* non-fatal */ }
+        }
+
+        console.log(`[server-heartbeat] Email alert diagnostic: ${allOk ? "HEALTHY" : "DEGRADED"}`);
+      }
+    } catch (emailDiagErr) {
+      console.warn("[server-heartbeat] Email alert diagnostic failed:", (emailDiagErr as Error).message);
+    }
+
     for (const org of orgs ?? []) {
       try {
         // Dedup: check if a heartbeat ran recently for this org
