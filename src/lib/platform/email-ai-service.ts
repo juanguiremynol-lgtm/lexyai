@@ -278,6 +278,114 @@ export async function registerEmailInAteniaAI(
   }
 }
 
+// ─── AI Compose Assistance ──────────────────────────────────
+
+const COMPOSE_ASSIST_PROMPT = `Eres Atenia AI, asistente de redacción para ${PLATFORM_EMAIL} (Andromeda Legal).
+
+Tu trabajo es mejorar el borrador de email del super admin. Reglas:
+- Mantén el tono profesional y formal en español
+- Mejora gramática, claridad y estructura
+- No inventes datos ni radicados
+- Si el asunto está vacío, sugiere uno basado en el contenido
+- Responde en JSON:
+{
+  "improved_body": "texto mejorado completo",
+  "suggested_subject": "asunto sugerido si estaba vacío o puede mejorar",
+  "tone_analysis": "formal|informal|urgente",
+  "suggestions": ["sugerencia1", "sugerencia2"]
+}`;
+
+export interface AIComposeAssistResult {
+  improved_body: string;
+  suggested_subject: string;
+  tone_analysis: string;
+  suggestions: string[];
+}
+
+export async function assistCompose(
+  to: string,
+  subject: string,
+  body: string,
+): Promise<AIComposeAssistResult> {
+  const prompt = `${COMPOSE_ASSIST_PROMPT}
+
+Destinatario: ${to}
+Asunto actual: ${subject || "(vacío)"}
+Borrador:
+${body}
+
+Mejora y responde en JSON:`;
+
+  const raw = await callGeminiViaEdge(prompt);
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  } catch { /* fallback */ }
+
+  return {
+    improved_body: body,
+    suggested_subject: subject,
+    tone_analysis: "formal",
+    suggestions: ["No se pudo analizar"],
+  };
+}
+
+// ─── AI Outbox Analysis ─────────────────────────────────────
+
+export async function analyzeOutboxHealth(): Promise<{
+  summary: string;
+  deliveryRate: string;
+  issues: Array<{ id: string; to: string; error: string }>;
+  recommendations: string[];
+}> {
+  const { data: recent, error } = await supabase
+    .from("email_outbox")
+    .select("id, to_email, subject, status, error, failed_permanent, attempts, created_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error || !recent?.length) {
+    return { summary: "No hay emails recientes en el outbox.", deliveryRate: "N/A", issues: [], recommendations: [] };
+  }
+
+  const sent = recent.filter((e: any) => e.status === "SENT" || e.status === "DELIVERED").length;
+  const failed = recent.filter((e: any) => e.status === "FAILED" || e.failed_permanent).length;
+  const rate = `${Math.round((sent / recent.length) * 100)}%`;
+
+  const emailList = recent.map((e: any) =>
+    `- [${e.status}] Para: ${e.to_email} | Asunto: ${e.subject?.slice(0, 60)} | Error: ${e.error || "ninguno"} | Intentos: ${e.attempts}`
+  ).join("\n");
+
+  const prompt = `Eres Atenia AI. Analiza el estado del outbox de ${PLATFORM_EMAIL}.
+
+Tasa de entrega: ${rate} (${sent}/${recent.length})
+Fallidos: ${failed}
+
+Emails recientes:
+${emailList}
+
+Responde en JSON:
+{
+  "summary": "resumen ejecutivo del estado del outbox",
+  "deliveryRate": "${rate}",
+  "issues": [{ "id": "...", "to": "...", "error": "..." }],
+  "recommendations": ["recomendación1"]
+}`;
+
+  const raw = await callGeminiViaEdge(prompt);
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  } catch { /* fallback */ }
+
+  return {
+    summary: raw.slice(0, 300),
+    deliveryRate: rate,
+    issues: recent.filter((e: any) => e.failed_permanent).map((e: any) => ({ id: e.id, to: e.to_email, error: e.error || "Unknown" })),
+    recommendations: [],
+  };
+}
+
 // ─── Full Email Content Access for AI ───────────────────────
 
 /**
