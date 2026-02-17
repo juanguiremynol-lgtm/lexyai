@@ -1,29 +1,16 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-interface OrgToCheck {
-  id: string;
-  name: string;
-  estados_staleness_alerts_enabled: boolean;
-  estados_staleness_email_enabled: boolean;
-  estados_staleness_threshold_days: number;
-  last_ingestion_at: string | null;
-  admin_email: string | null;
-  admin_name: string | null;
-}
 
 /**
  * Check if a date is a business day (Mon-Fri)
  */
 function isBusinessDay(date: Date): boolean {
   const day = date.getDay();
-  return day !== 0 && day !== 6; // 0 = Sunday, 6 = Saturday
+  return day !== 0 && day !== 6;
 }
 
 /**
@@ -33,14 +20,10 @@ function businessDaysBetween(start: Date, end: Date): number {
   let count = 0;
   const current = new Date(start);
   current.setDate(current.getDate() + 1);
-  
   while (current <= end) {
-    if (isBusinessDay(current)) {
-      count++;
-    }
+    if (isBusinessDay(current)) count++;
     current.setDate(current.getDate() + 1);
   }
-  
   return count;
 }
 
@@ -85,7 +68,7 @@ function generateAlertEmailHtml(orgName: string, daysSinceIngestion: number, adm
           </p>
           
           <div style="text-align: center; margin: 24px 0;">
-            <a href="https://docket-ace-pro.lovable.app/settings?tab=estados" 
+            <a href="https://andromeda.legal/settings?tab=estados" 
                style="display: inline-block; background-color: #1e3a5f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
               Subir Estados de ICARUS
             </a>
@@ -121,10 +104,10 @@ const handler = async (req: Request): Promise<Response> => {
     const now = new Date();
     let orgsChecked = 0;
     let alertsCreated = 0;
-    let emailsSent = 0;
+    let emailsQueued = 0;
     let alertsResolved = 0;
 
-    // Get all organizations with their staleness settings and last ingestion
+    // Get all organizations with staleness alerts enabled
     const { data: organizations, error: orgError } = await supabase
       .from("organizations")
       .select(`
@@ -159,7 +142,7 @@ const handler = async (req: Request): Promise<Response> => {
       const lastIngestionAt = lastIngestion?.created_at ? new Date(lastIngestion.created_at) : null;
       const daysSinceIngestion = lastIngestionAt 
         ? businessDaysBetween(lastIngestionAt, now) 
-        : 999; // Very high if never ingested
+        : 999;
 
       const isStale = daysSinceIngestion >= thresholdDays;
 
@@ -173,7 +156,6 @@ const handler = async (req: Request): Promise<Response> => {
       if (isStale) {
         // Create or update alert
         if (!existingAlert || existingAlert.status !== "ACTIVE") {
-          // Create new alert
           const { error: insertError } = await supabase
             .from("estados_staleness_alerts")
             .upsert({
@@ -182,26 +164,23 @@ const handler = async (req: Request): Promise<Response> => {
               last_ingestion_at: lastIngestionAt?.toISOString() || null,
               alert_created_at: now.toISOString(),
               emails_sent_count: 0,
-            }, {
-              onConflict: "organization_id",
-            });
+            }, { onConflict: "organization_id" });
 
           if (insertError) {
             console.error(`Error creating alert for org ${org.id}:`, insertError);
           } else {
             alertsCreated++;
-            console.log(`Created staleness alert for org ${org.id}`);
           }
         }
 
-        // Check if we should send email (once per day max)
-        if (org.estados_staleness_email_enabled && RESEND_API_KEY) {
+        // Enqueue email via email_outbox (provider-agnostic)
+        if (org.estados_staleness_email_enabled) {
           const lastEmailSent = existingAlert?.last_email_sent_at 
             ? new Date(existingAlert.last_email_sent_at) 
             : null;
           
           const shouldSendEmail = !lastEmailSent || 
-            (now.getTime() - lastEmailSent.getTime()) > 24 * 60 * 60 * 1000; // 24 hours
+            (now.getTime() - lastEmailSent.getTime()) > 24 * 60 * 60 * 1000;
 
           if (shouldSendEmail) {
             // Get admin user email for this org
@@ -214,34 +193,47 @@ const handler = async (req: Request): Promise<Response> => {
               .maybeSingle();
 
             if (adminProfile?.reminder_email) {
-              try {
-                const emailHtml = generateAlertEmailHtml(
-                  org.name || "su organización",
-                  daysSinceIngestion,
-                  adminProfile.full_name || undefined
-                );
+              const emailHtml = generateAlertEmailHtml(
+                org.name || "su organización",
+                daysSinceIngestion,
+                adminProfile.full_name || undefined
+              );
 
-                const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "ATENIA <onboarding@resend.dev>";
+              const dedupeKey = `staleness-${org.id}-${now.toISOString().slice(0, 10)}`;
 
-                const resendResponse = await fetch("https://api.resend.com/emails", {
-                  method: "POST",
-                  headers: {
-                    "Authorization": `Bearer ${RESEND_API_KEY}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    from: fromEmail,
-                    to: [adminProfile.reminder_email],
+              // Check for existing email with same dedupe key
+              const { data: existingEmail } = await supabase
+                .from("email_outbox")
+                .select("id")
+                .eq("dedupe_key", dedupeKey)
+                .in("status", ["PENDING", "SENDING", "SENT"])
+                .maybeSingle();
+
+              if (!existingEmail) {
+                const { error: insertError } = await supabase
+                  .from("email_outbox")
+                  .insert({
+                    organization_id: org.id,
+                    to_email: adminProfile.reminder_email,
                     subject: `[ATENIA] ⚠️ Estados sin actualizar - ${daysSinceIngestion} días hábiles`,
                     html: emailHtml,
-                  }),
-                });
+                    status: "PENDING",
+                    trigger_event: "ESTADOS_STALENESS",
+                    dedupe_key: dedupeKey,
+                    next_attempt_at: now.toISOString(),
+                    metadata: {
+                      days_since_ingestion: daysSinceIngestion,
+                      threshold_days: thresholdDays,
+                      org_name: org.name,
+                    },
+                  });
 
-                if (resendResponse.ok) {
-                  emailsSent++;
-                  console.log(`Sent staleness email to ${adminProfile.reminder_email}`);
+                if (insertError) {
+                  console.error(`Error queuing email for org ${org.id}:`, insertError);
+                } else {
+                  emailsQueued++;
 
-                  // Update last email sent
+                  // Update last email sent timestamp
                   await supabase
                     .from("estados_staleness_alerts")
                     .update({
@@ -249,56 +241,35 @@ const handler = async (req: Request): Promise<Response> => {
                       emails_sent_count: (existingAlert?.emails_sent_count || 0) + 1,
                     })
                     .eq("organization_id", org.id);
-                } else {
-                  const errorText = await resendResponse.text();
-                  console.error(`Failed to send email: ${errorText}`);
                 }
-              } catch (emailError) {
-                console.error(`Error sending email:`, emailError);
               }
             }
           }
         }
       } else {
-        // Not stale - resolve any active alert
+        // Not stale — resolve any active alert
         if (existingAlert && existingAlert.status === "ACTIVE") {
           const { error: resolveError } = await supabase
             .from("estados_staleness_alerts")
-            .update({
-              status: "RESOLVED",
-              resolved_at: now.toISOString(),
-            })
+            .update({ status: "RESOLVED", resolved_at: now.toISOString() })
             .eq("id", existingAlert.id);
 
-          if (resolveError) {
-            console.error(`Error resolving alert for org ${org.id}:`, resolveError);
-          } else {
-            alertsResolved++;
-            console.log(`Resolved staleness alert for org ${org.id}`);
-          }
+          if (!resolveError) alertsResolved++;
         }
       }
     }
 
-    // Log audit trail
-    const { error: auditError } = await supabase
+    // Audit trail
+    await supabase
       .from("crawler_runs")
       .insert({
         run_type: "STALENESS_CHECK",
         status: "COMPLETED",
         started_at: now.toISOString(),
         completed_at: new Date().toISOString(),
-        metadata: {
-          orgs_checked: orgsChecked,
-          alerts_created: alertsCreated,
-          alerts_resolved: alertsResolved,
-          emails_sent: emailsSent,
-        },
-      });
-
-    if (auditError) {
-      console.warn("Failed to create audit trail:", auditError);
-    }
+        metadata: { orgs_checked: orgsChecked, alerts_created: alertsCreated, alerts_resolved: alertsResolved, emails_queued: emailsQueued },
+      })
+      .then(({ error }) => { if (error) console.warn("Failed to create audit trail:", error); });
 
     const result = {
       success: true,
@@ -306,7 +277,7 @@ const handler = async (req: Request): Promise<Response> => {
       orgsChecked,
       alertsCreated,
       alertsResolved,
-      emailsSent,
+      emailsQueued,
     };
 
     console.log("Staleness check completed:", result);

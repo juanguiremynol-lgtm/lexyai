@@ -2,7 +2,10 @@
  * Email Outbox Worker Edge Function
  * 
  * Processes pending emails with retry/backoff logic and bounce suppression.
- * Sends via Cloud Run Email Gateway (Option B architecture).
+ * PROVIDER-AGNOSTIC: Resolves the active email provider from email_provider_config
+ * and platform_settings at runtime. Supports Resend, SendGrid, Mailgun, AWS SES, SMTP.
+ * Falls back to Cloud Run Gateway if configured.
+ * 
  * Designed to be called on a schedule (external scheduler) or manually.
  */
 
@@ -10,16 +13,15 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Email Gateway configuration (Cloud Run Option B)
+// Legacy Gateway fallback
 const EMAIL_GATEWAY_BASE_URL = Deno.env.get("EMAIL_GATEWAY_BASE_URL");
 const EMAIL_GATEWAY_API_KEY = Deno.env.get("EMAIL_GATEWAY_API_KEY");
-const EMAIL_FROM_ADDRESS = Deno.env.get("EMAIL_FROM_ADDRESS") || "ATENIA <noreply@placeholder.com>";
 
 // Retry backoff intervals in minutes
-const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320]; // 1m, 5m, 15m, 1h, 6h, 24h, 48h, 72h
+const BACKOFF_INTERVALS = [1, 5, 15, 60, 360, 1440, 2880, 4320];
 const MAX_ATTEMPTS = 8;
 const BATCH_SIZE = 10;
 
@@ -45,113 +47,264 @@ interface ProcessResult {
   failed: number;
   suppressed: number;
   errors: Array<{ id: string; error: string }>;
-  gateway_configured: boolean;
+  provider_used: string;
 }
 
-interface GatewaySuccessResponse {
-  id: string;
-}
-
-interface GatewayErrorResponse {
-  error: string;
+interface SendResult {
+  success: boolean;
+  provider_message_id?: string;
+  error?: string;
   error_code?: string;
+  statusCode?: number;
 }
 
-// Helper to mask email for safe logging (no PII leak)
-function maskEmail(email: string): string {
-  const [local, domain] = email.split("@");
-  if (!local || !domain) return "***@***";
-  const maskedLocal = local.length > 2 ? local[0] + "***" : "***";
-  return `${maskedLocal}@${domain}`;
+// ═══════════════════════════════════════════
+// PROVIDER RESOLUTION
+// ═══════════════════════════════════════════
+
+interface ResolvedProvider {
+  type: string;
+  config: Record<string, string>;
+  fromAddress: string;
 }
 
-// Check if error is transient (should retry) or permanent (should not retry)
-function isPermanentError(errorCode: string | undefined, statusCode: number): boolean {
-  // 4xx errors (except 429) are usually permanent
-  if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
-    return true;
-  }
-  // Specific permanent error codes
-  const permanentCodes = ["invalid_recipient", "blocked", "unsubscribed", "complained", "invalid_email"];
-  return permanentCodes.includes(errorCode || "");
-}
+async function resolveActiveProvider(supabase: any): Promise<ResolvedProvider | null> {
+  // 1. Get active provider type from platform_settings
+  const { data: settings } = await supabase
+    .from("platform_settings")
+    .select("email_provider_type, email_provider_configured")
+    .eq("id", "singleton")
+    .maybeSingle();
 
-// Send email via Cloud Run Email Gateway
-async function sendViaGateway(
-  email: EmailOutboxRow
-): Promise<{ success: boolean; provider_message_id?: string; error?: string; error_code?: string; statusCode?: number }> {
-  if (!EMAIL_GATEWAY_BASE_URL || !EMAIL_GATEWAY_API_KEY) {
-    return {
-      success: false,
-      error: "Email gateway not configured (missing EMAIL_GATEWAY_BASE_URL or EMAIL_GATEWAY_API_KEY)",
-      error_code: "GATEWAY_NOT_CONFIGURED",
-    };
+  if (!settings?.email_provider_type || !settings.email_provider_configured) {
+    return null;
   }
 
-  const gatewayUrl = `${EMAIL_GATEWAY_BASE_URL}/send`;
+  const providerType = settings.email_provider_type;
 
-  const payload = {
-    organization_id: email.organization_id,
-    to: email.to_email,
-    subject: email.subject,
-    html: email.html,
-    from: EMAIL_FROM_ADDRESS,
-    metadata: {
-      email_outbox_id: email.id,
-      work_item_id: email.work_item_id || null,
-      trigger_event: email.trigger_event || null,
-      alert_instance_id: email.alert_instance_id || null,
-      ...(email.metadata || {}),
-    },
+  // 2. Fetch all config values for this provider
+  const providerKeyMap: Record<string, string[]> = {
+    resend: ["RESEND_API_KEY", "RESEND_FROM_EMAIL", "RESEND_WEBHOOK_SECRET"],
+    sendgrid: ["SENDGRID_API_KEY", "SENDGRID_FROM_EMAIL"],
+    aws_ses: ["AWS_SES_ACCESS_KEY_ID", "AWS_SES_SECRET_ACCESS_KEY", "AWS_SES_REGION", "AWS_SES_FROM_EMAIL"],
+    mailgun: ["MAILGUN_API_KEY", "MAILGUN_DOMAIN", "MAILGUN_FROM_EMAIL"],
+    smtp: ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM_EMAIL", "SMTP_TLS"],
   };
 
+  const keys = providerKeyMap[providerType];
+  if (!keys) return null;
+
+  const { data: configs } = await supabase
+    .from("email_provider_config")
+    .select("config_key, config_value")
+    .in("config_key", keys);
+
+  const config: Record<string, string> = {};
+  for (const c of configs || []) {
+    config[c.config_key] = c.config_value;
+  }
+
+  // Determine from address
+  const fromKey = keys.find(k => k.endsWith("_FROM_EMAIL"));
+  const fromAddress = fromKey ? config[fromKey] : "ATENIA <noreply@andromeda.legal>";
+
+  return { type: providerType, config, fromAddress };
+}
+
+// ═══════════════════════════════════════════
+// SEND IMPLEMENTATIONS PER PROVIDER
+// ═══════════════════════════════════════════
+
+async function sendViaResend(email: EmailOutboxRow, config: Record<string, string>, fromAddress: string): Promise<SendResult> {
+  const apiKey = config["RESEND_API_KEY"];
+  if (!apiKey) return { success: false, error: "RESEND_API_KEY not configured", error_code: "PROVIDER_NOT_CONFIGURED" };
+
   try {
-    const response = await fetch(gatewayUrl, {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: [email.to_email],
+        subject: email.subject,
+        html: email.html,
+        tags: [
+          { name: "email_outbox_id", value: email.id },
+          ...(email.trigger_event ? [{ name: "trigger", value: email.trigger_event }] : []),
+        ],
+      }),
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      return { success: true, provider_message_id: result.id, statusCode: response.status };
+    } else {
+      const errorBody = await response.json().catch(() => ({ message: "Unknown error" }));
+      return {
+        success: false,
+        error: errorBody.message || `Resend error: ${response.status}`,
+        error_code: errorBody.name || undefined,
+        statusCode: response.status,
+      };
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Resend connection failed", error_code: "NETWORK_ERROR" };
+  }
+}
+
+async function sendViaSendGrid(email: EmailOutboxRow, config: Record<string, string>, fromAddress: string): Promise<SendResult> {
+  const apiKey = config["SENDGRID_API_KEY"];
+  if (!apiKey) return { success: false, error: "SENDGRID_API_KEY not configured", error_code: "PROVIDER_NOT_CONFIGURED" };
+
+  try {
+    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: email.to_email }] }],
+        from: { email: fromAddress.includes("<") ? fromAddress.match(/<(.+)>/)?.[1] || fromAddress : fromAddress, name: fromAddress.includes("<") ? fromAddress.split("<")[0].trim() : undefined },
+        subject: email.subject,
+        content: [{ type: "text/html", value: email.html }],
+        custom_args: { email_outbox_id: email.id },
+      }),
+    });
+
+    if (response.status === 202) {
+      const messageId = response.headers.get("x-message-id") || undefined;
+      return { success: true, provider_message_id: messageId, statusCode: response.status };
+    } else {
+      const errorBody = await response.text();
+      return { success: false, error: `SendGrid error: ${response.status} - ${errorBody}`, statusCode: response.status };
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "SendGrid connection failed", error_code: "NETWORK_ERROR" };
+  }
+}
+
+async function sendViaMailgun(email: EmailOutboxRow, config: Record<string, string>, fromAddress: string): Promise<SendResult> {
+  const apiKey = config["MAILGUN_API_KEY"];
+  const domain = config["MAILGUN_DOMAIN"];
+  if (!apiKey || !domain) return { success: false, error: "Mailgun credentials not configured", error_code: "PROVIDER_NOT_CONFIGURED" };
+
+  try {
+    const formData = new FormData();
+    formData.append("from", fromAddress);
+    formData.append("to", email.to_email);
+    formData.append("subject", email.subject);
+    formData.append("html", email.html);
+    formData.append("o:tag", email.id);
+
+    const response = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Basic ${btoa(`api:${apiKey}`)}` },
+      body: formData,
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      return { success: true, provider_message_id: result.id, statusCode: response.status };
+    } else {
+      const errorBody = await response.text();
+      return { success: false, error: `Mailgun error: ${response.status} - ${errorBody}`, statusCode: response.status };
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Mailgun connection failed", error_code: "NETWORK_ERROR" };
+  }
+}
+
+async function sendViaGateway(email: EmailOutboxRow, fromAddress: string): Promise<SendResult> {
+  if (!EMAIL_GATEWAY_BASE_URL || !EMAIL_GATEWAY_API_KEY) {
+    return { success: false, error: "Email gateway not configured", error_code: "GATEWAY_NOT_CONFIGURED" };
+  }
+
+  try {
+    const response = await fetch(`${EMAIL_GATEWAY_BASE_URL}/send`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${EMAIL_GATEWAY_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        organization_id: email.organization_id,
+        to: email.to_email,
+        subject: email.subject,
+        html: email.html,
+        from: fromAddress,
+        metadata: {
+          email_outbox_id: email.id,
+          work_item_id: email.work_item_id || null,
+          trigger_event: email.trigger_event || null,
+          alert_instance_id: email.alert_instance_id || null,
+          ...(email.metadata || {}),
+        },
+      }),
     });
 
-    const statusCode = response.status;
-
     if (response.ok) {
-      const result = (await response.json()) as GatewaySuccessResponse;
-      return {
-        success: true,
-        provider_message_id: result.id,
-        statusCode,
-      };
+      const result = await response.json();
+      return { success: true, provider_message_id: result.id, statusCode: response.status };
     } else {
-      const errorResult = (await response.json()) as GatewayErrorResponse;
-      return {
-        success: false,
-        error: errorResult.error || `Gateway error: ${statusCode}`,
-        error_code: errorResult.error_code,
-        statusCode,
-      };
+      const errorResult = await response.json();
+      return { success: false, error: errorResult.error || `Gateway error: ${response.status}`, error_code: errorResult.error_code, statusCode: response.status };
     }
   } catch (err) {
-    // Network/fetch errors are transient
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : "Gateway connection failed",
-      error_code: "NETWORK_ERROR",
-    };
+    return { success: false, error: err instanceof Error ? err.message : "Gateway connection failed", error_code: "NETWORK_ERROR" };
   }
 }
 
+// Route email to the correct provider
+async function sendEmail(email: EmailOutboxRow, provider: ResolvedProvider | null): Promise<SendResult> {
+  if (!provider) {
+    // Fallback to legacy gateway
+    return sendViaGateway(email, Deno.env.get("EMAIL_FROM_ADDRESS") || "ATENIA <noreply@placeholder.com>");
+  }
+
+  switch (provider.type) {
+    case "resend":
+      return sendViaResend(email, provider.config, provider.fromAddress);
+    case "sendgrid":
+      return sendViaSendGrid(email, provider.config, provider.fromAddress);
+    case "mailgun":
+      return sendViaMailgun(email, provider.config, provider.fromAddress);
+    default:
+      // Unknown provider — try gateway fallback
+      return sendViaGateway(email, provider.fromAddress);
+  }
+}
+
+// ═══════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return "***@***";
+  return `${local.length > 2 ? local[0] + "***" : "***"}@${domain}`;
+}
+
+function isPermanentError(errorCode: string | undefined, statusCode: number): boolean {
+  if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) return true;
+  const permanentCodes = ["invalid_recipient", "blocked", "unsubscribed", "complained", "invalid_email"];
+  return permanentCodes.includes(errorCode || "");
+}
+
+// ═══════════════════════════════════════════
+// MAIN HANDLER
+// ═══════════════════════════════════════════
+
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   const result: ProcessResult = {
@@ -161,15 +314,18 @@ Deno.serve(async (req) => {
     failed: 0,
     suppressed: 0,
     errors: [],
-    gateway_configured: !!(EMAIL_GATEWAY_BASE_URL && EMAIL_GATEWAY_API_KEY),
+    provider_used: "none",
   };
 
-  // Early check for gateway configuration
-  if (!result.gateway_configured) {
-    console.warn("[process-email-outbox] Email gateway not configured. Emails will fail to send.");
-  }
-
   try {
+    // Resolve active provider from DB config (set via Email Provider Wizard)
+    const provider = await resolveActiveProvider(supabase);
+    result.provider_used = provider?.type || (EMAIL_GATEWAY_BASE_URL ? "gateway_fallback" : "none");
+
+    if (!provider && !EMAIL_GATEWAY_BASE_URL) {
+      console.warn("[process-email-outbox] No email provider configured. Run the Email Provider Wizard to activate one.");
+    }
+
     // Fetch emails ready to be processed
     const now = new Date().toISOString();
     const { data: emails, error: fetchError } = await supabase
@@ -194,7 +350,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`[process-email-outbox] Processing ${emails.length} emails`);
+    console.log(`[process-email-outbox] Processing ${emails.length} emails via ${result.provider_used}`);
 
     // Fetch all suppressions for the organizations involved
     const orgIds = [...new Set(emails.map((e: EmailOutboxRow) => e.organization_id))];
@@ -204,7 +360,7 @@ Deno.serve(async (req) => {
       .in("organization_id", orgIds);
 
     const suppressionMap = new Map<string, string>();
-    (suppressions || []).forEach((s) => {
+    (suppressions || []).forEach((s: any) => {
       suppressionMap.set(`${s.organization_id}:${s.email.toLowerCase()}`, s.reason);
     });
 
@@ -212,7 +368,6 @@ Deno.serve(async (req) => {
     for (const email of emails as EmailOutboxRow[]) {
       result.processed++;
 
-      // Log with masked email for privacy
       console.log(`[process-email-outbox] Processing email ${email.id} to ${maskEmail(email.to_email)}`);
 
       try {
@@ -225,14 +380,9 @@ Deno.serve(async (req) => {
           
           await supabase
             .from("email_outbox")
-            .update({
-              status: "SUPPRESSED",
-              suppressed_reason: suppressReason,
-              last_attempt_at: now,
-            })
+            .update({ status: "SUPPRESSED", suppressed_reason: suppressReason, last_attempt_at: now })
             .eq("id", email.id);
 
-          // Log audit event
           await supabase.from("audit_logs").insert({
             organization_id: email.organization_id,
             actor_type: "SYSTEM",
@@ -252,12 +402,11 @@ Deno.serve(async (req) => {
           .update({ status: "SENDING" })
           .eq("id", email.id);
 
-        // Send via Cloud Run Email Gateway
-        const sendResult = await sendViaGateway(email);
+        // Send via resolved provider
+        const sendResult = await sendEmail(email, provider);
 
         if (sendResult.success) {
-          // Success!
-          console.log(`[process-email-outbox] Email ${email.id} sent successfully`);
+          console.log(`[process-email-outbox] Email ${email.id} sent successfully via ${result.provider_used}`);
 
           await supabase
             .from("email_outbox")
@@ -270,7 +419,6 @@ Deno.serve(async (req) => {
             })
             .eq("id", email.id);
 
-          // Log audit event
           await supabase.from("audit_logs").insert({
             organization_id: email.organization_id,
             actor_type: "SYSTEM",
@@ -281,12 +429,12 @@ Deno.serve(async (req) => {
               to_domain: email.to_email.split("@")[1],
               subject_preview: email.subject.substring(0, 50),
               provider_message_id: sendResult.provider_message_id,
+              provider: result.provider_used,
             },
           });
 
           result.sent++;
         } else {
-          // Failed - determine if permanent or transient
           const errorMessage = sendResult.error || "Unknown error";
           console.error(`[process-email-outbox] Email ${email.id} failed: ${errorMessage}`);
 
@@ -294,7 +442,6 @@ Deno.serve(async (req) => {
           const isPermanent = isPermanentError(sendResult.error_code, sendResult.statusCode || 500);
           const isMaxed = newAttempts >= MAX_ATTEMPTS || isPermanent;
 
-          // Calculate next attempt time with backoff (only if not permanent/maxed)
           let nextAttemptAt: string | null = null;
           if (!isMaxed) {
             const backoffIndex = Math.min(newAttempts - 1, BACKOFF_INTERVALS.length - 1);
@@ -317,7 +464,6 @@ Deno.serve(async (req) => {
             })
             .eq("id", email.id);
 
-          // Log audit event for final failure
           if (isMaxed) {
             await supabase.from("audit_logs").insert({
               organization_id: email.organization_id,
@@ -332,6 +478,7 @@ Deno.serve(async (req) => {
                 attempts: newAttempts,
                 final_failure: true,
                 permanent: isPermanent,
+                provider: result.provider_used,
               },
             });
           }
@@ -346,7 +493,6 @@ Deno.serve(async (req) => {
         const newAttempts = email.attempts + 1;
         const isMaxed = newAttempts >= MAX_ATTEMPTS;
 
-        // Calculate next attempt time with backoff
         let nextAttemptAt: string | null = null;
         if (!isMaxed) {
           const backoffIndex = Math.min(newAttempts - 1, BACKOFF_INTERVALS.length - 1);
@@ -368,7 +514,6 @@ Deno.serve(async (req) => {
           })
           .eq("id", email.id);
 
-        // Log audit event for final failure
         if (isMaxed) {
           await supabase.from("audit_logs").insert({
             organization_id: email.organization_id,
@@ -376,12 +521,7 @@ Deno.serve(async (req) => {
             action: "EMAIL_FAILED",
             entity_type: "email_outbox",
             entity_id: email.id,
-            metadata: {
-              to_domain: email.to_email.split("@")[1],
-              error: errorMessage,
-              attempts: newAttempts,
-              final_failure: true,
-            },
+            metadata: { to_domain: email.to_email.split("@")[1], error: errorMessage, attempts: newAttempts, final_failure: true },
           });
         }
 
@@ -390,21 +530,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`[process-email-outbox] Complete: sent=${result.sent}, failed=${result.failed}, suppressed=${result.suppressed}`);
+    console.log(`[process-email-outbox] Complete: provider=${result.provider_used}, sent=${result.sent}, failed=${result.failed}, suppressed=${result.suppressed}`);
 
     result.ok = result.errors.length === 0;
 
     return new Response(
       JSON.stringify(result),
-      { 
-        status: result.ok ? 200 : 207,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      }
+      { status: result.ok ? 200 : 207, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[process-email-outbox] Unhandled error:", err);
     return new Response(
-      JSON.stringify({ ok: false, code: "INTERNAL_ERROR", message: String(err), gateway_configured: result.gateway_configured }),
+      JSON.stringify({ ok: false, code: "INTERNAL_ERROR", message: String(err), provider_used: result.provider_used }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
