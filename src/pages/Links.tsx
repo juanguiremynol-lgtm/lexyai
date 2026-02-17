@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Mail, Shield, FileText, Database } from "lucide-react";
+import { ExternalLink, Mail, Shield, FileText, Database, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -8,7 +8,7 @@ const DIRECTORIO_RAMA_URL = "https://www.ramajudicial.gov.co/directorio-cuentas-
 const TUTELA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/TutelaEnLinea";
 const DEMANDA_EN_LINEA_URL = "https://procesojudicial.ramajudicial.gov.co/demandaenlinea/";
 const DATOS_ABIERTOS_URL = "https://www.datos.gov.co/browse?sortBy=newest&utf8=%E2%9C%93&pageSize=20";
-
+const SERVIENTREGA_URL = "https://www.servientrega.com/wps/portal/soluciones-digitales/e-entrega";
 export default function Links() {
   return (
     <div className="space-y-6">
@@ -34,6 +34,10 @@ export default function Links() {
           <TabsTrigger value="datos-abiertos" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
             Datos Abiertos
+          </TabsTrigger>
+          <TabsTrigger value="servientrega" className="flex items-center gap-2">
+            <Package className="h-4 w-4" />
+            Servientrega e-Entrega
           </TabsTrigger>
         </TabsList>
 
@@ -167,6 +171,40 @@ export default function Links() {
                 >
                   <ExternalLink className="h-4 w-4" />
                   Abrir Portal de Datos Abiertos
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="servientrega" className="mt-6">
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <Package className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl">Servientrega e-Entrega</CardTitle>
+                  <CardDescription className="mt-1">
+                    Plataforma digital de Servientrega para gestión de entregas y notificaciones electrónicas
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Acceda al portal de soluciones digitales de Servientrega para la gestión de entregas electrónicas, útil para notificaciones judiciales y envío de documentos legales.
+              </p>
+              <Button asChild>
+                <a
+                  href={SERVIENTREGA_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir Servientrega e-Entrega
                 </a>
               </Button>
             </CardContent>
