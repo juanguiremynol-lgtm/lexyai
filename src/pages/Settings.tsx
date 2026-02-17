@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -32,6 +32,8 @@ import { BillingTab } from "@/components/settings/BillingTab";
 import { ProviderInstanceManager } from "@/components/settings/ProviderInstanceManager";
 import { UserPrivacySettings } from "@/components/settings/UserPrivacySettings";
 import { useOrganizationMembership } from "@/hooks/use-organization-membership";
+import { OrgTaskTemplatesManager } from "@/components/settings/OrgTaskTemplatesManager";
+import { OrgAlertDefaultsManager } from "@/components/settings/OrgAlertDefaultsManager";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
 import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -227,6 +229,14 @@ export default function Settings() {
                 <Server className="h-4 w-4 mr-1" />
                 Proveedores
               </TabsTrigger>
+              <TabsTrigger value="org-templates">
+                <ListChecks className="h-4 w-4 mr-1" />
+                Plantillas
+              </TabsTrigger>
+              <TabsTrigger value="org-alerts">
+                <Bell className="h-4 w-4 mr-1" />
+                Política Alertas
+              </TabsTrigger>
             </>
           )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
@@ -292,6 +302,14 @@ export default function Settings() {
 
             <TabsContent value="providers">
               <ProviderInstanceManager />
+            </TabsContent>
+
+            <TabsContent value="org-templates">
+              <OrgTaskTemplatesManager />
+            </TabsContent>
+
+            <TabsContent value="org-alerts">
+              <OrgAlertDefaultsManager />
             </TabsContent>
           </>
         )}

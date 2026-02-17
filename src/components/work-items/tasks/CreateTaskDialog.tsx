@@ -28,6 +28,7 @@ import { Calendar, Bell, ListChecks, FileText, Gavel } from "lucide-react";
 import { useCreateTask, useOrgMembers, type CreateTaskInput } from "@/hooks/use-work-item-tasks";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { TASK_TEMPLATES, type TaskTemplate } from "./TaskTemplates";
+import { useOrgTaskTemplates, type OrgTaskTemplate } from "@/hooks/use-org-task-templates";
 
 interface CreateTaskDialogProps {
   open: boolean;
@@ -39,6 +40,7 @@ export function CreateTaskDialog({ open, onOpenChange, workItemId }: CreateTaskD
   const createTask = useCreateTask();
   const { organization } = useOrganization();
   const { data: orgMembers = [] } = useOrgMembers(organization?.id);
+  const { data: orgTemplates = [] } = useOrgTaskTemplates();
 
   // Form state
   const [mode, setMode] = useState<'custom' | 'template'>('custom');
@@ -72,6 +74,16 @@ export function CreateTaskDialog({ open, onOpenChange, workItemId }: CreateTaskD
     setTitle(template.label);
     setDescription(template.description);
     setAlertCadence(template.defaultCadenceDays.toString());
+    setAlertEnabled(true);
+    setAlertInApp(true);
+  };
+
+  const handleOrgTemplateSelect = (t: OrgTaskTemplate) => {
+    setSelectedTemplate({ key: `org_${t.id}`, label: t.title, description: t.description || "", defaultCadenceDays: t.default_cadence_days || 3, category: t.category as any });
+    setTitle(t.title);
+    setDescription(t.description || "");
+    setPriority(t.priority as any);
+    setAlertCadence((t.default_cadence_days || 3).toString());
     setAlertEnabled(true);
     setAlertInApp(true);
   };
@@ -139,6 +151,26 @@ export function CreateTaskDialog({ open, onOpenChange, workItemId }: CreateTaskD
           {/* Template picker */}
           {mode === 'template' && (
             <div className="space-y-3">
+              {/* Org templates first */}
+              {orgTemplates.length > 0 && (
+                <>
+                  <Label className="text-sm font-medium">📋 Plantillas de la organización</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {orgTemplates.map(t => (
+                      <Badge
+                        key={t.id}
+                        variant={selectedTemplate?.key === `org_${t.id}` ? 'default' : 'outline'}
+                        className="cursor-pointer hover:bg-primary/10 transition-colors"
+                        onClick={() => handleOrgTemplateSelect(t)}
+                      >
+                        <ListChecks className="h-3 w-3 mr-1" />
+                        {t.title}
+                      </Badge>
+                    ))}
+                  </div>
+                </>
+              )}
+
               <Label className="text-sm font-medium">Hitos procesales</Label>
               <div className="flex flex-wrap gap-2">
                 {milestoneTemplates.map(t => (
