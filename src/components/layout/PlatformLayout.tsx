@@ -39,21 +39,21 @@ export function PlatformLayout() {
         <PlatformSidebar />
         <SidebarInset className="flex flex-1 flex-col min-w-0">
           {/* Platform Console Header */}
-          <header className="h-14 border-b border-white/10 bg-black/90 backdrop-blur-sm flex items-center px-6 gap-3 sticky top-0 z-10">
+          <header className="h-14 border-b border-white/20 bg-black flex items-center px-6 gap-3 sticky top-0 z-10">
             <ShieldAlert className="h-5 w-5 text-cyan-400" />
-            <span className="font-semibold text-white tracking-tight" style={{ fontFamily: "'JetBrains Mono', monospace" }}>PLATFORM</span>
-            <span className="text-white/20 mx-1">—</span>
-            <span className="text-white/70 font-medium">{pageTitle}</span>
+            <span className="font-semibold text-white tracking-widest text-xs uppercase" style={{ fontFamily: "'JetBrains Mono', monospace" }}>PLATFORM</span>
+            <span className="text-white/30 mx-1">|</span>
+            <span className="text-white/80 text-xs uppercase tracking-wide" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{pageTitle}</span>
             <div className="ml-auto flex items-center gap-3">
               <LaunchStatusIndicator />
-              <div className="px-3 py-1 bg-white/5 border border-white/10 rounded">
-                <span className="text-xs text-cyan-400 font-mono tracking-widest uppercase">Admin</span>
+              <div className="px-3 py-1 border border-cyan-400/40 rounded-none">
+                <span className="text-xs text-cyan-400 font-mono tracking-widest uppercase">ADMIN</span>
               </div>
             </div>
           </header>
           
           {/* Main content area with dark background */}
-          <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-slate-950 platform-console-main">
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6 bg-black platform-console-main">
             <Outlet />
           </main>
         </SidebarInset>
