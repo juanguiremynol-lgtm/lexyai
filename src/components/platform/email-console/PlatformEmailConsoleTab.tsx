@@ -1,5 +1,5 @@
 /**
- * PlatformEmailConsoleTab — Main console assembling Inbox, Sent, Compose, and Debug.
+ * PlatformEmailConsoleTab — Main console assembling Inbox, Sent, Compose, Debug, and Settings.
  * Includes active provider status banner with quick-switch link.
  */
 
@@ -10,11 +10,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2, Shield } from "lucide-react";
+import { Inbox, SendHorizonal, PenSquare, Settings2, CheckCircle, AlertTriangle, Loader2, Shield, Wrench } from "lucide-react";
 import { InboxView } from "./InboxView";
 import { SentView } from "./SentView";
 import { ComposeDialog } from "./ComposeDialog";
 import { EmailProviderDebugPanel } from "./EmailProviderDebugPanel";
+import { SystemEmailSettingsPanel } from "./SystemEmailSettingsPanel";
 
 const PROVIDER_LABELS: Record<string, string> = {
   resend: "Resend",
@@ -104,13 +105,16 @@ export function PlatformEmailConsoleTab() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="inbox" className="gap-1.5">
-            <Inbox className="h-4 w-4" /> Bandeja de Entrada
+            <Inbox className="h-4 w-4" /> Bandeja
           </TabsTrigger>
           <TabsTrigger value="sent" className="gap-1.5">
             <SendHorizonal className="h-4 w-4" /> Enviados
           </TabsTrigger>
           <TabsTrigger value="debug" className="gap-1.5">
-            <Shield className="h-4 w-4" /> Debug Proveedores
+            <Shield className="h-4 w-4" /> Debug
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5">
+            <Wrench className="h-4 w-4" /> Configuración
           </TabsTrigger>
         </TabsList>
 
@@ -122,6 +126,9 @@ export function PlatformEmailConsoleTab() {
         </TabsContent>
         <TabsContent value="debug">
           <EmailProviderDebugPanel />
+        </TabsContent>
+        <TabsContent value="settings">
+          <SystemEmailSettingsPanel />
         </TabsContent>
       </Tabs>
 
