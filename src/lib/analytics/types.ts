@@ -59,6 +59,10 @@ export const DEFAULT_ALLOWED_PROPERTIES: string[] = [
   "plan_name",
   "processes_count",
   "team_size",
+  "chip_type",
+  "data_kind",
+  "entries_count",
+  "export_type",
 ];
 
 /** Properties that MUST NEVER be sent externally */

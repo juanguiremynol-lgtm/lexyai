@@ -63,6 +63,12 @@ export const ANALYTICS_EVENTS = {
   LANDING_WORKFLOW_CARD_OPEN: "landing_workflow_card_open",
   LANDING_CALCULATOR_INTERACTED: "landing_calculator_interacted",
   LANDING_PLAN_RECOMMENDATION_CLICK: "landing_plan_recommendation_click",
+
+  // In-product UX
+  WORK_ITEM_CHIP_CLICKED: "work_item_chip_clicked",
+  DIFF_VIEW_OPENED: "diff_view_opened",
+  DIFF_VIEW_COPIED: "diff_view_copied",
+  WORK_ITEM_EXPORT_CLICKED: "work_item_export_clicked",
 } as const;
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
@@ -89,6 +95,10 @@ export const EVENT_PROPERTIES: Record<string, string[]> = {
   [ANALYTICS_EVENTS.LANDING_WORKFLOW_CARD_OPEN]: ["workflow_type"],
   [ANALYTICS_EVENTS.LANDING_CALCULATOR_INTERACTED]: [],
   [ANALYTICS_EVENTS.LANDING_PLAN_RECOMMENDATION_CLICK]: ["plan_name", "processes_count", "team_size"],
+  [ANALYTICS_EVENTS.WORK_ITEM_CHIP_CLICKED]: ["chip_type"],
+  [ANALYTICS_EVENTS.DIFF_VIEW_OPENED]: ["data_kind"],
+  [ANALYTICS_EVENTS.DIFF_VIEW_COPIED]: ["data_kind", "entries_count"],
+  [ANALYTICS_EVENTS.WORK_ITEM_EXPORT_CLICKED]: ["export_type"],
 };
 
 // ── Property Validators / Normalizers ────────────────────────────────

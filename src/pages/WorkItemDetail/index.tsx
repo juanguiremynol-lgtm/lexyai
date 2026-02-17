@@ -12,6 +12,8 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useState, useCallback } from "react";
 import { Loader2, ArrowLeft, ExternalLink, FileText, Calendar, AlertTriangle, CheckCircle, Clock, Scale, StickyNote, Newspaper, Flag, FlagOff, Bell, Trash2 } from "lucide-react";
 import { SoftDeleteButton } from "@/components/work-items/SoftDeleteButton";
+import { WorkItemAtAGlance } from "@/components/work-items/WorkItemAtAGlance";
+import { WorkItemExportPack } from "@/components/work-items/WorkItemExportPack";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -205,8 +207,15 @@ export default function WorkItemDetail() {
               </div>
             )}
           </div>
+          {/* At-a-glance chips */}
+          <div className="ml-10 mt-2">
+            <WorkItemAtAGlance workItem={extendedWorkItem} />
+          </div>
         </div>
         <div className="flex gap-2 items-center">
+          {/* Export Pack */}
+          <WorkItemExportPack workItem={extendedWorkItem} />
+
           {/* Flag button */}
           <Button 
             variant="ghost" 
