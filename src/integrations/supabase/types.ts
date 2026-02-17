@@ -9519,6 +9519,129 @@ export type Database = {
           },
         ]
       }
+      system_email_events: {
+        Row: {
+          created_at: string
+          event_id: string
+          event_type: string
+          id: string
+          payload: Json
+          provider: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          event_type: string
+          id?: string
+          payload: Json
+          provider: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          provider?: string
+        }
+        Relationships: []
+      }
+      system_email_mailbox: {
+        Row: {
+          created_at: string
+          id: string
+          imap_host: string
+          imap_port: number
+          imap_tls: boolean
+          last_sync_at: string | null
+          password_secret_id: string | null
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          imap_host?: string
+          imap_port?: number
+          imap_tls?: boolean
+          last_sync_at?: string | null
+          password_secret_id?: string | null
+          username?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          imap_host?: string
+          imap_port?: number
+          imap_tls?: boolean
+          last_sync_at?: string | null
+          password_secret_id?: string | null
+          username?: string
+        }
+        Relationships: []
+      }
+      system_email_messages: {
+        Row: {
+          bcc_raw: Json
+          cc_raw: Json
+          created_at: string
+          direction: string
+          folder: string
+          from_raw: string
+          html_body: string | null
+          id: string
+          provider: string
+          provider_message_id: string | null
+          provider_status: string
+          received_at: string | null
+          sent_at: string | null
+          snippet: string | null
+          subject: string | null
+          text_body: string | null
+          to_raw: Json
+          updated_at: string
+        }
+        Insert: {
+          bcc_raw?: Json
+          cc_raw?: Json
+          created_at?: string
+          direction: string
+          folder?: string
+          from_raw: string
+          html_body?: string | null
+          id?: string
+          provider?: string
+          provider_message_id?: string | null
+          provider_status?: string
+          received_at?: string | null
+          sent_at?: string | null
+          snippet?: string | null
+          subject?: string | null
+          text_body?: string | null
+          to_raw?: Json
+          updated_at?: string
+        }
+        Update: {
+          bcc_raw?: Json
+          cc_raw?: Json
+          created_at?: string
+          direction?: string
+          folder?: string
+          from_raw?: string
+          html_body?: string | null
+          id?: string
+          provider?: string
+          provider_message_id?: string | null
+          provider_status?: string
+          received_at?: string | null
+          sent_at?: string | null
+          snippet?: string | null
+          subject?: string | null
+          text_body?: string | null
+          to_raw?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       system_email_settings: {
         Row: {
           alert_accent_color: string
@@ -9536,9 +9659,11 @@ export type Database = {
           from_email: string
           from_name: string
           id: string
+          inbound_mode: string
           is_enabled: boolean
           last_test_result: string | null
           last_test_sent_at: string | null
+          outbound_provider: string
           provider: string
           reply_to: string | null
           updated_at: string
@@ -9559,9 +9684,11 @@ export type Database = {
           from_email?: string
           from_name?: string
           id?: string
+          inbound_mode?: string
           is_enabled?: boolean
           last_test_result?: string | null
           last_test_sent_at?: string | null
+          outbound_provider?: string
           provider?: string
           reply_to?: string | null
           updated_at?: string
@@ -9582,11 +9709,49 @@ export type Database = {
           from_email?: string
           from_name?: string
           id?: string
+          inbound_mode?: string
           is_enabled?: boolean
           last_test_result?: string | null
           last_test_sent_at?: string | null
+          outbound_provider?: string
           provider?: string
           reply_to?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      system_email_setup_state: {
+        Row: {
+          id: string
+          last_error_code: string | null
+          last_error_message: string | null
+          step_from_identity_ok: boolean
+          step_inbound_ok: boolean
+          step_inbound_selected: boolean
+          step_resend_key_ok: boolean
+          step_test_send_ok: boolean
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          step_from_identity_ok?: boolean
+          step_inbound_ok?: boolean
+          step_inbound_selected?: boolean
+          step_resend_key_ok?: boolean
+          step_test_send_ok?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          step_from_identity_ok?: boolean
+          step_inbound_ok?: boolean
+          step_inbound_selected?: boolean
+          step_resend_key_ok?: boolean
+          step_test_send_ok?: boolean
           updated_at?: string
         }
         Relationships: []
