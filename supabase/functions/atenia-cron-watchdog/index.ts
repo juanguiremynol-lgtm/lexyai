@@ -642,8 +642,209 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
-    // 6) Log watchdog actions into atenia_ai_actions for audit trail
+    // 5f) Fix D: Deep Dive TTL — auto-timeout RUNNING deep dives > 30min
     // ================================================================
+    const DEEP_DIVE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+    const deepDiveCutoff = new Date(Date.now() - DEEP_DIVE_TTL_MS).toISOString();
+    try {
+      const { data: stuckDives } = await admin
+        .from("atenia_deep_dives")
+        .select("id, started_at, work_item_id, radicado, trigger_criteria")
+        .eq("status", "RUNNING")
+        .lt("started_at", deepDiveCutoff);
+
+      let deepDivesTimedOut = 0;
+      for (const dive of stuckDives ?? []) {
+        const elapsed = Date.now() - new Date(dive.started_at).getTime();
+        await admin.from("atenia_deep_dives").update({
+          status: "TIMED_OUT",
+          root_cause: "DEEP_DIVE_TTL_EXCEEDED",
+          diagnosis: `Deep dive excedió TTL de 30min (elapsed: ${Math.round(elapsed / 60000)}min). Auto-terminado por watchdog.`,
+          finished_at: new Date().toISOString(),
+          duration_ms: elapsed,
+        }).eq("id", dive.id);
+        deepDivesTimedOut++;
+      }
+      results.deep_dive_ttl = { checked: stuckDives?.length ?? 0, timed_out: deepDivesTimedOut };
+      if (deepDivesTimedOut > 0) {
+        alerts.push({
+          title: "⏱️ Deep dives con TTL excedido",
+          message: `${deepDivesTimedOut} deep dive(s) RUNNING > 30min auto-terminado(s).`,
+          severity: "WARNING",
+        });
+      }
+    } catch (e) {
+      console.warn("[watchdog] Deep dive TTL check error:", e);
+    }
+
+    // ================================================================
+    // 5g) Fix E: Remediation Queue Liveness — reclaim stuck RUNNING items
+    // ================================================================
+    const REMEDIATION_STUCK_TTL_MS = 60 * 60 * 1000; // 1 hour (not 24h, be aggressive)
+    const remediationStuckCutoff = new Date(Date.now() - REMEDIATION_STUCK_TTL_MS).toISOString();
+    try {
+      const { data: stuckJobs } = await admin
+        .from("atenia_ai_remediation_queue")
+        .select("id, work_item_id, action_type, attempts, max_attempts, updated_at, provider")
+        .eq("status", "RUNNING")
+        .lt("updated_at", remediationStuckCutoff);
+
+      let remediationReclaimed = 0;
+      let remediationFailed = 0;
+      for (const job of stuckJobs ?? []) {
+        const attempts = (job.attempts ?? 1) + 1;
+        const maxAttempts = job.max_attempts ?? 3;
+        if (attempts >= maxAttempts) {
+          // Terminal: mark FAILED
+          await admin.from("atenia_ai_remediation_queue").update({
+            status: "FAILED",
+            updated_at: new Date().toISOString(),
+            last_error: "REMEDIATION_STUCK: RUNNING > 1h without progress, max attempts reached",
+          }).eq("id", job.id);
+          remediationFailed++;
+        } else {
+          // Reclaim: reset to PENDING with incremented attempt
+          await admin.from("atenia_ai_remediation_queue").update({
+            status: "PENDING",
+            updated_at: new Date().toISOString(),
+            attempts,
+            run_after: new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5min backoff
+            last_error: `REMEDIATION_STUCK: Reclaimed by watchdog after RUNNING > 1h (attempt ${attempts}/${maxAttempts})`,
+          }).eq("id", job.id);
+          remediationReclaimed++;
+        }
+      }
+      results.remediation_liveness = { stuck_found: stuckJobs?.length ?? 0, reclaimed: remediationReclaimed, failed: remediationFailed };
+      if ((stuckJobs?.length ?? 0) > 0) {
+        alerts.push({
+          title: "🔧 Remediation queue items reclamados",
+          message: `${stuckJobs!.length} item(s) RUNNING > 1h: ${remediationReclaimed} reclamados, ${remediationFailed} terminales.`,
+          severity: "WARNING",
+        });
+      }
+    } catch (e) {
+      console.warn("[watchdog] Remediation liveness check error:", e);
+    }
+
+    // ================================================================
+    // 5h) Fix F: Ghost Items — deterministic remediation
+    // ================================================================
+    try {
+      // Find monitored items with no sync attempts ever
+      const { data: ghostItems } = await admin
+        .from("work_items")
+        .select("id, organization_id, radicado, workflow_type, created_at, ghost_bootstrap_attempts")
+        .eq("monitoring_enabled", true)
+        .is("deleted_at", null)
+        .is("last_synced_at", null)
+        .is("last_attempted_sync_at", null)
+        .not("radicado", "is", null)
+        .limit(20);
+
+      const GHOST_MAX_ATTEMPTS = 2;
+      let ghostBootstrapped = 0;
+      let ghostTerminalized = 0;
+
+      for (const ghost of ghostItems ?? []) {
+        const attempts = (ghost as any).ghost_bootstrap_attempts ?? 0;
+        if (attempts >= GHOST_MAX_ATTEMPTS) {
+          // Terminalize: disable monitoring
+          await admin.from("work_items").update({
+            monitoring_enabled: false,
+            monitoring_disabled_reason: "GHOST_NO_INITIAL_SYNC",
+            monitoring_disabled_at: new Date().toISOString(),
+          } as any).eq("id", ghost.id);
+          ghostTerminalized++;
+        } else {
+          // Enqueue one-time bootstrap sync
+          const today = new Date().toISOString().slice(0, 10);
+          await admin.from("atenia_ai_remediation_queue").upsert({
+            action_type: "SYNC_WORK_ITEM",
+            work_item_id: ghost.id,
+            organization_id: ghost.organization_id,
+            status: "PENDING",
+            priority: 4,
+            payload: { source: "watchdog_ghost_bootstrap", attempt: attempts + 1 },
+            dedupe_key: `GHOST:${today}:${ghost.id}`,
+          }, { onConflict: "dedupe_key" });
+          // Increment bootstrap attempts
+          await admin.from("work_items").update({
+            ghost_bootstrap_attempts: attempts + 1,
+          } as any).eq("id", ghost.id);
+          ghostBootstrapped++;
+        }
+      }
+      results.ghost_remediation = { found: ghostItems?.length ?? 0, bootstrapped: ghostBootstrapped, terminalized: ghostTerminalized };
+
+      // Fix F: Only emit warning if there are NEW ghosts (not already terminalized/bootstrapped)
+      if ((ghostItems?.length ?? 0) > 0 && ghostTerminalized > 0) {
+        alerts.push({
+          title: "👻 Ghost items terminalizados",
+          message: `${ghostTerminalized} asunto(s) monitoreado(s) sin sync inicial deshabilitado(s) tras ${GHOST_MAX_ATTEMPTS} intentos.`,
+          severity: "INFO",
+        });
+      }
+    } catch (e) {
+      console.warn("[watchdog] Ghost remediation error:", e);
+    }
+
+    // ================================================================
+    // 5i) Fix G: Auto-escalate stale CRITICAL incidents
+    // ================================================================
+    try {
+      const STALE_INCIDENT_HOURS = 48;
+      const staleCutoffIncident = new Date(Date.now() - STALE_INCIDENT_HOURS * 60 * 60 * 1000).toISOString();
+
+      const { data: staleIncidents } = await admin
+        .from("atenia_ai_conversations")
+        .select("id, title, severity, created_at, observation_count, action_count, status, organization_id")
+        .eq("status", "OPEN")
+        .eq("severity", "CRITICAL")
+        .lt("created_at", staleCutoffIncident);
+
+      let escalated = 0;
+      for (const incident of staleIncidents ?? []) {
+        const obsCount = incident.observation_count ?? 0;
+        const actCount = incident.action_count ?? 0;
+        // Only escalate if observations are accumulating without actions
+        if (obsCount > 0 && actCount === 0) {
+          // Create escalation action
+          await admin.from("atenia_ai_actions").insert({
+            organization_id: incident.organization_id ?? "a0000000-0000-0000-0000-000000000001",
+            action_type: "STALE_INCIDENT_ESCALATION",
+            autonomy_tier: "ACT",
+            actor: "WATCHDOG",
+            reasoning: `⚠️ Incidente CRITICAL "${incident.title}" abierto ${Math.round((Date.now() - new Date(incident.created_at).getTime()) / 3600000)}h con ${obsCount} observaciones y 0 acciones. Escalado automáticamente.`,
+            action_result: "escalated",
+            status: "EXECUTED",
+            evidence: {
+              incident_id: incident.id,
+              age_hours: Math.round((Date.now() - new Date(incident.created_at).getTime()) / 3600000),
+              observation_count: obsCount,
+              action_count: actCount,
+            },
+          });
+          // Increment action_count so we don't re-escalate every cycle
+          await admin.from("atenia_ai_conversations").update({
+            action_count: (actCount ?? 0) + 1,
+            auto_escalated_at: new Date().toISOString(),
+          }).eq("id", incident.id);
+          escalated++;
+
+          // Create visible alert
+          alerts.push({
+            title: `🚨 Incidente CRITICAL escalado: ${incident.title?.slice(0, 50)}`,
+            message: `Incidente abierto ${Math.round((Date.now() - new Date(incident.created_at).getTime()) / 3600000)}h con ${obsCount} observaciones sin acción. Requiere atención inmediata.`,
+            severity: "CRITICAL",
+          });
+        }
+      }
+      results.stale_incident_escalation = { checked: staleIncidents?.length ?? 0, escalated };
+    } catch (e) {
+      console.warn("[watchdog] Stale incident escalation error:", e);
+    }
+
+
     for (const alert of alerts) {
       // Write AI action for each alert (audit trail)
       try {

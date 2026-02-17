@@ -926,6 +926,7 @@ export type Database = {
           dedupe_key: string | null
           id: string
           last_error: string | null
+          lease_heartbeat_at: string | null
           max_attempts: number
           organization_id: string | null
           payload: Json
@@ -944,6 +945,7 @@ export type Database = {
           dedupe_key?: string | null
           id?: string
           last_error?: string | null
+          lease_heartbeat_at?: string | null
           max_attempts?: number
           organization_id?: string | null
           payload?: Json
@@ -962,6 +964,7 @@ export type Database = {
           dedupe_key?: string | null
           id?: string
           last_error?: string | null
+          lease_heartbeat_at?: string | null
           max_attempts?: number
           organization_id?: string | null
           payload?: Json
@@ -11130,6 +11133,7 @@ export type Database = {
           freshness_tier: string | null
           freshness_violation_at: string | null
           freshness_violation_notified: boolean | null
+          ghost_bootstrap_attempts: number | null
           ghost_candidate_at: string | null
           ghost_verification_run_id: string | null
           ghost_verification_status: string | null
@@ -11292,6 +11296,7 @@ export type Database = {
           freshness_tier?: string | null
           freshness_violation_at?: string | null
           freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
           ghost_candidate_at?: string | null
           ghost_verification_run_id?: string | null
           ghost_verification_status?: string | null
@@ -11454,6 +11459,7 @@ export type Database = {
           freshness_tier?: string | null
           freshness_violation_at?: string | null
           freshness_violation_notified?: boolean | null
+          ghost_bootstrap_attempts?: number | null
           ghost_candidate_at?: string | null
           ghost_verification_run_id?: string | null
           ghost_verification_status?: string | null
@@ -11645,6 +11651,7 @@ export type Database = {
           dedupe_key: string | null
           id: string
           last_error: string | null
+          lease_heartbeat_at: string | null
           max_attempts: number
           organization_id: string | null
           payload: Json

@@ -9,7 +9,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 
-const DEFAULT_MAX_RUNTIME_MS = 20 * 60 * 1000; // 20 minutes
+const DEFAULT_MAX_RUNTIME_MS = 30 * 60 * 1000; // 30 minutes (Fix D: increased from 20)
 const DEDUPE_WINDOW_HOURS = 6;
 
 /**
