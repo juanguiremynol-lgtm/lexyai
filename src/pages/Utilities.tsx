@@ -2,8 +2,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports, ColombiaDepartments, CourthouseDirectorySearch } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
-  Calculator, 
-  ExternalLink, 
+  Calculator,
+  ExternalLink,
   Briefcase, 
   Scale,
   BookOpen,
@@ -103,14 +103,6 @@ const EXTERNAL_TOOLS = [
   },
 ];
 
-const PUBLIC_LINKS = [
-  {
-    title: "Datos Abiertos Colombia",
-    description: "Portal oficial de datos abiertos del gobierno colombiano",
-    url: "https://www.datos.gov.co/browse?sortBy=newest&utf8=%E2%9C%93&pageSize=20",
-    icon: ExternalLink,
-  },
-];
 
 export default function Utilities() {
   const { isPlatformAdmin } = usePlatformAdmin();
@@ -161,10 +153,6 @@ export default function Utilities() {
           <TabsTrigger value="correos" className="flex items-center gap-2">
             <Database className="h-4 w-4" />
             Directorio de Correos
-          </TabsTrigger>
-          <TabsTrigger value="enlaces" className="flex items-center gap-2">
-            <ExternalLink className="h-4 w-4" />
-            Enlaces
           </TabsTrigger>
           {isPlatformAdmin && (
             <TabsTrigger value="snake" className="flex items-center gap-2">
@@ -239,36 +227,6 @@ export default function Utilities() {
           <CourthouseDirectorySearch />
         </TabsContent>
 
-        <TabsContent value="enlaces" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {PUBLIC_LINKS.map((link) => (
-              <a
-                key={link.url}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block group"
-              >
-                <Card className="h-full transition-all hover:shadow-md hover:border-primary/50 group-hover:bg-muted/30">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                        <link.icon className="h-5 w-5" />
-                      </div>
-                      <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                    <CardTitle className="text-base mt-3">{link.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="text-sm">
-                      {link.description}
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              </a>
-            ))}
-          </div>
-        </TabsContent>
 
         {isPlatformAdmin && (
           <TabsContent value="snake" className="mt-6">
