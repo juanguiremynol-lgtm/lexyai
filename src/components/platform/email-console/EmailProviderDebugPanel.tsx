@@ -22,6 +22,7 @@ import {
   CheckCircle,
   Clock,
   Globe,
+  Inbox,
   Loader2,
   Mail,
   RefreshCw,
@@ -453,33 +454,32 @@ function TestSendCard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user?.email) throw new Error("No se pudo obtener el email del usuario autenticado");
 
-      // Get user's org
-      const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle();
-      const orgId = profile?.organization_id;
-      if (!orgId) throw new Error("No se encontró organización para el usuario");
-
-      const { error } = await supabase.from("email_outbox").insert({
-        to_email: user.email,
-        subject: `[TEST] Pipeline de email — ${new Date().toLocaleString("es-CO")}`,
-        html: `<div style="font-family:monospace;padding:20px;background:#000;color:#0f0;border:1px solid #0f0;">
-          <h2 style="color:#0f0;">✅ Test de Pipeline Exitoso</h2>
-          <p>Este email fue enviado desde el Debug Panel de la Consola de Email.</p>
-          <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-          <p><strong>Destinatario:</strong> ${user.email}</p>
-          <p><strong>Pipeline:</strong> email_outbox → process-email-outbox → proveedor activo</p>
-          <hr style="border-color:#0f0;"/>
-          <p style="font-size:11px;color:#888;">Atenia Platform — andromeda.legal</p>
-        </div>`,
-        organization_id: orgId,
-        next_attempt_at: new Date().toISOString(),
-        trigger_reason: "DEBUG_TEST",
-        triggered_by: user.id,
-        status: "PENDING",
+      const { data, error } = await supabase.functions.invoke("system-email-send", {
+        body: {
+          to: user.email,
+          subject: `[TEST] Pipeline de email — ${new Date().toLocaleString("es-CO")}`,
+          html: `<div style="font-family:monospace;padding:20px;background:#000;color:#0f0;border:1px solid #0f0;">
+            <h2 style="color:#0f0;">✅ Test de Pipeline Exitoso</h2>
+            <p>Este email fue enviado desde el Debug Panel de la Consola de Email.</p>
+            <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+            <p><strong>Destinatario:</strong> ${user.email}</p>
+            <p><strong>Pipeline:</strong> system-email-send → Resend API</p>
+            <hr style="border-color:#0f0;"/>
+            <p style="font-size:11px;color:#888;">Atenia Platform — andromeda.legal</p>
+          </div>`,
+          text: `Test de Pipeline — ${new Date().toISOString()}`,
+        },
       });
 
       if (error) throw error;
-      setResult({ ok: true, message: `Email de prueba encolado para ${user.email}. Revise su bandeja en unos segundos.` });
-      toast.success("Test encolado exitosamente");
+
+      if (data?.ok) {
+        setResult({ ok: true, message: `Email de prueba enviado a ${user.email}. ID: ${data.provider_message_id || "sent"}` });
+        toast.success("Test enviado exitosamente");
+      } else {
+        setResult({ ok: false, message: data?.error_message || data?.error || "Error desconocido" });
+        toast.error(data?.error_message || "Error al enviar test");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error desconocido";
       setResult({ ok: false, message: msg });
@@ -497,24 +497,105 @@ function TestSendCard() {
           Test rápido de envío
         </CardTitle>
         <CardDescription className="text-xs">
-          Envía un email de prueba a tu dirección a través del pipeline completo (email_outbox → process-email-outbox → proveedor activo)
+          Envía un email de prueba a tu dirección vía system-email-send → Resend API
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={handleTestSend}
-          disabled={sending}
-        >
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={handleTestSend} disabled={sending}>
           {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-          {sending ? "Enviando test..." : "Enviar test vía pipeline"}
+          {sending ? "Enviando test..." : "Enviar test vía Resend"}
         </Button>
         {result && (
-          <div className={`text-xs p-2 rounded border ${result.ok ? "border-green-500/30 bg-green-500/5 text-green-400" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
+          <div className={`text-xs p-2 rounded border ${result.ok ? "border-primary/30 bg-primary/5 text-primary" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
             {result.ok ? <CheckCircle className="h-3 w-3 inline mr-1" /> : <XCircle className="h-3 w-3 inline mr-1" />}
             {result.message}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WebhookHealthCard() {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<{ hasEvents: boolean; lastEvent: string | null; stale: boolean } | null>(null);
+
+  const checkWebhook = async () => {
+    setChecking(true);
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: events, error } = await (supabase.from("system_email_events") as any)
+        .select("id, event_id, created_at")
+        .eq("provider", "resend")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (error) throw error;
+
+      if (events && events.length > 0) {
+        const lastEventTime = events[0].created_at;
+        const isStale = lastEventTime < twentyFourHoursAgo;
+        setResult({ hasEvents: true, lastEvent: lastEventTime, stale: isStale });
+      } else {
+        setResult({ hasEvents: false, lastEvent: null, stale: true });
+      }
+    } catch (err) {
+      toast.error("Error verificando webhook");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleDiagnose = () => {
+    const summary = result
+      ? `📧 Webhook Entrada Health:\nÚltimo evento: ${result.lastEvent ? new Date(result.lastEvent).toLocaleString("es-CO") : "Ninguno"}\nEstado: ${result.stale ? "⚠️ Sin eventos en 24h" : "✅ Activo"}`
+      : "No hay datos de diagnóstico. Ejecuta la verificación primero.";
+    toast.success("Diagnóstico generado", { description: summary.slice(0, 200) });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Inbox className="h-4 w-4 text-primary" />
+          Webhook Entrada (Resend Inbound)
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Verifica que el webhook de recepción está funcionando y recibiendo eventos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={checkWebhook} disabled={checking}>
+            {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Verificar
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDiagnose}>
+            <Brain className="h-3.5 w-3.5" /> Diagnose con Andro IA
+          </Button>
+        </div>
+        {result && (
+          <div className={`text-xs p-2 rounded border ${
+            !result.hasEvents ? "border-destructive/30 bg-destructive/5 text-destructive" :
+            result.stale ? "border-yellow-500/30 bg-yellow-500/5 text-yellow-600" :
+            "border-primary/30 bg-primary/5 text-primary"
+          }`}>
+            {!result.hasEvents ? (
+              <>
+                <XCircle className="h-3 w-3 inline mr-1" />
+                Sin eventos registrados. Configura el webhook en Resend.
+              </>
+            ) : result.stale ? (
+              <>
+                <AlertTriangle className="h-3 w-3 inline mr-1" />
+                Sin eventos en 24h. Último: {new Date(result.lastEvent!).toLocaleString("es-CO")}
+              </>
+            ) : (
+              <>
+                <CheckCircle className="h-3 w-3 inline mr-1" />
+                Webhook activo. Último evento: {new Date(result.lastEvent!).toLocaleString("es-CO")}
+              </>
+            )}
           </div>
         )}
       </CardContent>
@@ -666,6 +747,7 @@ export function EmailProviderDebugPanel() {
           )}
 
           <TestSendCard />
+          <WebhookHealthCard />
         </TabsContent>
 
         {/* ─── Deliverability Tab ─── */}

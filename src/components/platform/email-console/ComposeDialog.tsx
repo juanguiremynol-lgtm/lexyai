@@ -1,7 +1,7 @@
 /**
  * Compose Dialog — Platform Email Console
- * Enqueues emails to email_outbox with Atenia AI assistance.
- * Shows structured errors (validation / DB / RLS / trigger) instead of generic messages.
+ * Sends emails via system-email-send edge function.
+ * Shows structured errors (validation / provider / DB) instead of generic messages.
  */
 
 import { useState } from "react";
@@ -21,13 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   Loader2, Send, Brain, Sparkles, CheckCircle, AlertTriangle, XCircle, RotateCcw,
 } from "lucide-react";
-import {
-  composePlatformEmail,
-  isComposeError,
-  type ComposeError,
-} from "@/lib/platform/email-console-service";
 import { assistCompose, type AIComposeAssistResult } from "@/lib/platform/email-ai-service";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 interface ComposeDialogProps {
@@ -36,14 +32,34 @@ interface ComposeDialogProps {
   onSent?: () => void;
 }
 
+interface ComposeError {
+  code: string;
+  message: string;
+  phase: string;
+  details?: string;
+}
+
 const PHASE_LABELS: Record<string, string> = {
   validation: "Validación",
+  provider: "Proveedor (Resend)",
   insert: "Base de Datos",
-  trigger: "Procesamiento",
   unknown: "Error",
 };
 
+const ERROR_HINTS: Record<string, string> = {
+  MISSING_RESEND_KEY: "Agrega RESEND_API_KEY en los secretos de las Edge Functions.",
+  EMAIL_DISABLED: "Activa el sistema de email en el Setup Wizard (/platform/email-setup).",
+  RESEND_SEND_FAILED: "Resend rechazó el envío. Verifica el dominio y la API key.",
+  MISSING_RECIPIENT: "El campo 'Para' no puede estar vacío.",
+  MISSING_SUBJECT: "Escribe un asunto para el email.",
+  MISSING_BODY: "El cuerpo del email no puede estar vacío.",
+  RLS_DENIED: "Tu cuenta no tiene permisos para enviar. Verifica que eres Super Admin.",
+  UNAUTHORIZED: "Sesión expirada. Vuelve a iniciar sesión.",
+  FORBIDDEN: "Solo Super Admins pueden enviar emails desde la plataforma.",
+};
+
 export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps) {
+  const queryClient = useQueryClient();
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -65,51 +81,55 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
   const handleSend = async () => {
     setLastError(null);
     setLastSuccessId(null);
-
     setSending(true);
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const { data, error } = await supabase.functions.invoke("system-email-send", {
+        body: {
+          to: to.trim(),
+          subject: subject.trim(),
+          html: `<div>${body.replace(/\n/g, "<br/>")}</div>`,
+          text: body,
+        },
+      });
+
+      if (error) {
+        // Network / invocation error
         setLastError({
-          code: "NOT_AUTHENTICATED",
-          message: "No hay sesión activa. Inicia sesión como Super Admin.",
-          phase: "validation",
+          code: "INVOKE_FAILED",
+          message: error.message || "Error al invocar la función de envío",
+          phase: "unknown",
         });
         return;
       }
 
-      const result = await composePlatformEmail(
-        {
-          to_email: to,
-          subject,
-          html: `<div>${body.replace(/\n/g, "<br/>")}</div>`,
-        },
-        user.id,
-      );
+      if (data?.ok) {
+        setLastSuccessId(data.provider_message_id || "sent");
+        toast.success(data.message || "Email enviado exitosamente");
 
-      setLastSuccessId(result.id);
-      toast.success(
-        result.triggered
-          ? "Email encolado y procesándose"
-          : "Email encolado (se procesará en el próximo ciclo)",
-      );
+        // Invalidate sent view
+        queryClient.invalidateQueries({ queryKey: ["platform-email-sent"] });
 
-      // Delay reset so user sees success state
-      setTimeout(() => {
-        resetState();
-        onOpenChange(false);
-        onSent?.();
-      }, 1500);
-    } catch (err: unknown) {
-      if (isComposeError(err)) {
-        setLastError(err);
+        setTimeout(() => {
+          resetState();
+          onOpenChange(false);
+          onSent?.();
+        }, 1500);
       } else {
+        // Structured error from edge function
         setLastError({
-          code: "UNKNOWN",
-          message: err instanceof Error ? err.message : "Error desconocido al enviar",
-          phase: "unknown",
+          code: data?.error_code || "UNKNOWN",
+          message: data?.error_message || data?.error || "Error desconocido",
+          phase: data?.phase || "unknown",
+          details: data?.provider_response || undefined,
         });
       }
+    } catch (err: unknown) {
+      setLastError({
+        code: "NETWORK_ERROR",
+        message: err instanceof Error ? err.message : "Error de red al enviar",
+        phase: "unknown",
+      });
     } finally {
       setSending(false);
     }
@@ -149,7 +169,7 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
         <DialogHeader>
           <DialogTitle>Componer Email</DialogTitle>
           <DialogDescription>
-            El email será encolado y enviado por el gateway configurado. Usa Atenia AI para mejorar tu redacción.
+            El email se envía directamente vía Resend desde info@andromeda.legal. Usa Atenia AI para mejorar tu redacción.
           </DialogDescription>
         </DialogHeader>
 
@@ -199,10 +219,10 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
 
           {/* ── Success Banner ── */}
           {lastSuccessId && (
-            <div className="flex items-center gap-2 p-3 rounded border border-green-500/30 bg-green-500/5">
-              <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+            <div className="flex items-center gap-2 p-3 rounded border border-primary/30 bg-primary/5">
+              <CheckCircle className="h-4 w-4 text-primary shrink-0" />
               <div className="text-xs">
-                <p className="font-medium text-green-500">Email encolado exitosamente</p>
+                <p className="font-medium text-primary">Email enviado exitosamente</p>
                 <p className="text-muted-foreground font-mono">ID: {lastSuccessId}</p>
               </div>
             </div>
@@ -220,10 +240,15 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
                       {lastError.code}
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">
-                      Fase: {PHASE_LABELS[lastError.phase]}
+                      Fase: {PHASE_LABELS[lastError.phase] || lastError.phase}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">{lastError.message}</p>
+                  {ERROR_HINTS[lastError.code] && (
+                    <p className="text-xs text-muted-foreground mt-1 italic">
+                      💡 {ERROR_HINTS[lastError.code]}
+                    </p>
+                  )}
                   {lastError.details && (
                     <pre className="text-[10px] text-muted-foreground mt-1 p-1.5 rounded bg-muted/50 overflow-x-auto font-mono max-h-20 overflow-y-auto">
                       {lastError.details}
