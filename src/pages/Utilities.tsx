@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports, ColombiaDepartments, CourthouseDirectorySearch } from "@/components/utilities";
+import { RadicadoConstructor, TerminosCalculator, SnakeGame, PatternTestingPanel, ConstitutionArticles, ColombiaMaps, ColombiaAirports, ColombiaDepartments, CourthouseDirectorySearch, InterventionTimer } from "@/components/utilities";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Calculator,
@@ -25,6 +25,7 @@ import {
   Gamepad2,
   Regex,
   Database,
+  Timer,
 } from "lucide-react";
 import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 
@@ -154,6 +155,10 @@ export default function Utilities() {
             <Database className="h-4 w-4" />
             Directorio de Correos
           </TabsTrigger>
+          <TabsTrigger value="cronometro" className="flex items-center gap-2">
+            <Timer className="h-4 w-4" />
+            Cronómetro
+          </TabsTrigger>
           {isPlatformAdmin && (
             <TabsTrigger value="snake" className="flex items-center gap-2">
               <Gamepad2 className="h-4 w-4" />
@@ -225,6 +230,10 @@ export default function Utilities() {
 
         <TabsContent value="correos" className="mt-6">
           <CourthouseDirectorySearch />
+        </TabsContent>
+
+        <TabsContent value="cronometro" className="mt-6">
+          <InterventionTimer />
         </TabsContent>
 
 
