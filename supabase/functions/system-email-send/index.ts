@@ -1,7 +1,8 @@
 /**
- * system-email-send — Sends email via Resend for Platform Compose.
- * Super Admin only. Logs to system_email_messages using service role.
- * Returns structured errors for the UI.
+ * system-email-send — Multi-provider email sender for Platform Compose.
+ * Super Admin only. Reads `outbound_provider` from system_email_settings
+ * and dispatches to the correct adapter: Resend, SendGrid, Mailgun, AWS SES, or SMTP.
+ * Logs to system_email_messages using service role.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -11,6 +12,309 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// ─── Provider Adapter Interface ─────────────────────────
+
+interface SendPayload {
+  from: string;
+  to: string[];
+  subject: string;
+  html?: string;
+  text?: string;
+  reply_to?: string;
+  cc?: string[];
+  bcc?: string[];
+}
+
+interface SendResult {
+  ok: boolean;
+  provider_message_id: string | null;
+  error: string | null;
+}
+
+// ─── Resend Adapter ─────────────────────────────────────
+
+async function sendViaResend(payload: SendPayload): Promise<SendResult> {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) return { ok: false, provider_message_id: null, error: "RESEND_API_KEY no configurada" };
+
+  const body: Record<string, unknown> = {
+    from: payload.from,
+    to: payload.to,
+    subject: payload.subject,
+  };
+  if (payload.html) body.html = payload.html;
+  if (payload.text) body.text = payload.text;
+  if (payload.reply_to) body.reply_to = payload.reply_to;
+  if (payload.cc?.length) body.cc = payload.cc;
+  if (payload.bcc?.length) body.bcc = payload.bcc;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json();
+  if (res.ok && data.id) {
+    return { ok: true, provider_message_id: data.id, error: null };
+  }
+  return { ok: false, provider_message_id: null, error: data.message || data.error || JSON.stringify(data) };
+}
+
+// ─── SendGrid Adapter ───────────────────────────────────
+
+async function sendViaSendGrid(payload: SendPayload): Promise<SendResult> {
+  const apiKey = Deno.env.get("SENDGRID_API_KEY");
+  if (!apiKey) return { ok: false, provider_message_id: null, error: "SENDGRID_API_KEY no configurada" };
+
+  const sgPayload: Record<string, unknown> = {
+    personalizations: [{
+      to: payload.to.map(e => ({ email: e })),
+      ...(payload.cc?.length ? { cc: payload.cc.map(e => ({ email: e })) } : {}),
+      ...(payload.bcc?.length ? { bcc: payload.bcc.map(e => ({ email: e })) } : {}),
+    }],
+    from: parseEmailAddress(payload.from),
+    subject: payload.subject,
+    content: [],
+  };
+
+  const content: { type: string; value: string }[] = [];
+  if (payload.text) content.push({ type: "text/plain", value: payload.text });
+  if (payload.html) content.push({ type: "text/html", value: payload.html });
+  if (content.length === 0) content.push({ type: "text/plain", value: "" });
+  (sgPayload as any).content = content;
+
+  if (payload.reply_to) {
+    (sgPayload as any).reply_to = parseEmailAddress(payload.reply_to);
+  }
+
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(sgPayload),
+  });
+
+  // SendGrid returns 202 on success with no body
+  if (res.status === 202 || res.status === 200) {
+    const messageId = res.headers.get("X-Message-Id") || crypto.randomUUID();
+    return { ok: true, provider_message_id: messageId, error: null };
+  }
+
+  let errorMsg: string;
+  try {
+    const data = await res.json();
+    errorMsg = data.errors?.map((e: any) => e.message).join("; ") || JSON.stringify(data);
+  } catch {
+    errorMsg = `SendGrid HTTP ${res.status}`;
+  }
+  return { ok: false, provider_message_id: null, error: errorMsg };
+}
+
+// ─── Mailgun Adapter ────────────────────────────────────
+
+async function sendViaMailgun(payload: SendPayload): Promise<SendResult> {
+  const apiKey = Deno.env.get("MAILGUN_API_KEY");
+  const domain = Deno.env.get("MAILGUN_DOMAIN");
+  if (!apiKey) return { ok: false, provider_message_id: null, error: "MAILGUN_API_KEY no configurada" };
+  if (!domain) return { ok: false, provider_message_id: null, error: "MAILGUN_DOMAIN no configurado" };
+
+  const form = new FormData();
+  form.append("from", payload.from);
+  payload.to.forEach(t => form.append("to", t));
+  form.append("subject", payload.subject);
+  if (payload.html) form.append("html", payload.html);
+  if (payload.text) form.append("text", payload.text);
+  if (payload.reply_to) form.append("h:Reply-To", payload.reply_to);
+  if (payload.cc?.length) payload.cc.forEach(c => form.append("cc", c));
+  if (payload.bcc?.length) payload.bcc.forEach(b => form.append("bcc", b));
+
+  const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${btoa(`api:${apiKey}`)}`,
+    },
+    body: form,
+  });
+
+  const data = await res.json();
+  if (res.ok && data.id) {
+    return { ok: true, provider_message_id: data.id, error: null };
+  }
+  return { ok: false, provider_message_id: null, error: data.message || JSON.stringify(data) };
+}
+
+// ─── AWS SES Adapter ────────────────────────────────────
+
+async function sendViaAWSSES(payload: SendPayload): Promise<SendResult> {
+  const accessKeyId = Deno.env.get("AWS_SES_ACCESS_KEY_ID");
+  const secretKey = Deno.env.get("AWS_SES_SECRET_ACCESS_KEY");
+  const region = Deno.env.get("AWS_SES_REGION") || "us-east-1";
+
+  if (!accessKeyId || !secretKey) {
+    return { ok: false, provider_message_id: null, error: "AWS_SES_ACCESS_KEY_ID o AWS_SES_SECRET_ACCESS_KEY no configuradas" };
+  }
+
+  // Use SES v2 SendEmail API via raw HTTP with AWS Signature V4
+  const endpoint = `https://email.${region}.amazonaws.com/v2/email/outbound-emails`;
+  const now = new Date();
+
+  const sesPayload: Record<string, unknown> = {
+    Content: {
+      Simple: {
+        Subject: { Data: payload.subject, Charset: "UTF-8" },
+        Body: {},
+      },
+    },
+    Destination: {
+      ToAddresses: payload.to,
+      ...(payload.cc?.length ? { CcAddresses: payload.cc } : {}),
+      ...(payload.bcc?.length ? { BccAddresses: payload.bcc } : {}),
+    },
+    FromEmailAddress: payload.from,
+  };
+
+  const bodyContent: Record<string, { Data: string; Charset: string }> = {};
+  if (payload.text) bodyContent.Text = { Data: payload.text, Charset: "UTF-8" };
+  if (payload.html) bodyContent.Html = { Data: payload.html, Charset: "UTF-8" };
+  if (Object.keys(bodyContent).length === 0) bodyContent.Text = { Data: "", Charset: "UTF-8" };
+  (sesPayload.Content as any).Simple.Body = bodyContent;
+
+  if (payload.reply_to) {
+    (sesPayload as any).ReplyToAddresses = [payload.reply_to];
+  }
+
+  // AWS Sig V4 signing
+  const bodyStr = JSON.stringify(sesPayload);
+  const headers = await signAWSRequest("POST", endpoint, bodyStr, region, "ses", accessKeyId, secretKey, now);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+    },
+    body: bodyStr,
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    return { ok: true, provider_message_id: data.MessageId || crypto.randomUUID(), error: null };
+  }
+
+  let errorMsg: string;
+  try {
+    const data = await res.json();
+    errorMsg = data.message || data.Message || JSON.stringify(data);
+  } catch {
+    errorMsg = `AWS SES HTTP ${res.status}`;
+  }
+  return { ok: false, provider_message_id: null, error: errorMsg };
+}
+
+// ─── AWS Signature V4 Helper ────────────────────────────
+
+async function signAWSRequest(
+  method: string, url: string, body: string,
+  region: string, service: string,
+  accessKeyId: string, secretKey: string,
+  now: Date
+): Promise<Record<string, string>> {
+  const encoder = new TextEncoder();
+
+  const dateStamp = now.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const dateOnly = dateStamp.substring(0, 8);
+  const parsedUrl = new URL(url);
+  const host = parsedUrl.host;
+  const path = parsedUrl.pathname;
+
+  const payloadHash = await sha256Hex(body);
+  const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${dateStamp}\n`;
+  const signedHeaders = "content-type;host;x-amz-content-sha256;x-amz-date";
+
+  const canonicalRequest = [method, path, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateOnly}/${region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", dateStamp, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
+
+  const kDate = await hmacSha256(encoder.encode(`AWS4${secretKey}`), dateOnly);
+  const kRegion = await hmacSha256(kDate, region);
+  const kService = await hmacSha256(kRegion, service);
+  const kSigning = await hmacSha256(kService, "aws4_request");
+
+  const signatureBytes = await hmacSha256(kSigning, stringToSign);
+  const signature = Array.from(new Uint8Array(signatureBytes)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+  return {
+    "X-Amz-Date": dateStamp,
+    "X-Amz-Content-Sha256": payloadHash,
+    Authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  };
+}
+
+async function sha256Hex(data: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hmacSha256(key: Uint8Array | ArrayBuffer, data: string): Promise<ArrayBuffer> {
+  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
+}
+
+// ─── SMTP Adapter ───────────────────────────────────────
+// Note: Deno Edge runtime blocks raw TCP sockets, so we use a lightweight
+// SMTP-over-HTTP bridge pattern. If the user has a real SMTP server,
+// they'd need to proxy it. For now, we attempt a direct connection
+// but return a clear error if the runtime blocks it.
+
+async function sendViaSMTP(payload: SendPayload): Promise<SendResult> {
+  const host = Deno.env.get("SMTP_HOST");
+  const port = Deno.env.get("SMTP_PORT");
+  const user = Deno.env.get("SMTP_USER");
+  const pass = Deno.env.get("SMTP_PASS");
+
+  if (!host || !user || !pass) {
+    return { ok: false, provider_message_id: null, error: "SMTP_HOST, SMTP_USER o SMTP_PASS no configurados" };
+  }
+
+  // Supabase Edge runtime blocks raw TLS sockets required for direct SMTP.
+  // Return a clear error guiding the user to use an API-based provider instead.
+  return {
+    ok: false,
+    provider_message_id: null,
+    error: `SMTP directo no soportado en Edge Functions (el runtime bloquea sockets TCP/TLS). ` +
+           `Use un proveedor basado en API (Resend, SendGrid, Mailgun, AWS SES) ` +
+           `o configure un proxy SMTP-to-HTTP. Host configurado: ${host}:${port || 587}`,
+  };
+}
+
+// ─── Provider Registry ──────────────────────────────────
+
+const PROVIDER_ADAPTERS: Record<string, (payload: SendPayload) => Promise<SendResult>> = {
+  resend: sendViaResend,
+  sendgrid: sendViaSendGrid,
+  mailgun: sendViaMailgun,
+  aws_ses: sendViaAWSSES,
+  smtp: sendViaSMTP,
+};
+
+// ─── Helpers ────────────────────────────────────────────
+
+function parseEmailAddress(input: string): { email: string; name?: string } {
+  // Parse "Name <email>" format
+  const match = input.match(/^(.+?)\s*<(.+?)>$/);
+  if (match) return { name: match[1].trim(), email: match[2].trim() };
+  return { email: input.trim() };
+}
+
+// ─── Main Handler ───────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -54,7 +358,6 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { to, subject, html, text, cc, bcc } = body;
 
-    // Validate
     const toArray = !to ? [] : Array.isArray(to) ? to : [to];
     if (toArray.length === 0) {
       return json({ ok: false, error_code: "MISSING_RECIPIENT", error_message: "El campo 'to' es obligatorio", phase: "validation" }, 400);
@@ -69,67 +372,55 @@ Deno.serve(async (req) => {
     // ── Get settings ─────────────────────────────────
     const { data: settings } = await adminClient
       .from("system_email_settings")
-      .select("from_email, from_name, reply_to, is_enabled")
+      .select("from_email, from_name, reply_to, is_enabled, outbound_provider")
       .maybeSingle();
 
     if (!settings?.is_enabled) {
       return json({ ok: false, error_code: "EMAIL_DISABLED", error_message: "El sistema de email no está habilitado. Actívalo en el Setup Wizard.", phase: "validation" }, 400);
     }
 
-    // ── Send via Resend ──────────────────────────────
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    if (!resendKey) {
-      return json({ ok: false, error_code: "MISSING_RESEND_KEY", error_message: "RESEND_API_KEY no configurada en secrets", phase: "provider" }, 500);
+    // ── Resolve provider ─────────────────────────────
+    const providerKey = settings.outbound_provider || "resend";
+    const adapter = PROVIDER_ADAPTERS[providerKey];
+
+    if (!adapter) {
+      return json({
+        ok: false,
+        error_code: "UNKNOWN_PROVIDER",
+        error_message: `Proveedor '${providerKey}' no soportado. Proveedores válidos: ${Object.keys(PROVIDER_ADAPTERS).join(", ")}`,
+        phase: "provider",
+      }, 400);
     }
 
+    // ── Build send payload ───────────────────────────
     const fromField = settings.from_name
       ? `${settings.from_name} <${settings.from_email}>`
       : settings.from_email;
 
-    const resendPayload: Record<string, unknown> = {
+    const sendPayload: SendPayload = {
       from: fromField,
       to: toArray,
       subject: subject.trim(),
+      html: html?.trim() || undefined,
+      text: text?.trim() || undefined,
+      reply_to: settings.reply_to || undefined,
+      cc: cc ? (Array.isArray(cc) ? cc : [cc]) : undefined,
+      bcc: bcc ? (Array.isArray(bcc) ? bcc : [bcc]) : undefined,
     };
-    if (html?.trim()) resendPayload.html = html;
-    if (text?.trim()) resendPayload.text = text;
-    if (settings.reply_to) resendPayload.reply_to = settings.reply_to;
-    if (cc) resendPayload.cc = Array.isArray(cc) ? cc : [cc];
-    if (bcc) resendPayload.bcc = Array.isArray(bcc) ? bcc : [bcc];
 
-    const idempotencyKey = crypto.randomUUID();
-    const resendRes = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": idempotencyKey,
-      },
-      body: JSON.stringify(resendPayload),
-    });
+    // ── Dispatch to adapter ──────────────────────────
+    console.log(`[system-email-send] Dispatching via ${providerKey} to ${toArray.join(", ")}`);
+    const result = await adapter(sendPayload);
 
-    const resendData = await resendRes.json();
-
-    let sendOk = false;
-    let providerMessageId: string | null = null;
-    let providerError: string | null = null;
-
-    if (resendRes.ok && resendData.id) {
-      sendOk = true;
-      providerMessageId = resendData.id;
-    } else {
-      providerError = resendData.message || resendData.error || JSON.stringify(resendData);
-    }
-
-    // ── Log to system_email_messages (service role bypasses RLS) ─
+    // ── Log to system_email_messages ─────────────────
     let insertedMessageId: string | null = null;
     try {
       const { data: inserted, error: dbErr } = await adminClient.from("system_email_messages").insert({
         direction: "outbound",
         folder: "SENT",
-        provider: "resend",
-        provider_message_id: providerMessageId,
-        provider_status: sendOk ? "sent" : "failed",
+        provider: providerKey,
+        provider_message_id: result.provider_message_id,
+        provider_status: result.ok ? "sent" : "failed",
         from_raw: settings.from_email,
         to_raw: toArray,
         cc_raw: cc ? (Array.isArray(cc) ? cc : [cc]) : [],
@@ -138,18 +429,19 @@ Deno.serve(async (req) => {
         snippet: (text || html || "").substring(0, 200),
         text_body: text || null,
         html_body: html || null,
-        sent_at: sendOk ? new Date().toISOString() : null,
+        sent_at: result.ok ? new Date().toISOString() : null,
       }).select("id").maybeSingle();
 
       if (dbErr) {
         console.error("[system-email-send] DB log failed:", dbErr);
-        if (sendOk) {
+        if (result.ok) {
           return json({
             ok: false,
             error_code: "DB_INSERT_FAILED",
-            error_message: `Email enviado pero no se pudo registrar en la BD: ${dbErr.message}`,
+            error_message: `Email enviado via ${providerKey} pero no se pudo registrar en la BD: ${dbErr.message}`,
             phase: "insert",
-            resend_email_id: providerMessageId,
+            provider: providerKey,
+            provider_message_id: result.provider_message_id,
           }, 500);
         }
       } else {
@@ -157,32 +449,35 @@ Deno.serve(async (req) => {
       }
     } catch (dbErr: any) {
       console.error("[system-email-send] DB log exception:", dbErr);
-      if (sendOk) {
+      if (result.ok) {
         return json({
           ok: false,
           error_code: "DB_INSERT_FAILED",
-          error_message: `Email enviado pero falló el registro: ${dbErr.message}`,
+          error_message: `Email enviado via ${providerKey} pero falló el registro: ${dbErr.message}`,
           phase: "insert",
-          resend_email_id: providerMessageId,
+          provider: providerKey,
+          provider_message_id: result.provider_message_id,
         }, 500);
       }
     }
 
-    if (!sendOk) {
+    if (!result.ok) {
       return json({
         ok: false,
-        error_code: "RESEND_SEND_FAILED",
-        error_message: `Resend rechazó el envío: ${providerError}`,
+        error_code: "PROVIDER_SEND_FAILED",
+        error_message: `${providerKey} rechazó el envío: ${result.error}`,
         phase: "provider",
-        provider_error: providerError,
+        provider: providerKey,
+        provider_error: result.error,
       }, 502);
     }
 
     return json({
       ok: true,
-      resend_email_id: providerMessageId,
+      provider: providerKey,
+      provider_message_id: result.provider_message_id,
       inserted_message_id: insertedMessageId,
-      message: `Email enviado a ${toArray.join(", ")}`,
+      message: `Email enviado via ${providerKey} a ${toArray.join(", ")}`,
     });
   } catch (err: any) {
     console.error("[system-email-send] Unexpected:", err);
