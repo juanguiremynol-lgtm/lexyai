@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, MapPin, ExternalLink } from "lucide-react";
+import { fetchApiColombia } from "@/lib/api-colombia";
 
 interface ColombiaMap {
   id: number;
@@ -16,9 +17,7 @@ interface ColombiaMap {
 }
 
 async function fetchMaps(): Promise<ColombiaMap[]> {
-  const res = await fetch("https://api-colombia.com/api/v1/Map");
-  if (!res.ok) throw new Error("Error al consultar la API");
-  return res.json();
+  return fetchApiColombia<ColombiaMap[]>("/api/v1/Map");
 }
 
 export function ColombiaMaps() {
