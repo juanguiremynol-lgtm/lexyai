@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Scale, Search, Filter } from "lucide-react";
 import { SyncStatusBadge } from "@/components/work-items/SyncStatusBadge";
+import { ActuacionDiffView } from "@/components/work-items/ActuacionDiffView";
 
 import type { WorkItem } from "@/types/work-item";
 import { WorkItemActCard, getActuacionesSummary, type WorkItemAct } from "./WorkItemActCard";
@@ -100,7 +101,12 @@ export function ActsTab({ workItem }: ActsTabProps) {
     );
   }
 
-  if (!acts || acts.length === 0) {
+  return (
+    <div className="space-y-4">
+      {/* Diff view for recent changes */}
+      <ActuacionDiffView workItemId={workItem.id} dataKind="actuaciones" />
+
+      {(!acts || acts.length === 0) ? (
     return (
       <Card>
         <CardContent className="py-12">
