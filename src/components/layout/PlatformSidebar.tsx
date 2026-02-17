@@ -60,6 +60,7 @@ const platformNavItems = [
   { title: "Email Console", url: "/platform/email-console", icon: Inbox },
   { title: "Email Ops", url: "/platform/email-ops", icon: Mail },
   { title: "Email Provider", url: "/platform/email-provider", icon: Mail },
+  { title: "Email Setup", url: "/platform/email-setup", icon: Mail },
   { title: "Sistema", url: "/platform/system", icon: Activity },
   { title: "Andro IA", url: "/platform/atenia-ai", icon: Brain },
   { title: "Gemini AI", url: "/platform/gemini", icon: Sparkles },

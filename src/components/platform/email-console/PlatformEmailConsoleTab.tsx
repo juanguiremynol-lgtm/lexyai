@@ -16,6 +16,7 @@ import { SentView } from "./SentView";
 import { ComposeDialog } from "./ComposeDialog";
 import { EmailProviderDebugPanel } from "./EmailProviderDebugPanel";
 import { SystemEmailSettingsPanel } from "./SystemEmailSettingsPanel";
+import { EmailSetupBanner } from "../email-setup/EmailSetupBanner";
 
 const PROVIDER_LABELS: Record<string, string> = {
   resend: "Resend",
@@ -101,6 +102,9 @@ export function PlatformEmailConsoleTab() {
           {activeProvider ? "Cambiar Proveedor" : "Configurar Proveedor"}
         </Button>
       </div>
+
+      {/* Email Setup Progress Banner */}
+      <EmailSetupBanner />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
