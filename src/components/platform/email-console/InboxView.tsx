@@ -1,47 +1,105 @@
 /**
- * InboxView — Lists inbound_messages for platform admin with Atenia AI bulk scan
+ * InboxView — Lists system_email_messages (direction=inbound) for platform admin
+ * with Atenia AI bulk scan. Zero-state guides to webhook setup.
  */
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchPlatformInbox, type EmailConsoleFilters, type InboxMessage } from "@/lib/platform/email-console-service";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { digestRecentEmails, type AIEmailDigestResult } from "@/lib/platform/email-ai-service";
+import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Search, ChevronLeft, ChevronRight, Mail, Brain, AlertTriangle } from "lucide-react";
+import { Loader2, Search, ChevronLeft, ChevronRight, Mail, Brain, AlertTriangle, Inbox, Settings2 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { MessageDetailPanel } from "./MessageDetailPanel";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
 
+interface SystemEmailMessage {
+  id: string;
+  direction: string;
+  folder: string;
+  provider: string;
+  provider_message_id: string | null;
+  provider_status: string;
+  from_raw: string;
+  to_raw: string[];
+  cc_raw: string[];
+  subject: string | null;
+  snippet: string | null;
+  text_body: string | null;
+  html_body: string | null;
+  sent_at: string | null;
+  received_at: string | null;
+  created_at: string;
+}
+
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
-    RECEIVED: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    NORMALIZED: "bg-green-500/10 text-green-500 border-green-500/20",
-    LINKED: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-    FAILED: "bg-destructive/10 text-destructive border-destructive/20",
+    received: "bg-primary/10 text-primary border-primary/20",
+    processed: "bg-primary/10 text-primary border-primary/20",
+    sent: "bg-primary/10 text-primary border-primary/20",
+    failed: "bg-destructive/10 text-destructive border-destructive/20",
+    queued: "bg-muted text-muted-foreground",
   };
   return map[status] ?? "bg-muted text-muted-foreground";
 };
 
 export function InboxView() {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [filters] = useState<EmailConsoleFilters>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [digestLoading, setDigestLoading] = useState(false);
   const [digestResult, setDigestResult] = useState<AIEmailDigestResult | null>(null);
 
-  const activeFilters = { ...filters, search: search || undefined };
-
   const { data, isLoading } = useQuery({
-    queryKey: ["platform-email-inbox", activeFilters, page],
-    queryFn: () => fetchPlatformInbox(activeFilters, { page, pageSize: PAGE_SIZE }),
+    queryKey: ["platform-email-inbox", search, page],
+    queryFn: async () => {
+      let query = (supabase.from("system_email_messages") as any)
+        .select("id, direction, folder, provider, provider_message_id, provider_status, from_raw, to_raw, cc_raw, subject, snippet, received_at, created_at", { count: "exact" })
+        .eq("direction", "inbound")
+        .order("created_at", { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (search) {
+        query = query.or(`subject.ilike.%${search}%,from_raw.ilike.%${search}%`);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return { data: (data ?? []) as SystemEmailMessage[], count: count ?? 0 };
+    },
   });
+
+  // Realtime subscription for new inbound messages
+  useEffect(() => {
+    const channel = supabase
+      .channel("inbox-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "system_email_messages",
+          filter: "direction=eq.inbound",
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["platform-email-inbox"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const messages = data?.data ?? [];
   const total = data?.count ?? 0;
@@ -111,7 +169,6 @@ export function InboxView() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{digestResult.summary}</p>
-
             {Object.keys(digestResult.classifications).length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {Object.entries(digestResult.classifications).map(([type, count]) => (
@@ -121,7 +178,6 @@ export function InboxView() {
                 ))}
               </div>
             )}
-
             {digestResult.criticalItems.length > 0 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium flex items-center gap-1">
@@ -143,13 +199,26 @@ export function InboxView() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : messages.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Mail className="h-10 w-10 mx-auto mb-3 opacity-40" />
-          <p>No hay mensajes entrantes</p>
-        </div>
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center py-12 text-center">
+            <Inbox className="h-10 w-10 text-muted-foreground/40 mb-3" />
+            <p className="text-sm font-medium">No hay correos recibidos aún</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Configura el webhook de entrada en el paso 4 del asistente de configuración para empezar a recibir correos.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4 gap-1.5"
+              onClick={() => navigate("/platform/email-setup")}
+            >
+              <Settings2 className="h-3.5 w-3.5" /> Ir al Setup Wizard
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="border rounded-lg divide-y">
-          {messages.map((msg: InboxMessage) => (
+          {messages.map((msg) => (
             <button
               key={msg.id}
               onClick={() => setSelectedId(msg.id)}
@@ -158,19 +227,19 @@ export function InboxView() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-sm truncate">
-                    {msg.from_name || msg.from_email}
+                    {msg.from_raw}
                   </span>
-                  <Badge variant="outline" className={statusBadge(msg.processing_status)}>
-                    {msg.processing_status}
+                  <Badge variant="outline" className={statusBadge(msg.provider_status)}>
+                    {msg.provider_status}
                   </Badge>
                 </div>
                 <p className="text-sm truncate">{msg.subject || "(Sin asunto)"}</p>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {msg.body_preview || "Sin vista previa"}
+                  {msg.snippet || "Sin vista previa"}
                 </p>
               </div>
               <span className="text-xs text-muted-foreground whitespace-nowrap mt-1">
-                {format(new Date(msg.received_at), "dd MMM HH:mm", { locale: es })}
+                {format(new Date(msg.received_at || msg.created_at), "dd MMM HH:mm", { locale: es })}
               </span>
             </button>
           ))}

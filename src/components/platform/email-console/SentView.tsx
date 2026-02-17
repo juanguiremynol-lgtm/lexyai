@@ -1,11 +1,12 @@
 /**
- * SentView — Lists email_outbox entries for platform admin with AI outbox analysis
+ * SentView — Lists system_email_messages (direction=outbound) for platform admin
+ * with AI outbox analysis. Shows provider_status, provider_message_id, created_at.
  */
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPlatformSent, type EmailConsoleFilters, type OutboxMessage } from "@/lib/platform/email-console-service";
 import { analyzeOutboxHealth } from "@/lib/platform/email-ai-service";
+import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,14 +19,27 @@ import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
 
-const outboxStatusBadge = (status: string, failedPermanent: boolean) => {
-  if (failedPermanent) return "bg-destructive/10 text-destructive border-destructive/20";
+interface SystemEmailMessage {
+  id: string;
+  direction: string;
+  folder: string;
+  provider: string;
+  provider_message_id: string | null;
+  provider_status: string;
+  from_raw: string;
+  to_raw: string[];
+  subject: string | null;
+  snippet: string | null;
+  sent_at: string | null;
+  created_at: string;
+}
+
+const sentStatusBadge = (status: string) => {
   const map: Record<string, string> = {
-    PENDING: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
-    SENT: "bg-green-500/10 text-green-500 border-green-500/20",
-    DELIVERED: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-    BOUNCED: "bg-red-500/10 text-red-500 border-red-500/20",
-    FAILED: "bg-destructive/10 text-destructive border-destructive/20",
+    queued: "bg-muted text-muted-foreground",
+    sent: "bg-primary/10 text-primary border-primary/20",
+    delivered: "bg-primary/10 text-primary border-primary/20",
+    failed: "bg-destructive/10 text-destructive border-destructive/20",
   };
   return map[status] ?? "bg-muted text-muted-foreground";
 };
@@ -33,16 +47,27 @@ const outboxStatusBadge = (status: string, failedPermanent: boolean) => {
 export function SentView() {
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState("");
-  const [filters] = useState<EmailConsoleFilters>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
-  const activeFilters = { ...filters, search: search || undefined };
-
   const { data, isLoading } = useQuery({
-    queryKey: ["platform-email-sent", activeFilters, page],
-    queryFn: () => fetchPlatformSent(activeFilters, { page, pageSize: PAGE_SIZE }),
+    queryKey: ["platform-email-sent", search, page],
+    queryFn: async () => {
+      let query = (supabase.from("system_email_messages") as any)
+        .select("id, direction, folder, provider, provider_message_id, provider_status, from_raw, to_raw, subject, snippet, sent_at, created_at", { count: "exact" })
+        .eq("direction", "outbound")
+        .order("created_at", { ascending: false })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (search) {
+        query = query.or(`subject.ilike.%${search}%,from_raw.ilike.%${search}%`);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return { data: (data ?? []) as SystemEmailMessage[], count: count ?? 0 };
+    },
   });
 
   const messages = data?.data ?? [];
@@ -118,7 +143,6 @@ export function SentView() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{analysisResult.summary}</p>
-
             {analysisResult.issues?.length > 0 && (
               <div className="space-y-1">
                 <p className="text-xs font-medium flex items-center gap-1">
@@ -131,7 +155,6 @@ export function SentView() {
                 ))}
               </div>
             )}
-
             {analysisResult.recommendations?.length > 0 && (
               <div className="text-xs text-muted-foreground">
                 <strong>Recomendaciones:</strong>
@@ -157,7 +180,7 @@ export function SentView() {
         </div>
       ) : (
         <div className="border rounded-lg divide-y">
-          {messages.map((msg: OutboxMessage) => (
+          {messages.map((msg) => (
             <button
               key={msg.id}
               onClick={() => setSelectedId(msg.id)}
@@ -165,29 +188,23 @@ export function SentView() {
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium text-sm truncate">{msg.to_email}</span>
-                  <Badge variant="outline" className={outboxStatusBadge(msg.status, msg.failed_permanent)}>
-                    {msg.failed_permanent ? "FALLO PERMANENTE" : msg.status}
+                  <span className="font-medium text-sm truncate">
+                    {Array.isArray(msg.to_raw) ? msg.to_raw.join(", ") : msg.to_raw}
+                  </span>
+                  <Badge variant="outline" className={sentStatusBadge(msg.provider_status)}>
+                    {msg.provider_status}
                   </Badge>
-                  {msg.trigger_reason && (
-                    <Badge variant="outline" className="bg-primary/5 text-primary/70 border-primary/20 text-xs">
-                      {msg.trigger_reason}
+                  {msg.provider_message_id && (
+                    <Badge variant="outline" className="text-[10px] font-mono">
+                      {msg.provider_message_id.slice(0, 12)}…
                     </Badge>
                   )}
                 </div>
-                <p className="text-sm truncate">{msg.subject}</p>
-                {msg.error && (
-                  <p className="text-xs text-destructive truncate mt-0.5">{msg.error}</p>
-                )}
+                <p className="text-sm truncate">{msg.subject || "(Sin asunto)"}</p>
               </div>
-              <div className="text-right shrink-0">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {format(new Date(msg.created_at), "dd MMM HH:mm", { locale: es })}
-                </span>
-                {msg.attempts > 0 && (
-                  <p className="text-xs text-muted-foreground">×{msg.attempts}</p>
-                )}
-              </div>
+              <span className="text-xs text-muted-foreground whitespace-nowrap mt-1">
+                {format(new Date(msg.sent_at || msg.created_at), "dd MMM HH:mm", { locale: es })}
+              </span>
             </button>
           ))}
         </div>

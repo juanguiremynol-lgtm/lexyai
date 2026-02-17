@@ -1,21 +1,21 @@
 /**
  * EmailSetupWizard — 5-step stepper for Super Admin email configuration.
- * Steps: 1) Outbound Provider, 2) Sender Identity, 3) Test Send, 4) Inbound Mode, 5) Activate
+ * Steps: 1) Outbound Provider, 2) Sender Identity, 3) Test Send, 4) Resend Inbound Webhook, 5) Activate
+ * IMAP is NOT offered — Supabase Edge runtime blocks raw TLS sockets.
  */
 
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   CheckCircle, Circle, Loader2, Mail, Send, Shield, Inbox,
-  Power, AlertTriangle, ChevronRight, ChevronLeft, ExternalLink,
+  Power, AlertTriangle, ChevronRight, ChevronLeft, Webhook, Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,7 +47,7 @@ const STEPS = [
   { key: "provider", label: "Proveedor Outbound", icon: Mail },
   { key: "identity", label: "Identidad de Envío", icon: Shield },
   { key: "test", label: "Test de Envío", icon: Send },
-  { key: "inbound", label: "Modo Inbound", icon: Inbox },
+  { key: "inbound", label: "Webhook Inbound", icon: Webhook },
   { key: "activate", label: "Activar", icon: Power },
 ] as const;
 
@@ -99,6 +99,14 @@ export function EmailSetupWizard() {
   ];
 
   const completedCount = completedSteps.filter(Boolean).length;
+
+  // Auto-restore to the first incomplete step on mount
+  useEffect(() => {
+    if (setupState) {
+      const firstIncomplete = completedSteps.findIndex((done) => !done);
+      if (firstIncomplete >= 0) setActiveStep(firstIncomplete);
+    }
+  }, [setupState?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) {
     return (
@@ -156,26 +164,19 @@ export function EmailSetupWizard() {
       <Card>
         <CardContent className="pt-6">
           {activeStep === 0 && <StepOutboundProvider setupState={setupState} queryClient={queryClient} />}
-          {activeStep === 1 && <StepSenderIdentity settings={settings} queryClient={queryClient} setupState={setupState} />}
+          {activeStep === 1 && <StepSenderIdentity settings={settings} queryClient={queryClient} />}
           {activeStep === 2 && <StepTestSend setupState={setupState} queryClient={queryClient} />}
-          {activeStep === 3 && <StepInboundMode settings={settings} setupState={setupState} queryClient={queryClient} />}
+          {activeStep === 3 && <StepResendInbound settings={settings} setupState={setupState} queryClient={queryClient} />}
           {activeStep === 4 && <StepActivate settings={settings} setupState={setupState} queryClient={queryClient} />}
         </CardContent>
       </Card>
 
       {/* Navigation */}
       <div className="flex justify-between">
-        <Button
-          variant="outline"
-          disabled={activeStep === 0}
-          onClick={() => setActiveStep(s => s - 1)}
-        >
+        <Button variant="outline" disabled={activeStep === 0} onClick={() => setActiveStep(s => s - 1)}>
           <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
         </Button>
-        <Button
-          disabled={activeStep === STEPS.length - 1}
-          onClick={() => setActiveStep(s => s + 1)}
-        >
+        <Button disabled={activeStep === STEPS.length - 1} onClick={() => setActiveStep(s => s + 1)}>
           Siguiente <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
       </div>
@@ -196,15 +197,11 @@ function StepOutboundProvider({ setupState, queryClient }: { setupState: SetupSt
 
       const res = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-provider-admin`,
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-        }
+        { method: "GET", headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" } }
       );
       const data = await res.json();
-
-      // Update setup state
       const keyOk = res.ok && data.ok && data.is_configured;
+
       await (supabase.from("system_email_setup_state") as any)
         .update({
           step_resend_key_ok: keyOk,
@@ -264,7 +261,7 @@ function StepOutboundProvider({ setupState, queryClient }: { setupState: SetupSt
 
 // ─── Step 2: Sender Identity ────────────────────────────
 
-function StepSenderIdentity({ settings, queryClient, setupState }: { settings: EmailSettings | null; queryClient: any; setupState: SetupState | null }) {
+function StepSenderIdentity({ settings, queryClient }: { settings: EmailSettings | null; queryClient: any }) {
   const [fromEmail, setFromEmail] = useState(settings?.from_email || "info@andromeda.legal");
   const [fromName, setFromName] = useState(settings?.from_name || "ATENIA");
   const [replyTo, setReplyTo] = useState(settings?.reply_to || "");
@@ -278,11 +275,7 @@ function StepSenderIdentity({ settings, queryClient, setupState }: { settings: E
       if (!emailRegex.test(fromEmail)) throw new Error("Email inválido");
 
       await (supabase.from("system_email_settings") as any)
-        .update({
-          from_email: fromEmail.trim(),
-          from_name: fromName.trim(),
-          reply_to: replyTo.trim() || null,
-        })
+        .update({ from_email: fromEmail.trim(), from_name: fromName.trim(), reply_to: replyTo.trim() || null })
         .eq("id", settings.id);
 
       await (supabase.from("system_email_setup_state") as any)
@@ -307,7 +300,6 @@ function StepSenderIdentity({ settings, queryClient, setupState }: { settings: E
           Configura el "From" de todos los emails enviados por la plataforma.
         </p>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Email del remitente</Label>
@@ -322,7 +314,6 @@ function StepSenderIdentity({ settings, queryClient, setupState }: { settings: E
           <Input value={replyTo} onChange={e => setReplyTo(e.target.value)} placeholder="soporte@andromeda.legal" />
         </div>
       </div>
-
       <Button onClick={handleSave} disabled={saving}>
         {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
         Guardar Identidad
@@ -351,10 +342,7 @@ function StepTestSend({ setupState, queryClient }: { setupState: SetupState | nu
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/email-provider-admin`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            "Content-Type": "application/json",
-          },
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ action: "send_test_email", to_email: user.email }),
         }
       );
@@ -388,12 +376,10 @@ function StepTestSend({ setupState, queryClient }: { setupState: SetupState | nu
           Envía un email de prueba real a tu cuenta de Super Admin para verificar que todo funciona.
         </p>
       </div>
-
       <Button onClick={handleTestSend} disabled={sending} size="lg">
         {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
         Enviar email de prueba
       </Button>
-
       {result && (
         <div className={`p-4 rounded-lg border ${result.ok ? "bg-primary/10 border-primary/30" : "bg-destructive/10 border-destructive/30"}`}>
           <div className="flex items-center gap-2">
@@ -410,25 +396,21 @@ function StepTestSend({ setupState, queryClient }: { setupState: SetupState | nu
   );
 }
 
-// ─── Step 4: Inbound Mode ───────────────────────────────
+// ─── Step 4: Resend Inbound Webhook (IMAP removed) ─────
 
-function StepInboundMode({ settings, setupState, queryClient }: { settings: EmailSettings | null; setupState: SetupState | null; queryClient: any }) {
-  const [mode, setMode] = useState(settings?.inbound_mode || "none");
+function StepResendInbound({ settings, setupState, queryClient }: { settings: EmailSettings | null; setupState: SetupState | null; queryClient: any }) {
   const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // IMAP fields
-  const [imapHost, setImapHost] = useState("imap.hostinger.com");
-  const [imapUser, setImapUser] = useState("info@andromeda.legal");
-  const [imapPass, setImapPass] = useState("");
-  const [imapTesting, setImapTesting] = useState(false);
-  const [imapResult, setImapResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const webhookUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-inbound-webhook`;
 
   const handleSaveMode = async () => {
     setSaving(true);
     try {
       if (!settings?.id) throw new Error("No settings row");
       await (supabase.from("system_email_settings") as any)
-        .update({ inbound_mode: mode })
+        .update({ inbound_mode: "resend_inbound" })
         .eq("id", settings.id);
 
       await (supabase.from("system_email_setup_state") as any)
@@ -437,7 +419,7 @@ function StepInboundMode({ settings, setupState, queryClient }: { settings: Emai
 
       queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
       queryClient.invalidateQueries({ queryKey: ["system-email-settings-wizard"] });
-      toast.success("Modo inbound guardado");
+      toast.success("Webhook inbound configurado");
     } catch (err: any) {
       toast.error(err.message);
     } finally {
@@ -445,127 +427,96 @@ function StepInboundMode({ settings, setupState, queryClient }: { settings: Emai
     }
   };
 
-  const handleTestImap = async () => {
-    setImapTesting(true);
-    setImapResult(null);
+  const handleVerifyWebhook = async () => {
+    setVerifying(true);
+    setVerifyResult(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("No autenticado");
+      // Check if any events have arrived in system_email_events
+      const { data: events, error } = await (supabase.from("system_email_events") as any)
+        .select("id, event_id, created_at")
+        .eq("provider", "resend")
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-imap-connect`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            imap_host: imapHost,
-            imap_port: 993,
-            imap_tls: true,
-            username: imapUser,
-            password: imapPass,
-          }),
-        }
-      );
-      const data = await res.json();
+      if (error) throw error;
 
-      if (res.ok && data.ok) {
-        setImapResult({ ok: true, message: data.message || "Conexión IMAP exitosa" });
+      if (events && events.length > 0) {
+        setVerifyResult({ ok: true, message: `Webhook funcionando. Último evento: ${new Date(events[0].created_at).toLocaleString("es-CO")}` });
+
+        await (supabase.from("system_email_setup_state") as any)
+          .update({ step_inbound_ok: true, last_error_code: null, last_error_message: null })
+          .eq("id", SETUP_STATE_ID);
+        queryClient.invalidateQueries({ queryKey: ["email-setup-state"] });
       } else {
-        setImapResult({ ok: false, message: data.error || data.message || "Error de conexión IMAP" });
+        setVerifyResult({ ok: false, message: "No se han recibido eventos aún. Envía un test desde Resend Dashboard → Inbound → Test Webhook." });
       }
     } catch (err: any) {
-      setImapResult({ ok: false, message: err.message });
+      setVerifyResult({ ok: false, message: err.message });
     } finally {
-      setImapTesting(false);
+      setVerifying(false);
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copiado al portapapeles");
   };
 
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold">Modo de Recepción (Inbound)</h3>
+        <h3 className="text-lg font-semibold">Webhook de Entrada (Resend Inbound)</h3>
         <p className="text-sm text-muted-foreground">
-          Elige cómo la plataforma recibirá emails entrantes.
+          Configura Resend para recibir correos entrantes en la plataforma vía webhook.
         </p>
       </div>
 
-      <RadioGroup value={mode} onValueChange={setMode} className="space-y-3">
-        <label className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${mode === "none" ? "border-primary bg-primary/5" : ""}`}>
-          <RadioGroupItem value="none" className="mt-1" />
-          <div>
-            <p className="font-medium">Sin Inbound</p>
-            <p className="text-sm text-muted-foreground">Solo envío de emails (alertas y compose). No se reciben emails.</p>
-          </div>
-        </label>
+      <div className="p-4 rounded-lg bg-muted/50 text-sm space-y-3">
+        <p className="font-medium">Instrucciones de configuración:</p>
+        <ol className="list-decimal pl-4 space-y-2 text-muted-foreground">
+          <li>
+            Ve a <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="text-primary underline">resend.com → Domains</a> → tu dominio → <strong>Inbound</strong>
+          </li>
+          <li>
+            Configura el webhook URL:
+            <div className="flex items-center gap-2 mt-1">
+              <code className="bg-background px-2 py-1 rounded text-xs break-all flex-1 border">
+                {webhookUrl}
+              </code>
+              <Button variant="ghost" size="sm" onClick={() => copyToClipboard(webhookUrl)} className="shrink-0">
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </li>
+          <li>
+            Copia el <strong>Webhook Secret</strong> de Resend y guárdalo en los Secrets de Edge Functions como:
+            <code className="bg-background px-2 py-0.5 rounded text-xs ml-1">RESEND_INBOUND_WEBHOOK_SECRET</code>
+          </li>
+          <li>
+            Haz clic en <strong>"Test Webhook"</strong> en Resend y luego verifica abajo que el evento llegó.
+          </li>
+        </ol>
+      </div>
 
-        <label className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${mode === "resend_inbound" ? "border-primary bg-primary/5" : ""}`}>
-          <RadioGroupItem value="resend_inbound" className="mt-1" />
-          <div>
-            <p className="font-medium">Resend Inbound <Badge variant="outline" className="ml-2 text-xs">Recomendado</Badge></p>
-            <p className="text-sm text-muted-foreground">Configura un forwarding desde Hostinger a Resend Inbound webhook.</p>
-          </div>
-        </label>
+      <div className="flex gap-2">
+        <Button onClick={handleSaveMode} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+          Marcar como configurado
+        </Button>
+        <Button variant="outline" onClick={handleVerifyWebhook} disabled={verifying}>
+          {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Webhook className="h-4 w-4 mr-2" />}
+          Verificar webhook
+        </Button>
+      </div>
 
-        <label className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${mode === "hostinger_imap" ? "border-primary bg-primary/5" : ""}`}>
-          <RadioGroupItem value="hostinger_imap" className="mt-1" />
-          <div>
-            <p className="font-medium">Hostinger IMAP <Badge variant="outline" className="ml-2 text-xs">Avanzado</Badge></p>
-            <p className="text-sm text-muted-foreground">Conexión directa IMAP al buzón de Hostinger. Requiere credenciales.</p>
+      {verifyResult && (
+        <div className={`p-4 rounded-lg border ${verifyResult.ok ? "bg-primary/10 border-primary/30" : "bg-destructive/10 border-destructive/30"}`}>
+          <div className="flex items-center gap-2">
+            {verifyResult.ok ? <CheckCircle className="h-5 w-5 text-primary" /> : <AlertTriangle className="h-5 w-5 text-destructive" />}
+            <span className="text-sm">{verifyResult.message}</span>
           </div>
-        </label>
-      </RadioGroup>
-
-      {/* Resend Inbound instructions */}
-      {mode === "resend_inbound" && (
-        <div className="p-4 rounded-lg bg-muted/50 text-sm space-y-2">
-          <p className="font-medium">Configuración de Resend Inbound:</p>
-          <ol className="list-decimal pl-4 space-y-1 text-muted-foreground">
-            <li>En Resend Dashboard → Inbound, agrega un endpoint</li>
-            <li>Usa un subdominio (ej: <code className="bg-background px-1 rounded text-xs">inbound.andromeda.legal</code>) para no afectar MX existentes</li>
-            <li>Configura el webhook URL: <code className="bg-background px-1 rounded text-xs break-all">{import.meta.env.VITE_SUPABASE_URL}/functions/v1/system-email-inbound-webhook</code></li>
-            <li>Configura una regla de forwarding en Hostinger para reenviar a la dirección del subdominio</li>
-          </ol>
         </div>
       )}
-
-      {/* IMAP fields */}
-      {mode === "hostinger_imap" && (
-        <div className="space-y-4 p-4 rounded-lg border">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Host IMAP</Label>
-              <Input value={imapHost} onChange={e => setImapHost(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Usuario</Label>
-              <Input value={imapUser} onChange={e => setImapUser(e.target.value)} />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label>Contraseña</Label>
-            <Input type="password" value={imapPass} onChange={e => setImapPass(e.target.value)} placeholder="••••••••" />
-            <p className="text-xs text-muted-foreground">Se almacenará de forma segura en Vault. No se guarda en frontend.</p>
-          </div>
-          <Button onClick={handleTestImap} disabled={imapTesting || !imapPass}>
-            {imapTesting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Inbox className="h-4 w-4 mr-2" />}
-            Probar Conexión IMAP
-          </Button>
-
-          {imapResult && (
-            <div className={`p-3 rounded-lg ${imapResult.ok ? "bg-green-500/10" : "bg-destructive/10"}`}>
-              <p className="text-sm">{imapResult.message}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      <Button onClick={handleSaveMode} disabled={saving}>
-        {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-        Guardar Modo Inbound
-      </Button>
     </div>
   );
 }
@@ -610,7 +561,7 @@ function StepActivate({ settings, setupState, queryClient }: { settings: EmailSe
           { done: setupState?.step_resend_key_ok, label: "RESEND_API_KEY configurada" },
           { done: setupState?.step_from_identity_ok, label: "Identidad del remitente guardada" },
           { done: setupState?.step_test_send_ok, label: "Test de envío exitoso" },
-          { done: setupState?.step_inbound_selected, label: "Modo inbound seleccionado" },
+          { done: setupState?.step_inbound_selected, label: "Webhook inbound configurado" },
         ].map((item, i) => (
           <div key={i} className="flex items-center gap-2 text-sm">
             {item.done ? <CheckCircle className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
