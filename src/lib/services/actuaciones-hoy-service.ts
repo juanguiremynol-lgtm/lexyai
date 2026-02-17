@@ -101,53 +101,42 @@ export async function getActuacionesHoy(
 ): Promise<{ items: ActuacionHoyItem[]; total: number; discoveredCount: number; courtDatedCount: number }> {
   const bounds = getWindowBounds(window);
 
-  // Two parallel queries: discovered (by created_at) and court-dated (by act_date)
-  const [discoveredResult, courtDatedResult] = await Promise.all([
-    supabase
-      .from('work_item_acts')
-      .select(SELECT_FIELDS)
-      .eq('work_items.organization_id', organizationId)
-      .eq('is_archived', false)
-      .gte('created_at', bounds.created_start)
-      .lte('created_at', bounds.created_end)
-      .order('created_at', { ascending: false })
-      .limit(200),
-    supabase
-      .from('work_item_acts')
-      .select(SELECT_FIELDS)
-      .eq('work_items.organization_id', organizationId)
-      .eq('is_archived', false)
-      .gte('act_date', bounds.date_start)
-      .lte('act_date', bounds.date_end)
-      .order('act_date', { ascending: false })
-      .limit(200),
-  ]);
+  /**
+   * PRIMARY QUERY: filter by act_date (the court event date), NOT created_at.
+   * This ensures only actuaciones whose event occurred within the window are shown.
+   * 
+   * "Discovered today" (is_new) = first_seen_at within today's COT window.
+   * We compute this client-side from created_at (which equals first_seen_at for new rows).
+   */
+  const { data, error } = await supabase
+    .from('work_item_acts')
+    .select(SELECT_FIELDS)
+    .eq('work_items.organization_id', organizationId)
+    .eq('is_archived', false)
+    .gte('act_date', bounds.date_start)
+    .lte('act_date', bounds.date_end)
+    .order('act_date', { ascending: false })
+    .limit(500);
 
-  if (discoveredResult.error) console.error('[actuaciones-hoy] discovered query error:', discoveredResult.error);
-  if (courtDatedResult.error) console.error('[actuaciones-hoy] court-dated query error:', courtDatedResult.error);
+  if (error) console.error('[actuaciones-hoy] query error:', error);
 
-  // Merge and deduplicate
-  const itemMap = new Map<string, ActuacionHoyItem>();
+  // Tag each item: was it first seen (created_at) within today's window?
+  let discoveredCount = 0;
+  let courtDatedCount = 0;
+  let items: ActuacionHoyItem[] = [];
 
-  for (const row of discoveredResult.data || []) {
-    itemMap.set(row.id, mapRow(row, 'discovered'));
+  for (const row of data || []) {
+    const createdMs = new Date(row.created_at).getTime();
+    const windowStartMs = new Date(bounds.created_start).getTime();
+    const windowEndMs = new Date(bounds.created_end).getTime();
+    const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+
+    const reason: MatchReason = isDiscoveredInWindow ? 'both' : 'court_dated';
+    if (isDiscoveredInWindow) discoveredCount++;
+    courtDatedCount++;
+
+    items.push(mapRow(row, reason));
   }
-  let discoveredCount = itemMap.size;
-
-  let courtOnlyCount = 0;
-  for (const row of courtDatedResult.data || []) {
-    if (itemMap.has(row.id)) {
-      // Already present from discovered — upgrade to 'both'
-      const existing = itemMap.get(row.id)!;
-      existing.match_reason = 'both';
-      existing.is_new = true;
-    } else {
-      itemMap.set(row.id, mapRow(row, 'court_dated'));
-      courtOnlyCount++;
-    }
-  }
-
-  let items = Array.from(itemMap.values());
 
   // Client-side search filter
   if (search) {
@@ -163,14 +152,19 @@ export async function getActuacionesHoy(
     );
   }
 
-  // Sort: newest created_at first
-  items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Sort: by event date (act_date) descending, then created_at as tie-breaker
+  items.sort((a, b) => {
+    const dateA = a.act_date ? new Date(a.act_date).getTime() : 0;
+    const dateB = b.act_date ? new Date(b.act_date).getTime() : 0;
+    if (dateB !== dateA) return dateB - dateA;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 
   return {
     items,
     total: items.length,
     discoveredCount,
-    courtDatedCount: courtOnlyCount,
+    courtDatedCount,
   };
 }
 
