@@ -1815,15 +1815,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 .platform-console-root {
-  /* Pure grayscale palette */
-  --platform-bg: 0 0% 4%;
-  --platform-surface: 0 0% 9%;
-  --platform-surface-elevated: 0 0% 14%;
-  --platform-border: 0 0% 20%;
-  --platform-border-strong: 0 0% 30%;
-  --platform-text: 0 0% 93%;
-  --platform-text-muted: 0 0% 55%;
-  --platform-text-dim: 0 0% 38%;
+  /* DOS-style pure black & white */
+  --platform-bg: 0 0% 0%;
+  --platform-surface: 0 0% 5%;
+  --platform-surface-elevated: 0 0% 10%;
+  --platform-border: 0 0% 22%;
+  --platform-border-strong: 0 0% 35%;
+  --platform-text: 0 0% 100%;
+  --platform-text-muted: 0 0% 65%;
+  --platform-text-dim: 0 0% 45%;
   
   /* Highlight color — electric cyan, used sparingly */
   --platform-hi: 180 100% 50%;
@@ -1838,9 +1838,30 @@
   /* Warning */
   --platform-warn: 45 100% 55%;
   
+  /* Semantic overrides for components */
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 5%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 5%;
+  --popover-foreground: 0 0% 100%;
+  --muted: 0 0% 10%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 0 0% 12%;
+  --accent-foreground: 0 0% 100%;
+  --border: 0 0% 22%;
+  --input: 0 0% 12%;
+  --ring: 180 100% 50%;
+  --primary: 180 100% 50%;
+  --primary-foreground: 0 0% 0%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 100%;
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 0 0% 100%;
+  
   background: hsl(var(--platform-bg));
   color: hsl(var(--platform-text));
-  font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
 }
 
 .platform-console-root,
@@ -1848,13 +1869,23 @@
   color-scheme: dark;
 }
 
-/* Headings use monospace for that Fido Dido edge */
+/* DOS: square corners everywhere */
+.platform-console-root button,
+.platform-console-root [data-slot="card"],
+.platform-console-root .rounded-lg,
+.platform-console-root .rounded-md,
+.platform-console-root .rounded {
+  border-radius: 0 !important;
+}
+
+/* DOS monospace for all text */
 .platform-console-root h1,
 .platform-console-root h2,
 .platform-console-root h3,
 .platform-console-root h4 {
-  font-family: 'JetBrains Mono', 'Space Grotesk', monospace;
-  letter-spacing: -0.02em;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  letter-spacing: 0;
+  text-transform: uppercase;
   font-weight: 600;
 }
 
@@ -1863,12 +1894,13 @@
 }
 
 /* Platform Console Cards */
+/* Platform Console Cards — DOS style square corners */
 .platform-console-root [data-slot="card"],
 .platform-console-root .bg-card {
-  background: hsl(var(--platform-surface)) !important;
+  background: hsl(0 0% 5%) !important;
   border: 1px solid hsl(var(--platform-border)) !important;
-  color: hsl(var(--platform-text));
-  border-radius: 6px;
+  color: hsl(0 0% 100%);
+  border-radius: 0;
 }
 
 .platform-console-root [data-slot="card"]:hover {
@@ -1876,13 +1908,26 @@
   border-color: hsl(var(--platform-border-strong)) !important;
 }
 
+/* Platform Console — all text forced monospace white */
+.platform-console-root p,
+.platform-console-root span,
+.platform-console-root label,
+.platform-console-root a,
+.platform-console-root li,
+.platform-console-root td,
+.platform-console-root th,
+.platform-console-root button {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
 /* Platform Console Inputs */
 .platform-console-root input,
 .platform-console-root textarea,
 .platform-console-root select,
 .platform-console-root [data-slot="input"] {
-  background: hsl(var(--platform-bg)) !important;
+  background: hsl(0 0% 0%) !important;
   border: 1px solid hsl(var(--platform-border)) !important;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
   color: hsl(var(--platform-text)) !important;
   border-radius: 4px;
   font-family: 'Space Grotesk', sans-serif;
