@@ -1,16 +1,26 @@
 /**
- * MessageDetailPanel — Full message view with safe HTML rendering
+ * MessageDetailPanel — Full message view with safe HTML rendering + Atenia AI actions
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchInboxMessageDetail, fetchOutboxMessageDetail } from "@/lib/platform/email-console-service";
+import {
+  fetchEmailForAI,
+  generateDraftReply,
+  triageEmail,
+  registerEmailInAteniaAI,
+  type AIDraftResult,
+  type AITriageResult,
+} from "@/lib/platform/email-ai-service";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Loader2, Paperclip, Link2 } from "lucide-react";
+import { ArrowLeft, Loader2, Paperclip, Link2, Brain, PenLine, Tag, Ticket, Copy, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import DOMPurify from "dompurify";
+import { toast } from "sonner";
 
 interface MessageDetailPanelProps {
   messageId: string;
@@ -18,8 +28,15 @@ interface MessageDetailPanelProps {
   onBack: () => void;
 }
 
+const PLATFORM_ORG_ID = "00000000-0000-0000-0000-000000000000";
+
 export function MessageDetailPanel({ messageId, direction, onBack }: MessageDetailPanelProps) {
   const isInbound = direction === "inbound";
+  const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [draftResult, setDraftResult] = useState<AIDraftResult | null>(null);
+  const [triageResult, setTriageResult] = useState<AITriageResult | null>(null);
+  const [registered, setRegistered] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const { data: inboundData, isLoading: inboundLoading } = useQuery({
     queryKey: ["platform-email-detail", "inbound", messageId],
@@ -35,6 +52,68 @@ export function MessageDetailPanel({ messageId, direction, onBack }: MessageDeta
 
   const isLoading = isInbound ? inboundLoading : outboundLoading;
   const data = isInbound ? inboundData : outboundData;
+
+  // ─── AI Actions ───────────────────────────────────────────
+
+  const handleDraftReply = async () => {
+    setAiLoading("draft");
+    try {
+      const email = await fetchEmailForAI(messageId, direction);
+      if (!email) { toast.error("No se pudo cargar el email"); return; }
+      const result = await generateDraftReply(email);
+      setDraftResult(result);
+      toast.success("Borrador generado por Atenia AI");
+    } catch (err) {
+      toast.error("Error al generar borrador");
+      console.error(err);
+    } finally {
+      setAiLoading(null);
+    }
+  };
+
+  const handleTriage = async () => {
+    setAiLoading("triage");
+    try {
+      const email = await fetchEmailForAI(messageId, direction);
+      if (!email) { toast.error("No se pudo cargar el email"); return; }
+      const result = await triageEmail(email);
+      setTriageResult(result);
+      toast.success("Email clasificado por Atenia AI");
+    } catch (err) {
+      toast.error("Error en triage");
+      console.error(err);
+    } finally {
+      setAiLoading(null);
+    }
+  };
+
+  const handleRegisterInAtenia = async () => {
+    setAiLoading("register");
+    try {
+      const email = await fetchEmailForAI(messageId, direction);
+      if (!email) { toast.error("No se pudo cargar el email"); return; }
+      const triage = triageResult || await triageEmail(email);
+      const convId = await registerEmailInAteniaAI(email, PLATFORM_ORG_ID, triage);
+      if (convId) {
+        setRegistered(true);
+        toast.success("Email registrado en Atenia AI como incidente");
+      } else {
+        toast.error("No se pudo registrar");
+      }
+    } catch (err) {
+      toast.error("Error al registrar en Atenia AI");
+      console.error(err);
+    } finally {
+      setAiLoading(null);
+    }
+  };
+
+  const handleCopyDraft = async () => {
+    if (!draftResult?.draft) return;
+    await navigator.clipboard.writeText(draftResult.draft);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   if (isLoading) {
     return (
@@ -72,11 +151,125 @@ export function MessageDetailPanel({ messageId, direction, onBack }: MessageDeta
   const attachments = isInbound ? (inboundData?.inbound_attachments ?? []) : [];
   const links = isInbound ? (inboundData?.message_links ?? []) : [];
 
+  const priorityColor: Record<string, string> = {
+    LOW: "text-muted-foreground",
+    MEDIUM: "text-yellow-500",
+    HIGH: "text-orange-500",
+    CRITICAL: "text-destructive",
+  };
+
   return (
     <div className="space-y-4">
-      <Button variant="ghost" size="sm" onClick={onBack}>
-        <ArrowLeft className="h-4 w-4 mr-2" /> Volver a la lista
-      </Button>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Volver a la lista
+        </Button>
+
+        {/* AI Action Buttons */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDraftReply}
+            disabled={!!aiLoading}
+            className="gap-1.5"
+          >
+            {aiLoading === "draft" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PenLine className="h-3.5 w-3.5" />}
+            Borrador IA
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTriage}
+            disabled={!!aiLoading}
+            className="gap-1.5"
+          >
+            {aiLoading === "triage" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Tag className="h-3.5 w-3.5" />}
+            Clasificar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRegisterInAtenia}
+            disabled={!!aiLoading || registered}
+            className="gap-1.5"
+          >
+            {aiLoading === "register" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : registered ? (
+              <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <Ticket className="h-3.5 w-3.5" />
+            )}
+            {registered ? "Registrado" : "Ticket Atenia"}
+          </Button>
+        </div>
+      </div>
+
+      {/* AI Triage Result */}
+      {triageResult && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Brain className="h-4 w-4 text-primary" /> Análisis Atenia AI
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Badge variant="outline">{triageResult.classification}</Badge>
+              <Badge variant="outline" className={priorityColor[triageResult.priority]}>
+                Prioridad: {triageResult.priority}
+              </Badge>
+              {triageResult.shouldCreateTicket && (
+                <Badge variant="destructive" className="text-xs">Requiere ticket</Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{triageResult.summary}</p>
+            {triageResult.suggestedActions.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                <strong>Acciones:</strong> {triageResult.suggestedActions.join(" • ")}
+              </div>
+            )}
+            {triageResult.relatedEntities.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                <strong>Entidades:</strong> {triageResult.relatedEntities.join(", ")}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* AI Draft Reply */}
+      {draftResult && (
+        <Card className="border-accent/20 bg-accent/5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <PenLine className="h-4 w-4 text-accent-foreground" /> Borrador de Respuesta (Atenia AI)
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={handleCopyDraft} className="gap-1.5 text-xs">
+                {copied ? <CheckCircle className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? "Copiado" : "Copiar"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge variant="outline" className="text-xs">Tono: {draftResult.tone}</Badge>
+              <Badge variant="outline" className="text-xs">{draftResult.classification}</Badge>
+              <Badge variant="outline" className="text-xs">Confianza: {Math.round(draftResult.confidence * 100)}%</Badge>
+            </div>
+            <div className="rounded-lg border p-3 bg-background text-sm whitespace-pre-wrap max-h-64 overflow-y-auto">
+              {draftResult.draft}
+            </div>
+            {draftResult.suggestedActions.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                <strong>Acciones sugeridas:</strong> {draftResult.suggestedActions.join(" • ")}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -126,7 +319,7 @@ export function MessageDetailPanel({ messageId, direction, onBack }: MessageDeta
                 <Paperclip className="h-4 w-4" /> Adjuntos ({attachments.length})
               </h4>
               <div className="flex flex-wrap gap-2">
-                {attachments.map((att) => (
+                {attachments.map((att: any) => (
                   <Badge key={att.id} variant="outline" className="text-xs">
                     {att.filename}
                     {att.size_bytes && ` (${Math.round(att.size_bytes / 1024)}KB)`}
@@ -142,7 +335,7 @@ export function MessageDetailPanel({ messageId, direction, onBack }: MessageDeta
                 <Link2 className="h-4 w-4" /> Vínculos ({links.length})
               </h4>
               <div className="flex flex-wrap gap-2">
-                {links.map((link) => (
+                {links.map((link: any) => (
                   <Badge key={link.id} variant="outline" className="text-xs">
                     {link.entity_type} — {link.link_status}
                   </Badge>
