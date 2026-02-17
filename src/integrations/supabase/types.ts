@@ -4749,7 +4749,11 @@ export type Database = {
           email: string
           expires_at: string
           id: string
+          purpose: string
+          subject_id: string | null
+          subject_type: string
           token_hash: string
+          used_at: string | null
           user_id: string
           verified_at: string | null
         }
@@ -4758,7 +4762,11 @@ export type Database = {
           email: string
           expires_at?: string
           id?: string
+          purpose?: string
+          subject_id?: string | null
+          subject_type?: string
           token_hash: string
+          used_at?: string | null
           user_id: string
           verified_at?: string | null
         }
@@ -4767,7 +4775,11 @@ export type Database = {
           email?: string
           expires_at?: string
           id?: string
+          purpose?: string
+          subject_id?: string | null
+          subject_type?: string
           token_hash?: string
+          used_at?: string | null
           user_id?: string
           verified_at?: string | null
         }
@@ -6636,25 +6648,40 @@ export type Database = {
       }
       organization_memberships: {
         Row: {
+          alert_email: string | null
+          alert_email_verified_at: string | null
           created_at: string
           id: string
           organization_id: string
+          pending_alert_email: string | null
+          pending_alert_email_expires_at: string | null
+          pending_alert_email_token_hash: string | null
           role: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          alert_email?: string | null
+          alert_email_verified_at?: string | null
           created_at?: string
           id?: string
           organization_id: string
+          pending_alert_email?: string | null
+          pending_alert_email_expires_at?: string | null
+          pending_alert_email_token_hash?: string | null
           role: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          alert_email?: string | null
+          alert_email_verified_at?: string | null
           created_at?: string
           id?: string
           organization_id?: string
+          pending_alert_email?: string | null
+          pending_alert_email_expires_at?: string | null
+          pending_alert_email_token_hash?: string | null
           role?: string
           updated_at?: string
           user_id?: string
@@ -11863,6 +11890,10 @@ export type Database = {
         }[]
       }
       get_data_protection_summary: { Args: never; Returns: Json }
+      get_effective_alert_email: {
+        Args: { p_membership_id: string }
+        Returns: string
+      }
       get_effective_limits: { Args: { p_org_id: string }; Returns: Json }
       get_login_sync_status: {
         Args: {
