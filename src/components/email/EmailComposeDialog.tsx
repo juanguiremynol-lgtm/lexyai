@@ -11,18 +11,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Send, Save, Paperclip, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Save, Paperclip, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
-const PLATFORM_EMAIL = "info@andromeda.legal";
+import { sendEmail, PLATFORM_EMAIL } from "@/lib/email/email-client-service";
 
 interface EmailComposeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   replyTo?: { to: string; subject: string };
+  onSent?: () => void;
 }
 
-export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogProps) {
+export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeDialogProps) {
   const [to, setTo] = useState("");
   const [toList, setToList] = useState<string[]>([]);
   const [cc, setCc] = useState("");
@@ -32,6 +32,7 @@ export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogPro
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const addTag = (
     value: string,
@@ -67,7 +68,7 @@ export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogPro
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (toList.length === 0) {
       toast.error("Agrega al menos un destinatario");
       return;
@@ -76,15 +77,29 @@ export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogPro
       toast.error("Agrega un asunto");
       return;
     }
-    toast.success("Email enviado (mock)");
-    resetForm();
-    onOpenChange(false);
+
+    setSending(true);
+    try {
+      await sendEmail({
+        to: toList,
+        cc: ccList.length > 0 ? ccList : undefined,
+        bcc: bccList.length > 0 ? bccList : undefined,
+        subject,
+        body,
+      });
+      toast.success("Email encolado para envío vía proveedor activo");
+      resetForm();
+      onOpenChange(false);
+      onSent?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al enviar email");
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleSaveDraft = () => {
-    toast.success("Borrador guardado (mock)");
-    resetForm();
-    onOpenChange(false);
+    toast.success("Borrador guardado (próximamente)");
   };
 
   const resetForm = () => {
@@ -139,6 +154,10 @@ export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogPro
       <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Nuevo Email</DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Desde: <span className="font-medium text-foreground">{PLATFORM_EMAIL}</span>
+            {" "}— se enviará vía el proveedor activo configurado
+          </p>
         </DialogHeader>
 
         <div className="space-y-3 flex-1 overflow-y-auto py-2">
@@ -180,11 +199,12 @@ export function EmailComposeDialog({ open, onOpenChange }: EmailComposeDialogPro
             <Paperclip className="h-4 w-4 mr-1" /> Adjuntar
           </Button>
           <div className="flex-1" />
-          <Button variant="outline" size="sm" onClick={handleSaveDraft}>
+          <Button variant="outline" size="sm" onClick={handleSaveDraft} disabled={sending}>
             <Save className="h-4 w-4 mr-1" /> Borrador
           </Button>
-          <Button size="sm" onClick={handleSend}>
-            <Send className="h-4 w-4 mr-1" /> Enviar
+          <Button size="sm" onClick={handleSend} disabled={sending}>
+            {sending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+            Enviar
           </Button>
         </DialogFooter>
       </DialogContent>
