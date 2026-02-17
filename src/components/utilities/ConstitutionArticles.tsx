@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, BookOpen } from "lucide-react";
+import { fetchApiColombia } from "@/lib/api-colombia";
 
 interface ConstitutionArticle {
   id: number;
@@ -17,9 +18,7 @@ interface ConstitutionArticle {
 }
 
 async function fetchArticles(): Promise<ConstitutionArticle[]> {
-  const res = await fetch("https://api-colombia.com/api/v1/constitutionarticle");
-  if (!res.ok) throw new Error("Error al consultar la API");
-  return res.json();
+  return fetchApiColombia<ConstitutionArticle[]>("/api/v1/constitutionarticle");
 }
 
 export function ConstitutionArticles() {

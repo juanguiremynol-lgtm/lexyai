@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, Plane } from "lucide-react";
+import { fetchApiColombia } from "@/lib/api-colombia";
 
 interface Airport {
   id: number;
@@ -19,9 +20,7 @@ interface Airport {
 }
 
 async function fetchAirports(): Promise<Airport[]> {
-  const res = await fetch("https://api-colombia.com/api/v1/Airport");
-  if (!res.ok) throw new Error("Error al consultar la API");
-  return res.json();
+  return fetchApiColombia<Airport[]>("/api/v1/Airport");
 }
 
 export function ColombiaAirports() {

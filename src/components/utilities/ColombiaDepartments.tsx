@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, Building } from "lucide-react";
+import { fetchApiColombia } from "@/lib/api-colombia";
 
 interface Department {
   id: number;
@@ -25,9 +26,7 @@ interface Department {
 }
 
 async function fetchDepartments(): Promise<Department[]> {
-  const res = await fetch("https://api-colombia.com/api/v1/Department");
-  if (!res.ok) throw new Error("Error al consultar la API");
-  return res.json();
+  return fetchApiColombia<Department[]>("/api/v1/Department");
 }
 
 export function ColombiaDepartments() {

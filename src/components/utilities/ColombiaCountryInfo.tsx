@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Flag } from "lucide-react";
+import { fetchApiColombia } from "@/lib/api-colombia";
 
 interface CountryColombia {
   id: number;
@@ -27,9 +28,7 @@ interface CountryColombia {
 }
 
 async function fetchCountry(): Promise<CountryColombia> {
-  const res = await fetch("https://api-colombia.com/api/v1/CountryColombia");
-  if (!res.ok) throw new Error("Error al consultar la API");
-  return res.json();
+  return fetchApiColombia<CountryColombia>("/api/v1/CountryColombia");
 }
 
 export function ColombiaCountryInfo() {
