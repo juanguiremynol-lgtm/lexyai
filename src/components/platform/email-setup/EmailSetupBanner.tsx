@@ -44,12 +44,16 @@ export function EmailSetupBanner() {
   const steps = [
     setupState.step_resend_key_ok,
     setupState.step_from_identity_ok,
+    true, // DNS (informational)
     setupState.step_test_send_ok,
     setupState.step_inbound_selected,
+    setupState.step_inbound_selected,
     setupState.step_inbound_ok,
+    settings?.is_enabled,
   ];
+  const totalSteps = 8;
   const completedCount = steps.filter(Boolean).length;
-  const isFullySetup = settings?.is_enabled && completedCount >= 3;
+  const isFullySetup = settings?.is_enabled && completedCount >= 5;
 
   if (isFullySetup) return null;
 
@@ -62,10 +66,10 @@ export function EmailSetupBanner() {
           <Mail className="h-4 w-4 text-primary" />
         )}
         <span className="text-sm">
-          <strong>Email Setup:</strong> Paso {completedCount + 1} de 5
+          <strong>Email Setup:</strong> Paso {Math.min(completedCount + 1, totalSteps)} de {totalSteps}
         </span>
         <Badge variant="outline" className="text-xs">
-          {completedCount}/5 completados
+          {completedCount}/{totalSteps} completados
         </Badge>
         {setupState.last_error_message && (
           <span className="text-xs text-destructive hidden md:inline">
