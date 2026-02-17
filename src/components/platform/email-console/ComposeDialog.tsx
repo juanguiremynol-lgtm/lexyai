@@ -1,6 +1,7 @@
 /**
  * Compose Dialog — Platform Email Console
  * Enqueues emails to email_outbox with Atenia AI assistance.
+ * Shows structured errors (validation / DB / RLS / trigger) instead of generic messages.
  */
 
 import { useState } from "react";
@@ -17,8 +18,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Send, Brain, Sparkles, CheckCircle } from "lucide-react";
-import { composePlatformEmail } from "@/lib/platform/email-console-service";
+import {
+  Loader2, Send, Brain, Sparkles, CheckCircle, AlertTriangle, XCircle, RotateCcw,
+} from "lucide-react";
+import {
+  composePlatformEmail,
+  isComposeError,
+  type ComposeError,
+} from "@/lib/platform/email-console-service";
 import { assistCompose, type AIComposeAssistResult } from "@/lib/platform/email-ai-service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -29,6 +36,13 @@ interface ComposeDialogProps {
   onSent?: () => void;
 }
 
+const PHASE_LABELS: Record<string, string> = {
+  validation: "Validación",
+  insert: "Base de Datos",
+  trigger: "Procesamiento",
+  unknown: "Error",
+};
+
 export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps) {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
@@ -36,32 +50,66 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
   const [sending, setSending] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<AIComposeAssistResult | null>(null);
+  const [lastError, setLastError] = useState<ComposeError | null>(null);
+  const [lastSuccessId, setLastSuccessId] = useState<string | null>(null);
+
+  const resetState = () => {
+    setTo("");
+    setSubject("");
+    setBody("");
+    setAiResult(null);
+    setLastError(null);
+    setLastSuccessId(null);
+  };
 
   const handleSend = async () => {
-    if (!to || !subject || !body) {
-      toast.error("Completa todos los campos");
-      return;
-    }
+    setLastError(null);
+    setLastSuccessId(null);
 
     setSending(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No autenticado");
+      if (!user) {
+        setLastError({
+          code: "NOT_AUTHENTICATED",
+          message: "No hay sesión activa. Inicia sesión como Super Admin.",
+          phase: "validation",
+        });
+        return;
+      }
 
-      await composePlatformEmail(
-        { to_email: to, subject, html: `<div>${body.replace(/\n/g, "<br/>")}</div>` },
-        user.id
+      const result = await composePlatformEmail(
+        {
+          to_email: to,
+          subject,
+          html: `<div>${body.replace(/\n/g, "<br/>")}</div>`,
+        },
+        user.id,
       );
 
-      toast.success("Email encolado para envío");
-      setTo("");
-      setSubject("");
-      setBody("");
-      setAiResult(null);
-      onOpenChange(false);
-      onSent?.();
+      setLastSuccessId(result.id);
+      toast.success(
+        result.triggered
+          ? "Email encolado y procesándose"
+          : "Email encolado (se procesará en el próximo ciclo)",
+      );
+
+      // Delay reset so user sees success state
+      setTimeout(() => {
+        resetState();
+        onOpenChange(false);
+        onSent?.();
+      }, 1500);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Error al enviar");
+      if (isComposeError(err)) {
+        setLastError(err);
+      } else {
+        setLastError({
+          code: "UNKNOWN",
+          message: err instanceof Error ? err.message : "Error desconocido al enviar",
+          phase: "unknown",
+        });
+      }
     } finally {
       setSending(false);
     }
@@ -96,7 +144,7 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) resetState(); onOpenChange(o); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Componer Email</DialogTitle>
@@ -113,7 +161,7 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
               type="email"
               placeholder="destinatario@ejemplo.com"
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(e) => { setTo(e.target.value); setLastError(null); }}
             />
           </div>
           <div className="space-y-2">
@@ -122,7 +170,7 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
               id="subject"
               placeholder="Asunto del email"
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+              onChange={(e) => { setSubject(e.target.value); setLastError(null); }}
             />
           </div>
           <div className="space-y-2">
@@ -144,10 +192,56 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
               id="body"
               placeholder="Escribe el contenido del email..."
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => { setBody(e.target.value); setLastError(null); }}
               rows={8}
             />
           </div>
+
+          {/* ── Success Banner ── */}
+          {lastSuccessId && (
+            <div className="flex items-center gap-2 p-3 rounded border border-green-500/30 bg-green-500/5">
+              <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+              <div className="text-xs">
+                <p className="font-medium text-green-500">Email encolado exitosamente</p>
+                <p className="text-muted-foreground font-mono">ID: {lastSuccessId}</p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Error Banner ── */}
+          {lastError && (
+            <div className="p-3 rounded border border-destructive/30 bg-destructive/5 space-y-2">
+              <div className="flex items-start gap-2">
+                <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-destructive">Error al enviar</span>
+                    <Badge variant="outline" className="text-[10px] border-destructive/30 text-destructive">
+                      {lastError.code}
+                    </Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      Fase: {PHASE_LABELS[lastError.phase]}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{lastError.message}</p>
+                  {lastError.details && (
+                    <pre className="text-[10px] text-muted-foreground mt-1 p-1.5 rounded bg-muted/50 overflow-x-auto font-mono max-h-20 overflow-y-auto">
+                      {lastError.details}
+                    </pre>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSend}
+                disabled={sending}
+                className="gap-1.5 text-xs w-full"
+              >
+                <RotateCcw className="h-3 w-3" /> Reintentar
+              </Button>
+            </div>
+          )}
 
           {/* AI Suggestions */}
           {aiResult && (
@@ -180,10 +274,10 @@ export function ComposeDialog({ open, onOpenChange, onSent }: ComposeDialogProps
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>
+          <Button variant="outline" onClick={() => { resetState(); onOpenChange(false); }} disabled={sending}>
             Cancelar
           </Button>
-          <Button onClick={handleSend} disabled={sending}>
+          <Button onClick={handleSend} disabled={sending || !!lastSuccessId}>
             {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
             Enviar
           </Button>
