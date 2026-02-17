@@ -158,8 +158,9 @@ export async function getEstadosHoy(
   }
   
   // Fetch from BOTH sources in parallel
+  // IMPORTANT: Filter by publication/event date, NOT created_at
   const [publicacionesResult, actuacionesResult] = await Promise.all([
-    // Estados from Publicaciones API
+    // Estados from Publicaciones API — filter by fecha_fijacion
     supabase
       .from('work_item_publicaciones')
       .select(`
@@ -191,9 +192,9 @@ export async function getEstadosHoy(
       `, { count: 'exact' })
       .eq('work_items.organization_id', organizationId)
       .in('work_items.workflow_type', workflowFilter)
-      .order('created_at', { ascending: false }),
+      .order('fecha_fijacion', { ascending: false }),
 
-    // Actuaciones from CPNU/SAMAI (via work_item_acts)
+    // Actuaciones from CPNU/SAMAI (via work_item_acts) — filter by act_date
     supabase
       .from('work_item_acts')
       .select(`
@@ -221,7 +222,7 @@ export async function getEstadosHoy(
       `, { count: 'exact' })
       .eq('work_items.organization_id', organizationId)
       .in('work_items.workflow_type', workflowFilter)
-      .order('created_at', { ascending: false })
+      .order('act_date', { ascending: false })
   ]);
   
   const items: EstadoHoyItem[] = [];
@@ -355,10 +356,13 @@ export async function getEstadosHoy(
     );
   }
   
-  // Sort by created_at descending
-  filtered.sort((a, b) => 
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  // Sort by publication/event date descending, not created_at
+  filtered.sort((a, b) => {
+    const dateA = a.date ? new Date(a.date).getTime() : 0;
+    const dateB = b.date ? new Date(b.date).getTime() : 0;
+    if (dateB !== dateA) return dateB - dateA;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
   
   // CRITICAL: Filter to only the LATEST estado per work_item
   // This ensures Estados de Hoy shows actionable items, not full history

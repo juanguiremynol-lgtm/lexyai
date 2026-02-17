@@ -199,6 +199,15 @@ async function fetchEstadosHoy(
 ): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number; samaiEstadosCount: number }> {
   const bounds = getWindowBounds(window);
 
+  /**
+   * PRIMARY QUERY: filter by publication date (fecha_fijacion), NOT created_at.
+   * This is the core fix: "Estados de Hoy" means "published today by the court",
+   * not "ingested today by our system".
+   *
+   * "Discovered today" (is_new badge) = created_at within today's COT window,
+   * computed client-side after the query returns.
+   */
+
   // First, resolve SAMAI_ESTADOS instance IDs for provenance-based lookups
   const { data: samaiInstances } = await supabase
     .from("provider_instances")
@@ -207,16 +216,8 @@ async function fetchEstadosHoy(
     .eq("is_enabled", true);
   const samaiInstanceIds = (samaiInstances || []).map((i: any) => i.id);
 
-  const [discoveredResult, courtPostedResult, samaiEstadosResult, provenanceResult] = await Promise.all([
-    supabase
-      .from("work_item_publicaciones")
-      .select(PUB_SELECT)
-      .eq("work_items.organization_id", organizationId)
-      .eq("is_archived", false)
-      .gte("created_at", bounds.created_start)
-      .lte("created_at", bounds.created_end)
-      .order("created_at", { ascending: false })
-      .limit(200),
+  const [pubResult, samaiEstadosResult, provenanceResult] = await Promise.all([
+    // Publicaciones: filter by fecha_fijacion (court publication date)
     supabase
       .from("work_item_publicaciones")
       .select(PUB_SELECT)
@@ -225,20 +226,19 @@ async function fetchEstadosHoy(
       .gte("fecha_fijacion", bounds.date_start)
       .lte("fecha_fijacion", bounds.date_end)
       .order("fecha_fijacion", { ascending: false })
-      .limit(200),
-    // SAMAI_ESTADOS records from work_item_acts — directly tagged
+      .limit(500),
+    // SAMAI_ESTADOS: filter by act_date (the court event date)
     supabase
       .from("work_item_acts")
       .select(SAMAI_ESTADOS_SELECT)
       .eq("work_items.organization_id", organizationId)
       .eq("source", "SAMAI_ESTADOS")
       .eq("is_archived", false)
-      .gte("created_at", bounds.created_start)
-      .lte("created_at", bounds.created_end)
-      .order("created_at", { ascending: false })
+      .gte("act_date", bounds.date_start)
+      .lte("act_date", bounds.date_end)
+      .order("act_date", { ascending: false })
       .limit(200),
-    // Provenance-confirmed SAMAI_ESTADOS acts (deduped records originally from 'samai')
-    // We query act_provenance for the SAMAI_ESTADOS instance, then load the acts separately
+    // Provenance-confirmed SAMAI_ESTADOS acts
     samaiInstanceIds.length > 0
       ? supabase
           .from("act_provenance")
@@ -248,27 +248,25 @@ async function fetchEstadosHoy(
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (discoveredResult.error) console.error("[estados-hoy] discovered query error:", discoveredResult.error);
-  if (courtPostedResult.error) console.error("[estados-hoy] court-posted query error:", courtPostedResult.error);
+  if (pubResult.error) console.error("[estados-hoy] publicaciones query error:", pubResult.error);
   if (samaiEstadosResult.error) console.error("[estados-hoy] SAMAI_ESTADOS query error:", samaiEstadosResult.error);
 
   const itemMap = new Map<string, EstadoHoyItemWithMeta>();
 
-  for (const row of discoveredResult.data || []) {
-    itemMap.set(row.id, mapPubRow(row, "discovered"));
-  }
-  const discoveredCount = itemMap.size;
+  // Compute window bounds for "discovered" tagging
+  const windowStartMs = new Date(bounds.created_start).getTime();
+  const windowEndMs = new Date(bounds.created_end).getTime();
 
-  let courtPostedTotal = 0;
-  for (const row of courtPostedResult.data || []) {
-    courtPostedTotal++;
-    if (itemMap.has(row.id)) {
-      const existing = itemMap.get(row.id)!;
-      existing.match_reason = "both";
-      existing.is_new = true;
-    } else {
-      itemMap.set(row.id, mapPubRow(row, "court_posted"));
-    }
+  let discoveredCount = 0;
+  let courtPostedCount = 0;
+
+  for (const row of pubResult.data || []) {
+    const createdMs = new Date(row.created_at).getTime();
+    const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+    const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
+    if (isDiscoveredInWindow) discoveredCount++;
+    courtPostedCount++;
+    itemMap.set(row.id, mapPubRow(row, reason));
   }
 
   // Merge SAMAI_ESTADOS records — direct + provenance-confirmed
@@ -277,12 +275,17 @@ async function fetchEstadosHoy(
   for (const row of samaiEstadosResult.data || []) {
     const key = `samai_estado_${row.id}`;
     if (!itemMap.has(key)) {
-      itemMap.set(key, mapSamaiEstadoRow(row, "discovered"));
+      const createdMs = new Date(row.created_at).getTime();
+      const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+      const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
+      if (isDiscoveredInWindow) discoveredCount++;
+      itemMap.set(key, mapSamaiEstadoRow(row, reason));
       samaiEstadosCount++;
     }
     samaiSeenIds.add(row.id);
   }
-  // Load provenance-confirmed acts in bulk if any exist
+
+  // Load provenance-confirmed acts in bulk
   const provenanceActIds = (provenanceResult.data || [])
     .map((p: any) => p.work_item_act_id)
     .filter((id: string) => !samaiSeenIds.has(id));
@@ -293,14 +296,21 @@ async function fetchEstadosHoy(
       .select(SAMAI_ESTADOS_SELECT)
       .in("id", provenanceActIds.slice(0, 200))
       .eq("work_items.organization_id", organizationId)
-      .eq("is_archived", false);
+      .eq("is_archived", false)
+      // Also filter by act_date to avoid pulling in historical records
+      .gte("act_date", bounds.date_start)
+      .lte("act_date", bounds.date_end);
     
     for (const act of (provenanceActs || [])) {
       if (samaiSeenIds.has(act.id)) continue;
       samaiSeenIds.add(act.id);
       const key = `samai_estado_${act.id}`;
       if (!itemMap.has(key)) {
-        itemMap.set(key, mapSamaiEstadoRow(act, "discovered"));
+        const createdMs = new Date(act.created_at).getTime();
+        const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+        const reason: MatchReason = isDiscoveredInWindow ? "both" : "court_posted";
+        if (isDiscoveredInWindow) discoveredCount++;
+        itemMap.set(key, mapSamaiEstadoRow(act, reason));
         samaiEstadosCount++;
       }
     }
@@ -320,9 +330,17 @@ async function fetchEstadosHoy(
     );
   }
 
-  items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Sort by publication/event date descending, then created_at as tie-breaker
+  items.sort((a, b) => {
+    const dateA = a.fecha_fijacion_raw || a.date;
+    const dateB = b.fecha_fijacion_raw || b.date;
+    const msA = dateA ? new Date(dateA).getTime() : 0;
+    const msB = dateB ? new Date(dateB).getTime() : 0;
+    if (msB !== msA) return msB - msA;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 
-  return { items, total: items.length, discoveredCount, courtPostedCount: courtPostedTotal, samaiEstadosCount };
+  return { items, total: items.length, discoveredCount, courtPostedCount, samaiEstadosCount };
 }
 
 /* ── page component ── */
