@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { WorkItem } from "@/types/work-item";
+import { ActuacionDiffView } from "@/components/work-items/ActuacionDiffView";
 
 // Coverage gap type
 interface CoverageGap {
@@ -325,6 +326,9 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
 
   return (
     <div className="space-y-4">
+      {/* Diff view for recent changes */}
+      <ActuacionDiffView workItemId={workItem.id} dataKind="estados" />
+
       {/* Header - REMOVED: "Buscar Estados" button - syncing happens automatically */}
       <Card>
         <CardHeader>
