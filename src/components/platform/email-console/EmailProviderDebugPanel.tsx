@@ -442,6 +442,86 @@ function DeliverabilityChecklist() {
   );
 }
 
+function TestSendCard() {
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleTestSend = async () => {
+    setSending(true);
+    setResult(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) throw new Error("No se pudo obtener el email del usuario autenticado");
+
+      // Get user's org
+      const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).maybeSingle();
+      const orgId = profile?.organization_id;
+      if (!orgId) throw new Error("No se encontró organización para el usuario");
+
+      const { error } = await supabase.from("email_outbox").insert({
+        to_email: user.email,
+        subject: `[TEST] Pipeline de email — ${new Date().toLocaleString("es-CO")}`,
+        html: `<div style="font-family:monospace;padding:20px;background:#000;color:#0f0;border:1px solid #0f0;">
+          <h2 style="color:#0f0;">✅ Test de Pipeline Exitoso</h2>
+          <p>Este email fue enviado desde el Debug Panel de la Consola de Email.</p>
+          <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+          <p><strong>Destinatario:</strong> ${user.email}</p>
+          <p><strong>Pipeline:</strong> email_outbox → process-email-outbox → proveedor activo</p>
+          <hr style="border-color:#0f0;"/>
+          <p style="font-size:11px;color:#888;">Atenia Platform — andromeda.legal</p>
+        </div>`,
+        organization_id: orgId,
+        next_attempt_at: new Date().toISOString(),
+        trigger_reason: "DEBUG_TEST",
+        triggered_by: user.id,
+        status: "PENDING",
+      });
+
+      if (error) throw error;
+      setResult({ ok: true, message: `Email de prueba encolado para ${user.email}. Revise su bandeja en unos segundos.` });
+      toast.success("Test encolado exitosamente");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      setResult({ ok: false, message: msg });
+      toast.error(msg);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <TestTube className="h-4 w-4 text-primary" />
+          Test rápido de envío
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Envía un email de prueba a tu dirección a través del pipeline completo (email_outbox → process-email-outbox → proveedor activo)
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={handleTestSend}
+          disabled={sending}
+        >
+          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          {sending ? "Enviando test..." : "Enviar test vía pipeline"}
+        </Button>
+        {result && (
+          <div className={`text-xs p-2 rounded border ${result.ok ? "border-green-500/30 bg-green-500/5 text-green-400" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
+            {result.ok ? <CheckCircle className="h-3 w-3 inline mr-1" /> : <XCircle className="h-3 w-3 inline mr-1" />}
+            {result.message}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Atenia AI Health Dispatch ──────────────────────────────
 
 function dispatchAteniaEmailHealth(healthResults: ProviderHealthResult[], metrics: DeliveryMetrics) {
@@ -462,9 +542,7 @@ function dispatchAteniaEmailHealth(healthResults: ProviderHealthResult[], metric
     degradedOrDown.length > 0 ? `\n🔍 Diagnóstico detallado:\n${degradedOrDown.map(r => `- ${PROVIDER_LABELS[r.provider]}: ${r.message}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 
-  window.dispatchEvent(new CustomEvent("atenia:open-with-prompt", {
-    detail: { prompt: summary },
-  }));
+  toast.success("Informe de salud generado", { description: summary.slice(0, 200) + "..." });
 }
 
 // ─── Main Component ─────────────────────────────────────────
@@ -587,33 +665,7 @@ export function EmailProviderDebugPanel() {
             </div>
           )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <TestTube className="h-4 w-4 text-primary" />
-                Test rápido de envío
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Envíe un email de prueba a través del pipeline completo (email_outbox → process-email-outbox → proveedor activo)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent("atenia:open-with-prompt", {
-                    detail: {
-                      prompt: "Quiero enviar un email de prueba a través del proveedor activo para verificar que el pipeline de envío funciona correctamente. ¿Puedes guiarme?",
-                    },
-                  }));
-                }}
-              >
-                <Send className="h-3.5 w-3.5" /> Enviar test vía Andro IA
-              </Button>
-            </CardContent>
-          </Card>
+          <TestSendCard />
         </TabsContent>
 
         {/* ─── Deliverability Tab ─── */}
