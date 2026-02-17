@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Mail, Shield, FileText, Database, Package, FileDown, Truck, Stamp } from "lucide-react";
+import { ExternalLink, Mail, Shield, FileText, Database, Package, FileDown, Truck, Stamp, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -12,6 +12,7 @@ const SERVIENTREGA_URL = "https://www.servientrega.com/wps/portal/soluciones-dig
 const ILOVEPDF_URL = "https://www.ilovepdf.com/";
 const ENVIAMOS_URL = "https://enviamoscym.com/";
 const CERTIFICADOS_SNR_URL = "https://certificados.supernotariado.gov.co/certificado";
+const RUES_URL = "https://www.rues.org.co/";
 export default function Links() {
   return (
     <div className="space-y-6">
@@ -53,6 +54,10 @@ export default function Links() {
           <TabsTrigger value="certificados-snr" className="flex items-center gap-2">
             <Stamp className="h-4 w-4" />
             Certificados SNR
+          </TabsTrigger>
+          <TabsTrigger value="rues" className="flex items-center gap-2">
+            <Search className="h-4 w-4" />
+            RUES
           </TabsTrigger>
         </TabsList>
 
@@ -322,6 +327,40 @@ export default function Links() {
                 >
                   <ExternalLink className="h-4 w-4" />
                   Abrir Portal de Certificados
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="rues" className="mt-6">
+          <Card className="max-w-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-lg bg-primary/10">
+                  <Search className="h-8 w-8 text-primary" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl">RUES — Registro Único Empresarial y Social</CardTitle>
+                  <CardDescription className="mt-1">
+                    Consulta de empresas, establecimientos y entidades sin ánimo de lucro registradas en Colombia
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Portal oficial del Registro Único Empresarial y Social para consultar información de personas jurídicas, establecimientos de comercio, NIT, representantes legales y más.
+              </p>
+              <Button asChild>
+                <a
+                  href={RUES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir RUES
                 </a>
               </Button>
             </CardContent>
