@@ -9,7 +9,7 @@
 export const TERMS_VERSION = "v1.0";
 export const TERMS_LAST_UPDATED = "2026-02-16";
 export const PRIVACY_POLICY_VERSION = "v1.0";
-export const PRIVACY_POLICY_URL = "https://lexyai.lovable.app/legal/privacy";
+export const PRIVACY_POLICY_URL = "https://andromeda.legal/legal/privacy";
 
 export const OPERADOR = {
   razonSocial: "LEX ET LITTERAE S.A.S.",
