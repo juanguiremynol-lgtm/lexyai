@@ -20,10 +20,11 @@ import {
   Brain, Play, Loader2, CheckCircle2, XCircle, AlertTriangle,
   ChevronDown, ShieldCheck, CalendarSync, Server, Ghost, Plug,
   Activity, Zap, Settings, RefreshCw, FileText, Clock, Download,
-  Database, Shield, Mail, Wifi, WifiOff, Bot, Crosshair,
+  Database, Shield, Mail, Wifi, WifiOff, Bot, Crosshair, Bell,
 } from "lucide-react";
 import { toast } from "sonner";
 import { MasterDebugPanel } from "@/components/debug/MasterDebugPanel";
+import { AlertTestPanel } from "@/components/platform/atenia-ai/AlertTestPanel";
 
 const PLATFORM_ORG_ID = "a0000000-0000-0000-0000-000000000001";
 
@@ -507,10 +508,14 @@ export function AteniaComprehensiveAuditWizard() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="audit" className="text-xs gap-1.5">
             <Play className="h-3.5 w-3.5" />
             Auditoría Integral
+          </TabsTrigger>
+          <TabsTrigger value="alert-test" className="text-xs gap-1.5">
+            <Bell className="h-3.5 w-3.5" />
+            Test Alertas
           </TabsTrigger>
           <TabsTrigger value="deep-dive" className="text-xs gap-1.5">
             <Zap className="h-3.5 w-3.5" />
@@ -604,6 +609,11 @@ export function AteniaComprehensiveAuditWizard() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        {/* ========== ALERT TEST TAB ========== */}
+        <TabsContent value="alert-test" className="mt-4">
+          <AlertTestPanel />
         </TabsContent>
 
         {/* ========== DEEP DIVE TAB ========== */}
