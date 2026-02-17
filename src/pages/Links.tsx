@@ -1,8 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExternalLink, Mail, Shield, FileText, Database } from "lucide-react";
+import { ExternalLink, Mail, Shield, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CourthouseDirectorySearch } from "@/components/links/CourthouseDirectorySearch";
 
 const POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=eyJrIjoiMjllZTNjNGYtNjYzMi00ZjUzLTgyMGYtNzE0OWNlZjM0YTY2IiwidCI6IjYyMmNiYTk4LTgwZjgtNDFmMy04ZGY1LThlYjk5OTAxNTk4YiIsImMiOjR9";
 const DIRECTORIO_RAMA_URL = "https://www.ramajudicial.gov.co/directorio-cuentas-de-correo-electronico";
@@ -17,12 +16,8 @@ export default function Links() {
         <p className="text-muted-foreground">Recursos y directorios externos.</p>
       </div>
 
-      <Tabs defaultValue="correos" className="w-full">
+      <Tabs defaultValue="correos-externo" className="w-full">
         <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="correos" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            Directorio de Correos
-          </TabsTrigger>
           <TabsTrigger value="correos-externo" className="flex items-center gap-2">
             <Mail className="h-4 w-4" />
             Directorio Rama Judicial
@@ -36,29 +31,6 @@ export default function Links() {
             Demanda en Línea
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="correos" className="mt-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Database className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg">Directorio de Correos Judiciales</CardTitle>
-                    <CardDescription>
-                      Busque el correo electrónico de cualquier despacho judicial de Colombia
-                    </CardDescription>
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <CourthouseDirectorySearch />
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="correos-externo" className="mt-6">
           <Card>
