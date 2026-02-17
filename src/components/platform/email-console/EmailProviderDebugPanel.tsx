@@ -21,6 +21,7 @@ import {
   Brain,
   CheckCircle,
   Clock,
+  Globe,
   Loader2,
   Mail,
   RefreshCw,
@@ -321,6 +322,126 @@ function EventTypeIcon({ type }: { type: string }) {
   }
 }
 
+// ─── Deliverability Checklist ────────────────────────────────
+
+function DeliverabilityChecklist() {
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ["system-email-settings-debug"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("system_email_settings") as any).select("*").maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 30_000,
+  });
+
+  const checks = [
+    {
+      id: "domain",
+      label: "Dominio andromeda.legal verificado en Resend",
+      status: settings?.domain_verified_at ? "pass" : "pending",
+      help: "Ve a Resend Dashboard → Domains → Add Domain → andromeda.legal. Sigue las instrucciones para agregar registros DNS.",
+    },
+    {
+      id: "spf",
+      label: "Registro SPF configurado en Hostinger",
+      status: settings?.dns_spf_verified ? "pass" : "pending",
+      help: "En Hostinger DNS, agrega TXT record: Host: @ | Value: v=spf1 include:resend.com ~all",
+    },
+    {
+      id: "dkim",
+      label: "Registros DKIM (CNAME) configurados en Hostinger",
+      status: settings?.dns_dkim_verified ? "pass" : "pending",
+      help: "Resend te proporciona 3 registros CNAME. Agrégalos en Hostinger DNS exactamente como aparecen.",
+    },
+    {
+      id: "dmarc",
+      label: "Registro DMARC configurado",
+      status: settings?.dns_dmarc_verified ? "pass" : "pending",
+      help: "Agrega TXT: Host: _dmarc | Value: v=DMARC1; p=none; rua=mailto:dmarc@andromeda.legal",
+    },
+    {
+      id: "api_key",
+      label: "RESEND_API_KEY configurada como secreto",
+      status: "check_manual",
+      help: "El API key debe estar como secreto en Lovable Cloud. Ve a Configuración → Secretos → RESEND_API_KEY.",
+    },
+    {
+      id: "enabled",
+      label: "Envío habilitado en configuración del sistema",
+      status: settings?.is_enabled ? "pass" : "pending",
+      help: "Ve a la pestaña Configuración de esta consola y activa el toggle 'Envío habilitado'.",
+    },
+    {
+      id: "test",
+      label: "Email de prueba enviado exitosamente",
+      status: settings?.last_test_result === "ok" ? "pass" : settings?.last_test_result ? "fail" : "pending",
+      help: "Usa el botón 'Enviar Test' en Configuración para verificar el pipeline completo.",
+    },
+    {
+      id: "hostinger_mx",
+      label: "MX records en Hostinger NO interfieren con Resend",
+      status: "check_manual",
+      help: "Los MX de Hostinger son para RECIBIR email (webmail). No afectan el envío vía Resend. Verifica que no haya registros SPF conflictivos.",
+    },
+  ];
+
+  if (isLoading) {
+    return <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-16" />)}</div>;
+  }
+
+  const passCount = checks.filter(c => c.status === "pass").length;
+  const totalCheckable = checks.filter(c => c.status !== "check_manual").length;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Globe className="h-4 w-4 text-primary" />
+            Checklist de Entregabilidad — Hostinger + Resend
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {passCount}/{totalCheckable} verificaciones automáticas pasadas. Completa todas para garantizar entrega.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {checks.map((check) => (
+            <div key={check.id} className="flex items-start gap-3 p-3 rounded-lg border">
+              {check.status === "pass" ? (
+                <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
+              ) : check.status === "fail" ? (
+                <XCircle className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+              ) : check.status === "check_manual" ? (
+                <AlertTriangle className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+              ) : (
+                <Clock className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{check.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{check.help}</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Resumen de Arquitectura</CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-muted-foreground space-y-2">
+          <p><strong>Hosting email:</strong> info@andromeda.legal en Hostinger (recepción/webmail)</p>
+          <p><strong>Envío transaccional:</strong> Resend API → email_outbox → process-email-outbox</p>
+          <p><strong>Recepción programática:</strong> Resend Inbound → inbound-email Edge Function → inbound_messages</p>
+          <p><strong>Clave:</strong> SPF/DKIM/DMARC en DNS de Hostinger autorizan a Resend a enviar en nombre de @andromeda.legal</p>
+          <p><strong>Conflictos comunes:</strong> SPF duplicado (solo debe haber 1 registro SPF que incluya tanto Hostinger como Resend)</p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Atenia AI Health Dispatch ──────────────────────────────
 
 function dispatchAteniaEmailHealth(healthResults: ProviderHealthResult[], metrics: DeliveryMetrics) {
@@ -436,9 +557,12 @@ export function EmailProviderDebugPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-4 w-full max-w-xl">
+        <TabsList className="grid grid-cols-5 w-full max-w-2xl">
           <TabsTrigger value="health" className="gap-1.5 text-xs">
             <Wifi className="h-3.5 w-3.5" /> Salud
+          </TabsTrigger>
+          <TabsTrigger value="deliverability" className="gap-1.5 text-xs">
+            <Globe className="h-3.5 w-3.5" /> Entregabilidad
           </TabsTrigger>
           <TabsTrigger value="pipeline" className="gap-1.5 text-xs">
             <Activity className="h-3.5 w-3.5" /> Pipeline
@@ -490,6 +614,11 @@ export function EmailProviderDebugPanel() {
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ─── Deliverability Tab ─── */}
+        <TabsContent value="deliverability" className="space-y-4 mt-4">
+          <DeliverabilityChecklist />
         </TabsContent>
 
         {/* ─── Pipeline Tab ─── */}

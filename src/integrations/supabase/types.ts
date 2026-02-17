@@ -9519,6 +9519,78 @@ export type Database = {
           },
         ]
       }
+      system_email_settings: {
+        Row: {
+          alert_accent_color: string
+          alert_cta_text: string
+          alert_cta_url: string
+          alert_html_footer: string | null
+          alert_html_header: string | null
+          alert_logo_url: string | null
+          alert_subject_template: string
+          created_at: string
+          dns_dkim_verified: boolean
+          dns_dmarc_verified: boolean
+          dns_spf_verified: boolean
+          domain_verified_at: string | null
+          from_email: string
+          from_name: string
+          id: string
+          is_enabled: boolean
+          last_test_result: string | null
+          last_test_sent_at: string | null
+          provider: string
+          reply_to: string | null
+          updated_at: string
+        }
+        Insert: {
+          alert_accent_color?: string
+          alert_cta_text?: string
+          alert_cta_url?: string
+          alert_html_footer?: string | null
+          alert_html_header?: string | null
+          alert_logo_url?: string | null
+          alert_subject_template?: string
+          created_at?: string
+          dns_dkim_verified?: boolean
+          dns_dmarc_verified?: boolean
+          dns_spf_verified?: boolean
+          domain_verified_at?: string | null
+          from_email?: string
+          from_name?: string
+          id?: string
+          is_enabled?: boolean
+          last_test_result?: string | null
+          last_test_sent_at?: string | null
+          provider?: string
+          reply_to?: string | null
+          updated_at?: string
+        }
+        Update: {
+          alert_accent_color?: string
+          alert_cta_text?: string
+          alert_cta_url?: string
+          alert_html_footer?: string | null
+          alert_html_header?: string | null
+          alert_logo_url?: string | null
+          alert_subject_template?: string
+          created_at?: string
+          dns_dkim_verified?: boolean
+          dns_dmarc_verified?: boolean
+          dns_spf_verified?: boolean
+          domain_verified_at?: string | null
+          from_email?: string
+          from_name?: string
+          id?: string
+          is_enabled?: boolean
+          last_test_result?: string | null
+          last_test_sent_at?: string | null
+          provider?: string
+          reply_to?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       system_health_events: {
         Row: {
           created_at: string
