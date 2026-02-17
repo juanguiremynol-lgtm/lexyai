@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Send, Save, Paperclip, X, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { sendEmail, PLATFORM_EMAIL } from "@/lib/email/email-client-service";
+import { supabase } from "@/integrations/supabase/client";
+
+const PLATFORM_EMAIL = "info@andromeda.legal";
 
 interface EmailComposeDialogProps {
   open: boolean;
@@ -80,17 +82,43 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
 
     setSending(true);
     try {
-      await sendEmail({
-        to: toList,
-        cc: ccList.length > 0 ? ccList : undefined,
-        bcc: bccList.length > 0 ? bccList : undefined,
-        subject,
-        body,
+      const html = `<div style="font-family: sans-serif;">${body
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>")}</div>`;
+
+      const { data, error } = await supabase.functions.invoke("system-email-send", {
+        body: {
+          to: toList,
+          cc: ccList.length > 0 ? ccList : undefined,
+          bcc: bccList.length > 0 ? bccList : undefined,
+          subject,
+          html,
+          text: body,
+        },
       });
-      toast.success("Email encolado para envío vía proveedor activo");
-      resetForm();
-      onOpenChange(false);
-      onSent?.();
+
+      if (error) {
+        let parsed: any = null;
+        try {
+          if (error.context && typeof error.context.json === "function") {
+            parsed = await error.context.json();
+          }
+        } catch { /* ignore */ }
+        const msg = parsed?.error_message || error.message || "Error al enviar email";
+        toast.error(msg);
+        return;
+      }
+
+      if (data?.ok) {
+        toast.success(data.message || "Email enviado exitosamente");
+        resetForm();
+        onOpenChange(false);
+        onSent?.();
+      } else {
+        toast.error(data?.error_message || "Error al enviar email");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al enviar email");
     } finally {
@@ -156,7 +184,7 @@ export function EmailComposeDialog({ open, onOpenChange, onSent }: EmailComposeD
           <DialogTitle>Nuevo Email</DialogTitle>
           <p className="text-xs text-muted-foreground">
             Desde: <span className="font-medium text-foreground">{PLATFORM_EMAIL}</span>
-            {" "}— se enviará vía el proveedor activo configurado
+            {" "}— se enviará vía Resend
           </p>
         </DialogHeader>
 

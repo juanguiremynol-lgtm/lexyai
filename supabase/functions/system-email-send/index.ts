@@ -1,6 +1,6 @@
 /**
  * system-email-send — Sends email via Resend for Platform Compose.
- * Super Admin only. Logs to system_email_messages.
+ * Super Admin only. Logs to system_email_messages using service role.
  * Returns structured errors for the UI.
  */
 
@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
     // ── Auth ──────────────────────────────────────────
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return json({ error_code: "UNAUTHORIZED", error_message: "Missing auth token" }, 401);
+      return json({ ok: false, error_code: "UNAUTHORIZED", error_message: "Missing auth token", phase: "auth" }, 401);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -32,12 +32,11 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
-    if (claimsErr || !claimsData?.claims) {
-      return json({ error_code: "UNAUTHORIZED", error_message: "Invalid token" }, 401);
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData?.user) {
+      return json({ ok: false, error_code: "UNAUTHORIZED", error_message: "Invalid token", phase: "auth" }, 401);
     }
-    const userId = claimsData.claims.sub as string;
+    const userId = userData.user.id;
 
     // ── Super Admin check ────────────────────────────
     const adminClient = createClient(supabaseUrl, serviceKey);
@@ -48,7 +47,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!adminRec) {
-      return json({ error_code: "FORBIDDEN", error_message: "Acceso denegado: no eres Super Admin" }, 403);
+      return json({ ok: false, error_code: "FORBIDDEN", error_message: "Acceso denegado: no eres Super Admin", phase: "auth" }, 403);
     }
 
     // ── Parse body ───────────────────────────────────
@@ -56,14 +55,15 @@ Deno.serve(async (req) => {
     const { to, subject, html, text, cc, bcc } = body;
 
     // Validate
-    if (!to || (Array.isArray(to) && to.length === 0)) {
-      return json({ error_code: "MISSING_RECIPIENT", error_message: "El campo 'to' es obligatorio", phase: "validation" }, 400);
+    const toArray = !to ? [] : Array.isArray(to) ? to : [to];
+    if (toArray.length === 0) {
+      return json({ ok: false, error_code: "MISSING_RECIPIENT", error_message: "El campo 'to' es obligatorio", phase: "validation" }, 400);
     }
     if (!subject?.trim()) {
-      return json({ error_code: "MISSING_SUBJECT", error_message: "El campo 'subject' es obligatorio", phase: "validation" }, 400);
+      return json({ ok: false, error_code: "MISSING_SUBJECT", error_message: "El campo 'subject' es obligatorio", phase: "validation" }, 400);
     }
     if (!html?.trim() && !text?.trim()) {
-      return json({ error_code: "MISSING_BODY", error_message: "El cuerpo del email (html o text) es obligatorio", phase: "validation" }, 400);
+      return json({ ok: false, error_code: "MISSING_BODY", error_message: "El cuerpo del email (html o text) es obligatorio", phase: "validation" }, 400);
     }
 
     // ── Get settings ─────────────────────────────────
@@ -73,16 +73,15 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!settings?.is_enabled) {
-      return json({ error_code: "EMAIL_DISABLED", error_message: "El sistema de email no está habilitado. Actívalo en el Setup Wizard.", phase: "validation" }, 400);
+      return json({ ok: false, error_code: "EMAIL_DISABLED", error_message: "El sistema de email no está habilitado. Actívalo en el Setup Wizard.", phase: "validation" }, 400);
     }
 
     // ── Send via Resend ──────────────────────────────
     const resendKey = Deno.env.get("RESEND_API_KEY");
     if (!resendKey) {
-      return json({ error_code: "MISSING_RESEND_KEY", error_message: "RESEND_API_KEY no configurada en secrets", phase: "provider" }, 500);
+      return json({ ok: false, error_code: "MISSING_RESEND_KEY", error_message: "RESEND_API_KEY no configurada en secrets", phase: "provider" }, 500);
     }
 
-    const toArray = Array.isArray(to) ? to : [to];
     const fromField = settings.from_name
       ? `${settings.from_name} <${settings.from_email}>`
       : settings.from_email;
@@ -98,7 +97,6 @@ Deno.serve(async (req) => {
     if (cc) resendPayload.cc = Array.isArray(cc) ? cc : [cc];
     if (bcc) resendPayload.bcc = Array.isArray(bcc) ? bcc : [bcc];
 
-    // Idempotency key
     const idempotencyKey = crypto.randomUUID();
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -123,9 +121,10 @@ Deno.serve(async (req) => {
       providerError = resendData.message || resendData.error || JSON.stringify(resendData);
     }
 
-    // ── Log to system_email_messages ─────────────────
+    // ── Log to system_email_messages (service role bypasses RLS) ─
+    let insertedMessageId: string | null = null;
     try {
-      await adminClient.from("system_email_messages").insert({
+      const { data: inserted, error: dbErr } = await adminClient.from("system_email_messages").insert({
         direction: "outbound",
         folder: "SENT",
         provider: "resend",
@@ -140,29 +139,54 @@ Deno.serve(async (req) => {
         text_body: text || null,
         html_body: html || null,
         sent_at: sendOk ? new Date().toISOString() : null,
-      });
-    } catch (dbErr) {
-      console.error("[system-email-send] DB log failed:", dbErr);
-      // Non-fatal: send result is more important
+      }).select("id").maybeSingle();
+
+      if (dbErr) {
+        console.error("[system-email-send] DB log failed:", dbErr);
+        if (sendOk) {
+          return json({
+            ok: false,
+            error_code: "DB_INSERT_FAILED",
+            error_message: `Email enviado pero no se pudo registrar en la BD: ${dbErr.message}`,
+            phase: "insert",
+            resend_email_id: providerMessageId,
+          }, 500);
+        }
+      } else {
+        insertedMessageId = inserted?.id || null;
+      }
+    } catch (dbErr: any) {
+      console.error("[system-email-send] DB log exception:", dbErr);
+      if (sendOk) {
+        return json({
+          ok: false,
+          error_code: "DB_INSERT_FAILED",
+          error_message: `Email enviado pero falló el registro: ${dbErr.message}`,
+          phase: "insert",
+          resend_email_id: providerMessageId,
+        }, 500);
+      }
     }
 
     if (!sendOk) {
       return json({
+        ok: false,
         error_code: "RESEND_SEND_FAILED",
         error_message: `Resend rechazó el envío: ${providerError}`,
         phase: "provider",
-        provider_response: providerError,
+        provider_error: providerError,
       }, 502);
     }
 
     return json({
       ok: true,
-      provider_message_id: providerMessageId,
+      resend_email_id: providerMessageId,
+      inserted_message_id: insertedMessageId,
       message: `Email enviado a ${toArray.join(", ")}`,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("[system-email-send] Unexpected:", err);
-    return json({ error_code: "INTERNAL_ERROR", error_message: err.message || "Error interno", phase: "unknown" }, 500);
+    return json({ ok: false, error_code: "INTERNAL_ERROR", error_message: err.message || "Error interno", phase: "unknown" }, 500);
   }
 });
 
