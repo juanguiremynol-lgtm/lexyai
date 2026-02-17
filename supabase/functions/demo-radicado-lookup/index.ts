@@ -1161,18 +1161,10 @@ Deno.serve(async (req: Request) => {
     return json({ status: "OK" }, 200);
   }
 
-  // ═══ PRE-LAUNCH GATE (server-side enforcement) ═══
-  const LAUNCH_AT = new Date("2026-03-01T05:00:00Z");
-  const launchMode = Deno.env.get("LAUNCH_MODE") || "AUTO";
-  const isPrelaunch = launchMode === "FORCE_PRELAUNCH" || (launchMode !== "FORCE_LIVE" && new Date() < LAUNCH_AT);
-  if (isPrelaunch && body?.action !== "warm_cache") {
-    return json({
-      blocked: true,
-      reason: "PRELAUNCH",
-      launchAt: LAUNCH_AT.toISOString(),
-      message: "La demo estará disponible al lanzamiento el 1 de marzo de 2026.",
-    }, 403);
-  }
+  // ═══ PRE-LAUNCH GATE REMOVED ═══
+  // Demo is the primary conversion asset and must ALWAYS be accessible
+  // (landing page, /demo, /prueba, embedded iframes).
+  // Pre-launch gating applies to auth/app routes only, never the demo.
 
   // ═══ CACHE WARMING ACTION ═══
   // Accepts { action: "warm_cache", radicados: ["23-digit", ...] }
