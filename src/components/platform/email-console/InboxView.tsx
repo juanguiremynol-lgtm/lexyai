@@ -1,17 +1,20 @@
 /**
- * InboxView — Lists inbound_messages for platform admin
+ * InboxView — Lists inbound_messages for platform admin with Atenia AI bulk scan
  */
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPlatformInbox, type EmailConsoleFilters, type InboxMessage } from "@/lib/platform/email-console-service";
+import { digestRecentEmails, type AIEmailDigestResult } from "@/lib/platform/email-ai-service";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Search, ChevronLeft, ChevronRight, Mail } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Search, ChevronLeft, ChevronRight, Mail, Brain, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { MessageDetailPanel } from "./MessageDetailPanel";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +33,8 @@ export function InboxView() {
   const [search, setSearch] = useState("");
   const [filters] = useState<EmailConsoleFilters>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [digestLoading, setDigestLoading] = useState(false);
+  const [digestResult, setDigestResult] = useState<AIEmailDigestResult | null>(null);
 
   const activeFilters = { ...filters, search: search || undefined };
 
@@ -41,6 +46,20 @@ export function InboxView() {
   const messages = data?.data ?? [];
   const total = data?.count ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleDigest = async () => {
+    setDigestLoading(true);
+    try {
+      const result = await digestRecentEmails(20);
+      setDigestResult(result);
+      toast.success("Análisis de bandeja completado por Atenia AI");
+    } catch (err) {
+      toast.error("Error en análisis de bandeja");
+      console.error(err);
+    } finally {
+      setDigestLoading(false);
+    }
+  };
 
   if (selectedId) {
     return (
@@ -65,7 +84,59 @@ export function InboxView() {
           />
         </div>
         <span className="text-sm text-muted-foreground">{total} mensajes</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDigest}
+          disabled={digestLoading}
+          className="gap-1.5 ml-auto"
+        >
+          {digestLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+          Análisis IA
+        </Button>
       </div>
+
+      {/* AI Digest Result */}
+      {digestResult && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Brain className="h-4 w-4 text-primary" /> Resumen Atenia AI — {digestResult.totalAnalyzed} emails
+              </CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => setDigestResult(null)} className="text-xs">
+                Cerrar
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{digestResult.summary}</p>
+
+            {Object.keys(digestResult.classifications).length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(digestResult.classifications).map(([type, count]) => (
+                  <Badge key={type} variant="outline" className="text-xs">
+                    {type}: {count as number}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {digestResult.criticalItems.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 text-destructive" /> Items críticos
+                </p>
+                {digestResult.criticalItems.map((item) => (
+                  <div key={item.id} className="text-xs text-muted-foreground border-l-2 border-destructive/40 pl-2">
+                    <strong>{item.subject}</strong> — {item.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-12">
