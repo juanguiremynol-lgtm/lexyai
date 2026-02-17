@@ -1,17 +1,20 @@
 /**
- * SentView — Lists email_outbox entries for platform admin
+ * SentView — Lists email_outbox entries for platform admin with AI outbox analysis
  */
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPlatformSent, type EmailConsoleFilters, type OutboxMessage } from "@/lib/platform/email-console-service";
+import { analyzeOutboxHealth } from "@/lib/platform/email-ai-service";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Search, ChevronLeft, ChevronRight, SendHorizonal } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, Search, ChevronLeft, ChevronRight, SendHorizonal, Brain, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { MessageDetailPanel } from "./MessageDetailPanel";
+import { toast } from "sonner";
 
 const PAGE_SIZE = 20;
 
@@ -32,6 +35,8 @@ export function SentView() {
   const [search, setSearch] = useState("");
   const [filters] = useState<EmailConsoleFilters>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   const activeFilters = { ...filters, search: search || undefined };
 
@@ -43,6 +48,20 @@ export function SentView() {
   const messages = data?.data ?? [];
   const total = data?.count ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleAnalyze = async () => {
+    setAnalysisLoading(true);
+    try {
+      const result = await analyzeOutboxHealth();
+      setAnalysisResult(result);
+      toast.success("Análisis de outbox completado por Atenia AI");
+    } catch (err) {
+      toast.error("Error en análisis de outbox");
+      console.error(err);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
 
   if (selectedId) {
     return (
@@ -67,7 +86,65 @@ export function SentView() {
           />
         </div>
         <span className="text-sm text-muted-foreground">{total} enviados</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAnalyze}
+          disabled={analysisLoading}
+          className="gap-1.5 ml-auto"
+        >
+          {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Brain className="h-3.5 w-3.5" />}
+          Análisis IA
+        </Button>
       </div>
+
+      {/* AI Outbox Analysis */}
+      {analysisResult && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Brain className="h-4 w-4 text-primary" /> Análisis Outbox — Atenia AI
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  Entrega: {analysisResult.deliveryRate}
+                </Badge>
+                <Button variant="ghost" size="sm" onClick={() => setAnalysisResult(null)} className="text-xs">
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{analysisResult.summary}</p>
+
+            {analysisResult.issues?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 text-destructive" /> Emails con problemas
+                </p>
+                {analysisResult.issues.slice(0, 5).map((issue: any) => (
+                  <div key={issue.id} className="text-xs text-muted-foreground border-l-2 border-destructive/40 pl-2">
+                    <strong>{issue.to}</strong> — {issue.error}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {analysisResult.recommendations?.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                <strong>Recomendaciones:</strong>
+                <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                  {analysisResult.recommendations.map((r: string, i: number) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-12">
