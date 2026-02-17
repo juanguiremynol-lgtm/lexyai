@@ -195,13 +195,17 @@ Deno.serve(async (req) => {
       });
     } catch { /* non-blocking */ }
 
-    // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL (budget exhausted) runs ──
-    const partialOrgs = allResults.filter(r => r.status === "PARTIAL" || r.status === "CONTINUING");
+    // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL/BUDGET_EXHAUSTED runs ──
+    // Fix A: Continue on PARTIAL (including BUDGET_EXHAUSTED) not just SUCCESS
+    const partialOrgs = allResults.filter(r =>
+      r.status === "PARTIAL" || r.status === "CONTINUING" ||
+      (r.status === "FAILED" && r.failure_reason === "BUDGET_EXHAUSTED")
+    );
     for (const partialResult of partialOrgs) {
       try {
         const { data: ledgerRow } = await supabase
           .from("auto_sync_daily_ledger")
-          .select("cursor_last_work_item_id, run_cutoff_time")
+          .select("cursor_last_work_item_id, run_cutoff_time, items_skipped, items_succeeded, failure_reason")
           .eq("id", partialResult.ledger_id)
           .maybeSingle();
 
@@ -212,18 +216,30 @@ Deno.serve(async (req) => {
         // No-progress detection: if cursor didn't advance, stop chaining
         if (cursor && cursor === resumeAfterId) {
           console.warn(`[daily-sync] No progress detected for org=${partialResult.org_id} — cursor unchanged (${cursor.slice(0, 8)}). Stopping chain.`);
+          // Record block reason on ledger
+          await supabase.from("auto_sync_daily_ledger").update({
+            continuation_enqueued: false,
+            continuation_block_reason: "NO_PROGRESS_CURSOR_UNCHANGED",
+          }).eq("id", partialResult.ledger_id);
           continue;
         }
 
-        // No-synced-items detection: if this run synced 0 items, stop chaining
-        if (partialResult.synced === 0) {
-          console.warn(`[daily-sync] No items synced for org=${partialResult.org_id} — stopping chain to prevent infinite loop.`);
+        // Fix A: Allow continuation even if synced=0, as long as there are skipped items
+        // (BUDGET_EXHAUSTED means items were skipped without being attempted)
+        const hasSkippedWork = (ledgerRow?.items_skipped ?? partialResult.skipped ?? 0) > 0;
+        const hasBudgetExhaustion = (ledgerRow?.failure_reason === "BUDGET_EXHAUSTED") || (partialResult.failure_reason === "BUDGET_EXHAUSTED");
+        if (partialResult.synced === 0 && !hasSkippedWork && !hasBudgetExhaustion) {
+          console.warn(`[daily-sync] No items synced and no skipped work for org=${partialResult.org_id} — stopping chain to prevent infinite loop.`);
+          await supabase.from("auto_sync_daily_ledger").update({
+            continuation_enqueued: false,
+            continuation_block_reason: "NO_PENDING_WORK",
+          }).eq("id", partialResult.ledger_id);
           continue;
         }
 
         if (cursor) {
           const nextCount = continuationCount + 1;
-          console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId}`);
+          console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId} (skipped=${ledgerRow?.items_skipped ?? '?'}, reason=${ledgerRow?.failure_reason ?? 'none'})`);
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
@@ -240,6 +256,15 @@ Deno.serve(async (req) => {
               chain_id: chainId,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
+          // Record continuation enqueued
+          await supabase.from("auto_sync_daily_ledger").update({
+            continuation_enqueued: true,
+          }).eq("id", partialResult.ledger_id);
+        } else {
+          await supabase.from("auto_sync_daily_ledger").update({
+            continuation_enqueued: false,
+            continuation_block_reason: "NO_CURSOR",
+          }).eq("id", partialResult.ledger_id);
         }
       } catch (contErr) {
         console.warn(`[daily-sync] Failed to schedule continuation for org ${partialResult.org_id}:`, contErr);
@@ -536,7 +561,7 @@ async function syncOrganization(
     await runAutoDemonitor(supabase, orgId);
 
     console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal}`);
-    return { org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed, dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId };
+    return { org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed, dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId, skipped: itemsSkipped, failure_reason: failureReason };
 
   } catch (error: any) {
     // Fatal org-level error

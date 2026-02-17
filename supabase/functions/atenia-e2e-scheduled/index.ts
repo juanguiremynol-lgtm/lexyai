@@ -224,9 +224,81 @@ async function runScheduledE2EBatch(
 
   for (const test of testItems) {
     try {
+      // Fix B+C: Validate sentinel before running E2E
+      const validation = validateSentinel(test.radicado, test.work_item_id);
+      if (!validation.valid) {
+        // Mark as PRECONDITION failure, not a real sync failure
+        await supabase.from("atenia_e2e_test_results").insert({
+          organization_id: orgId,
+          registry_id: (sentinels ?? []).find((s: any) => s.work_item_id === test.work_item_id)?.id ?? null,
+          work_item_id: test.work_item_id,
+          radicado: test.radicado ?? "",
+          workflow_type: "unknown",
+          trigger,
+          overall: "PRECONDITION_FAIL",
+          failure_stage: "PRECONDITION",
+          failure_reason: validation.reason,
+          failure_summary: validation.detail,
+          steps: [{ name: "SENTINEL_VALIDATION", ok: false, latency_ms: 0, error: validation.detail }],
+          duration_ms: 0,
+          started_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
+        });
+        failed++;
+
+        // Fix C: Auto-disable sentinel after 5 consecutive validation failures
+        if (test.is_sentinel) {
+          const registryEntry = (sentinels ?? []).find((s: any) => s.work_item_id === test.work_item_id);
+          if (registryEntry) {
+            const newConsecutive = (registryEntry.consecutive_failures ?? 0) + 1;
+            if (newConsecutive >= 5) {
+              // Remove sentinel — will be replaced on next registry refresh
+              await supabase.from("atenia_e2e_test_registry")
+                .update({ is_sentinel: false, last_tested_at: new Date().toISOString(), last_test_result: "SENTINEL_INVALID", consecutive_failures: newConsecutive })
+                .eq("id", registryEntry.id);
+              console.warn(`[e2e] Sentinel disabled after ${newConsecutive} consecutive failures: ${test.radicado}`);
+            } else {
+              await supabase.from("atenia_e2e_test_registry")
+                .update({ last_tested_at: new Date().toISOString(), last_test_result: "PRECONDITION_FAIL", consecutive_failures: newConsecutive })
+                .eq("id", registryEntry.id);
+            }
+          }
+        }
+        continue;
+      }
+
       const result = await executeServerE2E(supabase, test.work_item_id, test.radicado);
 
-      // Store result
+      // Fix B: Determine failure_stage based on which step failed and duration
+      let failureStage: string | null = null;
+      let failureReason: string | null = null;
+      let failureSummary: string | null = null;
+      if (!result.ok) {
+        const failedStep = result.steps.find((s: any) => !s.ok);
+        if (failedStep) {
+          if (failedStep.name === "FIND_WORK_ITEM") {
+            failureStage = "PRECONDITION";
+            failureReason = "WORK_ITEM_NOT_FOUND";
+          } else if (failedStep.name === "SYNC_ACTS" || failedStep.name === "SYNC_PUBS") {
+            failureStage = "SYNC";
+            failureReason = failedStep.error?.includes("timeout") ? "PROVIDER_TIMEOUT" : "SYNC_ERROR";
+          } else if (failedStep.name === "VERIFY_DB_DATA") {
+            failureStage = "POSTCHECK";
+            failureReason = "NO_DATA_AFTER_SYNC";
+          } else {
+            failureStage = "SYNC";
+            failureReason = "UNKNOWN";
+          }
+          failureSummary = `${failedStep.name}: ${failedStep.error ?? 'failed'}`.slice(0, 200);
+        }
+        // Sub-1s failures are almost always precondition issues
+        if (result.duration_ms < 1000 && failureStage !== "PRECONDITION") {
+          failureStage = "PRECONDITION";
+          failureReason = failureReason ?? "FAST_FAILURE";
+        }
+      }
+
+      // Store result with structured failure fields
       const registryEntry = (sentinels ?? []).find((s: any) => s.work_item_id === test.work_item_id);
       await supabase.from("atenia_e2e_test_results").insert({
         organization_id: orgId,
@@ -236,6 +308,9 @@ async function runScheduledE2EBatch(
         workflow_type: result.workflow_type ?? "unknown",
         trigger,
         overall: result.ok ? "ALL_PASS" : "FAIL",
+        failure_stage: failureStage,
+        failure_reason: failureReason,
+        failure_summary: failureSummary,
         steps: result.steps,
         duration_ms: result.duration_ms,
         started_at: result.started_at,
@@ -259,10 +334,12 @@ async function runScheduledE2EBatch(
             .eq("work_item_id", test.work_item_id)
             .eq("organization_id", orgId);
 
-          // Trigger deep dive on 3+ consecutive failures
-          if (newConsecutive >= 3) {
+          // Fix B: Only trigger deep dive for SYNC-stage failures (not PRECONDITION)
+          if (newConsecutive >= 3 && failureStage === "SYNC") {
             await triggerDeepDive(supabase, orgId, test.work_item_id, "E2E_SENTINEL_FAILURE", {
               consecutive_e2e_failures: newConsecutive,
+              failure_stage: failureStage,
+              failure_reason: failureReason,
               last_steps: result.steps.map((s: any) => ({ name: s.name, ok: s.ok })),
             });
           }
@@ -381,6 +458,23 @@ async function executeServerE2E(
   };
 }
 
+// ─── Sentinel Validation ───
+
+function validateSentinel(radicado: string | null | undefined, workItemId: string): { valid: boolean; reason: string; detail: string } {
+  if (!radicado || radicado.trim() === "") {
+    return { valid: false, reason: "RADICADO_EMPTY", detail: `Sentinel ${workItemId.slice(0,8)} has empty radicado` };
+  }
+  // Valid radicado format: 23 digits
+  const cleaned = radicado.replace(/\D/g, "");
+  if (cleaned.length !== 23) {
+    return { valid: false, reason: "RADICADO_INVALID_FORMAT", detail: `Radicado ${radicado} has ${cleaned.length} digits, expected 23` };
+  }
+  if (!workItemId || workItemId.trim() === "") {
+    return { valid: false, reason: "WORK_ITEM_MISSING", detail: "No work_item_id provided" };
+  }
+  return { valid: true, reason: "", detail: "" };
+}
+
 // ─── Deep Dive Trigger (server-side) ───
 
 async function triggerDeepDive(
@@ -408,10 +502,17 @@ async function triggerDeepDive(
     .eq("id", workItemId)
     .single();
 
+  // Fix D: Never create deep dive with empty radicado
+  const radicado = item?.radicado ?? "";
+  if (!radicado || radicado.trim() === "") {
+    console.warn(`[e2e] Skipping deep dive for ${workItemId}: empty radicado`);
+    return;
+  }
+
   await supabase.from("atenia_deep_dives").insert({
     organization_id: orgId,
     work_item_id: workItemId,
-    radicado: item?.radicado ?? "",
+    radicado,
     trigger_criteria: criteria,
     trigger_evidence: evidence,
     status: "RUNNING",
@@ -426,7 +527,7 @@ async function triggerDeepDive(
     organization_id: orgId,
     work_item_id: workItemId,
     autonomy_tier: "ACT",
-    reasoning: `Deep dive activado para ${item?.radicado ?? workItemId}: ${criteria}.`,
+    reasoning: `Deep dive activado para ${radicado}: ${criteria}.`,
     action_result: "triggered",
     status: "EXECUTED",
     evidence,

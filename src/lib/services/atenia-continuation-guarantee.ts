@@ -33,23 +33,26 @@ export async function guaranteeContinuation(orgId: string): Promise<Continuation
   const today = new Date().toISOString().slice(0, 10);
   const results: ContinuationCheckResult[] = [];
 
-  // Find PARTIAL chains with BUDGET_EXHAUSTED or skipped/timed-out items
+  // Fix A: Find PARTIAL chains with BUDGET_EXHAUSTED or skipped/timed-out items
+  // Now also check for chains that ended PARTIAL regardless of continuation status
   const { data: partials } = await (supabase.from("auto_sync_daily_ledger") as any)
     .select("id, cursor_last_work_item_id, items_succeeded, items_failed, items_skipped, timeout_count, failure_reason, continuation_enqueued, continuation_block_reason, chain_id, expected_total_items")
     .eq("organization_id", orgId)
     .eq("run_date", today)
-    .eq("status", "PARTIAL")
-    .is("continuation_enqueued", null) // Only unprocessed partials
+    .in("status", ["PARTIAL", "FAILED"])
+    .is("continuation_enqueued", null) // Only unprocessed
     .order("created_at", { ascending: false })
     .limit(5);
 
   if (!partials || partials.length === 0) return results;
 
   for (const partial of partials) {
+    // Fix A: Continue on BUDGET_EXHAUSTED regardless
     const needsContinuation =
       partial.failure_reason === "BUDGET_EXHAUSTED" ||
       (partial.items_skipped ?? 0) > 0 ||
-      (partial.timeout_count ?? 0) > 0;
+      (partial.timeout_count ?? 0) > 0 ||
+      partial.failure_reason === "ITEM_TIMEOUT";
 
     if (!needsContinuation) {
       // No continuation needed — record in telemetry
