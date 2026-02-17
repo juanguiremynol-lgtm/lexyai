@@ -62,7 +62,6 @@ export const DEFAULT_ALLOWED_PROPERTIES: string[] = [
   "chip_type",
   "data_kind",
   "entries_count",
-  "export_type",
   "variant",
   "frame",
   "has_radicado",
