@@ -55,6 +55,10 @@ export const DEFAULT_ALLOWED_PROPERTIES: string[] = [
   "export_type",
   "matter_type",
   "status_code",
+  "workflow_type",
+  "plan_name",
+  "processes_count",
+  "team_size",
 ];
 
 /** Properties that MUST NEVER be sent externally */

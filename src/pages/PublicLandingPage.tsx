@@ -13,6 +13,8 @@ import { useLaunchGate } from "@/hooks/use-launch-gate";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { CountdownHero } from "@/components/launch/CountdownHero";
 import { DemoRadicadoSection } from "@/components/demo/DemoRadicadoSection";
+import { WorkflowGridSection } from "@/components/landing/WorkflowGridSection";
+import { ROICalculatorSection } from "@/components/landing/ROICalculatorSection";
 import { DashboardShowcaseSection } from "@/components/landing/DashboardShowcaseSection";
 import { AndroIASection } from "@/components/landing/AndroIASection";
 import { WorkflowsSection } from "@/components/landing/WorkflowsSection";
@@ -52,6 +54,8 @@ export default function PublicLandingPage() {
         <CountdownHero />
       )}
       <DemoRadicadoSection />
+      <WorkflowGridSection />
+      <ROICalculatorSection />
       <DashboardShowcaseSection />
       <AndroIASection />
       <WorkflowsSection />
