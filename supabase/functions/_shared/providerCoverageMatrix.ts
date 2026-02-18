@@ -28,6 +28,13 @@
 export type DataKind = "ACTUACIONES" | "ESTADOS";
 export type ProviderRole = "PRIMARY" | "FALLBACK";
 
+/**
+ * Execution mode for a workflow+dataKind combination.
+ * - CHAIN: Try primary first, fallback only on NOT_FOUND (default)
+ * - FANOUT: Call ALL providers in parallel, merge results with dedup (used for TUTELA)
+ */
+export type ExecutionMode = "CHAIN" | "FANOUT";
+
 export interface ProviderEntry {
   /** Connector key or built-in name (e.g., "cpnu", "samai", "SAMAI_ESTADOS", "publicaciones") */
   key: string;
@@ -40,69 +47,106 @@ export interface CoverageResult {
   providers: ProviderEntry[];
   compatible: boolean;
   reason: string;
+  /** Execution mode: CHAIN (sequential primary→fallback) or FANOUT (parallel all) */
+  executionMode: ExecutionMode;
 }
 
 // ── Coverage definitions ──
 
+interface DataKindCoverage {
+  providers: ProviderEntry[];
+  executionMode: ExecutionMode;
+}
+
 interface WorkflowCoverage {
-  ACTUACIONES: ProviderEntry[];
-  ESTADOS: ProviderEntry[];
+  ACTUACIONES: DataKindCoverage;
+  ESTADOS: DataKindCoverage;
 }
 
 const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
   CGP: {
-    ACTUACIONES: [
-      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-    ],
-    ESTADOS: [
-      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-    ],
+    ACTUACIONES: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
   },
   LABORAL: {
-    ACTUACIONES: [
-      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-    ],
-    ESTADOS: [
-      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-    ],
+    ACTUACIONES: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
   },
   CPACA: {
-    ACTUACIONES: [
-      { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
-    ],
-    ESTADOS: [
-      { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
-      { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
-    ],
+    ACTUACIONES: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
+        { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
+      ],
+    },
   },
   TUTELA: {
-    ACTUACIONES: [
-      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-      { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
-      { key: "TUTELAS", role: "FALLBACK", type: "BUILTIN" },
-    ],
-    ESTADOS: [
-      { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
-      { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
-      { key: "SAMAI_ESTADOS", role: "FALLBACK", type: "EXTERNAL" },
-    ],
+    ACTUACIONES: {
+      executionMode: "FANOUT",
+      providers: [
+        { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+        { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
+        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "FANOUT",
+      providers: [
+        { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
+        { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+        { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
+      ],
+    },
   },
   PENAL_906: {
-    ACTUACIONES: [
-      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
-      { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
-    ],
-    ESTADOS: [
-      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
-    ],
+    ACTUACIONES: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+        { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
+      ],
+    },
+    ESTADOS: {
+      executionMode: "CHAIN",
+      providers: [
+        { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
+      ],
+    },
   },
   PETICION: {
-    ACTUACIONES: [],
-    ESTADOS: [],
+    ACTUACIONES: { executionMode: "CHAIN", providers: [] },
+    ESTADOS: { executionMode: "CHAIN", providers: [] },
   },
   GOV_PROCEDURE: {
-    ACTUACIONES: [],
-    ESTADOS: [],
+    ACTUACIONES: { executionMode: "CHAIN", providers: [] },
+    ESTADOS: { executionMode: "CHAIN", providers: [] },
   },
 };
 
@@ -120,20 +164,25 @@ export function getProviderCoverage(
       providers: [],
       compatible: false,
       reason: `Unknown workflow_type: ${workflowType}`,
+      executionMode: "CHAIN",
     };
   }
-  const providers = wf[dataKind];
-  if (!providers || providers.length === 0) {
+  const coverage = wf[dataKind];
+  if (!coverage || coverage.providers.length === 0) {
     return {
       providers: [],
       compatible: false,
       reason: `No providers configured for ${workflowType}/${dataKind}`,
+      executionMode: "CHAIN",
     };
   }
   return {
-    providers,
+    providers: coverage.providers,
     compatible: true,
-    reason: `${providers.filter(p => p.role === "PRIMARY").length} primary, ${providers.filter(p => p.role === "FALLBACK").length} fallback`,
+    executionMode: coverage.executionMode,
+    reason: coverage.executionMode === "FANOUT"
+      ? `FANOUT: ${coverage.providers.length} providers in parallel`
+      : `${coverage.providers.filter(p => p.role === "PRIMARY").length} primary, ${coverage.providers.filter(p => p.role === "FALLBACK").length} fallback`,
   };
 }
 

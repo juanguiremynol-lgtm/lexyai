@@ -801,11 +801,11 @@ function generateFingerprint(
   date: string,
   text: string,
   indice?: string,
-  source?: string
+  source?: string,
+  crossProviderDedup = false
 ): string {
-  // FIX 1.2: Include source (provider) to prevent cross-provider dedup collisions
-  const sourcePart = source ? `|${source}` : '';
-  // Include indice in fingerprint to prevent collisions for same-day actuaciones
+  // FANOUT mode: exclude source to enable cross-provider dedup at DB level
+  const sourcePart = source && !crossProviderDedup ? `|${source}` : '';
   const indexPart = indice ? `|${indice}` : '';
   const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}${sourcePart}`;
   let hash = 0;
@@ -3639,7 +3639,9 @@ Deno.serve(async (req) => {
       // FIX 1.2: Include provider source in fingerprint to prevent cross-provider collisions
       // For consolidated TUTELA records, use the actual source of the "best" record
       const actSourceForFingerprint = (act as any)._source || fetchResult.provider;
-      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint);
+      // FANOUT/TUTELA: exclude source from fingerprint for cross-provider dedup
+      const isFanoutWorkflow = workItem.workflow_type === 'TUTELA';
+      const fingerprint = generateFingerprint(work_item_id, act.fecha, act.actuacion, act.indice, actSourceForFingerprint, isFanoutWorkflow);
 
       // Check for existing record using fingerprint (fast, indexed)
       const { data: existing } = await supabase
