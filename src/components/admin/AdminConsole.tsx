@@ -115,10 +115,12 @@ export function AdminConsole() {
               <span className="hidden sm:inline">Auditoría</span>
             </TabsTrigger>
           )}
-          <TabsTrigger value="support" className="gap-2">
-            <Wrench className="h-4 w-4" />
-            <span className="hidden sm:inline">Soporte</span>
-          </TabsTrigger>
+          {!isPlatformAdmin && (
+            <TabsTrigger value="support" className="gap-2">
+              <Wrench className="h-4 w-4" />
+              <span className="hidden sm:inline">Soporte</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="analytics" className="gap-2">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">Analíticas</span>
@@ -149,9 +151,11 @@ export function AdminConsole() {
           </TabsContent>
         )}
 
-        <TabsContent value="support">
-          <AdminSupportToolsTab />
-        </TabsContent>
+        {!isPlatformAdmin && (
+          <TabsContent value="support">
+            <AdminSupportToolsTab />
+          </TabsContent>
+        )}
 
         <TabsContent value="analytics">
           <AdminAnalyticsTab />
