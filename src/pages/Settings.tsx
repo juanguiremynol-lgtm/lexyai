@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -36,6 +36,8 @@ import { OrgAlertDefaultsManager } from "@/components/settings/OrgAlertDefaultsM
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
 import { PlatformAdminAlertEmailSettings } from "@/components/settings/PlatformAdminAlertEmailSettings";
+import { useMemberSupportGrant } from "@/hooks/use-member-support-grant";
+import { AdminSupportToolsTab } from "@/components/admin/tabs/AdminSupportToolsTab";
 
 import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -47,6 +49,9 @@ export default function Settings() {
   const { isOwner, isAdmin, isLoading: isMembershipLoading } = useOrganizationMembership(organization?.id || null);
   const { isPlatformAdmin } = usePlatformAdmin();
   const { prefs: mascotPrefs, updatePrefs: updateMascotPrefs } = useMascotPreferences();
+  const { hasSupportGrant } = useMemberSupportGrant(organization?.id || null);
+  // Support tab visible: org admins (non-super-admin), solo users, or members with explicit grant
+  const showSupportTab = !isPlatformAdmin && (isAdmin || isOwner || hasSupportGrant || !organization);
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile"],
     queryFn: async () => {
@@ -253,6 +258,12 @@ export default function Settings() {
             <Scale className="h-4 w-4 mr-1" />
             Legal
           </TabsTrigger>
+          {showSupportTab && (
+            <TabsTrigger value="support">
+              <Wrench className="h-4 w-4 mr-1" />
+              Soporte
+            </TabsTrigger>
+          )}
           <TabsTrigger value="atenia">
             <Bot className="h-4 w-4 mr-1" />
             Andro IA
@@ -305,6 +316,12 @@ export default function Settings() {
         {isPlatformAdmin && (
           <TabsContent value="sa-alerts">
             <PlatformAdminAlertEmailSettings />
+          </TabsContent>
+        )}
+
+        {showSupportTab && (
+          <TabsContent value="support">
+            <AdminSupportToolsTab />
           </TabsContent>
         )}
 
