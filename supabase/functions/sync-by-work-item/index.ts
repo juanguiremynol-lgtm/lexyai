@@ -4084,7 +4084,7 @@ Deno.serve(async (req) => {
         'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas-api': 'TUTELAS',
       };
 
-      const { error: insertError } = await supabase
+      const { error: insertError, count: upsertCount } = await supabase
         .from('work_item_acts')
         .upsert({
           owner_id: workItem.owner_id,
@@ -4106,7 +4106,13 @@ Deno.serve(async (req) => {
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
           raw_data: rawDataPayload,
-        }, { onConflict: 'work_item_id,hash_fingerprint', ignoreDuplicates: true });
+        }, {
+          onConflict: 'work_item_id,hash_fingerprint',
+          // DO NOT use ignoreDuplicates: true — we need the UPDATE path to fire
+          // the trg_merge_act_sources trigger which additively merges sources[].
+          // On conflict, only sources/scrape_date are meaningfully updated (trigger handles merge).
+          ignoreDuplicates: false,
+        });
 
       if (insertError) {
         // Check if it's a duplicate error (can happen in race conditions)
