@@ -15,6 +15,7 @@ import Auth from "./pages/Auth";
 import PublicLandingPage from "./pages/PublicLandingPage";
 import OnboardingProfile from "./pages/OnboardingProfile";
 import VerifyAlertEmail from "./pages/VerifyAlertEmail";
+import VerifyEmail from "./pages/VerifyEmail";
 import SuperAdminAccess from "./pages/SuperAdminAccess";
 import LegalTermsPage from "./pages/LegalTermsPage";
 import { TermsReAcceptanceGuard } from "./components/legal/TermsReAcceptanceGuard";
@@ -130,6 +131,7 @@ const App = () => (
           <Route path="/super-admin-access" element={<SuperAdminAccess />} />
           <Route path="/onboarding/profile" element={<OnboardingProfile />} />
           <Route path="/verify-alert-email" element={<VerifyAlertEmail />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/invite/accept" element={<InviteAccept />} />
           
           {/* Public routes with PublicLayout */}

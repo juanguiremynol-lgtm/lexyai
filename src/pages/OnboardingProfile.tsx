@@ -184,6 +184,22 @@ export default function OnboardingProfile() {
         }
       }
 
+      // Trigger generic email verification for personal email domains
+      try {
+        const { data: verifyResult } = await supabase.functions.invoke("verify-generic-email", {
+          body: { action: "send_verification" },
+        });
+        if (verifyResult?.sent) {
+          toast.info("Te enviamos un correo de verificación. Revisa tu bandeja de entrada.", { duration: 6000 });
+        } else if (verifyResult?.auto_verified) {
+          // Corporate email — auto-verified, no action needed
+        }
+        // If already_verified, skip silently
+      } catch (verifyErr) {
+        console.warn("Generic email verification warning:", verifyErr);
+        // Non-blocking — don't prevent onboarding completion
+      }
+
       // Invalidate profile queries so guards re-check
       queryClient.invalidateQueries({ queryKey: ["profile-completion"] });
 
