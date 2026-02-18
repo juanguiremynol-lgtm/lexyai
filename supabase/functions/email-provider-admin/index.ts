@@ -609,9 +609,31 @@ Deno.serve(async (req) => {
         const providerName = settings.email_provider_type.charAt(0).toUpperCase() + settings.email_provider_type.slice(1);
         const dedupeKey = `wizard-test-${userId}-${Date.now()}`;
 
+        // Resolve admin's organization_id (fallback to first org if profile doesn't have one)
+        const { data: adminProfile } = await serviceClient
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", userId)
+          .maybeSingle();
+
+        let orgId = adminProfile?.organization_id;
+        if (!orgId) {
+          // Fallback: pick the first organization in the system
+          const { data: firstOrg } = await serviceClient
+            .from("organizations")
+            .select("id")
+            .limit(1)
+            .maybeSingle();
+          orgId = firstOrg?.id;
+        }
+
+        if (!orgId) {
+          return json({ ok: false, error: "No se encontró una organización válida. Crea una organización primero." }, 400);
+        }
+
         // Insert into email_outbox — the process-email-outbox function will pick it up
         const { error: insertError } = await serviceClient.from("email_outbox").insert({
-          organization_id: "00000000-0000-0000-0000-000000000000",
+          organization_id: orgId,
           to_email: recipientEmail,
           subject: `✅ Test de Email — ${providerName} configurado correctamente`,
           html: generateWizardTestEmailHtml(providerName, recipientEmail),
@@ -644,7 +666,7 @@ Deno.serve(async (req) => {
 
         // Audit
         await serviceClient.from("audit_logs").insert({
-          organization_id: "00000000-0000-0000-0000-000000000000",
+          organization_id: orgId,
           actor_user_id: userId,
           actor_type: "PLATFORM_ADMIN",
           action: "EMAIL_PROVIDER_SEND_TEST",
