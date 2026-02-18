@@ -24,7 +24,7 @@ import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection
 import { TickerSettings } from "@/components/settings/TickerSettings";
 import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
 import { AlertEmailSettings } from "@/components/settings/AlertEmailSettings";
-import { InvitesManagement } from "@/components/settings/InvitesManagement";
+
 import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboard";
 import { AdminConsole } from "@/components/admin";
 import { BillingTab } from "@/components/settings/BillingTab";
@@ -210,10 +210,6 @@ export default function Settings() {
           </TabsTrigger>
           {isAdmin && (
             <>
-              <TabsTrigger value="invites">
-                <Mail className="h-4 w-4 mr-1" />
-                Invitaciones
-              </TabsTrigger>
               <TabsTrigger value="health">
                 <Activity className="h-4 w-4 mr-1" />
                 Sistema
@@ -283,10 +279,6 @@ export default function Settings() {
 
         {isAdmin && (
           <>
-            <TabsContent value="invites">
-              <InvitesManagement />
-            </TabsContent>
-
             <TabsContent value="health">
               <SystemHealthDashboard />
             </TabsContent>

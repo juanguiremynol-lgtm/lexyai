@@ -26,7 +26,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminMembersTab } from "./tabs/AdminMembersTab";
 import { AdminInvitesTab } from "./tabs/AdminInvitesTab";
 import { AdminDataLifecycleTab } from "./tabs/AdminDataLifecycleTab";
-import { AdminEmailOperationsTab } from "./tabs/AdminEmailOperationsTab";
+
 import { AdminSystemHealthTab } from "./tabs/AdminSystemHealthTab";
 import { AdminSecurityTab } from "./tabs/AdminSecurityTab";
 import { AdminSupportToolsTab } from "./tabs/AdminSupportToolsTab";
@@ -105,10 +105,6 @@ export function AdminConsole() {
             <Trash2 className="h-4 w-4" />
             <span className="hidden sm:inline">Datos</span>
           </TabsTrigger>
-          <TabsTrigger value="email-ops" className="gap-2">
-            <Mail className="h-4 w-4" />
-            <span className="hidden sm:inline">Correos</span>
-          </TabsTrigger>
           <TabsTrigger value="health" className="gap-2">
             <Activity className="h-4 w-4" />
             <span className="hidden sm:inline">Sistema</span>
@@ -145,9 +141,6 @@ export function AdminConsole() {
           <AdminDataLifecycleTab />
         </TabsContent>
 
-        <TabsContent value="email-ops">
-          <AdminEmailOperationsTab />
-        </TabsContent>
 
         <TabsContent value="health">
           <AdminSystemHealthTab />
