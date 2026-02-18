@@ -12271,6 +12271,22 @@ export type Database = {
         }
         Returns: boolean
       }
+      insert_notification: {
+        Args: {
+          p_audience_scope: string
+          p_body?: string
+          p_category: string
+          p_dedupe_key?: string
+          p_deep_link?: string
+          p_metadata?: Json
+          p_severity?: string
+          p_title: string
+          p_type: string
+          p_user_id: string
+          p_work_item_id?: string
+        }
+        Returns: undefined
+      }
       is_beta_enrollment_open: { Args: never; Returns: boolean }
       is_business_org_admin: { Args: { _org_id: string }; Returns: boolean }
       is_org_admin: { Args: { org_id: string }; Returns: boolean }
@@ -12321,6 +12337,22 @@ export type Database = {
       record_inference_run: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: boolean
+      }
+      rpc_insert_notification: {
+        Args: {
+          p_audience_scope: string
+          p_body?: string
+          p_category: string
+          p_dedupe_key?: string
+          p_deep_link?: string
+          p_metadata?: Json
+          p_severity?: string
+          p_title: string
+          p_type: string
+          p_user_id: string
+          p_work_item_id?: string
+        }
+        Returns: undefined
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
