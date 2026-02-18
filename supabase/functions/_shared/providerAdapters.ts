@@ -87,8 +87,8 @@ export function createLegacyAdapter(
 
       // Call the legacy function
       const args = options?.identifierType
-        ? [identifier, options.identifierType, ...(options.extraArgs || [])]
-        : [identifier, ...(options.extraArgs || [])];
+        ? [identifier, options.identifierType, ...(options?.extraArgs || [])]
+        : [identifier, ...(options?.extraArgs || [])];
 
       const result: LegacyFetchResult = await legacyFn(...args);
 
