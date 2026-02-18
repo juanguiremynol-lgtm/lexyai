@@ -9,6 +9,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { addBusinessDays } from "./colombian-holidays";
 import { addBusinessDaysAsync, TermRegime } from "./term-calculator";
+import { bridgeAlertToAteniaAI } from "./services/atenia-alert-bridge";
 
 export type EntityType = 'CGP_FILING' | 'CGP_CASE' | 'ADMIN_PROCESS' | 'PETICION' | 'TUTELA';
 export type RuleKind = 'DATE_DUE' | 'REPEAT_INTERVAL' | 'PHASE_TRIGGER';
@@ -99,6 +100,7 @@ export async function createPeticionAlerts(
   }
 
   // Create initial INFO alert
+  const peticionMsg = `Petición "${subject}" ante ${entityName}. Vence el ${deadline.toLocaleDateString('es-CO')} (15 días hábiles).`;
   await supabase.from('alert_instances').insert({
     owner_id: ownerId,
     entity_type: 'PETICION',
@@ -106,7 +108,7 @@ export async function createPeticionAlerts(
     severity: 'INFO',
     status: 'SENT',
     title: 'Petición radicada',
-    message: `Petición "${subject}" ante ${entityName}. Vence el ${deadline.toLocaleDateString('es-CO')} (15 días hábiles).`,
+    message: peticionMsg,
     payload: {
       deadline: deadline.toISOString(),
       entity_name: entityName,
@@ -116,6 +118,14 @@ export async function createPeticionAlerts(
       { label: 'Ver Petición', action: 'navigate', params: { path: `/peticiones/${peticionId}` } },
     ],
   });
+
+  // Bridge to Atenia AI pipeline (non-blocking)
+  bridgeAlertToAteniaAI({
+    orgId: ownerId, entityType: 'PETICION', entityId: peticionId,
+    severity: 'INFO', title: 'Petición radicada', message: peticionMsg,
+    alertType: 'PETICION_CREATED', alertSource: 'SYSTEM',
+    payload: { deadline: deadline.toISOString(), entity_name: entityName, subject },
+  }).catch(() => {});
 }
 
 /**
@@ -159,6 +169,7 @@ export async function createCGPFilingAlerts(
   }
 
   // Create initial INFO alert
+  const cgpMsg = `Demanda ${filingType} radicada. Objetivos: Obtener acta de reparto, radicado judicial, acceso a expediente.`;
   await supabase.from('alert_instances').insert({
     owner_id: ownerId,
     entity_type: 'CGP_FILING',
@@ -166,7 +177,7 @@ export async function createCGPFilingAlerts(
     severity: 'INFO',
     status: 'SENT',
     title: 'Radicación CGP creada',
-    message: `Demanda ${filingType} radicada. Objetivos: Obtener acta de reparto, radicado judicial, acceso a expediente.`,
+    message: cgpMsg,
     payload: {
       filing_type: filingType,
       filed_at: filedAt.toISOString(),
@@ -176,6 +187,14 @@ export async function createCGPFilingAlerts(
       { label: 'Registrar Acta', action: 'register_milestone', params: { milestone: 'acta_reparto' } },
     ],
   });
+
+  // Bridge to Atenia AI pipeline (non-blocking)
+  bridgeAlertToAteniaAI({
+    orgId: ownerId, entityType: 'CGP_FILING', entityId: filingId,
+    severity: 'INFO', title: 'Radicación CGP creada', message: cgpMsg,
+    alertType: 'CGP_FILING_CREATED', alertSource: 'SYSTEM',
+    payload: { filing_type: filingType, filed_at: filedAt.toISOString() },
+  }).catch(() => {});
 }
 
 /**
@@ -270,6 +289,7 @@ export async function recalculatePeticionProrogaAlerts(
   });
 
   // Create info alert about prórroga
+  const prorrogaMsg = `Prórroga de petición "${subject}". Nuevo vencimiento: ${newDeadline.toLocaleDateString('es-CO')} (15 días hábiles adicionales).`;
   await supabase.from('alert_instances').insert({
     owner_id: ownerId,
     entity_type: 'PETICION',
@@ -277,12 +297,20 @@ export async function recalculatePeticionProrogaAlerts(
     severity: 'INFO',
     status: 'SENT',
     title: 'Prórroga registrada',
-    message: `Prórroga de petición "${subject}". Nuevo vencimiento: ${newDeadline.toLocaleDateString('es-CO')} (15 días hábiles adicionales).`,
+    message: prorrogaMsg,
     payload: {
       new_deadline: newDeadline.toISOString(),
       original_deadline: originalDeadline.toISOString(),
     },
   });
+
+  // Bridge to Atenia AI pipeline (non-blocking)
+  bridgeAlertToAteniaAI({
+    orgId: ownerId, entityType: 'PETICION', entityId: peticionId,
+    severity: 'INFO', title: 'Prórroga registrada', message: prorrogaMsg,
+    alertType: 'PRORROGA_REGISTERED', alertSource: 'SYSTEM',
+    payload: { new_deadline: newDeadline.toISOString(), original_deadline: originalDeadline.toISOString() },
+  }).catch(() => {});
 }
 
 /**

@@ -9,6 +9,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { bridgeNotificationToAteniaAI } from "./atenia-alert-bridge";
 
 const CRITICAL_ESCALATION_THRESHOLD_HOURS = 2;
 const SIGNAL_CLEAR_CYCLES = 3; // 3 heartbeat cycles (90 min) without observations → auto-resolve
@@ -128,6 +129,16 @@ export async function evaluateIncidentPolicy(orgId: string): Promise<{
         title: `🚨 Escalación automática: ${incident.title}`,
         message: `Incidente CRITICAL abierto hace ${Math.round(ageHours)}h con ${incident.action_count ?? 0} acciones. Requiere atención.`,
       });
+
+      // Bridge escalation to Atenia AI pipeline (non-blocking)
+      bridgeNotificationToAteniaAI({
+        orgId,
+        type: 'INCIDENT_AUTO_ESCALATION',
+        title: `🚨 Escalación automática: ${incident.title}`,
+        message: `Incidente CRITICAL abierto hace ${Math.round(ageHours)}h con ${incident.action_count ?? 0} acciones. Requiere atención.`,
+        incidentId: incident.id,
+        evidence: escalationPayload,
+      }).catch(() => {});
 
       await (supabase.from("atenia_ai_conversations") as any)
         .update({ auto_escalated_at: new Date().toISOString() })

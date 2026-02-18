@@ -7,6 +7,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import type { ActionPlan } from './atenia-ai-autonomy-engine';
+import { bridgeNotificationToAteniaAI } from './atenia-alert-bridge';
 
 type FreshnessTier = 'CRITICAL' | 'HIGH' | 'STANDARD' | 'LOW';
 
@@ -425,6 +426,15 @@ export async function evaluateEscalation(
         message: `Incidente sin resolver hace ${Math.round(ageHours)}h. Requiere atención inmediata.`,
       });
 
+      // Bridge to Atenia AI pipeline (non-blocking)
+      bridgeNotificationToAteniaAI({
+        orgId, type: 'ESCALATION_URGENT',
+        title: `🔴 Escalación urgente: ${incident.title}`,
+        message: `Incidente sin resolver hace ${Math.round(ageHours)}h. Requiere atención inmediata.`,
+        incidentId: incident.id,
+        evidence: { age_hours: Math.round(ageHours), severity: 'CRITICAL' },
+      }).catch(() => {});
+
       plans.push({
         action_type: 'ESCALATE_INCIDENT',
         status: 'EXECUTED',
@@ -448,6 +458,15 @@ export async function evaluateEscalation(
           title: `⚠️ Escalación: ${incident.title} [${incident.id.slice(0, 8)}]`,
           message: `Incidente abierto hace ${Math.round(ageHours)}h sin resolución.`,
         });
+
+        // Bridge to Atenia AI pipeline (non-blocking)
+        bridgeNotificationToAteniaAI({
+          orgId, type: 'ESCALATION_PUSH',
+          title: `⚠️ Escalación: ${incident.title} [${incident.id.slice(0, 8)}]`,
+          message: `Incidente abierto hace ${Math.round(ageHours)}h sin resolución.`,
+          incidentId: incident.id,
+          evidence: { age_hours: Math.round(ageHours) },
+        }).catch(() => {});
 
         plans.push({
           action_type: 'ESCALATE_INCIDENT',

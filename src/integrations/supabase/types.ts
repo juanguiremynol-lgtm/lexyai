@@ -12485,6 +12485,9 @@ export type Database = {
         | "PROVIDER_DEGRADED_WIRING"
         | "EXT_FAILURES"
         | "GHOST_ITEMS_WIRING"
+        | "ALERT_CREATED"
+        | "ADMIN_NOTIFICATION"
+        | "DIAGNOSTIC_ESCALATION"
       observation_severity: "INFO" | "WARNING" | "CRITICAL"
       peticion_phase:
         | "PETICION_RADICADA"
@@ -12865,6 +12868,9 @@ export const Constants = {
         "PROVIDER_DEGRADED_WIRING",
         "EXT_FAILURES",
         "GHOST_ITEMS_WIRING",
+        "ALERT_CREATED",
+        "ADMIN_NOTIFICATION",
+        "DIAGNOSTIC_ESCALATION",
       ],
       observation_severity: ["INFO", "WARNING", "CRITICAL"],
       peticion_phase: [
