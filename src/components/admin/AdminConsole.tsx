@@ -9,7 +9,7 @@ import {
   Users, 
   Mail, 
   Trash2, 
-  Activity, 
+   
   Shield, 
   Wrench,
   History,
@@ -27,7 +27,7 @@ import { AdminMembersTab } from "./tabs/AdminMembersTab";
 import { AdminInvitesTab } from "./tabs/AdminInvitesTab";
 import { AdminDataLifecycleTab } from "./tabs/AdminDataLifecycleTab";
 
-import { AdminSystemHealthTab } from "./tabs/AdminSystemHealthTab";
+
 import { AdminSecurityTab } from "./tabs/AdminSecurityTab";
 import { AdminSupportToolsTab } from "./tabs/AdminSupportToolsTab";
 import { AdminAuditLogsTab } from "./tabs/AdminAuditLogsTab";
@@ -105,10 +105,6 @@ export function AdminConsole() {
             <Trash2 className="h-4 w-4" />
             <span className="hidden sm:inline">Datos</span>
           </TabsTrigger>
-          <TabsTrigger value="health" className="gap-2">
-            <Activity className="h-4 w-4" />
-            <span className="hidden sm:inline">Sistema</span>
-          </TabsTrigger>
           <TabsTrigger value="security" className="gap-2">
             <Shield className="h-4 w-4" />
             <span className="hidden sm:inline">Seguridad</span>
@@ -142,9 +138,6 @@ export function AdminConsole() {
         </TabsContent>
 
 
-        <TabsContent value="health">
-          <AdminSystemHealthTab />
-        </TabsContent>
 
         <TabsContent value="security">
           <AdminSecurityTab />
