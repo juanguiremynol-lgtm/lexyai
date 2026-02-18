@@ -37,6 +37,7 @@ import { OrgTaskTemplatesManager } from "@/components/settings/OrgTaskTemplatesM
 import { OrgAlertDefaultsManager } from "@/components/settings/OrgAlertDefaultsManager";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
+import { PlatformAdminAlertEmailSettings } from "@/components/settings/PlatformAdminAlertEmailSettings";
 
 import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -247,6 +248,12 @@ export default function Settings() {
           <TabsTrigger value="sla">SLAs</TabsTrigger>
           <TabsTrigger value="estados">Estados</TabsTrigger>
           {isPlatformAdmin && (
+            <TabsTrigger value="sa-alerts" className="bg-primary/5 hover:bg-primary/10">
+              <Shield className="h-4 w-4 mr-1" />
+              Alertas Super Admin
+            </TabsTrigger>
+          )}
+          {isPlatformAdmin && (
             <TabsTrigger value="integrations">Integraciones ICARUS</TabsTrigger>
           )}
           {isPlatformAdmin && (
@@ -320,6 +327,12 @@ export default function Settings() {
         <TabsContent value="ticker">
           <TickerSettings />
         </TabsContent>
+
+        {isPlatformAdmin && (
+          <TabsContent value="sa-alerts">
+            <PlatformAdminAlertEmailSettings />
+          </TabsContent>
+        )}
 
         <TabsContent value="recordatorios" className="space-y-6">
           <AlertEmailSettings />
