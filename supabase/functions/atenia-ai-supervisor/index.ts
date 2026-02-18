@@ -428,9 +428,15 @@ function aggregateProviderHealth(
         : 0;
     const errorRate = data.total > 0 ? data.errors / data.total : 0;
 
+    // D) Min sample size: require ≥10 attempts for percentage thresholds
     let status: ProviderHealth["status"] = "healthy";
-    if (errorRate >= 0.8) status = "down";
-    else if (errorRate >= 0.3 || avgLatency > 10000) status = "degraded";
+    if (data.total >= 10) {
+      if (errorRate >= 0.8) status = "down";
+      else if (errorRate >= 0.3 || avgLatency > 10000) status = "degraded";
+    } else if (data.errors >= 20) {
+      // Absolute count fallback for small samples
+      status = "down";
+    }
 
     const errorFreq: Record<string, number> = {};
     for (const code of data.errorCodes) {
@@ -534,8 +540,12 @@ async function enrichProviderHealthFromSyncRuns(
         const errorRate = ps.total > 0 ? ps.errors / ps.total : 0;
 
         let status: ProviderHealth["status"] = "healthy";
-        if (errorRate >= 0.8) status = "down";
-        else if (errorRate >= 0.3 || p95 > 10000) status = "degraded";
+        if (ps.total >= 10) {
+          if (errorRate >= 0.8) status = "down";
+          else if (errorRate >= 0.3 || p95 > 10000) status = "degraded";
+        } else if (ps.errors >= 20) {
+          status = "down";
+        }
 
         // Find dominant error pattern
         const topError = Object.entries(ps.errorCodes).sort((a, b) => b[1] - a[1])[0];
@@ -585,13 +595,21 @@ async function enrichProviderHealthFromSyncRuns(
       .limit(500);
 
     if (runs && runs.length > 0) {
-      // Check for runs with 0 attempts (critical anomaly)
+      // C) Check for runs with 0 attempts — but distinguish legitimate skips from broken runs
       const runsWithoutAttempts = runs.filter((r: any) => {
         const pa = r.provider_attempts;
-        return !pa || (Array.isArray(pa) && pa.length === 0) || (typeof pa === 'object' && Object.keys(pa).length === 0);
+        const hasNoAttempts = !pa || (Array.isArray(pa) && pa.length === 0) || (typeof pa === 'object' && Object.keys(pa).length === 0);
+        if (!hasNoAttempts) return false;
+        // Legitimate cases: LOOKUP-only runs, NO_ELIGIBLE_ITEMS, or explicit skips
+        const errCode = (r.error_code ?? "").toUpperCase();
+        const isLegitimateSkip = errCode.includes("NO_ELIGIBLE") || errCode.includes("SKIPPED") || errCode.includes("LOOKUP_ONLY") || r.status === "skipped";
+        return !isLegitimateSkip; // Only flag truly unexpected 0-attempt runs
       });
       if (runsWithoutAttempts.length > 0) {
-        (enriched as any)._silent_failures = runsWithoutAttempts.length;
+        (enriched as any)._silent_failures = {
+          count: runsWithoutAttempts.length,
+          note: "Runs with 0 provider attempts that are NOT marked as skipped/no-eligible — potential broken pipeline",
+        };
       }
 
       // Only enrich from legacy provider_attempts if no attempt-level data was found
@@ -644,9 +662,22 @@ async function detectAndEscalateDegradation(
   orgId: string,
   providerHealth: Record<string, ProviderHealth>,
 ): Promise<void> {
+  // ── D) Minimum sample size: require ≥10 attempts before applying percentage thresholds ──
+  const MIN_ATTEMPTS_FOR_PERCENTAGE = 10;
+  // ── B) Debounce: do not re-post evidence more often than every 15 minutes ──
+  const DEBOUNCE_MINUTES = 15;
+
   for (const [provider, health] of Object.entries(providerHealth)) {
     if (health.status !== "degraded" && health.status !== "down") continue;
-    if (health.total_calls < 3) continue; // Need meaningful sample
+
+    // D) Skip if sample too small — unless absolute error count is high
+    const errorRate = health.total_calls > 0 ? health.errors / health.total_calls : 0;
+    const meetsPercentageThreshold = health.total_calls >= MIN_ATTEMPTS_FOR_PERCENTAGE && (
+      (health.status === "down" && errorRate >= 0.8) ||
+      (health.status === "degraded" && (errorRate >= 0.3 || health.avg_latency_ms > 10000))
+    );
+    const meetsAbsoluteThreshold = health.errors >= 20; // absolute count fallback
+    if (!meetsPercentageThreshold && !meetsAbsoluteThreshold) continue;
 
     const severity = health.status === "down" ? "CRITICAL" : "WARNING";
     const today = new Date().toISOString().slice(0, 10);
@@ -658,7 +689,7 @@ async function detectAndEscalateDegradation(
     // Idempotent incident creation via fingerprint
     const { data: existingConv } = await supabase
       .from("atenia_ai_conversations")
-      .select("id")
+      .select("id, severity")
       .eq("status", "OPEN")
       .eq("channel", "HEARTBEAT")
       .ilike("title", `%${provider}%degradad%`)
@@ -669,7 +700,9 @@ async function detectAndEscalateDegradation(
     let convId = existingConv?.id;
 
     if (!convId) {
-      // Create new incident
+      // Create new incident — E) scoped to this org, not global.
+      // Single-tenant misconfigs create org-scoped incidents (lower severity).
+      // Global "provider down" would require multi-org correlation (done in daily report, not here).
       const { data: newConv } = await supabase
         .from("atenia_ai_conversations")
         .insert({
@@ -687,6 +720,23 @@ async function detectAndEscalateDegradation(
     }
 
     if (!convId) continue;
+
+    // B) Debounce: check last observation time for this incident
+    const { data: lastObs } = await supabase
+      .from("atenia_ai_observations")
+      .select("created_at")
+      .eq("conversation_id", convId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastObs) {
+      const minutesSinceLast = (Date.now() - new Date(lastObs.created_at).getTime()) / 60000;
+      // Skip if within debounce window AND severity hasn't escalated
+      const existingSeverity = existingConv ? (existingConv as any).severity : null;
+      const severityEscalated = existingSeverity && severity === "CRITICAL" && existingSeverity !== "CRITICAL";
+      if (minutesSinceLast < DEBOUNCE_MINUTES && !severityEscalated) continue;
+    }
 
     // Add observation with compact evidence (no raw payloads)
     await supabase.from("atenia_ai_observations").insert({
