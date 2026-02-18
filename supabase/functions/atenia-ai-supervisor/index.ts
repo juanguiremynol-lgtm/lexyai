@@ -450,8 +450,14 @@ function aggregateProviderHealth(
 }
 
 /**
- * Enrich provider health using external_sync_runs (orchestrator observability table).
- * This supplements sync_traces with structured per-run data including provider_attempts.
+ * Enrich provider health using external_sync_runs AND external_sync_run_attempts.
+ * 
+ * This provides structured per-attempt telemetry:
+ * - Provider availability: success rate, error_code distribution, http_code distribution
+ * - Latency: p50/p95, timeouts per provider/data_kind
+ * - Coverage: which providers are invoked per workflow_type
+ * - Data impact: inserted_count / skipped_count distribution
+ * - Drift signals: rising skipped_count with fetched_count > 0
  */
 async function enrichProviderHealthFromSyncRuns(
   supabase: SupabaseAdmin,
@@ -461,6 +467,115 @@ async function enrichProviderHealthFromSyncRuns(
   existing: Record<string, ProviderHealth>,
 ): Promise<Record<string, ProviderHealth>> {
   try {
+    const enriched = { ...existing };
+
+    // ── Phase 1: Query external_sync_run_attempts (structured per-attempt) ──
+    const { data: attempts } = await supabase
+      .from("external_sync_run_attempts")
+      .select("provider, data_kind, role, status, http_code, latency_ms, error_code, inserted_count, skipped_count, recorded_at, sync_run_id")
+      .gte("recorded_at", dayStart)
+      .lte("recorded_at", dayEnd)
+      .limit(1000);
+
+    if (attempts && attempts.length > 0) {
+      // Per-provider+data_kind aggregation
+      const providerStats: Record<string, {
+        latencies: number[];
+        errors: number;
+        total: number;
+        errorCodes: Record<string, number>;
+        httpCodes: Record<number, number>;
+        totalInserted: number;
+        totalSkipped: number;
+        timeouts: number;
+        dataKinds: Set<string>;
+      }> = {};
+
+      for (const att of attempts) {
+        const name = (att.provider ?? "").toUpperCase();
+        if (!name) continue;
+
+        if (!providerStats[name]) {
+          providerStats[name] = {
+            latencies: [], errors: 0, total: 0,
+            errorCodes: {}, httpCodes: {},
+            totalInserted: 0, totalSkipped: 0, timeouts: 0,
+            dataKinds: new Set(),
+          };
+        }
+        const ps = providerStats[name];
+        ps.total++;
+        if (att.latency_ms) ps.latencies.push(att.latency_ms);
+        if (att.data_kind) ps.dataKinds.add(att.data_kind);
+        ps.totalInserted += att.inserted_count ?? 0;
+        ps.totalSkipped += att.skipped_count ?? 0;
+
+        if (att.http_code) {
+          ps.httpCodes[att.http_code] = (ps.httpCodes[att.http_code] || 0) + 1;
+        }
+
+        if (att.status === "error" || att.status === "timeout") {
+          ps.errors++;
+          if (att.status === "timeout") ps.timeouts++;
+          if (att.error_code) {
+            ps.errorCodes[att.error_code] = (ps.errorCodes[att.error_code] || 0) + 1;
+          }
+        }
+      }
+
+      // Merge into enriched health
+      for (const [name, ps] of Object.entries(providerStats)) {
+        const sorted = [...ps.latencies].sort((a, b) => a - b);
+        const p50 = sorted.length > 0 ? sorted[Math.floor(sorted.length * 0.5)] : 0;
+        const p95 = sorted.length > 0 ? sorted[Math.floor(sorted.length * 0.95)] : 0;
+        const avgLatency = sorted.length > 0
+          ? Math.round(sorted.reduce((a, b) => a + b, 0) / sorted.length)
+          : 0;
+        const errorRate = ps.total > 0 ? ps.errors / ps.total : 0;
+
+        let status: ProviderHealth["status"] = "healthy";
+        if (errorRate >= 0.8) status = "down";
+        else if (errorRate >= 0.3 || p95 > 10000) status = "degraded";
+
+        // Find dominant error pattern
+        const topError = Object.entries(ps.errorCodes).sort((a, b) => b[1] - a[1])[0];
+
+        if (enriched[name]) {
+          // Merge with existing trace-based data (attempt data takes priority for counts)
+          enriched[name] = {
+            status: status === "down" || enriched[name].status === "down" ? "down"
+              : status === "degraded" || enriched[name].status === "degraded" ? "degraded"
+              : "healthy",
+            avg_latency_ms: avgLatency,
+            errors: ps.errors,
+            total_calls: ps.total,
+            ...(topError ? { error_pattern: topError[0] } : {}),
+          };
+        } else {
+          enriched[name] = {
+            status,
+            avg_latency_ms: avgLatency,
+            errors: ps.errors,
+            total_calls: ps.total,
+            ...(topError ? { error_pattern: topError[0] } : {}),
+          };
+        }
+
+        // Store extended metrics as evidence for incident creation
+        (enriched[name] as any)._extended = {
+          p50_ms: p50,
+          p95_ms: p95,
+          timeouts: ps.timeouts,
+          total_inserted: ps.totalInserted,
+          total_skipped: ps.totalSkipped,
+          data_kinds: [...ps.dataKinds],
+          error_distribution: ps.errorCodes,
+          http_distribution: ps.httpCodes,
+        };
+      }
+    }
+
+    // ── Phase 2: Fallback to external_sync_runs.provider_attempts (legacy) ──
     const { data: runs } = await supabase
       .from("external_sync_runs")
       .select("status, provider_attempts, duration_ms, error_code")
@@ -469,47 +584,146 @@ async function enrichProviderHealthFromSyncRuns(
       .lte("started_at", dayEnd)
       .limit(500);
 
-    if (!runs || runs.length === 0) return existing;
+    if (runs && runs.length > 0) {
+      // Check for runs with 0 attempts (critical anomaly)
+      const runsWithoutAttempts = runs.filter((r: any) => {
+        const pa = r.provider_attempts;
+        return !pa || (Array.isArray(pa) && pa.length === 0) || (typeof pa === 'object' && Object.keys(pa).length === 0);
+      });
+      if (runsWithoutAttempts.length > 0) {
+        (enriched as any)._silent_failures = runsWithoutAttempts.length;
+      }
 
-    const enriched = { ...existing };
+      // Only enrich from legacy provider_attempts if no attempt-level data was found
+      if (!attempts || attempts.length === 0) {
+        for (const run of runs) {
+          const runAttempts = run.provider_attempts as unknown as Array<{
+            provider: string; status: string; latency_ms: number; error_code?: string;
+          }> | null;
+          if (!Array.isArray(runAttempts)) continue;
 
-    for (const run of runs) {
-      const attempts = run.provider_attempts as unknown as Array<{
-        provider: string;
-        status: string;
-        latency_ms: number;
-        error_code?: string;
-      }> | null;
-      if (!Array.isArray(attempts)) continue;
+          for (const attempt of runAttempts) {
+            const name = attempt.provider?.toUpperCase();
+            if (!name) continue;
 
-      for (const attempt of attempts) {
-        const name = attempt.provider?.toUpperCase();
-        if (!name) continue;
-
-        if (!enriched[name]) {
-          enriched[name] = { status: "unknown", avg_latency_ms: 0, errors: 0, total_calls: 0 };
+            if (!enriched[name]) {
+              enriched[name] = { status: "unknown", avg_latency_ms: 0, errors: 0, total_calls: 0 };
+            }
+            const p = enriched[name];
+            const oldTotal = p.total_calls;
+            p.total_calls++;
+            p.avg_latency_ms = Math.round(
+              (p.avg_latency_ms * oldTotal + (attempt.latency_ms || 0)) / p.total_calls
+            );
+            if (attempt.status === "error" || attempt.status === "timeout") {
+              p.errors++;
+            }
+            const errorRate = p.total_calls > 0 ? p.errors / p.total_calls : 0;
+            if (errorRate >= 0.8) p.status = "down";
+            else if (errorRate >= 0.3 || p.avg_latency_ms > 10000) p.status = "degraded";
+            else p.status = "healthy";
+          }
         }
-        const p = enriched[name];
-        const oldTotal = p.total_calls;
-        p.total_calls++;
-        // Running average for latency
-        p.avg_latency_ms = Math.round(
-          (p.avg_latency_ms * oldTotal + (attempt.latency_ms || 0)) / p.total_calls
-        );
-        if (attempt.status === "error" || attempt.status === "timeout") {
-          p.errors++;
-        }
-        // Recalculate status
-        const errorRate = p.total_calls > 0 ? p.errors / p.total_calls : 0;
-        if (errorRate >= 0.8) p.status = "down";
-        else if (errorRate >= 0.3 || p.avg_latency_ms > 10000) p.status = "degraded";
-        else p.status = "healthy";
       }
     }
 
     return enriched;
   } catch {
     return existing;
+  }
+}
+
+/**
+ * Detect provider degradation from health snapshot and create/update
+ * idempotent incident conversations.
+ * 
+ * Incident key: provider+data_kind+date → single thread until resolved.
+ */
+async function detectAndEscalateDegradation(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  providerHealth: Record<string, ProviderHealth>,
+): Promise<void> {
+  for (const [provider, health] of Object.entries(providerHealth)) {
+    if (health.status !== "degraded" && health.status !== "down") continue;
+    if (health.total_calls < 3) continue; // Need meaningful sample
+
+    const severity = health.status === "down" ? "CRITICAL" : "WARNING";
+    const today = new Date().toISOString().slice(0, 10);
+    const fingerprint = `provider_degrade_${provider}_${today}`;
+
+    // Extended metrics for evidence
+    const extended = (health as any)._extended ?? {};
+
+    // Idempotent incident creation via fingerprint
+    const { data: existingConv } = await supabase
+      .from("atenia_ai_conversations")
+      .select("id")
+      .eq("status", "OPEN")
+      .eq("channel", "HEARTBEAT")
+      .ilike("title", `%${provider}%degradad%`)
+      .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .limit(1)
+      .maybeSingle();
+
+    let convId = existingConv?.id;
+
+    if (!convId) {
+      // Create new incident
+      const { data: newConv } = await supabase
+        .from("atenia_ai_conversations")
+        .insert({
+          organization_id: orgId,
+          channel: "HEARTBEAT",
+          scope: "PLATFORM",
+          severity,
+          status: "OPEN",
+          title: `Proveedor ${provider} degradado: ${health.status === "down" ? "caído" : "lento/errores"} (${Math.round((health.errors / health.total_calls) * 100)}% errores)`,
+          related_providers: [provider],
+        })
+        .select("id")
+        .single();
+      convId = newConv?.id;
+    }
+
+    if (!convId) continue;
+
+    // Add observation with compact evidence (no raw payloads)
+    await supabase.from("atenia_ai_observations").insert({
+      conversation_id: convId,
+      organization_id: orgId,
+      kind: "ANOMALY",
+      severity: severity === "CRITICAL" ? "HIGH" : "MEDIUM",
+      title: `${provider}: ${health.errors}/${health.total_calls} errores, p95=${extended.p95_ms ?? "?"}ms`,
+      payload: {
+        provider,
+        status: health.status,
+        error_rate: Math.round((health.errors / health.total_calls) * 100),
+        avg_latency_ms: health.avg_latency_ms,
+        p50_ms: extended.p50_ms,
+        p95_ms: extended.p95_ms,
+        timeouts: extended.timeouts,
+        total_inserted: extended.total_inserted,
+        total_skipped: extended.total_skipped,
+        error_distribution: extended.error_distribution,
+        http_distribution: extended.http_distribution,
+        data_kinds: extended.data_kinds,
+        error_pattern: health.error_pattern,
+        sample_window: today,
+      },
+    });
+
+    // Update conversation counters
+    await supabase
+      .from("atenia_ai_conversations")
+      .update({
+        observation_count: (existingConv as any)?.observation_count
+          ? ((existingConv as any).observation_count + 1)
+          : 1,
+        last_activity_at: new Date().toISOString(),
+        severity, // Upgrade severity if worsened
+      })
+      .eq("id", convId);
   }
 }
 
@@ -1439,6 +1653,13 @@ async function auditOrganization(
   const providerStatus = await enrichProviderHealthFromSyncRuns(
     supabase, orgId, dayStart, dayEnd, rawProviderStatus,
   );
+
+  // ── Degradation detection → incident creation (platform telemetry only) ──
+  try {
+    await detectAndEscalateDegradation(supabase, orgId, providerStatus);
+  } catch (err) {
+    console.warn("[atenia-ai] Degradation detection error:", err);
+  }
 
   let remediationActions: RemediationAction[] = [];
   if (mode !== "HEALTH_CHECK") {

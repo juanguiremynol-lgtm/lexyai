@@ -13,6 +13,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { startHeartbeat, finishHeartbeat, KNOWN_PLATFORM_JOBS } from "../_shared/platformJobHeartbeat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,6 +64,9 @@ Deno.serve(async (req) => {
   const results: Record<string, unknown> = {};
   const alerts: Array<{ title: string; message: string; severity: string }> = [];
   const bogotaHour = getBogotaHour();
+
+  // ── Record watchdog platform heartbeat ──
+  const wdHbHandle = await startHeartbeat(admin, "atenia-cron-watchdog", "cron");
 
   try {
     // ================================================================
@@ -806,9 +810,7 @@ Deno.serve(async (req) => {
       for (const incident of staleIncidents ?? []) {
         const obsCount = incident.observation_count ?? 0;
         const actCount = incident.action_count ?? 0;
-        // Only escalate if observations are accumulating without actions
         if (obsCount > 0 && actCount === 0) {
-          // Create escalation action
           await admin.from("atenia_ai_actions").insert({
             organization_id: incident.organization_id ?? "a0000000-0000-0000-0000-000000000001",
             action_type: "STALE_INCIDENT_ESCALATION",
@@ -824,14 +826,12 @@ Deno.serve(async (req) => {
               action_count: actCount,
             },
           });
-          // Increment action_count so we don't re-escalate every cycle
           await admin.from("atenia_ai_conversations").update({
             action_count: (actCount ?? 0) + 1,
             auto_escalated_at: new Date().toISOString(),
           }).eq("id", incident.id);
           escalated++;
 
-          // Create visible alert
           alerts.push({
             title: `🚨 Incidente CRITICAL escalado: ${incident.title?.slice(0, 50)}`,
             message: `Incidente abierto ${Math.round((Date.now() - new Date(incident.created_at).getTime()) / 3600000)}h con ${obsCount} observaciones sin acción. Requiere atención inmediata.`,
@@ -844,9 +844,101 @@ Deno.serve(async (req) => {
       console.warn("[watchdog] Stale incident escalation error:", e);
     }
 
+    // ================================================================
+    // 5j) Missed Platform Job Heartbeat Detection
+    // ================================================================
+    try {
+      const missedJobs: string[] = [];
+      for (const [jobName, config] of Object.entries(KNOWN_PLATFORM_JOBS)) {
+        const windowMs = config.expectedIntervalMinutes * 60 * 1000;
+        const cutoff = new Date(Date.now() - windowMs * 1.5).toISOString(); // 1.5x grace
+
+        const { data: lastHb } = await admin
+          .from("platform_job_heartbeats")
+          .select("id, status, finished_at, started_at, error_code")
+          .eq("job_name", jobName)
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!lastHb) {
+          // No heartbeat ever recorded — skip until first execution
+          continue;
+        }
+
+        const lastAt = lastHb.finished_at ?? lastHb.started_at;
+        if (new Date(lastAt) < new Date(cutoff)) {
+          missedJobs.push(jobName);
+        }
+
+        // Detect stuck RUNNING jobs (started > expected interval ago, never finished)
+        if (lastHb.status === "RUNNING" && new Date(lastHb.started_at) < new Date(cutoff)) {
+          // Mark as TIMEOUT
+          await admin.from("platform_job_heartbeats").update({
+            status: "TIMEOUT",
+            finished_at: new Date().toISOString(),
+            error_message: `Auto-timeout by watchdog: RUNNING > ${config.expectedIntervalMinutes}min`,
+          }).eq("id", lastHb.id);
+
+          missedJobs.push(`${jobName}(STUCK)`);
+        }
+
+        // Detect repeated failures
+        const { data: recentHbs } = await admin
+          .from("platform_job_heartbeats")
+          .select("status")
+          .eq("job_name", jobName)
+          .order("started_at", { ascending: false })
+          .limit(3);
+
+        const consecutiveErrors = (recentHbs ?? [])
+          .filter((h: any) => h.status === "ERROR" || h.status === "TIMEOUT").length;
+
+        if (consecutiveErrors >= 3) {
+          alerts.push({
+            title: `🚨 Job ${config.label} con fallos consecutivos`,
+            message: `${jobName} ha fallado ${consecutiveErrors} veces consecutivas. Requiere intervención.`,
+            severity: "CRITICAL",
+          });
+
+          // Create incident conversation (idempotent)
+          const today = new Date().toISOString().slice(0, 10);
+          const { data: existingIncident } = await admin
+            .from("atenia_ai_conversations")
+            .select("id")
+            .eq("status", "OPEN")
+            .eq("channel", "HEARTBEAT")
+            .ilike("title", `%${jobName}%`)
+            .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+            .limit(1)
+            .maybeSingle();
+
+          if (!existingIncident) {
+            await admin.from("atenia_ai_conversations").insert({
+              channel: "HEARTBEAT",
+              scope: "PLATFORM",
+              severity: "CRITICAL",
+              status: "OPEN",
+              title: `Job ${config.label} (${jobName}): ${consecutiveErrors} fallos consecutivos`,
+            });
+          }
+        }
+      }
+
+      if (missedJobs.length > 0) {
+        alerts.push({
+          title: "⚠️ Jobs de plataforma sin heartbeat reciente",
+          message: `${missedJobs.length} job(s) sin heartbeat dentro de su ventana esperada: ${missedJobs.join(", ")}`,
+          severity: "WARNING",
+        });
+      }
+
+      results.missed_heartbeats = { checked: Object.keys(KNOWN_PLATFORM_JOBS).length, missed: missedJobs };
+    } catch (e) {
+      console.warn("[watchdog] Missed heartbeat detection error:", e);
+    }
 
     for (const alert of alerts) {
-      // Write AI action for each alert (audit trail)
       try {
         await admin.from("atenia_ai_actions").insert({
           organization_id: "a0000000-0000-0000-0000-000000000001",
@@ -864,7 +956,6 @@ Deno.serve(async (req) => {
         });
       } catch (_) { /* non-fatal */ }
 
-      // Also create alert_instance
       try {
         await admin.from("alert_instances").insert({
           entity_type: "platform",
@@ -949,12 +1040,20 @@ Deno.serve(async (req) => {
       details: results,
     }).eq("job_name", "WATCHDOG").eq("scheduled_for", windowKey);
 
+    // ── Finish watchdog platform heartbeat ──
+    await finishHeartbeat(admin, wdHbHandle, alerts.some(a => a.severity === "CRITICAL") ? "ERROR" : "OK", {
+      metadata: { alerts_fired: alerts.length, checks: Object.keys(results).length },
+    });
+
     return new Response(JSON.stringify({ ok: true, ...results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[watchdog] Fatal error:", msg);
+
+    // ── Record failure heartbeat ──
+    await finishHeartbeat(admin, wdHbHandle, "ERROR", { errorMessage: msg.slice(0, 500) });
 
     return new Response(JSON.stringify({ ok: false, error: msg.slice(0, 500) }), {
       status: 500,
