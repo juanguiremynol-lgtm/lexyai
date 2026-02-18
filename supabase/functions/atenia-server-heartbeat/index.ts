@@ -9,6 +9,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { startHeartbeat, finishHeartbeat } from "../_shared/platformJobHeartbeat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,9 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   try {
+    // ── Record platform job heartbeat ──
+    const hbHandle = await startHeartbeat(supabase, "atenia-server-heartbeat", "cron");
+
     // Get all orgs with active subscriptions
     const { data: orgs, error: orgsErr } = await supabase
       .from("organizations")
@@ -343,11 +347,29 @@ Deno.serve(async (req) => {
       evidence: { total: results.length, ok: okCount, skipped: skipCount, errors: errCount },
     });
 
+    // ── Finish platform job heartbeat ──
+    await finishHeartbeat(supabase, hbHandle, errCount > 0 ? "ERROR" : "OK", {
+      metadata: { ok: okCount, skipped: skipCount, errors: errCount },
+    });
+
     return new Response(
       JSON.stringify({ ok: true, results_summary: { ok: okCount, skipped: skipCount, errors: errCount } }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
+    // ── Record failure heartbeat ──
+    try {
+      const supabaseUrl2 = Deno.env.get("SUPABASE_URL")!;
+      const serviceRoleKey2 = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const sb2 = createClient(supabaseUrl2, serviceRoleKey2);
+      await sb2.from("platform_job_heartbeats").insert({
+        job_name: "atenia-server-heartbeat",
+        invoked_by: "cron",
+        status: "ERROR",
+        error_message: (err as Error).message?.slice(0, 500),
+        finished_at: new Date().toISOString(),
+      });
+    } catch { /* non-fatal */ }
     return new Response(
       JSON.stringify({ ok: false, error: (err as Error).message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

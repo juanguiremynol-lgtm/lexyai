@@ -7496,6 +7496,48 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_job_heartbeats: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          invoked_by: string
+          job_name: string
+          metadata: Json
+          started_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          invoked_by?: string
+          job_name: string
+          metadata?: Json
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          invoked_by?: string
+          job_name?: string
+          metadata?: Json
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       platform_notifications: {
         Row: {
           created_at: string
