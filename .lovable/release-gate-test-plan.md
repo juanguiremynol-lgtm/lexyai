@@ -75,12 +75,27 @@ Both must have valid radicados that produce real provider responses.
 | Env Var | Value | Description |
 |---------|-------|-------------|
 | `FORCE_PROVIDER_TIMEOUT` | `true` | Global enable |
-| `FORCE_PROVIDER_TIMEOUT_PROVIDER` | e.g. `SAMAI_ESTADOS` | Which provider to force-timeout |
-| `FORCE_PROVIDER_TIMEOUT_ORGS` | `ORG_CANARY_ID` | Comma-separated org UUIDs |
+| `FORCE_PROVIDER_TIMEOUT_PROVIDER` | See accepted keys below | Which provider to force-timeout |
+| `FORCE_PROVIDER_TIMEOUT_ORGS` | `SELF` / slug / UUID list | Which org(s) to target |
 
-**Behavior**: When all 3 match, `safeProviderFetch` sleeps for `timeout_budget + 5s` then returns `FORCED_TIMEOUT` error. Only affects the matching org + provider. Impossible to trigger for other orgs.
+### Accepted Provider Keys
 
-**Revert**: Remove or unset `FORCE_PROVIDER_TIMEOUT` env var.
+`CPNU` · `SAMAI` · `SAMAI_ESTADOS` · `TUTELAS` · `PUBLICACIONES`
+
+### FORCE_PROVIDER_TIMEOUT_ORGS Modes
+
+| Mode | Value example | Resolution |
+|------|--------------|------------|
+| **SELF** (recommended) | `SELF` | Matches the org of the current invocation automatically — no UUID needed |
+| **Slug** | `APENIA` | Resolved via `organizations.slug` or `name` (case-insensitive) |
+| **UUID list** | `a0000000-...,b0000000-...` | Comma-separated explicit UUIDs (original behavior) |
+
+**Safety guarantees**:
+- If org cannot be resolved → forced timeout is **NEVER** activated
+- Forced timeout only fires when **all three** env vars match (enabled + provider + org)
+- A single log line is emitted: `[FORCED_TIMEOUT] Activated: provider=… org=… budget=… mode=… path=…`
+
+**Revert**: Remove or set `FORCE_PROVIDER_TIMEOUT` to `false`.
 
 ---
 
@@ -128,16 +143,17 @@ Both must have valid radicados that produce real provider responses.
 
 **Goal**: Force a provider timeout, verify: (i) attempt recorded, (ii) org-scoped incident, (iii) no user notification noise, (iv) heartbeat failure.
 
-#### Setup
+#### Setup (SELF mode — no UUID needed)
 
-1. Set env vars for canary org:
+1. Set env vars (Cloud View → Secrets):
    ```
    FORCE_PROVIDER_TIMEOUT=true
    FORCE_PROVIDER_TIMEOUT_PROVIDER=SAMAI_ESTADOS  # or CPNU
-   FORCE_PROVIDER_TIMEOUT_ORGS=ORG_CANARY_ID
+   FORCE_PROVIDER_TIMEOUT_ORGS=SELF
    ```
 
 2. Trigger sync for a work item that uses the forced provider (e.g., CPACA → SAMAI_ESTADOS, or CGP → CPNU).
+   The hook will auto-resolve `SELF` to the org of the work item being synced.
 
 #### Verification Checklist
 
