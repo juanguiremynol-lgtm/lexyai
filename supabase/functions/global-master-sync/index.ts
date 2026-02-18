@@ -72,10 +72,10 @@ async function recordInvocationFailure(
       id: runId,
       work_item_id: item.id,
       organization_id: item.organization_id,
-      invoked_by: "global-master-sync",
+      invoked_by: "MANUAL",
       started_at: now,
       finished_at: now,
-      status: "error",
+      status: "FAILED",
       error_code: errorCode,
       error_message: errorMessage,
       duration_ms: latencyMs,
@@ -91,6 +91,7 @@ async function recordInvocationFailure(
       sync_run_id: runId,
       provider: "ORCHESTRATOR",
       data_kind: "ACTUACIONES",
+      role: "PRIMARY",
       status: "error",
       error_code: errorCode,
       error_message: errorMessage,
@@ -119,10 +120,10 @@ async function injectReleaseGateTimeout(
     id: runId,
     work_item_id: item.id,
     organization_id: item.organization_id,
-    invoked_by: "global-master-sync",
+    invoked_by: "MANUAL",
     started_at: now,
     finished_at: now,
-    status: "error",
+    status: "FAILED",
     error_code: "RELEASE_GATE_FORCED_TIMEOUT",
     error_message: `Deterministic timeout injected for provider ${provider} (release gate)`,
     duration_ms: PER_ITEM_TIMEOUT_MS,
@@ -137,6 +138,7 @@ async function injectReleaseGateTimeout(
     sync_run_id: runId,
     provider: provider,
     data_kind: "ACTUACIONES",
+    role: "PRIMARY",
     status: "timeout",
     error_code: "RELEASE_GATE_FORCED_TIMEOUT",
     error_message: `Forced timeout for release gate validation`,
@@ -212,13 +214,17 @@ Deno.serve(async (req) => {
       });
     }
 
+    // In release-gate mode, limit to 5 items total to stay well under 150s wall clock
+    const maxItems = releaseGate ? 5 : eligible.length;
+    const processingSet = eligible.slice(0, maxItems);
+
     let success = 0;
     let failed = 0;
     let processed = 0;
     let budgetExhausted = false;
     const failedItems: FailedItem[] = [];
 
-    for (let i = 0; i < eligible.length; i++) {
+    for (let i = 0; i < processingSet.length; i++) {
       // Budget check before each item
       if (Date.now() - t0 > BUDGET_MS) {
         budgetExhausted = true;
@@ -226,7 +232,7 @@ Deno.serve(async (req) => {
         break;
       }
 
-      const item = eligible[i];
+      const item = processingSet[i];
 
       // ── Release-gate injection ──
       if (releaseGate && (!releaseGateForceOnce || !releaseGateFired)) {
@@ -314,7 +320,7 @@ Deno.serve(async (req) => {
 
       processed++;
 
-      if (i < eligible.length - 1 && Date.now() - t0 < BUDGET_MS) {
+      if (i < processingSet.length - 1 && Date.now() - t0 < BUDGET_MS) {
         await new Promise((r) => setTimeout(r, INTER_ITEM_DELAY_MS));
       }
     }
