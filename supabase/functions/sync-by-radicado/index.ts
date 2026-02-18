@@ -1502,6 +1502,31 @@ Deno.serve(async (req) => {
       };
       
       console.log(`[sync-by-radicado] LOOKUP completed in ${Date.now() - startTime}ms, sources: ${sourcesChecked.join(', ')}, found: ${foundInSource}`);
+
+      // Record sync run for LOOKUP (best-effort, non-blocking)
+      try {
+        await supabase.from('external_sync_runs').insert({
+          work_item_id: existingWorkItem?.id || null,
+          organization_id: organizationId,
+          invoked_by: 'WIZARD',
+          trigger_source: 'sync-by-radicado:LOOKUP',
+          started_at: new Date(startTime).toISOString(),
+          finished_at: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          status: foundInSource ? 'SUCCESS' : 'FAILED',
+          provider_attempts: attempts.map(a => ({
+            provider: a.source,
+            data_kind: 'ACTUACIONES',
+            status: a.success ? 'success' : 'not_found',
+            latency_ms: a.latency_ms,
+            inserted_count: a.events_found || 0,
+          })),
+          total_inserted_acts: 0,
+          total_inserted_pubs: 0,
+          error_code: foundInSource ? null : 'NOT_FOUND',
+        });
+      } catch (_) { /* best-effort */ }
+
       return jsonResponse(response);
     }
 
@@ -1704,6 +1729,31 @@ Deno.serve(async (req) => {
     };
 
     console.log(`[sync-by-radicado] Completed in ${Date.now() - startTime}ms`);
+
+    // Record sync run for WIZARD creation (best-effort, non-blocking)
+    try {
+      await supabase.from('external_sync_runs').insert({
+        work_item_id: workItemId || null,
+        organization_id: organizationId,
+        invoked_by: 'WIZARD',
+        trigger_source: 'sync-by-radicado:SYNC_AND_APPLY',
+        started_at: new Date(startTime).toISOString(),
+        finished_at: new Date().toISOString(),
+        duration_ms: Date.now() - startTime,
+        status: foundInSource ? 'SUCCESS' : 'PARTIAL',
+        provider_attempts: attempts.map(a => ({
+          provider: a.source,
+          data_kind: 'ACTUACIONES',
+          status: a.success ? 'success' : 'not_found',
+          latency_ms: a.latency_ms,
+          inserted_count: a.events_found || 0,
+        })),
+        total_inserted_acts: processData.total_actuaciones || 0,
+        total_inserted_pubs: 0,
+        error_code: null,
+      });
+    } catch (_) { /* best-effort */ }
+
     return jsonResponse(response);
 
   } catch (error) {
