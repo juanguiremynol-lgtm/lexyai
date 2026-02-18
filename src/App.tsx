@@ -83,7 +83,9 @@ import {
   PlatformJudicialSuspensionsPage,
   PlatformEmailConsolePage,
   PlatformEmailSetupPage,
-  
+  PlatformAdminAlertsPage,
+  PlatformCoverageGapsPage,
+
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
@@ -261,7 +263,9 @@ const App = () => (
             <Route path="demo-analytics" element={<ErrorBoundary><PlatformDemoAnalyticsPage /></ErrorBoundary>} />
             <Route path="daily-ops-reports" element={<ErrorBoundary><PlatformDailyOpsReportsPage /></ErrorBoundary>} />
             <Route path="suspensions" element={<ErrorBoundary><PlatformJudicialSuspensionsPage /></ErrorBoundary>} />
-            
+            <Route path="admin-alerts" element={<ErrorBoundary><PlatformAdminAlertsPage /></ErrorBoundary>} />
+            <Route path="coverage-gaps" element={<ErrorBoundary><PlatformCoverageGapsPage /></ErrorBoundary>} />
+
             <Route path="auth-providers" element={<ErrorBoundary><PlatformAuthProvidersPage /></ErrorBoundary>} />
             <Route path="billing-test" element={
               <OrganizationProvider>
