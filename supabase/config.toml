@@ -288,6 +288,9 @@ verify_jwt = false
 [functions.provider-wizard-simulate]
 verify_jwt = false
 
+[functions.global-master-sync]
+verify_jwt = false
+
 [functions.demo-radicado-lookup]
 verify_jwt = false
 

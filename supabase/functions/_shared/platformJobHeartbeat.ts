@@ -83,4 +83,5 @@ export const KNOWN_PLATFORM_JOBS: Record<string, { label: string; expectedInterv
   "atenia-self-health":             { label: "Self-Health Check",        expectedIntervalMinutes: 20 },
   "process-retry-queue":            { label: "Retry Queue Processor",    expectedIntervalMinutes: 5 },
   "atenia-daily-report":            { label: "Daily Ops Report",         expectedIntervalMinutes: 1440 },
+  "global-master-sync":             { label: "Global Master Sync (Manual)", expectedIntervalMinutes: 0 },
 };
