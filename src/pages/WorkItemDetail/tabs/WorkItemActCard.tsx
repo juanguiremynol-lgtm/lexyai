@@ -23,6 +23,7 @@ export interface WorkItemAct {
   source_platform: string | null;
   source_url: string | null;
   source_reference: string | null;
+  sources: string[] | null;
   despacho: string | null;
   workflow_type: string | null;
   scrape_date: string | null;
@@ -92,19 +93,45 @@ const parseDescription = (description: string): { actionType: string; annotation
 // ─── Source badge ─────────────────────────────────────────────────────────────
 
 const SOURCE_CONFIG: Record<string, { label: string; icon: string; bg: string; text: string }> = {
-  cpnu:    { label: "CPNU",    icon: "📡", bg: "bg-blue-100 dark:bg-blue-900/40",   text: "text-blue-700 dark:text-blue-300" },
-  samai:   { label: "SAMAI",   icon: "📡", bg: "bg-purple-100 dark:bg-purple-900/40", text: "text-purple-700 dark:text-purple-300" },
-  tutelas: { label: "TUTELAS", icon: "📡", bg: "bg-teal-100 dark:bg-teal-900/40",   text: "text-teal-700 dark:text-teal-300" },
-  manual:  { label: "Manual",  icon: "✏️", bg: "bg-gray-100 dark:bg-gray-800",   text: "text-gray-600 dark:text-gray-400" },
+  cpnu:           { label: "CPNU",           icon: "📡", bg: "bg-blue-100 dark:bg-blue-900/40",   text: "text-blue-700 dark:text-blue-300" },
+  samai:          { label: "SAMAI",          icon: "📡", bg: "bg-purple-100 dark:bg-purple-900/40", text: "text-purple-700 dark:text-purple-300" },
+  tutelas:        { label: "TUTELAS",        icon: "📡", bg: "bg-teal-100 dark:bg-teal-900/40",   text: "text-teal-700 dark:text-teal-300" },
+  "tutelas-api":  { label: "TUTELAS",        icon: "📡", bg: "bg-teal-100 dark:bg-teal-900/40",   text: "text-teal-700 dark:text-teal-300" },
+  publicaciones:  { label: "Publicaciones",  icon: "📡", bg: "bg-cyan-100 dark:bg-cyan-900/40",   text: "text-cyan-700 dark:text-cyan-300" },
+  samai_estados:  { label: "SAMAI Estados",  icon: "📡", bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
+  SAMAI_ESTADOS:  { label: "SAMAI Estados",  icon: "📡", bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
+  manual:         { label: "Manual",         icon: "✏️", bg: "bg-gray-100 dark:bg-gray-800",   text: "text-gray-600 dark:text-gray-400" },
+  icarus_import:  { label: "Importado",      icon: "📥", bg: "bg-amber-100 dark:bg-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
 };
 
-function SourceBadge({ source }: { source: string | null }) {
-  const key = (source || "").toLowerCase();
-  const cfg = SOURCE_CONFIG[key] || { label: "Sistema", icon: "📡", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-500 dark:text-gray-400" };
+/**
+ * Provenance badges — shows all sources that confirmed this record.
+ * Single source: one badge. Multiple sources: multiple badges with "Confirmado por N fuentes" tooltip.
+ */
+function SourceBadges({ source, sources }: { source: string | null; sources: string[] | null }) {
+  const effectiveSources = (sources && sources.length > 0) ? sources : (source ? [source] : []);
+  const isMultiSource = effectiveSources.length > 1;
 
   return (
-    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", cfg.bg, cfg.text)}>
-      {cfg.icon} {cfg.label}
+    <span className="inline-flex items-center gap-1 flex-wrap" title={
+      isMultiSource
+        ? `Confirmado por ${effectiveSources.length} fuentes: ${effectiveSources.join(', ')}`
+        : undefined
+    }>
+      {effectiveSources.map((s) => {
+        const key = s.toLowerCase();
+        const cfg = SOURCE_CONFIG[key] || SOURCE_CONFIG[s] || { label: s, icon: "📡", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-500 dark:text-gray-400" };
+        return (
+          <span key={s} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium", cfg.bg, cfg.text)}>
+            {cfg.icon} {cfg.label}
+          </span>
+        );
+      })}
+      {isMultiSource && (
+        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium" title="Evento confirmado por múltiples proveedores">
+          ✓ {effectiveSources.length}
+        </span>
+      )}
     </span>
   );
 }
@@ -311,7 +338,7 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
       {/* Row 4: Metadata footer */}
       <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-          <SourceBadge source={act.source} />
+          <SourceBadges source={act.source} sources={act.sources} />
           <span className="hidden sm:inline">·</span>
           <span className="hidden sm:inline">Descubierta: {humanizeCreatedAt(act.created_at)}</span>
         </div>
