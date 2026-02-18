@@ -6,6 +6,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { bridgeAlertToAteniaAI } from "./services/atenia-alert-bridge";
 
 export interface HearingAlertConfig {
   ownerId: string;
@@ -81,6 +82,7 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
   });
   const timeStr = scheduledAt.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
 
+  const hearingMsg = `${title} — ${dateStr} a las ${timeStr}. Lugar: ${locationText}.`;
   await supabase.from('alert_instances').insert({
     owner_id: ownerId,
     entity_type: 'HEARING',
@@ -88,7 +90,7 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
     severity: 'INFO',
     status: 'SENT',
     title: 'Audiencia programada',
-    message: `${title} — ${dateStr} a las ${timeStr}. Lugar: ${locationText}.`,
+    message: hearingMsg,
     alert_type: 'HEARING_CREATED',
     alert_source: 'USER',
     organization_id: organizationId,
@@ -104,6 +106,16 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
       ? [{ label: 'Ver proceso', action: 'navigate', params: { path: `/app/work-items/${workItemId}` } }]
       : [],
   });
+
+  // Bridge to Atenia AI pipeline (non-blocking)
+  if (organizationId) {
+    bridgeAlertToAteniaAI({
+      orgId: organizationId, entityType: 'HEARING', entityId: hearingId,
+      severity: 'INFO', title: 'Audiencia programada', message: hearingMsg,
+      alertType: 'HEARING_CREATED', alertSource: 'USER', workItemId,
+      payload: { scheduled_at: scheduledAt.toISOString(), location, is_virtual: isVirtual },
+    }).catch(() => {});
+  }
 
   // Create scheduled reminder alert_instances for each interval
   for (const hoursBefore of reminderHoursBefore) {
@@ -138,7 +150,17 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
         : [],
     });
 
-    // Enqueue email reminder if enabled
+    // Bridge hearing reminders to Atenia AI (non-blocking)
+    if (organizationId) {
+      bridgeAlertToAteniaAI({
+        orgId: organizationId, entityType: 'HEARING', entityId: hearingId,
+        severity, title: `⏰ Audiencia en ${label}`,
+        message: `${title} — ${dateStr} a las ${timeStr}. Lugar: ${locationText}.`,
+        alertType: 'HEARING_REMINDER', alertSource: 'SYSTEM', workItemId,
+        payload: { scheduled_at: scheduledAt.toISOString(), hours_before: hoursBefore },
+      }).catch(() => {});
+    }
+
     if (emailEnabled && userEmail && organizationId) {
       const virtualLinkHtml = isVirtual && virtualLink
         ? `<p>🔗 <a href="${virtualLink}">Unirse a audiencia virtual</a></p>`
