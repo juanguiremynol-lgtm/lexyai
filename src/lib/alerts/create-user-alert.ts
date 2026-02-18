@@ -1,13 +1,13 @@
 /**
  * Unified User Alert Creator
  * 
- * Inserts into the `notifications` table (USER audience) with dedup.
- * Respects user alert_preferences before inserting.
+ * Client-side fallback that calls the same server-side `insert_notification()`
+ * function used by all DB triggers, ensuring a single insertion contract.
  * 
- * NOTE: DB triggers on work_item_acts, work_item_publicaciones, 
- * work_item_stage_audit, and work_item_tasks handle server-side alerts
- * automatically. This utility is for client-side alert generation
- * (e.g., petición created, hearing created, milestones).
+ * NOTE: DB triggers on work_items, work_item_acts, work_item_publicaciones, 
+ * work_item_stage_audit, work_item_tasks, and hearings handle server-side
+ * alerts automatically. This utility is for edge cases only (e.g., cron-based
+ * alerts like TAREA_VENCIDA, AUDIENCIA_PROXIMA).
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -54,9 +54,9 @@ export interface CreateUserAlertParams {
 }
 
 /**
- * Create a user-facing notification in the unified `notifications` table.
- * Checks alert_preferences to see if the user has disabled this type.
- * Deduplicates by dedupe_key to prevent duplicates from retries.
+ * Create a user-facing notification via RPC.
+ * Uses the same `insert_notification()` function as all DB triggers,
+ * ensuring a single contract for dedup, preferences, and insertion.
  */
 export async function createUserAlert(params: CreateUserAlertParams): Promise<{
   success: boolean;
@@ -76,56 +76,28 @@ export async function createUserAlert(params: CreateUserAlertParams): Promise<{
   } = params;
 
   try {
-    // 1. Check user preferences (skip if explicitly disabled)
-    const { data: prefs } = await supabase
-      .from('alert_preferences')
-      .select('preferences')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (prefs?.preferences) {
-      const typePref = (prefs.preferences as Record<string, { enabled?: boolean }>)[alertType];
-      if (typePref && typePref.enabled === false) {
-        return { success: true, isDuplicate: false };
-      }
-    }
-
-    // 2. Build dedupe key
     const effectiveDedupeKey = dedupeKey || `${alertType}_${workItemId || userId}_${new Date().toISOString().split('T')[0]}`;
 
-    // 3. Check for existing notification with same dedupe key
-    const { data: existing } = await supabase
-      .from('notifications' as any)
-      .select('id')
-      .eq('dedupe_key', effectiveDedupeKey)
-      .maybeSingle();
+    const { error: rpcError } = await supabase.rpc('rpc_insert_notification' as any, {
+      p_audience_scope: 'USER',
+      p_user_id: userId,
+      p_category: 'WORK_ITEM_ALERTS',
+      p_type: alertType,
+      p_title: title,
+      p_body: body || null,
+      p_severity: severity,
+      p_metadata: { ...metadata, alert_type_label: ALERT_TYPE_LABELS[alertType] },
+      p_dedupe_key: effectiveDedupeKey,
+      p_deep_link: deepLink || (workItemId ? `/app/work-items/${workItemId}` : null),
+      p_work_item_id: workItemId || null,
+    });
 
-    if (existing) {
-      return { success: true, isDuplicate: true };
-    }
-
-    // 4. Insert notification
-    const { error: insertError } = await (supabase.from('notifications') as any)
-      .insert({
-        audience_scope: 'USER',
-        user_id: userId,
-        category: 'WORK_ITEM_ALERTS',
-        type: alertType,
-        title,
-        body: body || null,
-        severity,
-        metadata: { ...metadata, alert_type_label: ALERT_TYPE_LABELS[alertType] },
-        dedupe_key: effectiveDedupeKey,
-        deep_link: deepLink || (workItemId ? `/app/work-items/${workItemId}` : null),
-        work_item_id: workItemId || null,
-      });
-
-    if (insertError) {
-      // Unique constraint = race condition duplicate
-      if (insertError.code === '23505') {
+    if (rpcError) {
+      // Unique constraint = dedupe hit
+      if (rpcError.code === '23505') {
         return { success: true, isDuplicate: true };
       }
-      return { success: false, error: insertError.message };
+      return { success: false, error: rpcError.message };
     }
 
     return { success: true, isDuplicate: false };
