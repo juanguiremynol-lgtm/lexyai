@@ -249,6 +249,11 @@ export function NotificationCenter() {
                         {n.body}
                       </p>
                     )}
+                    {n.metadata && typeof n.metadata === 'object' && (n.metadata as any).aggregated_count > 1 && (
+                      <span className="text-[10px] text-primary/70 font-medium mt-0.5 inline-block">
+                        +{(n.metadata as any).aggregated_count - 1} evento(s) más
+                      </span>
+                    )}
                     <p className="text-[11px] text-muted-foreground/70 mt-1">
                       {formatDistanceToNow(new Date(n.created_at), {
                         addSuffix: true,
