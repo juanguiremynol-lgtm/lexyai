@@ -21,6 +21,25 @@ import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { generateActuacionFingerprint as canonicalFingerprint } from "../_shared/syncOrchestrator.ts";
 import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
+import {
+  orchestrateSync,
+  createFetchRegistry,
+  type SyncRunContext,
+  type SyncRunResult,
+  type ProviderFetchFn,
+} from "../_shared/syncOrchestrator.ts";
+import {
+  createLegacyAdapter,
+  extractLegacyResult,
+  aggregateLegacyResults,
+  type LegacyFetchResult,
+} from "../_shared/providerAdapters.ts";
+
+// ============= FEATURE FLAG =============
+// Set USE_ORCHESTRATOR_SYNC=true to use the shared orchestrator for provider
+// selection, sequencing (CHAIN/FANOUT), per-attempt recording, and concurrency.
+// When false (default), the legacy inline provider logic is used.
+const USE_ORCHESTRATOR_SYNC = Deno.env.get("USE_ORCHESTRATOR_SYNC") === "true";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -2535,6 +2554,170 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
 // This edge function (sync-by-work-item) focuses only on actuaciones from CPNU/SAMAI/TUTELAS.
 // The two sync functions are independent and should be called separately.
 
+// ============= ORCHESTRATOR EXECUTION PATH =============
+// When USE_ORCHESTRATOR_SYNC=true, this function handles provider sequencing
+// via the shared orchestrator. Returns the aggregated FetchResult(s) for
+// post-processing by the existing pipeline.
+
+interface OrchestratorExecResult {
+  /** Primary FetchResult for ingestion pipeline (or null if all failed) */
+  fetchResult: FetchResult | null;
+  /** All FetchResults from FANOUT (for TUTELA multi-source merge) */
+  allFetchResults: FetchResult[];
+  /** All provider labels that returned data */
+  allSources: string[];
+  /** Provider attempts for the response */
+  providerAttempts: ProviderAttempt[];
+  /** Provider order reason string */
+  providerOrderReason: string;
+  /** Warnings accumulated */
+  warnings: string[];
+  /** Whether scraping was initiated */
+  scrapingInitiated: boolean;
+  scrapingResult: FetchResult | null;
+  /** Orchestrator sync run ID (for external_sync_runs) */
+  syncRunId: string | null;
+  /** Overall orchestrator status */
+  orchestratorStatus: string;
+}
+
+async function executeViaOrchestrator(
+  workItem: WorkItem,
+  supabase: any,
+  traceId: string,
+  isScheduled: boolean,
+): Promise<OrchestratorExecResult> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  // Build provider fetch registry using existing inline functions as adapters
+  const normalizedRadicado = workItem.radicado ? normalizeRadicado(workItem.radicado) : "";
+  const hasTutelaCode = workItem.tutela_code && isValidTutelaCode(workItem.tutela_code);
+
+  const registry = createFetchRegistry([
+    {
+      key: "CPNU",
+      fetchFn: createLegacyAdapter(
+        (radicado: string) => fetchFromCpnu(radicado),
+      ),
+    },
+    {
+      key: "SAMAI",
+      fetchFn: createLegacyAdapter(
+        (radicado: string) => fetchFromSamai(radicado),
+      ),
+    },
+    {
+      key: "TUTELAS",
+      fetchFn: createLegacyAdapter(
+        (identifier: string) => {
+          // Use tutela_code if available, otherwise radicado
+          if (hasTutelaCode) {
+            return fetchFromTutelasApi(workItem.tutela_code!, "tutela_code");
+          }
+          return fetchFromTutelasApi(identifier, "radicado");
+        },
+      ),
+    },
+    // Note: PUBLICACIONES is handled by sync-publicaciones-by-work-item
+    // SAMAI_ESTADOS is an EXTERNAL provider handled by the external enrichment section
+  ]);
+
+  const ctx: SyncRunContext = {
+    workItemId: workItem.id,
+    organizationId: workItem.organization_id,
+    workflowType: workItem.workflow_type,
+    radicado: normalizedRadicado || workItem.tutela_code || "",
+    invokedBy: isScheduled ? "CRON" : "MANUAL",
+    triggerSource: "sync-by-work-item",
+  };
+
+  console.log(`[sync-by-work-item] ORCHESTRATOR: Executing via orchestrateSync() for ${workItem.workflow_type}`);
+
+  const orchResult = await orchestrateSync(
+    ctx,
+    registry,
+    supabase,
+    supabaseUrl,
+    `Bearer ${supabaseServiceKey}`,
+    {
+      skipEstados: true, // Estados handled by sync-publicaciones-by-work-item
+      timeoutMs: 30_000,
+    },
+  );
+
+  console.log(`[sync-by-work-item] ORCHESTRATOR: status=${orchResult.status}, attempts=${orchResult.providerAttempts.length}, acts_raw=${orchResult.totalInsertedActs}`);
+
+  // Extract legacy FetchResults from orchestrator attempts
+  const allFetchResults: FetchResult[] = [];
+  const allSources: string[] = [];
+  const providerAttempts: ProviderAttempt[] = [];
+  const warnings: string[] = [];
+  let scrapingInitiated = false;
+  let scrapingResult: FetchResult | null = null;
+
+  for (const attempt of orchResult.providerAttempts) {
+    const legacyResult = extractLegacyResult(attempt.metadata as Record<string, unknown>);
+
+    providerAttempts.push({
+      provider: attempt.provider.toLowerCase(),
+      status: attempt.status === "success" ? "success"
+        : attempt.status === "not_found" || attempt.status === "empty" ? "not_found"
+        : attempt.status === "timeout" ? "timeout"
+        : attempt.status === "skipped" ? "skipped"
+        : "error",
+      latencyMs: attempt.latency_ms,
+      message: attempt.error_message || undefined,
+      actuacionesCount: legacyResult?.actuaciones?.length || 0,
+    });
+
+    if (legacyResult) {
+      if (legacyResult.ok && legacyResult.actuaciones.length > 0) {
+        allFetchResults.push(legacyResult as unknown as FetchResult);
+        allSources.push(legacyResult.provider);
+      }
+
+      if (legacyResult.scrapingInitiated && legacyResult.scrapingJobId) {
+        scrapingInitiated = true;
+        if (!scrapingResult) scrapingResult = legacyResult as unknown as FetchResult;
+      }
+
+      if (!legacyResult.ok && legacyResult.error) {
+        warnings.push(`${legacyResult.provider}: ${legacyResult.error}`);
+      }
+    }
+  }
+
+  // Determine primary fetchResult for the ingestion pipeline
+  let fetchResult: FetchResult | null = null;
+  if (allFetchResults.length === 1) {
+    fetchResult = allFetchResults[0];
+  } else if (allFetchResults.length > 1) {
+    // Multiple results (FANOUT) — pick the one with most actuaciones as primary
+    // The full set is in allFetchResults for TUTELA multi-source merge
+    fetchResult = allFetchResults.reduce((best, curr) =>
+      curr.actuaciones.length > best.actuaciones.length ? curr : best
+    );
+  }
+
+  const providerOrderReason = orchResult.providerAttempts.length > 0
+    ? `orchestrator_${orchResult.status.toLowerCase()}_${allSources.join("+") || "none"}`
+    : "orchestrator_no_attempts";
+
+  return {
+    fetchResult,
+    allFetchResults,
+    allSources,
+    providerAttempts,
+    providerOrderReason,
+    warnings,
+    scrapingInitiated,
+    scrapingResult,
+    syncRunId: orchResult.syncRunId,
+    orchestratorStatus: orchResult.status,
+  };
+}
+
 // ============= MAIN HANDLER =============
 
 Deno.serve(async (req) => {
@@ -2700,7 +2883,7 @@ Deno.serve(async (req) => {
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
-    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}`);
+    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${USE_ORCHESTRATOR_SYNC}`);
 
     const result: SyncResult = {
       ok: false,
@@ -2718,6 +2901,189 @@ Deno.serve(async (req) => {
 
     // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
+
+    if (USE_ORCHESTRATOR_SYNC) {
+      // ============= ORCHESTRATOR PATH (Phase 2.5) =============
+      // Delegate provider selection, sequencing, CHAIN/FANOUT, concurrency,
+      // and per-attempt recording to the shared orchestrator.
+      // Post-processing (ingestion, stage inference, alerts, etc.) remains inline.
+
+      // Pre-validate identifiers (same as inline path)
+      if (workItem.workflow_type === 'TUTELA') {
+        const hasRadicado = workItem.radicado && isValidRadicado(workItem.radicado);
+        const hasTutelaCode = workItem.tutela_code && isValidTutelaCode(workItem.tutela_code);
+        if (!hasRadicado && !hasTutelaCode) {
+          return errorResponse(
+            'MISSING_IDENTIFIER',
+            'TUTELA workflow requires a valid tutela_code (format: T + 6-10 digits, e.g., T11728622) or a 23-digit radicado. Please edit the work item to add one.',
+            400
+          );
+        }
+      } else if (!['PETICION', 'GOV_PROCEDURE'].includes(workItem.workflow_type)) {
+        if (!workItem.radicado || !isValidRadicado(workItem.radicado)) {
+          return errorResponse(
+            'MISSING_RADICADO',
+            'This workflow requires a valid radicado (23 digits). Please edit the work item to add it.',
+            400
+          );
+        }
+      }
+
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled);
+
+      // Transfer orchestrator results into SyncResult
+      result.provider_attempts = orchExec.providerAttempts;
+      result.provider_order_reason = orchExec.providerOrderReason;
+      result.warnings.push(...orchExec.warnings);
+      fetchResult = orchExec.fetchResult;
+
+      // Handle scraping-initiated case
+      if (!fetchResult && orchExec.scrapingInitiated && orchExec.scrapingResult) {
+        const sr = orchExec.scrapingResult;
+        result.ok = false;
+        result.provider_used = sr.provider;
+        result.scraping_initiated = true;
+        result.scraping_job_id = sr.scrapingJobId;
+        result.scraping_poll_url = sr.scrapingPollUrl;
+        result.scraping_provider = sr.provider;
+        result.scraping_message = sr.scrapingMessage ||
+          `Record not found in cache. Scraping initiated. Retry in 30-60 seconds.`;
+
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'SCRAPING_INITIATED',
+          provider: sr.provider,
+          success: true,
+          message: `Orchestrator: scraping initiated by ${sr.provider}`,
+          meta: { job_id: sr.scrapingJobId, orchestrator: true },
+        });
+
+        await supabase
+          .from('work_items')
+          .update({
+            scrape_status: 'IN_PROGRESS',
+            scrape_provider: sr.provider,
+            scrape_job_id: sr.scrapingJobId,
+            last_scrape_initiated_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+          })
+          .eq('id', work_item_id);
+
+        await enqueueScrapingRetry(supabase, {
+          workItemId: work_item_id,
+          organizationId: workItem.organization_id,
+          radicado: workItem.radicado || '',
+          workflowType: workItem.workflow_type,
+          stage: (workItem as any).stage || null,
+          provider: sr.provider,
+          kind: 'ACT_SCRAPE_RETRY',
+          scrapingJobId: sr.scrapingJobId,
+          errorCode: 'SCRAPING_TIMEOUT',
+          errorMessage: 'Orchestrator: scraping initiated, retry scheduled',
+        });
+
+        result.trace_id = traceId;
+        result.code = 'SCRAPING_TIMEOUT_RETRY_SCHEDULED';
+        return jsonResponse(result, 202);
+      }
+
+      // For TUTELA FANOUT with multiple sources, run smart consolidation
+      if (workItem.workflow_type === 'TUTELA' && orchExec.allFetchResults.length > 1) {
+        // Replicate existing TUTELA consolidation logic using orchestrator results
+        const allActuaciones: ActuacionRaw[] = [];
+        let bestMetadata: FetchResult['caseMetadata'] = {};
+        let bestSujetos: FetchResult['sujetos'] = [];
+
+        for (const provResult of orchExec.allFetchResults) {
+          for (const act of provResult.actuaciones) {
+            (act as any)._source = provResult.provider;
+            allActuaciones.push(act);
+          }
+          if (provResult.caseMetadata) {
+            bestMetadata = mergeTutelaMetadata(bestMetadata || {}, provResult.caseMetadata, provResult.provider);
+          }
+          if (provResult.sujetos && provResult.sujetos.length > (bestSujetos?.length || 0)) {
+            bestSujetos = provResult.sujetos;
+          }
+        }
+
+        // Run smart consolidation (same as inline TUTELA path)
+        if (allActuaciones.length > 0 && orchExec.allSources.length > 1) {
+          console.log(`[sync-by-work-item] ORCHESTRATOR TUTELA: Smart consolidation of ${allActuaciones.length} actuaciones from ${orchExec.allSources.join(', ')}`);
+
+          const bySource = new Map<string, ActuacionRaw[]>();
+          for (const act of allActuaciones) {
+            const src = (act as any)._source || 'unknown';
+            if (!bySource.has(src)) bySource.set(src, []);
+            bySource.get(src)!.push(act);
+          }
+
+          const sortedSources = [...bySource.keys()].sort((a, b) => {
+            const idxA = TUTELA_SOURCE_PRIORITY.indexOf(a);
+            const idxB = TUTELA_SOURCE_PRIORITY.indexOf(b);
+            return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+          });
+
+          const consolidated: ConsolidatedActuacion[] = [];
+          for (const source of sortedSources) {
+            const acts = bySource.get(source)!;
+            for (const act of acts) {
+              const match = findCrossProviderDuplicate(act, source, consolidated);
+              if (match) {
+                if (!match.sources.includes(source)) {
+                  match.sources.push(source);
+                }
+              } else {
+                consolidated.push({ best: act, sources: [source], crossProviderData: {} });
+              }
+            }
+          }
+
+          // Build merged fetchResult
+          fetchResult = {
+            ok: true,
+            actuaciones: consolidated.map((c) => {
+              const act = { ...c.best };
+              if (c.sources.length > 1) {
+                (act as any)._consolidated_sources = c.sources;
+                (act as any)._cross_provider_data = c.crossProviderData;
+              }
+              return act;
+            }),
+            caseMetadata: bestMetadata,
+            sujetos: bestSujetos,
+            provider: orchExec.allSources.join('+'),
+            latencyMs: 0,
+            httpStatus: 200,
+          };
+          result.provider_order_reason = `orchestrator_fanout_consolidated: ${orchExec.allSources.join('+')}`;
+        }
+      }
+
+      // Log orchestrator completion
+      await logTrace(supabase, {
+        trace_id: traceId,
+        work_item_id,
+        organization_id: workItem.organization_id,
+        workflow_type: workItem.workflow_type,
+        step: 'ORCHESTRATOR_COMPLETE',
+        provider: fetchResult?.provider || 'none',
+        success: !!fetchResult?.ok,
+        message: `Orchestrator: ${orchExec.orchestratorStatus}, providers=${orchExec.allSources.join(',')}`,
+        meta: {
+          orchestrator_status: orchExec.orchestratorStatus,
+          sync_run_id: orchExec.syncRunId,
+          providers_with_data: orchExec.allSources,
+          total_attempts: orchExec.providerAttempts.length,
+        },
+      });
+
+    } else {
+    // ============= LEGACY INLINE PATH =============
+    // Original provider selection logic (preserved for rollback via USE_ORCHESTRATOR_SYNC=false)
 
     if (workItem.workflow_type === 'TUTELA') {
       // ============= TUTELA: PARALLEL MULTI-PROVIDER SYNC =============
@@ -3420,6 +3786,7 @@ Deno.serve(async (req) => {
         }
       }
     }
+    } // end else (legacy inline path)
 
     // Handle fetch failure - with enhanced diagnostics and auto-scraping
     if (!fetchResult || !fetchResult.ok) {
@@ -4347,32 +4714,35 @@ Deno.serve(async (req) => {
     console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);
 
     // ── Record external_sync_run (best-effort, non-blocking) ──
-    try {
-      const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
-      await supabase.from('external_sync_runs').insert({
-        work_item_id,
-        organization_id: workItem.organization_id,
-        invoked_by: invokedBy,
-        trigger_source: 'sync-by-work-item',
-        started_at: new Date(syncStartTime).toISOString(),
-        finished_at: new Date().toISOString(),
-        duration_ms: Date.now() - syncStartTime,
-        status: result.ok ? (result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS') : 'FAILED',
-        provider_attempts: result.provider_attempts.map((a: any) => ({
-          provider: a.provider,
-          data_kind: 'ACTUACIONES',
-          status: a.status,
-          latency_ms: a.latencyMs || 0,
-          error_code: a.message?.includes('error') ? 'PROVIDER_ERROR' : null,
-          inserted_count: a.actuacionesCount || 0,
-          skipped_count: 0,
-        })),
-        total_inserted_acts: result.inserted_count,
-        total_skipped_acts: result.skipped_count,
-        error_code: result.code || null,
-        error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
-      });
-    } catch { /* sync run recording is best-effort */ }
+    // Skip if orchestrator already recorded (USE_ORCHESTRATOR_SYNC=true)
+    if (!USE_ORCHESTRATOR_SYNC) {
+      try {
+        const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
+        await supabase.from('external_sync_runs').insert({
+          work_item_id,
+          organization_id: workItem.organization_id,
+          invoked_by: invokedBy,
+          trigger_source: 'sync-by-work-item',
+          started_at: new Date(syncStartTime).toISOString(),
+          finished_at: new Date().toISOString(),
+          duration_ms: Date.now() - syncStartTime,
+          status: result.ok ? (result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS') : 'FAILED',
+          provider_attempts: result.provider_attempts.map((a: any) => ({
+            provider: a.provider,
+            data_kind: 'ACTUACIONES',
+            status: a.status,
+            latency_ms: a.latencyMs || 0,
+            error_code: a.message?.includes('error') ? 'PROVIDER_ERROR' : null,
+            inserted_count: a.actuacionesCount || 0,
+            skipped_count: 0,
+          })),
+          total_inserted_acts: result.inserted_count,
+          total_skipped_acts: result.skipped_count,
+          error_code: result.code || null,
+          error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+        });
+      } catch { /* sync run recording is best-effort */ }
+    }
 
     return jsonResponse(result);
 
