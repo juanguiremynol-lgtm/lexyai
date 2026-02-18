@@ -14,9 +14,14 @@ import { toast } from "sonner";
 
 interface SyncResult {
   ok: boolean;
+  heartbeat_id: string | null;
+  heartbeat_status: string | null;
+  heartbeat_written_at: string | null;
   total: number;
   success: number;
   failed: number;
+  skipped: number;
+  budget_exhausted: boolean;
   duration_ms: number;
   error?: string;
 }
@@ -105,13 +110,25 @@ export function GlobalMasterSyncButton() {
               <CheckCircle className="h-4 w-4 text-green-500" />
               <span>Sincronización global completada ({(result.duration_ms / 1000).toFixed(1)}s)</span>
             </div>
-            <div className="flex gap-3 text-xs">
+            <div className="flex gap-3 text-xs flex-wrap">
               <Badge variant="outline" className="text-green-600">✓ {result.success} exitosos</Badge>
               {result.failed > 0 && (
                 <Badge variant="destructive">✗ {result.failed} errores</Badge>
               )}
+              {(result.skipped ?? 0) > 0 && (
+                <Badge variant="secondary">⏭ {result.skipped} omitidos</Badge>
+              )}
               <Badge variant="secondary">{result.total} total</Badge>
+              {result.budget_exhausted && (
+                <Badge variant="destructive">⏱ Budget agotado</Badge>
+              )}
             </div>
+            {result.heartbeat_id && (
+              <div className="text-xs text-muted-foreground font-mono space-y-0.5">
+                <div>Heartbeat: {result.heartbeat_id}</div>
+                <div>Status: {result.heartbeat_status} | Written: {result.heartbeat_written_at ?? "N/A"}</div>
+              </div>
+            )}
             <Button
               size="sm"
               variant="outline"
