@@ -12191,6 +12191,10 @@ export type Database = {
           unmapped: number
         }[]
       }
+      build_dedupe_key: {
+        Args: { p_bucket?: string; p_entity_id: string; p_kind: string }
+        Returns: string
+      }
       canonicalize_legal_text: { Args: { p_text: string }; Returns: string }
       check_and_increment_login_sync: {
         Args: {
@@ -12254,6 +12258,12 @@ export type Database = {
       get_user_org_id: { Args: never; Returns: string }
       get_user_organization_id: { Args: never; Returns: string }
       get_work_item_recipients: {
+        Args: { p_work_item_id: string }
+        Returns: {
+          recipient_id: string
+        }[]
+      }
+      get_work_item_recipients_with_admins: {
         Args: { p_work_item_id: string }
         Returns: {
           recipient_id: string

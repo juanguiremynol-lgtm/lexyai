@@ -124,12 +124,11 @@ export function NotificationCenter() {
   } = useNotifications({ categoryFilter: activeTab });
 
   const handleNotificationClick = (notification: Notification) => {
-    // Mark as read
     if (!notification.read_at) {
       markRead.mutate(notification.id);
     }
-    // Navigate to deep link if available
-    if (notification.deep_link) {
+    // Only navigate to internal paths (defense against crafted deep_links)
+    if (notification.deep_link && notification.deep_link.startsWith('/')) {
       setOpen(false);
       navigate(notification.deep_link);
     }
@@ -237,7 +236,8 @@ export function NotificationCenter() {
                       {n.type && ALERT_TYPE_LABELS[n.type as UserAlertType] && (
                         <AlertTypeBadge type={n.type} />
                       )}
-                      <span className="text-sm font-medium leading-snug line-clamp-1">
+                    <span className="text-sm font-medium leading-snug line-clamp-1">
+                        {/* Render as text only — title is sanitized server-side but we never use dangerouslySetInnerHTML */}
                         {n.title}
                       </span>
                       {!n.read_at && (
