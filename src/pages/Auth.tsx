@@ -20,6 +20,7 @@ export default function Auth() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [enrollmentOpen, setEnrollmentOpen] = useState(true);
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const navigate = useNavigate();
@@ -33,7 +34,7 @@ export default function Auth() {
     checkboxMarketing: boolean;
   } | null>(null);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
-
+  const [pendingAppleSignIn, setPendingAppleSignIn] = useState(false);
   useEffect(() => {
     const checkEnrollment = async () => {
       const { data, error } = await supabase.rpc("is_beta_enrollment_open");
@@ -64,49 +65,57 @@ export default function Auth() {
     // If this was triggered by Google sign-in, proceed
     if (pendingGoogleSignIn) {
       setPendingGoogleSignIn(false);
-      await doGoogleSignIn(data);
+      await doOAuthSignIn("google", data);
+    }
+    if (pendingAppleSignIn) {
+      setPendingAppleSignIn(false);
+      await doOAuthSignIn("apple", data);
     }
   };
 
   const handleGoogleSignIn = async () => {
-    // Pre-acceptance gate: show terms BEFORE initiating OAuth
-    // This ensures acceptance happens before the redirect, not after
     if (!termsAccepted) {
       setPendingGoogleSignIn(true);
       setShowTerms(true);
       return;
     }
-    await doGoogleSignIn(termsData!);
+    await doOAuthSignIn("google", termsData!);
   };
 
-  const doGoogleSignIn = async (terms: {
-    checkboxTerms: boolean;
-    checkboxAge: boolean;
-    checkboxMarketing: boolean;
-  }) => {
-    setGoogleLoading(true);
+  const handleAppleSignIn = async () => {
+    if (!termsAccepted) {
+      setPendingAppleSignIn(true);
+      setShowTerms(true);
+      return;
+    }
+    await doOAuthSignIn("apple", termsData!);
+  };
+
+  const doOAuthSignIn = async (
+    provider: "google" | "apple",
+    terms: { checkboxTerms: boolean; checkboxAge: boolean; checkboxMarketing: boolean }
+  ) => {
+    const setLoading = provider === "google" ? setGoogleLoading : setAppleLoading;
+    setLoading(true);
     try {
-      // Store terms data in sessionStorage as optimization (not compliance-critical).
-      // The DB pending_terms_acceptance flag is the hard gate — if sessionStorage
-      // fails (privacy mode, ITP, etc.), the TermsReAcceptanceGuard will catch it.
       sessionStorage.setItem(
         "pending_terms_acceptance",
         JSON.stringify({
           ...terms,
-          acceptanceMethod: "registration_google",
+          acceptanceMethod: `registration_${provider}`,
           scrollGated: true,
         })
       );
 
-      const { error } = await lovable.auth.signInWithOAuth("google", {
+      const { error } = await lovable.auth.signInWithOAuth(provider, {
         redirect_uri: window.location.origin,
       });
       if (error) throw error;
     } catch (error: any) {
-      toast.error(error.message || "Error al iniciar sesión con Google");
+      toast.error(error.message || `Error al iniciar sesión con ${provider === "google" ? "Google" : "Apple"}`);
       sessionStorage.removeItem("pending_terms_acceptance");
     } finally {
-      setGoogleLoading(false);
+      setLoading(false);
     }
   };
 
@@ -260,7 +269,20 @@ export default function Auth() {
             {googleLoading ? "Conectando..." : "Continuar con Google"}
           </Button>
 
-          {/* Terms acceptance badge for signup */}
+          {/* Apple Sign-In */}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full mb-4 gap-2 border-[#1a3a6a]/50 text-white hover:bg-white/5 hover:border-white/30 bg-transparent"
+            onClick={handleAppleSignIn}
+            disabled={appleLoading}
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+            </svg>
+            {appleLoading ? "Conectando..." : "Continuar con Apple"}
+          </Button>
+
           {!isLogin && termsAccepted && (
             <div className="mb-4 p-2 rounded-lg bg-green-500/10 border border-green-500/30 text-center">
               <p className="text-xs text-green-400">✓ Términos y Condiciones aceptados</p>
