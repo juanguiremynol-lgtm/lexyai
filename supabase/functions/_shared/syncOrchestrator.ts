@@ -255,6 +255,8 @@ export async function executeSyncChain(
     signal?: AbortSignal;
     /** Internal: sync run ID for per-attempt recording */
     _syncRunId?: string | null;
+    /** Internal: organization ID for canary-scoped test hooks */
+    _organizationId?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -386,8 +388,37 @@ async function safeProviderFetch(
     authHeader: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    _organizationId?: string;
   },
 ): Promise<ProviderAttemptResult> {
+  // ── FORCED TIMEOUT TEST HOOK (canary-scoped) ──────────────────────
+  // Env vars: FORCE_PROVIDER_TIMEOUT=true, FORCE_PROVIDER_TIMEOUT_PROVIDER=SAMAI_ESTADOS,
+  //           FORCE_PROVIDER_TIMEOUT_ORGS=org-uuid-1,org-uuid-2
+  // Only active when all three are set AND the org matches.
+  const forceTimeout = Deno.env.get("FORCE_PROVIDER_TIMEOUT") === "true";
+  const forceProvider = (Deno.env.get("FORCE_PROVIDER_TIMEOUT_PROVIDER") ?? "").toUpperCase();
+  const forceOrgs = (Deno.env.get("FORCE_PROVIDER_TIMEOUT_ORGS") ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const orgId = params._organizationId ?? "";
+
+  if (forceTimeout && forceProvider === provider.key.toUpperCase() && forceOrgs.includes(orgId)) {
+    const budget = params.timeoutMs || getProviderTimeout(provider.key);
+    console.warn(`[FORCED_TIMEOUT] Simulating timeout for provider=${provider.key} org=${orgId} budget=${budget}ms`);
+    await new Promise(r => setTimeout(r, budget + 5_000));
+    return {
+      provider: provider.key,
+      data_kind: dataKind,
+      role,
+      status: "timeout",
+      http_code: null,
+      latency_ms: budget + 5_000,
+      error_code: "FORCED_TIMEOUT",
+      error_message: `Forced timeout for release-gate testing (provider=${provider.key})`,
+      inserted_count: 0,
+      skipped_count: 0,
+    };
+  }
+  // ── END FORCED TIMEOUT TEST HOOK ──────────────────────────────────
+
   const timeoutMs = params.timeoutMs || getProviderTimeout(provider.key);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -512,6 +543,7 @@ export async function executeSyncFanout(
     timeoutMs?: number;
     signal?: AbortSignal;
     _syncRunId?: string | null;
+    _organizationId?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -628,6 +660,7 @@ export async function executeProviderAttempt(
     authHeader: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    _organizationId?: string;
   },
 ): Promise<ProviderAttemptResult> {
   const result = await safeProviderFetch(fetchFn, provider, role, dataKind, params);
@@ -658,6 +691,7 @@ export async function executeSync(
     timeoutMs?: number;
     signal?: AbortSignal;
     _syncRunId?: string | null;
+    _organizationId?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -737,6 +771,7 @@ export async function orchestrateSync(
           timeoutMs: options?.timeoutMs,
           signal: options?.signal,
           _syncRunId: syncRunId,
+          _organizationId: ctx.organizationId ?? undefined,
         },
       );
       allAttempts.push(...actResult.attempts);
@@ -765,6 +800,7 @@ export async function orchestrateSync(
             timeoutMs: options?.timeoutMs,
             signal: options?.signal,
             _syncRunId: syncRunId,
+            _organizationId: ctx.organizationId ?? undefined,
           },
         );
         allAttempts.push(...estResult.attempts);
