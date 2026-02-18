@@ -886,7 +886,7 @@ Deno.serve(async (req) => {
 
       const { data: insertedPub, error: insertError } = await supabase
         .from('work_item_publicaciones')
-        .insert({
+        .upsert({
           work_item_id,
           organization_id: workItem.organization_id,
           source: 'publicaciones',
@@ -903,7 +903,7 @@ Deno.serve(async (req) => {
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: 'publicaciones_v3',
-        })
+        }, { onConflict: 'work_item_id,hash_fingerprint', ignoreDuplicates: true })
         .select('id')
         .single();
 

@@ -449,6 +449,70 @@ function aggregateProviderHealth(
   return result;
 }
 
+/**
+ * Enrich provider health using external_sync_runs (orchestrator observability table).
+ * This supplements sync_traces with structured per-run data including provider_attempts.
+ */
+async function enrichProviderHealthFromSyncRuns(
+  supabase: SupabaseAdmin,
+  orgId: string,
+  dayStart: string,
+  dayEnd: string,
+  existing: Record<string, ProviderHealth>,
+): Promise<Record<string, ProviderHealth>> {
+  try {
+    const { data: runs } = await supabase
+      .from("external_sync_runs")
+      .select("status, provider_attempts, duration_ms, error_code")
+      .eq("organization_id", orgId)
+      .gte("started_at", dayStart)
+      .lte("started_at", dayEnd)
+      .limit(500);
+
+    if (!runs || runs.length === 0) return existing;
+
+    const enriched = { ...existing };
+
+    for (const run of runs) {
+      const attempts = run.provider_attempts as unknown as Array<{
+        provider: string;
+        status: string;
+        latency_ms: number;
+        error_code?: string;
+      }> | null;
+      if (!Array.isArray(attempts)) continue;
+
+      for (const attempt of attempts) {
+        const name = attempt.provider?.toUpperCase();
+        if (!name) continue;
+
+        if (!enriched[name]) {
+          enriched[name] = { status: "unknown", avg_latency_ms: 0, errors: 0, total_calls: 0 };
+        }
+        const p = enriched[name];
+        const oldTotal = p.total_calls;
+        p.total_calls++;
+        // Running average for latency
+        p.avg_latency_ms = Math.round(
+          (p.avg_latency_ms * oldTotal + (attempt.latency_ms || 0)) / p.total_calls
+        );
+        if (attempt.status === "error" || attempt.status === "timeout") {
+          p.errors++;
+        }
+        // Recalculate status
+        const errorRate = p.total_calls > 0 ? p.errors / p.total_calls : 0;
+        if (errorRate >= 0.8) p.status = "down";
+        else if (errorRate >= 0.3 || p.avg_latency_ms > 10000) p.status = "degraded";
+        else p.status = "healthy";
+      }
+    }
+
+    return enriched;
+  } catch {
+    return existing;
+  }
+}
+
 // ─── Quick Health Check ──────────────────────────────────────────────
 
 async function quickHealthCheck(provider: string): Promise<boolean> {
@@ -1371,7 +1435,10 @@ async function auditOrganization(
     }
   }
 
-  const providerStatus = aggregateProviderHealth(traceData);
+  const rawProviderStatus = aggregateProviderHealth(traceData);
+  const providerStatus = await enrichProviderHealthFromSyncRuns(
+    supabase, orgId, dayStart, dayEnd, rawProviderStatus,
+  );
 
   let remediationActions: RemediationAction[] = [];
   if (mode !== "HEALTH_CHECK") {

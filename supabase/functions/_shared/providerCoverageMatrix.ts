@@ -52,44 +52,48 @@ interface WorkflowCoverage {
 const COVERAGE_MAP: Record<string, WorkflowCoverage> = {
   CGP: {
     ACTUACIONES: [
-      { key: "cpnu", role: "PRIMARY", type: "BUILTIN" },
+      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
     ],
     ESTADOS: [
-      { key: "publicaciones", role: "PRIMARY", type: "BUILTIN" },
+      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
     ],
   },
   LABORAL: {
     ACTUACIONES: [
-      { key: "cpnu", role: "PRIMARY", type: "BUILTIN" },
+      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
     ],
     ESTADOS: [
-      { key: "publicaciones", role: "PRIMARY", type: "BUILTIN" },
+      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
     ],
   },
   CPACA: {
     ACTUACIONES: [
-      { key: "samai", role: "PRIMARY", type: "BUILTIN" },
+      { key: "SAMAI", role: "PRIMARY", type: "BUILTIN" },
     ],
     ESTADOS: [
       { key: "SAMAI_ESTADOS", role: "PRIMARY", type: "EXTERNAL" },
-      { key: "publicaciones", role: "FALLBACK", type: "BUILTIN" },
+      { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
     ],
   },
   TUTELA: {
     ACTUACIONES: [
-      { key: "cpnu", role: "PRIMARY", type: "BUILTIN" },
-      { key: "samai", role: "FALLBACK", type: "BUILTIN" },
-      { key: "tutelas-api", role: "FALLBACK", type: "BUILTIN" },
+      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+      { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
+      { key: "TUTELAS", role: "FALLBACK", type: "BUILTIN" },
     ],
-    ESTADOS: [],
+    ESTADOS: [
+      { key: "TUTELAS", role: "PRIMARY", type: "BUILTIN" },
+      { key: "PUBLICACIONES", role: "FALLBACK", type: "BUILTIN" },
+      { key: "SAMAI_ESTADOS", role: "FALLBACK", type: "EXTERNAL" },
+    ],
   },
   PENAL_906: {
     ACTUACIONES: [
-      { key: "cpnu", role: "PRIMARY", type: "BUILTIN" },
-      { key: "samai", role: "FALLBACK", type: "BUILTIN" },
+      { key: "CPNU", role: "PRIMARY", type: "BUILTIN" },
+      { key: "SAMAI", role: "FALLBACK", type: "BUILTIN" },
     ],
     ESTADOS: [
-      { key: "publicaciones", role: "PRIMARY", type: "BUILTIN" },
+      { key: "PUBLICACIONES", role: "PRIMARY", type: "BUILTIN" },
     ],
   },
   PETICION: {
@@ -137,24 +141,24 @@ export function getProviderCoverage(
 
 const COMPATIBLE_CONNECTORS: Record<string, Record<DataKind, Set<string>>> = {
   CGP: {
-    ACTUACIONES: new Set(["cpnu"]),
-    ESTADOS: new Set(["publicaciones"]),
+    ACTUACIONES: new Set(["CPNU"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
   },
   LABORAL: {
-    ACTUACIONES: new Set(["cpnu"]),
-    ESTADOS: new Set(["publicaciones"]),
+    ACTUACIONES: new Set(["CPNU"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
   },
   CPACA: {
-    ACTUACIONES: new Set(["samai", "cpnu"]),
-    ESTADOS: new Set(["SAMAI_ESTADOS", "samai_estados", "samai-estados", "publicaciones"]),
+    ACTUACIONES: new Set(["SAMAI", "CPNU"]),
+    ESTADOS: new Set(["SAMAI_ESTADOS", "PUBLICACIONES"]),
   },
   TUTELA: {
-    ACTUACIONES: new Set(["cpnu", "samai", "tutelas-api", "tutelas"]),
-    ESTADOS: new Set([]),
+    ACTUACIONES: new Set(["CPNU", "SAMAI", "TUTELAS"]),
+    ESTADOS: new Set(["TUTELAS", "PUBLICACIONES", "SAMAI_ESTADOS"]),
   },
   PENAL_906: {
-    ACTUACIONES: new Set(["cpnu", "samai"]),
-    ESTADOS: new Set(["publicaciones"]),
+    ACTUACIONES: new Set(["CPNU", "SAMAI"]),
+    ESTADOS: new Set(["PUBLICACIONES"]),
   },
 };
 
