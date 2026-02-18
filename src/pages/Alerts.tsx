@@ -39,6 +39,7 @@ import {
   AlertSnoozeDialog, 
   AlertBulkConfirmDialog 
 } from "@/components/alerts";
+import { NotificationsAlertTab } from "@/components/alerts/NotificationsAlertTab";
 
 type AlertInstanceAction = {
   label: string;
@@ -748,8 +749,12 @@ export default function Alerts() {
         </Card>
       </div>
 
-      <Tabs defaultValue="milestones" className="w-full">
+      <Tabs defaultValue="notifications" className="w-full">
         <TabsList className="flex-wrap">
+          <TabsTrigger value="notifications">
+            <Bell className="h-4 w-4 mr-1" />
+            Notificaciones
+          </TabsTrigger>
           <TabsTrigger value="milestones">
             <Target className="h-4 w-4 mr-1" />
             Hitos ({allReminders.length})
@@ -761,6 +766,10 @@ export default function Alerts() {
             Sistema ({alertInstances?.length || 0})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="notifications">
+          <NotificationsAlertTab />
+        </TabsContent>
 
         <TabsContent value="milestones">
           <Card>

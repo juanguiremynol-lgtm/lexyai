@@ -183,6 +183,11 @@ For each item in latest_pubs (up to 5):
 **D) Alertas activas** (only if alerts exist with status != 'resolved')
 List any active alerts with severity and message.
 
+**D2) Notificaciones no leídas del usuario** (only if unread_user_alerts exists in context)
+If CONTEXT_JSON contains "unread_user_alerts", list the most recent unread user notifications:
+For each: [type] — [title] — [severity] — [created_at]
+The types include: ACTUACION_NUEVA, ESTADO_NUEVO, STAGE_CHANGE, TAREA_CREADA, TAREA_VENCIDA, AUDIENCIA_PROXIMA, AUDIENCIA_CREADA, TERMINO_CRITICO, TERMINO_VENCIDO, PETICION_CREADA, HITO_ALCANZADO.
+
 **E) Acciones recomendadas**
 Always include 2-4 of these based on context:
 - If sync errors exist: propose ESCALATE_TO_ADMIN_QUEUE, CREATE_USER_REPORT, or GENERATE_SUPPORT_BUNDLE
@@ -560,6 +565,31 @@ async function buildContext(
     };
 
     ctx.analytics = analyticsCtx;
+  }
+
+  // ---- Recent unread user notifications (for alert awareness) ----
+  {
+    const { data: recentNotifs } = await adminClient
+      .from("notifications")
+      .select("id, type, title, body, severity, created_at, work_item_id")
+      .eq("user_id", userId)
+      .is("read_at", null)
+      .is("dismissed_at", null)
+      .in("category", ["WORK_ITEM_ALERTS", "TERMS"])
+      .order("created_at", { ascending: false })
+      .limit(10);
+    
+    if (recentNotifs && recentNotifs.length > 0) {
+      ctx.unread_user_alerts = recentNotifs.map((n: any) => ({
+        type: n.type,
+        title: n.title,
+        body: n.body,
+        severity: n.severity,
+        created_at: n.created_at,
+        work_item_id: n.work_item_id,
+      }));
+      ctx.unread_user_alerts_count = recentNotifs.length;
+    }
   }
 
   return { ctx, orgId, isPlatformAdmin };

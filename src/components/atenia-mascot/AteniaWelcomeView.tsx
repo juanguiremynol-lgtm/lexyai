@@ -44,6 +44,7 @@ const WORK_ITEM_CHIPS: StarterChip[] = [
   { label: "¿Por qué no se auto-llenan las partes?", prompt: "¿Por qué el wizard de creación no está auto-llenando las partes procesales?" },
   { label: "Mostrar datos obtenidos de este asunto", prompt: "Muéstrame los datos que se obtuvieron de los proveedores para este asunto" },
   { label: "📋 Resumir este asunto", prompt: "Resume este asunto y sus últimas actuaciones. Incluye ficha del proceso, últimas actuaciones y acciones recomendadas." },
+  { label: "🔔 Ver mis alertas de hoy", prompt: "¿Qué alertas y notificaciones tengo pendientes hoy? Muéstrame un resumen de mis alertas no leídas." },
 ];
 
 const GATED_CHIPS: StarterChip[] = [
