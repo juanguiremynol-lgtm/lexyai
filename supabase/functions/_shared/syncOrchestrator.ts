@@ -3,10 +3,10 @@
  *
  * This module is the ONLY place that decides:
  *   1. Which providers to call for a work item (via providerCoverageMatrix.ts)
- *   2. Call ordering: primary → fallback (via providerStrategy.ts)
+ *   2. Execution mode: CHAIN (primary→fallback) vs FANOUT (parallel all)
  *   3. Per-provider timeouts, retries, circuit breaker awareness
  *   4. Dedupe / idempotency via fingerprint + ON CONFLICT
- *   5. Recording external_sync_runs for observability
+ *   5. Recording external_sync_runs for observability (per-attempt rows)
  *
  * All call sites (sync-by-work-item, sync-by-radicado, scheduled-daily-sync)
  * MUST use this orchestrator instead of calling provider clients directly.
@@ -15,22 +15,16 @@
  *   - Zero-auth, zero-DB-write, writes to demo_radicado_cache only
  *   - Has its own PROVIDER_REGISTRY with PII redaction
  *
- * Provider matrix (canonical, from providerCoverageMatrix.ts):
+ * Execution modes:
+ *   CHAIN: Sequential primary → fallback. Stops on first success.
+ *          Used for: CGP, LABORAL, CPACA, PENAL_906
+ *   FANOUT: Parallel calls to ALL providers, merge results with dedup.
+ *          Used for: TUTELA (info can be anywhere)
+ *          Concurrency limited to FANOUT_CONCURRENCY (default 2).
  *
- * ┌────────────┬───────────────────────┬───────────────────────┐
- * │ Category   │ ACTUACIONES           │ ESTADOS               │
- * ├────────────┼───────────────────────┼───────────────────────┤
- * │ CGP        │ CPNU (only)           │ Publicaciones (only)  │
- * │ LABORAL    │ CPNU (only)           │ Publicaciones (only)  │
- * │ CPACA      │ SAMAI (only)          │ SAMAI_ESTADOS → Pubs  │
- * │ TUTELA     │ CPNU → SAMAI, Tutelas │ (none)                │
- * │ PENAL_906  │ CPNU → SAMAI          │ Publicaciones (only)  │
- * └────────────┴───────────────────────┴───────────────────────┘
- *
- * Fallback rules:
+ * Fallback rules (CHAIN mode only):
  *   - CGP/LABORAL: NO fallback for actuaciones (CPNU only).
  *   - CPACA: NO fallback for actuaciones (SAMAI only).
- *   - TUTELA: CPNU primary, fallback to SAMAI then Tutelas API.
  *   - PENAL_906: CPNU primary, fallback to SAMAI.
  *   - Fallback triggers ONLY on NOT_FOUND (no match at all).
  *   - FOUND_PARTIAL does NOT trigger fallback.
@@ -40,6 +34,7 @@ import {
   getProviderCoverage,
   type DataKind,
   type ProviderEntry,
+  type ExecutionMode,
 } from "./providerCoverageMatrix.ts";
 import {
   determineFoundStatus,
@@ -132,8 +127,11 @@ export interface ProviderFetchFn {
 /** Default per-provider timeout in ms */
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 
-/** Max providers to attempt per data kind before stopping */
+/** Max providers to attempt per data kind before stopping (CHAIN mode) */
 const MAX_ATTEMPTS_PER_KIND = 3;
+
+/** Max concurrent provider calls in FANOUT mode */
+const FANOUT_CONCURRENCY = 2;
 
 // ═══════════════════════════════════════════
 // SYNC RUN RECORDER
@@ -430,6 +428,207 @@ function composeAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
 }
 
 // ═══════════════════════════════════════════
+// FANOUT EXECUTION ENGINE
+// ═══════════════════════════════════════════
+
+/**
+ * Concurrency-limited parallel executor.
+ * Runs at most `limit` promises concurrently.
+ */
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+): Promise<T[]> {
+  const results: T[] = [];
+  const executing = new Set<Promise<void>>();
+
+  for (const task of tasks) {
+    const p = task().then((r) => {
+      results.push(r);
+      executing.delete(p);
+    });
+    executing.add(p);
+    if (executing.size >= limit) {
+      await Promise.race(executing);
+    }
+  }
+  await Promise.all(executing);
+  return results;
+}
+
+/**
+ * Execute a FANOUT sync: call ALL providers in parallel (concurrency-limited),
+ * merge results, deduplicate at DB level via ON CONFLICT.
+ *
+ * Used for TUTELA where info can be anywhere across providers.
+ * All providers are treated as PRIMARY — no fallback semantics.
+ */
+export async function executeSyncFanout(
+  dataKind: DataKind,
+  providers: ProviderEntry[],
+  fetchFnRegistry: Map<string, ProviderFetchFn>,
+  params: {
+    radicado: string;
+    workItemId: string;
+    supabase: any;
+    supabaseUrl: string;
+    authHeader: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  attempts: ProviderAttemptResult[];
+  totalInserted: number;
+  totalSkipped: number;
+  foundStatus: FoundStatus;
+}> {
+  const tasks = providers
+    .filter((p) => fetchFnRegistry.has(p.key))
+    .map((provider) => () =>
+      safeProviderFetch(
+        fetchFnRegistry.get(provider.key)!,
+        provider,
+        "PRIMARY", // All providers are primary in FANOUT
+        dataKind,
+        params,
+      )
+    );
+
+  // Add skipped entries for providers without fetch functions
+  const skipped: ProviderAttemptResult[] = providers
+    .filter((p) => !fetchFnRegistry.has(p.key))
+    .map((p) => ({
+      provider: p.key,
+      data_kind: dataKind,
+      role: "PRIMARY" as const,
+      status: "skipped" as const,
+      http_code: null,
+      latency_ms: 0,
+      error_code: "NO_FETCH_FN",
+      error_message: `No fetch function registered for provider ${p.key}`,
+      inserted_count: 0,
+      skipped_count: 0,
+    }));
+
+  // Execute with concurrency limit
+  const results = await runWithConcurrency(tasks, FANOUT_CONCURRENCY);
+
+  const attempts = [...skipped, ...results];
+  const totalInserted = attempts.reduce((s, a) => s + a.inserted_count, 0);
+  const totalSkipped = attempts.reduce((s, a) => s + a.skipped_count, 0);
+
+  const hasData = attempts.some((a) => a.status === "success");
+  const hasMetadata = attempts.some(
+    (a) => a.status !== "error" && a.status !== "timeout" && a.status !== "skipped",
+  );
+  const allFailed = attempts.every(
+    (a) => a.status === "error" || a.status === "timeout" || a.status === "skipped",
+  );
+
+  const foundStatus = determineFoundStatus(hasMetadata, hasData, allFailed);
+
+  return { attempts, totalInserted, totalSkipped, foundStatus };
+}
+
+// ═══════════════════════════════════════════
+// PER-ATTEMPT RECORDING
+// ═══════════════════════════════════════════
+
+/**
+ * Record a single provider attempt as a child row of a sync run.
+ * Called by executeProviderAttempt() wrapper.
+ * Non-blocking, best-effort.
+ */
+async function recordProviderAttempt(
+  supabase: any,
+  syncRunId: string | null,
+  attempt: ProviderAttemptResult,
+): Promise<void> {
+  if (!syncRunId) return;
+  try {
+    await supabase
+      .from("external_sync_run_attempts")
+      .insert({
+        sync_run_id: syncRunId,
+        provider: attempt.provider,
+        data_kind: attempt.data_kind,
+        role: attempt.role,
+        status: attempt.status,
+        http_code: attempt.http_code,
+        latency_ms: attempt.latency_ms,
+        error_code: attempt.error_code,
+        error_message: attempt.error_message?.slice(0, 500),
+        inserted_count: attempt.inserted_count,
+        skipped_count: attempt.skipped_count,
+        recorded_at: new Date().toISOString(),
+      });
+  } catch {
+    // Best-effort — never break main flow
+  }
+}
+
+/**
+ * Wrapper that executes a provider call and records the attempt.
+ * This is the canonical way to call a provider — ensures every attempt
+ * is persisted for observability regardless of outcome.
+ */
+export async function executeProviderAttempt(
+  syncRunId: string | null,
+  fetchFn: ProviderFetchFn,
+  provider: ProviderEntry,
+  role: "PRIMARY" | "FALLBACK",
+  dataKind: DataKind,
+  params: {
+    radicado: string;
+    workItemId: string;
+    supabase: any;
+    supabaseUrl: string;
+    authHeader: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<ProviderAttemptResult> {
+  const result = await safeProviderFetch(fetchFn, provider, role, dataKind, params);
+  // Record attempt (non-blocking)
+  recordProviderAttempt(params.supabase, syncRunId, result);
+  return result;
+}
+
+// ═══════════════════════════════════════════
+// DISPATCH: CHAIN vs FANOUT
+// ═══════════════════════════════════════════
+
+/**
+ * Execute sync for a single data kind using the correct execution mode.
+ * Dispatches to executeSyncChain or executeSyncFanout based on coverage matrix.
+ */
+export async function executeSync(
+  dataKind: DataKind,
+  executionMode: ExecutionMode,
+  providers: ProviderEntry[],
+  fetchFnRegistry: Map<string, ProviderFetchFn>,
+  params: {
+    radicado: string;
+    workItemId: string;
+    supabase: any;
+    supabaseUrl: string;
+    authHeader: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<{
+  attempts: ProviderAttemptResult[];
+  totalInserted: number;
+  totalSkipped: number;
+  foundStatus: FoundStatus;
+}> {
+  if (executionMode === "FANOUT") {
+    return executeSyncFanout(dataKind, providers, fetchFnRegistry, params);
+  }
+  return executeSyncChain(dataKind, providers, fetchFnRegistry, params);
+}
+
+// ═══════════════════════════════════════════
 // MAIN ORCHESTRATOR
 // ═══════════════════════════════════════════
 
@@ -439,10 +638,9 @@ function composeAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
  * This is the top-level entry point that all call sites should use.
  * It:
  *   1. Resolves which providers to call (from coverage matrix)
- *   2. Executes actuaciones chain (primary → fallback)
- *   3. Executes estados chain (primary → fallback)
- *   4. Records the sync run in external_sync_runs
- *   5. Returns aggregated results
+ *   2. Dispatches CHAIN or FANOUT based on execution mode
+ *   3. Records the sync run in external_sync_runs (per-attempt + summary)
+ *   4. Returns aggregated results
  *
  * @param ctx - Work item context
  * @param fetchFnRegistry - Map of provider key → fetch function
@@ -482,8 +680,9 @@ export async function orchestrateSync(
     // Phase 1: Actuaciones
     const actCoverage = getProviderCoverage(ctx.workflowType, "ACTUACIONES");
     if (actCoverage.compatible && actCoverage.providers.length > 0) {
-      const actResult = await executeSyncChain(
+      const actResult = await executeSync(
         "ACTUACIONES",
+        actCoverage.executionMode,
         actCoverage.providers,
         fetchFnRegistry,
         {
@@ -508,8 +707,9 @@ export async function orchestrateSync(
     if (!options?.skipEstados) {
       const estCoverage = getProviderCoverage(ctx.workflowType, "ESTADOS");
       if (estCoverage.compatible && estCoverage.providers.length > 0) {
-        const estResult = await executeSyncChain(
+        const estResult = await executeSync(
           "ESTADOS",
+          estCoverage.executionMode,
           estCoverage.providers,
           fetchFnRegistry,
           {
@@ -582,10 +782,19 @@ export async function orchestrateSync(
 
 /**
  * Generate canonical fingerprint for actuaciones deduplication.
- * Includes source to prevent cross-provider collisions.
+ *
+ * POLICY DECISION: `source` inclusion depends on execution mode.
+ *   - CHAIN mode (CGP, LABORAL, etc.): includes source to prevent cross-provider
+ *     collisions (same event from different providers = different fingerprints).
+ *   - FANOUT mode (TUTELA): EXCLUDES source so the same event from CPNU and
+ *     TUTELAS produces the SAME fingerprint → DB ON CONFLICT deduplicates.
+ *
  * Includes indice to prevent same-day actuación collisions.
  *
  * This is the SINGLE source of truth — all edge functions must use this.
+ *
+ * @param crossProviderDedup - When true, excludes source from fingerprint
+ *        (set this for FANOUT/TUTELA workflows)
  */
 export function generateActuacionFingerprint(
   workItemId: string,
@@ -593,8 +802,9 @@ export function generateActuacionFingerprint(
   text: string,
   indice?: string,
   source?: string,
+  crossProviderDedup = false,
 ): string {
-  const sourcePart = source ? `|${source}` : "";
+  const sourcePart = source && !crossProviderDedup ? `|${source}` : "";
   const indexPart = indice ? `|${indice}` : "";
   const normalized = `${workItemId}|${date}|${text.toLowerCase().trim().slice(0, 200)}${indexPart}${sourcePart}`;
   let hash = 0;

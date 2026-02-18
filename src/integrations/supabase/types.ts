@@ -5038,6 +5038,62 @@ export type Database = {
           },
         ]
       }
+      external_sync_run_attempts: {
+        Row: {
+          data_kind: string
+          error_code: string | null
+          error_message: string | null
+          http_code: number | null
+          id: string
+          inserted_count: number
+          latency_ms: number
+          provider: string
+          recorded_at: string
+          role: string
+          skipped_count: number
+          status: string
+          sync_run_id: string
+        }
+        Insert: {
+          data_kind: string
+          error_code?: string | null
+          error_message?: string | null
+          http_code?: number | null
+          id?: string
+          inserted_count?: number
+          latency_ms?: number
+          provider: string
+          recorded_at?: string
+          role: string
+          skipped_count?: number
+          status: string
+          sync_run_id: string
+        }
+        Update: {
+          data_kind?: string
+          error_code?: string | null
+          error_message?: string | null
+          http_code?: number | null
+          id?: string
+          inserted_count?: number
+          latency_ms?: number
+          provider?: string
+          recorded_at?: string
+          role?: string
+          skipped_count?: number
+          status?: string
+          sync_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_sync_run_attempts_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "external_sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_sync_runs: {
         Row: {
           created_at: string
