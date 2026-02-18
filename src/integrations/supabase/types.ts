@@ -10342,6 +10342,8 @@ export type Database = {
           email: string
           id: string
           ip_hash: string | null
+          launch_date_used: string | null
+          notified_at: string | null
           referrer: string | null
           source_route: string | null
           utm_campaign: string | null
@@ -10354,6 +10356,8 @@ export type Database = {
           email: string
           id?: string
           ip_hash?: string | null
+          launch_date_used?: string | null
+          notified_at?: string | null
           referrer?: string | null
           source_route?: string | null
           utm_campaign?: string | null
@@ -10366,6 +10370,8 @@ export type Database = {
           email?: string
           id?: string
           ip_hash?: string | null
+          launch_date_used?: string | null
+          notified_at?: string | null
           referrer?: string | null
           source_route?: string | null
           utm_campaign?: string | null
