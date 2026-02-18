@@ -27,6 +27,7 @@ const routeTitles: Record<string, string> = {
   "/platform/atenia-ai": "Andro IA — Centro de Comando",
   "/platform/daily-ops-reports": "Reportes Diarios de Operaciones",
   "/platform/suspensions": "Suspensiones Judiciales",
+  "/platform/waitlist": "Lista de Espera",
 };
 
 export function PlatformLayout() {

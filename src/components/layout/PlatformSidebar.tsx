@@ -25,6 +25,7 @@ import {
   FlaskConical,
   FileText,
   Calendar,
+  UserPlus,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -73,6 +74,7 @@ const platformNavItems = [
   { title: "Suspensiones", url: "/platform/suspensions", icon: Calendar },
   { title: "Alertas Admin", url: "/platform/admin-alerts", icon: Bell },
   { title: "Cobertura", url: "/platform/coverage-gaps", icon: ShieldCheck },
+  { title: "Lista de Espera", url: "/platform/waitlist", icon: UserPlus },
 ];
 
 export function PlatformSidebar() {

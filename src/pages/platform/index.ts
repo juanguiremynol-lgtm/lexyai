@@ -29,3 +29,4 @@ export { default as PlatformEmailConsolePage } from "./PlatformEmailConsolePage"
 export { default as PlatformEmailSetupPage } from "./PlatformEmailSetupPage";
 export { default as PlatformAdminAlertsPage } from "./PlatformAdminAlertsPage";
 export { default as PlatformCoverageGapsPage } from "./PlatformCoverageGapsPage";
+export { default as PlatformWaitlistPage } from "./PlatformWaitlistPage";
