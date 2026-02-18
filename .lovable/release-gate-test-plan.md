@@ -1,8 +1,36 @@
 # Release Gate Test Plan — Orchestrator + Watchdog E2E
 
-> **Version**: 1.0  
+> **Version**: 1.1  
 > **Last Updated**: 2026-02-18  
 > **Scope**: Orchestrator execution, provider calls (CHAIN + FANOUT), canonical DB writes, notification triggers, UI display, watchdog + heartbeat under forced timeout.
+
+---
+
+## UI Paths & Platform Console Reference
+
+| Surface | Path / How to access |
+|---------|---------------------|
+| **Work Item Detail** | `/work-items/{id}` — click any work item from dashboard |
+| **Actuaciones Tab** | Work Item Detail → "Actuaciones" tab — shows `WorkItemActCard` with sources[] badges |
+| **SyncStatusBadge** | Work Item Detail → "Actuaciones" tab header — shows sync status + tooltip with latest `external_sync_runs` |
+| **Trigger Sync (Sources tab)** | Work Item Detail → "Fuentes" tab → click **"Sync"** button on any attached provider source |
+| **Trigger Sync (edge function)** | `supabase.functions.invoke('sync-by-work-item', { body: { work_item_id: '...' } })` |
+| **Trigger Sync (provider wizard)** | Work Item Detail → Fuentes tab → E2E panel → **"Sync Now"** button |
+| **Platform Incidents (Auditoría Integral)** | `/platform/atenia-ai` — AteniaComprehensiveAuditWizard |
+| **Job Heartbeats (System Health)** | `/settings` → **"Salud del sistema"** tab → SystemHealthDashboard (heartbeats grid) |
+| **Env Vars (Secrets)** | Cloud View → Secrets — set `FORCE_PROVIDER_TIMEOUT*` vars here |
+| **DB Queries** | Cloud View → Database → Run SQL |
+
+### Concrete Test Work Items (current environment)
+
+| Role | ID | workflow_type | radicado |
+|------|-----|--------------|----------|
+| `WORK_ITEM_CHAIN` | `f046908c-904e-40c4-9ef0-940d291a50e1` | CGP | `05001400300120250154400` |
+| `WORK_ITEM_CHAIN_ALT` (CPACA) | `caf1442f-188a-45c1-8e89-8ecd43d8c51a` | CPACA | `05001333301020240013900` |
+| `WORK_ITEM_TUTELA` | `8f65fbab-4c32-4f15-8b28-82d94b67e8ff` | TUTELA | `05001220400020260025300` |
+
+**Canary Org**: `a0000000-0000-0000-0000-000000000001` (only org in system; `use_orchestrator_sync` currently `false`)
+
 
 ---
 
