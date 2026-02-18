@@ -36,10 +36,27 @@ import {
 } from "../_shared/providerAdapters.ts";
 
 // ============= FEATURE FLAG =============
-// Set USE_ORCHESTRATOR_SYNC=true to use the shared orchestrator for provider
-// selection, sequencing (CHAIN/FANOUT), per-attempt recording, and concurrency.
-// When false (default), the legacy inline provider logic is used.
-const USE_ORCHESTRATOR_SYNC = Deno.env.get("USE_ORCHESTRATOR_SYNC") === "true";
+// Orchestrator sync can be enabled globally via env var or per-org via atenia_ai_config.
+// Per-org toggle (DB) takes precedence over global env var when present.
+// Set USE_ORCHESTRATOR_SYNC=true globally, or set use_orchestrator_sync=true per-org in atenia_ai_config.
+const USE_ORCHESTRATOR_SYNC_GLOBAL = Deno.env.get("USE_ORCHESTRATOR_SYNC") === "true";
+
+/** Resolve whether to use orchestrator for a specific org (checks per-org toggle first) */
+async function shouldUseOrchestrator(supabase: any, organizationId: string): Promise<boolean> {
+  // Per-org canary toggle takes precedence
+  try {
+    const { data } = await supabase
+      .from('atenia_ai_config')
+      .select('use_orchestrator_sync')
+      .eq('organization_id', organizationId)
+      .maybeSingle();
+    if (data?.use_orchestrator_sync === true) return true;
+    if (data?.use_orchestrator_sync === false) return false;
+  } catch {
+    // DB check failed, fall back to global
+  }
+  return USE_ORCHESTRATOR_SYNC_GLOBAL;
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -2883,7 +2900,8 @@ Deno.serve(async (req) => {
 
     // Determine provider order based on workflow_type
     const providerOrder = getProviderOrder(workItem.workflow_type);
-    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${USE_ORCHESTRATOR_SYNC}`);
+    const useOrchestrator = await shouldUseOrchestrator(supabase, workItem.organization_id);
+    console.log(`[sync-by-work-item] Workflow ${workItem.workflow_type}: primary=${providerOrder.primary}, fallback=${providerOrder.fallback || 'none'}, fallbackEnabled=${providerOrder.fallbackEnabled}, orchestrator=${useOrchestrator}`);
 
     const result: SyncResult = {
       ok: false,
@@ -2902,7 +2920,7 @@ Deno.serve(async (req) => {
     // ============= RESOLVE IDENTIFIER BASED ON WORKFLOW =============
     let fetchResult: FetchResult | null = null;
 
-    if (USE_ORCHESTRATOR_SYNC) {
+    if (useOrchestrator) {
       // ============= ORCHESTRATOR PATH (Phase 2.5) =============
       // Delegate provider selection, sequencing, CHAIN/FANOUT, concurrency,
       // and per-attempt recording to the shared orchestrator.
@@ -4084,9 +4102,11 @@ Deno.serve(async (req) => {
         'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas-api': 'TUTELAS',
       };
 
-      const { error: insertError, count: upsertCount } = await supabase
-        .from('work_item_acts')
-        .upsert({
+      // ── Upsert via RPC with explicit sources[] array merge ──
+      // Uses ON CONFLICT (work_item_id, hash_fingerprint) DO UPDATE SET sources = array_union(...)
+      // This ensures cross-provider provenance is additively preserved.
+      const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_acts', {
+        records: JSON.stringify([{
           owner_id: workItem.owner_id,
           organization_id: workItem.organization_id,
           work_item_id,
@@ -4106,24 +4126,26 @@ Deno.serve(async (req) => {
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
           raw_data: rawDataPayload,
-        }, {
-          onConflict: 'work_item_id,hash_fingerprint',
-          // DO NOT use ignoreDuplicates: true — we need the UPDATE path to fire
-          // the trg_merge_act_sources trigger which additively merges sources[].
-          // On conflict, only sources/scrape_date are meaningfully updated (trigger handles merge).
-          ignoreDuplicates: false,
-        });
+        }]),
+      });
 
       if (insertError) {
-        // Check if it's a duplicate error (can happen in race conditions)
-        if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
-          result.skipped_count++;
-        } else {
-          console.error(`[sync-by-work-item] Insert error:`, insertError);
-          result.errors.push(`Failed to insert actuacion: ${insertError.message}`);
-        }
+        console.error(`[sync-by-work-item] RPC upsert error:`, insertError);
+        result.errors.push(`Failed to upsert actuacion: ${insertError.message}`);
       } else {
-        result.inserted_count++;
+        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors: string[] };
+        if (counts.inserted_count > 0) {
+          result.inserted_count++;
+        } else if (counts.updated_count > 0) {
+          // Provenance was merged (sources[] updated) — count as "updated" not "inserted"
+          result.skipped_count++;
+          console.log(`[sync-by-work-item] ♻️ Provenance merged for existing act (fingerprint: ${fingerprint.slice(0,12)}...)`);
+        } else {
+          result.skipped_count++;
+        }
+        if (counts.errors && counts.errors.length > 0) {
+          result.errors.push(...counts.errors);
+        }
         // Note: latestDate is now calculated from ALL fetched actuaciones (before insert loop)
         // to ensure we report the true latest event even for deduped records
         
@@ -4721,7 +4743,7 @@ Deno.serve(async (req) => {
 
     // ── Record external_sync_run (best-effort, non-blocking) ──
     // Skip if orchestrator already recorded (USE_ORCHESTRATOR_SYNC=true)
-    if (!USE_ORCHESTRATOR_SYNC) {
+    if (!useOrchestrator) {
       try {
         const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
         await supabase.from('external_sync_runs').insert({

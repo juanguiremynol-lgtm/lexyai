@@ -884,9 +884,9 @@ Deno.serve(async (req) => {
       const dateSource = parsedFecha ? 'api_explicit' : 'inferred';
       const dateConfidence = parsedFecha ? 'high' : 'low';
 
-      const { data: insertedPub, error: insertError } = await supabase
-        .from('work_item_publicaciones')
-        .upsert({
+      // ── Upsert via RPC with explicit sources[] array merge ──
+      const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
+        records: JSON.stringify([{
           work_item_id,
           organization_id: workItem.organization_id,
           source: 'publicaciones',
@@ -903,42 +903,38 @@ Deno.serve(async (req) => {
           date_source: dateSource,
           date_confidence: dateConfidence,
           raw_schema_version: 'publicaciones_v3',
-        }, { onConflict: 'work_item_id,hash_fingerprint', ignoreDuplicates: true })
-        .select('id')
-        .single();
+          sources: ['publicaciones'],
+        }]),
+      });
+
+      const insertedPub = rpcResult?.inserted_count > 0 ? { id: null } : null;
 
       if (insertError) {
-        // Check if it's a duplicate error (race condition)
-        if (insertError.message?.includes('duplicate') || insertError.code === '23505') {
-          result.skipped_count++;
-        } else {
-          console.error(`[sync-pub] INSERT error: ${JSON.stringify(insertError)}`);
-          result.errors.push(`Insert failed for ${pub.titulo}: ${insertError.message}`);
-        }
+        console.error(`[sync-pub] RPC upsert error: ${JSON.stringify(insertError)}`);
+        result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
       } else {
-        console.log(`[sync-pub] ✅ Inserted: ${pub.titulo} (fecha: ${fechaPublicacion})`);
-        result.inserted_count++;
-        
-        if (parsedFecha && (!newestDate || parsedFecha > newestDate)) {
-          newestDate = parsedFecha;
-        }
+        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number };
+        if (counts.inserted_count > 0) {
+          console.log(`[sync-pub] ✅ Inserted: ${pub.titulo} (fecha: ${fechaPublicacion})`);
+          result.inserted_count++;
+          
+          if (parsedFecha && (!newestDate || parsedFecha > newestDate)) {
+            newestDate = parsedFecha;
+          }
 
-        // Track inserted publication for response
-        if (insertedPub?.id) {
+          // Track inserted publication for response
           result.inserted.push({
-            id: insertedPub.id,
+            id: 'rpc-inserted',
             title: pub.titulo || pub.key || 'Sin título',
             pdf_url: pub.pdf_url || null,
             entry_url: pub.url || null,
             fecha_fijacion: parsedFecha,
-            fecha_desfijacion: null, // v3 API doesn't provide this field yet
+            fecha_desfijacion: null,
             tipo_publicacion: pub.tipo || pub.clasificacion?.categoria || null,
             terminos_inician: null,
           });
-        }
 
-        // ============= CREATE ALERT FOR NEW ESTADOS =============
-        if (insertedPub?.id) {
+          // ============= CREATE ALERT FOR NEW ESTADOS =============
           try {
             await supabase.from('alert_instances').insert({
               owner_id: workItem.owner_id,
@@ -950,7 +946,6 @@ Deno.serve(async (req) => {
               message: `${pub.titulo || pub.key}`,
               status: 'PENDING',
               payload: {
-                publicacion_id: insertedPub.id,
                 fecha_publicacion: fechaPublicacion,
                 asset_id: pub.asset_id,
                 pdf_url: pub.pdf_url,
@@ -960,8 +955,12 @@ Deno.serve(async (req) => {
             console.log(`[sync-pub] Created alert for: ${pub.titulo}`);
           } catch (alertErr) {
             console.warn('[sync-pub] Failed to create alert:', alertErr);
-            // Don't fail the whole sync if alert creation fails
           }
+        } else if (counts.updated_count > 0) {
+          console.log(`[sync-pub] ♻️ Provenance merged for: ${pub.titulo}`);
+          result.skipped_count++;
+        } else {
+          result.skipped_count++;
         }
       }
     }
