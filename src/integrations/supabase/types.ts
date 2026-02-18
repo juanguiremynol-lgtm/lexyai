@@ -12247,6 +12247,12 @@ export type Database = {
       }
       get_user_org_id: { Args: never; Returns: string }
       get_user_organization_id: { Args: never; Returns: string }
+      get_work_item_recipients: {
+        Args: { p_work_item_id: string }
+        Returns: {
+          recipient_id: string
+        }[]
+      }
       has_active_org_support_grant: {
         Args: { p_admin_id: string; p_org_id: string }
         Returns: boolean
@@ -12300,6 +12306,19 @@ export type Database = {
           p_operation: string
           p_row_count?: number
           p_table_name: string
+        }
+        Returns: undefined
+      }
+      notify_work_item_recipients: {
+        Args: {
+          p_body: string
+          p_dedupe_key_prefix: string
+          p_deep_link?: string
+          p_metadata: Json
+          p_severity: string
+          p_title: string
+          p_type: string
+          p_work_item_id: string
         }
         Returns: undefined
       }
