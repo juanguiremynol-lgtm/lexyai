@@ -30,6 +30,11 @@ import {
   Bug,
   Eye,
   Wrench,
+  Gavel,
+  ClipboardList,
+  CalendarDays,
+  Timer,
+  Flag,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -39,6 +44,32 @@ import {
   type NotificationCategory,
 } from "@/hooks/use-notifications";
 import { useNavigate } from "react-router-dom";
+import { ALERT_TYPE_LABELS, type UserAlertType } from "@/lib/alerts/create-user-alert";
+
+// ── Alert type badge color mapping ──
+const ALERT_TYPE_STYLES: Record<string, { bg: string; text: string }> = {
+  ACTUACION_NUEVA: { bg: 'bg-blue-500/15', text: 'text-blue-400' },
+  ESTADO_NUEVO: { bg: 'bg-cyan-500/15', text: 'text-cyan-400' },
+  STAGE_CHANGE: { bg: 'bg-purple-500/15', text: 'text-purple-400' },
+  TAREA_CREADA: { bg: 'bg-emerald-500/15', text: 'text-emerald-400' },
+  TAREA_VENCIDA: { bg: 'bg-red-500/15', text: 'text-red-400' },
+  AUDIENCIA_PROXIMA: { bg: 'bg-amber-500/15', text: 'text-amber-400' },
+  AUDIENCIA_CREADA: { bg: 'bg-amber-500/15', text: 'text-amber-400' },
+  TERMINO_CRITICO: { bg: 'bg-red-500/15', text: 'text-red-400' },
+  TERMINO_VENCIDO: { bg: 'bg-red-500/15', text: 'text-red-400' },
+  PETICION_CREADA: { bg: 'bg-indigo-500/15', text: 'text-indigo-400' },
+  HITO_ALCANZADO: { bg: 'bg-green-500/15', text: 'text-green-400' },
+};
+
+function AlertTypeBadge({ type }: { type: string }) {
+  const label = ALERT_TYPE_LABELS[type as UserAlertType] || type;
+  const style = ALERT_TYPE_STYLES[type] || { bg: 'bg-muted', text: 'text-muted-foreground' };
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${style.bg} ${style.text}`}>
+      {label}
+    </span>
+  );
+}
 
 // ── Severity icon mapping ──
 function SeverityIcon({ severity }: { severity: string }) {
@@ -201,8 +232,11 @@ export function NotificationCenter() {
                 >
                   <SeverityIcon severity={n.severity} />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 mb-0.5">
+                    <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                       <CategoryIcon category={n.category} />
+                      {n.type && ALERT_TYPE_LABELS[n.type as UserAlertType] && (
+                        <AlertTypeBadge type={n.type} />
+                      )}
                       <span className="text-sm font-medium leading-snug line-clamp-1">
                         {n.title}
                       </span>

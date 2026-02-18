@@ -25,6 +25,7 @@ import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { createHearingAlerts } from "@/lib/hearing-alerts";
+import { createUserAlert } from "@/lib/alerts/create-user-alert";
 
 interface NewHearingDialogProps {
   open: boolean;
@@ -126,6 +127,18 @@ export function NewHearingDialog({ open, onOpenChange, defaultWorkItemId }: NewH
         userEmail: shouldEmail ? alertEmail : null,
         reminderHoursBefore: [24, 1],
       });
+
+      // Also create unified notification
+      await createUserAlert({
+        userId: user.user.id,
+        workItemId: workItemId || undefined,
+        alertType: 'AUDIENCIA_CREADA',
+        severity: 'info',
+        title: `Audiencia programada: ${title.trim()}`,
+        body: `${scheduledAt.toLocaleDateString('es-CO')} — ${location.trim() || (isVirtual ? 'Virtual' : 'Sin ubicación')}`,
+        metadata: { hearing_id: hearing.id, scheduled_at: scheduledAt.toISOString() },
+        dedupeKey: `HEARING_CREATED_${hearing.id}`,
+      }).catch(() => {});
 
       return hearing;
     },

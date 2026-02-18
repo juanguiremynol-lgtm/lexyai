@@ -16,3 +16,10 @@ export {
   type AlertStatus,
   type CreateAlertParams,
 } from './alert-service';
+
+export {
+  createUserAlert,
+  ALERT_TYPE_LABELS,
+  type UserAlertType,
+  type CreateUserAlertParams,
+} from './create-user-alert';

@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { Plus, Upload, AlertCircle, Users, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import { createUserAlert } from "@/lib/alerts/create-user-alert";
 
 const CGP_SUBTYPES = [
   { value: "Demanda Declarativa", label: "Demanda Declarativa" },
@@ -139,10 +140,16 @@ export function NewCGPFilingDialog({
 
       if (workItemError) throw workItemError;
 
-      await supabase.from("alerts").insert({
-        owner_id: user.id,
-        message: `Nueva demanda CGP creada: ${filingSubtype}. Objetivos pendientes: Número de radicado, Juzgado de conocimiento, Acceso a expediente electrónico.`,
-        severity: "INFO",
+      // Create unified notification for CGP filing
+      await createUserAlert({
+        userId: user.id,
+        workItemId: workItem.id,
+        alertType: 'HITO_ALCANZADO',
+        severity: 'info',
+        title: `Demanda CGP radicada: ${filingSubtype}`,
+        body: `Objetivos pendientes: Número de radicado, Juzgado de conocimiento, Acceso a expediente electrónico.`,
+        metadata: { filing_subtype: filingSubtype, authority: targetAuthority },
+        dedupeKey: `CGP_CREATED_${workItem.id}`,
       });
 
       return workItem;
