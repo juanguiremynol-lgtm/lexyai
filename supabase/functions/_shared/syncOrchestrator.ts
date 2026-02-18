@@ -126,8 +126,30 @@ export interface ProviderFetchFn {
 // CONFIGURATION
 // ═══════════════════════════════════════════
 
-/** Default per-provider timeout in ms */
+/** Default per-provider timeout in ms (used only if no provider-specific timeout is set) */
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
+
+/**
+ * Per-provider timeout budgets in ms.
+ * Based on observed p95 latencies and provider async models:
+ *   - CPNU: scrape-based, usually fast (20-30s)
+ *   - PUBLICACIONES: REST API, fast (15-25s)
+ *   - SAMAI: async job model, can be slow (60-120s)
+ *   - SAMAI_ESTADOS: similar to SAMAI
+ *   - TUTELAS: fire-and-forget + poll, can be very slow (60-90s)
+ */
+const PROVIDER_TIMEOUT_MS: Record<string, number> = {
+  CPNU: 30_000,
+  PUBLICACIONES: 25_000,
+  SAMAI: 90_000,
+  SAMAI_ESTADOS: 90_000,
+  TUTELAS: 90_000,
+};
+
+/** Get timeout for a specific provider, falling back to default */
+export function getProviderTimeout(providerKey: string): number {
+  return PROVIDER_TIMEOUT_MS[providerKey] || DEFAULT_PROVIDER_TIMEOUT_MS;
+}
 
 /** Max providers to attempt per data kind before stopping (CHAIN mode) */
 const MAX_ATTEMPTS_PER_KIND = 3;
@@ -366,7 +388,7 @@ async function safeProviderFetch(
     signal?: AbortSignal;
   },
 ): Promise<ProviderAttemptResult> {
-  const timeoutMs = params.timeoutMs || DEFAULT_PROVIDER_TIMEOUT_MS;
+  const timeoutMs = params.timeoutMs || getProviderTimeout(provider.key);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

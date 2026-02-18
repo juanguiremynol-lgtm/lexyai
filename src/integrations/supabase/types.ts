@@ -683,6 +683,7 @@ export type Database = {
           provider_slow_threshold_ms: number | null
           stage_inference_mode: string | null
           updated_at: string | null
+          use_orchestrator_sync: boolean | null
         }
         Insert: {
           alert_ai_enrichment?: boolean | null
@@ -705,6 +706,7 @@ export type Database = {
           provider_slow_threshold_ms?: number | null
           stage_inference_mode?: string | null
           updated_at?: string | null
+          use_orchestrator_sync?: boolean | null
         }
         Update: {
           alert_ai_enrichment?: boolean | null
@@ -727,6 +729,7 @@ export type Database = {
           provider_slow_threshold_ms?: number | null
           stage_inference_mode?: string | null
           updated_at?: string | null
+          use_orchestrator_sync?: boolean | null
         }
         Relationships: [
           {
@@ -12525,6 +12528,11 @@ export type Database = {
           p_work_item_id?: string
         }
         Returns: undefined
+      }
+      rpc_upsert_work_item_acts: { Args: { records: Json }; Returns: Json }
+      rpc_upsert_work_item_publicaciones: {
+        Args: { records: Json }
+        Returns: Json
       }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
