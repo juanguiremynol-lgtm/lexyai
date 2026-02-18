@@ -177,7 +177,7 @@ export function CountdownHero() {
             )}
 
             <p className="text-sm text-[#a0b4d0]/50">
-              🚀 Beta gratuita de 3 meses · Sin tarjeta de crédito · Solo Google Auth
+              🚀 Beta gratuita de 3 meses · Sin tarjeta de crédito
             </p>
           </div>
         )}
