@@ -76,6 +76,8 @@ export interface ProviderAttemptResult {
   error_message: string | null;
   inserted_count: number;
   skipped_count: number;
+  /** Adapter-provided metadata (e.g. _legacyResult for post-processing) */
+  metadata?: Record<string, unknown>;
 }
 
 export interface SyncRunResult {
@@ -229,6 +231,8 @@ export async function executeSyncChain(
     authHeader: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    /** Internal: sync run ID for per-attempt recording */
+    _syncRunId?: string | null;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -254,7 +258,7 @@ export async function executeSyncChain(
 
     const fetchFn = fetchFnRegistry.get(provider.key);
     if (!fetchFn) {
-      attempts.push({
+      const skippedAttempt: ProviderAttemptResult = {
         provider: provider.key,
         data_kind: dataKind,
         role: "PRIMARY",
@@ -265,12 +269,17 @@ export async function executeSyncChain(
         error_message: `No fetch function registered for provider ${provider.key}`,
         inserted_count: 0,
         skipped_count: 0,
-      });
+      };
+      attempts.push(skippedAttempt);
       continue;
     }
 
     attemptCount++;
     const result = await safeProviderFetch(fetchFn, provider, "PRIMARY", dataKind, params);
+    // Record per-attempt row (non-blocking)
+    if (params._syncRunId) {
+      recordProviderAttempt(params.supabase, params._syncRunId, result);
+    }
     attempts.push(result);
 
     if (result.status === "success") {
@@ -313,6 +322,10 @@ export async function executeSyncChain(
 
       attemptCount++;
       const result = await safeProviderFetch(fetchFn, provider, "FALLBACK", dataKind, params);
+      // Record per-attempt row (non-blocking)
+      if (params._syncRunId) {
+        recordProviderAttempt(params.supabase, params._syncRunId, result);
+      }
       attempts.push(result);
 
       if (result.status === "success") {
@@ -392,6 +405,7 @@ async function safeProviderFetch(
       error_message: result.errorMessage,
       inserted_count: result.insertedCount,
       skipped_count: result.skippedCount,
+      metadata: result.metadata,
     };
   } catch (err: any) {
     clearTimeout(timer);
@@ -475,6 +489,7 @@ export async function executeSyncFanout(
     authHeader: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    _syncRunId?: string | null;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -484,15 +499,20 @@ export async function executeSyncFanout(
 }> {
   const tasks = providers
     .filter((p) => fetchFnRegistry.has(p.key))
-    .map((provider) => () =>
-      safeProviderFetch(
+    .map((provider) => async () => {
+      const result = await safeProviderFetch(
         fetchFnRegistry.get(provider.key)!,
         provider,
         "PRIMARY", // All providers are primary in FANOUT
         dataKind,
         params,
-      )
-    );
+      );
+      // Record per-attempt row (non-blocking)
+      if (params._syncRunId) {
+        recordProviderAttempt(params.supabase, params._syncRunId, result);
+      }
+      return result;
+    });
 
   // Add skipped entries for providers without fetch functions
   const skipped: ProviderAttemptResult[] = providers
@@ -615,6 +635,7 @@ export async function executeSync(
     authHeader: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    _syncRunId?: string | null;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -693,6 +714,7 @@ export async function orchestrateSync(
           authHeader,
           timeoutMs: options?.timeoutMs,
           signal: options?.signal,
+          _syncRunId: syncRunId,
         },
       );
       allAttempts.push(...actResult.attempts);
@@ -720,6 +742,7 @@ export async function orchestrateSync(
             authHeader,
             timeoutMs: options?.timeoutMs,
             signal: options?.signal,
+            _syncRunId: syncRunId,
           },
         );
         allAttempts.push(...estResult.attempts);
