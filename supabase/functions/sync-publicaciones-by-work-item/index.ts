@@ -1105,6 +1105,32 @@ Deno.serve(async (req) => {
       console.warn(`[sync-pub] Provider enrichment failed:`, e?.message);
     }
 
+    // ── Record external_sync_run for publicaciones (best-effort) ──
+    try {
+      const invokedBy = (_scheduled || isServiceRole) ? 'CRON' : 'MANUAL';
+      await supabase.from('external_sync_runs').insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        invoked_by: invokedBy,
+        trigger_source: 'sync-publicaciones-by-work-item',
+        started_at: new Date(Date.now() - (result.provider_latency_ms || 0)).toISOString(),
+        finished_at: new Date().toISOString(),
+        duration_ms: result.provider_latency_ms || 0,
+        status: result.ok ? 'SUCCESS' : (result.errors.length > 0 ? 'FAILED' : 'PARTIAL'),
+        provider_attempts: [{
+          provider: 'publicaciones',
+          data_kind: 'ESTADOS',
+          status: result.ok ? 'success' : 'error',
+          latency_ms: result.provider_latency_ms || 0,
+          inserted_count: result.inserted_count,
+          skipped_count: result.skipped_count,
+        }],
+        total_inserted_pubs: result.inserted_count,
+        total_skipped_pubs: result.skipped_count,
+        error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+      });
+    } catch { /* best-effort */ }
+
     return jsonResponse(result);
 
   } catch (err) {

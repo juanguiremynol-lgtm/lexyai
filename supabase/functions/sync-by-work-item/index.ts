@@ -19,6 +19,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
+import { generateActuacionFingerprint as canonicalFingerprint } from "../_shared/syncOrchestrator.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -4337,6 +4338,34 @@ Deno.serve(async (req) => {
 
     result.ok = true;
     console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);
+
+    // ── Record external_sync_run (best-effort, non-blocking) ──
+    try {
+      const invokedBy = _scheduled ? 'CRON' : 'MANUAL';
+      await supabase.from('external_sync_runs').insert({
+        work_item_id,
+        organization_id: workItem.organization_id,
+        invoked_by: invokedBy,
+        trigger_source: 'sync-by-work-item',
+        started_at: new Date(syncStartTime).toISOString(),
+        finished_at: new Date().toISOString(),
+        duration_ms: Date.now() - syncStartTime,
+        status: result.ok ? (result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS') : 'FAILED',
+        provider_attempts: result.provider_attempts.map((a: any) => ({
+          provider: a.provider,
+          data_kind: 'ACTUACIONES',
+          status: a.status,
+          latency_ms: a.latencyMs || 0,
+          error_code: a.message?.includes('error') ? 'PROVIDER_ERROR' : null,
+          inserted_count: a.actuacionesCount || 0,
+          skipped_count: 0,
+        })),
+        total_inserted_acts: result.inserted_count,
+        total_skipped_acts: result.skipped_count,
+        error_code: result.code || null,
+        error_message: result.errors.length > 0 ? result.errors.join('; ').slice(0, 500) : null,
+      });
+    } catch { /* sync run recording is best-effort */ }
 
     return jsonResponse(result);
 

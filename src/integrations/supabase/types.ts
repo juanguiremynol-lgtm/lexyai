@@ -5038,6 +5038,87 @@ export type Database = {
           },
         ]
       }
+      external_sync_runs: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error_code: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          invoked_by: string
+          organization_id: string | null
+          provider_attempts: Json
+          response_hash: string | null
+          retry_count: number
+          started_at: string
+          status: string
+          total_inserted_acts: number
+          total_inserted_pubs: number
+          total_skipped_acts: number
+          total_skipped_pubs: number
+          trigger_source: string | null
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          invoked_by: string
+          organization_id?: string | null
+          provider_attempts?: Json
+          response_hash?: string | null
+          retry_count?: number
+          started_at?: string
+          status?: string
+          total_inserted_acts?: number
+          total_inserted_pubs?: number
+          total_skipped_acts?: number
+          total_skipped_pubs?: number
+          trigger_source?: string | null
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          invoked_by?: string
+          organization_id?: string | null
+          provider_attempts?: Json
+          response_hash?: string | null
+          retry_count?: number
+          started_at?: string
+          status?: string
+          total_inserted_acts?: number
+          total_inserted_pubs?: number
+          total_skipped_acts?: number
+          total_skipped_pubs?: number
+          trigger_source?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_sync_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_sync_runs_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       gemini_call_log: {
         Row: {
           caller_type: string
