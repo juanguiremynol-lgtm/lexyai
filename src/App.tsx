@@ -85,6 +85,7 @@ import {
   PlatformEmailSetupPage,
   PlatformAdminAlertsPage,
   PlatformCoverageGapsPage,
+  PlatformWaitlistPage,
 
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
@@ -265,6 +266,7 @@ const App = () => (
             <Route path="suspensions" element={<ErrorBoundary><PlatformJudicialSuspensionsPage /></ErrorBoundary>} />
             <Route path="admin-alerts" element={<ErrorBoundary><PlatformAdminAlertsPage /></ErrorBoundary>} />
             <Route path="coverage-gaps" element={<ErrorBoundary><PlatformCoverageGapsPage /></ErrorBoundary>} />
+            <Route path="waitlist" element={<ErrorBoundary><PlatformWaitlistPage /></ErrorBoundary>} />
 
             <Route path="auth-providers" element={<ErrorBoundary><PlatformAuthProvidersPage /></ErrorBoundary>} />
             <Route path="billing-test" element={
