@@ -393,29 +393,73 @@ async function safeProviderFetch(
 ): Promise<ProviderAttemptResult> {
   // ── FORCED TIMEOUT TEST HOOK (canary-scoped) ──────────────────────
   // Env vars: FORCE_PROVIDER_TIMEOUT=true, FORCE_PROVIDER_TIMEOUT_PROVIDER=SAMAI_ESTADOS,
-  //           FORCE_PROVIDER_TIMEOUT_ORGS=org-uuid-1,org-uuid-2
-  // Only active when all three are set AND the org matches.
+  //           FORCE_PROVIDER_TIMEOUT_ORGS= SELF | slug | org-uuid-1,org-uuid-2
+  //
+  // SELF  → uses params._organizationId from the current invocation (no UUID needed)
+  // slug  → non-UUID string resolved via organizations.slug or name
+  // UUID  → comma-separated allowlist (original behavior)
+  //
+  // Safety: if org cannot be resolved, forced timeout is NEVER activated.
   const forceTimeout = Deno.env.get("FORCE_PROVIDER_TIMEOUT") === "true";
   const forceProvider = (Deno.env.get("FORCE_PROVIDER_TIMEOUT_PROVIDER") ?? "").toUpperCase();
-  const forceOrgs = (Deno.env.get("FORCE_PROVIDER_TIMEOUT_ORGS") ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const forceOrgsRaw = (Deno.env.get("FORCE_PROVIDER_TIMEOUT_ORGS") ?? "").trim();
   const orgId = params._organizationId ?? "";
 
-  if (forceTimeout && forceProvider === provider.key.toUpperCase() && forceOrgs.includes(orgId)) {
-    const budget = params.timeoutMs || getProviderTimeout(provider.key);
-    console.warn(`[FORCED_TIMEOUT] Simulating timeout for provider=${provider.key} org=${orgId} budget=${budget}ms`);
-    await new Promise(r => setTimeout(r, budget + 5_000));
-    return {
-      provider: provider.key,
-      data_kind: dataKind,
-      role,
-      status: "timeout",
-      http_code: null,
-      latency_ms: budget + 5_000,
-      error_code: "FORCED_TIMEOUT",
-      error_message: `Forced timeout for release-gate testing (provider=${provider.key})`,
-      inserted_count: 0,
-      skipped_count: 0,
-    };
+  if (forceTimeout && forceProvider === provider.key.toUpperCase() && forceOrgsRaw && orgId) {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let orgMatches = false;
+
+    if (forceOrgsRaw.toUpperCase() === "SELF") {
+      // SELF mode: always matches the current invocation's org
+      orgMatches = true;
+    } else if (!UUID_RE.test(forceOrgsRaw.split(",")[0]?.trim() ?? "")) {
+      // Slug mode: resolve slug → UUID via DB (best-effort, fail-safe)
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const adminClient = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        );
+        const slug = forceOrgsRaw.trim();
+        const { data: orgRow } = await adminClient
+          .from("organizations")
+          .select("id")
+          .or(`slug.ilike.${slug},name.ilike.${slug}`)
+          .limit(1)
+          .maybeSingle();
+        if (orgRow?.id && orgRow.id === orgId) {
+          orgMatches = true;
+        }
+      } catch (e) {
+        console.warn(`[FORCED_TIMEOUT] Slug resolution failed, skipping forced timeout: ${e}`);
+      }
+    } else {
+      // UUID list mode (original behavior)
+      const forceOrgsList = forceOrgsRaw.split(",").map(s => s.trim()).filter(Boolean);
+      orgMatches = forceOrgsList.includes(orgId);
+    }
+
+    if (orgMatches) {
+      const budget = params.timeoutMs || getProviderTimeout(provider.key);
+      console.warn(
+        `[FORCED_TIMEOUT] Activated: provider=${provider.key} org=${orgId} budget=${budget}ms ` +
+        `mode=${forceOrgsRaw.toUpperCase() === "SELF" ? "SELF" : UUID_RE.test(forceOrgsRaw.split(",")[0]?.trim() ?? "") ? "UUID" : "SLUG"} ` +
+        `path=${params.workItemId ? "sync-by-work-item" : "wizard"}`
+      );
+      await new Promise(r => setTimeout(r, budget + 5_000));
+      return {
+        provider: provider.key,
+        data_kind: dataKind,
+        role,
+        status: "timeout",
+        http_code: null,
+        latency_ms: budget + 5_000,
+        error_code: "FORCED_TIMEOUT",
+        error_message: `Forced timeout for release-gate testing (provider=${provider.key})`,
+        inserted_count: 0,
+        skipped_count: 0,
+      };
+    }
   }
   // ── END FORCED TIMEOUT TEST HOOK ──────────────────────────────────
 
