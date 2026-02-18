@@ -68,10 +68,11 @@ async function recordInvocationFailure(
     const now = new Date().toISOString();
 
     // Write sync run
-    await admin.from("external_sync_runs").insert({
+    const { error: runErr } = await admin.from("external_sync_runs").insert({
       id: runId,
       work_item_id: item.id,
       organization_id: item.organization_id,
+      invoked_by: "global-master-sync",
       started_at: now,
       finished_at: now,
       status: "error",
@@ -80,9 +81,13 @@ async function recordInvocationFailure(
       duration_ms: latencyMs,
       trigger_source: "global-master-sync",
     });
+    if (runErr) {
+      console.error(`[${JOB_NAME}] Failed to write sync run for ${item.id}:`, JSON.stringify(runErr));
+      return;
+    }
 
     // Write synthetic attempt so dashboards see the failure
-    await admin.from("external_sync_run_attempts").insert({
+    const { error: attemptErr } = await admin.from("external_sync_run_attempts").insert({
       sync_run_id: runId,
       provider: "ORCHESTRATOR",
       data_kind: "ACTUACIONES",
@@ -93,6 +98,9 @@ async function recordInvocationFailure(
       latency_ms: latencyMs,
       recorded_at: now,
     });
+    if (attemptErr) {
+      console.error(`[${JOB_NAME}] Failed to write attempt for ${item.id}:`, JSON.stringify(attemptErr));
+    }
   } catch (err) {
     console.warn(`[${JOB_NAME}] Failed to record invocation failure for ${item.id}:`, err);
   }
@@ -107,10 +115,11 @@ async function injectReleaseGateTimeout(
   const runId = crypto.randomUUID();
   const now = new Date().toISOString();
 
-  await admin.from("external_sync_runs").insert({
+  const { error: runErr } = await admin.from("external_sync_runs").insert({
     id: runId,
     work_item_id: item.id,
     organization_id: item.organization_id,
+    invoked_by: "global-master-sync",
     started_at: now,
     finished_at: now,
     status: "error",
@@ -119,8 +128,12 @@ async function injectReleaseGateTimeout(
     duration_ms: PER_ITEM_TIMEOUT_MS,
     trigger_source: "global-master-sync-release-gate",
   });
+  if (runErr) {
+    console.error(`[${JOB_NAME}] [RELEASE_GATE] Failed to write sync run:`, JSON.stringify(runErr));
+    throw runErr;
+  }
 
-  await admin.from("external_sync_run_attempts").insert({
+  const { error: attemptErr } = await admin.from("external_sync_run_attempts").insert({
     sync_run_id: runId,
     provider: provider,
     data_kind: "ACTUACIONES",
@@ -131,6 +144,9 @@ async function injectReleaseGateTimeout(
     latency_ms: PER_ITEM_TIMEOUT_MS,
     recorded_at: now,
   });
+  if (attemptErr) {
+    console.error(`[${JOB_NAME}] [RELEASE_GATE] Failed to write attempt:`, JSON.stringify(attemptErr));
+  }
 
   console.log(`[${JOB_NAME}] [RELEASE_GATE] Injected forced timeout: provider=${provider}, work_item=${item.id}`);
 }
