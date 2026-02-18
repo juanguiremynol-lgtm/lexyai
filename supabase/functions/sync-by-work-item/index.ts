@@ -20,6 +20,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeTraceError } from "../_shared/normalizeError.ts";
 import { canonicalizeRole, parseSujetosProcesalesString } from "../_shared/partyNormalization.ts";
 import { generateActuacionFingerprint as canonicalFingerprint } from "../_shared/syncOrchestrator.ts";
+import { getProviderCoverage } from "../_shared/providerCoverageMatrix.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -309,29 +310,33 @@ interface ProviderOrderConfig {
 }
 
 function getProviderOrder(workflowType: string): ProviderOrderConfig {
-  switch (workflowType) {
-    case 'CPACA':
-      // SAMAI is primary for CPACA (administrative litigation)
-      return { primary: 'samai', fallback: 'cpnu', fallbackEnabled: false };
-    case 'TUTELA':
-      // TUTELA: CPNU primary (more reliable), TUTELAS API as fallback (aligned with wizard)
-      // NOTE: Changed from 'samai' to 'tutelas-api' fallback to match sync-by-radicado
-      return { primary: 'cpnu', fallback: 'tutelas-api' as any, fallbackEnabled: true };
-    case 'PENAL_906':
-      // PENAL_906: CPNU primary for actuaciones, SAMAI as fallback
-      // Publicaciones (estados) is fetched ADDITIONALLY via alsoFetchPublicaciones flag
-      // This ensures criminal cases get proper actuaciones data
-      return { primary: 'cpnu', fallback: 'samai', fallbackEnabled: true };
-    case 'CGP':
-    case 'LABORAL':
-      // CGP/LABORAL: CPNU PRIMARY, NO FALLBACK TO SAMAI
-      // Civil/labor/family processes in CPNU are NOT in SAMAI, so fallback is technically useless
-      // Note: Estados remain the canonical notification source (via estados ingestion pipeline)
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
-    default:
-      // Unknown workflows: CPNU primary, no fallback
-      return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
+  // Derive from canonical coverage matrix (single source of truth)
+  const actCoverage = getProviderCoverage(workflowType, "ACTUACIONES");
+  
+  if (!actCoverage.compatible || actCoverage.providers.length === 0) {
+    return { primary: 'cpnu', fallback: null, fallbackEnabled: false };
   }
+  
+  const primaryProvider = actCoverage.providers.find(p => p.role === "PRIMARY");
+  const fallbackProvider = actCoverage.providers.find(p => p.role === "FALLBACK");
+  
+  // Map uppercase matrix keys to lowercase provider keys used by inline fetch functions
+  const keyMap: Record<string, 'cpnu' | 'samai' | 'tutelas-api' | 'publicaciones'> = {
+    'CPNU': 'cpnu',
+    'SAMAI': 'samai',
+    'TUTELAS': 'tutelas-api',
+    'PUBLICACIONES': 'publicaciones',
+    'SAMAI_ESTADOS': 'samai',
+  };
+  
+  const primary = keyMap[primaryProvider?.key || 'CPNU'] || 'cpnu';
+  const fallback = fallbackProvider ? (keyMap[fallbackProvider.key] || null) : null;
+  
+  return {
+    primary,
+    fallback,
+    fallbackEnabled: !!fallback,
+  };
 }
 
 // ============= HELPERS =============
@@ -3712,7 +3717,7 @@ Deno.serve(async (req) => {
 
       const { error: insertError } = await supabase
         .from('work_item_acts')
-        .insert({
+        .upsert({
           owner_id: workItem.owner_id,
           organization_id: workItem.organization_id,
           work_item_id,
@@ -3732,7 +3737,7 @@ Deno.serve(async (req) => {
           date_confidence: dateConfidence,
           raw_schema_version: rawSchemaVersion,
           raw_data: rawDataPayload,
-        });
+        }, { onConflict: 'work_item_id,hash_fingerprint', ignoreDuplicates: true });
 
       if (insertError) {
         // Check if it's a duplicate error (can happen in race conditions)
