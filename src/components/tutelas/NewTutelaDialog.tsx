@@ -46,6 +46,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { createUserAlert } from "@/lib/alerts/create-user-alert";
 
 interface NewTutelaDialogProps {
   open: boolean;
@@ -295,6 +296,22 @@ export function NewTutelaDialog({ open, onOpenChange, onBack, onSuccess, default
           body: { work_item_id: workItem.id },
         }).catch(err => console.warn("Background publicaciones sync failed:", err));
       }
+
+      // Create notification for tutela creation
+      await createUserAlert({
+        userId: user.user.id,
+        workItemId: workItem.id,
+        alertType: 'HITO_ALCANZADO',
+        severity: 'info',
+        title: `Tutela creada: ${formData.title || formData.accionante || 'Sin título'}`,
+        body: `Acción de tutela contra ${formData.accionado || 'accionado'} ante ${formData.authorityName || 'autoridad'}`,
+        metadata: {
+          radicado: formData.radicado,
+          accionante: formData.accionante,
+          accionado: formData.accionado,
+        },
+        dedupeKey: `TUTELA_CREATED_${workItem.id}`,
+      }).catch(() => {});
 
       return workItem;
     },
