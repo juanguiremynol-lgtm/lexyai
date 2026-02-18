@@ -108,7 +108,7 @@ export function SyncStatusBadge({
   const hoursSinceSync = (Date.now() - lastSync.getTime()) / (1000 * 60 * 60);
 
   const providerSummary = latestRun?.provider_attempts
-    ? (latestRun.provider_attempts as ProviderAttempt[]).map((a) => (
+    ? (latestRun.provider_attempts as unknown as ProviderAttempt[]).map((a) => (
         `${a.provider}: ${a.status}${a.inserted_count ? ` (+${a.inserted_count})` : ''}`
       )).join(' · ')
     : null;
