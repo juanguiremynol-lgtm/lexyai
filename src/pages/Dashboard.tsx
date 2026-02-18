@@ -13,6 +13,7 @@ import { CreateWorkItemWizard } from "@/components/workflow";
 import { LexyDailyCard } from "@/components/lexy/LexyDailyCard";
 import { HearingTeamsNotice } from "@/components/dashboard/HearingTeamsNotice";
 import { StatsCarousel } from "@/components/dashboard/StatsCarousel";
+import { TodayAlertsPanel } from "@/components/dashboard/TodayAlertsPanel";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -153,6 +154,9 @@ export default function Dashboard() {
         }}
         onRefresh={fetchStats}
       />
+
+      {/* Today's Alerts Panel */}
+      <TodayAlertsPanel />
 
       {/* Tabbed Pipelines - tabs bar scrolls if needed, content has its own scroll */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">

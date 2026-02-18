@@ -24,6 +24,7 @@ import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection
 import { TickerSettings } from "@/components/settings/TickerSettings";
 import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
 import { AlertEmailSettings } from "@/components/settings/AlertEmailSettings";
+import { AlertPreferencesSettings } from "@/components/settings/AlertPreferencesSettings";
 
 import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboard";
 import { AdminConsole } from "@/components/admin";
@@ -234,6 +235,10 @@ export default function Settings() {
             </>
           )}
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
+          <TabsTrigger value="alert-prefs">
+            <Bell className="h-4 w-4 mr-1" />
+            Mis Alertas
+          </TabsTrigger>
           <TabsTrigger value="recordatorios">Recordatorios</TabsTrigger>
           
           <TabsTrigger value="sla">SLAs</TabsTrigger>
@@ -311,6 +316,10 @@ export default function Settings() {
 
         <TabsContent value="ticker">
           <TickerSettings />
+        </TabsContent>
+
+        <TabsContent value="alert-prefs">
+          <AlertPreferencesSettings />
         </TabsContent>
 
         {isPlatformAdmin && (
