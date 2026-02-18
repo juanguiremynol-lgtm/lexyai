@@ -2,14 +2,16 @@
  * scheduled-alert-evaluator
  * 
  * Cron-driven edge function that evaluates time-based alerts:
- * - AUDIENCIA_PROXIMA: Hearings approaching within configured days
- * - TAREA_VENCIDA: Tasks past their due date
- * - TERMINO_CRITICO: Terms/deadlines approaching
+ * - AUDIENCIA_PROXIMA: Hearings approaching within configured brackets (72h/24h/1h)
+ * - TAREA_VENCIDA: Tasks past their due date (daily re-alert with escalating severity)
  * 
- * Uses the same insert_notification() SQL function as all DB triggers,
- * ensuring a single contract for dedup, preferences, and insertion.
+ * Uses service_role key to call insert_notification() directly.
+ * Dedupe keys follow build_dedupe_key() contract:
+ *   hearing_reminder:{hearing_id}:{bracket}:{yyyy-mm-dd-HH}
+ *   task_overdue:{task_id}:{yyyy-mm-dd}
  * 
  * Intended to run every 30 minutes via pg_cron.
+ * Idempotent: dedupe keys ensure no duplicates across adjacent runs.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -19,6 +21,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+/** Matches build_dedupe_key(kind, entity_id, bucket) SQL contract */
+function buildDedupeKey(kind: string, entityId: string, bucket?: string): string {
+  return bucket ? `${kind}:${entityId}:${bucket}` : `${kind}:${entityId}`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -40,7 +47,7 @@ Deno.serve(async (req) => {
 
   try {
     // ── 1. AUDIENCIA_PROXIMA ──────────────────────────────────
-    // Find hearings in the next 72 hours that haven't been alerted yet
+    // Find hearings in the next 72 hours
     const { data: upcomingHearings, error: hearingErr } = await supabase
       .from("hearings")
       .select("id, owner_id, title, scheduled_at, location, is_virtual, work_item_id")
@@ -58,17 +65,19 @@ Deno.serve(async (req) => {
           (new Date(h.scheduled_at).getTime() - Date.now()) / (1000 * 60 * 60)
         );
         
-        // Determine reminder bracket for dedupe: 72h, 24h, 1h
-        let bracket: string;
-        if (hoursUntil <= 1) bracket = "1h";
-        else if (hoursUntil <= 24) bracket = "24h";
-        else bracket = "72h";
+        // Compute ALL relevant brackets not yet fired (handles late inserts)
+        // e.g., hearing created 20h before → fire both 24h and (later) 1h brackets
+        const brackets: string[] = [];
+        if (hoursUntil <= 72 && hoursUntil > 24) brackets.push("72h");
+        if (hoursUntil <= 24 && hoursUntil > 1) brackets.push("24h");
+        if (hoursUntil <= 1) brackets.push("1h");
 
-        // Get recipients (owner + work_item participants if linked)
+        // Get recipients
         let recipientIds: string[] = [h.owner_id];
         if (h.work_item_id) {
+          // Use _with_admins since hearing reminders are admin-relevant
           const { data: recipients } = await supabase.rpc(
-            "get_work_item_recipients",
+            "get_work_item_recipients_with_admins",
             { p_work_item_id: h.work_item_id }
           );
           if (recipients?.length) {
@@ -76,39 +85,43 @@ Deno.serve(async (req) => {
           }
         }
 
-        for (const userId of recipientIds) {
-          const { error: rpcErr } = await supabase.rpc("insert_notification", {
-            p_audience_scope: "USER",
-            p_user_id: userId,
-            p_category: "WORK_ITEM_ALERTS",
-            p_type: "AUDIENCIA_PROXIMA",
-            p_title: `Audiencia próxima: ${h.title}`,
-            p_body: `En ${hoursUntil}h — ${h.location || (h.is_virtual ? "Virtual" : "Sin ubicación")}`,
-            p_severity: hoursUntil <= 1 ? "critical" : hoursUntil <= 24 ? "warning" : "info",
-            p_metadata: JSON.stringify({
-              hearing_id: h.id,
-              scheduled_at: h.scheduled_at,
-              hours_until: hoursUntil,
-              bracket,
-            }),
-            p_dedupe_key: `HEARING_REMINDER_${h.id}_${bracket}_${userId}`,
-            p_deep_link: h.work_item_id
-              ? `/app/work-items/${h.work_item_id}`
-              : "/app/hearings",
-            p_work_item_id: h.work_item_id,
-          });
+        for (const bracket of brackets) {
+          const now = new Date();
+          const hourBucket = `${now.toISOString().slice(0, 10)}-${String(now.getUTCHours()).padStart(2, "0")}`;
 
-          if (rpcErr) {
-            results.errors.push(`Hearing ${h.id} user ${userId}: ${rpcErr.message}`);
-          } else {
-            results.hearing_alerts_created++;
+          for (const userId of recipientIds) {
+            const { error: rpcErr } = await supabase.rpc("insert_notification", {
+              p_audience_scope: "USER",
+              p_user_id: userId,
+              p_category: "WORK_ITEM_ALERTS",
+              p_type: "AUDIENCIA_PROXIMA",
+              p_title: `Audiencia próxima: ${h.title}`,
+              p_body: `En ${hoursUntil}h — ${h.location || (h.is_virtual ? "Virtual" : "Sin ubicación")}`,
+              p_severity: bracket === "1h" ? "critical" : bracket === "24h" ? "warning" : "info",
+              p_metadata: JSON.stringify({
+                hearing_id: h.id,
+                scheduled_at: h.scheduled_at,
+                hours_until: hoursUntil,
+                bracket,
+              }),
+              p_dedupe_key: buildDedupeKey("hearing_reminder", h.id, `${bracket}:${hourBucket}`),
+              p_deep_link: h.work_item_id
+                ? `/app/work-items/${h.work_item_id}`
+                : "/app/hearings",
+              p_work_item_id: h.work_item_id,
+            });
+
+            if (rpcErr) {
+              results.errors.push(`Hearing ${h.id} bracket ${bracket} user ${userId}: ${rpcErr.message}`);
+            } else {
+              results.hearing_alerts_created++;
+            }
           }
         }
       }
     }
 
     // ── 2. TAREA_VENCIDA ─────────────────────────────────────
-    // Find overdue tasks (past due_date, status not COMPLETADA)
     const { data: overdueTasks, error: taskErr } = await supabase
       .from("work_item_tasks")
       .select("id, owner_id, assigned_to, title, due_date, work_item_id, priority")
@@ -125,8 +138,6 @@ Deno.serve(async (req) => {
         const daysPast = Math.floor(
           (Date.now() - new Date(t.due_date).getTime()) / (1000 * 60 * 60 * 24)
         );
-
-        // Dedupe by date so we re-alert daily for overdue tasks
         const today = new Date().toISOString().split("T")[0];
 
         const { error: rpcErr } = await supabase.rpc("insert_notification", {
@@ -143,7 +154,7 @@ Deno.serve(async (req) => {
             days_past: daysPast,
             priority: t.priority,
           }),
-          p_dedupe_key: `TASK_OVERDUE_${t.id}_${today}_${targetUser}`,
+          p_dedupe_key: buildDedupeKey("task_overdue", t.id, today),
           p_deep_link: `/app/work-items/${t.work_item_id}`,
           p_work_item_id: t.work_item_id,
         });
@@ -154,7 +165,7 @@ Deno.serve(async (req) => {
           results.task_alerts_created++;
         }
 
-        // Also notify owner if task is assigned to someone else
+        // Also notify owner if assigned to someone else
         if (t.assigned_to && t.assigned_to !== t.owner_id) {
           await supabase.rpc("insert_notification", {
             p_audience_scope: "USER",
@@ -170,7 +181,7 @@ Deno.serve(async (req) => {
               days_past: daysPast,
               assigned_to: t.assigned_to,
             }),
-            p_dedupe_key: `TASK_OVERDUE_${t.id}_${today}_${t.owner_id}`,
+            p_dedupe_key: buildDedupeKey("task_overdue", t.id, today),
             p_deep_link: `/app/work-items/${t.work_item_id}`,
             p_work_item_id: t.work_item_id,
           });
