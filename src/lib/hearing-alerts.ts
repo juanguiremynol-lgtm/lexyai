@@ -6,7 +6,6 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { bridgeAlertToAteniaAI } from "./services/atenia-alert-bridge";
 
 export interface HearingAlertConfig {
   ownerId: string;
@@ -107,16 +106,6 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
       : [],
   });
 
-  // Bridge to Atenia AI pipeline (non-blocking)
-  if (organizationId) {
-    bridgeAlertToAteniaAI({
-      orgId: organizationId, entityType: 'HEARING', entityId: hearingId,
-      severity: 'INFO', title: 'Audiencia programada', message: hearingMsg,
-      alertType: 'HEARING_CREATED', alertSource: 'USER', workItemId,
-      payload: { scheduled_at: scheduledAt.toISOString(), location, is_virtual: isVirtual },
-    }).catch(() => {});
-  }
-
   // Create scheduled reminder alert_instances for each interval
   for (const hoursBefore of reminderHoursBefore) {
     const fireAt = new Date(scheduledAt.getTime() - hoursBefore * 60 * 60 * 1000);
@@ -149,17 +138,6 @@ export async function createHearingAlerts(config: HearingAlertConfig): Promise<v
         ? [{ label: 'Ver proceso', action: 'navigate', params: { path: `/app/work-items/${workItemId}` } }]
         : [],
     });
-
-    // Bridge hearing reminders to Atenia AI (non-blocking)
-    if (organizationId) {
-      bridgeAlertToAteniaAI({
-        orgId: organizationId, entityType: 'HEARING', entityId: hearingId,
-        severity, title: `⏰ Audiencia en ${label}`,
-        message: `${title} — ${dateStr} a las ${timeStr}. Lugar: ${locationText}.`,
-        alertType: 'HEARING_REMINDER', alertSource: 'SYSTEM', workItemId,
-        payload: { scheduled_at: scheduledAt.toISOString(), hours_before: hoursBefore },
-      }).catch(() => {});
-    }
 
     if (emailEnabled && userEmail && organizationId) {
       const virtualLinkHtml = isVirtual && virtualLink
