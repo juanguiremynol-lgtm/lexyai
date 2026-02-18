@@ -113,8 +113,7 @@ Deno.serve(async (req) => {
       .from("work_item_tasks")
       .select("id, owner_id, assigned_to, title, due_date, work_item_id, priority")
       .lt("due_date", new Date().toISOString().split("T")[0])
-      .neq("status", "COMPLETADA")
-      .is("deleted_at", null);
+      .neq("status", "COMPLETADA");
 
     if (taskErr) {
       results.errors.push(`Tasks query: ${taskErr.message}`);
