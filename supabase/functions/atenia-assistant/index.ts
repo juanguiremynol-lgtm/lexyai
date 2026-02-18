@@ -65,6 +65,9 @@ const ACTION_ALLOWLIST = new Set([
   // Analytics actions
   "GET_ANALYTICS_STATUS",
   "UPDATE_ORG_ANALYTICS",
+  // Member support tab grant actions (org admin only)
+  "GRANT_MEMBER_SUPPORT_TAB",
+  "REVOKE_MEMBER_SUPPORT_TAB",
 ]);
 
 // ---- Risk classification ----
@@ -88,6 +91,8 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "TOGGLE_TICKER":
     case "GRANT_SUPPORT_ACCESS":
     case "UPDATE_ORG_ANALYTICS":
+    case "GRANT_MEMBER_SUPPORT_TAB":
+    case "REVOKE_MEMBER_SUPPORT_TAB":
       return "CONFIRM_REQUIRED";
     case "REMOVE_USER_FROM_ORG":
     case "CHANGE_MEMBER_ROLE":
@@ -235,6 +240,10 @@ ALLOWLISTED ACTIONS (NO SYNC ACTIONS — DAILY CRON ONLY):
   "⚠️ Esto dará acceso temporal al equipo de soporte para ver [redacted info/su pantalla directamente]. Máximo 30 minutos. Puede revocar en cualquier momento desde Configuración > Privacidad."
   For DIRECT_VIEW, add extra warning: "Vista directa significa que el agente de soporte podrá ver exactamente lo que usted ve en la pantalla."
 - REVOKE_SUPPORT_ACCESS: Immediately revoke all active support access grants (SAFE). No params needed.
+- GRANT_MEMBER_SUPPORT_TAB: Org admin grants a member access to the Support Tools tab (CONFIRM_REQUIRED). Params: { member_user_id: string }
+  RBAC: Only org admins (OWNER/ADMIN). Regular members must be told: "Solo los administradores de tu organización pueden habilitar el acceso a Soporte para miembros."
+  When granting, confirm: "Esto habilitará la pestaña de Soporte para el miembro seleccionado. Podrá exportar datos y usar herramientas de soporte."
+- REVOKE_MEMBER_SUPPORT_TAB: Org admin revokes a member's Support Tools tab access (CONFIRM_REQUIRED). Params: { member_user_id: string }
 - GET_ANALYTICS_STATUS: Read-only: return the current analytics configuration for the user's organization (SAFE). Shows global state, org override, and whether analytics are effectively enabled. Any org member can view.
 - UPDATE_ORG_ANALYTICS: Update analytics settings for the user's organization (CONFIRM_REQUIRED). Params: { analytics_enabled?: boolean | null, session_replay_enabled?: boolean | null, notes?: string }
    RBAC: Only org_admin (OWNER or ADMIN role). Regular members should be told: "Solo los administradores de tu organización pueden cambiar la configuración de analíticas."
@@ -294,6 +303,14 @@ When a user asks for help, support, or mentions a problem:
 5. For DIRECT_VIEW, add: "Vista directa significa que el agente de soporte podrá ver exactamente lo que usted ve. ¿Está seguro?"
 6. The user can say "revocar acceso" at any time → propose REVOKE_SUPPORT_ACCESS (SAFE, no confirmation needed).
 7. Super admins CANNOT see user data without an active grant. All access is audited.
+
+MEMBER SUPPORT TAB POLICY:
+When an org admin asks to enable/grant the "Soporte" tab for a member:
+1. Only OWNER or ADMIN roles can grant this. Regular members cannot self-enable.
+2. Propose GRANT_MEMBER_SUPPORT_TAB with { member_user_id }. Ask the admin which member they want to enable.
+3. The grant is persistent until explicitly revoked via REVOKE_MEMBER_SUPPORT_TAB.
+4. When a regular member asks for support tools access, respond: "La pestaña de Soporte requiere autorización de tu administrador de organización. Solicita a tu administrador que te habilite el acceso a través de Andro IA."
+
 
 OUTPUT FORMAT: Always respond with valid JSON matching this structure:
 {
@@ -1143,6 +1160,76 @@ async function executeAction(
         message: "Configuración de analíticas actualizada para la organización.",
         analytics_enabled: action.params?.analytics_enabled,
         session_replay_enabled: action.params?.session_replay_enabled,
+      };
+    }
+
+    case "GRANT_MEMBER_SUPPORT_TAB": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores de la organización pueden otorgar acceso al tab de Soporte.");
+
+      const memberUserId = action.params?.member_user_id;
+      if (!memberUserId) throw new Error("Se requiere el ID del miembro (member_user_id).");
+
+      // Verify user is a member of the org
+      const { data: membership } = await adminClient
+        .from("organization_memberships")
+        .select("id, role")
+        .eq("organization_id", orgId)
+        .eq("user_id", memberUserId)
+        .maybeSingle();
+
+      if (!membership) throw new Error("El usuario no es miembro de esta organización.");
+
+      // Upsert the grant (clear revoked_at if re-granting)
+      const { error } = await adminClient
+        .from("member_support_grants")
+        .upsert({
+          organization_id: orgId,
+          user_id: memberUserId,
+          granted_by: ctx.user?.id,
+          granted_at: new Date().toISOString(),
+          revoked_at: null,
+          revoked_by: null,
+        }, { onConflict: "organization_id,user_id" });
+
+      if (error) throw new Error(error.message);
+
+      return {
+        ok: true,
+        message: `Acceso al tab de Soporte habilitado para el miembro. Podrá ver las herramientas de soporte en Configuración.`,
+      };
+    }
+
+    case "REVOKE_MEMBER_SUPPORT_TAB": {
+      const orgId = ctx.orgId;
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      if (!isOrgAdmin) throw new Error("Solo los administradores de la organización pueden revocar acceso al tab de Soporte.");
+
+      const memberUserId = action.params?.member_user_id;
+      if (!memberUserId) throw new Error("Se requiere el ID del miembro (member_user_id).");
+
+      const { data, error } = await adminClient
+        .from("member_support_grants")
+        .update({
+          revoked_at: new Date().toISOString(),
+          revoked_by: ctx.user?.id,
+        })
+        .eq("organization_id", orgId)
+        .eq("user_id", memberUserId)
+        .is("revoked_at", null)
+        .select("id");
+
+      if (error) throw new Error(error.message);
+
+      return {
+        ok: true,
+        revoked: !!(data && data.length > 0),
+        message: data && data.length > 0
+          ? "Acceso al tab de Soporte revocado para el miembro."
+          : "El miembro no tenía acceso activo al tab de Soporte.",
       };
     }
 

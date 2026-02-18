@@ -6044,6 +6044,44 @@ export type Database = {
           },
         ]
       }
+      member_support_grants: {
+        Row: {
+          granted_at: string
+          granted_by: string
+          id: string
+          organization_id: string
+          revoked_at: string | null
+          revoked_by: string | null
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by: string
+          id?: string
+          organization_id: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string
+          id?: string
+          organization_id?: string
+          revoked_at?: string | null
+          revoked_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_support_grants_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_links: {
         Row: {
           created_at: string
