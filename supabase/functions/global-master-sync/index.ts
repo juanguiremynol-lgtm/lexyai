@@ -2,23 +2,25 @@
  * global-master-sync — Server-side Global Master Sync (super admin override).
  *
  * Runs with service role, writes platform_job_heartbeats start/finish,
- * processes eligible work items within a 120s execution budget.
- * If budget exhausted, finishes with partial results.
+ * processes eligible work items within a deadline-aware execution budget.
+ *
+ * FIX 1: Deadline guard reserves 8s for finishHeartbeat (142s work budget).
+ * FIX 2: try/finally ensures finishHeartbeat ALWAYS fires.
+ * FIX 3: resolveStatus() is a pure function for status resolution.
+ * FIX 4: Release-gate mode respects the same deadline guard.
+ * FIX 5: Response includes heartbeat_id, heartbeat_status, heartbeat_written_at.
  *
  * POST { _scheduled?: boolean }
  *
  * Release-gate mode (deterministic failure injection):
  *   POST { release_gate: { force_timeout_provider: "SAMAI_ESTADOS", force_once: true } }
- *   Injects a single EDGE_FORCED_TIMEOUT attempt for the specified provider
- *   on the first eligible item, so ops can verify attempt → incident → heartbeat pipeline.
- *
- * Returns: { ok, total, success, failed, empty_results, skipped, duration_ms, budget_exhausted, failed_items }
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   startHeartbeat,
   finishHeartbeat,
+  type HeartbeatHandle,
 } from "../_shared/platformJobHeartbeat.ts";
 import {
   SYNC_ENABLED_WORKFLOWS,
@@ -26,10 +28,15 @@ import {
 } from "../_shared/syncPolicy.ts";
 
 const JOB_NAME = "global-master-sync";
-const BUDGET_MS = 120_000; // 120s budget within 150s limit
+
+// ─── FIX 1: Deadline-aware budget ───────────────────────────────────
+const HARD_LIMIT_MS = 150_000;
+const FINISH_HEARTBEAT_RESERVE_MS = 8_000;
+const EXEC_BUDGET_MS = HARD_LIMIT_MS - FINISH_HEARTBEAT_RESERVE_MS; // 142s
+
 const INTER_ITEM_DELAY_MS = 300;
-const PER_ITEM_TIMEOUT_MS = 15_000; // 15s max per item pair
-const MAX_FAILED_ITEMS_IN_META = 20; // Truncate for heartbeat payload size
+const PER_ITEM_TIMEOUT_MS = 15_000;
+const MAX_FAILED_ITEMS_IN_META = 20;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +59,37 @@ interface ReleaseGateConfig {
   force_once?: boolean; // default true
 }
 
+// ─── FIX 3: Pure status resolution ──────────────────────────────────
+
+function resolveStatus(
+  failed: number,
+  budgetExhausted: boolean,
+  topLevelError: Error | null,
+): { status: "OK" | "ERROR"; errorCode: string | null; errorMessage: string | null } {
+  if (topLevelError) {
+    return {
+      status: "ERROR",
+      errorCode: "UNHANDLED_EXCEPTION",
+      errorMessage: topLevelError.message || "unknown",
+    };
+  }
+  if (budgetExhausted) {
+    return {
+      status: "ERROR",
+      errorCode: "BUDGET_EXHAUSTED",
+      errorMessage: null, // filled by caller with context
+    };
+  }
+  if (failed > 0) {
+    return {
+      status: "ERROR",
+      errorCode: "PARTIAL_FAILURES",
+      errorMessage: null,
+    };
+  }
+  return { status: "OK", errorCode: null, errorMessage: null };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /** Record an invocation-level failure as external_sync_runs + attempts row */
@@ -67,7 +105,6 @@ async function recordInvocationFailure(
     const runId = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    // Write sync run
     const { error: runErr } = await admin.from("external_sync_runs").insert({
       id: runId,
       work_item_id: item.id,
@@ -86,7 +123,6 @@ async function recordInvocationFailure(
       return;
     }
 
-    // Write synthetic attempt so dashboards see the failure
     const { error: attemptErr } = await admin.from("external_sync_run_attempts").insert({
       sync_run_id: runId,
       provider: "ORCHESTRATOR",
@@ -107,7 +143,7 @@ async function recordInvocationFailure(
   }
 }
 
-/** Handle release-gate forced timeout injection */
+/** Handle release-gate forced timeout injection (inside per-item try/catch) */
 async function injectReleaseGateTimeout(
   admin: any,
   item: { id: string; radicado: string; organization_id: string },
@@ -174,20 +210,39 @@ Deno.serve(async (req) => {
 
   // Parse release-gate config
   const releaseGate = body.release_gate as ReleaseGateConfig | undefined;
-  const releaseGateForceOnce = releaseGate?.force_once !== false; // default true
+  const releaseGateForceOnce = releaseGate?.force_once !== false;
   let releaseGateFired = false;
 
   if (releaseGate) {
     console.log(`[${JOB_NAME}] [RELEASE_GATE] Active: force_timeout_provider=${releaseGate.force_timeout_provider}, force_once=${releaseGateForceOnce}`);
   }
 
-  const t0 = Date.now();
-  const hb = await startHeartbeat(admin, JOB_NAME, "manual_ui", {
-    trigger: "GlobalMasterSyncButton",
-    release_gate: releaseGate ? { provider: releaseGate.force_timeout_provider } : undefined,
-  });
+  // ─── FIX 1 + FIX 2: Deadline + try/finally ──────────────────────
+  const startedAt = Date.now();
+  const deadline = startedAt + EXEC_BUDGET_MS; // 142s from now
+
+  let hb: HeartbeatHandle | null = null;
+  let topLevelError: Error | null = null;
+
+  // Accumulators — declared outside try so finally can read them
+  let total = 0;
+  let success = 0;
+  let failed = 0;
+  let skipped = 0;
+  let processed = 0;
+  let budgetExhausted = false;
+  const failedItems: FailedItem[] = [];
+
+  // Heartbeat response fields (FIX 5)
+  let heartbeatStatus: "OK" | "ERROR" = "OK";
+  let heartbeatWrittenAt: string | null = null;
 
   try {
+    hb = await startHeartbeat(admin, JOB_NAME, "manual_ui", {
+      trigger: "GlobalMasterSyncButton",
+      release_gate: releaseGate ? { provider: releaseGate.force_timeout_provider } : undefined,
+    });
+
     const { data: items, error: itemsErr } = await admin
       .from("work_items")
       .select("id, workflow_type, radicado, stage, organization_id")
@@ -206,35 +261,29 @@ Deno.serve(async (req) => {
       (i: any) => i.radicado && i.radicado.replace(/\D/g, "").length === 23
     );
 
+    total = eligible.length;
+
     if (eligible.length === 0) {
-      const meta = { total: 0, success: 0, failed: 0, empty_results: 0, skipped: 0, duration_ms: Date.now() - t0, failed_items: [] };
-      await finishHeartbeat(admin, hb, "OK", { metadata: meta });
-      return new Response(JSON.stringify({ ok: true, ...meta }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // No items — finishHeartbeat handled in finally
+      return; // finally will fire
     }
 
-    // In release-gate mode, limit to 5 items total to stay well under 150s wall clock
+    // FIX 4: Release-gate caps to 5; normal mode processes all
     const maxItems = releaseGate ? 5 : eligible.length;
     const processingSet = eligible.slice(0, maxItems);
 
-    let success = 0;
-    let failed = 0;
-    let processed = 0;
-    let budgetExhausted = false;
-    const failedItems: FailedItem[] = [];
-
     for (let i = 0; i < processingSet.length; i++) {
-      // Budget check before each item
-      if (Date.now() - t0 > BUDGET_MS) {
+      // FIX 1: Deadline guard — checks wall clock, not elapsed duration
+      if (Date.now() >= deadline) {
+        skipped += processingSet.length - i;
         budgetExhausted = true;
-        console.log(`[${JOB_NAME}] Budget exhausted after ${processed} items at ${Date.now() - t0}ms`);
+        console.log(`[${JOB_NAME}] Deadline reached after ${processed} items at ${Date.now() - startedAt}ms`);
         break;
       }
 
       const item = processingSet[i];
 
-      // ── Release-gate injection ──
+      // ── Release-gate injection (FIX 4: inside per-item try/catch) ──
       if (releaseGate && (!releaseGateForceOnce || !releaseGateFired)) {
         releaseGateFired = true;
         try {
@@ -242,7 +291,6 @@ Deno.serve(async (req) => {
         } catch (err: any) {
           console.warn(`[${JOB_NAME}] [RELEASE_GATE] Injection write failed:`, err);
         }
-        // Count this item as failed (the timeout was injected)
         failed++;
         failedItems.push({
           work_item_id: item.id,
@@ -250,13 +298,12 @@ Deno.serve(async (req) => {
           error_code: "RELEASE_GATE_FORCED_TIMEOUT",
         });
         processed++;
-        continue; // Skip actual sync for this item
+        continue;
       }
 
       const itemT0 = Date.now();
 
       try {
-        // Wrap both calls in a race with per-item timeout
         const itemResult = await Promise.race([
           (async () => {
             const [actsRes, pubsRes] = await Promise.allSettled([
@@ -268,16 +315,12 @@ Deno.serve(async (req) => {
               }),
             ]);
 
-            // Extract HTTP codes for telemetry
             const actOk = actsRes.status === "fulfilled" && actsRes.value.data?.ok;
             const pubOk = pubsRes.status === "fulfilled" && pubsRes.value.data?.ok;
-
-            // Check for invocation-level errors (HTTP failures before orchestrator)
             const actHttpErr = actsRes.status === "fulfilled" && actsRes.value.error;
             const pubHttpErr = pubsRes.status === "fulfilled" && pubsRes.value.error;
 
             if (!actOk && !pubOk) {
-              // Both failed — determine error details
               const errMsg = actHttpErr?.message || pubHttpErr?.message ||
                 (actsRes.status === "rejected" ? String(actsRes.reason) : "unknown");
               return { ok: false, errorCode: "EDGE_INVOKE_FAILED", errorMessage: errMsg };
@@ -301,7 +344,6 @@ Deno.serve(async (req) => {
             error_code: itemResult.errorCode,
             error_message: itemResult.errorMessage,
           });
-          // Record invocation-level failure as first-class telemetry
           await recordInvocationFailure(admin, item, itemResult.errorCode, itemResult.errorMessage, latencyMs);
         }
       } catch (err: any) {
@@ -320,19 +362,30 @@ Deno.serve(async (req) => {
 
       processed++;
 
-      if (i < processingSet.length - 1 && Date.now() - t0 < BUDGET_MS) {
+      // Inter-item delay only if there's time left
+      if (i < processingSet.length - 1 && Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, INTER_ITEM_DELAY_MS));
       }
     }
 
-    const skipped = eligible.length - processed;
-    const durationMs = Date.now() - t0;
+    // Account for items beyond the processing set (normal mode: all processed; release-gate: rest skipped)
+    if (!budgetExhausted) {
+      skipped += eligible.length - processed;
+    }
 
-    // Truncate failed_items for heartbeat payload size
+  } catch (err: any) {
+    topLevelError = err;
+    console.error(`[${JOB_NAME}] Fatal error:`, err);
+  } finally {
+    // ─── FIX 2: finishHeartbeat ALWAYS fires ───────────────────────
+    const durationMs = Date.now() - startedAt;
     const failedItemsMeta = failedItems.slice(0, MAX_FAILED_ITEMS_IN_META);
 
-    const meta = {
-      total: eligible.length,
+    const resolved = resolveStatus(failed, budgetExhausted, topLevelError);
+    heartbeatStatus = resolved.status;
+
+    const heartbeatMeta = {
+      total,
       success,
       failed,
       skipped,
@@ -340,39 +393,54 @@ Deno.serve(async (req) => {
       budget_exhausted: budgetExhausted,
       failed_items: failedItemsMeta,
       release_gate_fired: releaseGate ? releaseGateFired : undefined,
+      error_code: resolved.errorCode,
     };
 
-    // Status semantics: OK = clean run, ERROR = degraded or no progress
-    const heartbeatStatus = (success === 0 || failed > 0 || budgetExhausted) ? "ERROR" : "OK";
-    await finishHeartbeat(admin, hb, heartbeatStatus, {
-      metadata: meta,
-      ...(heartbeatStatus === "ERROR" ? {
-        errorCode: success === 0 ? "TOTAL_FAILURE"
-          : budgetExhausted ? "BUDGET_EXHAUSTED"
-          : "PARTIAL_FAILURES",
-        errorMessage: budgetExhausted
-          ? `Budget exhausted after ${processed}/${eligible.length} items (${failed} failed)`
-          : `${failed} of ${eligible.length} items failed`,
-      } : {}),
-    });
+    // Build contextual error message
+    let heartbeatErrorMessage = resolved.errorMessage;
+    if (!heartbeatErrorMessage && resolved.errorCode === "BUDGET_EXHAUSTED") {
+      heartbeatErrorMessage = `Budget exhausted after ${processed}/${total} items (${failed} failed)`;
+    } else if (!heartbeatErrorMessage && resolved.errorCode === "PARTIAL_FAILURES") {
+      heartbeatErrorMessage = `${failed} of ${total} items failed`;
+    }
 
-    console.log(`[${JOB_NAME}] Completed: ${success} ok, ${failed} failed, ${skipped} skipped of ${eligible.length} in ${durationMs}ms`);
+    if (hb) {
+      try {
+        await finishHeartbeat(admin, hb, heartbeatStatus, {
+          errorCode: resolved.errorCode ?? undefined,
+          errorMessage: heartbeatErrorMessage ?? undefined,
+          metadata: heartbeatMeta,
+        });
+        heartbeatWrittenAt = new Date().toISOString();
+        console.log(`[${JOB_NAME}] Heartbeat finalized: status=${heartbeatStatus}, id=${hb.id}`);
+      } catch (hbErr) {
+        console.error(`[${JOB_NAME}] CRITICAL: finishHeartbeat failed:`, hbErr);
+      }
+    }
 
-    return new Response(
-      JSON.stringify({ ok: true, ...meta }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (err: any) {
-    const durationMs = Date.now() - t0;
-    console.error(`[${JOB_NAME}] Fatal error:`, err);
-    await finishHeartbeat(admin, hb, "ERROR", {
-      errorCode: "GLOBAL_SYNC_FATAL",
-      errorMessage: err?.message || "unknown",
-      metadata: { duration_ms: durationMs },
-    });
-    return new Response(
-      JSON.stringify({ ok: false, error: err?.message || "unknown", duration_ms: durationMs }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.log(`[${JOB_NAME}] Done: ${success} ok, ${failed} failed, ${skipped} skipped of ${total} in ${durationMs}ms (budget_exhausted=${budgetExhausted})`);
   }
+
+  // ─── FIX 5: Enriched response ──────────────────────────────────────
+  const durationMs = Date.now() - startedAt;
+  const responseBody = {
+    ok: heartbeatStatus === "OK",
+    heartbeat_id: hb?.id ?? null,
+    heartbeat_status: heartbeatStatus,
+    heartbeat_written_at: heartbeatWrittenAt,
+    total,
+    success,
+    failed,
+    skipped,
+    budget_exhausted: budgetExhausted,
+    duration_ms: durationMs,
+    ...(topLevelError ? { error: topLevelError.message } : {}),
+    ...(failedItems.length > 0 ? { failed_items: failedItems.slice(0, MAX_FAILED_ITEMS_IN_META) } : {}),
+  };
+
+  const httpStatus = topLevelError ? 500 : 200;
+  return new Response(JSON.stringify(responseBody), {
+    status: httpStatus,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
