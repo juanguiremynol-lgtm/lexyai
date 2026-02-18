@@ -140,7 +140,17 @@ Deno.serve(async (req) => {
       budget_exhausted: budgetExhausted,
     };
 
-    await finishHeartbeat(admin, hb, budgetExhausted ? "OK" : "OK", { metadata: meta });
+    // Status semantics: OK = clean run, ERROR = degraded or no progress
+    const heartbeatStatus = (success === 0 || (failed > 0 || budgetExhausted)) ? "ERROR" : "OK";
+    await finishHeartbeat(admin, hb, heartbeatStatus, {
+      metadata: meta,
+      ...(heartbeatStatus === "ERROR" ? {
+        errorCode: budgetExhausted ? "BUDGET_EXHAUSTED" : "PARTIAL_FAILURES",
+        errorMessage: budgetExhausted
+          ? `Budget exhausted after ${processed}/${eligible.length} items (${failed} failed)`
+          : `${failed} of ${eligible.length} items failed`,
+      } : {}),
+    });
 
     console.log(`[${JOB_NAME}] Completed: ${success} ok, ${failed} failed, ${skipped} skipped of ${eligible.length} in ${durationMs}ms`);
 
