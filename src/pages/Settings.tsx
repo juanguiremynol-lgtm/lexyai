@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Crown, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Users, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -24,7 +24,6 @@ import { ArchivedItemsSection } from "@/components/settings/ArchivedItemsSection
 import { TickerSettings } from "@/components/settings/TickerSettings";
 import { StalenessAlertSettings } from "@/components/settings/StalenessAlertSettings";
 import { AlertEmailSettings } from "@/components/settings/AlertEmailSettings";
-import { SubscriptionManagement } from "@/components/settings/SubscriptionManagement";
 import { MembershipManagement } from "@/components/settings/MembershipManagement";
 import { InvitesManagement } from "@/components/settings/InvitesManagement";
 import { SystemHealthDashboard } from "@/components/settings/SystemHealthDashboard";
@@ -205,11 +204,7 @@ export default function Settings() {
               </TabsTrigger>
             </>
           )}
-          {/* Subscription & Billing: visible to all, write actions gated inside */}
-          <TabsTrigger value="subscription">
-            <Crown className="h-4 w-4 mr-1" />
-            Suscripción
-          </TabsTrigger>
+          {/* Billing: visible to all, write actions gated inside */}
           <TabsTrigger value="billing">
             <CreditCard className="h-4 w-4 mr-1" />
             Facturación
@@ -285,10 +280,6 @@ export default function Settings() {
           </TabsContent>
         )}
 
-        {/* Subscription: read-only for all users */}
-        <TabsContent value="subscription">
-          <SubscriptionManagement />
-        </TabsContent>
 
         {/* Billing: visible to all, write actions gated inside the component */}
         <TabsContent value="billing">

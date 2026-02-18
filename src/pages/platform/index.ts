@@ -27,3 +27,5 @@ export { default as PlatformDailyOpsReportsPage } from "./PlatformDailyOpsReport
 export { default as PlatformJudicialSuspensionsPage } from "./PlatformJudicialSuspensionsPage";
 export { default as PlatformEmailConsolePage } from "./PlatformEmailConsolePage";
 export { default as PlatformEmailSetupPage } from "./PlatformEmailSetupPage";
+export { default as PlatformAdminAlertsPage } from "./PlatformAdminAlertsPage";
+export { default as PlatformCoverageGapsPage } from "./PlatformCoverageGapsPage";
