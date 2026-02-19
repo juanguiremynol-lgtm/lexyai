@@ -209,68 +209,174 @@ These invariants MUST hold as new providers are added (6th, 7th, 10th…) withou
 
 ---
 
-## Assertion Queries (4 Proofs + 1 Negative Test)
+## Executable Assertion Queries (Copy/Paste Runnable)
 
-### Proof 1 — Override row existence
+> **Usage**: Set the three `:params` in the Supabase SQL editor, then run each block.
+> Designed for 60-second incident validation.
+
 ```sql
--- After wizard completes, the override row exists and is disabled
-SELECT id, provider_key, workflow_type, data_kind, provider_role, enabled
+-- ═══════════════════════════════════════════════════════════════════
+-- PARAMETERS — set these before running
+-- ═══════════════════════════════════════════════════════════════════
+-- :chain_id      — e.g. '4e996ee8'  (the manual master chain correlation id)
+-- :provider_key  — e.g. 'SAMAI_ESTADOS_DYN_TEST'
+-- :work_item_id  — e.g. 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PROOF 1: Override row exists (created disabled by wizard)
+-- Expected: exactly 1 row with enabled = false after wizard, true after manual enable
+-- ═══════════════════════════════════════════════════════════════════
+SELECT id, provider_key, workflow_type, data_kind, provider_role,
+       execution_mode, priority, override_builtin, connector_id, enabled,
+       created_at
 FROM provider_coverage_overrides
-WHERE provider_key = '<PROVIDER_KEY>'
-  AND enabled = false;
--- Expected: exactly 1 row
-```
+WHERE provider_key = :provider_key;
 
-### Proof 2 — Dynamic provider invocation attempt
-```sql
--- After enabling override and triggering sync, the dynamic provider was invoked
-SELECT provider, role, data_kind, status, error_code, latency_ms,
-       inserted_count, skipped_count, sync_run_id
+-- ═══════════════════════════════════════════════════════════════════
+-- PROOF 2: Dynamic provider was invoked (attempt rows exist)
+-- Expected: ≥1 row with latency_ms > 0, correlated by sync_run_id
+-- ═══════════════════════════════════════════════════════════════════
+SELECT provider, role, data_kind, status, error_code,
+       latency_ms, inserted_count, skipped_count, sync_run_id,
+       recorded_at
 FROM external_sync_run_attempts
-WHERE provider = '<PROVIDER_KEY>'
-  AND created_at > now() - interval '15 minutes'
+WHERE provider = :provider_key
+  AND recorded_at > now() - interval '30 minutes'
 ORDER BY recorded_at DESC
-LIMIT 5;
--- Expected: ≥1 row with latency_ms > 0
-```
+LIMIT 10;
 
-### Proof 3 — Zero deduplication violations
-```sql
--- No duplicate (work_item_id, hash_fingerprint) pairs exist
+-- ═══════════════════════════════════════════════════════════════════
+-- PROOF 2b: CHAIN correlation — both PRIMARY (forced empty) and FALLBACK
+-- Expected: same sync_run_id contains ≥2 rows (primary + fallback)
+-- ═══════════════════════════════════════════════════════════════════
+SELECT provider, role, status, error_code, latency_ms
+FROM external_sync_run_attempts
+WHERE sync_run_id IN (
+    SELECT sync_run_id FROM external_sync_run_attempts
+    WHERE provider = :provider_key
+      AND recorded_at > now() - interval '30 minutes'
+    LIMIT 1
+)
+ORDER BY recorded_at ASC;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PROOF 3: Zero deduplication violations
+-- Expected: 0 rows
+-- ═══════════════════════════════════════════════════════════════════
 SELECT work_item_id, hash_fingerprint, count(*) AS dupes
 FROM work_item_acts
-WHERE work_item_id = '<WORK_ITEM_ID>'
+WHERE work_item_id = :work_item_id
 GROUP BY work_item_id, hash_fingerprint
 HAVING count(*) > 1;
--- Expected: 0 rows
-```
 
-### Proof 4 — Rollback evidence (no residue after disable)
-```sql
--- After setting enabled=false and re-triggering sync, no new attempts appear
+-- ═══════════════════════════════════════════════════════════════════
+-- PROOF 4: Rollback — no attempts after disable
+-- Run this AFTER setting enabled=false and re-triggering sync.
+-- Expected: 0
+-- ═══════════════════════════════════════════════════════════════════
 SELECT count(*) AS post_disable_attempts
 FROM external_sync_run_attempts
-WHERE provider = '<PROVIDER_KEY>'
-  AND recorded_at > '<DISABLE_TIMESTAMP>';
--- Expected: 0
-```
+WHERE provider = :provider_key
+  AND recorded_at > now() - interval '5 minutes';
 
-### Negative Test — Disabled override produces no registration or attempts
-```sql
--- Override exists but enabled=false → orchestrator must NOT register or invoke
--- Step 1: Verify override is disabled
+-- ═══════════════════════════════════════════════════════════════════
+-- NEGATIVE TEST: Disabled override → zero registration, zero attempts
+-- Run AFTER wizard creates override (enabled=false), trigger sync, then check.
+-- Expected: Step A returns 1 row (enabled=false), Step B returns 0
+-- ═══════════════════════════════════════════════════════════════════
+-- Step A: Override exists but disabled
 SELECT id, provider_key, enabled
 FROM provider_coverage_overrides
-WHERE provider_key = '<PROVIDER_KEY>' AND enabled = false;
--- Expected: 1 row
+WHERE provider_key = :provider_key AND enabled = false;
 
--- Step 2: Trigger sync, then verify zero attempts
+-- Step B: No attempts created
 SELECT count(*) AS attempts_while_disabled
 FROM external_sync_run_attempts
-WHERE provider = '<PROVIDER_KEY>'
-  AND recorded_at > '<SYNC_TRIGGER_TIMESTAMP>';
--- Expected: 0
+WHERE provider = :provider_key
+  AND recorded_at > now() - interval '5 minutes';
+```
 
--- Step 3: Verify orchestrator logs show 0 dynamic providers registered
--- (check edge function logs for "Registered 0 dynamic provider(s)" or absence of provider key)
+---
+
+## Guardrails (Non-Negotiable)
+
+These guardrails prevent the most expensive failure modes at scale (100+ orgs × 50 items).
+
+### Guardrail A — Dynamic Provider Blast-Radius Guard
+
+A wizard-created provider must NOT be eligible for orchestration unless ALL of:
+
+1. `enabled = true` in `provider_coverage_overrides`
+2. Explicit scope: `workflow_type` (NOT NULL) AND `data_kind` (NOT NULL) — enforced at DB level
+3. A valid `connector_id` exists (checked in `orchestrateSync` line: `if (ov.provider_type === "EXTERNAL" && ov.connector_id)`)
+
+**Why**: Prevents "enabled provider with no scope" from accidentally being treated as global.
+
+**Structural enforcement**:
+- `workflow_type` and `data_kind` are `NOT NULL` columns — DB rejects rows without scope
+- `loadCoverageOverrides()` filters `enabled = true`
+- `getProviderCoverageWithOverrides()` filters by exact `(workflow_type, data_kind)` match
+- `orchestrateSync()` requires `connector_id` for EXTERNAL type before registration
+
+**Negative test** (enabled provider + no connector ⇒ not registered):
+```sql
+-- Insert an override with no connector_id (simulating misconfiguration)
+INSERT INTO provider_coverage_overrides (
+  workflow_type, data_kind, provider_key, provider_role, provider_type,
+  execution_mode, priority, override_builtin, connector_id, enabled
+) VALUES (
+  'CGP', 'ACTUACIONES', 'GHOST_PROVIDER_TEST', 'FALLBACK', 'EXTERNAL',
+  'CHAIN', 999, false, NULL, true
+);
+
+-- Trigger sync, then verify zero attempts
+SELECT count(*) AS ghost_attempts
+FROM external_sync_run_attempts
+WHERE provider = 'GHOST_PROVIDER_TEST'
+  AND recorded_at > now() - interval '5 minutes';
+-- Expected: 0 (connector_id is NULL → orchestrator skips registration)
+
+-- Cleanup
+DELETE FROM provider_coverage_overrides WHERE provider_key = 'GHOST_PROVIDER_TEST';
+```
+
+### Guardrail B — Deterministic Test Hooks: Platform-Admin-Only (Two Layers)
+
+`release_gate.*` fields are gated at two independent layers:
+
+1. **UI/API layer**: Only the Platform Console exposes `release_gate` controls; org-level UIs do not.
+2. **Edge function layer**: `sync-by-work-item` performs a `platform_admins` table lookup before accepting `release_gate`. Non-admin callers receive HTTP 403 `FORBIDDEN` with `"release_gate is restricted to platform administrators"`.
+
+**Implementation** (in `sync-by-work-item/index.ts`):
+```typescript
+if (release_gate && Object.keys(release_gate).length > 0) {
+  if (_scheduled) {
+    // Service-role callers allowed (system-level)
+  } else {
+    const { data: paCheck } = await supabase
+      .from("platform_admins")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!paCheck) {
+      return errorResponse('FORBIDDEN', 'release_gate is restricted to platform administrators', 403, traceId);
+    }
+  }
+}
+```
+
+**Negative test** (non-admin invoking release_gate ⇒ hard error, no attempts):
+```sql
+-- After a non-admin user sends release_gate payload:
+-- 1. Edge function returns HTTP 403 (check response)
+-- 2. No attempt rows should exist for that trace
+SELECT count(*) AS unauthorized_attempts
+FROM external_sync_run_attempts
+WHERE sync_run_id IN (
+  SELECT id FROM external_sync_runs
+  WHERE work_item_id = :work_item_id
+    AND created_at > now() - interval '5 minutes'
+)
+AND provider = :provider_key;
+-- Expected: 0
 ```
