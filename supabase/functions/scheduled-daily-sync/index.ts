@@ -110,32 +110,35 @@ Deno.serve(async (req) => {
   if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
     console.warn(`[daily-sync] MAX_CONTINUATIONS (${MAX_CONTINUATIONS}) reached — scheduling overflow pass`);
 
-    // Schedule overflow pass 30 minutes later instead of just stopping
+    // Schedule overflow pass via DB flag (setTimeout won't survive function teardown)
+    // The fallback-sync-check or continuation-guarantee will pick this up
+    let overflowScheduled = false;
     if (!isOverflow && supabaseUrl && supabaseServiceKey) {
       try {
-        setTimeout(() => {
-          fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${supabaseServiceKey}`,
-              "Content-Type": "application/json",
+        const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+        const overflowRunAt = new Date(Date.now() + OVERFLOW_DELAY_MS).toISOString();
+        // Write overflow marker to the ledger so fallback-sync-check picks it up
+        await adminClient.from("auto_sync_daily_ledger")
+          .update({
+            continuation_block_reason: "OVERFLOW_SCHEDULED",
+            metadata: {
+              overflow_run_at: overflowRunAt,
+              overflow_resume_after_id: resumeAfterId,
+              overflow_chain_id: chainId,
+              overflow_trigger_source: triggerSource,
+              overflow_manual_initiator: manualInitiatorUserId,
+              overflow_item_timeout_counts: inheritedTimeoutCounts,
             },
-            body: JSON.stringify({
-              org_id: bodyParams.org_id,
-              resume_after_id: resumeAfterId,
-              is_continuation: true,
-              continuation_of: continuationOf,
-              continuation_count: 0, // Reset count for overflow
-              run_cutoff_time: runCutoffTime,
-              chain_id: chainId,
-              trigger_source: triggerSource,
-              manual_initiator_user_id: manualInitiatorUserId,
-              is_overflow: true,
-              item_timeout_counts: inheritedTimeoutCounts,
-            }),
-          }).catch(err => console.warn(`[daily-sync] Overflow trigger failed:`, err));
-        }, OVERFLOW_DELAY_MS);
-      } catch { /* best-effort */ }
+          })
+          .eq("chain_id", chainId)
+          .eq("status", "PARTIAL")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        overflowScheduled = true;
+        console.log(`[daily-sync] Overflow scheduled for ${overflowRunAt} via DB flag (chain=${chainId})`);
+      } catch (overflowErr) {
+        console.warn(`[daily-sync] Failed to write overflow flag:`, overflowErr);
+      }
     }
 
     return new Response(
@@ -144,7 +147,7 @@ Deno.serve(async (req) => {
         reason: "MAX_CONTINUATIONS_REACHED",
         continuation_count: continuationCount,
         chain_id: chainId,
-        overflow_scheduled: !isOverflow,
+        overflow_scheduled: overflowScheduled,
         overflow_delay_ms: OVERFLOW_DELAY_MS,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -335,7 +338,7 @@ Deno.serve(async (req) => {
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${serviceKey}`,
+              Authorization: `Bearer ${supabaseServiceKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({

@@ -100,8 +100,61 @@ Deno.serve(async (req) => {
 
     console.log(`[fallback-sync-check] Found ${pendingList.length} orgs needing retry`);
 
+    // ── Overflow pass: pick up chains that exhausted budget and scheduled overflow ──
+    let overflowTriggered = 0;
+    try {
+      const { data: overflowRows } = await supabase
+        .from("auto_sync_daily_ledger")
+        .select("id, organization_id, chain_id, metadata, cursor_last_work_item_id, run_cutoff_time, trigger_source, manual_initiator_user_id")
+        .eq("run_date", todayStr)
+        .eq("continuation_block_reason", "OVERFLOW_SCHEDULED")
+        .limit(10);
+
+      for (const row of (overflowRows || [])) {
+        const meta = (row.metadata || {}) as Record<string, any>;
+        const overflowRunAt = meta.overflow_run_at;
+        // Only fire if the scheduled time has passed
+        if (overflowRunAt && new Date(overflowRunAt) > new Date()) {
+          console.log(`[fallback-sync-check] Overflow for chain ${row.chain_id} not due until ${overflowRunAt}`);
+          continue;
+        }
+
+        console.log(`[fallback-sync-check] Triggering overflow pass for chain ${row.chain_id}, org=${row.organization_id}`);
+        try {
+          await supabase.functions.invoke("scheduled-daily-sync", {
+            body: {
+              org_id: row.organization_id,
+              resume_after_id: meta.overflow_resume_after_id || row.cursor_last_work_item_id,
+              is_continuation: true,
+              continuation_of: row.id,
+              continuation_count: 0,
+              run_cutoff_time: row.run_cutoff_time,
+              chain_id: row.chain_id,
+              trigger_source: row.trigger_source || "OVERFLOW",
+              manual_initiator_user_id: row.manual_initiator_user_id,
+              is_overflow: true,
+              item_timeout_counts: meta.overflow_item_timeout_counts || {},
+            },
+          });
+          // Mark overflow as consumed so it doesn't fire again
+          await supabase.from("auto_sync_daily_ledger")
+            .update({ continuation_block_reason: "OVERFLOW_DISPATCHED" })
+            .eq("id", row.id);
+          overflowTriggered++;
+        } catch (overflowErr: any) {
+          console.warn(`[fallback-sync-check] Overflow trigger failed for chain ${row.chain_id}:`, overflowErr.message);
+        }
+      }
+    } catch (overflowCheckErr) {
+      console.warn(`[fallback-sync-check] Overflow check error:`, overflowCheckErr);
+    }
+
+    if (overflowTriggered > 0) {
+      console.log(`[fallback-sync-check] Triggered ${overflowTriggered} overflow pass(es)`);
+    }
+
     // If no pending orgs, also check for orgs with no ledger entry today (missed entirely)
-    if (pendingList.length === 0) {
+    if (pendingList.length === 0 && overflowTriggered === 0) {
       const missedOrgs = await findMissedOrganizations(supabase, todayStr);
       if (missedOrgs.length > 0) {
         console.log(`[fallback-sync-check] Found ${missedOrgs.length} orgs with no sync today`);
@@ -128,6 +181,7 @@ Deno.serve(async (req) => {
             action: "CATCHUP_TRIGGERED",
             missed_orgs: missedOrgs.length,
             sync_results: data,
+            overflow_triggered: overflowTriggered,
             duration_ms: Date.now() - startTime,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -139,6 +193,7 @@ Deno.serve(async (req) => {
           ok: true,
           action: "NO_ACTION_NEEDED",
           message: "All orgs have successful syncs today",
+          overflow_triggered: overflowTriggered,
           duration_ms: Date.now() - startTime,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
