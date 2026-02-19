@@ -2838,6 +2838,36 @@ Deno.serve(async (req) => {
       userId = claims.claims.sub as string;
     }
 
+    // ── Guardrail: release_gate is platform-admin-only ──
+    // Reject release_gate payload from non-platform-admins to prevent
+    // test hooks from being used by unauthorized callers.
+    let sanitizedReleaseGate = release_gate;
+    if (release_gate && Object.keys(release_gate).length > 0) {
+      if (_scheduled) {
+        // Scheduled/service-role callers: allow (they're system-level)
+        console.log(`[sync-by-work-item] release_gate accepted for scheduled caller`);
+      } else {
+        // Interactive callers: must be platform admin
+        const { data: paCheck } = await supabase
+          .from("platform_admins")
+          .select("user_id")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (!paCheck) {
+          console.warn(`[sync-by-work-item] release_gate REJECTED: user ${userId.slice(0, 8)}… is not platform admin`);
+          return errorResponse(
+            'FORBIDDEN',
+            'release_gate is restricted to platform administrators',
+            403,
+            traceId,
+          );
+        }
+        console.log(`[sync-by-work-item] release_gate accepted for platform admin ${userId.slice(0, 8)}…`);
+      }
+    } else {
+      sanitizedReleaseGate = undefined;
+    }
+
     console.log(`[sync-by-work-item] Starting sync for work_item_id=${work_item_id}, user=${userId}, trace_id=${traceId}`);
 
     // Log sync start
@@ -2957,7 +2987,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, release_gate);
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate);
 
       // Transfer orchestrator results into SyncResult
       result.provider_attempts = orchExec.providerAttempts;
