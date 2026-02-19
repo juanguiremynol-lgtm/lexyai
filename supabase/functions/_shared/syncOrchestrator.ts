@@ -270,6 +270,8 @@ export async function executeSyncChain(
     _syncRunId?: string | null;
     /** Internal: organization ID for canary-scoped test hooks */
     _organizationId?: string;
+    /** Internal: force a provider to return empty (release-gate testing) */
+    _forceEmptyProvider?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -402,8 +404,29 @@ async function safeProviderFetch(
     timeoutMs?: number;
     signal?: AbortSignal;
     _organizationId?: string;
+    /** Release-gate: force this provider to return empty */
+    _forceEmptyProvider?: string;
   },
 ): Promise<ProviderAttemptResult> {
+  // ── FORCED EMPTY TEST HOOK (release-gate scoped) ──────────────────
+  if (params._forceEmptyProvider && params._forceEmptyProvider.toUpperCase() === provider.key.toUpperCase()) {
+    console.warn(
+      `[FORCED_EMPTY] Activated: provider=${provider.key} workItem=${params.workItemId} role=${role} dataKind=${dataKind}`
+    );
+    return {
+      provider: provider.key,
+      data_kind: dataKind,
+      role,
+      status: "empty",
+      http_code: 200,
+      latency_ms: 0,
+      error_code: "RELEASE_GATE_FORCED_EMPTY",
+      error_message: `Forced empty for release-gate testing (provider=${provider.key})`,
+      inserted_count: 0,
+      skipped_count: 0,
+    };
+  }
+  // ── END FORCED EMPTY TEST HOOK ────────────────────────────────────
   // ── FORCED TIMEOUT TEST HOOK (canary-scoped) ──────────────────────
   // Env vars: FORCE_PROVIDER_TIMEOUT=true, FORCE_PROVIDER_TIMEOUT_PROVIDER=SAMAI_ESTADOS,
   //           FORCE_PROVIDER_TIMEOUT_ORGS= SELF | slug | org-uuid-1,org-uuid-2
@@ -601,6 +624,7 @@ export async function executeSyncFanout(
     signal?: AbortSignal;
     _syncRunId?: string | null;
     _organizationId?: string;
+    _forceEmptyProvider?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -749,6 +773,7 @@ export async function executeSync(
     signal?: AbortSignal;
     _syncRunId?: string | null;
     _organizationId?: string;
+    _forceEmptyProvider?: string;
   },
 ): Promise<{
   attempts: ProviderAttemptResult[];
@@ -796,6 +821,11 @@ export async function orchestrateSync(
     skipRunRecord?: boolean; // For demo/test where we don't want DB writes
     /** Pre-loaded coverage overrides (avoids re-querying) */
     coverageOverrides?: CoverageOverrideRow[];
+    /** Release-gate: force a specific provider to return empty for deterministic fallback testing */
+    releaseGate?: {
+      forceEmptyProvider?: string;
+      forceEmptyOnce?: boolean;
+    };
   },
 ): Promise<SyncRunResult> {
   const startTime = Date.now();
@@ -855,6 +885,7 @@ export async function orchestrateSync(
           signal: options?.signal,
           _syncRunId: syncRunId,
           _organizationId: ctx.organizationId ?? undefined,
+          _forceEmptyProvider: options?.releaseGate?.forceEmptyProvider,
         },
       );
       allAttempts.push(...actResult.attempts);
@@ -884,6 +915,7 @@ export async function orchestrateSync(
             signal: options?.signal,
             _syncRunId: syncRunId,
             _organizationId: ctx.organizationId ?? undefined,
+            _forceEmptyProvider: options?.releaseGate?.forceEmptyProvider,
           },
         );
         allAttempts.push(...estResult.attempts);
