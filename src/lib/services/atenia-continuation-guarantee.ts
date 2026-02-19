@@ -39,7 +39,7 @@ export async function guaranteeContinuation(orgId: string): Promise<Continuation
     .select("id, cursor_last_work_item_id, items_succeeded, items_failed, items_skipped, timeout_count, failure_reason, continuation_enqueued, continuation_block_reason, chain_id, expected_total_items")
     .eq("organization_id", orgId)
     .eq("run_date", today)
-    .in("status", ["PARTIAL", "FAILED"])
+    .in("status", ["PARTIAL", "FAILED", "BUDGET_OVERFLOW"])
     .is("continuation_enqueued", null) // Only unprocessed
     .order("created_at", { ascending: false })
     .limit(5);

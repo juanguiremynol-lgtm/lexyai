@@ -8,6 +8,7 @@
  *   - RED (<50%): Critical
  */
 
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import {
   CalendarSync,
   Loader2,
 } from "lucide-react";
+import { SkippedItemsDetail } from "./SkippedItemsDetail";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -34,11 +36,13 @@ interface LedgerRow {
   items_skipped: number | null;
   expected_total_items: number | null;
   failure_reason: string | null;
-  error_summary: Array<{ work_item_id: string; radicado?: string; error: string; ts?: string }> | null;
+  error_summary: any[] | null;
   started_at: string | null;
   finished_at: string | null;
   completed_at: string | null;
   created_at: string;
+  organization_id?: string;
+  timeout_count?: number | null;
 }
 
 function statusBadge(status: string) {
@@ -72,7 +76,7 @@ export function DailySyncHealthGate() {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("auto_sync_daily_ledger")
-        .select("id, run_date, status, items_targeted, items_succeeded, items_failed, items_skipped, expected_total_items, failure_reason, error_summary, started_at, finished_at, completed_at, created_at")
+        .select("id, run_date, status, items_targeted, items_succeeded, items_failed, items_skipped, expected_total_items, failure_reason, error_summary, started_at, finished_at, completed_at, created_at, organization_id, timeout_count")
         .gte("run_date", sevenDaysAgo)
         .order("run_date", { ascending: false })
         .limit(14);
@@ -198,51 +202,64 @@ export function DailySyncHealthGate() {
                     const contCount = day.continuations.length;
 
                     return (
-                      <tr key={day.date} className="border-b hover:bg-muted/50">
-                        <td className="py-1.5 px-1 font-mono">{day.date}</td>
-                        <td className="py-1.5 px-1 text-center">{statusBadge(day.status)}</td>
-                        <td className="py-1.5 px-1 text-center">
-                          <span className="text-green-600">{day.cumulativeSucceeded}✅</span>{" "}
-                          <span className="text-red-600">{day.cumulativeFailed}❌</span>{" "}
-                          <span className="text-muted-foreground">{day.cumulativeSkipped}⏭️</span>{" "}
-                          <span className="text-muted-foreground">/ {day.expectedTotal}</span>
-                          {contCount > 0 && (
-                            <Badge variant="outline" className="text-[9px] ml-1">
-                              {contCount} cont.
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="py-1.5 px-1 text-center text-muted-foreground">
-                          {durationStr(day.original.started_at, day.original.finished_at || day.original.completed_at)}
-                        </td>
-                        <td className="py-1.5 px-1">
-                          {day.failureReason ? (
-                            <Badge variant="outline" className="text-[10px]">{day.failureReason}</Badge>
-                          ) : "—"}
-                        </td>
-                        <td className="py-1.5 px-1">
-                          {errors.length > 0 ? (
-                            <Collapsible>
-                              <CollapsibleTrigger className="flex items-center gap-1 text-destructive cursor-pointer">
-                                {errors.length} error(es)
-                                <ChevronDown className="h-3 w-3" />
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="mt-1 space-y-0.5">
-                                {errors.slice(0, 10).map((e: any, i: number) => (
-                                  <p key={i} className="text-[10px] text-muted-foreground font-mono truncate">
-                                    {e.radicado || e.work_item_id?.slice(0, 8)} — {e.error}
-                                  </p>
-                                ))}
-                                {errors.length > 10 && (
-                                  <p className="text-[10px] text-muted-foreground">…y {errors.length - 10} más</p>
-                                )}
-                              </CollapsibleContent>
-                            </Collapsible>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      </tr>
+                      <React.Fragment key={day.date}>
+                        <tr className="border-b hover:bg-muted/50">
+                          <td className="py-1.5 px-1 font-mono">{day.date}</td>
+                          <td className="py-1.5 px-1 text-center">{statusBadge(day.status)}</td>
+                          <td className="py-1.5 px-1 text-center">
+                            <span className="text-green-600">{day.cumulativeSucceeded}✅</span>{" "}
+                            <span className="text-red-600">{day.cumulativeFailed}❌</span>{" "}
+                            <span className="text-muted-foreground">{day.cumulativeSkipped}⏭️</span>{" "}
+                            <span className="text-muted-foreground">/ {day.expectedTotal}</span>
+                            {contCount > 0 && (
+                              <Badge variant="outline" className="text-[9px] ml-1">
+                                {contCount} cont.
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="py-1.5 px-1 text-center text-muted-foreground">
+                            {durationStr(day.original.started_at, day.original.finished_at || day.original.completed_at)}
+                          </td>
+                          <td className="py-1.5 px-1">
+                            {day.failureReason ? (
+                              <Badge variant="outline" className="text-[10px]">{day.failureReason}</Badge>
+                            ) : "—"}
+                          </td>
+                          <td className="py-1.5 px-1">
+                            {errors.length > 0 ? (
+                              <Collapsible>
+                                <CollapsibleTrigger className="flex items-center gap-1 text-destructive cursor-pointer">
+                                  {errors.length} error(es)
+                                  <ChevronDown className="h-3 w-3" />
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="mt-1 space-y-0.5">
+                                  {errors.slice(0, 10).map((e: any, i: number) => (
+                                    <p key={i} className="text-[10px] text-muted-foreground font-mono truncate">
+                                      {e.radicado || e.work_item_id?.slice(0, 8)} — {e.error}
+                                    </p>
+                                  ))}
+                                  {errors.length > 10 && (
+                                    <p className="text-[10px] text-muted-foreground">…y {errors.length - 10} más</p>
+                                  )}
+                                </CollapsibleContent>
+                              </Collapsible>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                        {/* Skipped Items Detail row */}
+                        {(day.cumulativeSkipped > 0 || day.rows.some(r => (r as any).timeout_count > 0)) && (day.original as any).organization_id && (
+                          <tr className="border-b">
+                            <td colSpan={6} className="py-1.5 px-2">
+                              <SkippedItemsDetail
+                                organizationId={(day.original as any).organization_id}
+                                runDate={day.date}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

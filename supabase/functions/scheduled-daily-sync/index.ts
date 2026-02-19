@@ -33,12 +33,22 @@ const HARD_BUDGET_MS = Number(Deno.env.get("DAILY_SYNC_BUDGET_MS") || "140000");
 const PAGE_SIZE = Number(Deno.env.get("DAILY_SYNC_PAGE_SIZE") || "5");
 /** Success threshold for OK vs PARTIAL */
 const SUCCESS_THRESHOLD = 0.9;
-/** Max chained continuations to prevent infinite loops */
-const MAX_CONTINUATIONS = Number(Deno.env.get("DAILY_SYNC_MAX_CONTINUATIONS") || "10");
+/** Max chained continuations to prevent infinite loops — raised from 10 to 15 */
+const MAX_CONTINUATIONS = Number(Deno.env.get("DAILY_SYNC_MAX_CONTINUATIONS") || "15");
 /** Per-item external API timeout (ms). Default 20s. */
 const ITEM_TIMEOUT_MS = Number(Deno.env.get("DAILY_SYNC_ITEM_TIMEOUT_MS") || "20000");
 /** Consecutive failures before dead-lettering an item */
 const DEAD_LETTER_THRESHOLD = 3;
+/** Delay before overflow pass (ms) — 30 minutes */
+const OVERFLOW_DELAY_MS = 30 * 60 * 1000;
+/** Max intra-round retries per item */
+const MAX_INTRA_ROUND_RETRIES = 1;
+/** Max total API attempts per item per chain (including retries) */
+const MAX_ITEM_ATTEMPTS_PER_CHAIN = 3;
+/** Timeout backoff delays in ms: [first retry, second retry] */
+const TIMEOUT_BACKOFF_MS = [10_000, 30_000];
+/** Intra-round retry delay (ms) */
+const INTRA_ROUND_RETRY_DELAY_MS = 5_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -73,6 +83,9 @@ Deno.serve(async (req) => {
     chain_id?: string;
     trigger_source?: string;
     manual_initiator_user_id?: string;
+    is_overflow?: boolean;
+    /** Per-item timeout counts carried from previous rounds */
+    item_timeout_counts?: Record<string, number>;
   } = {};
   try {
     if (req.method === "POST") {
@@ -81,6 +94,7 @@ Deno.serve(async (req) => {
   } catch { /* no body */ }
 
   const isContinuation = bodyParams.is_continuation === true;
+  const isOverflow = bodyParams.is_overflow === true;
   const resumeAfterId = bodyParams.resume_after_id || undefined;
   const continuationOf = bodyParams.continuation_of || undefined;
   const continuationCount = bodyParams.continuation_count ?? 0;
@@ -89,17 +103,55 @@ Deno.serve(async (req) => {
   const chainId = bodyParams.chain_id || runId;
   const triggerSource = bodyParams.trigger_source || "CRON";
   const manualInitiatorUserId = bodyParams.manual_initiator_user_id || null;
+  // Carry forward per-item timeout counts across continuation rounds
+  const inheritedTimeoutCounts: Record<string, number> = bodyParams.item_timeout_counts || {};
 
   // Guard: max continuations to prevent infinite loops
   if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
-    console.warn(`[daily-sync] MAX_CONTINUATIONS (${MAX_CONTINUATIONS}) reached — stopping chain`);
+    console.warn(`[daily-sync] MAX_CONTINUATIONS (${MAX_CONTINUATIONS}) reached — scheduling overflow pass`);
+
+    // Schedule overflow pass 30 minutes later instead of just stopping
+    if (!isOverflow && supabaseUrl && supabaseServiceKey) {
+      try {
+        setTimeout(() => {
+          fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${supabaseServiceKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              org_id: bodyParams.org_id,
+              resume_after_id: resumeAfterId,
+              is_continuation: true,
+              continuation_of: continuationOf,
+              continuation_count: 0, // Reset count for overflow
+              run_cutoff_time: runCutoffTime,
+              chain_id: chainId,
+              trigger_source: triggerSource,
+              manual_initiator_user_id: manualInitiatorUserId,
+              is_overflow: true,
+              item_timeout_counts: inheritedTimeoutCounts,
+            }),
+          }).catch(err => console.warn(`[daily-sync] Overflow trigger failed:`, err));
+        }, OVERFLOW_DELAY_MS);
+      } catch { /* best-effort */ }
+    }
+
     return new Response(
-      JSON.stringify({ ok: false, reason: "MAX_CONTINUATIONS_REACHED", continuation_count: continuationCount, chain_id: chainId }),
+      JSON.stringify({
+        ok: false,
+        reason: "MAX_CONTINUATIONS_REACHED",
+        continuation_count: continuationCount,
+        chain_id: chainId,
+        overflow_scheduled: !isOverflow,
+        overflow_delay_ms: OVERFLOW_DELAY_MS,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
-  console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'} trigger=${triggerSource}`);
+  console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} overflow=${isOverflow} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'} trigger=${triggerSource}`);
 
   if (!supabaseUrl || !supabaseServiceKey) {
     return new Response(
@@ -129,6 +181,7 @@ Deno.serve(async (req) => {
       trigger_source: triggerSource,
       continuation_count: continuationCount,
       is_continuation: isContinuation,
+      is_overflow: isOverflow,
     });
 
     // ── Pre-flight API check BEFORE processing items ──
@@ -190,7 +243,15 @@ Deno.serve(async (req) => {
     }
     console.log(`[daily-sync] ${orgIds.length} org(s) with eligible items`);
 
-    const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string; skipped?: number; failure_reason?: string }> = [];
+    const allResults: Array<{
+      org_id: string; status: string; synced: number; errors: number;
+      dead_lettered: number; timeouts: number; ledger_id?: string;
+      skipped?: number; failure_reason?: string;
+      skipped_radicados?: string[];
+      skipped_reasons?: Record<string, number>;
+      timeout_items?: string[];
+      item_timeout_counts?: Record<string, number>;
+    }> = [];
 
     for (const orgId of orgIds) {
       if (Date.now() - startTime > HARD_BUDGET_MS) {
@@ -202,7 +263,7 @@ Deno.serve(async (req) => {
           supabase, supabaseUrl, supabaseServiceKey, orgId, runId, startTime,
           isContinuation ? resumeAfterId : undefined,
           isContinuation, continuationOf, runCutoffTime, chainId,
-          triggerSource, manualInitiatorUserId,
+          triggerSource, manualInitiatorUserId, isOverflow, inheritedTimeoutCounts,
         );
         allResults.push(result);
       } catch (orgError: any) {
@@ -226,7 +287,7 @@ Deno.serve(async (req) => {
         finished_at: new Date().toISOString(),
         duration_ms: durationMs,
         processed_count: totalSynced,
-        metadata: { run_id: runId, chain_id: chainId, continuation_count: continuationCount, results: allResults.slice(0, 20) },
+        metadata: { run_id: runId, chain_id: chainId, continuation_count: continuationCount, is_overflow: isOverflow, results: allResults.slice(0, 20) },
       });
     } catch { /* non-blocking */ }
 
@@ -268,11 +329,13 @@ Deno.serve(async (req) => {
 
         if (cursor) {
           const nextCount = continuationCount + 1;
+          // Merge item_timeout_counts from this run for the next continuation
+          const mergedTimeoutCounts = { ...inheritedTimeoutCounts, ...(partialResult.item_timeout_counts || {}) };
           console.log(`[daily-sync] Scheduling continuation #${nextCount} for org=${partialResult.org_id} cursor=${cursor.slice(0, 8)} chain=${chainId} (skipped=${ledgerRow?.items_skipped ?? '?'}, reason=${ledgerRow?.failure_reason ?? 'none'})`);
           fetch(`${supabaseUrl}/functions/v1/scheduled-daily-sync`, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${supabaseServiceKey}`,
+              Authorization: `Bearer ${serviceKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
@@ -285,6 +348,8 @@ Deno.serve(async (req) => {
               chain_id: chainId,
               trigger_source: triggerSource,
               manual_initiator_user_id: manualInitiatorUserId,
+              is_overflow: isOverflow,
+              item_timeout_counts: mergedTimeoutCounts,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
           await supabase.from("auto_sync_daily_ledger").update({
@@ -317,6 +382,7 @@ Deno.serve(async (req) => {
       continuation_count: continuationCount,
       max_continuations: MAX_CONTINUATIONS,
       is_continuation: isContinuation,
+      is_overflow: isOverflow,
       run_cutoff_time: runCutoffTime,
       trigger_source: triggerSource,
       orgs: allResults,
@@ -349,6 +415,7 @@ Deno.serve(async (req) => {
             trigger_source: triggerSource,
             organization_id: bodyParams.org_id ?? null,
             is_continuation: isContinuation,
+            is_overflow: isOverflow,
             continuation_of: continuationOf ?? null,
             continuation_count: continuationCount,
             resume_after_id: resumeAfterId ?? null,
@@ -386,14 +453,23 @@ async function syncOrganization(
   chainId?: string,
   triggerSource: string = "CRON",
   manualInitiatorUserId: string | null = null,
-): Promise<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string; skipped?: number; failure_reason?: string }> {
-  console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation} cutoff=${runCutoffTime ?? 'none'}`);
+  isOverflow: boolean = false,
+  inheritedTimeoutCounts: Record<string, number> = {},
+): Promise<{
+  org_id: string; status: string; synced: number; errors: number;
+  dead_lettered: number; timeouts: number; ledger_id?: string;
+  skipped?: number; failure_reason?: string;
+  skipped_radicados?: string[];
+  skipped_reasons?: Record<string, number>;
+  timeout_items?: string[];
+  item_timeout_counts?: Record<string, number>;
+}> {
+  console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation} overflow=${isOverflow} cutoff=${runCutoffTime ?? 'none'}`);
 
   let ledgerId: string;
 
   if (isContinuation && continuationOf) {
     // Item 2: For continuations, check that the org isn't already being synced
-    // by verifying there's no other RUNNING ledger entry for today (besides the chain we belong to)
     const today = new Date().toISOString().slice(0, 10);
     
     const { data: runningEntries } = await supabase
@@ -469,10 +545,27 @@ async function syncOrganization(
   let timeoutCount = 0;
   let cursorLastId: string | null = null;
   let failureReason: string | null = null;
-  const errorSummary: Array<{ work_item_id: string; radicado?: string; error: string; ts: string; is_timeout?: boolean; is_dead_letter?: boolean }> = [];
+  const errorSummary: Array<{
+    work_item_id: string; radicado?: string; error: string; ts: string;
+    is_timeout?: boolean; is_dead_letter?: boolean; skip_reason?: string;
+  }> = [];
+
+  // ── Fix #3: Per-item timeout tracking across the chain ──
+  const itemTimeoutCounts: Record<string, number> = { ...inheritedTimeoutCounts };
+
+  // ── Fix #4: Observability accumulators ──
+  const skippedRadicados: string[] = [];
+  const skippedReasons: Record<string, number> = {};
+  const timeoutItems: string[] = [];
+
+  // Helper to record a skip reason
+  function recordSkip(radicado: string | undefined, reason: string) {
+    if (radicado) skippedRadicados.push(radicado);
+    skippedReasons[reason] = (skippedReasons[reason] || 0) + 1;
+  }
 
   try {
-    // Item 3: Load dead-lettered item IDs for this org to exclude them
+    // Load dead-lettered item IDs for this org to exclude them
     const { data: deadLetterRows } = await supabase
       .from("sync_item_failure_tracker")
       .select("work_item_id")
@@ -480,7 +573,7 @@ async function syncOrganization(
       .eq("dead_lettered", true);
     const deadLetteredIds = (deadLetterRows || []).map((r: any) => r.work_item_id);
 
-    // Count total eligible items — for continuations, count from resume point
+    // Count total eligible items
     const allItems = await selectEligibleWorkItems(supabase, orgId, {
       afterId: isContinuation ? resumeAfterId : undefined,
       cutoffTime: runCutoffTime,
@@ -488,7 +581,7 @@ async function syncOrganization(
     });
     const expectedTotal = allItems.length;
 
-    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} dead_lettered_excluded=${deadLetteredIds.length} continuation=${isContinuation}`);
+    console.log(`[daily-sync] org=${orgId} eligible=${expectedTotal} dead_lettered_excluded=${deadLetteredIds.length} continuation=${isContinuation} overflow=${isOverflow}`);
 
     // Write ledger RUNNING with expected_total
     await updateLedger(supabase, ledgerId, {
@@ -497,10 +590,20 @@ async function syncOrganization(
       expected_total_items: expectedTotal,
     });
 
+    // ── Fix #2 & #3: Items that failed/timed-out this round, eligible for intra-round retry ──
+    interface FailedItem {
+      item: EligibleWorkItem;
+      error: string;
+      isTimeout: boolean;
+      attemptCount: number;
+    }
+
     // Cursor-driven pagination through items, ordered by id ASC
     let cursor: string | undefined = isContinuation ? resumeAfterId : undefined;
     let pageItems: EligibleWorkItem[];
     let processedCount = 0;
+    // Track per-item attempt count within this chain invocation
+    const itemAttemptCounts: Record<string, number> = {};
 
     do {
       // Budget check BEFORE fetching next page
@@ -520,7 +623,9 @@ async function syncOrganization(
 
       if (pageItems.length === 0) break;
 
-      // Process each item with error isolation
+      // ── Process each item with error isolation ──
+      const roundFailures: FailedItem[] = [];
+
       for (const item of pageItems) {
         // Per-item budget check
         if (Date.now() - globalStart > HARD_BUDGET_MS) {
@@ -529,15 +634,61 @@ async function syncOrganization(
           break;
         }
 
+        const attemptNum = (itemAttemptCounts[item.id] || 0) + 1;
+        itemAttemptCounts[item.id] = attemptNum;
+
+        // Check if we've exceeded max attempts for this item in this chain
+        if (attemptNum > MAX_ITEM_ATTEMPTS_PER_CHAIN) {
+          itemsSkipped++;
+          recordSkip(item.radicado, "MAX_ATTEMPTS_EXCEEDED");
+          continue;
+        }
+
         try {
-          // Item 5: Per-item timeout wrapper
           await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS);
           itemsSucceeded++;
-          // Item 3: Reset failure counter on success
+          // Reset failure counter on success
           await resetItemFailures(supabase, item.id);
+          // Reset timeout count on success
+          delete itemTimeoutCounts[item.id];
         } catch (err: any) {
           const isTimeout = err.message?.includes("ITEM_TIMEOUT");
-          if (isTimeout) timeoutCount++;
+          if (isTimeout) {
+            timeoutCount++;
+            const chainTimeouts = (itemTimeoutCounts[item.id] || 0) + 1;
+            itemTimeoutCounts[item.id] = chainTimeouts;
+            if (item.radicado) timeoutItems.push(item.radicado);
+
+            // Fix #3: Check if timeout exhausted (3 timeouts across chain)
+            if (chainTimeouts >= 3) {
+              itemsFailed++;
+              recordSkip(item.radicado, "TIMEOUT_EXHAUSTED");
+              errorSummary.push({
+                work_item_id: item.id,
+                radicado: item.radicado,
+                error: `TIMEOUT_EXHAUSTED: ${chainTimeouts} timeouts across chain`,
+                ts: new Date().toISOString(),
+                is_timeout: true,
+                skip_reason: "TIMEOUT_EXHAUSTED",
+              });
+              // Track failure for dead-lettering
+              const wasDeadLettered = await trackItemFailure(supabase, item.id, orgId, runId, err.message);
+              if (wasDeadLettered) {
+                deadLetterCount++;
+                errorSummary[errorSummary.length - 1].is_dead_letter = true;
+              }
+              continue; // Don't retry — will be picked up by overflow pass
+            }
+          }
+
+          // Collect for intra-round retry
+          roundFailures.push({
+            item,
+            error: (err.message || String(err)).substring(0, 200),
+            isTimeout,
+            attemptCount: attemptNum,
+          });
+
           itemsFailed++;
           errorSummary.push({
             work_item_id: item.id,
@@ -545,19 +696,87 @@ async function syncOrganization(
             error: (err.message || String(err)).substring(0, 200),
             ts: new Date().toISOString(),
             is_timeout: isTimeout,
+            skip_reason: isTimeout ? "TIMEOUT" : "API_ERROR",
           });
-          // Item 3: Track consecutive failure
+
+          // Track consecutive failure
           const wasDeadLettered = await trackItemFailure(supabase, item.id, orgId, runId, err.message);
           if (wasDeadLettered) {
             deadLetterCount++;
             errorSummary[errorSummary.length - 1].is_dead_letter = true;
             console.warn(`[daily-sync] DEAD-LETTERED item=${item.id.slice(0, 8)} radicado=${item.radicado} after ${DEAD_LETTER_THRESHOLD} consecutive failures`);
           }
-          // CONTINUE — never abort on single item failure
         }
 
         cursorLastId = item.id;
         processedCount++;
+      }
+
+      // ── Fix #2: Intra-round retry of failed items (once per item) ──
+      if (roundFailures.length > 0 && !failureReason && Date.now() - globalStart < HARD_BUDGET_MS - 15_000) {
+        const retryableItems = roundFailures.filter(f => {
+          // Don't retry dead-lettered or timeout-exhausted items
+          if (f.isTimeout && (itemTimeoutCounts[f.item.id] || 0) >= 3) return false;
+          // Check max attempts
+          if ((itemAttemptCounts[f.item.id] || 0) >= MAX_ITEM_ATTEMPTS_PER_CHAIN) return false;
+          return true;
+        });
+
+        if (retryableItems.length > 0) {
+          // Fix #3: Apply appropriate backoff delay
+          const maxTimeouts = Math.max(...retryableItems.map(f => itemTimeoutCounts[f.item.id] || 0));
+          const backoffDelay = maxTimeouts >= 2
+            ? TIMEOUT_BACKOFF_MS[1] // 30s for 2nd+ timeout
+            : maxTimeouts >= 1
+              ? TIMEOUT_BACKOFF_MS[0] // 10s for 1st timeout
+              : INTRA_ROUND_RETRY_DELAY_MS; // 5s for non-timeout errors
+
+          console.log(`[daily-sync] org=${orgId} intra-round retry: ${retryableItems.length} items, delay=${backoffDelay}ms`);
+          await new Promise(r => setTimeout(r, backoffDelay));
+
+          for (const { item } of retryableItems) {
+            if (Date.now() - globalStart > HARD_BUDGET_MS) {
+              failureReason = "BUDGET_EXHAUSTED";
+              break;
+            }
+
+            const retryAttemptNum = (itemAttemptCounts[item.id] || 0) + 1;
+            itemAttemptCounts[item.id] = retryAttemptNum;
+
+            if (retryAttemptNum > MAX_ITEM_ATTEMPTS_PER_CHAIN) continue;
+
+            try {
+              await syncSingleItemWithTimeout(supabase, item, orgId, ITEM_TIMEOUT_MS);
+              // Retry succeeded! Fix counts
+              itemsSucceeded++;
+              itemsFailed--; // Undo the earlier failure count
+              await resetItemFailures(supabase, item.id);
+              delete itemTimeoutCounts[item.id];
+              // Remove from skipped tracking
+              const skipIdx = skippedRadicados.indexOf(item.radicado);
+              if (skipIdx >= 0) skippedRadicados.splice(skipIdx, 1);
+              console.log(`[daily-sync] org=${orgId} retry SUCCESS for ${item.radicado}`);
+            } catch (retryErr: any) {
+              const isRetryTimeout = retryErr.message?.includes("ITEM_TIMEOUT");
+              if (isRetryTimeout) {
+                timeoutCount++;
+                itemTimeoutCounts[item.id] = (itemTimeoutCounts[item.id] || 0) + 1;
+                if (item.radicado) timeoutItems.push(item.radicado);
+              }
+              recordSkip(item.radicado, isRetryTimeout ? "TIMEOUT" : "API_ERROR");
+              errorSummary.push({
+                work_item_id: item.id,
+                radicado: item.radicado,
+                error: `RETRY_FAILED: ${(retryErr.message || String(retryErr)).substring(0, 150)}`,
+                ts: new Date().toISOString(),
+                is_timeout: isRetryTimeout,
+                skip_reason: isRetryTimeout ? "TIMEOUT" : "API_ERROR",
+              });
+              // Item stays as failed — it was already counted
+              console.log(`[daily-sync] org=${orgId} retry FAILED for ${item.radicado}: ${retryErr.message?.substring(0, 80)}`);
+            }
+          }
+        }
       }
 
       cursor = pageItems[pageItems.length - 1]?.id;
@@ -585,7 +804,8 @@ async function syncOrganization(
     const totalAttempted = itemsSucceeded + itemsFailed;
     let finalStatus: string;
     if (failureReason === "BUDGET_EXHAUSTED") {
-      finalStatus = "PARTIAL";
+      // Use BUDGET_OVERFLOW if this was an overflow pass
+      finalStatus = isOverflow ? "BUDGET_OVERFLOW" : "PARTIAL";
     } else if (itemsFailed === 0 && totalAttempted >= expectedTotal) {
       finalStatus = "SUCCESS";
     } else if (itemsSucceeded > 0 && totalAttempted > 0) {
@@ -598,6 +818,28 @@ async function syncOrganization(
     } else {
       finalStatus = "FAILED";
     }
+
+    // ── Fix #4: Enriched metadata with skip observability ──
+    const enrichedMetadata = {
+      run_id: runId,
+      chain_id: chainId,
+      run_cutoff_time: runCutoffTime,
+      duration_ms: Date.now() - globalStart,
+      page_size: PAGE_SIZE,
+      budget_ms: HARD_BUDGET_MS,
+      item_timeout_ms: ITEM_TIMEOUT_MS,
+      continuation_count: isContinuation ? (continuationOf ? 'chained' : 'first') : 'initial',
+      is_overflow: isOverflow,
+      items_processed: itemsSucceeded + itemsFailed,
+      remaining_estimate: itemsSkipped,
+      dead_letter_count: deadLetterCount,
+      timeout_count: timeoutCount,
+      dead_lettered_excluded: deadLetteredIds.length,
+      // New observability fields
+      skipped_radicados: skippedRadicados.slice(0, 50),
+      skipped_reasons: skippedReasons,
+      timeout_items: [...new Set(timeoutItems)].slice(0, 50),
+    };
 
     // Final ledger update
     await updateLedger(supabase, ledgerId, {
@@ -612,28 +854,22 @@ async function syncOrganization(
       expected_total_items: expectedTotal,
       dead_letter_count: deadLetterCount,
       timeout_count: timeoutCount,
-      metadata: {
-        run_id: runId,
-        chain_id: chainId,
-        run_cutoff_time: runCutoffTime,
-        duration_ms: Date.now() - globalStart,
-        page_size: PAGE_SIZE,
-        budget_ms: HARD_BUDGET_MS,
-        item_timeout_ms: ITEM_TIMEOUT_MS,
-        continuation_count: isContinuation ? (continuationOf ? 'chained' : 'first') : 'initial',
-        items_processed: itemsSucceeded + itemsFailed,
-        remaining_estimate: itemsSkipped,
-        dead_letter_count: deadLetterCount,
-        timeout_count: timeoutCount,
-        dead_lettered_excluded: deadLetteredIds.length,
-      },
+      metadata: enrichedMetadata,
     });
 
     // Auto-demonitor policy
     await runAutoDemonitor(supabase, orgId);
 
-    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal}`);
-    return { org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed, dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId, skipped: itemsSkipped, failure_reason: failureReason };
+    console.log(`[daily-sync] org=${orgId} done: ${finalStatus} ${itemsSucceeded}✅ ${itemsFailed}❌ ${itemsSkipped}⏭️ ${deadLetterCount}💀 ${timeoutCount}⏱️ / ${expectedTotal} overflow=${isOverflow}`);
+    return {
+      org_id: orgId, status: finalStatus, synced: itemsSucceeded, errors: itemsFailed,
+      dead_lettered: deadLetterCount, timeouts: timeoutCount, ledger_id: ledgerId,
+      skipped: itemsSkipped, failure_reason: failureReason,
+      skipped_radicados: skippedRadicados.slice(0, 50),
+      skipped_reasons: skippedReasons,
+      timeout_items: [...new Set(timeoutItems)].slice(0, 50),
+      item_timeout_counts: itemTimeoutCounts,
+    };
 
   } catch (error: any) {
     // Fatal org-level error
@@ -738,18 +974,17 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
   }
 }
 
-// ─── Item 3: Per-item failure tracking ───
+// ─── Per-item failure tracking ───
 
 async function trackItemFailure(supabase: any, workItemId: string, orgId: string, runId: string, errorMsg?: string): Promise<boolean> {
   try {
-    // Upsert failure tracker
     const { data: existing } = await supabase
       .from("sync_item_failure_tracker")
       .select("consecutive_failures, dead_lettered")
       .eq("work_item_id", workItemId)
       .maybeSingle();
 
-    if (existing?.dead_lettered) return false; // Already dead-lettered
+    if (existing?.dead_lettered) return false;
 
     const newCount = (existing?.consecutive_failures || 0) + 1;
     const shouldDeadLetter = newCount >= DEAD_LETTER_THRESHOLD;
