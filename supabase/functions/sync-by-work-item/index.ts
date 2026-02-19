@@ -147,6 +147,11 @@ interface SyncRequest {
   work_item_id: string;
   force_refresh?: boolean;
   _scheduled?: boolean; // When true, skip auth + org membership check (cron/fallback callers)
+  /** Release-gate payload for deterministic testing (platform admin only) */
+  release_gate?: {
+    force_empty_provider?: string;
+    force_empty_once?: boolean;
+  };
 }
 
 interface ProviderAttempt {
@@ -2660,6 +2665,10 @@ async function executeViaOrchestrator(
     {
       skipEstados: true, // Estados handled by sync-publicaciones-by-work-item
       timeoutMs: 30_000,
+      releaseGate: release_gate ? {
+        forceEmptyProvider: release_gate.force_empty_provider,
+        forceEmptyOnce: release_gate.force_empty_once,
+      } : undefined,
     },
   );
 
@@ -2778,7 +2787,7 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
-    const { work_item_id, _scheduled } = payload;
+    const { work_item_id, _scheduled, release_gate } = payload;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
