@@ -177,3 +177,100 @@ UPDATE provider_coverage_overrides SET enabled = false WHERE provider_key = 'TES
 4. **Coverage overrides are platform-admin-only** — RLS enforced
 5. **Attempt-level recording preserved** — every provider call creates `external_sync_run_attempts` row
 6. **Dynamic providers use the same pipeline** — `provider-sync-external-provider` handles SSRF, mapping, provenance
+
+---
+
+## Release Invariants (Definition of Done)
+
+These invariants MUST hold as new providers are added (6th, 7th, 10th…) without code changes.
+
+### A. Provider Onboarding Invariants (Wizard → Runtime)
+
+1. **Inert by default**: wizard-created providers start with `enabled=false`; no coverage override written unless explicitly configured.
+2. **Registration gate**: orchestrator only registers dynamic providers where `enabled=true` AND at least one active coverage override row exists.
+3. **Built-in baseline**: overrides may only (a) add new providers, (b) change ordering/roles, or (c) explicitly override built-ins when `override_builtin=true`.
+
+### B. Orchestrator Execution Invariants (CHAIN / FANOUT)
+
+1. **CHAIN stop semantics**: a non-empty success stops fall-through. "Empty" / "not_found" falls through. "Error/timeout" falls through only if role semantics permit (configurable).
+2. **FANOUT completeness**: every provider attempt is recorded; canonical dedupe remains `(work_item_id, hash_fingerprint)` with `sources[]` merged additively via RPC upsert.
+3. **Uniform execution**: dynamic providers use the same `safeProviderFetch` wrapper and `getProviderTimeout()` budget as built-ins.
+
+### C. Telemetry Invariants
+
+1. **Attempt-level completeness**: every provider call produces `external_sync_run_attempts` rows with `provider`, `role`, `data_kind`, `status`, `error_code`, `latency_ms`, `inserted_count`/`skipped_count`, correlated by `sync_run_id`.
+2. **Supervisor independence**: wizard changes do not bypass degradation detection; it uses attempts and remains org-scoped.
+3. **Trigger distinguishability**: manual and cron runs remain distinguishable via `trigger_source` and `manual_initiator_user_id` through ledger and heartbeat metadata.
+
+### D. Testing Invariant (`release_gate`)
+
+1. **Platform-admin only**: `release_gate.force_empty_provider` must be hard-disabled for non-platform admins and is no-op unless explicitly passed in the request body (never reads secrets/env).
+2. **Scoped effect**: can only force-empty a single provider per invocation; cannot affect broader runs.
+
+---
+
+## Assertion Queries (4 Proofs + 1 Negative Test)
+
+### Proof 1 — Override row existence
+```sql
+-- After wizard completes, the override row exists and is disabled
+SELECT id, provider_key, workflow_type, data_kind, provider_role, enabled
+FROM provider_coverage_overrides
+WHERE provider_key = '<PROVIDER_KEY>'
+  AND enabled = false;
+-- Expected: exactly 1 row
+```
+
+### Proof 2 — Dynamic provider invocation attempt
+```sql
+-- After enabling override and triggering sync, the dynamic provider was invoked
+SELECT provider, role, data_kind, status, error_code, latency_ms,
+       inserted_count, skipped_count, sync_run_id
+FROM external_sync_run_attempts
+WHERE provider = '<PROVIDER_KEY>'
+  AND created_at > now() - interval '15 minutes'
+ORDER BY recorded_at DESC
+LIMIT 5;
+-- Expected: ≥1 row with latency_ms > 0
+```
+
+### Proof 3 — Zero deduplication violations
+```sql
+-- No duplicate (work_item_id, hash_fingerprint) pairs exist
+SELECT work_item_id, hash_fingerprint, count(*) AS dupes
+FROM work_item_acts
+WHERE work_item_id = '<WORK_ITEM_ID>'
+GROUP BY work_item_id, hash_fingerprint
+HAVING count(*) > 1;
+-- Expected: 0 rows
+```
+
+### Proof 4 — Rollback evidence (no residue after disable)
+```sql
+-- After setting enabled=false and re-triggering sync, no new attempts appear
+SELECT count(*) AS post_disable_attempts
+FROM external_sync_run_attempts
+WHERE provider = '<PROVIDER_KEY>'
+  AND recorded_at > '<DISABLE_TIMESTAMP>';
+-- Expected: 0
+```
+
+### Negative Test — Disabled override produces no registration or attempts
+```sql
+-- Override exists but enabled=false → orchestrator must NOT register or invoke
+-- Step 1: Verify override is disabled
+SELECT id, provider_key, enabled
+FROM provider_coverage_overrides
+WHERE provider_key = '<PROVIDER_KEY>' AND enabled = false;
+-- Expected: 1 row
+
+-- Step 2: Trigger sync, then verify zero attempts
+SELECT count(*) AS attempts_while_disabled
+FROM external_sync_run_attempts
+WHERE provider = '<PROVIDER_KEY>'
+  AND recorded_at > '<SYNC_TRIGGER_TIMESTAMP>';
+-- Expected: 0
+
+-- Step 3: Verify orchestrator logs show 0 dynamic providers registered
+-- (check edge function logs for "Registered 0 dynamic provider(s)" or absence of provider key)
+```
