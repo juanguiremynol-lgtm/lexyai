@@ -32,10 +32,17 @@
 
 import {
   getProviderCoverage,
+  getProviderCoverageWithOverrides,
+  loadCoverageOverrides,
+  type CoverageOverrideRow,
   type DataKind,
   type ProviderEntry,
   type ExecutionMode,
 } from "./providerCoverageMatrix.ts";
+import {
+  createDynamicProviderAdapter,
+  type DynamicProviderConfig,
+} from "./genericRemoteAdapter.ts";
 import {
   determineFoundStatus,
   shouldTriggerFallback,
@@ -146,8 +153,14 @@ const PROVIDER_TIMEOUT_MS: Record<string, number> = {
   TUTELAS: 90_000,
 };
 
-/** Get timeout for a specific provider, falling back to default */
-export function getProviderTimeout(providerKey: string): number {
+/** Get timeout for a specific provider, falling back to default.
+ *  Also checks dynamic overrides if provided. */
+export function getProviderTimeout(providerKey: string, overrides?: CoverageOverrideRow[]): number {
+  // Check dynamic overrides first
+  if (overrides) {
+    const override = overrides.find((o) => o.provider_key.toUpperCase() === providerKey.toUpperCase() && o.timeout_ms);
+    if (override?.timeout_ms) return override.timeout_ms;
+  }
   return PROVIDER_TIMEOUT_MS[providerKey] || DEFAULT_PROVIDER_TIMEOUT_MS;
 }
 
@@ -781,9 +794,35 @@ export async function orchestrateSync(
     timeoutMs?: number;
     signal?: AbortSignal;
     skipRunRecord?: boolean; // For demo/test where we don't want DB writes
+    /** Pre-loaded coverage overrides (avoids re-querying) */
+    coverageOverrides?: CoverageOverrideRow[];
   },
 ): Promise<SyncRunResult> {
   const startTime = Date.now();
+
+  // Load coverage overrides (dynamic providers from DB)
+  const overrides = options?.coverageOverrides ?? await loadCoverageOverrides(supabase);
+
+  // Register dynamic providers from overrides into the fetch registry
+  const dynamicKeys = new Set<string>();
+  for (const ov of overrides) {
+    const key = ov.provider_key.toUpperCase();
+    // Only add if not already in registry (built-in takes precedence unless override_builtin)
+    if (!fetchFnRegistry.has(key) || ov.override_builtin) {
+      if (ov.provider_type === "EXTERNAL" && ov.connector_id) {
+        fetchFnRegistry.set(key, createDynamicProviderAdapter({
+          providerKey: key,
+          connectorId: ov.connector_id,
+          timeoutMs: ov.timeout_ms || undefined,
+        }));
+        dynamicKeys.add(key);
+      }
+    }
+  }
+
+  if (dynamicKeys.size > 0) {
+    console.log(`[syncOrchestrator] Registered ${dynamicKeys.size} dynamic provider(s): ${[...dynamicKeys].join(", ")}`);
+  }
 
   // Create sync run record
   const syncRunId = options?.skipRunRecord
@@ -798,8 +837,8 @@ export async function orchestrateSync(
   let overallFoundStatus: FoundStatus = "NOT_FOUND";
 
   try {
-    // Phase 1: Actuaciones
-    const actCoverage = getProviderCoverage(ctx.workflowType, "ACTUACIONES");
+    // Phase 1: Actuaciones — use override-aware coverage
+    const actCoverage = getProviderCoverageWithOverrides(ctx.workflowType, "ACTUACIONES", overrides);
     if (actCoverage.compatible && actCoverage.providers.length > 0) {
       const actResult = await executeSync(
         "ACTUACIONES",
@@ -826,9 +865,9 @@ export async function orchestrateSync(
       }
     }
 
-    // Phase 2: Estados (unless skipped)
+    // Phase 2: Estados (unless skipped) — use override-aware coverage
     if (!options?.skipEstados) {
-      const estCoverage = getProviderCoverage(ctx.workflowType, "ESTADOS");
+      const estCoverage = getProviderCoverageWithOverrides(ctx.workflowType, "ESTADOS", overrides);
       if (estCoverage.compatible && estCoverage.providers.length > 0) {
         const estResult = await executeSync(
           "ESTADOS",

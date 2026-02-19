@@ -270,3 +270,104 @@ export function routeScopeToDataKinds(scope: string): DataKind[] {
       return ["ACTUACIONES"];
   }
 }
+
+// ── Dynamic coverage overlay from DB ──
+
+export interface CoverageOverrideRow {
+  workflow_type: string;
+  data_kind: DataKind;
+  provider_key: string;
+  provider_role: ProviderRole;
+  provider_type: "BUILTIN" | "EXTERNAL";
+  execution_mode: ExecutionMode;
+  priority: number;
+  override_builtin: boolean;
+  connector_id: string | null;
+  timeout_ms: number | null;
+  enabled: boolean;
+}
+
+/**
+ * Load enabled coverage overrides from DB.
+ * Returns empty array if query fails (fail-open to preserve existing behavior).
+ */
+export async function loadCoverageOverrides(
+  supabase: any,
+): Promise<CoverageOverrideRow[]> {
+  try {
+    const { data, error } = await supabase
+      .from("provider_coverage_overrides")
+      .select("*")
+      .eq("enabled", true)
+      .order("priority", { ascending: true });
+    if (error) {
+      console.warn("[providerCoverageMatrix] Failed to load overrides:", error.message);
+      return [];
+    }
+    return (data || []) as CoverageOverrideRow[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Merge DB overrides with the hardcoded coverage matrix.
+ *
+ * Rules:
+ *   - If override has override_builtin=true AND matches a built-in key, replace it
+ *   - Otherwise, APPEND dynamic providers to the existing list
+ *   - If overrides specify a different execution_mode for a (workflow, dataKind),
+ *     the override's mode wins ONLY if there are override entries for that combo
+ *   - Built-in providers are preserved unless explicitly overridden
+ */
+export function getProviderCoverageWithOverrides(
+  workflowType: string,
+  dataKind: DataKind,
+  overrides: CoverageOverrideRow[],
+): CoverageResult {
+  const baseCoverage = getProviderCoverage(workflowType, dataKind);
+
+  // Filter overrides for this workflow+dataKind
+  const relevantOverrides = overrides.filter(
+    (o) => o.workflow_type === workflowType && o.data_kind === dataKind,
+  );
+
+  if (relevantOverrides.length === 0) {
+    return baseCoverage;
+  }
+
+  // Determine which built-in keys are being overridden
+  const overriddenKeys = new Set(
+    relevantOverrides
+      .filter((o) => o.override_builtin)
+      .map((o) => o.provider_key.toUpperCase()),
+  );
+
+  // Keep non-overridden built-in providers
+  const keptProviders = baseCoverage.providers.filter(
+    (p) => !overriddenKeys.has(p.key.toUpperCase()),
+  );
+
+  // Convert overrides to ProviderEntry
+  const dynamicProviders: ProviderEntry[] = relevantOverrides.map((o) => ({
+    key: o.provider_key.toUpperCase(),
+    role: o.provider_role,
+    type: o.provider_type,
+  }));
+
+  // Merge: kept builtins + dynamic providers, sorted by priority
+  // Dynamic providers with lower priority numbers go first
+  const allProviders = [...keptProviders, ...dynamicProviders];
+
+  // Determine execution mode: if any override specifies FANOUT, use FANOUT
+  const overrideMode = relevantOverrides.some((o) => o.execution_mode === "FANOUT")
+    ? "FANOUT"
+    : baseCoverage.executionMode;
+
+  return {
+    providers: allProviders,
+    compatible: true,
+    executionMode: overrideMode,
+    reason: `${baseCoverage.reason} + ${dynamicProviders.length} dynamic provider(s)`,
+  };
+}

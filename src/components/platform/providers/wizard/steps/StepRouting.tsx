@@ -49,6 +49,14 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
   const [maxProviders, setMaxProviders] = useState(2);
   const [maxMs, setMaxMs] = useState(15000);
 
+  // Coverage override state (PLATFORM mode only — attaches provider to orchestrator)
+  const [coverageWorkflows, setCoverageWorkflows] = useState<string[]>([]);
+  const [coverageDataKinds, setCoverageDataKinds] = useState<string[]>(["ACTUACIONES"]);
+  const [coverageExecMode, setCoverageExecMode] = useState("CHAIN");
+  const [coveragePriority, setCoveragePriority] = useState(100);
+  const [coverageRole, setCoverageRole] = useState("PRIMARY");
+  const [coverageOverrideBuiltin, setCoverageOverrideBuiltin] = useState(false);
+
   const addRouteMutation = useMutation({
     mutationFn: async () => {
       if (!workflow) throw new Error("Seleccione un workflow");
@@ -74,6 +82,26 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
           ? { workflow, scope, strategy: "MERGE", merge_mode: mergeMode, merge_budget_max_providers: maxProviders, merge_budget_max_ms: maxMs }
           : { organization_id: organizationId, workflow, scope, strategy: "MERGE", merge_mode: mergeMode, merge_budget_max_providers: maxProviders, merge_budget_max_ms: maxMs };
         await invokeWithSession(policyFn, { body: policyBody });
+      }
+
+      // PLATFORM mode: also create coverage overrides for orchestrator discovery
+      if (isPlatform && coverageWorkflows.length > 0 && coverageDataKinds.length > 0) {
+        for (const cw of coverageWorkflows) {
+          for (const dk of coverageDataKinds) {
+            await supabase.from("provider_coverage_overrides").upsert({
+              workflow_type: cw,
+              data_kind: dk,
+              provider_key: connector.key.toUpperCase(),
+              provider_role: coverageRole,
+              provider_type: "EXTERNAL",
+              execution_mode: coverageExecMode,
+              priority: coveragePriority,
+              override_builtin: coverageOverrideBuiltin,
+              connector_id: connector.id,
+              enabled: false, // Start disabled — enabled after E2E passes
+            }, { onConflict: "workflow_type,data_kind,provider_key" });
+          }
+        }
       }
 
       return data;
@@ -194,6 +222,86 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
             )}
           </CollapsibleContent>
         </Collapsible>
+
+        {/* Coverage Override Section (PLATFORM mode only) */}
+        {isPlatform && (
+          <div className="space-y-3 border border-primary/20 rounded-lg p-4 bg-primary/5">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Plus className="h-4 w-4 text-primary" />
+              Vincular al Orchestrator (Coverage)
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Selecciona los workflows y tipos de datos donde el orchestrator incluirá este proveedor automáticamente.
+              El proveedor se creará <strong>deshabilitado</strong> — actívalo después de pasar E2E.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Workflows</Label>
+                <div className="flex flex-wrap gap-1">
+                  {SYNC_WORKFLOWS.map((wf) => (
+                    <Badge
+                      key={wf}
+                      variant={coverageWorkflows.includes(wf) ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setCoverageWorkflows((prev) =>
+                        prev.includes(wf) ? prev.filter((w) => w !== wf) : [...prev, wf]
+                      )}
+                    >
+                      {wf}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Data Kinds</Label>
+                <div className="flex flex-wrap gap-1">
+                  {(["ACTUACIONES", "ESTADOS"] as const).map((dk) => (
+                    <Badge
+                      key={dk}
+                      variant={coverageDataKinds.includes(dk) ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setCoverageDataKinds((prev) =>
+                        prev.includes(dk) ? prev.filter((d) => d !== dk) : [...prev, dk]
+                      )}
+                    >
+                      {dk}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Execution Mode</Label>
+                <Select value={coverageExecMode} onValueChange={setCoverageExecMode}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CHAIN">CHAIN</SelectItem>
+                    <SelectItem value="FANOUT">FANOUT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Role</Label>
+                <Select value={coverageRole} onValueChange={setCoverageRole}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRIMARY">PRIMARY</SelectItem>
+                    <SelectItem value="FALLBACK">FALLBACK</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Prioridad</Label>
+                <Input type="number" min={0} value={coveragePriority} onChange={(e) => setCoveragePriority(Number(e.target.value))} className="h-8 text-xs" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={coverageOverrideBuiltin} onCheckedChange={setCoverageOverrideBuiltin} />
+              <Label className="text-xs text-muted-foreground">Override built-in provider (solo si este reemplaza un built-in existente)</Label>
+            </div>
+          </div>
+        )}
 
         {routingConfigured && (
           <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
