@@ -1836,6 +1836,7 @@ export type Database = {
           items_targeted: number | null
           last_error: string | null
           last_heartbeat_at: string | null
+          manual_initiator_user_id: string | null
           metadata: Json | null
           organization_id: string
           retry_count: number | null
@@ -1846,6 +1847,7 @@ export type Database = {
           started_at: string | null
           status: Database["public"]["Enums"]["daily_sync_status"]
           timeout_count: number | null
+          trigger_source: string
           updated_at: string
         }
         Insert: {
@@ -1869,6 +1871,7 @@ export type Database = {
           items_targeted?: number | null
           last_error?: string | null
           last_heartbeat_at?: string | null
+          manual_initiator_user_id?: string | null
           metadata?: Json | null
           organization_id: string
           retry_count?: number | null
@@ -1879,6 +1882,7 @@ export type Database = {
           started_at?: string | null
           status?: Database["public"]["Enums"]["daily_sync_status"]
           timeout_count?: number | null
+          trigger_source?: string
           updated_at?: string
         }
         Update: {
@@ -1902,6 +1906,7 @@ export type Database = {
           items_targeted?: number | null
           last_error?: string | null
           last_heartbeat_at?: string | null
+          manual_initiator_user_id?: string | null
           metadata?: Json | null
           organization_id?: string
           retry_count?: number | null
@@ -1912,6 +1917,7 @@ export type Database = {
           started_at?: string | null
           status?: Database["public"]["Enums"]["daily_sync_status"]
           timeout_count?: number | null
+          trigger_source?: string
           updated_at?: string
         }
         Relationships: [
