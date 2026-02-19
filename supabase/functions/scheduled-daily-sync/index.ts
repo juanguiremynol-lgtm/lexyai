@@ -66,6 +66,8 @@ Deno.serve(async (req) => {
     continuation_count?: number;
     run_cutoff_time?: string;
     chain_id?: string;
+    trigger_source?: string;
+    manual_initiator_user_id?: string;
   } = {};
   try {
     if (req.method === "POST") {
@@ -79,8 +81,9 @@ Deno.serve(async (req) => {
   const continuationCount = bodyParams.continuation_count ?? 0;
   // Item 1: run_cutoff_time — initial run sets it, continuations reuse it
   const runCutoffTime = bodyParams.run_cutoff_time || (isContinuation ? undefined : new Date().toISOString());
-  // Chain ID: same across all continuations of one daily run
   const chainId = bodyParams.chain_id || runId;
+  const triggerSource = bodyParams.trigger_source || "CRON";
+  const manualInitiatorUserId = bodyParams.manual_initiator_user_id || null;
 
   // Guard: max continuations to prevent infinite loops
   if (isContinuation && continuationCount >= MAX_CONTINUATIONS) {
@@ -168,6 +171,7 @@ Deno.serve(async (req) => {
           supabase, supabaseUrl, supabaseServiceKey, orgId, runId, startTime,
           isContinuation ? resumeAfterId : undefined,
           isContinuation, continuationOf, runCutoffTime, chainId,
+          triggerSource, manualInitiatorUserId,
         );
         allResults.push(result);
       } catch (orgError: any) {
@@ -254,6 +258,8 @@ Deno.serve(async (req) => {
               continuation_count: nextCount,
               run_cutoff_time: effectiveCutoff,
               chain_id: chainId,
+              trigger_source: triggerSource,
+              manual_initiator_user_id: manualInitiatorUserId,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
           // Record continuation enqueued
@@ -321,7 +327,9 @@ async function syncOrganization(
   continuationOf?: string,
   runCutoffTime?: string,
   chainId?: string,
-): Promise<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string }> {
+  triggerSource: string = "CRON",
+  manualInitiatorUserId: string | null = null,
+): Promise<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string; skipped?: number; failure_reason?: string }> {
   console.log(`[daily-sync] org=${orgId} starting continuation=${isContinuation} cutoff=${runCutoffTime ?? 'none'}`);
 
   let ledgerId: string;
@@ -362,6 +370,8 @@ async function syncOrganization(
         continuation_of: continuationOf,
         started_at: new Date().toISOString(),
         last_heartbeat_at: new Date().toISOString(),
+        trigger_source: triggerSource,
+        manual_initiator_user_id: manualInitiatorUserId,
       })
       .select("id")
       .single();
@@ -383,10 +393,15 @@ async function syncOrganization(
     }
     ledgerId = lock.ledger_id;
 
-    // Write chain_id and run_cutoff_time to ledger on initial acquisition
+    // Write chain_id, run_cutoff_time, trigger_source to ledger on initial acquisition
     await supabase
       .from("auto_sync_daily_ledger")
-      .update({ chain_id: chainId, run_cutoff_time: runCutoffTime })
+      .update({
+        chain_id: chainId,
+        run_cutoff_time: runCutoffTime,
+        trigger_source: triggerSource,
+        manual_initiator_user_id: manualInitiatorUserId,
+      })
       .eq("id", ledgerId);
   }
 
