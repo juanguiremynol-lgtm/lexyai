@@ -8540,6 +8540,68 @@ export type Database = {
           },
         ]
       }
+      provider_coverage_overrides: {
+        Row: {
+          connector_id: string | null
+          created_at: string
+          created_by: string | null
+          data_kind: string
+          enabled: boolean
+          execution_mode: string
+          id: string
+          override_builtin: boolean
+          priority: number
+          provider_key: string
+          provider_role: string
+          provider_type: string
+          timeout_ms: number | null
+          updated_at: string
+          workflow_type: string
+        }
+        Insert: {
+          connector_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_kind: string
+          enabled?: boolean
+          execution_mode?: string
+          id?: string
+          override_builtin?: boolean
+          priority?: number
+          provider_key: string
+          provider_role?: string
+          provider_type?: string
+          timeout_ms?: number | null
+          updated_at?: string
+          workflow_type: string
+        }
+        Update: {
+          connector_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_kind?: string
+          enabled?: boolean
+          execution_mode?: string
+          id?: string
+          override_builtin?: boolean
+          priority?: number
+          provider_key?: string
+          provider_role?: string
+          provider_type?: string
+          timeout_ms?: number | null
+          updated_at?: string
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_coverage_overrides_connector_id_fkey"
+            columns: ["connector_id"]
+            isOneToOne: false
+            referencedRelation: "provider_connectors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_instance_secrets: {
         Row: {
           cipher_text: string
