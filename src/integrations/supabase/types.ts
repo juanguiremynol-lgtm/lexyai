@@ -12800,6 +12800,7 @@ export type Database = {
         | "SUCCESS"
         | "PARTIAL"
         | "FAILED"
+        | "BUDGET_OVERFLOW"
       data_source: "CPNU" | "PUBLICACIONES" | "HISTORICO"
       document_kind:
         | "DEMANDA"
@@ -13177,7 +13178,14 @@ export const Constants = {
         "EJECUCION_CUMPLIMIENTO",
         "ARCHIVADO",
       ],
-      daily_sync_status: ["PENDING", "RUNNING", "SUCCESS", "PARTIAL", "FAILED"],
+      daily_sync_status: [
+        "PENDING",
+        "RUNNING",
+        "SUCCESS",
+        "PARTIAL",
+        "FAILED",
+        "BUDGET_OVERFLOW",
+      ],
       data_source: ["CPNU", "PUBLICACIONES", "HISTORICO"],
       document_kind: [
         "DEMANDA",
