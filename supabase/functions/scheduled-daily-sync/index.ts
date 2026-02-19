@@ -13,6 +13,11 @@ import {
   selectEligibleWorkItems,
   type EligibleWorkItem,
 } from "../_shared/sync-eligibility.ts";
+import {
+  startHeartbeat,
+  finishHeartbeat,
+  type HeartbeatHandle,
+} from "../_shared/platformJobHeartbeat.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -94,12 +99,37 @@ Deno.serve(async (req) => {
     );
   }
 
-  console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'}`);
+  console.log(`[daily-sync] START run_id=${runId} chain_id=${chainId} continuation=${isContinuation} count=${continuationCount} resume=${resumeAfterId?.slice(0, 8) ?? 'none'} budget_ms=${HARD_BUDGET_MS} cutoff=${runCutoffTime ?? 'inherited'} trigger=${triggerSource}`);
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return new Response(
+      JSON.stringify({ ok: false, error: "Missing Supabase configuration", run_id: runId, chain_id: chainId }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  // ── Heartbeat: start (try/finally guarantees finish) ──
+  let hb: HeartbeatHandle | null = null;
+  let topLevelError: Error | null = null;
+  let responsePayload: Record<string, unknown> = {};
+  let httpStatus = 200;
+
+  // Accumulators visible to finally
+  let totalSynced = 0;
+  let totalErrors = 0;
+  let totalDeadLettered = 0;
+  let totalTimeouts = 0;
 
   try {
-    if (!supabaseUrl || !supabaseServiceKey) throw new Error("Missing Supabase configuration");
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    hb = await startHeartbeat(supabase, "scheduled-daily-sync", triggerSource === "MANUAL" ? "manual_ui" : "cron", {
+      run_id: runId,
+      chain_id: chainId,
+      trigger_source: triggerSource,
+      continuation_count: continuationCount,
+      is_continuation: isContinuation,
+    });
 
     // ── Pre-flight API check BEFORE processing items ──
     if (!isContinuation) {
@@ -115,15 +145,16 @@ Deno.serve(async (req) => {
 
           if (pfData.overall === "CRITICAL_FAILURE" && pfData.decision === "DELAY_SYNC") {
             console.warn("[daily-sync] Pre-flight CRITICAL — delaying sync");
+            responsePayload = {
+              ok: false,
+              run_id: runId,
+              chain_id: chainId,
+              delayed: true,
+              reason: "preflight_critical",
+              preflight: { overall: pfData.overall, decision: pfData.decision },
+            };
             return new Response(
-              JSON.stringify({
-                ok: false,
-                run_id: runId,
-                chain_id: chainId,
-                delayed: true,
-                reason: "preflight_critical",
-                preflight: { overall: pfData.overall, decision: pfData.decision },
-              }),
+              JSON.stringify(responsePayload),
               { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
@@ -159,7 +190,7 @@ Deno.serve(async (req) => {
     }
     console.log(`[daily-sync] ${orgIds.length} org(s) with eligible items`);
 
-    const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string }> = [];
+    const allResults: Array<{ org_id: string; status: string; synced: number; errors: number; dead_lettered: number; timeouts: number; ledger_id?: string; skipped?: number; failure_reason?: string }> = [];
 
     for (const orgId of orgIds) {
       if (Date.now() - startTime > HARD_BUDGET_MS) {
@@ -181,10 +212,10 @@ Deno.serve(async (req) => {
     }
 
     const durationMs = Date.now() - startTime;
-    const totalSynced = allResults.reduce((s, r) => s + r.synced, 0);
-    const totalErrors = allResults.reduce((s, r) => s + r.errors, 0);
-    const totalDeadLettered = allResults.reduce((s, r) => s + r.dead_lettered, 0);
-    const totalTimeouts = allResults.reduce((s, r) => s + r.timeouts, 0);
+    totalSynced = allResults.reduce((s, r) => s + r.synced, 0);
+    totalErrors = allResults.reduce((s, r) => s + r.errors, 0);
+    totalDeadLettered = allResults.reduce((s, r) => s + r.dead_lettered, 0);
+    totalTimeouts = allResults.reduce((s, r) => s + r.timeouts, 0);
 
     // Legacy job_runs log
     try {
@@ -200,7 +231,6 @@ Deno.serve(async (req) => {
     } catch { /* non-blocking */ }
 
     // ── AUTO-CONTINUATION: Schedule follow-up for PARTIAL/BUDGET_EXHAUSTED runs ──
-    // Fix A: Continue on PARTIAL (including BUDGET_EXHAUSTED) not just SUCCESS
     const partialOrgs = allResults.filter(r =>
       r.status === "PARTIAL" || r.status === "CONTINUING" ||
       (r.status === "FAILED" && r.failure_reason === "BUDGET_EXHAUSTED")
@@ -214,13 +244,10 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         const cursor = ledgerRow?.cursor_last_work_item_id;
-        // Reuse the run_cutoff_time from ledger (or from our current value)
         const effectiveCutoff = ledgerRow?.run_cutoff_time || runCutoffTime;
 
-        // No-progress detection: if cursor didn't advance, stop chaining
         if (cursor && cursor === resumeAfterId) {
           console.warn(`[daily-sync] No progress detected for org=${partialResult.org_id} — cursor unchanged (${cursor.slice(0, 8)}). Stopping chain.`);
-          // Record block reason on ledger
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: false,
             continuation_block_reason: "NO_PROGRESS_CURSOR_UNCHANGED",
@@ -228,8 +255,6 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // Fix A: Allow continuation even if synced=0, as long as there are skipped items
-        // (BUDGET_EXHAUSTED means items were skipped without being attempted)
         const hasSkippedWork = (ledgerRow?.items_skipped ?? partialResult.skipped ?? 0) > 0;
         const hasBudgetExhaustion = (ledgerRow?.failure_reason === "BUDGET_EXHAUSTED") || (partialResult.failure_reason === "BUDGET_EXHAUSTED");
         if (partialResult.synced === 0 && !hasSkippedWork && !hasBudgetExhaustion) {
@@ -262,7 +287,6 @@ Deno.serve(async (req) => {
               manual_initiator_user_id: manualInitiatorUserId,
             }),
           }).catch(err => console.warn(`[daily-sync] Continuation trigger failed:`, err));
-          // Record continuation enqueued
           await supabase.from("auto_sync_daily_ledger").update({
             continuation_enqueued: true,
           }).eq("id", partialResult.ledger_id);
@@ -284,33 +308,62 @@ Deno.serve(async (req) => {
       }).catch(() => {});
     }
 
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        run_id: runId,
-        chain_id: chainId,
-        duration_ms: durationMs,
-        budget_ms: HARD_BUDGET_MS,
-        continuation_count: continuationCount,
-        max_continuations: MAX_CONTINUATIONS,
-        is_continuation: isContinuation,
-        run_cutoff_time: runCutoffTime,
-        orgs: allResults,
-        continuations_scheduled: partialOrgs.length,
-        total_synced: totalSynced,
-        total_errors: totalErrors,
-        total_dead_lettered: totalDeadLettered,
-        total_timeouts: totalTimeouts,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    responsePayload = {
+      ok: true,
+      run_id: runId,
+      chain_id: chainId,
+      duration_ms: durationMs,
+      budget_ms: HARD_BUDGET_MS,
+      continuation_count: continuationCount,
+      max_continuations: MAX_CONTINUATIONS,
+      is_continuation: isContinuation,
+      run_cutoff_time: runCutoffTime,
+      trigger_source: triggerSource,
+      orgs: allResults,
+      continuations_scheduled: partialOrgs.length,
+      total_synced: totalSynced,
+      total_errors: totalErrors,
+      total_dead_lettered: totalDeadLettered,
+      total_timeouts: totalTimeouts,
+    };
+    httpStatus = 200;
   } catch (error: any) {
+    topLevelError = error;
     console.error("[daily-sync] Fatal:", error.message);
-    return new Response(
-      JSON.stringify({ ok: false, error: error.message, run_id: runId, chain_id: chainId }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    responsePayload = { ok: false, error: error.message, run_id: runId, chain_id: chainId };
+    httpStatus = 500;
+  } finally {
+    // ── Heartbeat: ALWAYS finalize ──
+    if (hb) {
+      const hbStatus: "OK" | "ERROR" = topLevelError ? "ERROR" : totalErrors > 0 ? "ERROR" : "OK";
+      const errorCode = topLevelError ? "UNHANDLED_EXCEPTION"
+        : totalErrors > 0 ? "PARTIAL_FAILURES"
+        : null;
+      try {
+        await finishHeartbeat(supabase, hb, hbStatus, {
+          errorCode: errorCode ?? undefined,
+          errorMessage: topLevelError?.message ?? (totalErrors > 0 ? `${totalErrors} item errors across orgs` : undefined),
+          metadata: {
+            run_id: runId,
+            chain_id: chainId,
+            trigger_source: triggerSource,
+            continuation_count: continuationCount,
+            total_synced: totalSynced,
+            total_errors: totalErrors,
+            total_dead_lettered: totalDeadLettered,
+            total_timeouts: totalTimeouts,
+          },
+        });
+      } catch (hbErr) {
+        console.error("[daily-sync] CRITICAL: finishHeartbeat failed:", hbErr);
+      }
+    }
   }
+
+  return new Response(
+    JSON.stringify(responsePayload),
+    { status: httpStatus, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
 });
 
 // ─── Per-org sync with cursor pagination, error isolation, budget tracking ───
