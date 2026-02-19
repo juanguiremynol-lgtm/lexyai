@@ -48,7 +48,6 @@ const navItems = [
   { title: "Alertas", url: "/app/alerts", icon: Bell },
   { title: "Utilidades", url: "/app/utilities", icon: Wrench },
   { title: "Enlaces", url: "/app/links", icon: Link2 },
-  { title: "Email", url: "/app/email", icon: Mail },
 ];
 
 const settingsItems = [
