@@ -2608,6 +2608,7 @@ async function executeViaOrchestrator(
   supabase: any,
   traceId: string,
   isScheduled: boolean,
+  releaseGate?: { force_empty_provider?: string; force_empty_once?: boolean },
 ): Promise<OrchestratorExecResult> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -2665,9 +2666,9 @@ async function executeViaOrchestrator(
     {
       skipEstados: true, // Estados handled by sync-publicaciones-by-work-item
       timeoutMs: 30_000,
-      releaseGate: release_gate ? {
-        forceEmptyProvider: release_gate.force_empty_provider,
-        forceEmptyOnce: release_gate.force_empty_once,
+      releaseGate: releaseGate ? {
+        forceEmptyProvider: releaseGate.force_empty_provider,
+        forceEmptyOnce: releaseGate.force_empty_once,
       } : undefined,
     },
   );
@@ -2956,7 +2957,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled);
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, release_gate);
 
       // Transfer orchestrator results into SyncResult
       result.provider_attempts = orchExec.providerAttempts;
