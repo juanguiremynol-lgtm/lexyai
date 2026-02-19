@@ -12419,6 +12419,41 @@ export type Database = {
           terms_version: string
         }[]
       }
+      get_chain_org_history: {
+        Args: { p_chain_id: string; p_org_id: string }
+        Returns: {
+          continuation_block_reason: string
+          created_at: string
+          dead_letter_count: number
+          failure_reason: string
+          finished_at: string
+          id: string
+          is_continuation: boolean
+          items_failed: number
+          items_skipped: number
+          items_succeeded: number
+          started_at: string
+          status: string
+        }[]
+      }
+      get_chain_progress: {
+        Args: { p_chain_id: string }
+        Returns: {
+          chain_id: string
+          continuation_block_reason: string
+          created_at: string
+          dead_letter_count: number
+          finished_at: string
+          items_failed: number
+          items_skipped: number
+          items_succeeded: number
+          organization_id: string
+          started_at: string
+          status: string
+          timeout_count: number
+          trigger_source: string
+        }[]
+      }
       get_data_protection_summary: { Args: never; Returns: Json }
       get_effective_alert_email: {
         Args: { p_membership_id: string }
