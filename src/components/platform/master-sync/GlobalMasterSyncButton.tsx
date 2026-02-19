@@ -3,7 +3,7 @@
  * server-side `global-master-sync` edge function (enqueue + kick pattern).
  *
  * The function returns quickly with a master_chain_id. The UI then polls
- * the auto_sync_daily_ledger for progress across all orgs in the chain.
+ * via get_chain_progress RPC (server-side DISTINCT ON per org) for progress.
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -30,18 +30,17 @@ interface KickResult {
   error?: string;
 }
 
-interface LedgerRow {
-  id: string;
+interface OrgProgress {
   organization_id: string;
   status: string;
-  items_targeted: number;
+  trigger_source: string;
+  chain_id: string;
   items_succeeded: number;
   items_failed: number;
   items_skipped: number;
   dead_letter_count: number;
   timeout_count: number;
-  is_continuation: boolean;
-  failure_reason: string | null;
+  continuation_block_reason: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -57,75 +56,32 @@ interface ChainProgress {
   total_items_skipped: number;
   total_dead_letter: number;
   all_done: boolean;
-  org_details: Array<{
-    org_id: string;
-    status: string;
-    items_succeeded: number;
-    items_failed: number;
-    items_skipped: number;
-    items_targeted: number;
-    dead_letter_count: number;
-    chain_rows: number;
-  }>;
+  org_details: OrgProgress[];
 }
 
 type Phase = "idle" | "kicking" | "polling" | "done" | "error";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-function aggregateChainProgress(rows: LedgerRow[]): ChainProgress {
-  // Group by org, take the latest row per org for status
-  const orgMap = new Map<string, LedgerRow[]>();
-  for (const r of rows) {
-    const arr = orgMap.get(r.organization_id) || [];
-    arr.push(r);
-    orgMap.set(r.organization_id, arr);
-  }
-
-  const orgDetails: ChainProgress["org_details"] = [];
-  let totalSucceeded = 0, totalFailed = 0, totalSkipped = 0, totalDL = 0;
+function aggregateFromOrgRows(rows: OrgProgress[]): ChainProgress {
+  const terminalStatuses = ["SUCCESS", "FAILED", "PARTIAL"];
   let orgsDone = 0, orgsError = 0, orgsRunning = 0;
+  let totalSucceeded = 0, totalFailed = 0, totalSkipped = 0, totalDL = 0;
 
-  for (const [orgId, orgRows] of orgMap) {
-    // Sort by created_at desc to get latest
-    orgRows.sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const latest = orgRows[0];
-
-    // Sum across all chain rows for this org
-    const succeeded = orgRows.reduce((s, r) => s + (r.items_succeeded || 0), 0);
-    const failed = orgRows.reduce((s, r) => s + (r.items_failed || 0), 0);
-    const skipped = latest.items_skipped || 0; // only latest matters for remaining
-    const dl = orgRows.reduce((s, r) => s + (r.dead_letter_count || 0), 0);
-    const targeted = orgRows[orgRows.length - 1].items_targeted || 0; // first row has total
-
-    const terminalStatuses = ["SUCCESS", "FAILED", "PARTIAL"];
-    const isTerminal = terminalStatuses.includes(latest.status) && !latest.is_continuation;
-    // A chain is done if latest row is terminal AND no continuation is pending
-    const chainDone = terminalStatuses.includes(latest.status);
-
-    if (chainDone && latest.status === "SUCCESS") orgsDone++;
-    else if (chainDone && (latest.status === "FAILED" || latest.status === "PARTIAL")) orgsError++;
+  for (const r of rows) {
+    const isTerminal = terminalStatuses.includes(r.status);
+    if (isTerminal && r.status === "SUCCESS") orgsDone++;
+    else if (isTerminal) orgsError++;
     else orgsRunning++;
 
-    totalSucceeded += succeeded;
-    totalFailed += failed;
-    totalSkipped += skipped;
-    totalDL += dl;
-
-    orgDetails.push({
-      org_id: orgId,
-      status: latest.status,
-      items_succeeded: succeeded,
-      items_failed: failed,
-      items_skipped: skipped,
-      items_targeted: targeted,
-      dead_letter_count: dl,
-      chain_rows: orgRows.length,
-    });
+    totalSucceeded += r.items_succeeded || 0;
+    totalFailed += r.items_failed || 0;
+    totalSkipped += r.items_skipped || 0;
+    totalDL += r.dead_letter_count || 0;
   }
 
   return {
-    total_orgs: orgMap.size,
+    total_orgs: rows.length,
     orgs_done: orgsDone,
     orgs_error: orgsError,
     orgs_running: orgsRunning,
@@ -134,7 +90,7 @@ function aggregateChainProgress(rows: LedgerRow[]): ChainProgress {
     total_items_skipped: totalSkipped,
     total_dead_letter: totalDL,
     all_done: orgsRunning === 0,
-    org_details: orgDetails,
+    org_details: rows,
   };
 }
 
@@ -157,17 +113,14 @@ export function GlobalMasterSyncButton() {
   const pollProgress = useCallback((chainId: string) => {
     const poll = async () => {
       try {
-        const { data: rows, error } = await supabase
-          .from("auto_sync_daily_ledger")
-          .select(
-            "id, organization_id, status, items_targeted, items_succeeded, items_failed, items_skipped, dead_letter_count, timeout_count, is_continuation, failure_reason, started_at, finished_at, created_at"
-          )
-          .eq("chain_id", chainId)
-          .order("created_at", { ascending: true });
+        // Server-side DISTINCT ON (organization_id) — no client aggregation needed
+        const { data: rows, error } = await supabase.rpc("get_chain_progress", {
+          p_chain_id: chainId,
+        });
 
-        if (error || !rows) return;
+        if (error || !rows || rows.length === 0) return;
 
-        const agg = aggregateChainProgress(rows as LedgerRow[]);
+        const agg = aggregateFromOrgRows(rows as OrgProgress[]);
         setProgress(agg);
 
         if (agg.all_done) {
@@ -395,11 +348,11 @@ function ProgressSummary({ progress }: { progress: ChainProgress }) {
   );
 }
 
-function OrgDetails({ details }: { details: ChainProgress["org_details"] }) {
+function OrgDetails({ details }: { details: OrgProgress[] }) {
   return (
     <div className="space-y-1 max-h-48 overflow-y-auto">
       {details.map((d) => (
-        <div key={d.org_id} className="flex items-center gap-2 text-xs font-mono p-1.5 rounded bg-muted/30">
+        <div key={d.organization_id} className="flex items-center gap-2 text-xs font-mono p-1.5 rounded bg-muted/30">
           <span className={
             d.status === "SUCCESS" ? "text-green-500" :
             d.status === "FAILED" ? "text-destructive" :
@@ -408,12 +361,14 @@ function OrgDetails({ details }: { details: ChainProgress["org_details"] }) {
           }>
             {d.status}
           </span>
-          <span className="text-muted-foreground truncate max-w-[120px]" title={d.org_id}>
-            {d.org_id.slice(0, 8)}…
+          <span className="text-muted-foreground truncate max-w-[120px]" title={d.organization_id}>
+            {d.organization_id.slice(0, 8)}…
           </span>
           <span>✓{d.items_succeeded} ✗{d.items_failed} ⏭{d.items_skipped}</span>
           {d.dead_letter_count > 0 && <span>💀{d.dead_letter_count}</span>}
-          {d.chain_rows > 1 && <span className="text-muted-foreground">({d.chain_rows} runs)</span>}
+          {d.continuation_block_reason && (
+            <span className="text-muted-foreground text-[10px]" title={d.continuation_block_reason}>⚠️</span>
+          )}
         </div>
       ))}
     </div>
