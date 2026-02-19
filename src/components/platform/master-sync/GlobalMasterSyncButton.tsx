@@ -111,14 +111,37 @@ export function GlobalMasterSyncButton() {
   }, []);
 
   const pollProgress = useCallback((chainId: string) => {
+    let consecutiveErrors = 0;
+
     const poll = async () => {
       try {
-        // Server-side DISTINCT ON (organization_id) — no client aggregation needed
         const { data: rows, error } = await supabase.rpc("get_chain_progress", {
           p_chain_id: chainId,
         });
 
-        if (error || !rows || rows.length === 0) return;
+        if (error) {
+          const msg = error.message || "";
+          // Auth/permission error → stop polling immediately, don't retry
+          if (msg.includes("platform admin") || msg.includes("Not authorized") || error.code === "42501") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setPhase("error");
+            toast.error("Acceso denegado: se requiere rol de platform admin");
+            return;
+          }
+          // Transient error → exponential backoff (stop after 5 consecutive)
+          consecutiveErrors++;
+          if (consecutiveErrors >= 5) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            setPhase("error");
+            toast.error("Polling detenido tras errores consecutivos");
+          }
+          return;
+        }
+
+        consecutiveErrors = 0; // reset on success
+        if (!rows || rows.length === 0) return;
 
         const agg = aggregateFromOrgRows(rows as OrgProgress[]);
         setProgress(agg);
@@ -135,7 +158,12 @@ export function GlobalMasterSyncButton() {
           }
         }
       } catch {
-        // Non-blocking poll failure
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setPhase("error");
+        }
       }
     };
 
