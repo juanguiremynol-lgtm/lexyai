@@ -669,6 +669,8 @@ async function detectAndEscalateDegradation(
   const DEBOUNCE_MINUTES = 15;
 
   for (const [provider, health] of Object.entries(providerHealth)) {
+    // Skip entries with missing/invalid provider names
+    if (!provider || provider === 'none' || provider === 'null' || provider === 'undefined') continue;
     if (health.status !== "degraded" && health.status !== "down") continue;
 
     // D) Skip if sample too small — unless absolute error count is high
