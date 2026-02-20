@@ -48,6 +48,10 @@ import {
   inferCourtEmail,
   saveCourtEmailContribution,
 } from "@/lib/court-header-utils";
+import { HonorariosSection } from "@/components/documents/HonorariosSection";
+import { ServiceObjectSection } from "@/components/documents/ServiceObjectSection";
+import type { HonorariosData } from "@/lib/honorarios-utils";
+import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -396,6 +400,10 @@ export default function WorkItemDocumentWizard() {
   const [savedDocId, setSavedDocId] = useState("");
   const [unpopulatedVars, setUnpopulatedVars] = useState<string[]>([]);
 
+  // Phase 3.11: Honorarios state
+  const [honorariosData, setHonorariosData] = useState<HonorariosData>(createDefaultHonorariosData());
+  const [serviceObject, setServiceObject] = useState('');
+
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
     queryKey: ["work-item-doc-gen", workItemId],
@@ -543,18 +551,18 @@ export default function WorkItemDocumentWizard() {
       vars.radicado_clause = vars.radicado
         ? `, identificado con radicado No. <strong>${vars.radicado}</strong>` : "";
 
-      const amount = vars.honorarios_amount || "[MONTO]";
-      const type = vars.honorarios_type || "Honorarios fijos";
-      if (type.toLowerCase().includes("cuota litis")) {
-        const pct = vars.honorarios_percentage || "[%]";
-        vars.honorarios_clause = `Las partes acuerdan como honorarios profesionales una cuota litis del <strong>${pct}%</strong> sobre el resultado favorable del proceso, con un monto mínimo de <strong>$${amount} COP</strong>.`;
-      } else {
-        vars.honorarios_clause = `Las partes acuerdan como honorarios profesionales la suma de <strong>$${amount} COP</strong> (${type}).`;
+      // Use service object if available
+      if (serviceObject) {
+        vars.case_description = serviceObject;
       }
+
+      // Generate honorarios clause from structured data
+      vars.honorarios_clause = generateHonorariosClause(honorariosData);
+      vars.payment_schedule = generatePaymentScheduleText(honorariosData);
     }
 
     setVariables(vars);
-  }, [docType, workItem, profile, org, clientData]);
+  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject]);
 
   const template = LEGAL_TEMPLATES[docType];
 
@@ -997,8 +1005,35 @@ export default function WorkItemDocumentWizard() {
                     </div>
                   )}
 
-                  {/* Standard variable fields */}
-                  {editableVars.map((v) => (
+                  {/* Contract-specific: Service Object + Honorarios */}
+                  {docType === "contrato_servicios" && (
+                    <>
+                      <ServiceObjectSection
+                        value={serviceObject || variables.case_description || ''}
+                        onChange={(val) => {
+                          setServiceObject(val);
+                          setVariables(p => ({ ...p, case_description: val }));
+                        }}
+                        opposingParty={variables.opposing_party}
+                        courtCity={variables.city}
+                        workflowType={workItem?.workflow_type}
+                      />
+                      <Separator />
+                      <HonorariosSection data={honorariosData} onChange={setHonorariosData} />
+                      <Separator />
+                    </>
+                  )}
+
+                  {/* Standard variable fields — filter out honorarios/service fields for contracts */}
+                  {editableVars
+                    .filter(v => {
+                      if (docType === "contrato_servicios") {
+                        // Hide fields now handled by dedicated sections
+                        return !["honorarios_amount", "honorarios_type", "honorarios_percentage", "payment_schedule", "case_description"].includes(v.key);
+                      }
+                      return true;
+                    })
+                    .map((v) => (
                     <div key={v.key} className="space-y-1">
                       <div className="flex items-center gap-2">
                         {variables[v.key]?.trim() ? (
@@ -1009,24 +1044,12 @@ export default function WorkItemDocumentWizard() {
                         <Label className="text-sm">{v.label}</Label>
                         {v.required && <Badge variant="outline" className="text-[10px] h-4">Requerido</Badge>}
                       </div>
-                      {v.key === "faculties" || v.key === "payment_schedule" || v.key === "case_description" ? (
+                      {v.key === "faculties" ? (
                         <Textarea
                           value={variables[v.key] || ""}
                           onChange={(e) => setVariables((p) => ({ ...p, [v.key]: e.target.value }))}
                           rows={4}
                         />
-                      ) : v.key === "honorarios_type" ? (
-                        <Select
-                          value={variables[v.key] || "Honorarios fijos"}
-                          onValueChange={(val) => setVariables((p) => ({ ...p, [v.key]: val }))}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Honorarios fijos">Honorarios fijos</SelectItem>
-                            <SelectItem value="Cuota litis">Cuota litis (%)</SelectItem>
-                            <SelectItem value="Retainer mensual">Retainer mensual</SelectItem>
-                          </SelectContent>
-                        </Select>
                       ) : (
                         <Input
                           value={variables[v.key] || ""}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { PostCreationDocumentPrompt } from "@/components/documents/PostCreationDocumentPrompt";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -143,6 +144,10 @@ export function CreateWorkItemWizard({
   const [newClientIdNumber, setNewClientIdNumber] = useState('');
   
   const createWorkItem = useCreateWorkItem();
+  
+  // Post-creation document prompt state
+  const [showDocPrompt, setShowDocPrompt] = useState(false);
+  const [createdWorkItem, setCreatedWorkItem] = useState<any>(null);
   
   // Fetch clients
   const { data: clients = [] } = useQuery({
@@ -448,7 +453,6 @@ export function CreateWorkItemWizard({
     
     createWorkItem.mutate(data, {
       onSuccess: (workItem) => {
-        // Invalidate queries to refresh pipelines
         queryClient.invalidateQueries({ queryKey: ["work-items"] });
         queryClient.invalidateQueries({ queryKey: ["cgp-work-items"] });
         queryClient.invalidateQueries({ queryKey: ["cpaca-work-items"] });
@@ -457,9 +461,10 @@ export function CreateWorkItemWizard({
         onOpenChange(false);
         onSuccess?.();
         
-        // Navigate to the newly created work item detail page
+        // Show post-creation document prompt instead of navigating directly
         if (workItem?.id) {
-          navigate(`/app/work-items/${workItem.id}`);
+          setCreatedWorkItem(workItem);
+          setShowDocPrompt(true);
         }
       },
     });
