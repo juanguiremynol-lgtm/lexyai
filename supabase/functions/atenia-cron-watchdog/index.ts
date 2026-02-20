@@ -646,6 +646,105 @@ Deno.serve(async (req) => {
     }
 
     // ================================================================
+    // 5e2) LAYER 3A: Freshness vs Data Consistency (Sync Invariant Guard)
+    // Catches regression: last_synced_at advancing while zero data present
+    // ================================================================
+    try {
+      const { data: suspiciousItems } = await admin.rpc("execute_readonly_query" as any, {
+        query_text: `
+          SELECT wi.id, wi.workflow_type, wi.last_synced_at::text,
+            (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id)::int as act_count,
+            (SELECT COUNT(*) FROM work_item_publicaciones WHERE work_item_id = wi.id)::int as pub_count
+          FROM work_items wi
+          WHERE wi.monitoring_enabled = true
+            AND wi.last_synced_at > NOW() - INTERVAL '48 hours'
+            AND wi.created_at < NOW() - INTERVAL '24 hours'
+            AND wi.deleted_at IS NULL
+            AND (SELECT COUNT(*) FROM work_item_acts WHERE work_item_id = wi.id) = 0
+          LIMIT 50
+        `.trim(),
+      }).catch(() => ({ data: null }));
+
+      // Fallback: use direct query if RPC not available
+      let freshnessViolations: any[] = [];
+      if (suspiciousItems && Array.isArray(suspiciousItems)) {
+        freshnessViolations = suspiciousItems;
+      } else {
+        // Direct query approach
+        const { data: directCheck } = await admin
+          .from("work_items")
+          .select("id, workflow_type, last_synced_at")
+          .eq("monitoring_enabled", true)
+          .is("deleted_at", null)
+          .gt("last_synced_at", new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+          .lt("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+          .limit(200);
+
+        if (directCheck) {
+          // Check each for zero acts (requires N queries, limit sample)
+          for (const item of directCheck.slice(0, 50)) {
+            const { count } = await admin
+              .from("work_item_acts")
+              .select("id", { count: "exact", head: true })
+              .eq("work_item_id", item.id);
+            if ((count ?? 0) === 0) {
+              freshnessViolations.push({ ...item, act_count: 0 });
+            }
+          }
+        }
+      }
+
+      results.freshness_vs_data = {
+        violations: freshnessViolations.length,
+      };
+
+      if (freshnessViolations.length > 0) {
+        const itemList = freshnessViolations.slice(0, 5).map((i: any) =>
+          `${i.id} (${i.workflow_type})`
+        ).join(", ");
+
+        alerts.push({
+          title: `🚨 [INVARIANT] ${freshnessViolations.length} items show synced but have zero data`,
+          message: `last_synced_at is lying: ${freshnessViolations.length} monitored item(s) have recent last_synced_at but zero actuaciones. Sample: ${itemList}`,
+          severity: "CRITICAL",
+        });
+
+        // Log as AI action for audit trail
+        try {
+          await admin.from("atenia_ai_actions").insert({
+            organization_id: "a0000000-0000-0000-0000-000000000001",
+            action_type: "WATCHDOG_INVARIANT_VIOLATION",
+            autonomy_tier: "AUTONOMOUS",
+            reasoning: `FRESHNESS_VS_DATA invariant violated: ${freshnessViolations.length} items with recent last_synced_at but zero acts.`,
+            action_taken: "INVARIANT_ALERT_FIRED",
+            action_result: "CRITICAL",
+            evidence: {
+              violation_type: "FRESHNESS_VS_DATA",
+              count: freshnessViolations.length,
+              sample: freshnessViolations.slice(0, 10).map((i: any) => ({
+                id: i.id,
+                workflow_type: i.workflow_type,
+                last_synced_at: i.last_synced_at,
+              })),
+            },
+          });
+        } catch (_) { /* non-fatal */ }
+
+        // Reset last_synced_at for affected items (auto-remediation)
+        for (const item of freshnessViolations) {
+          try {
+            await admin.from("work_items").update({
+              last_synced_at: null,
+              last_error_code: "FRESHNESS_VS_DATA_VIOLATION",
+            } as any).eq("id", item.id);
+          } catch (_) { /* non-fatal */ }
+        }
+      }
+    } catch (e) {
+      console.warn("[watchdog] Freshness vs data check error:", e);
+    }
+
+    //
     // 5f) Fix D: Deep Dive TTL — auto-timeout RUNNING deep dives > 30min
     // ================================================================
     const DEEP_DIVE_TTL_MS = 30 * 60 * 1000; // 30 minutes
