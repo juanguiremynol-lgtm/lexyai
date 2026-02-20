@@ -28,6 +28,8 @@ import { AteniaProviderHealthDashboard } from "./atenia-ai/AteniaProviderHealthD
 import { AteniaOperationsInbox } from "./atenia-ai/AteniaOperationsInbox";
 import { AteniaThreadView } from "./atenia-ai/AteniaThreadView";
 import { AteniaEdgeFunctionLiveness } from "./atenia-ai/AteniaEdgeFunctionLiveness";
+import { AteniaRunbookPanel } from "./atenia-ai/AteniaRunbookPanel";
+import { AteniaE2EProviderTester } from "./atenia-ai/AteniaE2EProviderTester";
 // AteniaCronHealthPanel is now integrated into AutopilotDashboard
 import { loadConfig } from "@/lib/services/atenia-ai-engine";
 import { runAutonomyCycle } from "@/lib/services/atenia-ai-autonomy-engine";
@@ -637,6 +639,12 @@ export function AteniaAISupervisorPanel() {
               onSelectConversation={setSelectedConversationId}
             />
           )}
+
+          {/* Daily Runbook */}
+          <AteniaRunbookPanel />
+
+          {/* E2E Provider Tester */}
+          <AteniaE2EProviderTester />
 
           {/* Daily Sync Health Gate */}
           <DailySyncHealthGate />

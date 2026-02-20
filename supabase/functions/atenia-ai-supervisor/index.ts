@@ -51,7 +51,8 @@ interface AteniaAIInput {
     | "PROCESS_QUEUE"
     | "MANUAL_RUN"
     | "WATCHDOG"
-    | "ASSURANCE_CHECK";
+    | "ASSURANCE_CHECK"
+    | "RUN_DAILY_RUNBOOK";
   organization_id?: string;
   run_date?: string;
   dry_run?: boolean;
@@ -2288,6 +2289,74 @@ Deno.serve(async (req) => {
         outputs,
         watchdog_light: watchdogLightResult,
         snapshot: snap,
+        duration_ms: Date.now() - startTime,
+      });
+    }
+
+    // ─── RUN_DAILY_RUNBOOK mode ───
+    if (input.mode === "RUN_DAILY_RUNBOOK") {
+      const { DAILY_RUNBOOK } = await import("../_shared/dailyRunbook.ts");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const stepResults: Array<{ job_name: string; label: string; status: string; duration_ms: number; detail?: unknown }> = [];
+
+      for (const step of DAILY_RUNBOOK) {
+        const stepStart = Date.now();
+        try {
+          // Use atenia_try_start_cron for idempotency
+          const scheduledFor = new Date(Math.floor(Date.now() / (60 * 60 * 1000)) * (60 * 60 * 1000)).toISOString();
+          const { data: claimData } = await supabase.rpc("atenia_try_start_cron", {
+            p_job_name: step.job_name,
+            p_scheduled_for: scheduledFor,
+            p_lease_seconds: step.timeout_seconds,
+          });
+          const claim = claimData?.[0];
+          if (!claim?.ok) {
+            stepResults.push({ job_name: step.job_name, label: step.label, status: "SKIPPED_LEASE", duration_ms: Date.now() - stepStart });
+            continue;
+          }
+
+          const resp = await fetch(`${supabaseUrl}/functions/v1/${step.edge_function}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify(step.body),
+          });
+          const body = await resp.json().catch(() => ({ status: resp.status }));
+
+          await supabase.rpc("atenia_finish_cron", {
+            p_run_id: claim.run_id,
+            p_status: resp.ok ? "OK" : "FAILED",
+            p_details: { triggered_by: "runbook_manual", result: body },
+          });
+
+          // Log as action
+          await logAction(supabase, {
+            actor: "ATENIA",
+            action_type: "RUNBOOK_STEP",
+            summary: `${step.label}: ${resp.ok ? "OK" : "FAILED"}`,
+            evidence: { job_name: step.job_name, status: resp.status, run_id: claim.run_id },
+            is_reversible: false,
+            autonomy_tier: "ACT",
+            reasoning: `Runbook step ${step.job_name} executed`,
+          });
+
+          stepResults.push({
+            job_name: step.job_name,
+            label: step.label,
+            status: resp.ok ? "OK" : "FAILED",
+            duration_ms: Date.now() - stepStart,
+            detail: body,
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          stepResults.push({ job_name: step.job_name, label: step.label, status: "ERROR", duration_ms: Date.now() - stepStart, detail: msg });
+        }
+      }
+
+      return json({
+        ok: true,
+        mode: "RUN_DAILY_RUNBOOK",
+        steps: stepResults,
         duration_ms: Date.now() - startTime,
       });
     }
