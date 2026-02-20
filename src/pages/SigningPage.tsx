@@ -129,14 +129,36 @@ export default function SigningPage() {
     if (atBottom) setHasScrolledToBottom(true);
   }, []);
 
+  // Back navigation warning when signing is in progress
+  const isSigningInProgress = step === "review" || step === "sign";
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isSigningInProgress) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isSigningInProgress]);
+
+  // Signing progress steps
+  const [signingProgress, setSigningProgress] = useState<string[]>([]);
+
   const handleSign = useCallback(async () => {
-    if (!consentChecked || !drawnSignature) return;
+    if (!consentChecked || !drawnSignature || signing) return; // Double-submit guard
     // Validate signature complexity
     const validate = (window as any).__signatureCanvasValidate;
     if (validate && !validate()) return;
 
     setSigning(true);
+    setSigningProgress(["Firmando documento..."]);
     try {
+      // Simulate progress steps (actual work is server-side)
+      const progressTimer1 = setTimeout(() => setSigningProgress(p => [...p, "Generando certificado..."]), 2000);
+      const progressTimer2 = setTimeout(() => setSigningProgress(p => [...p, "Almacenando documento..."]), 4000);
+      const progressTimer3 = setTimeout(() => setSigningProgress(p => [...p, "Enviando confirmación..."]), 6000);
+
       const data = await callEdgeFunction("complete-signature", {
         signing_token: token,
         signature_method: "drawn",
@@ -145,6 +167,11 @@ export default function SigningPage() {
         consent_given: true,
         geolocation: null,
       });
+
+      clearTimeout(progressTimer1);
+      clearTimeout(progressTimer2);
+      clearTimeout(progressTimer3);
+
       if (data.ok) {
         setSignResult(data);
         setStep("done");
@@ -155,8 +182,9 @@ export default function SigningPage() {
       toast.error("Error de conexión");
     } finally {
       setSigning(false);
+      setSigningProgress([]);
     }
-  }, [token, consentChecked, drawnSignature]);
+  }, [token, consentChecked, drawnSignature, signing]);
 
   // ─── Header Component ───
   const Header = () => (
@@ -375,8 +403,27 @@ export default function SigningPage() {
                     style={{ backgroundColor: "#1a1a2e" }}
                   >
                     {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-                    Firmar Documento
+                    {signing ? "Procesando..." : "Firmar Documento"}
                   </Button>
+
+                  {/* Signing progress overlay */}
+                  {signing && signingProgress.length > 0 && (
+                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Procesando su firma. Por favor espere...
+                      </p>
+                      {signingProgress.map((msg, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          {i < signingProgress.length - 1 ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                          ) : (
+                            <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                          )}
+                          <span>{msg}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <p className="text-xs text-center text-muted-foreground">
                     Al firmar, acepta que su firma electrónica tiene la misma validez legal que una firma manuscrita,

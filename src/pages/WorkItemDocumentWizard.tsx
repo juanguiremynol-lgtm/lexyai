@@ -210,14 +210,66 @@ export default function WorkItemDocumentWizard() {
     }
   };
 
+  // Variable label mapping for user-facing error messages
+  const VARIABLE_LABELS: Record<string, string> = {
+    client_full_name: "Nombre completo del cliente",
+    client_cedula: "Cédula del cliente",
+    client_cedula_city: "Ciudad de expedición cédula",
+    client_email: "Correo del cliente",
+    client_phone: "Teléfono del cliente",
+    client_address: "Dirección del cliente",
+    lawyer_full_name: "Nombre del abogado",
+    lawyer_cedula: "Cédula del abogado",
+    lawyer_tarjeta_profesional: "Tarjeta profesional del abogado",
+    radicado: "Número de radicado",
+    court_name: "Nombre del juzgado",
+    opposing_party: "Parte contraria",
+    case_type: "Tipo de proceso",
+    case_description: "Descripción del asunto",
+    city: "Ciudad",
+    date: "Fecha",
+    faculties: "Facultades",
+    honorarios_amount: "Valor de los honorarios",
+    honorarios_type: "Tipo de honorarios",
+    honorarios_percentage: "Porcentaje cuota litis",
+    payment_schedule: "Forma de pago",
+    contract_duration: "Duración del contrato",
+    firm_name: "Nombre de la firma",
+    firm_nit: "NIT de la firma",
+    firm_address: "Dirección de la firma",
+  };
+
+  // Find unpopulated {{variable}} placeholders in rendered HTML
+  function findUnpopulatedVariables(html: string): string[] {
+    const pattern = /\{\{(\w+)\}\}/g;
+    const missing: string[] = [];
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+      if (!missing.includes(match[1])) missing.push(match[1]);
+    }
+    return missing;
+  }
+
+  const [unpopulatedVars, setUnpopulatedVars] = useState<string[]>([]);
+
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
+    if (finalizing) return; // Double-submit guard
 
     const signerEmail = variables.client_email;
     if (!signerEmail) {
       toast.error("Se requiere el correo electrónico del cliente para enviar a firma");
       return;
     }
+
+    // Check for unpopulated template variables
+    const unpopulated = findUnpopulatedVariables(renderedHtml);
+    if (unpopulated.length > 0) {
+      setUnpopulatedVars(unpopulated);
+      toast.error("El documento contiene campos sin completar");
+      return;
+    }
+    setUnpopulatedVars([]);
 
     setFinalizing(true);
     try {
@@ -516,6 +568,23 @@ export default function WorkItemDocumentWizard() {
             <div className="flex items-center gap-2 text-amber-600 text-sm">
               <AlertCircle className="h-4 w-4" />
               Complete los campos requeridos antes de enviar: {missingRequired.map((v) => v.label).join(", ")}
+            </div>
+          )}
+
+          {unpopulatedVars.length > 0 && (
+            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-destructive font-medium text-sm">
+                <AlertCircle className="h-4 w-4" />
+                No se puede finalizar el documento. Los siguientes campos están sin completar:
+              </div>
+              <ul className="list-disc list-inside text-sm text-destructive/80 space-y-1">
+                {unpopulatedVars.map((v) => (
+                  <li key={v}>{VARIABLE_LABELS[v] || v}</li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">
+                Vuelva al paso 2 para completar las variables faltantes.
+              </p>
             </div>
           )}
         </div>
