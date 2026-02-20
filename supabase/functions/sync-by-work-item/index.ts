@@ -4306,18 +4306,53 @@ Deno.serve(async (req) => {
     // ============= UPDATE WORK ITEM METADATA =============
     // Strategy: ALWAYS UPDATE work_item with latest provider data (overwrite)
     // This ensures metadata stays fresh on each sync
+    // ── Layer 2A: Sync Integrity Check ──
+    // Build provider results map for integrity validation
+    const integrityProviderResults: Record<string, { called: boolean; statusCode: number; recordsReceived: number; recordsUpserted: number; status: string; error?: string }> = {};
+    for (const attempt of result.provider_attempts) {
+      integrityProviderResults[attempt.provider] = {
+        called: true,
+        statusCode: attempt.status === 'success' ? 200 : (attempt.status === 'timeout' ? 0 : 500),
+        recordsReceived: attempt.actuacionesCount || 0,
+        recordsUpserted: result.inserted_count, // approximation for primary provider
+        status: attempt.status === 'success' ? 'SUCCESS' : (attempt.status === 'empty' ? 'EMPTY' : (attempt.status === 'timeout' ? 'TIMEOUT' : 'ERROR')),
+        error: attempt.message || undefined,
+      };
+    }
+
+    // Validate sync integrity before setting last_synced_at
+    const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
+    const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout' || a.status === 'not_found');
+
+    const syncOk = anyProviderSucceeded && !allProvidersFailed;
+    const nowIso = new Date().toISOString();
+
+    if (!syncOk) {
+      console.warn(`[SYNC_INTEGRITY_FAIL] ALL_PROVIDERS_FAILED for work_item ${work_item_id}. last_synced_at will NOT advance.`, {
+        providers: result.provider_attempts.map(a => ({ provider: a.provider, status: a.status })),
+        correlationId: traceId,
+      });
+    }
+
     const updatePayload: Record<string, unknown> = {
-      scrape_status: result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS',
-      last_crawled_at: new Date().toISOString(),
-      last_checked_at: new Date().toISOString(),
-      last_synced_at: new Date().toISOString(),
+      scrape_status: allProvidersFailed ? 'FAILED' : (result.errors.length > 0 ? 'PARTIAL_SUCCESS' : 'SUCCESS'),
+      last_crawled_at: nowIso,
+      last_checked_at: nowIso,
+      last_attempted_sync_at: nowIso, // ALWAYS update attempt timestamp
+      // CRITICAL INVARIANT: last_synced_at only advances on actual success
+      ...(syncOk ? { last_synced_at: nowIso } : {}),
       total_actuaciones: fetchResult.actuaciones.length,
       scrape_provider: fetchResult.provider,
-      // Reset all failure counters on success
-      consecutive_404_count: 0,
-      consecutive_failures: 0,
-      last_error_code: null,
-      provider_reachable: true,
+      // Reset failure counters only on success
+      ...(syncOk ? {
+        consecutive_404_count: 0,
+        consecutive_failures: 0,
+        last_error_code: null,
+        provider_reachable: true,
+      } : {
+        provider_reachable: false,
+        last_error_code: result.code || 'ALL_PROVIDERS_FAILED',
+      }),
     };
 
     if (latestDate) {
