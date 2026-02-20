@@ -19,7 +19,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const LAUNCH_AT_ISO = Deno.env.get("VITE_LAUNCH_AT_ISO") || "2026-03-01T05:00:00Z";
+const LAUNCH_AT_ISO = Deno.env.get("VITE_LAUNCH_AT_ISO") || "2026-05-01T05:00:00Z";
 const PLATFORM_ORG_ID = "00000000-0000-0000-0000-000000000000";
 const BATCH_SIZE = 50;
 

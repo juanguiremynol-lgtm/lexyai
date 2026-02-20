@@ -314,7 +314,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ═══ PRE-LAUNCH GATE (server-side enforcement) ═══
-    const LAUNCH_AT = new Date("2026-03-01T05:00:00Z");
+    const LAUNCH_AT = new Date("2026-05-01T05:00:00Z");
     const launchMode = Deno.env.get("LAUNCH_MODE") || "AUTO";
     const isPrelaunch = launchMode === "FORCE_PRELAUNCH" || (launchMode !== "FORCE_LIVE" && new Date() < LAUNCH_AT);
     if (isPrelaunch && body.action === "rate-check") {

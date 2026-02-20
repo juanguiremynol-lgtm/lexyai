@@ -1,7 +1,7 @@
 /**
  * Launch Gate — Single source of truth for pre-launch / live state.
  *
- * LAUNCH_AT: 2026-03-01 00:00:00 America/Bogota (UTC-5) = 2026-03-01T05:00:00Z
+ * LAUNCH_AT: 2026-05-01 00:00:00 America/Bogota (UTC-5) = 2026-05-01T05:00:00Z
  *
  * Modes:
  *   AUTO          — isLive = now >= LAUNCH_AT  (default, production)
@@ -14,7 +14,7 @@
  *   VITE_PRELAUNCH_ALLOWLIST_EMAILS — comma-separated emails for early access
  */
 
-export const LAUNCH_AT_ISO = import.meta.env.VITE_LAUNCH_AT_ISO || "2026-03-01T05:00:00Z";
+export const LAUNCH_AT_ISO = import.meta.env.VITE_LAUNCH_AT_ISO || "2026-05-01T05:00:00Z";
 
 export type LaunchMode = "AUTO" | "FORCE_PRELAUNCH" | "FORCE_LIVE";
 export type LaunchPhase = "PRELAUNCH" | "LIVE";
