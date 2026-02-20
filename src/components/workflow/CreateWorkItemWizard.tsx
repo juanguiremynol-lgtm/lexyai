@@ -520,6 +520,7 @@ export function CreateWorkItemWizard({
   const totalSteps = workflowType && workflowUsesRadicado(workflowType) ? 4 : 3;
   
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh]">
         <DialogHeader>
@@ -1254,6 +1255,17 @@ export function CreateWorkItemWizard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <PostCreationDocumentPrompt
+      open={showDocPrompt}
+      onOpenChange={setShowDocPrompt}
+      workItemId={createdWorkItem?.id || ""}
+      workItemTitle={createdWorkItem?.title || ""}
+      workflowType={createdWorkItem?.workflow_type || ""}
+      radicado={createdWorkItem?.radicado || ""}
+      clientName={createdWorkItem?.demandantes || ""}
+    />
+    </>
   );
 }
 // --- Helper: Auto-fill badge ---
