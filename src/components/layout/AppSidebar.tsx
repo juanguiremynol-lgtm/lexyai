@@ -12,6 +12,7 @@ import {
   ShieldAlert,
   Newspaper,
   Mail,
+  FileSignature,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -46,6 +47,7 @@ const navItems = [
   { title: "Audiencias", url: "/app/hearings", icon: CalendarDays },
   { title: "Tareas", url: "/app/tasks", icon: CheckSquare },
   { title: "Alertas", url: "/app/alerts", icon: Bell },
+  { title: "Documentos", url: "/app/documentos-legales", icon: FileSignature },
   { title: "Utilidades", url: "/app/utilities", icon: Wrench },
   { title: "Enlaces", url: "/app/links", icon: Link2 },
 ];
