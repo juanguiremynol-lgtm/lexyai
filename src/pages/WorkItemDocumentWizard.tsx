@@ -1,6 +1,6 @@
 /**
  * WorkItemDocumentWizard — Multi-step document generation wizard for work items.
- * Phase 3.8: Multi-party & legal entity support for Poder Especial.
+ * Phase 3.10: Court header, litigation email, email-only sharing for Poder Especial.
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -21,7 +21,7 @@ import {
 import {
   FileText, ArrowLeft, ArrowRight, Send, Save, Loader2,
   CheckCircle2, AlertCircle, Eye, Mail, Link2, Copy, Check, Clock,
-  User, Users, Building2, Trash2, Plus,
+  User, Users, Building2, Trash2, Plus, Ban,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -39,6 +39,15 @@ import {
   generatePoderEspecialHtml,
   detectPoderdanteType,
 } from "@/lib/legal-document-templates";
+import { CourtHeaderSection } from "@/components/documents/CourtHeaderSection";
+import { LitigationEmailBanner } from "@/components/settings/LitigationEmailSettings";
+import {
+  CourtHeaderData,
+  autoSelectCourtMode,
+  buildCourtHeaderHtml,
+  inferCourtEmail,
+  saveCourtEmailContribution,
+} from "@/lib/court-header-utils";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -247,6 +256,7 @@ function MultiSignerSharingModal({
   onSendEmail,
   onCopyLink,
   expiresAt,
+  documentType,
 }: {
   open: boolean;
   onClose: () => void;
@@ -254,6 +264,7 @@ function MultiSignerSharingModal({
   onSendEmail: (idx: number) => Promise<void>;
   onCopyLink: (url: string) => void;
   expiresAt: string;
+  documentType: LegalDocumentType;
 }) {
   const [sendingIdx, setSendingIdx] = useState<number | null>(null);
   const [sendingAll, setSendingAll] = useState(false);
@@ -311,9 +322,15 @@ function MultiSignerSharingModal({
                       Enviar por correo
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
-                    <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
-                  </Button>
+                  {documentType !== 'poder_especial' ? (
+                    <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
+                      <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Ban className="h-3 w-3" /> Enlace solo por email
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -369,7 +386,10 @@ export default function WorkItemDocumentWizard() {
   ]);
   const [entityData, setEntityData] = useState<EntityData>({});
 
-  // Sharing modal state
+  // Phase 3.10: Court header state
+  const [courtHeader, setCourtHeader] = useState<CourtHeaderData>({ mode: "generic" });
+  const [inferredCourtEmail, setInferredCourtEmail] = useState<string | null>(null);
+
   const [sharingModalOpen, setSharingModalOpen] = useState(false);
   const [signerEntries, setSignerEntries] = useState<{ name: string; email: string; signingUrl: string; signatureId: string; emailSent: boolean }[]>([]);
   const [expiresAt, setExpiresAt] = useState("");
@@ -399,7 +419,7 @@ export default function WorkItemDocumentWizard() {
       if (!user) throw new Error("No user");
       const { data, error } = await supabase
         .from("profiles")
-        .select("firma_abogado_nombre_completo, firma_abogado_cc, firma_abogado_tp, firma_abogado_correo, organization_id")
+        .select("firma_abogado_nombre_completo, firma_abogado_cc, firma_abogado_tp, firma_abogado_correo, organization_id, litigation_email, professional_address, email")
         .eq("id", user.id)
         .single();
       if (error) throw error;
@@ -437,7 +457,7 @@ export default function WorkItemDocumentWizard() {
     enabled: !!workItem?.client_id,
   });
 
-  // Auto-detect poderdante type from work item
+  // Auto-detect poderdante type and court header from work item
   useEffect(() => {
     if (workItem && docType === "poder_especial") {
       const clientName = clientData?.name || workItem.demandantes || "";
@@ -451,6 +471,30 @@ export default function WorkItemDocumentWizard() {
           company_city: workItem.authority_city || "",
         });
       }
+
+      // Auto-detect court addressing mode
+      const mode = autoSelectCourtMode({
+        authority_name: workItem.authority_name,
+        radicado: workItem.radicado,
+        authority_city: workItem.authority_city,
+      });
+      setCourtHeader({
+        mode,
+        court_name: workItem.authority_name || "",
+        court_city: workItem.authority_city || "",
+        court_type_reparto: "Civil del Circuito",
+      });
+
+      // Infer court email
+      inferCourtEmail({
+        radicado: workItem.radicado,
+        authority_name: workItem.authority_name,
+      }).then((result) => {
+        if (result.email) {
+          setInferredCourtEmail(result.email);
+          setCourtHeader(prev => ({ ...prev, court_email: result.email || undefined, judge_name: result.judgeName || prev.judge_name }));
+        }
+      });
     }
   }, [workItem, clientData, docType]);
 
@@ -485,6 +529,8 @@ export default function WorkItemDocumentWizard() {
       vars.lawyer_full_name = profile.firma_abogado_nombre_completo || "";
       vars.lawyer_cedula = profile.firma_abogado_cc || "";
       vars.lawyer_tarjeta_profesional = profile.firma_abogado_tp || "";
+      vars.lawyer_litigation_email = (profile as any).litigation_email || "";
+      vars.lawyer_professional_address = (profile as any).professional_address || "";
     }
 
     if (org) {
@@ -516,10 +562,11 @@ export default function WorkItemDocumentWizard() {
   const renderedHtml = useMemo(() => {
     if (docType === "poder_especial") {
       const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : undefined;
-      return generatePoderEspecialHtml(poderdanteType, variables, ed || null);
+      const courtHtml = courtHeader ? buildCourtHeaderHtml(courtHeader) : undefined;
+      return generatePoderEspecialHtml(poderdanteType, variables, ed || null, courtHtml);
     }
     return renderLegalTemplate(template.html, variables);
-  }, [template.html, variables, docType, poderdanteType, poderdantes, entityData]);
+  }, [template.html, variables, docType, poderdanteType, poderdantes, entityData, courtHeader]);
 
   // Determine which variable fields to show based on poderdante type
   const editableVars = useMemo(() => {
@@ -654,9 +701,17 @@ export default function WorkItemDocumentWizard() {
     firm_name: "Nombre de la firma",
   };
 
+  // Check if litigation email is missing (hard gate for poder_especial)
+  const missingLitigationEmail = docType === "poder_especial" && !(profile as any)?.litigation_email;
+
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
     if (finalizing) return;
+
+    if (missingLitigationEmail) {
+      toast.error("Debe configurar su email profesional de litigio antes de finalizar un Poder Especial.");
+      return;
+    }
 
     const signers = getSigners();
     const missingEmails = signers.filter(s => !s.email?.trim());
@@ -874,6 +929,23 @@ export default function WorkItemDocumentWizard() {
       {/* Step 2: Variables */}
       {step === 2 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Litigation email hard gate for poder_especial */}
+          {missingLitigationEmail && (
+            <div className="col-span-full">
+              <div className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <div className="text-sm">
+                    <strong>Para generar un Poder Especial debe configurar su email profesional de litigio en su perfil.</strong>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => window.open("/app/settings?tab=documents", "_blank")}>
+                  Configurar email →
+                </Button>
+              </div>
+            </div>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Variables del Documento</CardTitle>
@@ -885,6 +957,18 @@ export default function WorkItemDocumentWizard() {
                   {docType === "poder_especial" && (
                     <>
                       <PoderdanteTypeSelector value={poderdanteType} onChange={setPoderdanteType} />
+                      <Separator />
+
+                      {/* Court header section */}
+                      <CourtHeaderSection
+                        data={courtHeader}
+                        onChange={setCourtHeader}
+                        inferredEmail={inferredCourtEmail}
+                        onSaveCourtEmail={(email, name, city) => {
+                          saveCourtEmailContribution(name, email, city, workItem?.radicado ? workItem.radicado.replace(/[^0-9]/g, "").substring(0, 14) : null);
+                          toast.success("Email del juzgado guardado para futuros documentos");
+                        }}
+                      />
                       <Separator />
                     </>
                   )}
@@ -1077,6 +1161,7 @@ export default function WorkItemDocumentWizard() {
         onSendEmail={handleSendEmailToSigner}
         onCopyLink={handleCopyLink}
         expiresAt={expiresAt}
+        documentType={docType}
       />
     </div>
   );

@@ -99,6 +99,7 @@ export function generatePoderEspecialHtml(
   poderdanteType: PoderdanteType,
   variables: Record<string, string>,
   entityData?: EntityData | null,
+  courtHeaderHtml?: string,
 ): string {
   let introText = '';
   let signatureBlock = '';
@@ -124,7 +125,6 @@ export function generatePoderEspecialHtml(
   }
 
   const pronoun = poderdanteType === 'multiple' ? 'nuestro' : 'mi';
-  const verb = poderdanteType === 'multiple' ? 'conferimos' : 'confiero';
 
   // Case info — conditional on radicado
   let caseClause = '';
@@ -134,13 +134,44 @@ export function generatePoderEspecialHtml(
     caseClause = `que se llegare(n) a iniciar o en los que sea necesaria ${pronoun === 'nuestro' ? 'nuestra' : 'mi'} representación judicial`;
   }
 
+  // Build notification email clause (Art. 291 CGP)
+  let notificationClause = '';
+  const clientEmail = variables.client_email?.trim();
+  const lawyerLitEmail = variables.lawyer_litigation_email?.trim();
+  const lawyerAddress = variables.lawyer_professional_address?.trim();
+
+  if (clientEmail || lawyerLitEmail) {
+    let poderdanteEmailLines = '';
+    if (poderdanteType === 'multiple' && entityData?.poderdantes?.length) {
+      poderdanteEmailLines = entityData.poderdantes
+        .filter(p => p.email?.trim())
+        .map(p => `${p.name.toUpperCase()}: <strong>${p.email}</strong>`)
+        .join('<br/>');
+      if (poderdanteEmailLines) {
+        poderdanteEmailLines = `PODERDANTES:<br/>${poderdanteEmailLines}`;
+      }
+    } else if (clientEmail) {
+      poderdanteEmailLines = `PODERDANTE: <strong>${clientEmail}</strong>`;
+    }
+
+    notificationClause = `
+    <p style="text-align:justify;">
+    Para efectos de notificaciones judiciales electrónicas, de conformidad con lo establecido en el artículo 291 del Código General del Proceso, las partes señalan las siguientes direcciones de correo electrónico:
+    </p>
+    <div style="margin:16px 0;padding:12px 16px;border-left:3px solid #1a1a2e;">
+      <p>${poderdanteEmailLines}</p>
+      ${lawyerLitEmail ? `<p>APODERADO(A): <strong>${lawyerLitEmail}</strong></p>` : ''}
+      ${lawyerAddress ? `<p>Dirección física: ${lawyerAddress}</p>` : ''}
+    </div>`;
+  }
+
   return `
 <div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
   <h2 style="text-align:center;text-transform:uppercase;margin-bottom:32px;">Poder Especial</h2>
   
   <p><strong>${variables.city || "—"}</strong>, ${variables.date || "—"}</p>
   
-  ${variables.court_name?.trim() ? `<p>Señores<br/><strong>${variables.court_name}</strong><br/>Ciudad</p>` : ''}
+  ${courtHeaderHtml || (variables.court_name?.trim() ? `<p>Señores<br/><strong>${variables.court_name}</strong><br/>Ciudad</p>` : '')}
   
   <p style="text-align:justify;">
   ${introText} <strong>PODER ESPECIAL</strong> amplio y suficiente al abogado(a):
@@ -167,6 +198,8 @@ export function generatePoderEspecialHtml(
   <p style="text-align:justify;">
   ${poderdanteType === 'multiple' ? 'Declaramos' : 'Declaro'} bajo la gravedad del juramento que no ${poderdanteType === 'multiple' ? 'hemos' : 'he'} conferido poder a otro abogado para el mismo asunto, y que ${poderdanteType === 'multiple' ? 'aceptamos' : 'acepto'} la responsabilidad que se derive de la presente actuación.
   </p>
+  
+  ${notificationClause}
   
   <p style="text-align:justify;">
   Del señor(a) Juez(a), atentamente,
@@ -256,11 +289,13 @@ export const PODER_ESPECIAL_VARIABLES: LegalTemplateVariable[] = [
   { key: "client_full_name", label: "Nombre completo del cliente", required: true, source: "work_item", editable: true },
   { key: "client_cedula", label: "Cédula del cliente", required: true, source: "work_item", editable: true },
   { key: "client_cedula_city", label: "Ciudad de expedición cédula", required: false, source: "manual", editable: true, defaultValue: "" },
-  { key: "client_email", label: "Correo del cliente", required: false, source: "work_item", editable: true },
+  { key: "client_email", label: "Correo del cliente (notificación judicial)", required: true, source: "work_item", editable: true, description: "Requerido — será la dirección de notificación judicial electrónica del poderdante" },
   { key: "client_phone", label: "Teléfono del cliente", required: false, source: "manual", editable: true },
   { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
+  { key: "lawyer_litigation_email", label: "Email de litigio del abogado", required: true, source: "profile", editable: false, description: "Dirección de notificación judicial electrónica del apoderado (Art. 291 CGP)" },
+  { key: "lawyer_professional_address", label: "Dirección profesional del abogado", required: false, source: "profile", editable: false },
   { key: "radicado", label: "Radicado del proceso", required: false, source: "work_item", editable: true },
   { key: "court_name", label: "Juzgado/Despacho", required: false, source: "work_item", editable: true },
   { key: "opposing_party", label: "Parte contraria", required: false, source: "work_item", editable: true },
