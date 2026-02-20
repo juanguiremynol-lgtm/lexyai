@@ -35,10 +35,12 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   draft: { label: "Borrador", variant: "secondary", className: "bg-muted text-muted-foreground" },
   finalized: { label: "Finalizado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
   sent_for_signature: { label: "Enviado para firma", variant: "default", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
+  partially_signed: { label: "Parcialmente firmado", variant: "default", className: "bg-orange-500/15 text-orange-600 border-orange-500/30" },
   signed: { label: "Firmado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
   declined: { label: "Rechazado", variant: "destructive", className: "bg-destructive/15 text-destructive" },
   expired: { label: "Vencido", variant: "secondary", className: "bg-muted text-muted-foreground line-through" },
   revoked: { label: "Revocado", variant: "outline", className: "border-destructive text-destructive" },
+  waiting: { label: "En espera", variant: "secondary", className: "bg-muted text-muted-foreground" },
 };
 
 const DOC_TYPE_LABELS: Record<string, string> = {

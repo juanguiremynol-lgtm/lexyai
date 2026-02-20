@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { document_id, signer_name, signer_email, signer_cedula, signer_phone, signer_role, expires_hours, send_email = false } = body;
+    const { document_id, signer_name, signer_email, signer_cedula, signer_phone, signer_role, expires_hours, send_email = false, signing_order = 1, depends_on = null, create_as_waiting = false } = body;
 
     if (!document_id || !signer_name || !signer_email) {
       return json({ error: "document_id, signer_name, and signer_email are required" }, 400);
@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
     const hmacSignature = await computeHMAC(signingSecret, signingToken + expiresTimestamp);
 
     // Create signature record
+    const initialStatus = create_as_waiting ? "waiting" : "pending";
     const { data: sig, error: sigErr } = await adminClient
       .from("document_signatures")
       .insert({
@@ -92,8 +93,10 @@ Deno.serve(async (req) => {
         signing_token: signingToken,
         hmac_signature: hmacSignature,
         expires_at: expiresAt.toISOString(),
-        status: "pending",
+        status: initialStatus,
         created_by: user.id,
+        signing_order: signing_order,
+        depends_on: depends_on || null,
       })
       .select("id")
       .single();
