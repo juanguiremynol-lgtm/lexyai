@@ -48,28 +48,31 @@ Deno.serve(async (req) => {
 
   // ── Auth: verify platform admin ──
   const authHeader = req.headers.get("authorization");
-  if (authHeader) {
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: "Authorization required" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    // Check platform admin
-    const { data: profile } = await db
-      .from("profiles")
-      .select("is_platform_admin")
-      .eq("id", user.id)
-      .maybeSingle();
-    if (!profile?.is_platform_admin) {
-      return new Response(JSON.stringify({ error: "Platform admin only" }), {
-        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+  }
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  // Check platform admin via platform_admins table
+  const { data: adminRecord } = await db
+    .from("platform_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!adminRecord) {
+    return new Response(JSON.stringify({ error: "Platform admin only" }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   const startTime = Date.now();
