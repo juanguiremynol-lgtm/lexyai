@@ -329,3 +329,12 @@ verify_jwt = false
 
 [functions.send-signing-email]
 verify_jwt = false
+
+[functions.mock-external-provider]
+verify_jwt = false
+
+[functions.atenia-e2e-provider-test]
+verify_jwt = false
+
+[functions.dispatch-update-emails]
+verify_jwt = false
