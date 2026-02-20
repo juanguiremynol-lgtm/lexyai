@@ -4393,6 +4393,240 @@ export type Database = {
           },
         ]
       }
+      document_signature_events: {
+        Row: {
+          actor_id: string | null
+          actor_ip: string | null
+          actor_type: string
+          actor_user_agent: string | null
+          created_at: string
+          document_id: string | null
+          event_data: Json
+          event_type: string
+          id: string
+          organization_id: string
+          signature_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          actor_ip?: string | null
+          actor_type: string
+          actor_user_agent?: string | null
+          created_at?: string
+          document_id?: string | null
+          event_data?: Json
+          event_type: string
+          id?: string
+          organization_id: string
+          signature_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          actor_ip?: string | null
+          actor_type?: string
+          actor_user_agent?: string | null
+          created_at?: string
+          document_id?: string | null
+          event_data?: Json
+          event_type?: string
+          id?: string
+          organization_id?: string
+          signature_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_signature_events_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "generated_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_signature_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_signature_events_signature_id_fkey"
+            columns: ["signature_id"]
+            isOneToOne: false
+            referencedRelation: "document_signatures"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_signatures: {
+        Row: {
+          certificate_path: string | null
+          created_at: string | null
+          created_by: string
+          document_id: string
+          expires_at: string
+          hmac_signature: string
+          id: string
+          organization_id: string
+          otp_attempts: number | null
+          otp_code_hash: string | null
+          otp_sent_at: string | null
+          otp_verified_at: string | null
+          signature_data: string | null
+          signature_image_path: string | null
+          signature_method: string | null
+          signed_at: string | null
+          signed_document_hash: string | null
+          signed_document_path: string | null
+          signer_cedula: string | null
+          signer_email: string
+          signer_geolocation: Json | null
+          signer_ip: string | null
+          signer_name: string
+          signer_phone: string | null
+          signer_role: string
+          signer_user_agent: string | null
+          signing_token: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          certificate_path?: string | null
+          created_at?: string | null
+          created_by: string
+          document_id: string
+          expires_at: string
+          hmac_signature: string
+          id?: string
+          organization_id: string
+          otp_attempts?: number | null
+          otp_code_hash?: string | null
+          otp_sent_at?: string | null
+          otp_verified_at?: string | null
+          signature_data?: string | null
+          signature_image_path?: string | null
+          signature_method?: string | null
+          signed_at?: string | null
+          signed_document_hash?: string | null
+          signed_document_path?: string | null
+          signer_cedula?: string | null
+          signer_email: string
+          signer_geolocation?: Json | null
+          signer_ip?: string | null
+          signer_name: string
+          signer_phone?: string | null
+          signer_role?: string
+          signer_user_agent?: string | null
+          signing_token: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          certificate_path?: string | null
+          created_at?: string | null
+          created_by?: string
+          document_id?: string
+          expires_at?: string
+          hmac_signature?: string
+          id?: string
+          organization_id?: string
+          otp_attempts?: number | null
+          otp_code_hash?: string | null
+          otp_sent_at?: string | null
+          otp_verified_at?: string | null
+          signature_data?: string | null
+          signature_image_path?: string | null
+          signature_method?: string | null
+          signed_at?: string | null
+          signed_document_hash?: string | null
+          signed_document_path?: string | null
+          signer_cedula?: string | null
+          signer_email?: string
+          signer_geolocation?: Json | null
+          signer_ip?: string | null
+          signer_name?: string
+          signer_phone?: string | null
+          signer_role?: string
+          signer_user_agent?: string | null
+          signing_token?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_signatures_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "generated_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_signatures_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_templates: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          display_name: string
+          document_type: string
+          id: string
+          is_active: boolean | null
+          is_system_template: boolean | null
+          name: string
+          organization_id: string | null
+          template_body: Json
+          template_html: string
+          updated_at: string | null
+          version: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          display_name: string
+          document_type: string
+          id?: string
+          is_active?: boolean | null
+          is_system_template?: boolean | null
+          name: string
+          organization_id?: string | null
+          template_body: Json
+          template_html: string
+          updated_at?: string | null
+          version?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          display_name?: string
+          document_type?: string
+          id?: string
+          is_active?: boolean | null
+          is_system_template?: boolean | null
+          name?: string
+          organization_id?: string | null
+          template_body?: Json
+          template_html?: string
+          updated_at?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           extracted_json: Json | null
@@ -5227,6 +5461,85 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generated_documents: {
+        Row: {
+          content_html: string
+          content_json: Json
+          created_at: string | null
+          created_by: string
+          document_hash_presign: string | null
+          document_type: string
+          finalized_at: string | null
+          finalized_by: string | null
+          id: string
+          organization_id: string
+          status: string
+          template_id: string | null
+          title: string
+          updated_at: string | null
+          variables: Json
+          work_item_id: string | null
+        }
+        Insert: {
+          content_html: string
+          content_json: Json
+          created_at?: string | null
+          created_by: string
+          document_hash_presign?: string | null
+          document_type: string
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          organization_id: string
+          status?: string
+          template_id?: string | null
+          title: string
+          updated_at?: string | null
+          variables?: Json
+          work_item_id?: string | null
+        }
+        Update: {
+          content_html?: string
+          content_json?: Json
+          created_at?: string | null
+          created_by?: string
+          document_hash_presign?: string | null
+          document_type?: string
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          organization_id?: string
+          status?: string
+          template_id?: string | null
+          title?: string
+          updated_at?: string | null
+          variables?: Json
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_documents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_documents_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "document_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generated_documents_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
             referencedColumns: ["id"]
           },
         ]
