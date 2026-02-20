@@ -2,9 +2,11 @@
  * complete-signature — Finalizes the digital signature process.
  * Public endpoint. Captures DRAWN signature only (typed rejected).
  * Stores signature PNG + raw stroke data for forensic evidence.
- * Computes SHA-256, stores signed doc with audit trail evidence appendix.
+ * Computes SHA-256 for document pages + combined PDF.
+ * Generates combined HTML (document + evidence appendix) as ONE file.
+ * Emails both parties.
  * 
- * Phase 2.5b: Drawn-only enforcement + biometric stroke data capture.
+ * Phase 3: Rate limiting, input validation, combined_pdf_hash, hardened error handling.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -76,6 +78,7 @@ const EVENT_LABELS: Record<string, string> = {
   "document.hash_generated": "Hash SHA-256 generado",
   "document.stored": "Documento almacenado",
   "notification.sent": "Notificación enviada",
+  "notification.failed": "Error al enviar notificación",
   "notification.reminder_sent": "Recordatorio enviado",
 };
 
@@ -94,7 +97,7 @@ Deno.serve(async (req) => {
     } = body;
 
     if (!signing_token || !signature_method || !signature_data || !consent_given) {
-      return json({ error: "signing_token, signature_method, signature_data, and consent_given are required" }, 400);
+      return json({ error: "Datos incompletos. Se requiere firma y consentimiento." }, 400);
     }
 
     // ENFORCE drawn-only signatures
@@ -102,9 +105,49 @@ Deno.serve(async (req) => {
       return json({ error: "Solo se acepta firma manuscrita digital (drawn). La firma tipográfica no está permitida." }, 400);
     }
 
+    // Validate signature data format and size
+    if (!signature_data.startsWith("data:image/png;base64,")) {
+      return json({ error: "Formato de firma inválido. Se requiere imagen PNG." }, 400);
+    }
+    const base64Part = signature_data.split(",")[1] || "";
+    if (base64Part.length > 700000) { // ~500KB in base64
+      return json({ error: "La imagen de la firma es demasiado grande." }, 400);
+    }
+
+    // Validate stroke data structure
+    if (signature_stroke_data) {
+      if (!Array.isArray(signature_stroke_data)) {
+        return json({ error: "Datos de trazos inválidos." }, 400);
+      }
+      for (const stroke of signature_stroke_data) {
+        if (!stroke.points || !Array.isArray(stroke.points)) {
+          return json({ error: "Estructura de datos de trazos inválida." }, 400);
+        }
+      }
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
+
+    // Rate limiting: 3 req/hour per signing_token
+    const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+    const { count } = await adminClient
+      .from("rate_limits")
+      .select("*", { count: "exact", head: true })
+      .eq("key", signing_token)
+      .eq("endpoint", "complete-signature")
+      .gte("window_start", oneHourAgo);
+
+    if ((count || 0) >= 3) {
+      return json({ error: "Demasiadas solicitudes. Intente nuevamente en unos minutos." }, 429);
+    }
+
+    await adminClient.from("rate_limits").insert({
+      key: signing_token,
+      endpoint: "complete-signature",
+      window_start: new Date().toISOString(),
+    });
 
     // Fetch signature
     const { data: sig, error: sigErr } = await adminClient
@@ -113,16 +156,17 @@ Deno.serve(async (req) => {
       .eq("signing_token", signing_token)
       .single();
 
-    if (sigErr || !sig) return json({ error: "Signature request not found" }, 404);
-    if (sig.status === "signed") return json({ error: "Already signed" }, 409);
+    if (sigErr || !sig) return json({ error: "Solicitud de firma no encontrada." }, 404);
+    if (sig.status === "signed") return json({ error: "Este documento ya fue firmado." }, 409);
+    if (sig.status === "revoked") return json({ error: "Esta solicitud fue cancelada. Comuníquese con su abogado." }, 403);
     if (sig.status !== "otp_verified") {
-      return json({ error: "OTP verification required before signing" }, 403);
+      return json({ error: "Debe verificar su identidad antes de firmar." }, 403);
     }
 
     // Check expiration
     if (new Date(sig.expires_at) < new Date()) {
       await adminClient.from("document_signatures").update({ status: "expired" }).eq("id", sig.id);
-      return json({ error: "Signing link has expired" }, 410);
+      return json({ error: "El enlace de firma ha expirado. Solicite uno nuevo a su abogado." }, 410);
     }
 
     const signerIp = getSignerIp(req);
@@ -130,7 +174,7 @@ Deno.serve(async (req) => {
     const signedAt = new Date().toISOString();
     const parsedUA = parseUserAgent(signerUA);
 
-    // Compute stroke statistics for evidence
+    // Compute stroke statistics
     let strokeCount = 0;
     let totalPoints = 0;
     if (signature_stroke_data && Array.isArray(signature_stroke_data)) {
@@ -151,14 +195,14 @@ Deno.serve(async (req) => {
       actor_user_agent: signerUA,
     });
 
-    // Fetch the document content
+    // Fetch document
     const { data: doc } = await adminClient
       .from("generated_documents")
       .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at")
       .eq("id", sig.document_id)
       .single();
 
-    if (!doc) return json({ error: "Document not found" }, 404);
+    if (!doc) return json({ error: "Documento no encontrado." }, 404);
 
     // Fetch work item radicado
     let radicado = "";
@@ -178,9 +222,8 @@ Deno.serve(async (req) => {
 
     // Store drawn signature image
     let signatureImagePath: string | null = null;
-    if (signature_data.startsWith("data:image")) {
-      const base64Data = signature_data.split(",")[1];
-      const binaryStr = atob(base64Data);
+    try {
+      const binaryStr = atob(base64Part);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
 
@@ -191,9 +234,11 @@ Deno.serve(async (req) => {
           contentType: "image/png",
           upsert: true,
         });
+    } catch (uploadErr) {
+      console.error("Signature image upload error:", uploadErr);
     }
 
-    // Build signature block with embedded PNG
+    // Build signature block
     const signatureBlock = `<div style="margin-top:40px;border-top:2px solid #333;padding-top:20px;">
       <img src="${signature_data}" alt="Firma manuscrita digital" style="max-width:300px;max-height:100px;" />
       <p><strong>${sig.signer_name}</strong></p>
@@ -202,7 +247,7 @@ Deno.serve(async (req) => {
       <p style="font-size:11px;color:#999;">Firma manuscrita digital válida conforme a Ley 527 de 1999 y Decreto 2364 de 2012</p>
     </div>`;
 
-    // Build the DOCUMENT PAGES (used for hash computation)
+    // Build DOCUMENT PAGES HTML (for hash)
     const documentPagesHtml = `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><title>${doc.title}</title>
@@ -214,11 +259,11 @@ ${signatureBlock}
 </body>
 </html>`;
 
-    // Compute SHA-256 hash of document pages only
+    // Compute SHA-256 of document pages only
     const documentBytes = new TextEncoder().encode(documentPagesHtml);
     const documentHash = await sha256Hex(documentBytes);
 
-    // Log signature.signed event
+    // Log signed event
     await adminClient.from("document_signature_events").insert({
       organization_id: sig.organization_id,
       document_id: sig.document_id,
@@ -239,7 +284,7 @@ ${signatureBlock}
       actor_user_agent: signerUA,
     });
 
-    // Log hash generated
+    // Log hash event
     await adminClient.from("document_signature_events").insert({
       organization_id: sig.organization_id,
       document_id: sig.document_id,
@@ -250,7 +295,7 @@ ${signatureBlock}
       actor_id: "system",
     });
 
-    // Fetch ALL audit trail events for the evidence appendix
+    // Fetch ALL audit trail events
     const { data: allEvents } = await adminClient
       .from("document_signature_events")
       .select("*")
@@ -275,7 +320,7 @@ ${signatureBlock}
       </tr>`;
     }).join("\n");
 
-    // Build evidence appendix HTML
+    // Build evidence appendix
     const evidenceAppendix = `
 <div style="page-break-before:always;padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;">
   <div style="text-align:center;border-bottom:3px solid #1a1a2e;padding-bottom:16px;margin-bottom:24px;">
@@ -366,7 +411,7 @@ ${signatureBlock}
   </div>
 </div>`;
 
-    // Combine document + evidence into ONE file
+    // Combine into ONE file
     const combinedHtml = `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><title>${doc.title}</title>
@@ -379,14 +424,17 @@ ${signatureBlock}
 ${doc.content_html}
 ${signatureBlock}
 <footer style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;text-align:center;">
-  ID: ${sig.id} · Firmado electrónicamente via Andromeda Legal · ${signedAt}
+  Documento firmado electrónicamente — ID: ${doc.id.substring(0, 8)}
 </footer>
 ${evidenceAppendix}
 </body>
 </html>`;
 
-    // Store combined HTML in Supabase Storage
+    // Compute combined PDF hash
     const combinedBytes = new TextEncoder().encode(combinedHtml);
+    const combinedHash = await sha256Hex(combinedBytes);
+
+    // Store combined HTML
     const storagePath = `${sig.organization_id}/${sig.document_id}/signed.html`;
     const { error: uploadErr } = await adminClient.storage
       .from("signed-documents")
@@ -395,7 +443,10 @@ ${evidenceAppendix}
         upsert: true,
       });
 
-    if (uploadErr) console.error("Storage upload error:", uploadErr);
+    if (uploadErr) {
+      console.error("Storage upload error:", uploadErr);
+      return json({ error: "Hubo un error al generar el documento. Por favor intente nuevamente." }, 500);
+    }
 
     // Update signature record
     await adminClient
@@ -412,6 +463,7 @@ ${evidenceAppendix}
         signer_geolocation: geolocation || null,
         signed_document_path: storagePath,
         signed_document_hash: documentHash,
+        combined_pdf_hash: combinedHash,
         certificate_id: certificateId,
       })
       .eq("id", sig.id);
@@ -428,20 +480,21 @@ ${evidenceAppendix}
       document_id: sig.document_id,
       signature_id: sig.id,
       event_type: "document.stored",
-      event_data: { storage_path: storagePath, includes_evidence_appendix: true },
+      event_data: { storage_path: storagePath, includes_evidence_appendix: true, combined_hash: combinedHash },
       actor_type: "system",
       actor_id: "system",
     });
 
-    // Generate signed URL for the combined file
+    // Generate signed URL (30 days)
     const { data: signedUrlData } = await adminClient.storage
       .from("signed-documents")
-      .createSignedUrl(storagePath, 7 * 24 * 60 * 60);
+      .createSignedUrl(storagePath, 30 * 24 * 60 * 60);
 
     const downloadUrl = signedUrlData?.signedUrl || "";
 
     // Send notification emails to BOTH parties
     const resendKey = Deno.env.get("RESEND_API_KEY");
+    let emailsSent = false;
     if (resendKey) {
       const confirmHtml = `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
@@ -478,7 +531,7 @@ ${evidenceAppendix}
       // Send to signer
       try {
         const signerHtml = confirmHtml.replace("{RECIPIENT_NAME}", sig.signer_name);
-        await fetch("https://api.resend.com/emails", {
+        const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -488,15 +541,27 @@ ${evidenceAppendix}
             html: signerHtml,
           }),
         });
+        await res.text();
+        emailsSent = res.ok;
       } catch (e) {
         console.error("Signer notification email error:", e);
+        // Log failure but don't block
+        await adminClient.from("document_signature_events").insert({
+          organization_id: sig.organization_id,
+          document_id: sig.document_id,
+          signature_id: sig.id,
+          event_type: "notification.failed",
+          event_data: { recipient: sig.signer_email, error: String(e) },
+          actor_type: "system",
+          actor_id: "system",
+        }).catch(() => {});
       }
 
       // Notify the lawyer
       try {
         if (lawyerEmail) {
           const lawyerHtml = confirmHtml.replace("{RECIPIENT_NAME}", lawyerName || "Abogado");
-          await fetch("https://api.resend.com/emails", {
+          const res = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -506,9 +571,19 @@ ${evidenceAppendix}
               html: lawyerHtml,
             }),
           });
+          await res.text();
         }
       } catch (e) {
         console.error("Lawyer notification email error:", e);
+        await adminClient.from("document_signature_events").insert({
+          organization_id: sig.organization_id,
+          document_id: sig.document_id,
+          signature_id: sig.id,
+          event_type: "notification.failed",
+          event_data: { recipient: lawyerEmail, error: String(e) },
+          actor_type: "system",
+          actor_id: "system",
+        }).catch(() => {});
       }
 
       // Log notifications
@@ -533,6 +608,6 @@ ${evidenceAppendix}
     });
   } catch (err) {
     console.error("complete-signature error:", err);
-    return json({ error: (err as Error).message }, 500);
+    return json({ error: "Hubo un error al procesar la firma. Por favor intente nuevamente." }, 500);
   }
 });

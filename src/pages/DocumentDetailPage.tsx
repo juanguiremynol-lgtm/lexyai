@@ -482,7 +482,7 @@ export default function DocumentDetailPage() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Método de firma</span>
-                    <p className="font-medium">{signedSig.signature_method === "typed" ? "Tipográfica" : "Manuscrita digital"}</p>
+                    <p className="font-medium">Firma manuscrita digital</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Fecha de firma</span>
@@ -497,15 +497,6 @@ export default function DocumentDetailPage() {
                     <p className="text-sm">{parseUserAgent(signedSig.signer_user_agent || "")}</p>
                   </div>
                 </div>
-
-                {/* Signature preview */}
-                {signedSig.signature_method === "typed" && signedSig.signature_data && (
-                  <div className="border rounded-lg p-4 bg-white dark:bg-muted/30 text-center">
-                    <p style={{ fontFamily: "'Dancing Script', cursive", fontSize: "28px", color: "#1a1a2e" }}>
-                      {signedSig.signature_data}
-                    </p>
-                  </div>
-                )}
 
                 {/* Hash */}
                 {signedSig.signed_document_hash && (
@@ -654,9 +645,6 @@ export default function DocumentDetailPage() {
           </Card>
         </div>
       </div>
-
-      {/* Google Font for signature preview */}
-      <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet" />
     </div>
   );
 }
