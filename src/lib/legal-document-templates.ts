@@ -1,9 +1,11 @@
 /**
  * Legal document template definitions for Colombia — Poder Especial & Contrato de Servicios.
  * Variables use {{variable_name}} placeholders populated from work item data, profile, or manual input.
+ * Phase 3.8: Multi-party & legal entity support with conditional blocks.
  */
 
 export type LegalDocumentType = "poder_especial" | "contrato_servicios";
+export type PoderdanteType = "natural" | "multiple" | "juridica";
 
 export interface LegalTemplateVariable {
   key: string;
@@ -15,7 +17,175 @@ export interface LegalTemplateVariable {
   description?: string;
 }
 
-// ─── Poder Especial Template ─────────────────────────────
+export interface PoderdanteData {
+  name: string;
+  cedula: string;
+  cedula_city: string;
+  email: string;
+  phone?: string;
+}
+
+export interface EntityData {
+  // For 'juridica'
+  company_name?: string;
+  company_nit?: string;
+  company_city?: string;
+  rep_legal_name?: string;
+  rep_legal_cedula?: string;
+  rep_legal_cedula_city?: string;
+  rep_legal_cargo?: string;
+  rep_legal_email?: string;
+  rep_legal_phone?: string;
+  // For 'multiple'
+  poderdantes?: PoderdanteData[];
+}
+
+// ─── Conditional Template Processing ─────────────────────
+
+export function processConditionals(template: string, variables: Record<string, string>): string {
+  return template.replace(
+    /\{\{#if (\w+)\}\}([\s\S]*?)(?:\{\{else\}\}([\s\S]*?))?\{\{\/if\}\}/g,
+    (_match, varName, ifContent, elseContent = '') => {
+      return variables[varName]?.trim() ? ifContent : elseContent;
+    }
+  );
+}
+
+// ─── Multi-Poderdante Text Generation ────────────────────
+
+export function buildPoderdanteListText(poderdantes: PoderdanteData[]): string {
+  return poderdantes.map((p, i) => {
+    const separator = i === poderdantes.length - 1 && i > 0 ? "y " : "";
+    const ending = i < poderdantes.length - 2 ? "; " : i === poderdantes.length - 2 ? "; " : "";
+    return `${separator}<strong>${p.name.toUpperCase()}</strong>, identificado(a) con cédula de ciudadanía No. <strong>${p.cedula}</strong> expedida en <strong>${p.cedula_city || "—"}</strong>${ending}`;
+  }).join("");
+}
+
+export function buildPoderdanteSignatureBlocks(poderdantes: PoderdanteData[]): string {
+  const blocks = poderdantes.map((p, i) => `
+    <div style="display:inline-block;width:${poderdantes.length > 1 ? '48%' : '100%'};vertical-align:top;margin-top:24px;${i % 2 === 1 ? 'margin-left:4%;' : ''}">
+      <p><strong>PODERDANTE${poderdantes.length > 1 ? ` ${i + 1}` : ''}:</strong></p>
+      <br/><br/>
+      <p>___________________________________</p>
+      <p><strong>${p.name.toUpperCase()}</strong></p>
+      <p>C.C. ${p.cedula}${p.cedula_city ? ` de ${p.cedula_city}` : ''}</p>
+    </div>
+  `);
+  return blocks.join("");
+}
+
+export function buildJuridicaIntroText(entity: EntityData, variables: Record<string, string>): string {
+  return `<strong>${entity.company_name || "—"}</strong>, sociedad comercial identificada con NIT <strong>${entity.company_nit || "—"}</strong>, con domicilio principal en <strong>${entity.company_city || "—"}</strong>, debidamente representada por su representante legal, <strong>${entity.rep_legal_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${entity.rep_legal_cedula || "—"}</strong> expedida en <strong>${entity.rep_legal_cedula_city || "—"}</strong>, quien obra en calidad de <strong>${entity.rep_legal_cargo || "Representante Legal"}</strong>`;
+}
+
+export function buildJuridicaSignatureBlock(entity: EntityData): string {
+  return `
+    <div style="margin-top:48px;">
+      <p><strong>PODERDANTE:</strong></p>
+      <br/><br/>
+      <p>___________________________________</p>
+      <p><strong>${(entity.rep_legal_name || "—").toUpperCase()}</strong></p>
+      <p>C.C. ${entity.rep_legal_cedula || "N/A"}${entity.rep_legal_cedula_city ? ` de ${entity.rep_legal_cedula_city}` : ''}</p>
+      <p>${entity.rep_legal_cargo || "Representante Legal"}</p>
+      <p>En representación de <strong>${entity.company_name || "—"}</strong></p>
+      <p>NIT ${entity.company_nit || "N/A"}</p>
+    </div>
+  `;
+}
+
+// ─── Dynamic Poder Especial HTML Generation ──────────────
+
+export function generatePoderEspecialHtml(
+  poderdanteType: PoderdanteType,
+  variables: Record<string, string>,
+  entityData?: EntityData | null,
+): string {
+  let introText = '';
+  let signatureBlock = '';
+
+  if (poderdanteType === 'natural') {
+    introText = `Yo, <strong>${variables.client_full_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${variables.client_cedula || "—"}</strong> de <strong>${variables.client_cedula_city || "—"}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero`;
+    signatureBlock = `
+      <div style="margin-top:48px;">
+        <p><strong>PODERDANTE:</strong></p>
+        <br/><br/>
+        <p>___________________________________</p>
+        <p><strong>${(variables.client_full_name || "—").toUpperCase()}</strong></p>
+        <p>C.C. ${variables.client_cedula || "—"} de ${variables.client_cedula_city || "—"}</p>
+      </div>`;
+  } else if (poderdanteType === 'multiple' && entityData?.poderdantes?.length) {
+    const listText = buildPoderdanteListText(entityData.poderdantes);
+    introText = `Nosotros, ${listText}, todos mayores de edad, obrando en nuestro propio nombre, de manera libre y voluntaria, por medio del presente escrito conferimos`;
+    signatureBlock = buildPoderdanteSignatureBlocks(entityData.poderdantes);
+  } else if (poderdanteType === 'juridica' && entityData) {
+    const entityText = buildJuridicaIntroText(entityData, variables);
+    introText = `${entityText}, de manera libre y voluntaria, por medio del presente escrito confiere`;
+    signatureBlock = buildJuridicaSignatureBlock(entityData);
+  }
+
+  const pronoun = poderdanteType === 'multiple' ? 'nuestro' : 'mi';
+  const verb = poderdanteType === 'multiple' ? 'conferimos' : 'confiero';
+
+  // Case info — conditional on radicado
+  let caseClause = '';
+  if (variables.radicado?.trim()) {
+    caseClause = `identificado con radicado No. <strong>${variables.radicado}</strong>, que se tramita ante el despacho de <strong>${variables.court_name || "su conocimiento"}</strong>${variables.opposing_party?.trim() ? `, en el cual la parte demandante es <strong>${poderdanteType === 'juridica' ? (entityData?.company_name || variables.client_full_name) : variables.client_full_name || "—"}</strong> y la parte demandada es <strong>${variables.opposing_party}</strong>` : ''}`;
+  } else {
+    caseClause = `que se llegare(n) a iniciar o en los que sea necesaria ${pronoun === 'nuestro' ? 'nuestra' : 'mi'} representación judicial`;
+  }
+
+  return `
+<div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
+  <h2 style="text-align:center;text-transform:uppercase;margin-bottom:32px;">Poder Especial</h2>
+  
+  <p><strong>${variables.city || "—"}</strong>, ${variables.date || "—"}</p>
+  
+  ${variables.court_name?.trim() ? `<p>Señores<br/><strong>${variables.court_name}</strong><br/>Ciudad</p>` : ''}
+  
+  <p style="text-align:justify;">
+  ${introText} <strong>PODER ESPECIAL</strong> amplio y suficiente al abogado(a):
+  </p>
+  
+  <p style="text-align:center;font-size:1.1em;">
+  <strong>${variables.lawyer_full_name || "—"}</strong><br/>
+  C.C. ${variables.lawyer_cedula || "—"}<br/>
+  T.P. ${variables.lawyer_tarjeta_profesional || "—"}
+  </p>
+  
+  <p style="text-align:justify;">
+  Para que en ${pronoun} nombre y representación, actúe como apoderado(a) judicial dentro del proceso de <strong>${variables.case_type || "—"}</strong> ${caseClause}.
+  </p>
+  
+  <p style="text-align:justify;">
+  <strong>FACULTADES:</strong> ${variables.faculties || "—"}
+  </p>
+  
+  <p style="text-align:justify;">
+  Las anteriores facultades se entienden conferidas de conformidad con lo establecido en los artículos 73, 74 y 75 del Código General del Proceso. Este poder se otorga con facultad de sustituirlo total o parcialmente.
+  </p>
+  
+  <p style="text-align:justify;">
+  ${poderdanteType === 'multiple' ? 'Declaramos' : 'Declaro'} bajo la gravedad del juramento que no ${poderdanteType === 'multiple' ? 'hemos' : 'he'} conferido poder a otro abogado para el mismo asunto, y que ${poderdanteType === 'multiple' ? 'aceptamos' : 'acepto'} la responsabilidad que se derive de la presente actuación.
+  </p>
+  
+  <p style="text-align:justify;">
+  Del señor(a) Juez(a), atentamente,
+  </p>
+  
+  ${signatureBlock}
+  
+  <div style="margin-top:32px;">
+    <p><strong>ACEPTO:</strong></p>
+    <br/><br/>
+    <p>___________________________________</p>
+    <p><strong>${(variables.lawyer_full_name || "—").toUpperCase()}</strong></p>
+    <p>C.C. ${variables.lawyer_cedula || "—"}</p>
+    <p>T.P. ${variables.lawyer_tarjeta_profesional || "—"}</p>
+  </div>
+</div>`;
+}
+
+// ─── Poder Especial Template (static fallback) ──────────
 
 export const PODER_ESPECIAL_HTML = `
 <div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
@@ -23,9 +193,11 @@ export const PODER_ESPECIAL_HTML = `
   
   <p><strong>{{city}}</strong>, {{date}}</p>
   
+  {{#if court_name}}
   <p>Señores<br/>
   <strong>{{court_name}}</strong><br/>
   Ciudad</p>
+  {{/if}}
   
   <p style="text-align:justify;">
   Yo, <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong> de <strong>{{client_cedula_city}}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero <strong>PODER ESPECIAL</strong> amplio y suficiente al abogado(a):
@@ -38,7 +210,12 @@ export const PODER_ESPECIAL_HTML = `
   </p>
   
   <p style="text-align:justify;">
-  Para que en mi nombre y representación, actúe como apoderado(a) judicial dentro del proceso de <strong>{{case_type}}</strong> que se tramita ante el despacho de su conocimiento, identificado con radicado No. <strong>{{radicado}}</strong>, en el cual la parte demandante es <strong>{{client_full_name}}</strong> y la parte demandada es <strong>{{opposing_party}}</strong>.
+  Para que en mi nombre y representación, actúe como apoderado(a) judicial dentro del proceso de <strong>{{case_type}}</strong>
+  {{#if radicado}}
+  identificado con radicado No. <strong>{{radicado}}</strong>, que se tramita ante el despacho de <strong>{{court_name}}</strong>{{#if opposing_party}}, en el cual la parte demandante es <strong>{{client_full_name}}</strong> y la parte demandada es <strong>{{opposing_party}}</strong>{{/if}}.
+  {{else}}
+  que se llegare(n) a iniciar o en los que sea necesaria mi representación judicial.
+  {{/if}}
   </p>
   
   <p style="text-align:justify;">
@@ -78,13 +255,15 @@ export const PODER_ESPECIAL_HTML = `
 export const PODER_ESPECIAL_VARIABLES: LegalTemplateVariable[] = [
   { key: "client_full_name", label: "Nombre completo del cliente", required: true, source: "work_item", editable: true },
   { key: "client_cedula", label: "Cédula del cliente", required: true, source: "work_item", editable: true },
-  { key: "client_cedula_city", label: "Ciudad de expedición cédula", required: true, source: "manual", editable: true, defaultValue: "" },
+  { key: "client_cedula_city", label: "Ciudad de expedición cédula", required: false, source: "manual", editable: true, defaultValue: "" },
+  { key: "client_email", label: "Correo del cliente", required: false, source: "work_item", editable: true },
+  { key: "client_phone", label: "Teléfono del cliente", required: false, source: "manual", editable: true },
   { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
   { key: "radicado", label: "Radicado del proceso", required: false, source: "work_item", editable: true },
-  { key: "court_name", label: "Juzgado/Despacho", required: true, source: "work_item", editable: true },
-  { key: "opposing_party", label: "Parte contraria", required: true, source: "work_item", editable: true },
+  { key: "court_name", label: "Juzgado/Despacho", required: false, source: "work_item", editable: true },
+  { key: "opposing_party", label: "Parte contraria", required: false, source: "work_item", editable: true },
   { key: "case_type", label: "Tipo de proceso", required: true, source: "work_item", editable: true },
   { key: "city", label: "Ciudad", required: true, source: "computed", editable: true, defaultValue: "Medellín" },
   { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
@@ -227,7 +406,9 @@ export function formatColombianDate(date: Date): string {
 }
 
 export function renderLegalTemplate(html: string, variables: Record<string, string>): string {
-  let result = html;
+  // First process conditionals
+  let result = processConditionals(html, variables);
+  // Then substitute variables
   for (const [key, value] of Object.entries(variables)) {
     result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value || "");
   }
@@ -243,4 +424,14 @@ export function getWorkflowTypeLabel(type: string): string {
     PENAL_906: "Penal (Ley 906)",
   };
   return labels[type] || type;
+}
+
+/** Detect poderdante type from work item client name */
+export function detectPoderdanteType(clientName: string | null): PoderdanteType {
+  if (!clientName) return 'natural';
+  // Check for legal entity patterns
+  if (/\b(S\.?A\.?S\.?|S\.?A\.?|Ltda\.?|S\.?\s?en\s?C\.?|E\.?I\.?C\.?E\.?|E\.?S\.?P\.?)\b/i.test(clientName)) {
+    return 'juridica';
+  }
+  return 'natural';
 }

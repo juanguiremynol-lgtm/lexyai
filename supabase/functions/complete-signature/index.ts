@@ -331,10 +331,10 @@ Deno.serve(async (req) => {
       actor_user_agent: signerUA,
     });
 
-    // Fetch document
+    // Fetch document (include poderdante_type and entity_data for evidence)
     const { data: doc } = await adminClient
       .from("generated_documents")
-      .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at")
+      .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at, poderdante_type, entity_data")
       .eq("id", sig.document_id)
       .single();
 
@@ -582,10 +582,23 @@ ${doc.content_html}
     }).join("\n");
 
     // Build per-signer evidence sections
+    const poderdanteType = (doc as any).poderdante_type || "natural";
+    const entityInfo = (doc as any).entity_data || null;
     const signerSections: string[] = [];
     for (let idx = 0; idx < signedSigs.length; idx++) {
       const s = signedSigs[idx];
-      const roleLabel = s.signer_role === "lawyer" ? "EL MANDATARIO (ABOGADO)" : "EL MANDANTE (CLIENTE)";
+      
+      // Determine role label based on poderdante type and signer role
+      let roleLabel: string;
+      if (s.signer_role === "lawyer") {
+        roleLabel = "EL MANDATARIO (ABOGADO)";
+      } else if (poderdanteType === "juridica" && entityInfo) {
+        roleLabel = `PODERDANTE (PERSONA JURÍDICA)`;
+      } else if (poderdanteType === "multiple") {
+        roleLabel = `PODERDANTE ${idx + 1}`;
+      } else {
+        roleLabel = "EL MANDANTE (CLIENTE)";
+      }
 
       // Fetch events specific to this signer
       const { data: signerEvents } = await adminClient
@@ -594,10 +607,38 @@ ${doc.content_html}
         .eq("signature_id", s.id)
         .order("created_at", { ascending: true });
 
-      signerSections.push(buildSignerEvidenceSection(s, signerEvents || [], idx + 1, totalSigners, roleLabel));
+      // For juridica, prepend company info to the evidence section
+      let extraInfo = "";
+      if (poderdanteType === "juridica" && s.signer_role !== "lawyer" && entityInfo) {
+        extraInfo = `
+        <table style="width:100%;border-collapse:collapse;margin:8px 0 16px;">
+          <tr><td style="padding:6px 0;color:#666;width:40%;">Sociedad:</td><td style="padding:6px 0;font-weight:bold;">${entityInfo.company_name || "N/A"}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">NIT:</td><td style="padding:6px 0;">${entityInfo.company_nit || "N/A"}</td></tr>
+          <tr><td style="padding:6px 0;color:#666;">Domicilio:</td><td style="padding:6px 0;">${entityInfo.company_city || "N/A"}</td></tr>
+          ${entityInfo.rep_legal_cargo ? `<tr><td style="padding:6px 0;color:#666;">Cargo del firmante:</td><td style="padding:6px 0;">${entityInfo.rep_legal_cargo}</td></tr>` : ""}
+        </table>
+        <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;font-size:12px;">REPRESENTANTE LEGAL</h4>`;
+      }
+
+      const section = buildSignerEvidenceSection(s, signerEvents || [], idx + 1, totalSigners, roleLabel);
+      // Inject extra company info after the section title
+      if (extraInfo) {
+        const insertPoint = section.indexOf('</h3>') + 5;
+        signerSections.push(section.slice(0, insertPoint) + extraInfo + section.slice(insertPoint));
+      } else {
+        signerSections.push(section);
+      }
     }
 
-    const statusLabel = totalSigners > 1 ? "Firmado por ambas partes" : "Firmado";
+    // Status label adapts to poderdante type and signer count
+    let statusLabel: string;
+    if (poderdanteType === "multiple") {
+      statusLabel = `Firmado por todos los poderdantes (${totalSigners}/${totalSigners})`;
+    } else if (totalSigners > 1) {
+      statusLabel = "Firmado por ambas partes";
+    } else {
+      statusLabel = "Firmado";
+    }
 
     // Build evidence appendix
     const evidenceAppendix = `

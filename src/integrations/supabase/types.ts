@@ -5505,10 +5505,12 @@ export type Database = {
           created_by: string
           document_hash_presign: string | null
           document_type: string
+          entity_data: Json | null
           finalized_at: string | null
           finalized_by: string | null
           id: string
           organization_id: string
+          poderdante_type: string | null
           status: string
           template_id: string | null
           title: string
@@ -5523,10 +5525,12 @@ export type Database = {
           created_by: string
           document_hash_presign?: string | null
           document_type: string
+          entity_data?: Json | null
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
           organization_id: string
+          poderdante_type?: string | null
           status?: string
           template_id?: string | null
           title: string
@@ -5541,10 +5545,12 @@ export type Database = {
           created_by?: string
           document_hash_presign?: string | null
           document_type?: string
+          entity_data?: Json | null
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
           organization_id?: string
+          poderdante_type?: string | null
           status?: string
           template_id?: string | null
           title?: string

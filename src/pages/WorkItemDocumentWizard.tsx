@@ -1,9 +1,9 @@
 /**
  * WorkItemDocumentWizard — Multi-step document generation wizard for work items.
- * Phase 2.5: After finalizing, shows sharing modal with both Email + Copy Link options.
+ * Phase 3.8: Multi-party & legal entity support for Poder Especial.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,18 +21,334 @@ import {
 import {
   FileText, ArrowLeft, ArrowRight, Send, Save, Loader2,
   CheckCircle2, AlertCircle, Eye, Mail, Link2, Copy, Check, Clock,
+  User, Users, Building2, Trash2, Plus,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   LegalDocumentType,
+  PoderdanteType,
+  PoderdanteData,
+  EntityData,
   LEGAL_TEMPLATES,
   LEGAL_DOCUMENT_TYPE_LABELS,
   LegalTemplateVariable,
   formatColombianDate,
   renderLegalTemplate,
   getWorkflowTypeLabel,
+  generatePoderEspecialHtml,
+  detectPoderdanteType,
 } from "@/lib/legal-document-templates";
+
+// ─── Poderdante Type Selector ────────────────────────────
+
+function PoderdanteTypeSelector({
+  value,
+  onChange,
+}: {
+  value: PoderdanteType;
+  onChange: (t: PoderdanteType) => void;
+}) {
+  const options: { type: PoderdanteType; icon: React.ReactNode; title: string; desc: string }[] = [
+    { type: "natural", icon: <User className="h-6 w-6" />, title: "Persona natural", desc: "Un individuo otorga el poder" },
+    { type: "multiple", icon: <Users className="h-6 w-6" />, title: "Varias personas", desc: "Dos o más individuos otorgan el poder" },
+    { type: "juridica", icon: <Building2 className="h-6 w-6" />, title: "Sociedad / Empresa", desc: "Persona jurídica a través de su representante legal" },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm font-medium">¿Quién otorga el poder?</Label>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {options.map((o) => (
+          <button
+            key={o.type}
+            type="button"
+            onClick={() => onChange(o.type)}
+            className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-all text-center ${
+              value === o.type
+                ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                : "border-border hover:border-primary/40 hover:bg-muted/30"
+            }`}
+          >
+            <span className={value === o.type ? "text-primary" : "text-muted-foreground"}>{o.icon}</span>
+            <span className="font-medium text-sm">{o.title}</span>
+            <span className="text-xs text-muted-foreground leading-tight">{o.desc}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Multiple Poderdantes Form ───────────────────────────
+
+function MultiplePoderdantesForm({
+  poderdantes,
+  onChange,
+}: {
+  poderdantes: PoderdanteData[];
+  onChange: (p: PoderdanteData[]) => void;
+}) {
+  const updateField = (idx: number, field: keyof PoderdanteData, value: string) => {
+    const updated = [...poderdantes];
+    updated[idx] = { ...updated[idx], [field]: value };
+    onChange(updated);
+  };
+
+  const addPoderdante = () => {
+    if (poderdantes.length >= 10) return;
+    onChange([...poderdantes, { name: "", cedula: "", cedula_city: "", email: "" }]);
+  };
+
+  const removePoderdante = (idx: number) => {
+    if (poderdantes.length <= 2) return;
+    onChange(poderdantes.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Poderdantes ({poderdantes.length})</Label>
+        <span className="text-xs text-muted-foreground">Máximo: 10</span>
+      </div>
+
+      {poderdantes.map((p, idx) => (
+        <Card key={idx} className="border-border/50">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-muted-foreground">Poderdante {idx + 1}</span>
+              {poderdantes.length > 2 && (
+                <Button variant="ghost" size="sm" onClick={() => removePoderdante(idx)} className="h-7 text-destructive hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Eliminar
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Nombre completo *</Label>
+                <Input value={p.name} onChange={(e) => updateField(idx, "name", e.target.value)} placeholder="Nombre completo" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Cédula *</Label>
+                <Input value={p.cedula} onChange={(e) => updateField(idx, "cedula", e.target.value)} placeholder="1.234.567.890" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Ciudad expedición</Label>
+                <Input value={p.cedula_city} onChange={(e) => updateField(idx, "cedula_city", e.target.value)} placeholder="Medellín" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Email *</Label>
+                <Input type="email" value={p.email} onChange={(e) => updateField(idx, "email", e.target.value)} placeholder="correo@email.com" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
+      {poderdantes.length < 10 && (
+        <Button variant="outline" size="sm" onClick={addPoderdante} className="w-full">
+          <Plus className="h-4 w-4 mr-2" /> Agregar poderdante
+        </Button>
+      )}
+
+      <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <span>Cada poderdante recibirá un enlace individual de firma y deberá firmar por separado.</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Juridica Entity Form ────────────────────────────────
+
+function JuridicaEntityForm({
+  entity,
+  onChange,
+}: {
+  entity: EntityData;
+  onChange: (e: EntityData) => void;
+}) {
+  const update = (field: keyof EntityData, value: string) => {
+    onChange({ ...entity, [field]: value });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label className="text-sm font-medium">Poderdante (Persona Jurídica)</Label>
+      </div>
+
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Razón social *</Label>
+          <Input value={entity.company_name || ""} onChange={(e) => update("company_name", e.target.value)} placeholder="Constructora ABC S.A.S." />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">NIT *</Label>
+            <Input value={entity.company_nit || ""} onChange={(e) => update("company_nit", e.target.value)} placeholder="900.123.456-7" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Domicilio principal *</Label>
+            <Input value={entity.company_city || ""} onChange={(e) => update("company_city", e.target.value)} placeholder="Medellín, Antioquia" />
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      <div>
+        <Label className="text-sm font-medium">Representante Legal</Label>
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Nombre completo *</Label>
+            <Input value={entity.rep_legal_name || ""} onChange={(e) => update("rep_legal_name", e.target.value)} placeholder="Nombre completo" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Cédula *</Label>
+            <Input value={entity.rep_legal_cedula || ""} onChange={(e) => update("rep_legal_cedula", e.target.value)} placeholder="1.111.222.333" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Ciudad expedición</Label>
+            <Input value={entity.rep_legal_cedula_city || ""} onChange={(e) => update("rep_legal_cedula_city", e.target.value)} placeholder="Envigado" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Cargo *</Label>
+            <Input value={entity.rep_legal_cargo || ""} onChange={(e) => update("rep_legal_cargo", e.target.value)} placeholder="Gerente General" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Email *</Label>
+            <Input type="email" value={entity.rep_legal_email || ""} onChange={(e) => update("rep_legal_email", e.target.value)} placeholder="correo@empresa.com" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Teléfono</Label>
+            <Input value={entity.rep_legal_phone || ""} onChange={(e) => update("rep_legal_phone", e.target.value)} placeholder="604 123 4567" />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <span>El representante legal firmará el poder en nombre de la sociedad.</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Multi-Signer Sharing Modal ──────────────────────────
+
+function MultiSignerSharingModal({
+  open,
+  onClose,
+  signers,
+  onSendEmail,
+  onCopyLink,
+  expiresAt,
+}: {
+  open: boolean;
+  onClose: () => void;
+  signers: { name: string; email: string; signingUrl: string; signatureId: string; emailSent: boolean }[];
+  onSendEmail: (idx: number) => Promise<void>;
+  onCopyLink: (url: string) => void;
+  expiresAt: string;
+}) {
+  const [sendingIdx, setSendingIdx] = useState<number | null>(null);
+  const [sendingAll, setSendingAll] = useState(false);
+
+  const handleSendOne = async (idx: number) => {
+    setSendingIdx(idx);
+    await onSendEmail(idx);
+    setSendingIdx(null);
+  };
+
+  const handleSendAll = async () => {
+    setSendingAll(true);
+    for (let i = 0; i < signers.length; i++) {
+      if (!signers[i].emailSent) {
+        await onSendEmail(i);
+      }
+    }
+    setSendingAll(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={() => onClose()}>
+      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Send className="h-5 w-5" />
+            Enviar documento para firma
+          </DialogTitle>
+          <DialogDescription>
+            {signers.length > 1
+              ? `Este poder debe ser firmado por ${signers.length} poderdantes. Cada uno recibirá un enlace individual.`
+              : "Comparta el enlace de firma con el firmante."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          {signers.map((s, idx) => (
+            <Card key={idx}>
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{signers.length > 1 ? `Poderdante ${idx + 1}: ` : ""}{s.name}</p>
+                    <p className="text-xs text-muted-foreground">{s.email}</p>
+                  </div>
+                  {s.emailSent && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                </div>
+                <div className="flex gap-2">
+                  {s.emailSent ? (
+                    <div className="flex items-center gap-1.5 text-emerald-600 text-xs">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Email enviado
+                    </div>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => handleSendOne(idx)} disabled={sendingIdx === idx}>
+                      {sendingIdx === idx ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Mail className="h-3.5 w-3.5 mr-1" />}
+                      Enviar por correo
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
+                    <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          {signers.length > 1 && signers.some(s => !s.emailSent) && (
+            <Button onClick={handleSendAll} disabled={sendingAll} className="w-full">
+              {sendingAll ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+              Enviar todos por correo
+            </Button>
+          )}
+
+          <div className="flex items-center gap-2 text-sm text-amber-600">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span>
+              Los enlaces vencen en 72 horas.
+              {expiresAt && (
+                <> Expira: {new Date(expiresAt).toLocaleDateString("es-CO", {
+                  timeZone: "America/Bogota", day: "numeric", month: "long", year: "numeric",
+                  hour: "numeric", minute: "2-digit",
+                })} COT</>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cerrar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Wizard ─────────────────────────────────────────
 
 export default function WorkItemDocumentWizard() {
   const { id: workItemId } = useParams<{ id: string }>();
@@ -45,15 +361,20 @@ export default function WorkItemDocumentWizard() {
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
 
+  // Phase 3.8: Poderdante type state
+  const [poderdanteType, setPoderdanteType] = useState<PoderdanteType>("natural");
+  const [poderdantes, setPoderdantes] = useState<PoderdanteData[]>([
+    { name: "", cedula: "", cedula_city: "", email: "" },
+    { name: "", cedula: "", cedula_city: "", email: "" },
+  ]);
+  const [entityData, setEntityData] = useState<EntityData>({});
+
   // Sharing modal state
   const [sharingModalOpen, setSharingModalOpen] = useState(false);
-  const [signingUrl, setSigningUrl] = useState("");
-  const [signatureId, setSignatureId] = useState("");
+  const [signerEntries, setSignerEntries] = useState<{ name: string; email: string; signingUrl: string; signatureId: string; emailSent: boolean }[]>([]);
   const [expiresAt, setExpiresAt] = useState("");
   const [savedDocId, setSavedDocId] = useState("");
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
+  const [unpopulatedVars, setUnpopulatedVars] = useState<string[]>([]);
 
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
@@ -116,6 +437,23 @@ export default function WorkItemDocumentWizard() {
     enabled: !!workItem?.client_id,
   });
 
+  // Auto-detect poderdante type from work item
+  useEffect(() => {
+    if (workItem && docType === "poder_especial") {
+      const clientName = clientData?.name || workItem.demandantes || "";
+      const detected = detectPoderdanteType(clientName);
+      setPoderdanteType(detected);
+
+      if (detected === "juridica") {
+        setEntityData({
+          company_name: clientName,
+          company_nit: clientData?.id_number || "",
+          company_city: workItem.authority_city || "",
+        });
+      }
+    }
+  }, [workItem, clientData, docType]);
+
   // Auto-populate variables when data loads or doc type changes
   useEffect(() => {
     const now = new Date();
@@ -134,13 +472,13 @@ export default function WorkItemDocumentWizard() {
       vars.court_name = workItem.authority_name || "";
       vars.case_type = getWorkflowTypeLabel(workItem.workflow_type || "");
       vars.opposing_party = workItem.demandados || "";
-      vars.case_description = workItem.title || workItem.description || (workItem as any).display_name || "";
+      vars.case_description = workItem.title || workItem.description || "";
 
       const clientName = clientData?.name || workItem.demandantes || "";
       vars.client_full_name = clientName;
       vars.client_cedula = clientData?.id_number || "";
       vars.client_email = clientData?.email || "";
-      vars.client_phone = clientData?.phone || "";
+      vars.client_phone = (clientData as any)?.phone || "";
     }
 
     if (profile) {
@@ -173,15 +511,80 @@ export default function WorkItemDocumentWizard() {
   }, [docType, workItem, profile, org, clientData]);
 
   const template = LEGAL_TEMPLATES[docType];
-  const renderedHtml = useMemo(() => renderLegalTemplate(template.html, variables), [template.html, variables]);
 
-  const editableVars = template.variables.filter(
-    (v) => v.editable && !v.key.startsWith("(auto)") && v.source !== "computed"
-  );
+  // Generate rendered HTML based on poderdante type for poder_especial
+  const renderedHtml = useMemo(() => {
+    if (docType === "poder_especial") {
+      const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : undefined;
+      return generatePoderEspecialHtml(poderdanteType, variables, ed || null);
+    }
+    return renderLegalTemplate(template.html, variables);
+  }, [template.html, variables, docType, poderdanteType, poderdantes, entityData]);
 
-  const missingRequired = template.variables
-    .filter((v) => v.required && v.editable)
-    .filter((v) => !variables[v.key]?.trim());
+  // Determine which variable fields to show based on poderdante type
+  const editableVars = useMemo(() => {
+    const base = template.variables.filter(
+      (v) => v.editable && !v.key.startsWith("(auto)") && v.source !== "computed"
+    );
+    if (docType === "poder_especial" && poderdanteType !== "natural") {
+      // Hide client_full_name, client_cedula, client_cedula_city for multi/juridica
+      return base.filter(v => !["client_full_name", "client_cedula", "client_cedula_city", "client_email", "client_phone"].includes(v.key));
+    }
+    return base;
+  }, [template.variables, docType, poderdanteType]);
+
+  // Required fields validation
+  const missingRequired = useMemo(() => {
+    const baseMissing = template.variables
+      .filter((v) => v.required && v.editable)
+      .filter((v) => {
+        // Skip client fields for multi/juridica poder_especial
+        if (docType === "poder_especial" && poderdanteType !== "natural" &&
+            ["client_full_name", "client_cedula", "client_email"].includes(v.key)) {
+          return false;
+        }
+        return !variables[v.key]?.trim();
+      });
+
+    // Additional validation for multi/juridica
+    if (docType === "poder_especial") {
+      if (poderdanteType === "multiple") {
+        const hasInvalid = poderdantes.some(p => !p.name?.trim() || !p.cedula?.trim() || !p.email?.trim());
+        if (hasInvalid) {
+          baseMissing.push({ key: "_poderdantes", label: "Datos de poderdantes (nombre, cédula, email)", required: true, source: "manual", editable: true } as any);
+        }
+      }
+      if (poderdanteType === "juridica") {
+        const req = ["company_name", "company_nit", "rep_legal_name", "rep_legal_cedula", "rep_legal_cargo", "rep_legal_email"];
+        const missingEntity = req.filter(k => !(entityData as any)[k]?.trim());
+        if (missingEntity.length > 0) {
+          baseMissing.push({ key: "_entity", label: "Datos de la persona jurídica y representante legal", required: true, source: "manual", editable: true } as any);
+        }
+      }
+    }
+
+    return baseMissing;
+  }, [template.variables, variables, docType, poderdanteType, poderdantes, entityData]);
+
+  // Determine signer configuration
+  const isMultiSigner = docType === "contrato_servicios";
+
+  // Get all signers for the document
+  const getSigners = useCallback((): { name: string; email: string; cedula: string; role: string }[] => {
+    if (docType === "poder_especial") {
+      if (poderdanteType === "multiple") {
+        return poderdantes.map(p => ({ name: p.name, email: p.email, cedula: p.cedula, role: "client" }));
+      }
+      if (poderdanteType === "juridica") {
+        return [{ name: entityData.rep_legal_name || "", email: entityData.rep_legal_email || "", cedula: entityData.rep_legal_cedula || "", role: "client" }];
+      }
+      return [{ name: variables.client_full_name || "", email: variables.client_email || "", cedula: variables.client_cedula || "", role: "client" }];
+    }
+    // Contrato: client + lawyer
+    return [
+      { name: variables.client_full_name || "", email: variables.client_email || "", cedula: variables.client_cedula || "", role: "client" },
+    ];
+  }, [docType, poderdanteType, poderdantes, entityData, variables]);
 
   const handleSaveDraft = async () => {
     if (!workItem) return;
@@ -190,17 +593,21 @@ export default function WorkItemDocumentWizard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
+      const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : null;
+
       const { error } = await supabase.from("generated_documents").insert({
         organization_id: workItem.organization_id!,
         work_item_id: workItem.id,
         document_type: docType,
         title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
-        content_json: { variables, template_type: docType },
+        content_json: { variables, template_type: docType, poderdante_type: poderdanteType },
         content_html: renderedHtml,
         variables,
         status: "draft",
         created_by: user.id,
-      });
+        poderdante_type: poderdanteType,
+        entity_data: ed,
+      } as any);
 
       if (error) throw error;
       toast.success("Documento guardado como borrador");
@@ -212,14 +619,22 @@ export default function WorkItemDocumentWizard() {
     }
   };
 
-  // Variable label mapping for user-facing error messages
+  function findUnpopulatedVariables(html: string): string[] {
+    const pattern = /\{\{(\w+)\}\}/g;
+    const missing: string[] = [];
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+      if (!missing.includes(match[1])) missing.push(match[1]);
+    }
+    return missing;
+  }
+
   const VARIABLE_LABELS: Record<string, string> = {
     client_full_name: "Nombre completo del cliente",
     client_cedula: "Cédula del cliente",
     client_cedula_city: "Ciudad de expedición cédula",
     client_email: "Correo del cliente",
     client_phone: "Teléfono del cliente",
-    client_address: "Dirección del cliente",
     lawyer_full_name: "Nombre del abogado",
     lawyer_cedula: "Cédula del abogado",
     lawyer_tarjeta_profesional: "Tarjeta profesional del abogado",
@@ -237,38 +652,19 @@ export default function WorkItemDocumentWizard() {
     payment_schedule: "Forma de pago",
     contract_duration: "Duración del contrato",
     firm_name: "Nombre de la firma",
-    firm_nit: "NIT de la firma",
-    firm_address: "Dirección de la firma",
   };
-
-  // Find unpopulated {{variable}} placeholders in rendered HTML
-  function findUnpopulatedVariables(html: string): string[] {
-    const pattern = /\{\{(\w+)\}\}/g;
-    const missing: string[] = [];
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      if (!missing.includes(match[1])) missing.push(match[1]);
-    }
-    return missing;
-  }
-
-  const [unpopulatedVars, setUnpopulatedVars] = useState<string[]>([]);
-
-  // Determine signer configuration based on document type
-  const isMultiSigner = docType === "contrato_servicios";
-  const signerCount = isMultiSigner ? 2 : 1;
 
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
-    if (finalizing) return; // Double-submit guard
+    if (finalizing) return;
 
-    const signerEmail = variables.client_email;
-    if (!signerEmail) {
-      toast.error("Se requiere el correo electrónico del cliente para enviar a firma");
+    const signers = getSigners();
+    const missingEmails = signers.filter(s => !s.email?.trim());
+    if (missingEmails.length > 0) {
+      toast.error("Se requiere el correo electrónico de todos los firmantes");
       return;
     }
 
-    // Check for unpopulated template variables
     const unpopulated = findUnpopulatedVariables(renderedHtml);
     if (unpopulated.length > 0) {
       setUnpopulatedVars(unpopulated);
@@ -282,6 +678,8 @@ export default function WorkItemDocumentWizard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
+      const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : null;
+
       // Save as finalized
       const { data: doc, error: docErr } = await supabase
         .from("generated_documents")
@@ -290,61 +688,74 @@ export default function WorkItemDocumentWizard() {
           work_item_id: workItem.id,
           document_type: docType,
           title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
-          content_json: { variables, template_type: docType },
+          content_json: { variables, template_type: docType, poderdante_type: poderdanteType },
           content_html: renderedHtml,
           variables,
           status: "finalized",
           created_by: user.id,
           finalized_at: new Date().toISOString(),
           finalized_by: user.id,
-        })
+          poderdante_type: poderdanteType,
+          entity_data: ed,
+        } as any)
         .select("id")
         .single();
 
       if (docErr) throw docErr;
       setSavedDocId(doc.id);
 
-      // Generate signing link for the CLIENT (signer 1) WITHOUT sending email
-      const signerName = variables.client_full_name || "Cliente";
-      const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
-        body: {
-          document_id: doc.id,
-          signer_name: signerName,
-          signer_email: signerEmail,
-          signer_cedula: variables.client_cedula || null,
-          signer_role: "client",
-          signing_order: 1,
-          send_email: false,
-        },
-      });
+      // Generate signing links for ALL signers (parallel for multi-poderdante)
+      const entries: typeof signerEntries = [];
 
-      if (sigErr) throw sigErr;
-      if (!sigResult.ok) throw new Error(sigResult.error);
+      for (let i = 0; i < signers.length; i++) {
+        const s = signers[i];
+        const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
+          body: {
+            document_id: doc.id,
+            signer_name: s.name,
+            signer_email: s.email,
+            signer_cedula: s.cedula || null,
+            signer_role: s.role,
+            signing_order: i + 1,
+            send_email: false,
+          },
+        });
 
-      // For Contrato de Servicios, also create the LAWYER signature record in 'waiting' status
-      if (isMultiSigner && profile) {
-        const { data: lawyerSigResult, error: lawyerSigErr } = await supabase.functions.invoke("generate-signing-link", {
+        if (sigErr || !sigResult?.ok) {
+          throw new Error(sigResult?.error || sigErr?.message || "Error generando enlace de firma");
+        }
+
+        entries.push({
+          name: s.name,
+          email: s.email,
+          signingUrl: sigResult.signing_url,
+          signatureId: sigResult.signature_id,
+          emailSent: false,
+        });
+      }
+
+      // For Contrato de Servicios, also create the LAWYER signature in 'waiting' status
+      if (isMultiSigner && profile && entries.length > 0) {
+        const { data: lawyerSigResult } = await supabase.functions.invoke("generate-signing-link", {
           body: {
             document_id: doc.id,
             signer_name: variables.lawyer_full_name || "Abogado",
             signer_email: profile.firma_abogado_correo || "",
             signer_cedula: variables.lawyer_cedula || null,
             signer_role: "lawyer",
-            signing_order: 2,
-            depends_on: sigResult.signature_id,
+            signing_order: entries.length + 1,
+            depends_on: entries[0].signatureId,
             create_as_waiting: true,
             send_email: false,
           },
         });
-        // Non-critical: if lawyer sig creation fails, still show the modal for client
-        if (lawyerSigErr || !lawyerSigResult?.ok) {
-          console.warn("Could not create lawyer signature record:", lawyerSigErr || lawyerSigResult?.error);
+        if (!lawyerSigResult?.ok) {
+          console.warn("Could not create lawyer signature:", lawyerSigResult?.error);
         }
       }
 
-      setSigningUrl(sigResult.signing_url);
-      setSignatureId(sigResult.signature_id);
-      setExpiresAt(sigResult.expires_at);
+      setSignerEntries(entries);
+      setExpiresAt(entries.length > 0 ? new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() : "");
       setSharingModalOpen(true);
     } catch (err) {
       toast.error("Error: " + (err as Error).message);
@@ -353,29 +764,25 @@ export default function WorkItemDocumentWizard() {
     }
   };
 
-  const handleSendEmail = async () => {
-    if (!signatureId) return;
-    setSendingEmail(true);
+  const handleSendEmailToSigner = async (idx: number) => {
+    const entry = signerEntries[idx];
+    if (!entry?.signatureId) return;
     try {
       const { data, error } = await supabase.functions.invoke("send-signing-email", {
-        body: { signature_id: signatureId },
+        body: { signature_id: entry.signatureId },
       });
       if (error) throw error;
       if (!data.ok) throw new Error(data.error);
-      setEmailSent(true);
-      toast.success(`Email enviado a ${variables.client_email}`);
+      setSignerEntries(prev => prev.map((e, i) => i === idx ? { ...e, emailSent: true } : e));
+      toast.success(`Email enviado a ${entry.email}`);
     } catch (err) {
       toast.error("Error al enviar email: " + (err as Error).message);
-    } finally {
-      setSendingEmail(false);
     }
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(signingUrl);
-    setLinkCopied(true);
+  const handleCopyLink = (url: string) => {
+    navigator.clipboard.writeText(url);
     toast.success("Enlace copiado al portapapeles");
-    setTimeout(() => setLinkCopied(false), 3000);
   };
 
   const handleCloseModal = () => {
@@ -472,9 +879,42 @@ export default function WorkItemDocumentWizard() {
               <CardTitle className="text-lg">Variables del Documento</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[500px] pr-4">
+              <ScrollArea className="h-[600px] pr-4">
                 <div className="space-y-4">
-                   {editableVars.map((v) => (
+                  {/* Poderdante type selector (only for poder_especial) */}
+                  {docType === "poder_especial" && (
+                    <>
+                      <PoderdanteTypeSelector value={poderdanteType} onChange={setPoderdanteType} />
+                      <Separator />
+                    </>
+                  )}
+
+                  {/* Multi-poderdante form */}
+                  {docType === "poder_especial" && poderdanteType === "multiple" && (
+                    <>
+                      <MultiplePoderdantesForm poderdantes={poderdantes} onChange={setPoderdantes} />
+                      <Separator />
+                    </>
+                  )}
+
+                  {/* Juridica entity form */}
+                  {docType === "poder_especial" && poderdanteType === "juridica" && (
+                    <>
+                      <JuridicaEntityForm entity={entityData} onChange={setEntityData} />
+                      <Separator />
+                    </>
+                  )}
+
+                  {/* Auto-note for parties */}
+                  {docType === "poder_especial" && poderdanteType === "natural" && (
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>Verificamos automáticamente los datos de las partes del expediente. Si representa al demandado, ajuste los campos según corresponda.</span>
+                    </div>
+                  )}
+
+                  {/* Standard variable fields */}
+                  {editableVars.map((v) => (
                     <div key={v.key} className="space-y-1">
                       <div className="flex items-center gap-2">
                         {variables[v.key]?.trim() ? (
@@ -533,7 +973,7 @@ export default function WorkItemDocumentWizard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[500px] border rounded-lg p-4 bg-white">
+              <ScrollArea className="h-[600px] border rounded-lg p-4 bg-white">
                 <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
               </ScrollArea>
             </CardContent>
@@ -566,6 +1006,11 @@ export default function WorkItemDocumentWizard() {
               <CardTitle className="flex items-center gap-2">
                 <Eye className="h-5 w-5" />
                 Vista Previa Final — {LEGAL_DOCUMENT_TYPE_LABELS[docType]}
+                {docType === "poder_especial" && poderdanteType !== "natural" && (
+                  <Badge variant="outline" className="ml-2 text-xs">
+                    {poderdanteType === "multiple" ? `${poderdantes.length} poderdantes` : "Persona jurídica"}
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -624,118 +1069,15 @@ export default function WorkItemDocumentWizard() {
         </div>
       )}
 
-      {/* Sharing Modal */}
-      <Dialog open={sharingModalOpen} onOpenChange={setSharingModalOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Send className="h-5 w-5" />
-              Enviar documento para firma
-            </DialogTitle>
-            <DialogDescription>
-              El documento ha sido finalizado. Comparta el enlace de firma con el cliente.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {/* Signer info */}
-            <div className="bg-muted/50 rounded-lg p-4 space-y-1 text-sm">
-              <p><span className="text-muted-foreground">Firmante:</span> <strong>{variables.client_full_name || "Cliente"}</strong></p>
-              <p><span className="text-muted-foreground">Email:</span> {variables.client_email}</p>
-              {variables.client_cedula && (
-                <p><span className="text-muted-foreground">Cédula:</span> {variables.client_cedula}</p>
-              )}
-            </div>
-
-            {/* Option A: Send via email */}
-            <Card>
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-primary" />
-                  <span className="font-medium">Enviar por correo electrónico</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Se enviará un email a {variables.client_email} con el enlace de firma.
-                </p>
-                {emailSent ? (
-                  <div className="flex items-center gap-2 text-green-600 text-sm">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Email enviado exitosamente
-                  </div>
-                ) : (
-                  <Button
-                    onClick={handleSendEmail}
-                    disabled={sendingEmail}
-                    className="w-full"
-                  >
-                    {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                    Enviar
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Divider */}
-            <div className="flex items-center gap-3">
-              <Separator className="flex-1" />
-              <span className="text-xs text-muted-foreground">o compartir manualmente</span>
-              <Separator className="flex-1" />
-            </div>
-
-            {/* Option B: Copy link */}
-            <Card>
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Link2 className="h-4 w-4 text-primary" />
-                  <span className="font-medium">Copiar enlace</span>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={signingUrl}
-                    readOnly
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleCopyLink}
-                    className="shrink-0"
-                  >
-                    {linkCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Comparta este enlace por WhatsApp, SMS u otro medio.
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Expiration warning */}
-            <div className="flex items-center gap-2 text-sm text-amber-600">
-              <Clock className="h-4 w-4 shrink-0" />
-              <span>
-                El enlace expira en 72 horas.
-                {expiresAt && (
-                  <> Expira: {new Date(expiresAt).toLocaleDateString("es-CO", {
-                    timeZone: "America/Bogota",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })} COT</>
-                )}
-              </span>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCloseModal}>
-              Cerrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Multi-Signer Sharing Modal */}
+      <MultiSignerSharingModal
+        open={sharingModalOpen}
+        onClose={handleCloseModal}
+        signers={signerEntries}
+        onSendEmail={handleSendEmailToSigner}
+        onCopyLink={handleCopyLink}
+        expiresAt={expiresAt}
+      />
     </div>
   );
 }
