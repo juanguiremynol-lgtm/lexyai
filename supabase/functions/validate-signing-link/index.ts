@@ -1,7 +1,7 @@
 /**
  * validate-signing-link — Validates HMAC signature and expiration of a signing URL.
- * Public endpoint (no auth). Returns document data if valid.
- * Phase 3: Timing-safe HMAC, rate limiting, max 168h future expiry, security logging.
+ * Public endpoint (no auth). Returns document data + branding if valid.
+ * Phase 3.6: Returns custom branding (logo + firm name) for the signing page.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -50,6 +50,29 @@ function hexToBytes(hex: string): Uint8Array {
     bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   }
   return bytes;
+}
+
+/** Resolve branding: org custom > creator custom > Andromeda default */
+function resolveBranding(
+  supabaseUrl: string,
+  org: { custom_branding_enabled?: boolean; custom_logo_path?: string; custom_firm_name?: string; name?: string } | null,
+  profile: { custom_branding_enabled?: boolean; custom_logo_path?: string; custom_firm_name?: string; full_name?: string } | null
+): { logo_url: string | null; firm_name: string; is_custom: boolean } {
+  if (org?.custom_branding_enabled && org?.custom_logo_path) {
+    return {
+      logo_url: `${supabaseUrl}/storage/v1/object/public/branding/${org.custom_logo_path}`,
+      firm_name: org.custom_firm_name || org.name || "Andromeda Legal",
+      is_custom: true,
+    };
+  }
+  if (profile?.custom_branding_enabled && profile?.custom_logo_path) {
+    return {
+      logo_url: `${supabaseUrl}/storage/v1/object/public/branding/${profile.custom_logo_path}`,
+      firm_name: profile.custom_firm_name || profile.full_name || "Andromeda Legal",
+      is_custom: true,
+    };
+  }
+  return { logo_url: null, firm_name: "Andromeda Legal", is_custom: false };
 }
 
 Deno.serve(async (req) => {
@@ -114,7 +137,7 @@ Deno.serve(async (req) => {
     // Fetch signature record
     const { data: sig, error: sigErr } = await adminClient
       .from("document_signatures")
-      .select("id, document_id, signer_name, signer_email, signer_cedula, status, otp_verified_at, organization_id")
+      .select("id, document_id, signer_name, signer_email, signer_cedula, status, otp_verified_at, organization_id, created_by")
       .eq("signing_token", signing_token)
       .single();
 
@@ -123,7 +146,6 @@ Deno.serve(async (req) => {
     }
 
     if (sig.status === "signed") {
-      // Fetch signed_at for display
       const { data: fullSig } = await adminClient
         .from("document_signatures")
         .select("signed_at")
@@ -147,12 +169,28 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, title, content_html, document_type, status")
+      .select("id, title, content_html, document_type, status, created_by")
       .eq("id", sig.document_id)
       .single();
 
     if (docErr || !doc) {
       return json({ error: "document_not_found", message: "Documento no encontrado." }, 404);
+    }
+
+    // Resolve branding: fetch org + creator profile
+    let branding = { logo_url: null as string | null, firm_name: "Andromeda Legal", is_custom: false };
+    try {
+      const [orgResult, profileResult] = await Promise.all([
+        sig.organization_id
+          ? adminClient.from("organizations").select("name, custom_branding_enabled, custom_logo_path, custom_firm_name").eq("id", sig.organization_id).single()
+          : Promise.resolve({ data: null }),
+        doc.created_by
+          ? adminClient.from("profiles").select("full_name, custom_branding_enabled, custom_logo_path, custom_firm_name").eq("id", doc.created_by).single()
+          : Promise.resolve({ data: null }),
+      ]);
+      branding = resolveBranding(supabaseUrl, orgResult.data, profileResult.data);
+    } catch (e) {
+      console.error("Branding resolution error:", e);
     }
 
     // Update status to viewed if pending
@@ -189,6 +227,7 @@ Deno.serve(async (req) => {
       signer_cedula_masked: maskedCedula,
       otp_verified: !!sig.otp_verified_at,
       status: sig.status,
+      branding,
       document: {
         id: doc.id,
         title: doc.title,
