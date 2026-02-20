@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,8 +37,10 @@ import {
 export default function WorkItemDocumentWizard() {
   const { id: workItemId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
-  const [docType, setDocType] = useState<LegalDocumentType>("poder_especial");
+  const [searchParams] = useSearchParams();
+  const preselectedType = searchParams.get("type") as LegalDocumentType | null;
+  const [step, setStep] = useState(preselectedType ? 2 : 1);
+  const [docType, setDocType] = useState<LegalDocumentType>(preselectedType || "poder_especial");
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
@@ -472,9 +474,14 @@ export default function WorkItemDocumentWizard() {
             <CardContent>
               <ScrollArea className="h-[500px] pr-4">
                 <div className="space-y-4">
-                  {editableVars.map((v) => (
+                   {editableVars.map((v) => (
                     <div key={v.key} className="space-y-1">
                       <div className="flex items-center gap-2">
+                        {variables[v.key]?.trim() ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        ) : (
+                          <AlertCircle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                        )}
                         <Label className="text-sm">{v.label}</Label>
                         {v.required && <Badge variant="outline" className="text-[10px] h-4">Requerido</Badge>}
                       </div>
