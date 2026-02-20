@@ -10284,6 +10284,24 @@ export type Database = {
           },
         ]
       }
+      system_config: {
+        Row: {
+          key: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string | null
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: []
+      }
       system_email_events: {
         Row: {
           created_at: string
@@ -12459,6 +12477,7 @@ export type Database = {
           scraped_fields: Json | null
           scraping_enabled: boolean | null
           sentencia_ref: string | null
+          service_object: string | null
           sharepoint_url: string | null
           source: Database["public"]["Enums"]["item_source"]
           source_payload: Json | null
@@ -12622,6 +12641,7 @@ export type Database = {
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
           sentencia_ref?: string | null
+          service_object?: string | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
@@ -12785,6 +12805,7 @@ export type Database = {
           scraped_fields?: Json | null
           scraping_enabled?: boolean | null
           sentencia_ref?: string | null
+          service_object?: string | null
           sharepoint_url?: string | null
           source?: Database["public"]["Enums"]["item_source"]
           source_payload?: Json | null
