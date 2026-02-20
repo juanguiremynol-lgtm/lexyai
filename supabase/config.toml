@@ -308,3 +308,21 @@ verify_jwt = false
 
 [functions.system-email-forwarding-status]
 verify_jwt = false
+
+[functions.generate-signing-link]
+verify_jwt = false
+
+[functions.validate-signing-link]
+verify_jwt = false
+
+[functions.send-signing-otp]
+verify_jwt = false
+
+[functions.verify-signing-otp]
+verify_jwt = false
+
+[functions.complete-signature]
+verify_jwt = false
+
+[functions.verify-document]
+verify_jwt = false

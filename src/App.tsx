@@ -55,6 +55,9 @@ import VoucherRedeemPage from "./pages/VoucherRedeemPage";
 import DemoPage from "./pages/DemoPage";
 import EstadosHoy from "./pages/EstadosHoy";
 import ActuacionesHoy from "./pages/ActuacionesHoy";
+import SigningPage from "./pages/SigningPage";
+import VerifyDocumentPage from "./pages/VerifyDocumentPage";
+import WorkItemDocumentWizard from "./pages/WorkItemDocumentWizard";
 
 // Platform Console Pages
 import {
@@ -149,6 +152,11 @@ const App = () => (
             <Route path="/legal/privacy" element={<ErrorBoundary><LegalTermsPage /></ErrorBoundary>} />
           </Route>
           
+          {/* Public signing & verification pages — NO auth required */}
+          <Route path="/sign/:token" element={<ErrorBoundary><SigningPage /></ErrorBoundary>} />
+          <Route path="/verify/:documentId" element={<ErrorBoundary><VerifyDocumentPage /></ErrorBoundary>} />
+          <Route path="/verify" element={<ErrorBoundary><VerifyDocumentPage /></ErrorBoundary>} />
+          
           {/* Legacy root redirects to app (for authenticated users) */}
           <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />
           <Route path="/clients" element={<Navigate to="/app/clients" replace />} />
@@ -220,6 +228,7 @@ const App = () => (
             <Route path="email-inbox" element={<ErrorBoundary><EmailInboxPage /></ErrorBoundary>} />
             <Route path="email" element={<ErrorBoundary><EmailPage /></ErrorBoundary>} />
             <Route path="cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
+            <Route path="work-items/:id/documents/new" element={<ErrorBoundary><WorkItemDocumentWizard /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
