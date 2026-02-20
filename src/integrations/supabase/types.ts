@@ -4460,6 +4460,7 @@ export type Database = {
       document_signatures: {
         Row: {
           certificate_path: string | null
+          combined_pdf_hash: string | null
           created_at: string | null
           created_by: string
           document_id: string
@@ -4492,6 +4493,7 @@ export type Database = {
         }
         Insert: {
           certificate_path?: string | null
+          combined_pdf_hash?: string | null
           created_at?: string | null
           created_by: string
           document_id: string
@@ -4524,6 +4526,7 @@ export type Database = {
         }
         Update: {
           certificate_path?: string | null
+          combined_pdf_hash?: string | null
           created_at?: string | null
           created_by?: string
           document_id?: string
@@ -9412,6 +9415,7 @@ export type Database = {
       rate_limits: {
         Row: {
           count: number
+          endpoint: string
           id: string
           key: string
           organization_id: string
@@ -9419,6 +9423,7 @@ export type Database = {
         }
         Insert: {
           count?: number
+          endpoint?: string
           id?: string
           key: string
           organization_id: string
@@ -9426,6 +9431,7 @@ export type Database = {
         }
         Update: {
           count?: number
+          endpoint?: string
           id?: string
           key?: string
           organization_id?: string

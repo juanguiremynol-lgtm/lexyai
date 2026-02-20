@@ -1,6 +1,7 @@
 /**
  * verify-document — Public endpoint for verifying document integrity via SHA-256 hash.
- * No authentication required.
+ * Phase 3: Accepts both signed_document_hash and combined_pdf_hash for verification.
+ * Rate limited. No authentication required.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -18,6 +19,13 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function getClientIp(req: Request): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || req.headers.get("x-real-ip")
+    || req.headers.get("cf-connecting-ip")
+    || "unknown";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -26,56 +34,70 @@ Deno.serve(async (req) => {
     const { document_hash } = body;
 
     if (!document_hash || typeof document_hash !== "string") {
-      return json({ error: "document_hash is required" }, 400);
+      return json({ error: "Se requiere el hash del documento." }, 400);
     }
 
-    // Validate hash format (64 hex characters for SHA-256)
     if (!/^[a-fA-F0-9]{64}$/.test(document_hash)) {
-      return json({ error: "Invalid hash format. Expected 64 hexadecimal characters (SHA-256)." }, 400);
+      return json({ error: "Formato de hash inválido. Se esperan 64 caracteres hexadecimales (SHA-256)." }, 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
+    const clientIp = getClientIp(req);
 
-    const { data: sig, error } = await adminClient
+    // Rate limiting: 30 req/min per IP
+    const oneMinAgo = new Date(Date.now() - 60000).toISOString();
+    const { count } = await adminClient
+      .from("rate_limits")
+      .select("*", { count: "exact", head: true })
+      .eq("key", clientIp)
+      .eq("endpoint", "verify-document")
+      .gte("window_start", oneMinAgo);
+
+    if ((count || 0) >= 30) {
+      return json({ error: "Demasiadas solicitudes. Intente nuevamente en unos minutos." }, 429);
+    }
+
+    await adminClient.from("rate_limits").insert({
+      key: clientIp,
+      endpoint: "verify-document",
+      window_start: new Date().toISOString(),
+    });
+
+    const hashLower = document_hash.toLowerCase();
+
+    // Try signed_document_hash first, then combined_pdf_hash
+    let sig = null;
+    const { data: sig1 } = await adminClient
       .from("document_signatures")
       .select(`
-        id,
-        signed_at,
-        signer_name,
-        signature_method,
-        document_id,
+        id, signed_at, signer_name, signature_method, document_id,
         generated_documents!inner(title, document_type, created_at)
       `)
-      .eq("signed_document_hash", document_hash.toLowerCase())
+      .eq("signed_document_hash", hashLower)
       .eq("status", "signed")
       .maybeSingle();
 
-    if (error) {
-      console.error("Verify query error:", error);
-      return json({ error: "Internal error during verification" }, 500);
+    if (sig1) {
+      sig = sig1;
+    } else {
+      const { data: sig2 } = await adminClient
+        .from("document_signatures")
+        .select(`
+          id, signed_at, signer_name, signature_method, document_id,
+          generated_documents!inner(title, document_type, created_at)
+        `)
+        .eq("combined_pdf_hash", hashLower)
+        .eq("status", "signed")
+        .maybeSingle();
+      sig = sig2;
     }
 
     if (!sig) {
-      // Log verification attempt
-      await adminClient.from("document_signature_events").insert({
-        organization_id: "00000000-0000-0000-0000-000000000000", // system-level
-        event_type: "document.verified",
-        event_data: {
-          hash: document_hash.toLowerCase(),
-          result: "not_found",
-          timestamp: new Date().toISOString(),
-        },
-        actor_type: "system",
-        actor_id: "public_verifier",
-        actor_ip: req.headers.get("x-forwarded-for") || null,
-        actor_user_agent: req.headers.get("user-agent") || null,
-      }).then(() => {}).catch(() => {}); // best-effort logging
-
       return json({
         verified: false,
-        message: "El documento no fue encontrado o ha sido modificado. El hash proporcionado no coincide con ningún documento firmado en ATENIA.",
+        message: "El documento no fue encontrado o ha sido modificado. El hash proporcionado no coincide con ningún documento firmado.",
       });
     }
 
@@ -92,12 +114,12 @@ Deno.serve(async (req) => {
         signature_method: sig.signature_method,
         created_at: doc?.created_at || null,
       },
-      hash: document_hash.toLowerCase(),
+      hash: hashLower,
       algorithm: "SHA-256",
       legal_notice: "Firma electrónica válida conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012 de la República de Colombia.",
     });
   } catch (err) {
     console.error("verify-document error:", err);
-    return json({ error: (err as Error).message }, 500);
+    return json({ error: "Error interno. Intente nuevamente." }, 500);
   }
 });
