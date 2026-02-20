@@ -252,6 +252,10 @@ export default function WorkItemDocumentWizard() {
 
   const [unpopulatedVars, setUnpopulatedVars] = useState<string[]>([]);
 
+  // Determine signer configuration based on document type
+  const isMultiSigner = docType === "contrato_servicios";
+  const signerCount = isMultiSigner ? 2 : 1;
+
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
     if (finalizing) return; // Double-submit guard
@@ -298,7 +302,7 @@ export default function WorkItemDocumentWizard() {
       if (docErr) throw docErr;
       setSavedDocId(doc.id);
 
-      // Generate signing link WITHOUT sending email
+      // Generate signing link for the CLIENT (signer 1) WITHOUT sending email
       const signerName = variables.client_full_name || "Cliente";
       const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
         body: {
@@ -306,12 +310,35 @@ export default function WorkItemDocumentWizard() {
           signer_name: signerName,
           signer_email: signerEmail,
           signer_cedula: variables.client_cedula || null,
-          send_email: false, // Don't send email yet
+          signer_role: "client",
+          signing_order: 1,
+          send_email: false,
         },
       });
 
       if (sigErr) throw sigErr;
       if (!sigResult.ok) throw new Error(sigResult.error);
+
+      // For Contrato de Servicios, also create the LAWYER signature record in 'waiting' status
+      if (isMultiSigner && profile) {
+        const { data: lawyerSigResult, error: lawyerSigErr } = await supabase.functions.invoke("generate-signing-link", {
+          body: {
+            document_id: doc.id,
+            signer_name: variables.lawyer_full_name || "Abogado",
+            signer_email: profile.firma_abogado_correo || "",
+            signer_cedula: variables.lawyer_cedula || null,
+            signer_role: "lawyer",
+            signing_order: 2,
+            depends_on: sigResult.signature_id,
+            create_as_waiting: true,
+            send_email: false,
+          },
+        });
+        // Non-critical: if lawyer sig creation fails, still show the modal for client
+        if (lawyerSigErr || !lawyerSigResult?.ok) {
+          console.warn("Could not create lawyer signature record:", lawyerSigErr || lawyerSigResult?.error);
+        }
+      }
 
       setSigningUrl(sigResult.signing_url);
       setSignatureId(sigResult.signature_id);

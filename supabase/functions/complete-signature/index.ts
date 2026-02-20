@@ -468,11 +468,86 @@ ${evidenceAppendix}
       })
       .eq("id", sig.id);
 
-    // Update document status
-    await adminClient
-      .from("generated_documents")
-      .update({ status: "signed" })
-      .eq("id", sig.document_id);
+    // Check for dependent signers (multi-signer flow)
+    const { data: waitingSigners } = await adminClient
+      .from("document_signatures")
+      .select("*")
+      .eq("document_id", sig.document_id)
+      .eq("depends_on", sig.id)
+      .eq("status", "waiting");
+
+    if (waitingSigners && waitingSigners.length > 0) {
+      // There are more signers waiting — set document to partially_signed
+      await adminClient
+        .from("generated_documents")
+        .update({ status: "partially_signed" })
+        .eq("id", sig.document_id);
+
+      // Activate the next signer(s)
+      for (const nextSig of waitingSigners) {
+        await adminClient
+          .from("document_signatures")
+          .update({ status: "pending" })
+          .eq("id", nextSig.id);
+
+        // Log event
+        await adminClient.from("document_signature_events").insert({
+          organization_id: sig.organization_id,
+          document_id: sig.document_id,
+          signature_id: nextSig.id,
+          event_type: "signature.requested",
+          event_data: { signer_email: nextSig.signer_email, signer_name: nextSig.signer_name, triggered_by: sig.id },
+          actor_type: "system",
+          actor_id: "system",
+        });
+
+        // Notify the next signer via email
+        const resendKeyNotify = Deno.env.get("RESEND_API_KEY");
+        if (resendKeyNotify && nextSig.signer_email) {
+          const expiresTs = Math.floor(new Date(nextSig.expires_at).getTime() / 1000);
+          const nextSigningUrl = `https://lexyai.lovable.app/sign/${nextSig.signing_token}?expires=${expiresTs}&signature=${nextSig.hmac_signature}`;
+          try {
+            await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${resendKeyNotify}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                from: "Andromeda Legal <info@andromeda.legal>",
+                to: [nextSig.signer_email],
+                subject: `Su turno de firmar — ${doc.title}`,
+                html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+                  <div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+                    <h1 style="color:#1a1a2e;font-size:24px;margin:0;">ANDROMEDA LEGAL</h1>
+                  </div>
+                  <div style="padding:24px 0;">
+                    <h2 style="color:#1a1a2e;">Su turno de firmar</h2>
+                    <p>${sig.signer_name} ha firmado el documento <strong>${doc.title}</strong>. Ahora es su turno de completar la firma.</p>
+                    <div style="text-align:center;margin:24px 0;">
+                      <a href="${nextSigningUrl}" style="background:#1a1a2e;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Firmar Documento</a>
+                    </div>
+                  </div>
+                </div>`,
+              }),
+            });
+          } catch (emailErr) {
+            console.error("Next signer notification error:", emailErr);
+          }
+        }
+      }
+    } else {
+      // No dependent signers — check if ALL signers are now signed
+      const { data: allSigs } = await adminClient
+        .from("document_signatures")
+        .select("status")
+        .eq("document_id", sig.document_id);
+
+      const allSigned = allSigs?.every(s => s.status === "signed");
+      if (allSigned) {
+        await adminClient
+          .from("generated_documents")
+          .update({ status: "signed" })
+          .eq("id", sig.document_id);
+      }
+    }
 
     // Log storage event
     await adminClient.from("document_signature_events").insert({

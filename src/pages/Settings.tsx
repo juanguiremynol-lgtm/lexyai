@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks, Wrench } from "lucide-react";
+import { Save, Download, Clock, FileText, Mail, Bell, Upload, CalendarOff, AlertTriangle, Activity, Shield, CreditCard, Server, Bot, ShieldCheck, Scale, ListChecks, Wrench, PenTool } from "lucide-react";
 import { toast } from "sonner";
 import { EstadosImport } from "@/components/estados";
 import { IcarusExcelImport, IcarusImportHistory } from "@/components/icarus-import";
@@ -38,6 +38,7 @@ import { useOrganization } from "@/contexts/OrganizationContext";
 import { useMascotPreferences } from "@/components/atenia-mascot/useMascotPreferences";
 import { PlatformAdminAlertEmailSettings } from "@/components/settings/PlatformAdminAlertEmailSettings";
 import { useMemberSupportGrant } from "@/hooks/use-member-support-grant";
+import { DocumentSignatureSettings } from "@/components/settings/DocumentSignatureSettings";
 import { AdminSupportToolsTab } from "@/components/admin/tabs/AdminSupportToolsTab";
 
 import { Select as RadixSelect, SelectContent, SelectItem as RadixSelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -234,6 +235,10 @@ export default function Settings() {
               </TabsTrigger>
             </>
           )}
+          <TabsTrigger value="documents">
+            <PenTool className="h-4 w-4 mr-1" />
+            Documentos y Firma
+          </TabsTrigger>
           <TabsTrigger value="ticker">Ticker</TabsTrigger>
           <TabsTrigger value="alert-prefs">
             <Bell className="h-4 w-4 mr-1" />
@@ -313,6 +318,10 @@ export default function Settings() {
           </>
         )}
 
+
+        <TabsContent value="documents">
+          <DocumentSignatureSettings />
+        </TabsContent>
 
         <TabsContent value="ticker">
           <TickerSettings />

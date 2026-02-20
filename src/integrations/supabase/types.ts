@@ -4463,6 +4463,7 @@ export type Database = {
           combined_pdf_hash: string | null
           created_at: string | null
           created_by: string
+          depends_on: string | null
           document_id: string
           expires_at: string
           hmac_signature: string
@@ -4487,6 +4488,7 @@ export type Database = {
           signer_phone: string | null
           signer_role: string
           signer_user_agent: string | null
+          signing_order: number | null
           signing_token: string
           status: string
           updated_at: string | null
@@ -4496,6 +4498,7 @@ export type Database = {
           combined_pdf_hash?: string | null
           created_at?: string | null
           created_by: string
+          depends_on?: string | null
           document_id: string
           expires_at: string
           hmac_signature: string
@@ -4520,6 +4523,7 @@ export type Database = {
           signer_phone?: string | null
           signer_role?: string
           signer_user_agent?: string | null
+          signing_order?: number | null
           signing_token: string
           status?: string
           updated_at?: string | null
@@ -4529,6 +4533,7 @@ export type Database = {
           combined_pdf_hash?: string | null
           created_at?: string | null
           created_by?: string
+          depends_on?: string | null
           document_id?: string
           expires_at?: string
           hmac_signature?: string
@@ -4553,11 +4558,19 @@ export type Database = {
           signer_phone?: string | null
           signer_role?: string
           signer_user_agent?: string | null
+          signing_order?: number | null
           signing_token?: string
           status?: string
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "document_signatures_depends_on_fkey"
+            columns: ["depends_on"]
+            isOneToOne: false
+            referencedRelation: "document_signatures"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "document_signatures_document_id_fkey"
             columns: ["document_id"]
@@ -4576,8 +4589,10 @@ export type Database = {
       }
       document_templates: {
         Row: {
+          base_template_id: string | null
           created_at: string | null
           created_by: string | null
+          customized_by: string | null
           description: string | null
           display_name: string
           document_type: string
@@ -4592,8 +4607,10 @@ export type Database = {
           version: number | null
         }
         Insert: {
+          base_template_id?: string | null
           created_at?: string | null
           created_by?: string | null
+          customized_by?: string | null
           description?: string | null
           display_name: string
           document_type: string
@@ -4608,8 +4625,10 @@ export type Database = {
           version?: number | null
         }
         Update: {
+          base_template_id?: string | null
           created_at?: string | null
           created_by?: string | null
+          customized_by?: string | null
           description?: string | null
           display_name?: string
           document_type?: string
@@ -4624,6 +4643,13 @@ export type Database = {
           version?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "document_templates_base_template_id_fkey"
+            columns: ["base_template_id"]
+            isOneToOne: false
+            referencedRelation: "document_templates"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "document_templates_organization_id_fkey"
             columns: ["organization_id"]
@@ -7293,6 +7319,9 @@ export type Database = {
           brand_tagline: string | null
           created_at: string
           created_by: string | null
+          custom_branding_enabled: boolean | null
+          custom_firm_name: string | null
+          custom_logo_path: string | null
           email_suspend_reason: string | null
           email_suspended: boolean
           email_suspended_at: string | null
@@ -7316,6 +7345,9 @@ export type Database = {
           brand_tagline?: string | null
           created_at?: string
           created_by?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_firm_name?: string | null
+          custom_logo_path?: string | null
           email_suspend_reason?: string | null
           email_suspended?: boolean
           email_suspended_at?: string | null
@@ -7339,6 +7371,9 @@ export type Database = {
           brand_tagline?: string | null
           created_at?: string
           created_by?: string | null
+          custom_branding_enabled?: boolean | null
+          custom_firm_name?: string | null
+          custom_logo_path?: string | null
           email_suspend_reason?: string | null
           email_suspended?: boolean
           email_suspended_at?: string | null
@@ -8308,6 +8343,9 @@ export type Database = {
           auth_provider: string | null
           avatar_url: string | null
           created_at: string
+          custom_branding_enabled: boolean | null
+          custom_firm_name: string | null
+          custom_logo_path: string | null
           default_alert_email: string | null
           email: string | null
           email_reminders_enabled: boolean | null
@@ -8343,6 +8381,9 @@ export type Database = {
           auth_provider?: string | null
           avatar_url?: string | null
           created_at?: string
+          custom_branding_enabled?: boolean | null
+          custom_firm_name?: string | null
+          custom_logo_path?: string | null
           default_alert_email?: string | null
           email?: string | null
           email_reminders_enabled?: boolean | null
@@ -8378,6 +8419,9 @@ export type Database = {
           auth_provider?: string | null
           avatar_url?: string | null
           created_at?: string
+          custom_branding_enabled?: boolean | null
+          custom_firm_name?: string | null
+          custom_logo_path?: string | null
           default_alert_email?: string | null
           email?: string | null
           email_reminders_enabled?: boolean | null
