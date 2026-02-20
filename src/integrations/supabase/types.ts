@@ -11460,6 +11460,105 @@ export type Database = {
           },
         ]
       }
+      work_item_parties: {
+        Row: {
+          address: string | null
+          cedula: string | null
+          cedula_city: string | null
+          company_city: string | null
+          company_name: string | null
+          company_nit: string | null
+          created_at: string
+          display_order: number
+          email: string | null
+          id: string
+          is_our_client: boolean
+          name: string
+          organization_id: string | null
+          owner_id: string
+          party_side: string
+          party_type: string
+          phone: string | null
+          rep_legal_cargo: string | null
+          rep_legal_cedula: string | null
+          rep_legal_cedula_city: string | null
+          rep_legal_email: string | null
+          rep_legal_name: string | null
+          rep_legal_phone: string | null
+          updated_at: string
+          work_item_id: string
+        }
+        Insert: {
+          address?: string | null
+          cedula?: string | null
+          cedula_city?: string | null
+          company_city?: string | null
+          company_name?: string | null
+          company_nit?: string | null
+          created_at?: string
+          display_order?: number
+          email?: string | null
+          id?: string
+          is_our_client?: boolean
+          name: string
+          organization_id?: string | null
+          owner_id: string
+          party_side?: string
+          party_type?: string
+          phone?: string | null
+          rep_legal_cargo?: string | null
+          rep_legal_cedula?: string | null
+          rep_legal_cedula_city?: string | null
+          rep_legal_email?: string | null
+          rep_legal_name?: string | null
+          rep_legal_phone?: string | null
+          updated_at?: string
+          work_item_id: string
+        }
+        Update: {
+          address?: string | null
+          cedula?: string | null
+          cedula_city?: string | null
+          company_city?: string | null
+          company_name?: string | null
+          company_nit?: string | null
+          created_at?: string
+          display_order?: number
+          email?: string | null
+          id?: string
+          is_our_client?: boolean
+          name?: string
+          organization_id?: string | null
+          owner_id?: string
+          party_side?: string
+          party_type?: string
+          phone?: string | null
+          rep_legal_cargo?: string | null
+          rep_legal_cedula?: string | null
+          rep_legal_cedula_city?: string | null
+          rep_legal_email?: string | null
+          rep_legal_name?: string | null
+          rep_legal_phone?: string | null
+          updated_at?: string
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_parties_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_parties_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       work_item_pub_extras: {
         Row: {
           created_at: string
