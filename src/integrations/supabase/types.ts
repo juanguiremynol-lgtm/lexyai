@@ -3561,6 +3561,54 @@ export type Database = {
         }
         Relationships: []
       }
+      court_emails: {
+        Row: {
+          contributed_by: string | null
+          court_city: string | null
+          court_code: string | null
+          court_email: string | null
+          court_name: string
+          court_type: string | null
+          created_at: string | null
+          department: string | null
+          id: string
+          judge_name: string | null
+          source: string | null
+          updated_at: string | null
+          verified_at: string | null
+        }
+        Insert: {
+          contributed_by?: string | null
+          court_city?: string | null
+          court_code?: string | null
+          court_email?: string | null
+          court_name: string
+          court_type?: string | null
+          created_at?: string | null
+          department?: string | null
+          id?: string
+          judge_name?: string | null
+          source?: string | null
+          updated_at?: string | null
+          verified_at?: string | null
+        }
+        Update: {
+          contributed_by?: string | null
+          court_city?: string | null
+          court_code?: string | null
+          court_email?: string | null
+          court_name?: string
+          court_type?: string | null
+          created_at?: string | null
+          department?: string | null
+          id?: string
+          judge_name?: string | null
+          source?: string | null
+          updated_at?: string | null
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       courthouse_directory: {
         Row: {
           account_type_norm: string
@@ -8368,10 +8416,12 @@ export type Database = {
           is_generic_email: boolean | null
           last_estados_import_at: string | null
           last_welcome_date: string | null
+          litigation_email: string | null
           mascot_preferences: Json | null
           organization_id: string | null
           pending_terms_acceptance: boolean
           phone: string | null
+          professional_address: string | null
           profile_completed_at: string | null
           reminder_email: string | null
           reparto_directory: Json | null
@@ -8406,10 +8456,12 @@ export type Database = {
           is_generic_email?: boolean | null
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
+          litigation_email?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
           pending_terms_acceptance?: boolean
           phone?: string | null
+          professional_address?: string | null
           profile_completed_at?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null
@@ -8444,10 +8496,12 @@ export type Database = {
           is_generic_email?: boolean | null
           last_estados_import_at?: string | null
           last_welcome_date?: string | null
+          litigation_email?: string | null
           mascot_preferences?: Json | null
           organization_id?: string | null
           pending_terms_acceptance?: boolean
           phone?: string | null
+          professional_address?: string | null
           profile_completed_at?: string | null
           reminder_email?: string | null
           reparto_directory?: Json | null

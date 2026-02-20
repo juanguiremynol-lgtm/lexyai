@@ -1,18 +1,23 @@
 /**
  * DocumentSignatureSettings — Combined settings page for Documents & Digital Signature.
- * Contains: Branding, Poder Especial template, Contrato de Servicios template.
+ * Contains: Litigation Email, Branding, Poder Especial template, Contrato de Servicios template.
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, FileText } from "lucide-react";
+import { Image as ImageIcon, FileText, Mail } from "lucide-react";
 import { DocumentBrandingSettings } from "./DocumentBrandingSettings";
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor";
+import { LitigationEmailSettings } from "./LitigationEmailSettings";
 
 export function DocumentSignatureSettings() {
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="branding">
+      <Tabs defaultValue="litigation-email">
         <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="litigation-email">
+            <Mail className="h-4 w-4 mr-1" />
+            Email de Litigio
+          </TabsTrigger>
           <TabsTrigger value="branding">
             <ImageIcon className="h-4 w-4 mr-1" />
             Marca y Logo
@@ -26,6 +31,10 @@ export function DocumentSignatureSettings() {
             Contrato de Servicios
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="litigation-email">
+          <LitigationEmailSettings />
+        </TabsContent>
 
         <TabsContent value="branding">
           <DocumentBrandingSettings />
