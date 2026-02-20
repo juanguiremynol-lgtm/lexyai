@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { Input } from "@/components/ui/input";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -128,6 +129,8 @@ export default function DocumentDetailPage() {
   const queryClient = useQueryClient();
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [copiedHash, setCopiedHash] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   // Fetch document
   const { data: doc, isLoading: docLoading } = useQuery({
@@ -223,7 +226,7 @@ export default function DocumentDetailPage() {
     onError: (err) => toast.error("Error: " + (err as Error).message),
   });
 
-  // Resend signing link
+  // Resend signing link (generates NEW link)
   const resendMutation = useMutation({
     mutationFn: async () => {
       const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified"].includes(s.status));
@@ -237,6 +240,7 @@ export default function DocumentDetailPage() {
           signer_name: signerName,
           signer_email: signerEmail,
           signer_cedula: activeSig?.signer_cedula || null,
+          send_email: true,
         },
       });
       if (error) throw error;
@@ -249,6 +253,53 @@ export default function DocumentDetailPage() {
     },
     onError: (err) => toast.error("Error: " + (err as Error).message),
   });
+
+  // Resend email for existing signature (no new link)
+  const handleResendEmail = async () => {
+    const sig = activeSig;
+    if (!sig) return;
+    setSendingEmail(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-signing-email", {
+        body: { signature_id: sig.id },
+      });
+      if (error) throw error;
+      if (!data.ok) throw new Error(data.error);
+      toast.success(`Email reenviado a ${sig.signer_email}`);
+      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+    } catch (err) {
+      toast.error("Error: " + (err as Error).message);
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // Build signing URL from existing signature token
+  const getSigningUrl = () => {
+    if (!activeSig?.signing_token || !activeSig?.hmac_signature || !activeSig?.expires_at) return "";
+    const expiresTimestamp = Math.floor(new Date(activeSig.expires_at).getTime() / 1000);
+    return `https://lexyai.lovable.app/sign/${activeSig.signing_token}?expires=${expiresTimestamp}&signature=${activeSig.hmac_signature}`;
+  };
+
+  const handleCopyLink = () => {
+    const url = getSigningUrl();
+    if (!url) return;
+    navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    toast.success("Enlace copiado al portapapeles");
+    setTimeout(() => setCopiedLink(false), 3000);
+  };
+
+  const getExpirationCountdown = () => {
+    if (!activeSig?.expires_at) return "";
+    const diff = new Date(activeSig.expires_at).getTime() - Date.now();
+    if (diff <= 0) return "Vencido";
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+    if (days > 0) return `Vence en ${days} día(s), ${remainingHours} hora(s)`;
+    return `Vence en ${hours} hora(s)`;
+  };
 
   const handleCopyHash = (hash: string) => {
     navigator.clipboard.writeText(hash);
@@ -329,11 +380,25 @@ export default function DocumentDetailPage() {
             {doc.status === "finalized" ? "Enviar para Firma" : "Reenviar para Firma"}
           </Button>
         )}
-        {doc.status === "sent_for_signature" && (
+        {doc.status === "sent_for_signature" && activeSig && (
           <>
-            <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
-              <RefreshCw className="h-4 w-4 mr-2" /> Reenviar Enlace
+            {/* Copy link */}
+            <div className="flex gap-2 items-center w-full sm:w-auto">
+              <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
+              <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
+                {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
+              {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+              Reenviar por correo
             </Button>
+            <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+              <RefreshCw className="h-4 w-4 mr-2" /> Generar nuevo enlace
+            </Button>
+            <span className="text-xs text-amber-600 flex items-center gap-1">
+              <Clock className="h-3 w-3" /> {getExpirationCountdown()}
+            </span>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="destructive">

@@ -1,6 +1,6 @@
 /**
  * WorkItemDocumentWizard — Multi-step document generation wizard for work items.
- * Allows lawyers to select template, populate variables, edit, preview, and send for signature.
+ * Phase 2.5: After finalizing, shows sharing modal with both Email + Copy Link options.
  */
 
 import { useState, useEffect, useMemo } from "react";
@@ -16,8 +16,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
   FileText, ArrowLeft, ArrowRight, Send, Save, Loader2,
-  CheckCircle2, AlertCircle, Eye,
+  CheckCircle2, AlertCircle, Eye, Mail, Link2, Copy, Check, Clock,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -38,7 +41,17 @@ export default function WorkItemDocumentWizard() {
   const [docType, setDocType] = useState<LegalDocumentType>("poder_especial");
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [sendingForSignature, setSendingForSignature] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+
+  // Sharing modal state
+  const [sharingModalOpen, setSharingModalOpen] = useState(false);
+  const [signingUrl, setSigningUrl] = useState("");
+  const [signatureId, setSignatureId] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [savedDocId, setSavedDocId] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
@@ -111,11 +124,9 @@ export default function WorkItemDocumentWizard() {
       if (v.defaultValue) vars[v.key] = v.defaultValue;
     });
 
-    // Computed
     vars.date = formatColombianDate(now);
     vars.city = workItem?.authority_city || "Medellín";
 
-    // Work item data
     if (workItem) {
       vars.radicado = workItem.radicado || "";
       vars.court_name = workItem.authority_name || "";
@@ -123,7 +134,6 @@ export default function WorkItemDocumentWizard() {
       vars.opposing_party = workItem.demandados || "";
       vars.case_description = workItem.title || workItem.description || (workItem as any).display_name || "";
 
-      // Client from work item parties
       const clientName = clientData?.name || workItem.demandantes || "";
       vars.client_full_name = clientName;
       vars.client_cedula = clientData?.id_number || "";
@@ -131,19 +141,16 @@ export default function WorkItemDocumentWizard() {
       vars.client_phone = clientData?.phone || "";
     }
 
-    // Profile
     if (profile) {
       vars.lawyer_full_name = profile.firma_abogado_nombre_completo || "";
       vars.lawyer_cedula = profile.firma_abogado_cc || "";
       vars.lawyer_tarjeta_profesional = profile.firma_abogado_tp || "";
     }
 
-    // Organization
     if (org) {
       vars.firm_name = org.name || "";
     }
 
-    // Computed clauses for Contrato
     if (docType === "contrato_servicios") {
       vars.firm_clause = vars.firm_name
         ? `, actuando en nombre de <strong>${vars.firm_name}</strong>` : "";
@@ -203,9 +210,16 @@ export default function WorkItemDocumentWizard() {
     }
   };
 
-  const handleFinalizeAndSend = async () => {
+  const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
-    setSendingForSignature(true);
+
+    const signerEmail = variables.client_email;
+    if (!signerEmail) {
+      toast.error("Se requiere el correo electrónico del cliente para enviar a firma");
+      return;
+    }
+
+    setFinalizing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
@@ -230,34 +244,63 @@ export default function WorkItemDocumentWizard() {
         .single();
 
       if (docErr) throw docErr;
+      setSavedDocId(doc.id);
 
-      // Generate signing link
+      // Generate signing link WITHOUT sending email
       const signerName = variables.client_full_name || "Cliente";
-      const signerEmail = variables.client_email;
-      if (!signerEmail) {
-        toast.error("Se requiere el correo electrónico del cliente para enviar a firma");
-        setSendingForSignature(false);
-        return;
-      }
-
       const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
         body: {
           document_id: doc.id,
           signer_name: signerName,
           signer_email: signerEmail,
           signer_cedula: variables.client_cedula || null,
+          send_email: false, // Don't send email yet
         },
       });
 
       if (sigErr) throw sigErr;
       if (!sigResult.ok) throw new Error(sigResult.error);
 
-      toast.success("Documento finalizado y enlace de firma enviado al cliente");
-      navigate(`/app/work-items/${workItem.id}`);
+      setSigningUrl(sigResult.signing_url);
+      setSignatureId(sigResult.signature_id);
+      setExpiresAt(sigResult.expires_at);
+      setSharingModalOpen(true);
     } catch (err) {
       toast.error("Error: " + (err as Error).message);
     } finally {
-      setSendingForSignature(false);
+      setFinalizing(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!signatureId) return;
+    setSendingEmail(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-signing-email", {
+        body: { signature_id: signatureId },
+      });
+      if (error) throw error;
+      if (!data.ok) throw new Error(data.error);
+      setEmailSent(true);
+      toast.success(`Email enviado a ${variables.client_email}`);
+    } catch (err) {
+      toast.error("Error al enviar email: " + (err as Error).message);
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(signingUrl);
+    setLinkCopied(true);
+    toast.success("Enlace copiado al portapapeles");
+    setTimeout(() => setLinkCopied(false), 3000);
+  };
+
+  const handleCloseModal = () => {
+    setSharingModalOpen(false);
+    if (savedDocId && workItem) {
+      navigate(`/app/work-items/${workItem.id}/documents/${savedDocId}`);
     }
   };
 
@@ -383,7 +426,6 @@ export default function WorkItemDocumentWizard() {
                     </div>
                   ))}
 
-                  {/* Non-editable fields */}
                   <Separator />
                   <h4 className="text-sm font-medium text-muted-foreground">Campos automáticos</h4>
                   {template.variables.filter((v) => !v.editable && v.source !== "computed").map((v) => (
@@ -397,7 +439,6 @@ export default function WorkItemDocumentWizard() {
             </CardContent>
           </Card>
 
-          {/* Live preview */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
@@ -458,15 +499,15 @@ export default function WorkItemDocumentWizard() {
                 Guardar Borrador
               </Button>
               <Button
-                onClick={handleFinalizeAndSend}
-                disabled={sendingForSignature || missingRequired.length > 0}
+                onClick={handleFinalize}
+                disabled={finalizing || missingRequired.length > 0}
               >
-                {sendingForSignature ? (
+                {finalizing ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
                   <Send className="h-4 w-4 mr-2" />
                 )}
-                Finalizar y Enviar a Firma
+                Finalizar Documento
               </Button>
             </div>
           </div>
@@ -479,6 +520,119 @@ export default function WorkItemDocumentWizard() {
           )}
         </div>
       )}
+
+      {/* Sharing Modal */}
+      <Dialog open={sharingModalOpen} onOpenChange={setSharingModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Enviar documento para firma
+            </DialogTitle>
+            <DialogDescription>
+              El documento ha sido finalizado. Comparta el enlace de firma con el cliente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Signer info */}
+            <div className="bg-muted/50 rounded-lg p-4 space-y-1 text-sm">
+              <p><span className="text-muted-foreground">Firmante:</span> <strong>{variables.client_full_name || "Cliente"}</strong></p>
+              <p><span className="text-muted-foreground">Email:</span> {variables.client_email}</p>
+              {variables.client_cedula && (
+                <p><span className="text-muted-foreground">Cédula:</span> {variables.client_cedula}</p>
+              )}
+            </div>
+
+            {/* Option A: Send via email */}
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Enviar por correo electrónico</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Se enviará un email a {variables.client_email} con el enlace de firma.
+                </p>
+                {emailSent ? (
+                  <div className="flex items-center gap-2 text-green-600 text-sm">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Email enviado exitosamente
+                  </div>
+                ) : (
+                  <Button
+                    onClick={handleSendEmail}
+                    disabled={sendingEmail}
+                    className="w-full"
+                  >
+                    {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                    Enviar
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">o compartir manualmente</span>
+              <Separator className="flex-1" />
+            </div>
+
+            {/* Option B: Copy link */}
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-primary" />
+                  <span className="font-medium">Copiar enlace</span>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    value={signingUrl}
+                    readOnly
+                    className="font-mono text-xs"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopyLink}
+                    className="shrink-0"
+                  >
+                    {linkCopied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Comparta este enlace por WhatsApp, SMS u otro medio.
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Expiration warning */}
+            <div className="flex items-center gap-2 text-sm text-amber-600">
+              <Clock className="h-4 w-4 shrink-0" />
+              <span>
+                El enlace expira en 72 horas.
+                {expiresAt && (
+                  <> Expira: {new Date(expiresAt).toLocaleDateString("es-CO", {
+                    timeZone: "America/Bogota",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })} COT</>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseModal}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
