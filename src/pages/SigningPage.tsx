@@ -1,8 +1,7 @@
 /**
  * Public Signing Page — Multi-step signing flow.
  * No auth required. Validated by HMAC token.
- * Phase 2.5b: Drawn signature ONLY. No typed option.
- * Andromeda Legal branding, mobile-first.
+ * Phase 3.6: Dynamic branding from validate-signing-link response.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -27,6 +26,14 @@ async function callEdgeFunction(name: string, body: unknown) {
   return res.json();
 }
 
+interface Branding {
+  logo_url: string | null;
+  firm_name: string;
+  is_custom: boolean;
+}
+
+const DEFAULT_BRANDING: Branding = { logo_url: null, firm_name: "Andromeda Legal", is_custom: false };
+
 type Step = "loading" | "error" | "identity" | "otp" | "review" | "sign" | "done";
 
 export default function SigningPage() {
@@ -38,6 +45,7 @@ export default function SigningPage() {
   const [step, setStep] = useState<Step>("loading");
   const [errorMsg, setErrorMsg] = useState("");
   const [sigData, setSigData] = useState<any>(null);
+  const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [otpValue, setOtpValue] = useState("");
   const [otpSending, setOtpSending] = useState(false);
   const [otpVerifying, setOtpVerifying] = useState(false);
@@ -69,6 +77,7 @@ export default function SigningPage() {
           );
         } else {
           setSigData(data);
+          if (data.branding) setBranding(data.branding);
           if (data.otp_verified) {
             setDocumentHtml(data.document?.content_html || "");
             setStep("review");
@@ -146,15 +155,13 @@ export default function SigningPage() {
   const [signingProgress, setSigningProgress] = useState<string[]>([]);
 
   const handleSign = useCallback(async () => {
-    if (!consentChecked || !drawnSignature || signing) return; // Double-submit guard
-    // Validate signature complexity
+    if (!consentChecked || !drawnSignature || signing) return;
     const validate = (window as any).__signatureCanvasValidate;
     if (validate && !validate()) return;
 
     setSigning(true);
     setSigningProgress(["Firmando documento..."]);
     try {
-      // Simulate progress steps (actual work is server-side)
       const progressTimer1 = setTimeout(() => setSigningProgress(p => [...p, "Generando certificado..."]), 2000);
       const progressTimer2 = setTimeout(() => setSigningProgress(p => [...p, "Almacenando documento..."]), 4000);
       const progressTimer3 = setTimeout(() => setSigningProgress(p => [...p, "Enviando confirmación..."]), 6000);
@@ -186,15 +193,31 @@ export default function SigningPage() {
     }
   }, [token, consentChecked, drawnSignature, signing]);
 
-  // ─── Header Component ───
+  // Primary brand color for accent elements
+  const brandColor = "#1a1a2e";
+
+  // ─── Header Component (dynamic branding) ───
   const Header = () => (
     <header className="border-b bg-white sticky top-0 z-10">
       <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="font-bold text-xl tracking-tight" style={{ color: "#1a1a2e" }}>
-            ANDROMEDA LEGAL
-          </h1>
-          <p className="text-xs text-muted-foreground">Plataforma de Gestión Legal</p>
+        <div className="flex items-center gap-3">
+          {branding.logo_url ? (
+            <img
+              src={branding.logo_url}
+              alt={branding.firm_name}
+              className="h-10 max-w-[180px] object-contain"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          ) : (
+            <h1 className="font-bold text-xl tracking-tight" style={{ color: brandColor }}>
+              {branding.firm_name.toUpperCase()}
+            </h1>
+          )}
+          {branding.logo_url && (
+            <span className="text-sm font-medium text-muted-foreground hidden sm:inline">
+              {branding.firm_name}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <Lock className="h-3.5 w-3.5" />
@@ -206,7 +229,7 @@ export default function SigningPage() {
 
   const Footer = () => (
     <footer className="border-t mt-16 py-6 text-center text-xs text-muted-foreground">
-      <p>Firma electrónica segura — Andromeda Legal</p>
+      <p>Firma electrónica segura — {branding.firm_name}</p>
       <p className="mt-1">Ley 527 de 1999 · Decreto 2364 de 2012 · Decreto 806 de 2020</p>
     </footer>
   );
@@ -215,7 +238,7 @@ export default function SigningPage() {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Loader2 className="h-10 w-10 animate-spin mx-auto" style={{ color: "#1a1a2e" }} />
+          <Loader2 className="h-10 w-10 animate-spin mx-auto" style={{ color: brandColor }} />
           <p className="text-muted-foreground">Validando enlace de firma...</p>
         </div>
       </div>
@@ -293,7 +316,7 @@ export default function SigningPage() {
                 onClick={handleSendOtp}
                 disabled={otpSending}
                 className="w-full h-12 text-base"
-                style={{ backgroundColor: "#1a1a2e" }}
+                style={{ backgroundColor: brandColor }}
               >
                 {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Soy yo, continuar
@@ -328,7 +351,7 @@ export default function SigningPage() {
                 onClick={handleVerifyOtp}
                 disabled={otpVerifying || otpValue.length !== 6}
                 className="w-full h-12 text-base"
-                style={{ backgroundColor: "#1a1a2e" }}
+                style={{ backgroundColor: brandColor }}
               >
                 {otpVerifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Verificar Código
@@ -372,7 +395,6 @@ export default function SigningPage() {
                   <CardTitle>Firme el documento</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Drawn Signature Canvas — the ONLY signature method */}
                   <SignatureCanvas onSignatureChange={setDrawnSignature} />
 
                   {drawnSignature && (
@@ -382,7 +404,6 @@ export default function SigningPage() {
                     </div>
                   )}
 
-                  {/* Consent */}
                   <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
                     <Checkbox
                       id="consent"
@@ -400,13 +421,12 @@ export default function SigningPage() {
                     onClick={handleSign}
                     disabled={signing || !consentChecked || !drawnSignature}
                     className="w-full h-12 text-base"
-                    style={{ backgroundColor: "#1a1a2e" }}
+                    style={{ backgroundColor: brandColor }}
                   >
                     {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
                     {signing ? "Procesando..." : "Firmar Documento"}
                   </Button>
 
-                  {/* Signing progress overlay */}
                   {signing && signingProgress.length > 0 && (
                     <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                       <p className="text-sm font-medium text-muted-foreground">

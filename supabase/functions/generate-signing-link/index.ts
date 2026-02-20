@@ -1,9 +1,7 @@
 /**
  * generate-signing-link — Creates a secure HMAC-signed URL for document signing.
  * Requires authenticated lawyer. Creates document_signatures record + audit event.
- * 
- * Updated Phase 2.5: Accepts `send_email` param (default: false).
- * Link is generated first, email is sent only on demand via send-signing-email.
+ * Phase 3.6: Custom branding in signing invitation emails.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -30,6 +28,39 @@ async function computeHMAC(secret: string, data: string): Promise<string> {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+function resolveBranding(
+  supabaseUrl: string,
+  org: any | null,
+  profile: any | null
+): { logo_url: string | null; firm_name: string } {
+  if (org?.custom_branding_enabled && org?.custom_logo_path) {
+    return {
+      logo_url: `${supabaseUrl}/storage/v1/object/public/branding/${org.custom_logo_path}`,
+      firm_name: org.custom_firm_name || org.name || "Andromeda Legal",
+    };
+  }
+  if (profile?.custom_branding_enabled && profile?.custom_logo_path) {
+    return {
+      logo_url: `${supabaseUrl}/storage/v1/object/public/branding/${profile.custom_logo_path}`,
+      firm_name: profile.custom_firm_name || profile.full_name || "Andromeda Legal",
+    };
+  }
+  return { logo_url: null, firm_name: "Andromeda Legal" };
+}
+
+function buildEmailHeader(branding: { logo_url: string | null; firm_name: string }): string {
+  if (branding.logo_url) {
+    return `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+      <img src="${branding.logo_url}" alt="${branding.firm_name}" style="max-height:50px;max-width:200px;" />
+      <p style="color:#666;margin:8px 0 0;font-size:13px;">${branding.firm_name}</p>
+    </div>`;
+  }
+  return `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+    <h1 style="color:#1a1a2e;font-size:24px;margin:0;">${branding.firm_name.toUpperCase()}</h1>
+    <p style="color:#666;margin:4px 0 0;">Plataforma de Gestión Legal</p>
+  </div>`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -43,7 +74,6 @@ Deno.serve(async (req) => {
     const signingSecret = Deno.env.get("SIGNING_SECRET");
     if (!signingSecret) return json({ error: "SIGNING_SECRET not configured" }, 500);
 
-    // Auth
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -139,33 +169,28 @@ Deno.serve(async (req) => {
       const resendKey = Deno.env.get("RESEND_API_KEY");
       if (resendKey) {
         try {
-          // Fetch lawyer profile for name
           const { data: lawyerProfile } = await adminClient
             .from("profiles")
-            .select("full_name, email")
+            .select("full_name, email, custom_branding_enabled, custom_logo_path, custom_firm_name")
             .eq("id", user.id)
             .single();
 
-          // Fetch org name
           const { data: orgData } = await adminClient
             .from("organizations")
-            .select("name")
+            .select("name, custom_branding_enabled, custom_logo_path, custom_firm_name")
             .eq("id", doc.organization_id)
             .single();
 
           const lawyerName = lawyerProfile?.full_name || lawyerProfile?.email || "Su abogado";
-          const firmName = orgData?.name || "";
+          const branding = resolveBranding(supabaseUrl, orgData, lawyerProfile);
 
           const emailHtml = `
             <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-              <div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
-                <h1 style="color:#1a1a2e;font-size:24px;margin:0;">ANDROMEDA LEGAL</h1>
-                <p style="color:#666;margin:4px 0 0;">Plataforma de Gestión Legal</p>
-              </div>
+              ${buildEmailHeader(branding)}
               <div style="padding:24px 0;">
                 <h2 style="color:#1a1a2e;">Documento pendiente de firma</h2>
                 <p>Hola <strong>${signer_name}</strong>,</p>
-                <p>${lawyerName}${firmName ? ` de ${firmName}` : ""} le ha enviado un documento para su firma electrónica.</p>
+                <p>${lawyerName}${branding.firm_name !== "Andromeda Legal" ? ` de ${branding.firm_name}` : (orgData?.name ? ` de ${orgData.name}` : "")} le ha enviado un documento para su firma electrónica.</p>
                 <table style="width:100%;border-collapse:collapse;margin:16px 0;">
                   <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Documento</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold;">${doc.title}</td></tr>
                 </table>
@@ -179,7 +204,7 @@ Deno.serve(async (req) => {
               </div>
               <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
               <p style="color:#999;font-size:12px;text-align:center;">
-                Andromeda Legal — andromeda.legal<br/>
+                ${branding.firm_name}<br/>
                 Firma electrónica conforme a la Ley 527 de 1999 y Decreto 2364 de 2012.
               </p>
             </div>
@@ -192,7 +217,7 @@ Deno.serve(async (req) => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              from: "Andromeda Legal <info@andromeda.legal>",
+              from: `${branding.firm_name} <info@andromeda.legal>`,
               to: [signer_email],
               subject: `Documento pendiente de firma — ${doc.title}`,
               html: emailHtml,
