@@ -251,8 +251,10 @@ export type Database = {
           fingerprint: string | null
           fired_at: string
           id: string
+          is_notified_email: boolean
           message: string
           next_fire_at: string | null
+          notified_email_at: string | null
           organization_id: string | null
           owner_id: string
           payload: Json | null
@@ -279,8 +281,10 @@ export type Database = {
           fingerprint?: string | null
           fired_at?: string
           id?: string
+          is_notified_email?: boolean
           message: string
           next_fire_at?: string | null
+          notified_email_at?: string | null
           organization_id?: string | null
           owner_id: string
           payload?: Json | null
@@ -307,8 +311,10 @@ export type Database = {
           fingerprint?: string | null
           fired_at?: string
           id?: string
+          is_notified_email?: boolean
           message?: string
           next_fire_at?: string | null
+          notified_email_at?: string | null
           organization_id?: string | null
           owner_id?: string
           payload?: Json | null
@@ -11148,12 +11154,15 @@ export type Database = {
           archived_by: string | null
           archived_reason: string | null
           canonical_at: string | null
+          changed_at: string | null
           confidence_level: string | null
+          content_hash: string
           created_at: string
           date_confidence: string | null
           date_source: string | null
           description: string
           despacho: string | null
+          detected_at: string
           event_category: string | null
           event_date: string | null
           event_summary: string | null
@@ -11165,6 +11174,7 @@ export type Database = {
           is_notifiable: boolean | null
           is_retroactive: boolean | null
           keywords_matched: string[] | null
+          last_seen_at: string
           organization_id: string | null
           owner_id: string
           parsing_errors: string[] | null
@@ -11194,12 +11204,15 @@ export type Database = {
           archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
+          changed_at?: string | null
           confidence_level?: string | null
+          content_hash?: string
           created_at?: string
           date_confidence?: string | null
           date_source?: string | null
           description: string
           despacho?: string | null
+          detected_at?: string
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null
@@ -11211,6 +11224,7 @@ export type Database = {
           is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
+          last_seen_at?: string
           organization_id?: string | null
           owner_id: string
           parsing_errors?: string[] | null
@@ -11240,12 +11254,15 @@ export type Database = {
           archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
+          changed_at?: string | null
           confidence_level?: string | null
+          content_hash?: string
           created_at?: string
           date_confidence?: string | null
           date_source?: string | null
           description?: string
           despacho?: string | null
+          detected_at?: string
           event_category?: string | null
           event_date?: string | null
           event_summary?: string | null
@@ -11257,6 +11274,7 @@ export type Database = {
           is_notifiable?: boolean | null
           is_retroactive?: boolean | null
           keywords_matched?: string[] | null
+          last_seen_at?: string
           organization_id?: string | null
           owner_id?: string
           parsing_errors?: string[] | null
@@ -11669,10 +11687,13 @@ export type Database = {
           archived_by: string | null
           archived_reason: string | null
           canonical_at: string | null
+          changed_at: string | null
+          content_hash: string
           created_at: string
           date_confidence: string | null
           date_source: string | null
           despacho: string | null
+          detected_at: string
           entry_url: string | null
           fecha_desfijacion: string | null
           fecha_fijacion: string | null
@@ -11681,6 +11702,7 @@ export type Database = {
           is_archived: boolean | null
           is_canonical: boolean | null
           is_notifiable: boolean | null
+          last_seen_at: string
           organization_id: string
           pdf_available: boolean | null
           pdf_url: string | null
@@ -11706,10 +11728,13 @@ export type Database = {
           archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
+          changed_at?: string | null
+          content_hash?: string
           created_at?: string
           date_confidence?: string | null
           date_source?: string | null
           despacho?: string | null
+          detected_at?: string
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
@@ -11718,6 +11743,7 @@ export type Database = {
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null
+          last_seen_at?: string
           organization_id: string
           pdf_available?: boolean | null
           pdf_url?: string | null
@@ -11743,10 +11769,13 @@ export type Database = {
           archived_by?: string | null
           archived_reason?: string | null
           canonical_at?: string | null
+          changed_at?: string | null
+          content_hash?: string
           created_at?: string
           date_confidence?: string | null
           date_source?: string | null
           despacho?: string | null
+          detected_at?: string
           entry_url?: string | null
           fecha_desfijacion?: string | null
           fecha_fijacion?: string | null
@@ -11755,6 +11784,7 @@ export type Database = {
           is_archived?: boolean | null
           is_canonical?: boolean | null
           is_notifiable?: boolean | null
+          last_seen_at?: string
           organization_id?: string
           pdf_available?: boolean | null
           pdf_url?: string | null
@@ -12338,6 +12368,7 @@ export type Database = {
           acta_radicacion_url: string | null
           acta_reparto_notes: string | null
           acta_reparto_received_at: string | null
+          acts_initial_sync_completed_at: string | null
           asunto: string | null
           atenia_health_score: number | null
           authority_city: string | null
@@ -12452,6 +12483,7 @@ export type Database = {
           ponente: string | null
           provider_reachable: boolean | null
           provider_sources: Json | null
+          pubs_initial_sync_completed_at: string | null
           purge_after: string | null
           radicado: string | null
           radicado_blocks: Json | null
@@ -12502,6 +12534,7 @@ export type Database = {
           acta_radicacion_url?: string | null
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
           asunto?: string | null
           atenia_health_score?: number | null
           authority_city?: string | null
@@ -12616,6 +12649,7 @@ export type Database = {
           ponente?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
           purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null
@@ -12666,6 +12700,7 @@ export type Database = {
           acta_radicacion_url?: string | null
           acta_reparto_notes?: string | null
           acta_reparto_received_at?: string | null
+          acts_initial_sync_completed_at?: string | null
           asunto?: string | null
           atenia_health_score?: number | null
           authority_city?: string | null
@@ -12780,6 +12815,7 @@ export type Database = {
           ponente?: string | null
           provider_reachable?: boolean | null
           provider_sources?: Json | null
+          pubs_initial_sync_completed_at?: string | null
           purge_after?: string | null
           radicado?: string | null
           radicado_blocks?: Json | null

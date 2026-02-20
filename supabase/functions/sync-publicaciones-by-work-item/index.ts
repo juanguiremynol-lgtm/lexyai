@@ -1004,6 +1004,15 @@ Deno.serve(async (req) => {
     result.ok = true;
     result.status = 'SUCCESS';
 
+    // Set initial sync completion marker (idempotent: only on first successful sync)
+    try {
+      await supabase
+        .from('work_items')
+        .update({ pubs_initial_sync_completed_at: new Date().toISOString() } as any)
+        .eq('id', work_item_id)
+        .is('pubs_initial_sync_completed_at' as any, null);
+    } catch { /* best-effort */ }
+
     console.log(`[sync-pub] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, alerts=${result.alerts_created}`);
 
     // ============= EXTERNAL PROVIDER ENRICHMENT FOR PUBLICACIONES =============

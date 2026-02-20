@@ -16,6 +16,7 @@ import {
   type ActuacionHoyItem,
   type GroupedActuaciones,
   type HoyWindow,
+  type HoyMode,
 } from "@/lib/services/actuaciones-hoy-service";
 import {
   humanizeCreatedAt,
@@ -70,6 +71,7 @@ export default function ActuacionesHoy() {
   const navigate = useNavigate();
 
   const [window, setWindow] = useState<HoyWindow>("today");
+  const [mode, setMode] = useState<HoyMode>("detected");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -80,8 +82,8 @@ export default function ActuacionesHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["actuaciones-hoy", organization?.id, window, debouncedSearch],
-    queryFn: () => getActuacionesHoy(organization!.id, window, debouncedSearch || undefined),
+    queryKey: ["actuaciones-hoy", organization?.id, window, debouncedSearch, mode],
+    queryFn: () => getActuacionesHoy(organization!.id, window, debouncedSearch || undefined, mode),
     enabled: !!organization?.id,
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -120,12 +122,14 @@ export default function ActuacionesHoy() {
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
           <span className="flex items-center gap-1">
             <Sparkles className="h-4 w-4 text-primary" />
-            <strong className="text-foreground">{data.discoveredCount}</strong> nuevas descubiertas
+            <strong className="text-foreground">{data.discoveredCount}</strong> nuevas
           </span>
-          <span>·</span>
-          <span>
-            📅 <strong className="text-foreground">{data.courtDatedCount}</strong> por fecha judicial
-          </span>
+          {data.modifiedCount > 0 && (
+            <>
+              <span>·</span>
+              <span>✏️ <strong className="text-foreground">{data.modifiedCount}</strong> modificadas</span>
+            </>
+          )}
           <span>·</span>
           <span><strong className="text-foreground">{data.total}</strong> total</span>
         </div>
@@ -133,7 +137,29 @@ export default function ActuacionesHoy() {
 
       {/* Window selector + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+            <Button
+              variant={mode === "detected" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setMode("detected")}
+            >
+              <Sparkles className="h-3 w-3 mr-1" />
+              Detectadas hoy
+            </Button>
+            <Button
+              variant={mode === "court_date" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setMode("court_date")}
+            >
+              <Calendar className="h-3 w-3 mr-1" />
+              Fecha juzgado
+            </Button>
+          </div>
+          <div className="w-px h-5 bg-border" />
           <Calendar className="h-4 w-4 text-muted-foreground" />
           {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
             <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
