@@ -230,6 +230,17 @@ Deno.serve(async (req) => {
         .lt("run_date", todayStr);
     } catch { /* non-blocking cleanup */ }
 
+    // ── Clean up same-day stuck RUNNING entries (> 30 min without heartbeat) ──
+    try {
+      const stuckCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+      await supabase
+        .from("auto_sync_daily_ledger")
+        .update({ status: "FAILED" as any, finished_at: new Date().toISOString(), failure_reason: "TIMEOUT_STUCK_RUNNING_30M" })
+        .eq("status", "RUNNING")
+        .eq("run_date", todayStr)
+        .lt("last_heartbeat_at", stuckCutoff);
+    } catch { /* non-blocking cleanup */ }
+
     // Determine which orgs to process
     let orgIds: string[];
     if (bodyParams.org_id) {
@@ -922,11 +933,19 @@ async function syncSingleItem(supabase: any, item: EligibleWorkItem, orgId: stri
 
   const syncOk = shouldCountAsSuccess(syncResult);
 
-  // ALWAYS update last_synced_at after attempting sync
-  await supabase
-    .from("work_items")
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq("id", item.id);
+  // FIX: Only update last_synced_at on SUCCESS to prevent masking sync failures.
+  // On failure, update last_attempted_sync_at for observability without hiding staleness.
+  if (syncOk) {
+    await supabase
+      .from("work_items")
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq("id", item.id);
+  } else {
+    await supabase
+      .from("work_items")
+      .update({ last_attempted_sync_at: new Date().toISOString() } as any)
+      .eq("id", item.id);
+  }
 
   // Sync publicaciones if act sync succeeded and workflow supports it
   if (
