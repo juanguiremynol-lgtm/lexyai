@@ -30,6 +30,7 @@ import { ActsTab } from "./tabs/ActsTab";
 import { EstadosTab } from "./tabs/EstadosTab";
 import { NotesTab } from "./tabs/NotesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
+import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocumentsTab";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -232,6 +233,12 @@ export default function WorkItemDetail() {
           </Button>
           
 
+          {/* Generate Document dropdown */}
+          <NewDocumentDropdown
+            variant="outline"
+            onSelect={(type) => navigate(`/app/work-items/${workItem.id}/documents/new?type=${type}`)}
+          />
+
           {/* Electronic File Button - single source of truth for expediente link */}
           <ElectronicFileButton workItem={extendedWorkItem} />
 
@@ -314,7 +321,7 @@ export default function WorkItemDetail() {
 
           {/* Tabs for Actuaciones, Estados, Notas */}
           <Tabs defaultValue={searchParams.get("tab") || "actuaciones"} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="actuaciones" className="gap-2">
                 <Scale className="h-4 w-4" />
                 Actuaciones
@@ -334,6 +341,10 @@ export default function WorkItemDetail() {
                 <StickyNote className="h-4 w-4" />
                 Notas
               </TabsTrigger>
+              <TabsTrigger value="documentos" className="gap-2">
+                <FileText className="h-4 w-4" />
+                Documentos
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="actuaciones" className="mt-4">
@@ -350,6 +361,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="notas" className="mt-4">
               <NotesTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="documentos" className="mt-4">
+              <WorkItemDocumentsTab workItem={extendedWorkItem} />
             </TabsContent>
           </Tabs>
         </div>
