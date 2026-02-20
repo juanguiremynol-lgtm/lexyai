@@ -1,6 +1,7 @@
 /**
  * send-signing-otp — Generates and sends a 6-digit OTP to the signer's email.
  * Public endpoint. Validates signing token before sending.
+ * Phase 2.5: Andromeda Legal branding.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -38,7 +39,6 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Fetch signature
     const query = signing_token
       ? adminClient.from("document_signatures").select("*").eq("signing_token", signing_token)
       : adminClient.from("document_signatures").select("*").eq("id", signature_id);
@@ -49,7 +49,6 @@ Deno.serve(async (req) => {
     if (sig.status === "signed") return json({ error: "Already signed" }, 409);
     if (sig.otp_attempts >= 3) return json({ error: "Max OTP attempts exceeded. Request a new signing link." }, 429);
 
-    // Rate limit: don't send another OTP if last was sent < 60 seconds ago
     if (sig.otp_sent_at) {
       const lastSent = new Date(sig.otp_sent_at).getTime();
       if (Date.now() - lastSent < 60000) {
@@ -57,13 +56,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Generate 6-digit OTP
     const otpArray = new Uint32Array(1);
     crypto.getRandomValues(otpArray);
     const otp = String(otpArray[0] % 1000000).padStart(6, "0");
     const otpHash = await hashOTP(otp);
 
-    // Store hashed OTP
     await adminClient
       .from("document_signatures")
       .update({
@@ -72,20 +69,24 @@ Deno.serve(async (req) => {
       })
       .eq("id", sig.id);
 
-    // Send OTP via Resend
     const resendKey = Deno.env.get("RESEND_API_KEY");
     let emailSent = false;
 
     if (resendKey) {
       const emailHtml = `
         <div style="font-family:sans-serif;max-width:400px;margin:0 auto;text-align:center;">
+          <div style="padding:16px 0;border-bottom:2px solid #1a1a2e;margin-bottom:24px;">
+            <h1 style="color:#1a1a2e;font-size:20px;margin:0;">ANDROMEDA LEGAL</h1>
+          </div>
           <h2 style="color:#1a1a2e;">Código de Verificación</h2>
           <p>Su código de verificación para firmar el documento es:</p>
           <div style="background:#f0f0f0;padding:20px;border-radius:12px;margin:20px 0;">
             <span style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#1a1a2e;">${otp}</span>
           </div>
           <p style="color:#666;font-size:14px;">Este código expira en 10 minutos.</p>
-          <p style="color:#999;font-size:12px;">Si no solicitó este código, puede ignorar este correo.</p>
+          <p style="color:#999;font-size:12px;">No comparta este código con nadie.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+          <p style="color:#999;font-size:11px;">Andromeda Legal</p>
         </div>
       `;
 
@@ -97,9 +98,9 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: "ATENIA Verificación <info@andromeda.legal>",
+            from: "Andromeda Legal <info@andromeda.legal>",
             to: [sig.signer_email],
-            subject: "Código de verificación para firma electrónica",
+            subject: `Código de verificación — ${otp}`,
             html: emailHtml,
           }),
         });
@@ -110,7 +111,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Log event
     await adminClient.from("document_signature_events").insert({
       organization_id: sig.organization_id,
       document_id: sig.document_id,

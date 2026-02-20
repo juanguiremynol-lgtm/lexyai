@@ -1,6 +1,7 @@
 /**
  * Public Signing Page — Multi-step signing flow.
  * No auth required. Validated by HMAC token.
+ * Phase 2.5: Andromeda Legal branding, mobile-first, no ATENIA references.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -11,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, PenTool, Type } from "lucide-react";
+import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, PenTool, Type, Download } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import { toast } from "sonner";
@@ -87,7 +88,6 @@ export default function SigningPage() {
       });
   }, [token, expires, signature]);
 
-  // Send OTP
   const handleSendOtp = useCallback(async () => {
     setOtpSending(true);
     try {
@@ -105,7 +105,6 @@ export default function SigningPage() {
     }
   }, [token]);
 
-  // Verify OTP
   const handleVerifyOtp = useCallback(async () => {
     if (otpValue.length !== 6) return;
     setOtpVerifying(true);
@@ -127,7 +126,6 @@ export default function SigningPage() {
     }
   }, [token, otpValue]);
 
-  // Track scroll
   const handleDocScroll = useCallback(() => {
     if (!docRef.current) return;
     const el = docRef.current;
@@ -135,7 +133,6 @@ export default function SigningPage() {
     if (atBottom) setHasScrolledToBottom(true);
   }, []);
 
-  // Complete signature
   const handleSign = useCallback(async () => {
     if (!consentChecked) return;
     if (signatureMethod === "typed" && !typedName.trim()) return;
@@ -162,13 +159,36 @@ export default function SigningPage() {
     }
   }, [token, consentChecked, typedName, drawnSignature, signatureMethod]);
 
-  // ─── Render Steps ───────────────────────────────────────
+  // ─── Header Component ───
+  const Header = () => (
+    <header className="border-b bg-white sticky top-0 z-10">
+      <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="font-bold text-xl tracking-tight" style={{ color: "#1a1a2e" }}>
+            ANDROMEDA LEGAL
+          </h1>
+          <p className="text-xs text-muted-foreground">Plataforma de Gestión Legal</p>
+        </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Lock className="h-3.5 w-3.5" />
+          <span className="text-xs">Conexión segura</span>
+        </div>
+      </div>
+    </header>
+  );
+
+  const Footer = () => (
+    <footer className="border-t mt-16 py-6 text-center text-xs text-muted-foreground">
+      <p>Firma electrónica segura — Andromeda Legal</p>
+      <p className="mt-1">Ley 527 de 1999 · Decreto 2364 de 2012 · Decreto 806 de 2020</p>
+    </footer>
+  );
 
   if (step === "loading") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center space-y-4">
-          <Loader2 className="h-10 w-10 animate-spin mx-auto text-primary" />
+          <Loader2 className="h-10 w-10 animate-spin mx-auto" style={{ color: "#1a1a2e" }} />
           <p className="text-muted-foreground">Validando enlace de firma...</p>
         </div>
       </div>
@@ -177,48 +197,42 @@ export default function SigningPage() {
 
   if (step === "error") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex items-center justify-center p-4">
-        <Card className="max-w-md w-full">
-          <CardContent className="pt-8 text-center space-y-4">
-            <XCircle className="h-16 w-16 text-destructive mx-auto" />
-            <h2 className="text-xl font-bold">No se puede firmar</h2>
-            <p className="text-muted-foreground">{errorMsg}</p>
-            <p className="text-sm text-muted-foreground">
-              Si cree que esto es un error, contacte a su abogado para solicitar un nuevo enlace.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-white">
+        <Header />
+        <div className="flex items-center justify-center p-4 min-h-[70vh]">
+          <Card className="max-w-md w-full">
+            <CardContent className="pt-8 text-center space-y-4">
+              <XCircle className="h-16 w-16 text-destructive mx-auto" />
+              <h2 className="text-xl font-bold">No se puede firmar</h2>
+              <p className="text-muted-foreground">{errorMsg}</p>
+              <p className="text-sm text-muted-foreground">
+                Si cree que esto es un error, contacte a su abogado para solicitar un nuevo enlace.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        <Footer />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
-            <span className="font-bold text-lg">ATENIA</span>
-            <Badge variant="outline" className="text-xs">Firma Electrónica</Badge>
-          </div>
-          <Lock className="h-4 w-4 text-muted-foreground" />
-        </div>
-      </header>
+    <div className="min-h-screen bg-white">
+      <Header />
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-6">
         {/* Progress */}
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm text-muted-foreground overflow-x-auto">
           {["Identidad", "Verificación", "Revisión", "Firma"].map((label, i) => {
             const stepIndex = { identity: 0, otp: 1, review: 2, sign: 2, done: 3 }[step] ?? 0;
             const isActive = i <= stepIndex;
             return (
-              <div key={label} className="flex items-center gap-2">
-                {i > 0 && <div className={`h-px w-8 ${isActive ? "bg-primary" : "bg-muted"}`} />}
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium ${isActive ? "bg-primary text-white" : "bg-muted"}`}>
+              <div key={label} className="flex items-center gap-1 sm:gap-2 shrink-0">
+                {i > 0 && <div className={`h-px w-4 sm:w-8 ${isActive ? "bg-[#1a1a2e]" : "bg-muted"}`} />}
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium ${isActive ? "bg-[#1a1a2e] text-white" : "bg-muted"}`}>
                   {i + 1}
                 </div>
-                <span className={isActive ? "text-foreground font-medium" : ""}>{label}</span>
+                <span className={`${isActive ? "text-foreground font-medium" : ""}`}>{label}</span>
               </div>
             );
           })}
@@ -234,22 +248,28 @@ export default function SigningPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              <p className="text-lg">
+                Hola, <strong>{sigData.signer_name}</strong>. Tiene un documento pendiente de firma.
+              </p>
               <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                <p className="text-sm text-muted-foreground">Nombre</p>
-                <p className="font-semibold text-lg">{sigData.signer_name}</p>
                 {sigData.signer_cedula_masked && (
                   <>
                     <p className="text-sm text-muted-foreground">Cédula</p>
-                    <p className="font-mono">{sigData.signer_cedula_masked}</p>
+                    <p className="font-mono text-lg">{sigData.signer_cedula_masked}</p>
                   </>
                 )}
               </div>
               <p className="text-sm text-muted-foreground">
                 Para verificar su identidad, le enviaremos un código de 6 dígitos a su correo electrónico ({sigData.signer_email_masked}).
               </p>
-              <Button onClick={handleSendOtp} disabled={otpSending} className="w-full" size="lg">
+              <Button
+                onClick={handleSendOtp}
+                disabled={otpSending}
+                className="w-full h-12 text-base"
+                style={{ backgroundColor: "#1a1a2e" }}
+              >
                 {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Confirmar y Enviar Código
+                Soy yo, continuar
               </Button>
             </CardContent>
           </Card>
@@ -263,11 +283,10 @@ export default function SigningPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <p className="text-sm text-muted-foreground">
-                Ingrese el código de 6 dígitos enviado a su correo electrónico.
-                El código expira en 10 minutos.
+                Ingrese el código de 6 dígitos enviado a su correo electrónico. El código expira en 10 minutos.
               </p>
               <div className="flex justify-center">
-                <InputOTP maxLength={6} value={otpValue} onChange={setOtpValue}>
+                <InputOTP maxLength={6} value={otpValue} onChange={setOtpValue} inputMode="numeric">
                   <InputOTPGroup>
                     <InputOTPSlot index={0} />
                     <InputOTPSlot index={1} />
@@ -281,8 +300,8 @@ export default function SigningPage() {
               <Button
                 onClick={handleVerifyOtp}
                 disabled={otpVerifying || otpValue.length !== 6}
-                className="w-full"
-                size="lg"
+                className="w-full h-12 text-base"
+                style={{ backgroundColor: "#1a1a2e" }}
               >
                 {otpVerifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Verificar Código
@@ -308,12 +327,12 @@ export default function SigningPage() {
                 <div
                   ref={docRef}
                   onScroll={handleDocScroll}
-                  className="max-h-[500px] overflow-y-auto border rounded-lg p-6 bg-white"
+                  className="max-h-[60vh] overflow-y-auto border rounded-lg p-4 sm:p-6 bg-white text-sm sm:text-base"
                   dangerouslySetInnerHTML={{ __html: documentHtml }}
                 />
                 {!hasScrolledToBottom && (
                   <div className="flex items-center gap-2 text-amber-600 text-sm mt-2">
-                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
                     Desplácese hasta el final del documento para continuar
                   </div>
                 )}
@@ -332,10 +351,11 @@ export default function SigningPage() {
                       id="consent"
                       checked={consentChecked}
                       onCheckedChange={(v) => setConsentChecked(v === true)}
+                      className="mt-0.5"
                     />
                     <label htmlFor="consent" className="text-sm leading-relaxed cursor-pointer">
-                      Declaro que he leído y comprendido este documento en su totalidad y acepto firmarlo
-                      electrónicamente de conformidad con la Ley 527 de 1999 y el Decreto 2364 de 2012.
+                      He leído y comprendido este documento en su totalidad y acepto firmarlo
+                      electrónicamente de conformidad con la Ley 527 de 1999.
                     </label>
                   </div>
 
@@ -352,7 +372,7 @@ export default function SigningPage() {
                         value={typedName}
                         onChange={(e) => setTypedName(e.target.value)}
                         placeholder="Nombre completo"
-                        className="text-lg"
+                        className="text-lg h-12"
                       />
                       {typedName && (
                         <div className="border rounded-lg p-6 bg-white text-center">
@@ -365,9 +385,7 @@ export default function SigningPage() {
                     </TabsContent>
 
                     <TabsContent value="drawn" className="mt-4">
-                      <SignatureCanvas
-                        onConfirm={(dataUrl) => setDrawnSignature(dataUrl)}
-                      />
+                      <SignatureCanvas onConfirm={(dataUrl) => setDrawnSignature(dataUrl)} />
                       {drawnSignature && (
                         <div className="border rounded-lg p-4 bg-white text-center mt-2">
                           <img src={drawnSignature} alt="Firma" className="max-h-[80px] mx-auto" />
@@ -380,8 +398,8 @@ export default function SigningPage() {
                   <Button
                     onClick={handleSign}
                     disabled={signing || !consentChecked || (signatureMethod === "typed" ? !typedName.trim() : !drawnSignature)}
-                    className="w-full"
-                    size="lg"
+                    className="w-full h-12 text-base"
+                    style={{ backgroundColor: "#1a1a2e" }}
                   >
                     {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
                     Firmar Documento
@@ -401,11 +419,24 @@ export default function SigningPage() {
         {step === "done" && signResult && (
           <Card>
             <CardContent className="pt-8 text-center space-y-6">
-              <CheckCircle2 className="h-20 w-20 text-green-500 mx-auto" />
+              <CheckCircle2 className="h-20 w-20 mx-auto" style={{ color: "#16a34a" }} />
               <h2 className="text-2xl font-bold">¡Documento Firmado Exitosamente!</h2>
               <p className="text-muted-foreground">
-                Su firma electrónica ha sido registrada. Recibirá un correo de confirmación con los detalles.
+                Su firma electrónica ha sido registrada. Se ha enviado una copia a su correo electrónico y al abogado.
               </p>
+              
+              {signResult.download_url && (
+                <Button
+                  onClick={() => window.open(signResult.download_url, "_blank")}
+                  variant="outline"
+                  className="gap-2"
+                  size="lg"
+                >
+                  <Download className="h-4 w-4" />
+                  Descargar documento firmado
+                </Button>
+              )}
+
               <div className="bg-muted/50 rounded-lg p-4 space-y-3 text-left text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Fecha de firma</span>
@@ -419,19 +450,14 @@ export default function SigningPage() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Firma electrónica válida conforme a la Ley 527 de 1999 y el Decreto 2364 de 2012
-                de la República de Colombia.
+                El documento descargado incluye el certificado de evidencia con el registro completo de auditoría.
               </p>
             </CardContent>
           </Card>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t mt-16 py-6 text-center text-xs text-muted-foreground">
-        <p>ATENIA · Firma Electrónica Segura</p>
-        <p>Ley 527 de 1999 · Decreto 2364 de 2012 · Decreto 806 de 2020</p>
-      </footer>
+      <Footer />
 
       {/* Google Font for signature */}
       <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet" />
