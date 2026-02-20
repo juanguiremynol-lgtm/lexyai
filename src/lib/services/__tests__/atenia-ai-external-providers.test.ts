@@ -21,10 +21,19 @@ import {
 function mockFrom(responses: Record<string, any>) {
   (supabase.from as any).mockImplementation((table: string) => {
     const data = responses[table];
+    let currentRows = data?.rows || [];
+
     const builder: any = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      in: vi.fn().mockReturnThis(),
+      in: vi.fn().mockImplementation((_col: string, values: any[]) => {
+        // Filter rows by the `in` predicate to respect retryable code filtering
+        if (Array.isArray(values) && currentRows.length > 0) {
+          const col = _col as string;
+          currentRows = currentRows.filter((r: any) => values.includes(r[col]));
+        }
+        return builder;
+      }),
       gte: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
@@ -33,7 +42,7 @@ function mockFrom(responses: Record<string, any>) {
     // Terminal resolution
     builder.select.mockReturnValue({
       ...builder,
-      then: (resolve: any) => resolve({ data: data?.rows || [], error: null, count: data?.count ?? 0 }),
+      then: (resolve: any) => resolve({ data: currentRows, error: null, count: data?.count ?? 0 }),
     });
     return builder;
   });

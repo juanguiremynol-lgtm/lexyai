@@ -160,10 +160,12 @@ Deno.serve(async (req) => {
   }
 
   // ── Env gate ──
-  const mocksEnabled = Deno.env.get("ATENIA_ENABLE_PROVIDER_MOCKS") === "true";
+  const rawVal = Deno.env.get("ATENIA_ENABLE_PROVIDER_MOCKS");
+  const mocksEnabled = rawVal === "true";
   if (!mocksEnabled) {
+    console.log(`[mock-provider] Env gate blocked. ATENIA_ENABLE_PROVIDER_MOCKS="${rawVal}"`);
     return new Response(
-      JSON.stringify({ error: "Provider mocks are disabled. Set ATENIA_ENABLE_PROVIDER_MOCKS=true." }),
+      JSON.stringify({ error: "Provider mocks are disabled. Set ATENIA_ENABLE_PROVIDER_MOCKS=true.", env_value: rawVal ?? "NOT_SET" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
