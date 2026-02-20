@@ -4450,18 +4450,16 @@ Deno.serve(async (req) => {
       .eq('id', work_item_id);
 
     // Set initial sync completion marker (idempotent: only on first successful sync)
-    await supabase.rpc('set_initial_sync_marker' as any, {
-      p_work_item_id: work_item_id,
-      p_kind: 'acts',
-    }).catch(() => {
-      // Fallback: direct update if RPC doesn't exist yet
-      supabase
+    try {
+      await supabase
         .from('work_items')
         .update({ acts_initial_sync_completed_at: new Date().toISOString() } as any)
         .eq('id', work_item_id)
-        .is('acts_initial_sync_completed_at' as any, null)
-        .then(() => {});
-    });
+        .is('acts_initial_sync_completed_at' as any, null);
+    } catch {
+      // best-effort: marker setting should never break sync
+      console.warn('[sync-by-work-item] Failed to set acts_initial_sync_completed_at marker');
+    }
 
     // ============= PUBLICACIONES SYNC =============
     // NOTE: Publicaciones sync is now handled entirely by sync-publicaciones-by-work-item.
