@@ -35,6 +35,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
 const DOC_TYPE_LABELS: Record<string, string> = {
   poder_especial: "Poder Especial",
   contrato_servicios: "Contrato de Servicios",
+  paz_y_salvo: "Paz y Salvo",
 };
 
 export function WorkItemDocumentsTab({ workItem }: Props) {
@@ -82,7 +83,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
                 Genere poderes, contratos u otros documentos legales que se completarán automáticamente con los datos del expediente.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-3 flex-wrap">
               <Button onClick={() => goToWizard("poder_especial")}>
                 <Plus className="h-4 w-4 mr-2" />
                 Generar Poder Especial
@@ -90,6 +91,10 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
               <Button variant="outline" onClick={() => goToWizard("contrato_servicios")}>
                 <Plus className="h-4 w-4 mr-2" />
                 Generar Contrato
+              </Button>
+              <Button variant="outline" onClick={() => goToWizard("paz_y_salvo")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Generar Paz y Salvo
               </Button>
             </div>
           </div>
@@ -168,6 +173,9 @@ export function NewDocumentDropdown({ onSelect, variant = "default" }: {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onSelect("contrato_servicios")}>
           Contrato de Servicios
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onSelect("paz_y_salvo")}>
+          Paz y Salvo
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
