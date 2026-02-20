@@ -13,8 +13,8 @@
 // PROMO / WINDOW DATES (global, not per-user)
 // ============================================================================
 
-// Launch date: February 1, 2026 at midnight Colombia time (America/Bogota = UTC-5)
-export const LAUNCH_AT = "2026-02-01T00:00:00-05:00";
+// Launch date: May 1, 2026 at midnight Colombia time (America/Bogota = UTC-5)
+export const LAUNCH_AT = "2026-05-01T00:00:00-05:00";
 
 // Promo window end: July 31, 2026 at 23:59:59 Colombia time
 // During promo window, 24-month commitment grants INTRO (locked) prices
