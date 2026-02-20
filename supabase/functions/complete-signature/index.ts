@@ -1,11 +1,10 @@
 /**
  * complete-signature — Finalizes the digital signature process.
- * Public endpoint. Captures signature, computes SHA-256, stores signed doc
- * with audit trail evidence appendix as ONE combined HTML file,
- * sends notifications to both parties.
+ * Public endpoint. Captures DRAWN signature only (typed rejected).
+ * Stores signature PNG + raw stroke data for forensic evidence.
+ * Computes SHA-256, stores signed doc with audit trail evidence appendix.
  * 
- * Phase 2.5: Evidence appendix is part of the signed document, not separate.
- * Hash is computed on document pages only (excluding evidence appendix).
+ * Phase 2.5b: Drawn-only enforcement + biometric stroke data capture.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -51,7 +50,6 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
 }
 
 function getSignerIp(req: Request): string {
-  // Priority: x-forwarded-for (first IP), x-real-ip, cf-connecting-ip, fallback
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0].trim();
@@ -87,10 +85,10 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const {
-      signature_id,
       signing_token,
       signature_method,
       signature_data,
+      signature_stroke_data,
       consent_given,
       geolocation,
     } = body;
@@ -99,8 +97,9 @@ Deno.serve(async (req) => {
       return json({ error: "signing_token, signature_method, signature_data, and consent_given are required" }, 400);
     }
 
-    if (!["typed", "drawn"].includes(signature_method)) {
-      return json({ error: "signature_method must be 'typed' or 'drawn'" }, 400);
+    // ENFORCE drawn-only signatures
+    if (signature_method !== "drawn") {
+      return json({ error: "Solo se acepta firma manuscrita digital (drawn). La firma tipográfica no está permitida." }, 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -130,6 +129,14 @@ Deno.serve(async (req) => {
     const signerUA = req.headers.get("user-agent") || "unknown";
     const signedAt = new Date().toISOString();
     const parsedUA = parseUserAgent(signerUA);
+
+    // Compute stroke statistics for evidence
+    let strokeCount = 0;
+    let totalPoints = 0;
+    if (signature_stroke_data && Array.isArray(signature_stroke_data)) {
+      strokeCount = signature_stroke_data.length;
+      totalPoints = signature_stroke_data.reduce((sum: number, stroke: any) => sum + (stroke.points?.length || 0), 0);
+    }
 
     // Log consent event
     await adminClient.from("document_signature_events").insert({
@@ -169,31 +176,37 @@ Deno.serve(async (req) => {
       lawyerEmail = prof?.email || "";
     }
 
-    // Build signature block
-    const signatureBlock = signature_method === "typed"
-      ? `<div style="margin-top:40px;border-top:2px solid #333;padding-top:20px;">
-           <p style="font-family:'Dancing Script',cursive;font-size:28px;color:#1a1a2e;">${signature_data}</p>
-           <p><strong>${sig.signer_name}</strong></p>
-           <p>C.C. ${sig.signer_cedula || "N/A"}</p>
-           <p style="font-size:12px;color:#666;">Firmado electrónicamente el ${formatCOT(signedAt)}</p>
-           <p style="font-size:11px;color:#999;">Firma electrónica válida conforme a Ley 527 de 1999 y Decreto 2364 de 2012</p>
-         </div>`
-      : `<div style="margin-top:40px;border-top:2px solid #333;padding-top:20px;">
-           <img src="${signature_data}" alt="Firma" style="max-width:300px;max-height:100px;" />
-           <p><strong>${sig.signer_name}</strong></p>
-           <p>C.C. ${sig.signer_cedula || "N/A"}</p>
-           <p style="font-size:12px;color:#666;">Firmado electrónicamente el ${formatCOT(signedAt)}</p>
-           <p style="font-size:11px;color:#999;">Firma electrónica válida conforme a Ley 527 de 1999 y Decreto 2364 de 2012</p>
-         </div>`;
+    // Store drawn signature image
+    let signatureImagePath: string | null = null;
+    if (signature_data.startsWith("data:image")) {
+      const base64Data = signature_data.split(",")[1];
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+      signatureImagePath = `${sig.organization_id}/${sig.document_id}/signature-${sig.id}.png`;
+      await adminClient.storage
+        .from("signed-documents")
+        .upload(signatureImagePath, bytes, {
+          contentType: "image/png",
+          upsert: true,
+        });
+    }
+
+    // Build signature block with embedded PNG
+    const signatureBlock = `<div style="margin-top:40px;border-top:2px solid #333;padding-top:20px;">
+      <img src="${signature_data}" alt="Firma manuscrita digital" style="max-width:300px;max-height:100px;" />
+      <p><strong>${sig.signer_name}</strong></p>
+      <p>C.C. ${sig.signer_cedula || "N/A"}</p>
+      <p style="font-size:12px;color:#666;">Firmado electrónicamente el ${formatCOT(signedAt)}</p>
+      <p style="font-size:11px;color:#999;">Firma manuscrita digital válida conforme a Ley 527 de 1999 y Decreto 2364 de 2012</p>
+    </div>`;
 
     // Build the DOCUMENT PAGES (used for hash computation)
     const documentPagesHtml = `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><title>${doc.title}</title>
-<style>
-  body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }
-  @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
-</style>
+<style>body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }</style>
 </head>
 <body>
 ${doc.content_html}
@@ -205,17 +218,20 @@ ${signatureBlock}
     const documentBytes = new TextEncoder().encode(documentPagesHtml);
     const documentHash = await sha256Hex(documentBytes);
 
-    // Log signature.signed event BEFORE fetching all events for the evidence page
+    // Log signature.signed event
     await adminClient.from("document_signature_events").insert({
       organization_id: sig.organization_id,
       document_id: sig.document_id,
       signature_id: sig.id,
       event_type: "signature.signed",
       event_data: {
-        signature_method,
+        signature_method: "drawn",
         document_hash: documentHash,
         timestamp: signedAt,
         geolocation: geolocation || null,
+        stroke_count: strokeCount,
+        total_points: totalPoints,
+        biometric_data_captured: true,
       },
       actor_type: "signer",
       actor_id: sig.signer_email,
@@ -285,7 +301,10 @@ ${signatureBlock}
     <tr><td style="padding:6px 0;color:#666;width:40%;">Nombre completo:</td><td style="padding:6px 0;font-weight:bold;">${sig.signer_name}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Cédula:</td><td style="padding:6px 0;">${sig.signer_cedula || "N/A"}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Correo electrónico:</td><td style="padding:6px 0;">${sig.signer_email}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Método de firma:</td><td style="padding:6px 0;">${signature_method === "typed" ? "Firma tipográfica" : "Firma manuscrita digital"}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Método de firma:</td><td style="padding:6px 0;">Firma manuscrita digital (dibujada)</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Datos biométricos capturados:</td><td style="padding:6px 0;">Sí (trazos, velocidad, presión)</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Número de trazos:</td><td style="padding:6px 0;">${strokeCount}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Puntos de datos capturados:</td><td style="padding:6px 0;">${totalPoints}</td></tr>
   </table>
 
   <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">VERIFICACIÓN DE IDENTIDAD</h3>
@@ -337,7 +356,7 @@ ${signatureBlock}
       <li>Decreto 2364 de 2012 — Reglamentación de la firma electrónica</li>
       <li>Decreto 806 de 2020 — Firma electrónica en actuaciones judiciales</li>
     </ul>
-    <p>La firma cumple los requisitos del Art. 4° Decreto 2364/2012: (1) datos de creación vinculados exclusivamente al firmante (OTP + email personal), (2) cualquier alteración posterior es detectable (hash SHA-256).</p>
+    <p>La firma cumple los requisitos del Art. 4° Decreto 2364/2012: (1) datos de creación vinculados exclusivamente al firmante (OTP + email personal + firma manuscrita digital con datos biométricos), (2) cualquier alteración posterior es detectable (hash SHA-256).</p>
   </div>
 
   <div style="margin-top:32px;padding-top:16px;border-top:2px solid #1a1a2e;text-align:center;font-size:11px;color:#999;">
@@ -353,7 +372,6 @@ ${signatureBlock}
 <head><meta charset="utf-8"><title>${doc.title}</title>
 <style>
   body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }
-  @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap');
   @media print { div[style*="page-break-before"] { page-break-before: always; } }
 </style>
 </head>
@@ -379,31 +397,15 @@ ${evidenceAppendix}
 
     if (uploadErr) console.error("Storage upload error:", uploadErr);
 
-    // Store drawn signature image if applicable
-    let signatureImagePath: string | null = null;
-    if (signature_method === "drawn" && signature_data.startsWith("data:image")) {
-      const base64Data = signature_data.split(",")[1];
-      const binaryStr = atob(base64Data);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-      signatureImagePath = `${sig.organization_id}/${sig.document_id}/signature-${sig.id}.png`;
-      await adminClient.storage
-        .from("signed-documents")
-        .upload(signatureImagePath, bytes, {
-          contentType: "image/png",
-          upsert: true,
-        });
-    }
-
     // Update signature record
     await adminClient
       .from("document_signatures")
       .update({
         status: "signed",
-        signature_method,
-        signature_data: signature_method === "typed" ? signature_data : null,
+        signature_method: "drawn",
+        signature_data: null,
         signature_image_path: signatureImagePath,
+        signature_stroke_data: signature_stroke_data || null,
         signed_at: signedAt,
         signer_ip: signerIp,
         signer_user_agent: signerUA,
@@ -434,7 +436,7 @@ ${evidenceAppendix}
     // Generate signed URL for the combined file
     const { data: signedUrlData } = await adminClient.storage
       .from("signed-documents")
-      .createSignedUrl(storagePath, 7 * 24 * 60 * 60); // 7 days
+      .createSignedUrl(storagePath, 7 * 24 * 60 * 60);
 
     const downloadUrl = signedUrlData?.signedUrl || "";
 

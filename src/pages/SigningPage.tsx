@@ -1,18 +1,16 @@
 /**
  * Public Signing Page — Multi-step signing flow.
  * No auth required. Validated by HMAC token.
- * Phase 2.5: Andromeda Legal branding, mobile-first, no ATENIA references.
+ * Phase 2.5b: Drawn signature ONLY. No typed option.
+ * Andromeda Legal branding, mobile-first.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, PenTool, Type, Download } from "lucide-react";
+import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, Download } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import { toast } from "sonner";
@@ -46,9 +44,7 @@ export default function SigningPage() {
   const [documentHtml, setDocumentHtml] = useState("");
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
-  const [typedName, setTypedName] = useState("");
-  const [drawnSignature, setDrawnSignature] = useState<string | null>(null);
-  const [signatureMethod, setSignatureMethod] = useState<"typed" | "drawn">("typed");
+  const [drawnSignature, setDrawnSignature] = useState<{ dataUrl: string; strokeData: any[] } | null>(null);
   const [signing, setSigning] = useState(false);
   const [signResult, setSignResult] = useState<any>(null);
   const docRef = useRef<HTMLDivElement>(null);
@@ -134,15 +130,18 @@ export default function SigningPage() {
   }, []);
 
   const handleSign = useCallback(async () => {
-    if (!consentChecked) return;
-    if (signatureMethod === "typed" && !typedName.trim()) return;
-    if (signatureMethod === "drawn" && !drawnSignature) return;
+    if (!consentChecked || !drawnSignature) return;
+    // Validate signature complexity
+    const validate = (window as any).__signatureCanvasValidate;
+    if (validate && !validate()) return;
+
     setSigning(true);
     try {
       const data = await callEdgeFunction("complete-signature", {
         signing_token: token,
-        signature_method: signatureMethod,
-        signature_data: signatureMethod === "typed" ? typedName.trim() : drawnSignature,
+        signature_method: "drawn",
+        signature_data: drawnSignature.dataUrl,
+        signature_stroke_data: drawnSignature.strokeData,
         consent_given: true,
         geolocation: null,
       });
@@ -157,7 +156,7 @@ export default function SigningPage() {
     } finally {
       setSigning(false);
     }
-  }, [token, consentChecked, typedName, drawnSignature, signatureMethod]);
+  }, [token, consentChecked, drawnSignature]);
 
   // ─── Header Component ───
   const Header = () => (
@@ -342,9 +341,19 @@ export default function SigningPage() {
             {hasScrolledToBottom && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Firma Electrónica</CardTitle>
+                  <CardTitle>Firme el documento</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                  {/* Drawn Signature Canvas — the ONLY signature method */}
+                  <SignatureCanvas onSignatureChange={setDrawnSignature} />
+
+                  {drawnSignature && (
+                    <div className="border rounded-lg p-4 bg-white text-center">
+                      <img src={drawnSignature.dataUrl} alt="Firma" className="max-h-[80px] mx-auto" />
+                      <p className="text-xs text-muted-foreground mt-2">Firma capturada ✓</p>
+                    </div>
+                  )}
+
                   {/* Consent */}
                   <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
                     <Checkbox
@@ -359,45 +368,9 @@ export default function SigningPage() {
                     </label>
                   </div>
 
-                  {/* Signature methods tabs */}
-                  <Tabs value={signatureMethod} onValueChange={(v) => setSignatureMethod(v as "typed" | "drawn")}>
-                    <TabsList className="grid grid-cols-2 w-full">
-                      <TabsTrigger value="typed" className="gap-2"><Type className="h-4 w-4" /> Escribir nombre</TabsTrigger>
-                      <TabsTrigger value="drawn" className="gap-2"><PenTool className="h-4 w-4" /> Dibujar firma</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="typed" className="space-y-2 mt-4">
-                      <label className="text-sm font-medium">Escriba su nombre completo como firma</label>
-                      <Input
-                        value={typedName}
-                        onChange={(e) => setTypedName(e.target.value)}
-                        placeholder="Nombre completo"
-                        className="text-lg h-12"
-                      />
-                      {typedName && (
-                        <div className="border rounded-lg p-6 bg-white text-center">
-                          <p style={{ fontFamily: "'Dancing Script', cursive", fontSize: "32px", color: "#1a1a2e" }}>
-                            {typedName}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-2">Vista previa de su firma</p>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="drawn" className="mt-4">
-                      <SignatureCanvas onConfirm={(dataUrl) => setDrawnSignature(dataUrl)} />
-                      {drawnSignature && (
-                        <div className="border rounded-lg p-4 bg-white text-center mt-2">
-                          <img src={drawnSignature} alt="Firma" className="max-h-[80px] mx-auto" />
-                          <p className="text-xs text-muted-foreground mt-2">Firma confirmada ✓</p>
-                        </div>
-                      )}
-                    </TabsContent>
-                  </Tabs>
-
                   <Button
                     onClick={handleSign}
-                    disabled={signing || !consentChecked || (signatureMethod === "typed" ? !typedName.trim() : !drawnSignature)}
+                    disabled={signing || !consentChecked || !drawnSignature}
                     className="w-full h-12 text-base"
                     style={{ backgroundColor: "#1a1a2e" }}
                   >
@@ -458,9 +431,6 @@ export default function SigningPage() {
       </main>
 
       <Footer />
-
-      {/* Google Font for signature */}
-      <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet" />
     </div>
   );
 }
