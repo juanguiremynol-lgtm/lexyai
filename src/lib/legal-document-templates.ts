@@ -4,7 +4,7 @@
  * Phase 3.8: Multi-party & legal entity support with conditional blocks.
  */
 
-export type LegalDocumentType = "poder_especial" | "contrato_servicios";
+export type LegalDocumentType = "poder_especial" | "contrato_servicios" | "paz_y_salvo";
 export type PoderdanteType = "natural" | "multiple" | "juridica";
 
 export interface LegalTemplateVariable {
@@ -416,11 +416,90 @@ export const CONTRATO_SERVICIOS_VARIABLES: LegalTemplateVariable[] = [
   { key: "honorarios_clause", label: "(auto) Cláusula honorarios", required: false, source: "computed", editable: false },
 ];
 
+// ─── Paz y Salvo Template ────────────────────────────────
+
+export const PAZ_Y_SALVO_HTML = `
+<div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
+  <h2 style="text-align:center;text-transform:uppercase;margin-bottom:32px;">Certificado de Paz y Salvo</h2>
+  
+  <p><strong>{{city}}</strong>, {{date}}</p>
+  
+  <p>{{destinatario_trato}}<br/>
+  <strong>{{client_full_name}}</strong><br/>
+  C.C. {{client_cedula}}<br/>
+  {{#if client_email}}{{client_email}}{{/if}}</p>
+  
+  <p style="text-align:justify;">
+  Ref. <strong>PAZ Y SALVO</strong>
+  </p>
+  
+  <p style="text-align:justify;">
+  Cordial saludo.
+  </p>
+  
+  <p style="text-align:justify;">
+  El abogado <strong>{{lawyer_full_name}}</strong>, identificado con cédula de ciudadanía No. <strong>{{lawyer_cedula}}</strong> y portador de la Tarjeta Profesional No. <strong>{{lawyer_tarjeta_profesional}}</strong>, certifica y deja constancia que el/la señor(a):
+  </p>
+  
+  <p style="text-align:justify;">
+  <strong>{{client_full_name}}</strong>, identificado(a) con cédula de ciudadanía C.C. <strong>{{client_cedula}}</strong>{{#if client_email}}, correo electrónico <strong>{{client_email}}</strong>{{/if}}
+  </p>
+  
+  <p style="text-align:justify;">
+  Se encuentra a <strong>PAZ Y SALVO</strong>, por los siguientes conceptos contratados con el abogado:
+  </p>
+  
+  <div style="margin:16px 0;padding:12px 16px;border-left:3px solid #1a1a2e;">
+    {{servicios_bloque}}
+  </div>
+  
+  {{#if honorarios_resumen}}
+  <h3>Valores pagados</h3>
+  <div style="margin:16px 0;padding:12px 16px;background:#f8f9fa;border-radius:4px;">
+    {{honorarios_resumen}}
+  </div>
+  {{/if}}
+  
+  <p style="text-align:justify;">
+  Así las cosas, las obligaciones contraídas por el/la cliente hasta la fecha se encuentran plenamente solucionadas y no existen ni valores ni servicios pendientes adicionales.
+  </p>
+  
+  <p style="text-align:justify;">
+  En constancia se firma en <strong>{{city}}</strong>, a los <strong>{{date}}</strong>.
+  </p>
+  
+  <div style="margin-top:48px;">
+    <p><strong>EL ABOGADO:</strong></p>
+    <br/><br/>
+    <p>___________________________________</p>
+    <p><strong>{{lawyer_full_name}}</strong></p>
+    <p>C.C. {{lawyer_cedula}}</p>
+    <p>T.P. {{lawyer_tarjeta_profesional}}</p>
+    {{#if lawyer_email}}<p>Correo: {{lawyer_email}}</p>{{/if}}
+  </div>
+</div>`;
+
+export const PAZ_Y_SALVO_VARIABLES: LegalTemplateVariable[] = [
+  { key: "client_full_name", label: "Nombre completo del cliente", required: true, source: "work_item", editable: true },
+  { key: "client_cedula", label: "Cédula del cliente", required: true, source: "work_item", editable: true },
+  { key: "client_email", label: "Correo del cliente", required: false, source: "work_item", editable: true },
+  { key: "destinatario_trato", label: "Trato (Señor/Señora)", required: true, source: "manual", editable: true, defaultValue: "Señor(a)" },
+  { key: "servicios_bloque", label: "Servicios/Conceptos prestados", required: true, source: "manual", editable: true, description: "Describa los servicios prestados al cliente" },
+  { key: "honorarios_resumen", label: "Resumen de valores pagados", required: false, source: "manual", editable: true, description: "Detalle de los honorarios pagados por el cliente" },
+  { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
+  { key: "lawyer_email", label: "Email del abogado", required: false, source: "profile", editable: false },
+  { key: "city", label: "Ciudad", required: true, source: "computed", editable: true, defaultValue: "Medellín" },
+  { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
+];
+
 // ─── Labels ──────────────────────────────────────────────
 
 export const LEGAL_DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
   poder_especial: "Poder Especial",
   contrato_servicios: "Contrato de Prestación de Servicios",
+  paz_y_salvo: "Paz y Salvo",
 };
 
 // ─── Template Registry ───────────────────────────────────
@@ -428,6 +507,7 @@ export const LEGAL_DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
 export const LEGAL_TEMPLATES: Record<LegalDocumentType, { html: string; variables: LegalTemplateVariable[] }> = {
   poder_especial: { html: PODER_ESPECIAL_HTML, variables: PODER_ESPECIAL_VARIABLES },
   contrato_servicios: { html: CONTRATO_SERVICIOS_HTML, variables: CONTRATO_SERVICIOS_VARIABLES },
+  paz_y_salvo: { html: PAZ_Y_SALVO_HTML, variables: PAZ_Y_SALVO_VARIABLES },
 };
 
 // ─── Utilities ───────────────────────────────────────────

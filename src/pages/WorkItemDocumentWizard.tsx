@@ -465,6 +465,25 @@ export default function WorkItemDocumentWizard() {
     enabled: !!workItem?.client_id,
   });
 
+  // Fetch existing contract data for Paz y Salvo pre-population
+  const { data: existingContract } = useQuery({
+    queryKey: ["existing-contract-for-paz", workItemId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("generated_documents")
+        .select("variables, content_json")
+        .eq("work_item_id", workItemId!)
+        .eq("document_type", "contrato_servicios")
+        .in("status", ["finalized", "signed", "partially_signed", "sent_for_signature"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!workItemId && docType === "paz_y_salvo",
+  });
+
   // Auto-detect poderdante type and court header from work item
   useEffect(() => {
     if (workItem && docType === "poder_especial") {
@@ -561,8 +580,28 @@ export default function WorkItemDocumentWizard() {
       vars.payment_schedule = generatePaymentScheduleText(honorariosData);
     }
 
+    // Paz y Salvo: pre-populate from existing contract data
+    if (docType === "paz_y_salvo") {
+      vars.lawyer_email = (profile as any)?.litigation_email || profile?.firma_abogado_correo || (profile as any)?.email || "";
+      vars.destinatario_trato = "Señor(a)";
+
+      // Pre-populate servicios & honorarios from existing contract
+      if (existingContract?.variables) {
+        const cv = existingContract.variables as Record<string, string>;
+        if (cv.case_description && !vars.servicios_bloque) {
+          vars.servicios_bloque = cv.case_description;
+        }
+      }
+      if (existingContract?.content_json) {
+        const cj = existingContract.content_json as any;
+        if (cj.variables?.honorarios_clause) {
+          vars.honorarios_resumen = cj.variables.honorarios_clause;
+        }
+      }
+    }
+
     setVariables(vars);
-  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject]);
+  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject, existingContract]);
 
   const template = LEGAL_TEMPLATES[docType];
 
@@ -635,11 +674,20 @@ export default function WorkItemDocumentWizard() {
       }
       return [{ name: variables.client_full_name || "", email: variables.client_email || "", cedula: variables.client_cedula || "", role: "client" }];
     }
+    if (docType === "paz_y_salvo") {
+      // Paz y Salvo is signed ONLY by the lawyer
+      return [{
+        name: variables.lawyer_full_name || "",
+        email: variables.lawyer_email || (profile as any)?.litigation_email || profile?.firma_abogado_correo || "",
+        cedula: variables.lawyer_cedula || "",
+        role: "lawyer",
+      }];
+    }
     // Contrato: client + lawyer
     return [
       { name: variables.client_full_name || "", email: variables.client_email || "", cedula: variables.client_cedula || "", role: "client" },
     ];
-  }, [docType, poderdanteType, poderdantes, entityData, variables]);
+  }, [docType, poderdanteType, poderdantes, entityData, variables, profile]);
 
   const handleSaveDraft = async () => {
     if (!workItem) return;
@@ -707,6 +755,10 @@ export default function WorkItemDocumentWizard() {
     payment_schedule: "Forma de pago",
     contract_duration: "Duración del contrato",
     firm_name: "Nombre de la firma",
+    servicios_bloque: "Servicios/Conceptos prestados",
+    honorarios_resumen: "Resumen de valores pagados",
+    destinatario_trato: "Trato (Señor/Señora)",
+    lawyer_email: "Email del abogado",
   };
 
   // Check if litigation email is missing (hard gate for poder_especial)
@@ -898,34 +950,36 @@ export default function WorkItemDocumentWizard() {
 
       {/* Step 1: Select Template */}
       {step === 1 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(Object.keys(LEGAL_TEMPLATES) as LegalDocumentType[]).map((type) => (
-            <Card
-              key={type}
-              className={`cursor-pointer transition-all hover:shadow-md ${
-                docType === type ? "ring-2 ring-primary" : ""
-              }`}
-              onClick={() => setDocType(type)}
-            >
-              <CardContent className="pt-6 space-y-3">
-                <div className="flex items-center gap-3">
-                  <FileText className="h-8 w-8 text-primary" />
-                  <div>
-                    <h3 className="font-bold text-lg">{LEGAL_DOCUMENT_TYPE_LABELS[type]}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {type === "poder_especial"
-                        ? "Poder especial para representación judicial — Art. 74 CGP"
-                        : "Contrato de mandato por servicios profesionales — Art. 2142 C.C."
-                      }
-                    </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(Object.keys(LEGAL_TEMPLATES) as LegalDocumentType[]).map((type) => {
+            const descriptions: Record<LegalDocumentType, string> = {
+              poder_especial: "Poder especial para representación judicial — Art. 74 CGP",
+              contrato_servicios: "Contrato de mandato por servicios profesionales — Art. 2142 C.C.",
+              paz_y_salvo: "Certificado de paz y salvo por servicios legales prestados y pagados",
+            };
+            return (
+              <Card
+                key={type}
+                className={`cursor-pointer transition-all hover:shadow-md ${
+                  docType === type ? "ring-2 ring-primary" : ""
+                }`}
+                onClick={() => setDocType(type)}
+              >
+                <CardContent className="pt-6 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-8 w-8 text-primary" />
+                    <div>
+                      <h3 className="font-bold text-lg">{LEGAL_DOCUMENT_TYPE_LABELS[type]}</h3>
+                      <p className="text-sm text-muted-foreground">{descriptions[type]}</p>
+                    </div>
                   </div>
-                </div>
-                {docType === type && (
-                  <Badge className="bg-primary/10 text-primary">Seleccionado</Badge>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  {docType === type && (
+                    <Badge className="bg-primary/10 text-primary">Seleccionado</Badge>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
           <div className="col-span-full flex justify-end">
             <Button onClick={() => setStep(2)}>
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
@@ -1003,6 +1057,28 @@ export default function WorkItemDocumentWizard() {
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                       <span>Verificamos automáticamente los datos de las partes del expediente. Si representa al demandado, ajuste los campos según corresponda.</span>
                     </div>
+                  )}
+
+                  {/* Paz y Salvo: Contract data info */}
+                  {docType === "paz_y_salvo" && (
+                    <>
+                      {existingContract ? (
+                        <div className="flex items-start gap-2 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-3">
+                          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>Se encontró un contrato de servicios existente. Los datos de servicios y honorarios fueron pre-cargados. Puede editarlos libremente.</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                          <span>No se encontró un contrato de servicios para este expediente. Complete manualmente los servicios prestados y valores pagados.</span>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                        <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>Este documento será firmado por usted (el abogado) como certificación. No requiere firma del cliente.</span>
+                      </div>
+                      <Separator />
+                    </>
                   )}
 
                   {/* Contract-specific: Service Object + Honorarios */}
