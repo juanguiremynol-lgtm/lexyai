@@ -4791,7 +4791,50 @@ Deno.serve(async (req) => {
     }
 
     result.ok = true;
-    console.log(`[sync-by-work-item] Completed: inserted=${result.inserted_count}, skipped=${result.skipped_count}, provider=${result.provider_used}`);
+
+    // ── STRUCTURED SYNC LOG ──
+    const syncDurationMs = Date.now() - syncStartTime;
+    const isDebugOrg = workItem.organization_id === 'a0000000-0000-0000-0000-000000000001';
+    const syncLog = {
+      correlationId: traceId,
+      workItemId: work_item_id,
+      category: workItem.workflow_type,
+      radicado: workItem.radicado || workItem.tutela_code || 'N/A',
+      orgId: workItem.organization_id,
+      trigger: _scheduled ? 'scheduled' : 'manual',
+      providersSelected: result.provider_attempts.map((a: ProviderAttempt) => a.provider),
+      providerResults: Object.fromEntries(
+        result.provider_attempts.map((a: ProviderAttempt) => [a.provider, {
+          called: true,
+          durationMs: a.latencyMs,
+          status: a.status,
+          recordsUpserted: a.actuacionesCount || 0,
+          error: a.message || undefined,
+        }])
+      ),
+      totalActsUpserted: result.inserted_count,
+      totalActsSkipped: result.skipped_count,
+      status: result.errors.length > 0 ? 'PARTIAL' : 'SUCCESS',
+      durationMs: syncDurationMs,
+      orchestrator: useOrchestrator,
+    };
+    console.log(`[SYNC_LOG] ${JSON.stringify(syncLog)}`);
+
+    // Debug mode: write detailed trace for super admin org
+    if (isDebugOrg) {
+      try {
+        await logTrace(supabase, {
+          trace_id: traceId,
+          work_item_id,
+          organization_id: workItem.organization_id,
+          workflow_type: workItem.workflow_type,
+          step: 'SYNC_LOG_DEBUG',
+          success: true,
+          message: `SyncLog: ${result.inserted_count} inserted, ${result.skipped_count} skipped, ${syncDurationMs}ms`,
+          meta: syncLog,
+        });
+      } catch { /* debug trace is best-effort */ }
+    }
 
     // ── Record external_sync_run (best-effort, non-blocking) ──
     // Skip if orchestrator already recorded (USE_ORCHESTRATOR_SYNC=true)
