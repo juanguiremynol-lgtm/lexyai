@@ -1,20 +1,21 @@
 /**
- * Actuaciones de Hoy Service — Dual-Criteria
+ * Actuaciones de Hoy Service — Dual-Mode
  * 
- * Fetches work_item_acts matching EITHER:
- *   1. created_at within the COT time window (newly discovered by ATENIA)
- *   2. act_date within the date window (court event happened in the window)
+ * Supports two query modes:
+ *   1. "detected" (default): detected_at OR changed_at within the COT time window
+ *   2. "court_date": act_date within the date window (original behavior)
  * 
  * Merges, deduplicates, and tags each result with its match reason.
  */
 
 import { supabase } from '@/integrations/supabase/client';
 import { detectActuacionSeverity, type TickerItemSeverity, type TickerItemSource } from './ticker-data-service';
-import { getWindowBounds, type HoyWindow } from '@/lib/colombia-date-utils';
+import { getWindowBounds, getColombiaDayBoundsUTC, type HoyWindow } from '@/lib/colombia-date-utils';
 
 export type { HoyWindow } from '@/lib/colombia-date-utils';
 
-export type MatchReason = 'discovered' | 'court_dated' | 'both';
+export type MatchReason = 'discovered' | 'court_dated' | 'both' | 'modified';
+export type HoyMode = 'detected' | 'court_date';
 
 export interface ActuacionHoyItem {
   id: string;
@@ -32,8 +33,11 @@ export interface ActuacionHoyItem {
   source: TickerItemSource;
   severity: TickerItemSeverity;
   created_at: string;
+  detected_at: string;
+  changed_at: string | null;
   match_reason: MatchReason;
   is_new: boolean;
+  is_modified: boolean;
 }
 
 export interface GroupedActuaciones {
@@ -49,11 +53,13 @@ export interface GroupedActuaciones {
   actuaciones: ActuacionHoyItem[];
   newest_created_at: string;
   has_new: boolean;
+  has_modified: boolean;
   count: number;
 }
 
 const SELECT_FIELDS = `
   id, work_item_id, description, event_summary, act_date, act_type, source, created_at,
+  detected_at, changed_at,
   work_items!inner (
     id, radicado, workflow_type, organization_id,
     authority_name, demandantes, demandados,
@@ -89,53 +95,89 @@ function mapRow(row: any, reason: MatchReason): ActuacionHoyItem {
     source: mapSource(row.source),
     severity: detectActuacionSeverity(desc),
     created_at: row.created_at,
+    detected_at: row.detected_at || row.created_at,
+    changed_at: row.changed_at || null,
     match_reason: reason,
     is_new: reason === 'discovered' || reason === 'both',
+    is_modified: reason === 'modified',
   };
 }
 
 export async function getActuacionesHoy(
   organizationId: string,
   window: HoyWindow = 'today',
-  search?: string
-): Promise<{ items: ActuacionHoyItem[]; total: number; discoveredCount: number; courtDatedCount: number }> {
+  search?: string,
+  mode: HoyMode = 'detected'
+): Promise<{ items: ActuacionHoyItem[]; total: number; discoveredCount: number; courtDatedCount: number; modifiedCount: number }> {
   const bounds = getWindowBounds(window);
 
-  /**
-   * PRIMARY QUERY: filter by act_date (the court event date), NOT created_at.
-   * This ensures only actuaciones whose event occurred within the window are shown.
-   * 
-   * "Discovered today" (is_new) = first_seen_at within today's COT window.
-   * We compute this client-side from created_at (which equals first_seen_at for new rows).
-   */
-  const { data, error } = await supabase
-    .from('work_item_acts')
-    .select(SELECT_FIELDS)
-    .eq('work_items.organization_id', organizationId)
-    .eq('is_archived', false)
-    .gte('act_date', bounds.date_start)
-    .lte('act_date', bounds.date_end)
-    .order('act_date', { ascending: false })
-    .limit(500);
-
-  if (error) console.error('[actuaciones-hoy] query error:', error);
-
-  // Tag each item: was it first seen (created_at) within today's window?
+  let items: ActuacionHoyItem[] = [];
   let discoveredCount = 0;
   let courtDatedCount = 0;
-  let items: ActuacionHoyItem[] = [];
+  let modifiedCount = 0;
 
-  for (const row of data || []) {
-    const createdMs = new Date(row.created_at).getTime();
-    const windowStartMs = new Date(bounds.created_start).getTime();
-    const windowEndMs = new Date(bounds.created_end).getTime();
-    const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+  if (mode === 'detected') {
+    // MODE: "Detectadas hoy" — items detected_at OR changed_at within window
+    const { data, error } = await supabase
+      .from('work_item_acts')
+      .select(SELECT_FIELDS)
+      .eq('work_items.organization_id', organizationId)
+      .eq('is_archived', false)
+      .or(`detected_at.gte.${bounds.created_start},changed_at.gte.${bounds.created_start}`)
+      .order('detected_at', { ascending: false })
+      .limit(500);
 
-    const reason: MatchReason = isDiscoveredInWindow ? 'both' : 'court_dated';
-    if (isDiscoveredInWindow) discoveredCount++;
-    courtDatedCount++;
+    if (error) console.error('[actuaciones-hoy] detected query error:', error);
 
-    items.push(mapRow(row, reason));
+    for (const row of data || []) {
+      const detectedMs = new Date(row.detected_at || row.created_at).getTime();
+      const changedMs = row.changed_at ? new Date(row.changed_at).getTime() : 0;
+      const windowStartMs = new Date(bounds.created_start).getTime();
+      const windowEndMs = new Date(bounds.created_end).getTime();
+
+      const isDetectedInWindow = detectedMs >= windowStartMs && detectedMs <= windowEndMs;
+      const isChangedInWindow = changedMs >= windowStartMs && changedMs <= windowEndMs;
+
+      if (!isDetectedInWindow && !isChangedInWindow) continue;
+
+      let reason: MatchReason;
+      if (isChangedInWindow && !isDetectedInWindow) {
+        reason = 'modified';
+        modifiedCount++;
+      } else if (isDetectedInWindow) {
+        reason = 'discovered';
+        discoveredCount++;
+      } else {
+        reason = 'court_dated';
+        courtDatedCount++;
+      }
+
+      items.push(mapRow(row, reason));
+    }
+  } else {
+    // MODE: "Fecha del juzgado" — original court-date based
+    const { data, error } = await supabase
+      .from('work_item_acts')
+      .select(SELECT_FIELDS)
+      .eq('work_items.organization_id', organizationId)
+      .eq('is_archived', false)
+      .gte('act_date', bounds.date_start)
+      .lte('act_date', bounds.date_end)
+      .order('act_date', { ascending: false })
+      .limit(500);
+
+    if (error) console.error('[actuaciones-hoy] court_date query error:', error);
+
+    for (const row of data || []) {
+      const createdMs = new Date(row.created_at).getTime();
+      const windowStartMs = new Date(bounds.created_start).getTime();
+      const windowEndMs = new Date(bounds.created_end).getTime();
+      const isDiscoveredInWindow = createdMs >= windowStartMs && createdMs <= windowEndMs;
+      const reason: MatchReason = isDiscoveredInWindow ? 'both' : 'court_dated';
+      if (isDiscoveredInWindow) discoveredCount++;
+      courtDatedCount++;
+      items.push(mapRow(row, reason));
+    }
   }
 
   // Client-side search filter
@@ -152,20 +194,20 @@ export async function getActuacionesHoy(
     );
   }
 
-  // Sort: by event date (act_date) descending, then created_at as tie-breaker
+  // Sort: modified first, then by detection time desc
   items.sort((a, b) => {
-    const dateA = a.act_date ? new Date(a.act_date).getTime() : 0;
-    const dateB = b.act_date ? new Date(b.act_date).getTime() : 0;
-    if (dateB !== dateA) return dateB - dateA;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    const timeA = Math.max(
+      new Date(a.detected_at).getTime(),
+      a.changed_at ? new Date(a.changed_at).getTime() : 0
+    );
+    const timeB = Math.max(
+      new Date(b.detected_at).getTime(),
+      b.changed_at ? new Date(b.changed_at).getTime() : 0
+    );
+    return timeB - timeA;
   });
 
-  return {
-    items,
-    total: items.length,
-    discoveredCount,
-    courtDatedCount,
-  };
+  return { items, total: items.length, discoveredCount, courtDatedCount, modifiedCount };
 }
 
 /** Group actuaciones by work item for grouped card display */
@@ -188,6 +230,7 @@ export function groupByWorkItem(items: ActuacionHoyItem[]): GroupedActuaciones[]
         actuaciones: [],
         newest_created_at: item.created_at,
         has_new: false,
+        has_modified: false,
         count: 0,
       });
     }
@@ -195,6 +238,7 @@ export function groupByWorkItem(items: ActuacionHoyItem[]): GroupedActuaciones[]
     group.actuaciones.push(item);
     group.count++;
     if (item.is_new) group.has_new = true;
+    if (item.is_modified) group.has_modified = true;
     if (new Date(item.created_at) > new Date(group.newest_created_at)) {
       group.newest_created_at = item.created_at;
     }
@@ -203,6 +247,8 @@ export function groupByWorkItem(items: ActuacionHoyItem[]): GroupedActuaciones[]
   return Array.from(groups.values()).sort((a, b) => {
     if (a.has_new && !b.has_new) return -1;
     if (!a.has_new && b.has_new) return 1;
+    if (a.has_modified && !b.has_modified) return -1;
+    if (!a.has_modified && b.has_modified) return 1;
     return new Date(b.newest_created_at).getTime() - new Date(a.newest_created_at).getTime();
   });
 }
