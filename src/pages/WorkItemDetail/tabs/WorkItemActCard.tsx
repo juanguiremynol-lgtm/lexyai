@@ -31,6 +31,8 @@ export interface WorkItemAct {
   created_at: string;
   date_confidence: string | null;
   raw_data?: Record<string, unknown> | null;
+  detected_at?: string | null;
+  changed_at?: string | null;
 }
 
 // ─── Category classification ─────────────────────────────────────────────────
@@ -295,12 +297,19 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
         category.bgColor
       )}
     >
-      {/* Row 1: Header — Action type + Date */}
+      {/* Row 1: Header — Action type + Date + Modified badge */}
       <div className="flex items-start justify-between gap-3">
-        <h4 className="text-sm font-semibold text-foreground leading-tight flex-1 min-w-0">
-          <span className="mr-1.5">{category.icon}</span>
-          {actionType}
-        </h4>
+        <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+          <h4 className="text-sm font-semibold text-foreground leading-tight">
+            <span className="mr-1.5">{category.icon}</span>
+            {actionType}
+          </h4>
+          {act.changed_at && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" title={`Modificada: ${humanizeCreatedAt(act.changed_at)}`}>
+              ✏️ Modificada
+            </span>
+          )}
+        </div>
         <time className="text-xs text-muted-foreground whitespace-nowrap shrink-0 mt-0.5">
           {act.act_date ? formatActDate(act.act_date) : (
             <span className="italic">Fecha no disponible</span>
@@ -340,7 +349,13 @@ export function WorkItemActCard({ act, despacho }: WorkItemActCardProps) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
           <SourceBadges source={act.source} sources={act.sources} />
           <span className="hidden sm:inline">·</span>
-          <span className="hidden sm:inline">Descubierta: {humanizeCreatedAt(act.created_at)}</span>
+          <span className="hidden sm:inline">Detectada: {humanizeCreatedAt(act.detected_at || act.created_at)}</span>
+          {act.changed_at && (
+            <>
+              <span className="hidden sm:inline">·</span>
+              <span className="hidden sm:inline text-amber-600 dark:text-amber-400">Actualizada: {humanizeCreatedAt(act.changed_at)}</span>
+            </>
+          )}
         </div>
         {act.date_confidence && act.date_confidence !== "high" && (
           <span className={cn(

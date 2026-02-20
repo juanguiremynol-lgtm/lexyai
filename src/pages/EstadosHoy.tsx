@@ -45,6 +45,7 @@ import {
   AlertTriangle,
   Scale,
   WifiOff,
+  Pencil,
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -55,7 +56,8 @@ import { sanitizeRowForExport } from "@/lib/spreadsheet-sanitize";
 
 /* ── helpers ── */
 
-type MatchReason = "discovered" | "court_posted" | "both";
+type MatchReason = "discovered" | "court_posted" | "both" | "modified";
+type EstadosHoyMode = "detected" | "court_date";
 
 interface EstadoHoyItemWithMeta extends EstadoHoyItem {
   match_reason: MatchReason;
@@ -82,7 +84,7 @@ function mapSource(source: string | null | undefined): TickerItemSource {
 
 const PUB_SELECT = `
   id, work_item_id, title, annotation, published_at, fecha_fijacion, fecha_desfijacion,
-  despacho, tipo_publicacion, source, pdf_url, raw_data, created_at,
+  despacho, tipo_publicacion, source, pdf_url, raw_data, created_at, detected_at, changed_at,
   work_items!inner (
     id, radicado, workflow_type, organization_id,
     authority_name, demandantes, demandados,
@@ -92,7 +94,7 @@ const PUB_SELECT = `
 
 const SAMAI_ESTADOS_SELECT = `
   id, work_item_id, description, act_date, act_type, source,
-  despacho, raw_data, created_at, source_url,
+  despacho, raw_data, created_at, source_url, detected_at, changed_at,
   work_items!inner (
     id, radicado, workflow_type, organization_id,
     authority_name, demandantes, demandados,
@@ -195,17 +197,15 @@ function mapSamaiEstadoRow(act: any, reason: MatchReason): EstadoHoyItemWithMeta
 async function fetchEstadosHoy(
   organizationId: string,
   window: HoyWindow,
-  search?: string
+  search?: string,
+  mode: EstadosHoyMode = "detected"
 ): Promise<{ items: EstadoHoyItemWithMeta[]; total: number; discoveredCount: number; courtPostedCount: number; samaiEstadosCount: number }> {
   const bounds = getWindowBounds(window);
 
   /**
-   * PRIMARY QUERY: filter by publication date (fecha_fijacion), NOT created_at.
-   * This is the core fix: "Estados de Hoy" means "published today by the court",
-   * not "ingested today by our system".
-   *
-   * "Discovered today" (is_new badge) = created_at within today's COT window,
-   * computed client-side after the query returns.
+   * Dual-mode query:
+   * "detected" mode: filter by detected_at / changed_at within COT window
+   * "court_date" mode: filter by fecha_fijacion / act_date (original behavior)
    */
 
   // First, resolve SAMAI_ESTADOS instance IDs for provenance-based lookups
@@ -216,28 +216,44 @@ async function fetchEstadosHoy(
     .eq("is_enabled", true);
   const samaiInstanceIds = (samaiInstances || []).map((i: any) => i.id);
 
-  const [pubResult, samaiEstadosResult, provenanceResult] = await Promise.all([
-    // Publicaciones: filter by fecha_fijacion (court publication date)
-    supabase
-      .from("work_item_publicaciones")
-      .select(PUB_SELECT)
-      .eq("work_items.organization_id", organizationId)
-      .eq("is_archived", false)
+  // Build queries based on mode
+  let pubQuery = supabase
+    .from("work_item_publicaciones")
+    .select(PUB_SELECT)
+    .eq("work_items.organization_id", organizationId)
+    .eq("is_archived", false);
+
+  let samaiQuery = supabase
+    .from("work_item_acts")
+    .select(SAMAI_ESTADOS_SELECT)
+    .eq("work_items.organization_id", organizationId)
+    .eq("source", "SAMAI_ESTADOS")
+    .eq("is_archived", false);
+
+  if (mode === "detected") {
+    // Use created_at as proxy for detected_at (detected_at defaults to created_at)
+    pubQuery = pubQuery
+      .gte("detected_at", bounds.created_start)
+      .lte("detected_at", bounds.created_end)
+      .order("detected_at", { ascending: false });
+    samaiQuery = samaiQuery
+      .gte("detected_at", bounds.created_start)
+      .lte("detected_at", bounds.created_end)
+      .order("detected_at", { ascending: false });
+  } else {
+    pubQuery = pubQuery
       .gte("fecha_fijacion", bounds.date_start)
       .lte("fecha_fijacion", bounds.date_end)
-      .order("fecha_fijacion", { ascending: false })
-      .limit(500),
-    // SAMAI_ESTADOS: filter by act_date (the court event date)
-    supabase
-      .from("work_item_acts")
-      .select(SAMAI_ESTADOS_SELECT)
-      .eq("work_items.organization_id", organizationId)
-      .eq("source", "SAMAI_ESTADOS")
-      .eq("is_archived", false)
+      .order("fecha_fijacion", { ascending: false });
+    samaiQuery = samaiQuery
       .gte("act_date", bounds.date_start)
       .lte("act_date", bounds.date_end)
-      .order("act_date", { ascending: false })
-      .limit(200),
+      .order("act_date", { ascending: false });
+  }
+
+  const [pubResult, samaiEstadosResult, provenanceResult] = await Promise.all([
+    pubQuery.limit(500),
+    samaiQuery.limit(200),
     // Provenance-confirmed SAMAI_ESTADOS acts
     samaiInstanceIds.length > 0
       ? supabase
@@ -350,6 +366,7 @@ export default function EstadosHoy() {
   const navigate = useNavigate();
 
   const [window, setWindow] = useState<HoyWindow>("today");
+  const [mode, setMode] = useState<EstadosHoyMode>("detected");
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -360,8 +377,8 @@ export default function EstadosHoy() {
   }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["estados-hoy-v3", organization?.id, window, debouncedSearch],
-    queryFn: () => fetchEstadosHoy(organization!.id, window, debouncedSearch || undefined),
+    queryKey: ["estados-hoy-v3", organization?.id, window, debouncedSearch, mode],
+    queryFn: () => fetchEstadosHoy(organization!.id, window, debouncedSearch || undefined, mode),
     enabled: !!organization?.id,
     staleTime: 30_000,
     refetchInterval: 60_000,
@@ -517,9 +534,31 @@ export default function EstadosHoy() {
         </CardContent>
       </Card>
 
-      {/* Window selector + search */}
+      {/* Window selector + mode toggle + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-1 bg-muted rounded-md p-0.5">
+            <Button
+              variant={mode === "detected" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setMode("detected")}
+            >
+              <Sparkles className="h-3 w-3 mr-1" />
+              Detectados hoy
+            </Button>
+            <Button
+              variant={mode === "court_date" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setMode("court_date")}
+            >
+              <Calendar className="h-3 w-3 mr-1" />
+              Fecha juzgado
+            </Button>
+          </div>
+          <div className="w-px h-5 bg-border" />
           <Calendar className="h-4 w-4 text-muted-foreground" />
           {(["today", "three_days", "week"] as HoyWindow[]).map((w) => (
             <Button key={w} variant={window === w ? "default" : "ghost"} size="sm" onClick={() => setWindow(w)}>
