@@ -58,6 +58,8 @@ import ActuacionesHoy from "./pages/ActuacionesHoy";
 import SigningPage from "./pages/SigningPage";
 import VerifyDocumentPage from "./pages/VerifyDocumentPage";
 import WorkItemDocumentWizard from "./pages/WorkItemDocumentWizard";
+import DocumentDetailPage from "./pages/DocumentDetailPage";
+import DocumentsDashboard from "./pages/DocumentsDashboard";
 
 // Platform Console Pages
 import {
@@ -229,6 +231,8 @@ const App = () => (
             <Route path="email" element={<ErrorBoundary><EmailPage /></ErrorBoundary>} />
             <Route path="cpaca" element={<ErrorBoundary><CpacaPage /></ErrorBoundary>} />
             <Route path="work-items/:id/documents/new" element={<ErrorBoundary><WorkItemDocumentWizard /></ErrorBoundary>} />
+            <Route path="work-items/:id/documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
+            <Route path="documentos-legales" element={<ErrorBoundary><DocumentsDashboard /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>

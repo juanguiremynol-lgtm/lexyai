@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, PenTool, Type } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import { toast } from "sonner";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -44,6 +46,8 @@ export default function SigningPage() {
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
   const [typedName, setTypedName] = useState("");
+  const [drawnSignature, setDrawnSignature] = useState<string | null>(null);
+  const [signatureMethod, setSignatureMethod] = useState<"typed" | "drawn">("typed");
   const [signing, setSigning] = useState(false);
   const [signResult, setSignResult] = useState<any>(null);
   const docRef = useRef<HTMLDivElement>(null);
@@ -133,13 +137,15 @@ export default function SigningPage() {
 
   // Complete signature
   const handleSign = useCallback(async () => {
-    if (!consentChecked || !typedName.trim()) return;
+    if (!consentChecked) return;
+    if (signatureMethod === "typed" && !typedName.trim()) return;
+    if (signatureMethod === "drawn" && !drawnSignature) return;
     setSigning(true);
     try {
       const data = await callEdgeFunction("complete-signature", {
         signing_token: token,
-        signature_method: "typed",
-        signature_data: typedName.trim(),
+        signature_method: signatureMethod,
+        signature_data: signatureMethod === "typed" ? typedName.trim() : drawnSignature,
         consent_given: true,
         geolocation: null,
       });
@@ -154,7 +160,7 @@ export default function SigningPage() {
     } finally {
       setSigning(false);
     }
-  }, [token, consentChecked, typedName]);
+  }, [token, consentChecked, typedName, drawnSignature, signatureMethod]);
 
   // ─── Render Steps ───────────────────────────────────────
 
@@ -333,30 +339,47 @@ export default function SigningPage() {
                     </label>
                   </div>
 
-                  {/* Typed signature */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Escriba su nombre completo como firma</label>
-                    <Input
-                      value={typedName}
-                      onChange={(e) => setTypedName(e.target.value)}
-                      placeholder="Nombre completo"
-                      className="text-lg"
-                    />
-                    {typedName && (
-                      <div className="border rounded-lg p-6 bg-white text-center">
-                        <p
-                          style={{ fontFamily: "'Dancing Script', cursive", fontSize: "32px", color: "#1a1a2e" }}
-                        >
-                          {typedName}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-2">Vista previa de su firma</p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Signature methods tabs */}
+                  <Tabs value={signatureMethod} onValueChange={(v) => setSignatureMethod(v as "typed" | "drawn")}>
+                    <TabsList className="grid grid-cols-2 w-full">
+                      <TabsTrigger value="typed" className="gap-2"><Type className="h-4 w-4" /> Escribir nombre</TabsTrigger>
+                      <TabsTrigger value="drawn" className="gap-2"><PenTool className="h-4 w-4" /> Dibujar firma</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="typed" className="space-y-2 mt-4">
+                      <label className="text-sm font-medium">Escriba su nombre completo como firma</label>
+                      <Input
+                        value={typedName}
+                        onChange={(e) => setTypedName(e.target.value)}
+                        placeholder="Nombre completo"
+                        className="text-lg"
+                      />
+                      {typedName && (
+                        <div className="border rounded-lg p-6 bg-white text-center">
+                          <p style={{ fontFamily: "'Dancing Script', cursive", fontSize: "32px", color: "#1a1a2e" }}>
+                            {typedName}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">Vista previa de su firma</p>
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="drawn" className="mt-4">
+                      <SignatureCanvas
+                        onConfirm={(dataUrl) => setDrawnSignature(dataUrl)}
+                      />
+                      {drawnSignature && (
+                        <div className="border rounded-lg p-4 bg-white text-center mt-2">
+                          <img src={drawnSignature} alt="Firma" className="max-h-[80px] mx-auto" />
+                          <p className="text-xs text-muted-foreground mt-2">Firma confirmada ✓</p>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
 
                   <Button
                     onClick={handleSign}
-                    disabled={signing || !consentChecked || !typedName.trim()}
+                    disabled={signing || !consentChecked || (signatureMethod === "typed" ? !typedName.trim() : !drawnSignature)}
                     className="w-full"
                     size="lg"
                   >

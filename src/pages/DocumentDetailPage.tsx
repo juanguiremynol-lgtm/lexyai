@@ -1,0 +1,597 @@
+/**
+ * Document Detail Page — Shows document content, audit trail timeline, 
+ * signature details, and contextual actions.
+ * Route: /app/work-items/:id/documents/:docId
+ */
+
+import { useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  ArrowLeft, FileText, Pencil, Lock, Send, Mail, ExternalLink,
+  KeyRound, ShieldCheck, ShieldX, Eye, CheckSquare, PenTool,
+  Hash, HardDrive, Award, BellRing, XCircle, Clock, Ban,
+  ScanSearch, Download, RefreshCw, Copy, Check, Loader2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+
+// ─── Status config ───────────────────────────────────────
+
+const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className: string }> = {
+  draft: { label: "Borrador", variant: "secondary", className: "bg-muted text-muted-foreground" },
+  finalized: { label: "Finalizado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  sent_for_signature: { label: "Enviado para firma", variant: "default", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
+  signed: { label: "Firmado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
+  declined: { label: "Rechazado", variant: "destructive", className: "bg-destructive/15 text-destructive" },
+  expired: { label: "Vencido", variant: "secondary", className: "bg-muted text-muted-foreground line-through" },
+  revoked: { label: "Revocado", variant: "outline", className: "border-destructive text-destructive" },
+};
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  poder_especial: "Poder Especial",
+  contrato_servicios: "Contrato de Servicios",
+};
+
+// ─── Event config ────────────────────────────────────────
+
+const EVENT_ICONS: Record<string, { icon: typeof FileText; color: string }> = {
+  "document.created": { icon: FileText, color: "text-blue-500" },
+  "document.edited": { icon: Pencil, color: "text-amber-500" },
+  "document.finalized": { icon: Lock, color: "text-blue-600" },
+  "signature.requested": { icon: Send, color: "text-primary" },
+  "signature.email_sent": { icon: Mail, color: "text-primary" },
+  "signature.link_opened": { icon: ExternalLink, color: "text-blue-500" },
+  "signature.otp_sent": { icon: KeyRound, color: "text-amber-500" },
+  "signature.otp_verified": { icon: ShieldCheck, color: "text-green-500" },
+  "signature.otp_failed": { icon: ShieldX, color: "text-destructive" },
+  "signature.document_viewed": { icon: Eye, color: "text-blue-400" },
+  "signature.consent_given": { icon: CheckSquare, color: "text-green-500" },
+  "signature.signed": { icon: PenTool, color: "text-green-600" },
+  "document.hash_generated": { icon: Hash, color: "text-muted-foreground" },
+  "document.stored": { icon: HardDrive, color: "text-muted-foreground" },
+  "certificate.generated": { icon: Award, color: "text-amber-500" },
+  "notification.sent": { icon: BellRing, color: "text-primary" },
+  "notification.reminder_sent": { icon: BellRing, color: "text-amber-500" },
+  "signature.declined": { icon: XCircle, color: "text-destructive" },
+  "signature.expired": { icon: Clock, color: "text-muted-foreground" },
+  "signature.revoked": { icon: Ban, color: "text-destructive" },
+  "document.verified": { icon: ScanSearch, color: "text-green-500" },
+};
+
+const EVENT_LABELS: Record<string, (data?: any) => string> = {
+  "document.created": () => "Documento creado",
+  "document.edited": () => "Documento editado",
+  "document.finalized": () => "Documento finalizado",
+  "signature.requested": (d) => `Solicitud de firma enviada${d?.signer_email ? ` a ${d.signer_email}` : ""}`,
+  "signature.email_sent": (d) => `Correo enviado${d?.recipient ? ` a ${d.recipient}` : ""}`,
+  "signature.link_opened": () => "Enlace de firma abierto",
+  "signature.otp_sent": () => "Código OTP enviado",
+  "signature.otp_verified": () => "Identidad verificada por OTP",
+  "signature.otp_failed": (d) => `Verificación OTP fallida${d?.attempt ? ` (intento ${d.attempt})` : ""}`,
+  "signature.document_viewed": () => "Documento revisado por firmante",
+  "signature.consent_given": () => "Consentimiento otorgado",
+  "signature.signed": (d) => `Documento firmado${d?.signer_name ? ` por ${d.signer_name}` : ""}`,
+  "document.hash_generated": (d) => `Hash SHA-256 generado: ${d?.hash ? d.hash.substring(0, 16) + "..." : ""}`,
+  "document.stored": () => "Documento almacenado",
+  "certificate.generated": () => "Certificado de evidencia generado",
+  "notification.sent": (d) => `Notificación enviada${d?.type === "signature_confirmation" ? " (confirmación)" : ""}`,
+  "notification.reminder_sent": () => "Recordatorio de firma enviado",
+  "signature.declined": () => "Firma rechazada",
+  "signature.expired": () => "Enlace de firma vencido",
+  "signature.revoked": () => "Solicitud de firma revocada",
+  "document.verified": () => "Integridad del documento verificada",
+};
+
+const ACTOR_LABELS: Record<string, string> = {
+  lawyer: "Abogado",
+  signer: "Firmante",
+  system: "Sistema",
+};
+
+function formatCOT(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    return format(d, "d MMM yyyy, h:mm a", { locale: es }) + " COT";
+  } catch {
+    return dateStr;
+  }
+}
+
+function parseUserAgent(ua: string): string {
+  if (!ua || ua === "unknown") return "Desconocido";
+  const chrome = ua.match(/Chrome\/(\d+)/);
+  const firefox = ua.match(/Firefox\/(\d+)/);
+  const safari = ua.match(/Version\/(\d+).*Safari/);
+  const os = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iOS" : "";
+  if (chrome) return `Chrome ${chrome[1]} en ${os}`;
+  if (firefox) return `Firefox ${firefox[1]} en ${os}`;
+  if (safari) return `Safari ${safari[1]} en ${os}`;
+  return ua.substring(0, 60);
+}
+
+export default function DocumentDetailPage() {
+  const { id: workItemId, docId } = useParams<{ id: string; docId: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  const [copiedHash, setCopiedHash] = useState(false);
+
+  // Fetch document
+  const { data: doc, isLoading: docLoading } = useQuery({
+    queryKey: ["document-detail", docId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("generated_documents")
+        .select("*")
+        .eq("id", docId!)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!docId,
+  });
+
+  // Fetch creator profile
+  const { data: creator } = useQuery({
+    queryKey: ["doc-creator", doc?.created_by],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", doc!.created_by)
+        .single();
+      return data;
+    },
+    enabled: !!doc?.created_by,
+  });
+
+  // Fetch signatures for this document
+  const { data: signatures } = useQuery({
+    queryKey: ["doc-signatures", docId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("document_signatures")
+        .select("*")
+        .eq("document_id", docId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!docId,
+  });
+
+  // Fetch audit trail events
+  const { data: events, isLoading: eventsLoading } = useQuery({
+    queryKey: ["doc-events", docId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("document_signature_events")
+        .select("*")
+        .eq("document_id", docId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!docId,
+  });
+
+  // Revoke signature mutation
+  const revokeMutation = useMutation({
+    mutationFn: async (signatureId: string) => {
+      const { error } = await supabase
+        .from("document_signatures")
+        .update({ status: "revoked" })
+        .eq("id", signatureId);
+      if (error) throw error;
+
+      const sig = signatures?.find((s) => s.id === signatureId);
+      await supabase.from("document_signature_events").insert({
+        organization_id: doc!.organization_id,
+        document_id: doc!.id,
+        signature_id: signatureId,
+        event_type: "signature.revoked",
+        event_data: { reason: "Revocado por el abogado" },
+        actor_type: "lawyer",
+        actor_id: doc!.created_by,
+      });
+
+      // Update document status back to finalized
+      await supabase
+        .from("generated_documents")
+        .update({ status: "finalized" })
+        .eq("id", doc!.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document-detail", docId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-signatures", docId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+      toast.success("Solicitud de firma revocada");
+    },
+    onError: (err) => toast.error("Error: " + (err as Error).message),
+  });
+
+  // Resend signing link
+  const resendMutation = useMutation({
+    mutationFn: async () => {
+      const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified"].includes(s.status));
+      const signerName = activeSig?.signer_name || "Cliente";
+      const signerEmail = activeSig?.signer_email;
+      if (!signerEmail) throw new Error("No hay email del firmante");
+
+      const { data, error } = await supabase.functions.invoke("generate-signing-link", {
+        body: {
+          document_id: doc!.id,
+          signer_name: signerName,
+          signer_email: signerEmail,
+          signer_cedula: activeSig?.signer_cedula || null,
+        },
+      });
+      if (error) throw error;
+      if (!data.ok) throw new Error(data.error);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["doc-signatures", docId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+      toast.success("Nuevo enlace de firma enviado");
+    },
+    onError: (err) => toast.error("Error: " + (err as Error).message),
+  });
+
+  const handleCopyHash = (hash: string) => {
+    navigator.clipboard.writeText(hash);
+    setCopiedHash(true);
+    setTimeout(() => setCopiedHash(false), 2000);
+  };
+
+  const toggleEvent = (id: string) => {
+    setExpandedEvents((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  if (docLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!doc) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-muted-foreground">Documento no encontrado</p>
+        <Button variant="ghost" onClick={() => navigate(-1)} className="mt-4">Volver</Button>
+      </div>
+    );
+  }
+
+  const statusCfg = STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft;
+  const signedSig = signatures?.find((s) => s.status === "signed");
+  const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified", "sent_for_signature"].includes(s.status));
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <Button variant="ghost" size="icon" onClick={() => navigate(`/app/work-items/${workItemId}`)}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-bold truncate">{doc.title}</h1>
+            <Badge variant={DOC_TYPE_LABELS[doc.document_type] ? "outline" : "secondary"}>
+              {DOC_TYPE_LABELS[doc.document_type] || doc.document_type}
+            </Badge>
+            <Badge variant={statusCfg.variant} className={statusCfg.className}>
+              {statusCfg.label}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
+            {workItemId && (
+              <Link to={`/app/work-items/${workItemId}`} className="hover:text-primary transition-colors">
+                ← Expediente
+              </Link>
+            )}
+            <span>Creado {formatCOT(doc.created_at)}</span>
+            {creator && <span>por {creator.full_name || creator.email}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex flex-wrap gap-2">
+        {doc.status === "draft" && (
+          <>
+            <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
+              <Pencil className="h-4 w-4 mr-2" /> Editar Documento
+            </Button>
+          </>
+        )}
+        {(doc.status === "finalized" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
+          <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+            {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+            {doc.status === "finalized" ? "Enviar para Firma" : "Reenviar para Firma"}
+          </Button>
+        )}
+        {doc.status === "sent_for_signature" && (
+          <>
+            <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+              <RefreshCw className="h-4 w-4 mr-2" /> Reenviar Enlace
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive">
+                  <Ban className="h-4 w-4 mr-2" /> Revocar Solicitud
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Revocar solicitud de firma?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    El enlace de firma actual quedará invalidado y el firmante no podrá completar el proceso.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => activeSig && revokeMutation.mutate(activeSig.id)}
+                    className="bg-destructive text-destructive-foreground"
+                  >
+                    Revocar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
+        {doc.status === "signed" && signedSig && (
+          <>
+            {signedSig.signed_document_path && (
+              <Button variant="outline" onClick={async () => {
+                const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
+                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                else toast.error("Error al obtener enlace de descarga");
+              }}>
+                <Download className="h-4 w-4 mr-2" /> Descargar Firmado
+              </Button>
+            )}
+            {signedSig.certificate_path && (
+              <Button variant="outline" onClick={async () => {
+                const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.certificate_path!, 3600);
+                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                else toast.error("Error al obtener certificado");
+              }}>
+                <Award className="h-4 w-4 mr-2" /> Descargar Certificado
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Document Content Preview */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Eye className="h-5 w-5" /> Vista del Documento
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="max-h-[600px] border rounded-lg p-6 bg-white dark:bg-card">
+                <div dangerouslySetInnerHTML={{ __html: doc.content_html }} />
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          {/* Signature Details Card (only when signed) */}
+          {doc.status === "signed" && signedSig && (
+            <Card className="border-green-500/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg text-green-600">
+                  <PenTool className="h-5 w-5" /> Detalles de la Firma
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Firmante</span>
+                    <p className="font-medium">{signedSig.signer_name}</p>
+                    <p className="text-muted-foreground">{signedSig.signer_email}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Método de firma</span>
+                    <p className="font-medium">{signedSig.signature_method === "typed" ? "Tipográfica" : "Manuscrita digital"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Fecha de firma</span>
+                    <p className="font-medium">{signedSig.signed_at ? formatCOT(signedSig.signed_at) : "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Dirección IP</span>
+                    <p className="font-mono text-xs">{signedSig.signer_ip || "—"}</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-muted-foreground">Dispositivo</span>
+                    <p className="text-sm">{parseUserAgent(signedSig.signer_user_agent || "")}</p>
+                  </div>
+                </div>
+
+                {/* Signature preview */}
+                {signedSig.signature_method === "typed" && signedSig.signature_data && (
+                  <div className="border rounded-lg p-4 bg-white dark:bg-muted/30 text-center">
+                    <p style={{ fontFamily: "'Dancing Script', cursive", fontSize: "28px", color: "#1a1a2e" }}>
+                      {signedSig.signature_data}
+                    </p>
+                  </div>
+                )}
+
+                {/* Hash */}
+                {signedSig.signed_document_hash && (
+                  <>
+                    <Separator />
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground text-sm">Hash SHA-256</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCopyHash(signedSig.signed_document_hash!)}
+                        >
+                          {copiedHash ? <Check className="h-3 w-3 mr-1" /> : <Copy className="h-3 w-3 mr-1" />}
+                          {copiedHash ? "Copiado" : "Copiar"}
+                        </Button>
+                      </div>
+                      <p className="font-mono text-xs break-all mt-1">{signedSig.signed_document_hash}</p>
+                    </div>
+                    <Badge variant="outline" className="border-green-500/30 text-green-600">
+                      <ShieldCheck className="h-3 w-3 mr-1" /> Integridad verificada
+                    </Badge>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Signers status (multi-signer view) */}
+          {signatures && signatures.length > 0 && doc.status !== "draft" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Firmantes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {signatures.map((sig) => (
+                    <div key={sig.id} className="flex items-center gap-3 text-sm">
+                      {sig.status === "signed" ? (
+                        <CheckSquare className="h-4 w-4 text-green-500" />
+                      ) : sig.status === "revoked" || sig.status === "declined" ? (
+                        <XCircle className="h-4 w-4 text-destructive" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-amber-500" />
+                      )}
+                      <span className="font-medium">{sig.signer_name}</span>
+                      <span className="text-muted-foreground">({sig.signer_email})</span>
+                      <Badge variant="outline" className="text-xs capitalize">
+                        {sig.signer_role}
+                      </Badge>
+                      {sig.status === "signed" && sig.signed_at && (
+                        <span className="text-muted-foreground text-xs">
+                          — Firmado el {formatCOT(sig.signed_at)}
+                        </span>
+                      )}
+                      {sig.status !== "signed" && (
+                        <Badge variant="secondary" className="text-xs">
+                          {STATUS_CONFIG[sig.status]?.label || sig.status}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Audit Trail Timeline */}
+        <div className="lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Clock className="h-5 w-5" /> Registro de Auditoría
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {eventsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : !events || events.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  No hay eventos registrados
+                </p>
+              ) : (
+                <div className="relative">
+                  {/* Timeline line */}
+                  <div className="absolute left-3 top-2 bottom-2 w-px bg-border" />
+
+                  <div className="space-y-4">
+                    {events.map((event) => {
+                      const cfg = EVENT_ICONS[event.event_type] || { icon: FileText, color: "text-muted-foreground" };
+                      const Icon = cfg.icon;
+                      const label = EVENT_LABELS[event.event_type]
+                        ? EVENT_LABELS[event.event_type](event.event_data)
+                        : event.event_type;
+                      const isExpanded = expandedEvents.has(event.id);
+                      const isSignedEvent = event.event_type === "signature.signed";
+
+                      return (
+                        <div key={event.id} className="relative pl-8">
+                          {/* Icon node */}
+                          <div className={`absolute left-0 top-0.5 h-6 w-6 rounded-full bg-card border-2 flex items-center justify-center ${isSignedEvent ? "border-green-500" : "border-border"}`}>
+                            <Icon className={`h-3 w-3 ${cfg.color}`} />
+                          </div>
+
+                          <div
+                            className="cursor-pointer hover:bg-muted/50 rounded-md p-2 -m-2 transition-colors"
+                            onClick={() => toggleEvent(event.id)}
+                          >
+                            <p className={`text-sm ${isSignedEvent ? "font-semibold text-green-600" : "font-medium"}`}>
+                              {label}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-xs text-muted-foreground">
+                                {formatCOT(event.created_at)}
+                              </span>
+                              <Badge variant="outline" className="text-[10px] h-4 px-1">
+                                {ACTOR_LABELS[event.actor_type] || event.actor_type}
+                              </Badge>
+                            </div>
+
+                            {/* Expanded details */}
+                            {isExpanded && event.event_data && (
+                              <div className="mt-2 text-xs bg-muted/50 rounded-md p-2 space-y-1 font-mono">
+                                {event.actor_ip && <p>IP: {event.actor_ip}</p>}
+                                {event.actor_user_agent && (
+                                  <p className="break-all">UA: {parseUserAgent(event.actor_user_agent)}</p>
+                                )}
+                                {Object.entries(event.event_data as Record<string, unknown>).map(([k, v]) => (
+                                  <p key={k} className="break-all">
+                                    {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Google Font for signature preview */}
+      <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet" />
+    </div>
+  );
+}
