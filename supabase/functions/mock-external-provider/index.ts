@@ -159,13 +159,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // ── Env gate ──
-  const rawVal = Deno.env.get("ATENIA_ENABLE_PROVIDER_MOCKS");
-  const mocksEnabled = rawVal === "true";
-  if (!mocksEnabled) {
-    console.log(`[mock-provider] Env gate blocked. ATENIA_ENABLE_PROVIDER_MOCKS="${rawVal}"`);
+  // ── Env gate (dual guard: secret + non-production) ──
+  const mocksEnabled = Deno.env.get("ATENIA_ENABLE_PROVIDER_MOCKS") === "true";
+  const supabaseRef = Deno.env.get("SUPABASE_PROJECT_REF") ?? "";
+  // Block in production: only allow mocks in known non-prod project refs
+  const ALLOWED_REFS = ["qvuukbqcvlnvmcvcruji"]; // test/staging refs only
+  const refAllowed = ALLOWED_REFS.length === 0 || ALLOWED_REFS.includes(supabaseRef);
+  
+  if (!mocksEnabled || !refAllowed) {
+    console.warn(`[mock-provider] Env gate blocked. mocks=${mocksEnabled}, refAllowed=${refAllowed}`);
     return new Response(
-      JSON.stringify({ error: "Provider mocks are disabled. Set ATENIA_ENABLE_PROVIDER_MOCKS=true.", env_value: rawVal ?? "NOT_SET" }),
+      JSON.stringify({ error: "MOCKS_DISABLED" }),
       { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
