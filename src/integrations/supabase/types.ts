@@ -4474,6 +4474,7 @@ export type Database = {
           signature_data: string | null
           signature_image_path: string | null
           signature_method: string | null
+          signature_stroke_data: Json | null
           signed_at: string | null
           signed_document_hash: string | null
           signed_document_path: string | null
@@ -4505,6 +4506,7 @@ export type Database = {
           signature_data?: string | null
           signature_image_path?: string | null
           signature_method?: string | null
+          signature_stroke_data?: Json | null
           signed_at?: string | null
           signed_document_hash?: string | null
           signed_document_path?: string | null
@@ -4536,6 +4538,7 @@ export type Database = {
           signature_data?: string | null
           signature_image_path?: string | null
           signature_method?: string | null
+          signature_stroke_data?: Json | null
           signed_at?: string | null
           signed_document_hash?: string | null
           signed_document_path?: string | null
