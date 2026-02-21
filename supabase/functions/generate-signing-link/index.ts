@@ -97,10 +97,29 @@ Deno.serve(async (req) => {
       .single();
 
     if (docErr || !doc) return json({ error: "Document not found" }, 404);
-    // Allow finalized, draft, and sent_for_signature (bilateral docs need multiple signing links)
-    const allowedStatuses = ["finalized", "draft", "sent_for_signature"];
+    // Allow finalized, draft, ready_for_signature, and sent_for_signature (bilateral docs need multiple signing links)
+    const allowedStatuses = ["finalized", "draft", "ready_for_signature", "sent_for_signature"];
     if (!allowedStatuses.includes(doc.status)) {
       return json({ error: `Document status is '${doc.status}', must be one of: ${allowedStatuses.join(", ")}` }, 400);
+    }
+
+    // BILATERAL INVARIANT: For bilateral docs, client signing link requires lawyer signature completion
+    const bilateralTypes = ["contrato_servicios"];
+    if (bilateralTypes.includes(doc.document_type) && (signer_role === "client" || signing_order > 1)) {
+      // Check if signer with signing_order=1 (lawyer) has completed signing
+      const { data: lawyerSigs } = await adminClient
+        .from("document_signatures")
+        .select("id, status, signing_order")
+        .eq("document_id", document_id)
+        .eq("signing_order", 1);
+
+      const lawyerSigned = lawyerSigs?.some(s => s.status === "signed");
+      if (!lawyerSigned) {
+        return json({
+          error: "El abogado (firmante 1) debe completar su firma antes de generar el enlace para el cliente.",
+          code: "LAWYER_SIGNATURE_REQUIRED",
+        }, 400);
+      }
     }
 
     // Determine delivery method for audit trail

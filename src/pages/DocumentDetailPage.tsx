@@ -33,6 +33,7 @@ import { es } from "date-fns/locale";
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className: string }> = {
   draft: { label: "Borrador", variant: "secondary", className: "bg-muted text-muted-foreground" },
+  ready_for_signature: { label: "Contenido bloqueado", variant: "default", className: "bg-indigo-500/15 text-indigo-600 border-indigo-500/30" },
   finalized: { label: "Finalizado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
   generated: { label: "Generado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
   delivered_to_lawyer: { label: "Entregado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
@@ -42,6 +43,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   declined: { label: "Rechazado", variant: "destructive", className: "bg-destructive/15 text-destructive" },
   expired: { label: "Vencido", variant: "secondary", className: "bg-muted text-muted-foreground line-through" },
   revoked: { label: "Revocado", variant: "outline", className: "border-destructive text-destructive" },
+  superseded: { label: "Reemplazado", variant: "outline", className: "border-muted-foreground text-muted-foreground" },
   waiting: { label: "En espera", variant: "secondary", className: "bg-muted text-muted-foreground" },
 };
 
@@ -80,12 +82,14 @@ const EVENT_ICONS: Record<string, { icon: typeof FileText; color: string }> = {
   "signature.expired": { icon: Clock, color: "text-muted-foreground" },
   "signature.revoked": { icon: Ban, color: "text-destructive" },
   "document.verified": { icon: ScanSearch, color: "text-green-500" },
+  "document.superseded": { icon: RefreshCw, color: "text-muted-foreground" },
 };
 
 const EVENT_LABELS: Record<string, (data?: any) => string> = {
   "document.created": () => "Documento creado",
   "document.edited": () => "Documento editado",
-  "document.finalized": () => "Documento finalizado",
+  "document.finalized": () => "Documento finalizado (contenido bloqueado)",
+  "document.superseded": (d) => `Documento reemplazado${d?.new_document_id ? " por nueva versión" : ""}`,
   "signature.requested": (d) => `Solicitud de firma enviada${d?.signer_email ? ` a ${d.signer_email}` : ""}`,
   "signature.email_sent": (d) => `Correo enviado${d?.recipient ? ` a ${d.recipient}` : ""}`,
   "signature.link_opened": () => "Enlace de firma abierto",
@@ -221,10 +225,11 @@ export default function DocumentDetailPage() {
         actor_id: doc!.created_by,
       });
 
-      // Update document status back to finalized
+      // Update document status back to ready_for_signature or finalized depending on doc type
+      const revertStatus = (doc!.document_type === "contrato_servicios" || doc!.document_type === "poder_especial") ? "ready_for_signature" : "finalized";
       await supabase
         .from("generated_documents")
-        .update({ status: "finalized" })
+        .update({ status: revertStatus } as any)
         .eq("id", doc!.id);
     },
     onSuccess: () => {
@@ -428,10 +433,10 @@ export default function DocumentDetailPage() {
                 <Pencil className="h-4 w-4 mr-2" /> Editar Documento
               </Button>
             )}
-            {(doc.status === "finalized" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
+            {(doc.status === "finalized" || doc.status === "ready_for_signature" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
               <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
                 {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                {doc.status === "finalized" ? "Enviar para Firma" : "Reenviar para Firma"}
+                {(doc.status === "finalized" || doc.status === "ready_for_signature") ? "Enviar para Firma" : "Reenviar para Firma"}
               </Button>
             )}
             {doc.status === "sent_for_signature" && activeSig && (
@@ -479,7 +484,7 @@ export default function DocumentDetailPage() {
               </>
             )}
             {/* Recovery: Create new version for stuck contracts */}
-            {(doc.status === "sent_for_signature" || doc.status === "partially_signed") && 
+            {(doc.status === "sent_for_signature" || doc.status === "partially_signed" || doc.status === "ready_for_signature") && 
              (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial") && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -501,6 +506,12 @@ export default function DocumentDetailPage() {
                     <AlertDialogAction
                       onClick={async () => {
                         try {
+                          // Check legal hold FIRST — absolute block
+                          if ((doc as any).legal_hold) {
+                            toast.error("Este documento está bajo retención legal (legal hold) y no puede ser reemplazado. Contacte al administrador.");
+                            return;
+                          }
+
                           // Clone variables into new draft
                           const { data: newDoc, error: insertErr } = await supabase
                             .from("generated_documents")
@@ -521,18 +532,47 @@ export default function DocumentDetailPage() {
                             .single();
                           if (insertErr) throw insertErr;
 
-                          // Mark old document as superseded
+                          // Mark old document as SUPERSEDED (terminal, append-only — NOT "revoked")
                           await supabase
                             .from("generated_documents")
-                            .update({ status: "revoked" } as any)
+                            .update({ status: "superseded" } as any)
                             .eq("id", doc.id);
 
-                          // Revoke pending signatures on the old document
-                          await supabase
-                            .from("document_signatures")
-                            .update({ status: "revoked" } as any)
-                            .eq("document_id", doc.id)
-                            .neq("status", "signed");
+                          // Log DOCUMENT_SUPERSEDED event (append-only, immutable)
+                          await supabase.from("document_signature_events").insert({
+                            organization_id: (doc as any).organization_id,
+                            document_id: doc.id,
+                            event_type: "document.superseded" as any,
+                            event_data: {
+                              new_document_id: newDoc.id,
+                              reason: "Nueva versión creada por el abogado",
+                              previous_status: doc.status,
+                            },
+                            actor_type: "lawyer",
+                            actor_id: (doc as any).created_by,
+                          });
+
+                          // Revoke pending signatures and log individual revocation events
+                          const pendingSigs = signatures?.filter(s => s.status !== "signed") || [];
+                          for (const sig of pendingSigs) {
+                            await supabase
+                              .from("document_signatures")
+                              .update({ status: "revoked" } as any)
+                              .eq("id", sig.id);
+
+                            await supabase.from("document_signature_events").insert({
+                              organization_id: (doc as any).organization_id,
+                              document_id: doc.id,
+                              signature_id: sig.id,
+                              event_type: "signature.revoked",
+                              event_data: {
+                                reason: "Documento reemplazado por nueva versión",
+                                new_document_id: newDoc.id,
+                              },
+                              actor_type: "lawyer",
+                              actor_id: (doc as any).created_by,
+                            });
+                          }
 
                           toast.success("Nueva versión creada como borrador");
                           navigate(`/app/work-items/${workItemId}/documents/${newDoc.id}`);

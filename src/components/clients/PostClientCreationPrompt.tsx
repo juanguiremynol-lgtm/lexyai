@@ -137,7 +137,7 @@ export function PostClientCreationPrompt({
         .select("id, status, created_at")
         .eq("work_item_id", targetWiId!)
         .eq("document_type", "contrato_servicios")
-        .in("status", ["finalized", "signed", "partially_signed", "sent_for_signature", "draft"])
+        .in("status", ["finalized", "ready_for_signature", "signed", "partially_signed", "sent_for_signature", "draft"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
