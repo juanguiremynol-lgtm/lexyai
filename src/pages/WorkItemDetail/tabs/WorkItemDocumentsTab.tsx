@@ -70,13 +70,11 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
 
   const deleteMutation = useMutation({
     mutationFn: async (docId: string) => {
-      // Delete related signatures first
-      await supabase.from("document_signatures").delete().eq("document_id", docId);
-      // Delete related events
-      await supabase.from("document_signature_events").delete().eq("document_id", docId);
-      // Delete the document
-      const { error } = await supabase.from("generated_documents").delete().eq("id", docId);
+      const { data, error } = await supabase.functions.invoke("delete-generated-document", {
+        body: { document_id: docId },
+      });
       if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Error al eliminar");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work-item-generated-docs", workItem.id] });
