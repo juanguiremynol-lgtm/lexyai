@@ -34,6 +34,8 @@ import { es } from "date-fns/locale";
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className: string }> = {
   draft: { label: "Borrador", variant: "secondary", className: "bg-muted text-muted-foreground" },
   finalized: { label: "Finalizado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  generated: { label: "Generado", variant: "default", className: "bg-blue-500/15 text-blue-600 border-blue-500/30" },
+  delivered_to_lawyer: { label: "Entregado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
   sent_for_signature: { label: "Enviado para firma", variant: "default", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   partially_signed: { label: "Parcialmente firmado", variant: "default", className: "bg-orange-500/15 text-orange-600 border-orange-500/30" },
   signed: { label: "Firmado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
@@ -46,7 +48,12 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
 const DOC_TYPE_LABELS: Record<string, string> = {
   poder_especial: "Poder Especial",
   contrato_servicios: "Contrato de Servicios",
+  paz_y_salvo: "Paz y Salvo",
+  notificacion_personal: "Notificación Personal",
+  notificacion_por_aviso: "Notificación por Aviso",
 };
+
+const NOTIFICATION_DOC_TYPES = ["notificacion_personal", "notificacion_por_aviso"];
 
 // ─── Event config ────────────────────────────────────────
 
@@ -337,6 +344,8 @@ export default function DocumentDetailPage() {
   const statusCfg = STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft;
   const signedSig = signatures?.find((s) => s.status === "signed");
   const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified", "sent_for_signature"].includes(s.status));
+  const isNotification = NOTIFICATION_DOC_TYPES.includes(doc.document_type);
+  const docVars = (doc.variables || {}) as Record<string, string>;
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -369,87 +378,130 @@ export default function DocumentDetailPage() {
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
-        {doc.status === "draft" && (
+        {isNotification ? (
           <>
-            <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
-              <Pencil className="h-4 w-4 mr-2" /> Editar Documento
+            {/* Notification-specific actions: simpler — download PDF, no signing flow */}
+            <Button variant="outline" onClick={() => {
+              // Create downloadable blob from HTML
+              const blob = new Blob([doc.content_html], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${doc.title?.replace(/[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ ]/g, "_")}.html`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>
+              <Download className="h-4 w-4 mr-2" /> Descargar
             </Button>
           </>
-        )}
-        {(doc.status === "finalized" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
-          <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
-            {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-            {doc.status === "finalized" ? "Enviar para Firma" : "Reenviar para Firma"}
-          </Button>
-        )}
-        {doc.status === "sent_for_signature" && activeSig && (
+        ) : (
           <>
-            {/* Copy link */}
-            <div className="flex gap-2 items-center w-full sm:w-auto">
-              <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
-              <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
-                {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-            <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
-              {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
-              Reenviar por correo
-            </Button>
-            <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
-              <RefreshCw className="h-4 w-4 mr-2" /> Generar nuevo enlace
-            </Button>
-            <span className="text-xs text-amber-600 flex items-center gap-1">
-              <Clock className="h-3 w-3" /> {getExpirationCountdown()}
-            </span>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">
-                  <Ban className="h-4 w-4 mr-2" /> Revocar Solicitud
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>¿Revocar solicitud de firma?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    El enlace de firma actual quedará invalidado y el firmante no podrá completar el proceso.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => activeSig && revokeMutation.mutate(activeSig.id)}
-                    className="bg-destructive text-destructive-foreground"
-                  >
-                    Revocar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </>
-        )}
-        {doc.status === "signed" && signedSig && (
-          <>
-            {signedSig.signed_document_path && (
-              <Button variant="outline" onClick={async () => {
-                const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
-                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                else toast.error("Error al obtener enlace de descarga");
-              }}>
-                <Download className="h-4 w-4 mr-2" /> Descargar Firmado
+            {doc.status === "draft" && (
+              <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
+                <Pencil className="h-4 w-4 mr-2" /> Editar Documento
               </Button>
             )}
-            {signedSig.certificate_path && (
-              <Button variant="outline" onClick={async () => {
-                const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.certificate_path!, 3600);
-                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                else toast.error("Error al obtener certificado");
-              }}>
-                <Award className="h-4 w-4 mr-2" /> Descargar Certificado
+            {(doc.status === "finalized" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
+              <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+                {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                {doc.status === "finalized" ? "Enviar para Firma" : "Reenviar para Firma"}
               </Button>
+            )}
+            {doc.status === "sent_for_signature" && activeSig && (
+              <>
+                <div className="flex gap-2 items-center w-full sm:w-auto">
+                  <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
+                  <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
+                    {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
+                  {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+                  Reenviar por correo
+                </Button>
+                <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+                  <RefreshCw className="h-4 w-4 mr-2" /> Generar nuevo enlace
+                </Button>
+                <span className="text-xs text-amber-600 flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {getExpirationCountdown()}
+                </span>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive">
+                      <Ban className="h-4 w-4 mr-2" /> Revocar Solicitud
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>¿Revocar solicitud de firma?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        El enlace de firma actual quedará invalidado y el firmante no podrá completar el proceso.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => activeSig && revokeMutation.mutate(activeSig.id)}
+                        className="bg-destructive text-destructive-foreground"
+                      >
+                        Revocar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
+            {doc.status === "signed" && signedSig && (
+              <>
+                {signedSig.signed_document_path && (
+                  <Button variant="outline" onClick={async () => {
+                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
+                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                    else toast.error("Error al obtener enlace de descarga");
+                  }}>
+                    <Download className="h-4 w-4 mr-2" /> Descargar Firmado
+                  </Button>
+                )}
+                {signedSig.certificate_path && (
+                  <Button variant="outline" onClick={async () => {
+                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.certificate_path!, 3600);
+                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                    else toast.error("Error al obtener certificado");
+                  }}>
+                    <Award className="h-4 w-4 mr-2" /> Descargar Certificado
+                  </Button>
+                )}
+              </>
             )}
           </>
         )}
       </div>
+
+      {/* Notification metadata card */}
+      {isNotification && (
+        <Card>
+          <CardContent className="pt-4 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Demandado</span>
+                <p className="font-medium">{docVars.defendant_name || "—"}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Email destino</span>
+                <p className="font-medium">{docVars.defendant_email || "No registrado"}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Generado</span>
+                <p className="font-medium">{formatCOT(doc.created_at)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Tipo</span>
+                <p className="font-medium">{DOC_TYPE_LABELS[doc.document_type] || doc.document_type}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Document Content Preview */}
@@ -467,8 +519,8 @@ export default function DocumentDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Signature Details Card (only when signed) */}
-          {doc.status === "signed" && signedSig && (
+          {/* Signature Details Card (only when signed, not for notifications) */}
+          {!isNotification && doc.status === "signed" && signedSig && (
             <Card className="border-green-500/30">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg text-green-600">
@@ -527,8 +579,8 @@ export default function DocumentDetailPage() {
             </Card>
           )}
 
-          {/* Signers status (multi-signer view) */}
-          {signatures && signatures.length > 0 && doc.status !== "draft" && (
+          {/* Signers status (multi-signer view) — hide for notifications */}
+          {!isNotification && signatures && signatures.length > 0 && doc.status !== "draft" && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Firmantes</CardTitle>
