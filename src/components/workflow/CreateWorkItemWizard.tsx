@@ -405,8 +405,10 @@ export function CreateWorkItemWizard({
       } catch (e: any) {
         console.error("Error creating client:", e);
         const msg = e?.message || String(e);
-        if (msg.includes('limit reached') || msg.includes('maximum')) {
-          toast.error("Has alcanzado el límite de clientes para tu plan. Elimina un cliente existente o mejora tu plan.");
+        if (msg.includes('limit reached') || msg.includes('maximum') || msg.includes('Client limit')) {
+          const match = msg.match(/(\d+)\/(\d+)/);
+          const detail = match ? ` (${match[1]}/${match[2]})` : '';
+          toast.error(`Has alcanzado el límite de clientes para tu plan${detail}. Elimina un cliente existente o mejora tu plan.`);
         } else if (msg.includes('row-level security')) {
           toast.error("No tienes permiso para crear clientes. Contacta al administrador.");
         } else {
