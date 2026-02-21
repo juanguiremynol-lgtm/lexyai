@@ -379,3 +379,48 @@ export function isWithinRetention(retentionExpiresAt: string | null): boolean {
   if (!retentionExpiresAt) return false;
   return new Date(retentionExpiresAt) > new Date();
 }
+
+// ─── Post-Creation Prompt Helpers ────────────────────────
+
+/**
+ * Document types eligible for post-creation prompts (after client or work item creation).
+ * Only includes doc types that are client-facing (contract, poder) — not issuer-only docs
+ * like notificaciones which are lawyer-internal instruments.
+ */
+const POST_CREATION_ELIGIBLE_TYPES: DocumentPolicyType[] = [
+  "contrato_servicios",
+  "poder_especial",
+];
+
+export interface PostCreationDocOption {
+  docType: DocumentPolicyType;
+  label_es: string;
+  description_es: string;
+}
+
+/**
+ * Returns the list of document types available for post-creation prompts,
+ * filtered by an optional set of disabled doc types (from org settings/feature flags).
+ *
+ * @param disabledDocTypes - doc types explicitly disabled for this org/plan
+ */
+export function getPostCreationDocOptions(
+  disabledDocTypes: DocumentPolicyType[] = []
+): PostCreationDocOption[] {
+  const disabledSet = new Set(disabledDocTypes);
+  return POST_CREATION_ELIGIBLE_TYPES
+    .filter((dt) => !disabledSet.has(dt))
+    .map((dt) => {
+      const p = POLICIES[dt];
+      return {
+        docType: dt,
+        label_es: p.label_es,
+        description_es:
+          dt === "contrato_servicios"
+            ? "Cree el contrato de prestación de servicios. Los datos ingresados se usarán para auto-completar el documento."
+            : dt === "poder_especial"
+              ? "Cree el poder especial para representar a su cliente en este proceso."
+              : `Generar ${p.label_es}`,
+      };
+    });
+}
