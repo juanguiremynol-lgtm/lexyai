@@ -1293,6 +1293,133 @@ Deno.serve(async (req: Request) => {
     const hasCache = !!cached;
 
     // ═══ PHASE 2: Fan out to providers (with retries for critical ones) ═══
+    // Also discover dynamic providers from provider_coverage_overrides
+    let dynamicProviderResults: ProviderResult[] = [];
+    try {
+      const { data: overrides } = await supabaseAdmin
+        .from("provider_coverage_overrides")
+        .select("provider_key, connector_id, timeout_ms, data_kind")
+        .eq("enabled", true);
+      
+      if (overrides && overrides.length > 0) {
+        // Exclude built-in providers already in DEMO_PROVIDER_REGISTRY
+        const builtinKeys = new Set(DEMO_PROVIDER_REGISTRY.map(p => p.name.toUpperCase().replace(/\s+/g, "_")));
+        const dynamicOverrides = overrides.filter(o => !builtinKeys.has(o.provider_key.toUpperCase()));
+        
+        if (dynamicOverrides.length > 0) {
+          console.log(`[demo] Found ${dynamicOverrides.length} dynamic provider(s) from coverage overrides`);
+          
+          // Group by provider_key (a provider may have both ACTUACIONES and ESTADOS entries)
+          const uniqueProviders = new Map<string, typeof dynamicOverrides[0]>();
+          for (const o of dynamicOverrides) {
+            if (!uniqueProviders.has(o.provider_key)) uniqueProviders.set(o.provider_key, o);
+          }
+          
+          const dynamicPromises = Array.from(uniqueProviders.entries()).map(async ([providerKey, override]) => {
+            const t0dyn = Date.now();
+            try {
+              const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+              const functionUrl = `${supabaseUrl}/functions/v1/provider-sync-external-provider`;
+              
+              // For demo, we call the external provider with a synthetic lookup
+              const controller = new AbortController();
+              const timeoutMs = override.timeout_ms || 15000;
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+              
+              const resp = await fetch(functionUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                },
+                body: JSON.stringify({
+                  radicado,
+                  connector_id: override.connector_id,
+                  mode: "DEMO_LOOKUP",
+                }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+              
+              const latency = Date.now() - t0dyn;
+              
+              if (!resp.ok) {
+                return {
+                  provider: providerKey,
+                  outcome: "error" as ProviderOutcome,
+                  found_status: "NOT_FOUND" as FoundStatus,
+                  latency_ms: latency,
+                  actuaciones: [],
+                  estados: [],
+                  metadata: null,
+                  parties: null,
+                  error: `HTTP ${resp.status}`,
+                } as ProviderResult;
+              }
+              
+              const result = await resp.json();
+              
+              // Map the response to ProviderResult
+              const actuaciones: DemoActuacion[] = (result.actuaciones || []).map((a: any) => ({
+                fecha: normalizeDate(a.fecha || a.event_date || a.fechaActuacion),
+                tipo: truncate(String(a.tipo || a.actuacion || a.title || ""), 120),
+                descripcion: redactPIIFromText(truncate(String(a.descripcion || a.description || a.anotacion || ""), 300) || ""),
+                anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
+                sources: [providerKey],
+              })).filter((a: DemoActuacion) => a.fecha);
+              
+              const estados: DemoEstado[] = (result.estados || []).map((e: any) => ({
+                tipo: truncate(String(e.tipo || e.actuacion || "Estado"), 120) || "Estado",
+                fecha: normalizeDate(e.fecha || e.fechaEstado || e.fechaProvidencia),
+                descripcion: e.descripcion ? redactPIIFromText(truncate(String(e.descripcion), 200) || "") : null,
+                sources: [providerKey],
+              })).filter((e: DemoEstado) => e.fecha || e.descripcion);
+              
+              const hasData = actuaciones.length > 0 || estados.length > 0;
+              
+              return {
+                provider: providerKey,
+                outcome: hasData ? "success" as ProviderOutcome : "no-data" as ProviderOutcome,
+                found_status: hasData ? "FOUND_COMPLETE" as FoundStatus : "NOT_FOUND" as FoundStatus,
+                latency_ms: latency,
+                actuaciones,
+                estados,
+                metadata: result.despacho ? {
+                  despacho: result.despacho,
+                  tipo_proceso: result.tipo_proceso || null,
+                  fecha_radicacion: result.fecha_radicacion || null,
+                } : null,
+                parties: result.demandante || result.demandado ? {
+                  demandante: result.demandante || null,
+                  demandado: result.demandado || null,
+                } : null,
+              } as ProviderResult;
+            } catch (err) {
+              const isTimeout = err instanceof DOMException && err.name === "AbortError";
+              return {
+                provider: providerKey,
+                outcome: (isTimeout ? "timeout" : "error") as ProviderOutcome,
+                found_status: "NOT_FOUND" as FoundStatus,
+                latency_ms: Date.now() - t0dyn,
+                actuaciones: [],
+                estados: [],
+                metadata: null,
+                parties: null,
+                error: isTimeout ? "Timeout" : String(err),
+              } as ProviderResult;
+            }
+          });
+          
+          dynamicProviderResults = await Promise.all(dynamicPromises);
+          for (const r of dynamicProviderResults) {
+            console.log(`[demo] Dynamic provider ${r.provider}: outcome=${r.outcome}, acts=${r.actuaciones.length}, estados=${r.estados.length}`);
+          }
+        }
+      }
+    } catch (dynErr) {
+      console.warn("[demo] Dynamic provider discovery failed (non-blocking):", dynErr);
+    }
+
     const providerPromises = DEMO_PROVIDER_REGISTRY.map(async (config) => {
       // If retry_estados mode, only re-call estados-critical providers
       if (isRetryEstados && !ESTADOS_CRITICAL_PROVIDERS.has(config.name)) {
@@ -1333,7 +1460,10 @@ Deno.serve(async (req: Request) => {
       return fetchWithRetry(config, baseUrl, apiKey, maxRetries);
     });
 
-    const results = await Promise.all(providerPromises);
+    const builtinResults = await Promise.all(providerPromises);
+    
+    // Merge built-in and dynamic provider results
+    const results = [...builtinResults, ...dynamicProviderResults];
 
     // Log outcomes
     for (const r of results) {
@@ -1503,7 +1633,7 @@ Deno.serve(async (req: Request) => {
     // 8. Build provider outcomes for response
     const providerOutcomes = results.map(r => ({
       name: r.provider,
-      label: DEMO_PROVIDER_REGISTRY.find(p => p.name === r.provider)?.label || r.provider,
+      label: DEMO_PROVIDER_REGISTRY.find(p => p.name === r.provider)?.label || `${r.provider} (Dynamic)`,
       outcome: r.outcome,
       found_status: r.found_status,
       latency_ms: r.latency_ms,
