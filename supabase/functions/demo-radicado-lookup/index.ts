@@ -207,67 +207,22 @@ function parseSujetosString(raw: unknown): { demandante: string | null; demandad
 }
 
 // ═══════════════════════════════════════════
-// PROVIDER REGISTRY — add new providers here
+// PROVIDER DEFINITIONS — uses shared adapters
 // ═══════════════════════════════════════════
 
-interface ProviderConfig {
-  name: string;
-  label: string;        // Human-friendly label for UI
-  provides: ("actuaciones" | "estados" | "metadata")[];
-  envBaseUrl: string;
-  envApiKey: string[];   // Try these env vars in order for the API key
-  fetchFn: (radicado: string, baseUrl: string, apiKey: string) => Promise<ProviderResult>;
-}
+/** All 5 built-in providers with their display labels and fetch functions */
+const DEMO_PROVIDERS = [
+  { name: "CPNU",          label: "Consulta Nacional de Procesos",   provides: ["actuaciones", "metadata"] as const, fetchFn: fetchCpnu },
+  { name: "SAMAI",         label: "Sistema de Gestión SAMAI",        provides: ["actuaciones", "metadata"] as const, fetchFn: fetchSamai },
+  { name: "Publicaciones", label: "Publicaciones Procesales",        provides: ["estados"] as const,                 fetchFn: fetchPublicaciones },
+  { name: "Tutelas",       label: "API de Tutelas",                  provides: ["actuaciones", "estados", "metadata"] as const, fetchFn: fetchTutelas },
+  { name: "SAMAI Estados", label: "SAMAI Estados Electrónicos",      provides: ["estados"] as const,                 fetchFn: fetchSamaiEstados },
+] as const;
 
-const DEMO_PROVIDER_REGISTRY: ProviderConfig[] = [
-  {
-    name: "CPNU",
-    label: "Consulta Nacional de Procesos",
-    provides: ["actuaciones", "metadata"],
-    envBaseUrl: "CPNU_BASE_URL", // Not used for CPNU (hardcoded endpoints)
-    envApiKey: [],               // No API key needed
-    fetchFn: fetchCpnu,
-  },
-  {
-    name: "SAMAI",
-    label: "Sistema de Gestión SAMAI",
-    provides: ["actuaciones", "metadata"],
-    envBaseUrl: "SAMAI_BASE_URL",
-    envApiKey: ["SAMAI_X_API_KEY", "EXTERNAL_X_API_KEY"],
-    fetchFn: fetchSamai,
-  },
-  {
-    name: "Publicaciones",
-    label: "Publicaciones Procesales",
-    provides: ["estados"],
-    envBaseUrl: "PUBLICACIONES_BASE_URL",
-    envApiKey: ["PUBLICACIONES_X_API_KEY", "EXTERNAL_X_API_KEY"],
-    fetchFn: fetchPublicaciones,
-  },
-  {
-    name: "Tutelas",
-    label: "API de Tutelas",
-    provides: ["actuaciones", "estados", "metadata"],
-    envBaseUrl: "TUTELAS_BASE_URL",
-    envApiKey: ["TUTELAS_X_API_KEY", "EXTERNAL_X_API_KEY"],
-    fetchFn: fetchTutelas,
-  },
-  {
-    name: "SAMAI Estados",
-    label: "SAMAI Estados Electrónicos",
-    provides: ["estados"],
-    envBaseUrl: "SAMAI_ESTADOS_BASE_URL",
-    envApiKey: ["SAMAI_ESTADOS_API_KEY", "EXTERNAL_X_API_KEY"],
-    fetchFn: fetchSamaiEstados,
-  },
-];
-
-function resolveApiKey(envKeys: string[]): string | null {
-  for (const key of envKeys) {
-    const val = Deno.env.get(key);
-    if (val) return val;
-  }
-  return null;
+/** Map provider name → display label (includes dynamic providers) */
+function getProviderLabel(providerName: string): string {
+  const builtIn = DEMO_PROVIDERS.find(p => p.name === providerName);
+  return builtIn?.label || `${providerName} (Dynamic)`;
 }
 
 // ═══════════════════════════════════════════
@@ -902,9 +857,8 @@ Deno.serve(async (req: Request) => {
 
     // ═══ Provider retry helper (bounded: up to maxRetries with exp backoff + jitter) ═══
     async function fetchWithRetry(
-      config: ProviderConfig,
-      baseUrl: string | null,
-      apiKey: string | null,
+      providerName: string,
+      fetchFn: (rad: string, b: string, k: string) => Promise<ProviderResult>,
       maxRetries: number,
     ): Promise<ProviderResult> {
       let lastResult: ProviderResult | null = null;
@@ -913,10 +867,10 @@ Deno.serve(async (req: Request) => {
           // Exponential backoff: 400ms, 1200ms + jitter
           const delay = Math.min(400 * Math.pow(3, attempt - 1), 3000) + Math.random() * 200;
           await new Promise(r => setTimeout(r, delay));
-          console.log(`[demo] Retry ${attempt}/${maxRetries} for ${config.name}`);
+          console.log(`[demo] Retry ${attempt}/${maxRetries} for ${providerName}`);
         }
         try {
-          lastResult = await config.fetchFn(radicado, baseUrl || "", apiKey || "");
+          lastResult = await fetchFn(radicado, "", "");
           // Don't retry on success, no-data (explicit NOT_FOUND), or skipped
           if (lastResult.outcome === "success" || lastResult.outcome === "no-data" || lastResult.outcome === "skipped") {
             if (attempt > 0) lastResult = { ...lastResult, error: `OK after ${attempt} retries` };
@@ -925,7 +879,7 @@ Deno.serve(async (req: Request) => {
           // Retry on timeout or error
         } catch (err) {
           lastResult = {
-            provider: config.name,
+            provider: providerName,
             outcome: "error" as ProviderOutcome,
             found_status: "NOT_FOUND" as FoundStatus,
             latency_ms: 0,
@@ -958,8 +912,8 @@ Deno.serve(async (req: Request) => {
         .eq("enabled", true);
       
       if (overrides && overrides.length > 0) {
-        // Exclude built-in providers already in DEMO_PROVIDER_REGISTRY
-        const builtinKeys = new Set(DEMO_PROVIDER_REGISTRY.map(p => p.name.toUpperCase().replace(/\s+/g, "_")));
+        // Exclude built-in providers already in DEMO_PROVIDERS
+        const builtinKeys = new Set(DEMO_PROVIDERS.map(p => p.name.toUpperCase().replace(/\s+/g, "_")));
         const dynamicOverrides = overrides.filter(o => !builtinKeys.has(o.provider_key.toUpperCase()));
         
         if (dynamicOverrides.length > 0) {
@@ -1076,11 +1030,13 @@ Deno.serve(async (req: Request) => {
       console.warn("[demo] Dynamic provider discovery failed (non-blocking):", dynErr);
     }
 
-    const providerPromises = DEMO_PROVIDER_REGISTRY.map(async (config) => {
+    // Fan out to all 5 built-in providers via shared adapters
+    // Each thin wrapper handles its own config checking and returns gracefully on missing env vars
+    const providerPromises = DEMO_PROVIDERS.map(async (provider) => {
       // If retry_estados mode, only re-call estados-critical providers
-      if (isRetryEstados && !ESTADOS_CRITICAL_PROVIDERS.has(config.name)) {
+      if (isRetryEstados && !ESTADOS_CRITICAL_PROVIDERS.has(provider.name)) {
         return {
-          provider: config.name,
+          provider: provider.name,
           outcome: "skipped" as ProviderOutcome,
           found_status: "NOT_FOUND" as FoundStatus,
           latency_ms: 0,
@@ -1092,28 +1048,10 @@ Deno.serve(async (req: Request) => {
         } as ProviderResult;
       }
 
-      const baseUrl = config.envBaseUrl ? Deno.env.get(config.envBaseUrl) : null;
-      const apiKey = resolveApiKey(config.envApiKey);
-
-      if (config.name !== "CPNU" && (!baseUrl || !apiKey)) {
-        console.log(`[demo] ${config.name} skipped: missing config (BASE_URL=${!!baseUrl}, API_KEY=${!!apiKey})`);
-        return {
-          provider: config.name,
-          outcome: "skipped" as ProviderOutcome,
-          found_status: "NOT_FOUND" as FoundStatus,
-          latency_ms: 0,
-          actuaciones: [],
-          estados: [],
-          metadata: null,
-          parties: null,
-          error: "Not configured",
-        } as ProviderResult;
-      }
-
       // Critical estados providers get up to 2 retries on cold cache only.
       // When cache exists, skip retries to avoid 23s worst-case latency.
-      const maxRetries = (!hasCache && ESTADOS_CRITICAL_PROVIDERS.has(config.name)) ? 2 : 0;
-      return fetchWithRetry(config, baseUrl, apiKey, maxRetries);
+      const maxRetries = (!hasCache && ESTADOS_CRITICAL_PROVIDERS.has(provider.name)) ? 2 : 0;
+      return fetchWithRetry(provider.name, provider.fetchFn, maxRetries);
     });
 
     const builtinResults = await Promise.all(providerPromises);
@@ -1289,7 +1227,7 @@ Deno.serve(async (req: Request) => {
     // 8. Build provider outcomes for response
     const providerOutcomes = results.map(r => ({
       name: r.provider,
-      label: DEMO_PROVIDER_REGISTRY.find(p => p.name === r.provider)?.label || `${r.provider} (Dynamic)`,
+      label: getProviderLabel(r.provider),
       outcome: r.outcome,
       found_status: r.found_status,
       latency_ms: r.latency_ms,
