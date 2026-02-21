@@ -905,7 +905,27 @@ export default function WorkItemDocumentWizard() {
         }
 
         setGeneratingNotifs(false);
-        toast.success(`${generatedDocs.length} notificación(es) generada(s) exitosamente`);
+
+        // Deliver via email to the lawyer
+        if (generatedDocs.length > 0) {
+          try {
+            const { data: deliveryResult, error: deliveryErr } = await supabase.functions.invoke("deliver-notification-email", {
+              body: { document_ids: generatedDocs },
+            });
+            if (deliveryErr) {
+              console.error("Delivery email error:", deliveryErr);
+              toast.success(`${generatedDocs.length} notificación(es) generada(s). Error al enviar por correo — puede reenviar desde el detalle del documento.`);
+            } else {
+              toast.success(`${generatedDocs.length} notificación(es) generada(s) y enviada(s) a ${deliveryResult?.recipient || "su correo"}`);
+            }
+          } catch (emailErr) {
+            console.error("Delivery invocation error:", emailErr);
+            toast.success(`${generatedDocs.length} notificación(es) generada(s). Puede enviar a su correo desde el detalle del documento.`);
+          }
+        } else {
+          toast.error("No se generaron notificaciones");
+        }
+
         navigate(`/app/work-items/${workItem.id}`);
         return;
       }

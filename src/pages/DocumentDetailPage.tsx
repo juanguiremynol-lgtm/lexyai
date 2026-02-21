@@ -380,9 +380,8 @@ export default function DocumentDetailPage() {
       <div className="flex flex-wrap gap-2">
         {isNotification ? (
           <>
-            {/* Notification-specific actions: simpler — download PDF, no signing flow */}
+            {/* Notification-specific actions: download + resend to lawyer email */}
             <Button variant="outline" onClick={() => {
-              // Create downloadable blob from HTML
               const blob = new Blob([doc.content_html], { type: "text/html" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
@@ -392,6 +391,28 @@ export default function DocumentDetailPage() {
               URL.revokeObjectURL(url);
             }}>
               <Download className="h-4 w-4 mr-2" /> Descargar
+            </Button>
+            <Button
+              variant="outline"
+              disabled={sendingEmail}
+              onClick={async () => {
+                setSendingEmail(true);
+                try {
+                  const { data, error } = await supabase.functions.invoke("deliver-notification-email", {
+                    body: { document_ids: [doc.id] },
+                  });
+                  if (error) throw error;
+                  toast.success(`Enviado a ${data?.recipient || "su correo"}`);
+                  queryClient.invalidateQueries({ queryKey: ["document-detail", docId] });
+                } catch (err: any) {
+                  toast.error(err?.message || "Error al enviar");
+                } finally {
+                  setSendingEmail(false);
+                }
+              }}
+            >
+              {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+              {doc.status === "delivered_to_lawyer" ? "Reenviar a mi correo" : "Enviar a mi correo"}
             </Button>
           </>
         ) : (
