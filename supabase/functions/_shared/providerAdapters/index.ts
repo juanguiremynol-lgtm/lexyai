@@ -25,3 +25,6 @@ export type {
   ProviderAdapterResult,
   FanoutResult,
 } from './types.ts';
+
+// Re-export CPNU adapter
+export { fetchFromCpnu, normalizeCpnuActuaciones, extractCpnuParties, computeCpnuFingerprint } from './cpnuAdapter.ts';
