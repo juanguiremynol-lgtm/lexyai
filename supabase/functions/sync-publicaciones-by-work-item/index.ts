@@ -858,22 +858,13 @@ Deno.serve(async (req) => {
         pub.titulo || 'untitled'
       );
 
-      // Check for existing record using fingerprint
-      const { data: existing } = await supabase
-        .from('work_item_publicaciones')
-        .select('id')
-        .eq('work_item_id', work_item_id)
-        .eq('hash_fingerprint', fingerprint)
-        .maybeSingle();
-
-      if (existing) {
-        console.log(`[sync-pub] Skipping duplicate: ${pub.titulo}`);
-        result.skipped_count++;
-        continue;
-      }
+      // NOTE: Inline dedup removed — the RPC handles dedup internally via
+      // (work_item_id, hash_fingerprint) lookup. The previous inline check caused
+      // phantom skips when the table was empty but the else-branch fallthrough
+      // incorrectly incremented skipped_count.
 
       // LOG: What we're about to insert
-      console.log('[sync-pub] Inserting record:', {
+      console.log('[sync-pub] Upserting record:', {
         title: pub.titulo?.slice(0, 50),
         asset_id: pub.asset_id,
         fecha_publicacion: fechaPublicacion,
@@ -908,13 +899,19 @@ Deno.serve(async (req) => {
         }]),
       });
 
-      const insertedPub = rpcResult?.inserted_count > 0 ? { id: null } : null;
-
       if (insertError) {
-        console.error(`[sync-pub] RPC upsert error: ${JSON.stringify(insertError)}`);
+        console.error(`[sync-pub] RPC client error: ${JSON.stringify(insertError)}`);
         result.errors.push(`Upsert failed for ${pub.titulo}: ${insertError.message}`);
       } else {
-        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number };
+        const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors?: string[] };
+        
+        // ── Check for RPC-internal errors (caught by EXCEPTION handler inside RPC) ──
+        if (counts.errors && counts.errors.length > 0 && counts.errors.some((e: string) => e.length > 0)) {
+          const rpcErrors = counts.errors.filter((e: string) => e.length > 0);
+          console.error(`[sync-pub] RPC internal errors for ${pub.titulo}:`, rpcErrors);
+          result.errors.push(`RPC error for ${pub.titulo}: ${rpcErrors.join('; ')}`);
+        }
+        
         if (counts.inserted_count > 0) {
           console.log(`[sync-pub] ✅ Inserted: ${pub.titulo} (fecha: ${fechaPublicacion})`);
           result.inserted_count++;
@@ -961,8 +958,13 @@ Deno.serve(async (req) => {
         } else if (counts.updated_count > 0) {
           console.log(`[sync-pub] ♻️ Provenance merged for: ${pub.titulo}`);
           result.skipped_count++;
-        } else {
+        } else if (counts.skipped_count > 0) {
+          console.log(`[sync-pub] ⏭️ Dedup skipped: ${pub.titulo}`);
           result.skipped_count++;
+        } else {
+          // Neither inserted, updated, nor skipped — this is an anomaly
+          console.warn(`[sync-pub] ⚠️ RPC returned zero counts for ${pub.titulo}: ${JSON.stringify(counts)}`);
+          result.errors.push(`Anomaly: zero counts for ${pub.titulo}`);
         }
       }
     }
