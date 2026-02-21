@@ -35,9 +35,7 @@ interface DocumentTemplateEditorProps {
 const VARIABLE_INFO: Record<string, { label: string; example: string }> = {
   client_full_name: { label: "Nombre del poderdante", example: "Juan Carlos Pérez" },
   client_cedula: { label: "Cédula del poderdante", example: "1.234.567.890" },
-  client_cedula_city: { label: "Ciudad de expedición", example: "Medellín" },
   client_email: { label: "Correo del cliente", example: "juan@email.com" },
-  client_phone: { label: "Teléfono del cliente", example: "300 123 4567" },
   client_address: { label: "Dirección del cliente", example: "Cra 43A #1-50" },
   lawyer_full_name: { label: "Nombre del apoderado", example: "Dra. María López" },
   lawyer_cedula: { label: "Cédula del apoderado", example: "9.876.543.210" },
