@@ -158,12 +158,17 @@ function buildSignerEvidenceSection(
   const sectionTitle = totalSigners > 1 ? `FIRMA ${signerIndex} DE ${totalSigners}: ${roleLabel}` : "FIRMANTE";
   const deviceFP = signerData.device_fingerprint_hash || "N/A";
 
-  // Identity verification method section
+  // Canonical identity verification method statement (locked text — do not paraphrase)
   const identityData = signerData.identity_confirmation_data;
   const maskedEmail = signerData.signer_email.replace(/^(.{1,2})(.*)(@.*)$/, (_: string, s: string, m: string, e: string) => s + "***" + e);
+  const maskedPhone = signerData.signer_phone
+    ? signerData.signer_phone.replace(/^(.{4})(.*)(.{4})$/, (_: string, s: string, m: string, e: string) => s + " *** *** " + e)
+    : null;
+  const otpTarget = maskedPhone ? maskedPhone : maskedEmail;
+  // CANONICAL TEXT — DO NOT MODIFY without updating acceptance criteria
   const identityMethodText = identityData
-    ? `OTP a ${maskedEmail} + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente.`
-    : `OTP a ${maskedEmail} + verificación de identidad vía enlace seguro.`;
+    ? `Método de verificación de identidad: OTP a ${otpTarget} + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente.`
+    : `Método de verificación de identidad: OTP a ${otpTarget} + verificación de identidad vía enlace seguro.`;
 
   const auditRows = signerEvents.map((ev, i) => {
     const label = EVENT_LABELS[ev.event_type] || ev.event_type;
@@ -210,7 +215,8 @@ function buildSignerEvidenceSection(
 
   <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">MÉTODO DE VERIFICACIÓN DE IDENTIDAD</h4>
   <div style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:12px;margin:8px 0;font-size:12px;">
-    <p style="margin:0;"><strong>Método de verificación de identidad:</strong> ${identityMethodText}</p>
+    <p style="margin:0;"><strong>${identityMethodText}</strong></p>
+    <p style="margin:4px 0 0;color:#888;font-size:10px;">Nota: "Indicador de sesión/dispositivo (hash)" es un hash derivado de IP y User-Agent. No identifica unívocamente al dispositivo.</p>
     ${identityData?.confirmed_at ? `<p style="margin:4px 0 0;color:#666;">Identidad confirmada: ${formatCOT(identityData.confirmed_at)}</p>` : ""}
   </div>
   <table style="width:100%;border-collapse:collapse;">
@@ -225,9 +231,9 @@ function buildSignerEvidenceSection(
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dirección IP:</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${signerData.signer_ip || "N/A"}</td></tr>
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Navegador:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.browser}</td></tr>
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Sistema operativo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.os}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dispositivo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.device}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Huella de dispositivo:</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${deviceFP}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Firma manuscrita digital:</td><td style="padding:4px 0;font-size:12px;">${strokeCount} trazos, ${totalPoints} puntos</td></tr>
+     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dispositivo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.device}</td></tr>
+     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Indicador de sesión/dispositivo (hash):</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${deviceFP}</td></tr>
+     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Firma manuscrita digital:</td><td style="padding:4px 0;font-size:12px;">${strokeCount} trazos, ${totalPoints} puntos</td></tr>
   </table>
 
   <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">REGISTRO DE AUDITORÍA — Firmante ${signerIndex}</h4>
@@ -590,9 +596,10 @@ Deno.serve(async (req) => {
 
   <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:32px;">INTEGRIDAD DEL DOCUMENTO</h3>
   <table style="width:100%;border-collapse:collapse;">
-    <tr><td style="padding:6px 0;color:#666;width:40%;">Algoritmo:</td><td style="padding:6px 0;">SHA-256</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Hash del documento firmado:</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Cadena de hash de eventos:</td><td style="padding:6px 0;font-size:11px;">Habilitada (SHA-256 encadenado)</td></tr>
+     <tr><td style="padding:6px 0;color:#666;width:40%;">Algoritmo:</td><td style="padding:6px 0;">SHA-256</td></tr>
+     <tr><td style="padding:6px 0;color:#666;">Hash del documento firmado (final_pdf_sha256):</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
+     <tr><td style="padding:6px 0;color:#666;">Nota:</td><td style="padding:6px 0;font-size:11px;">Este hash corresponde al artefacto PDF firmado adjunto a este certificado.</td></tr>
+     <tr><td style="padding:6px 0;color:#666;">Cadena de hash de eventos:</td><td style="padding:6px 0;font-size:11px;">Habilitada (SHA-256 encadenado)</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Verificar en:</td><td style="padding:6px 0;"><a href="${verifyUrl}" style="color:#1a1a2e;">${verifyUrl}</a></td></tr>
   </table>
 
@@ -644,7 +651,7 @@ ${evidenceAppendix}
       }).eq("id", s.id);
     }
 
-    await adminClient.from("generated_documents").update({ status: "signed" }).eq("id", sig.document_id);
+    await adminClient.from("generated_documents").update({ status: "signed", final_pdf_sha256: documentHash }).eq("id", sig.document_id);
 
     await insertChainedEvent(adminClient, {
       organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,

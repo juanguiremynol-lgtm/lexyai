@@ -206,6 +206,11 @@ Deno.serve(async (req) => {
       return json({ error: "consumed", message: "Este enlace ya fue utilizado. El documento ya fue firmado." }, 409);
     }
 
+    // DB-level TTL check (defense in depth — also checked via HMAC expiry above)
+    if (sig.expires_at && new Date(sig.expires_at) < new Date()) {
+      return json({ error: "expired", message: "Este enlace ha vencido. Solicite a su abogado un nuevo enlace de firma." }, 410);
+    }
+
     if (sig.status === "signed") {
       const { data: fullSig } = await adminClient
         .from("document_signatures")
@@ -264,6 +269,7 @@ Deno.serve(async (req) => {
 
     // Device fingerprint
     const deviceFingerprintHash = computeDeviceFingerprint(clientIp, clientUA);
+    const serverSessionId = crypto.randomUUID().substring(0, 8);
 
     // Log link opened event with hash chaining
     await insertChainedEvent(adminClient, {
@@ -271,7 +277,7 @@ Deno.serve(async (req) => {
       document_id: sig.document_id,
       signature_id: sig.id,
       event_type: "signature.link_opened",
-      event_data: { timestamp: new Date().toISOString(), device_fingerprint_hash: deviceFingerprintHash },
+      event_data: { timestamp: new Date().toISOString(), device_session_indicator_hash: deviceFingerprintHash, server_session_id: serverSessionId },
       actor_type: "signer",
       actor_id: sig.signer_email,
       actor_ip: clientIp,
