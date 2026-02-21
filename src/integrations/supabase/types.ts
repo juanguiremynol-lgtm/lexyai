@@ -4510,6 +4510,41 @@ export type Database = {
           },
         ]
       }
+      document_retention_policies: {
+        Row: {
+          created_at: string
+          document_type: string
+          id: string
+          organization_id: string
+          retention_years: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document_type: string
+          id?: string
+          organization_id: string
+          retention_years?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document_type?: string
+          id?: string
+          organization_id?: string
+          retention_years?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_retention_policies_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_signature_events: {
         Row: {
           actor_id: string | null
@@ -5644,6 +5679,9 @@ export type Database = {
           content_json: Json
           created_at: string | null
           created_by: string
+          delete_blocked_reason: string | null
+          deleted_at: string | null
+          deleted_by: string | null
           document_hash_presign: string | null
           document_type: string
           entity_data: Json | null
@@ -5653,6 +5691,8 @@ export type Database = {
           id: string
           organization_id: string
           poderdante_type: string | null
+          retention_expires_at: string | null
+          retention_years: number | null
           status: string
           template_id: string | null
           title: string
@@ -5665,6 +5705,9 @@ export type Database = {
           content_json: Json
           created_at?: string | null
           created_by: string
+          delete_blocked_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           document_hash_presign?: string | null
           document_type: string
           entity_data?: Json | null
@@ -5674,6 +5717,8 @@ export type Database = {
           id?: string
           organization_id: string
           poderdante_type?: string | null
+          retention_expires_at?: string | null
+          retention_years?: number | null
           status?: string
           template_id?: string | null
           title: string
@@ -5686,6 +5731,9 @@ export type Database = {
           content_json?: Json
           created_at?: string | null
           created_by?: string
+          delete_blocked_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           document_hash_presign?: string | null
           document_type?: string
           entity_data?: Json | null
@@ -5695,6 +5743,8 @@ export type Database = {
           id?: string
           organization_id?: string
           poderdante_type?: string | null
+          retention_expires_at?: string | null
+          retention_years?: number | null
           status?: string
           template_id?: string | null
           title?: string

@@ -751,8 +751,14 @@ export default function WorkItemDocumentWizard() {
         role: "lawyer",
       }];
     }
-    // Contrato: client + lawyer
+    // Contrato: lawyer signs FIRST (sequential bilateral per document policy), then client
     return [
+      {
+        name: variables.lawyer_full_name || "",
+        email: variables.lawyer_email || (profile as any)?.litigation_email || profile?.firma_abogado_correo || "",
+        cedula: variables.lawyer_cedula || "",
+        role: "lawyer",
+      },
       { name: variables.client_full_name || "", email: variables.client_email || "", cedula: variables.client_cedula || "", role: "client" },
     ];
   }, [docType, poderdanteType, poderdantes, entityData, variables, profile]);
@@ -980,11 +986,15 @@ export default function WorkItemDocumentWizard() {
       if (docErr) throw docErr;
       setSavedDocId(doc.id);
 
-      // Generate signing links for ALL signers (parallel for multi-poderdante)
+      // Generate signing links for ALL signers
+      // For bilateral (contrato), signers are ordered: [lawyer, client].
+      // The second signer depends on the first (sequential signing).
       const entries: typeof signerEntries = [];
 
       for (let i = 0; i < signers.length; i++) {
         const s = signers[i];
+        const isSequentialFollower = isMultiSigner && i > 0 && entries.length > 0;
+
         const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
           body: {
             document_id: doc.id,
@@ -994,6 +1004,11 @@ export default function WorkItemDocumentWizard() {
             signer_role: s.role,
             signing_order: i + 1,
             send_email: false,
+            // Sequential bilateral: subsequent signers wait for the previous one
+            ...(isSequentialFollower ? {
+              depends_on: entries[i - 1].signatureId,
+              create_as_waiting: true,
+            } : {}),
           },
         });
 
@@ -1008,26 +1023,6 @@ export default function WorkItemDocumentWizard() {
           signatureId: sigResult.signature_id,
           emailSent: false,
         });
-      }
-
-      // For Contrato de Servicios, also create the LAWYER signature in 'waiting' status
-      if (isMultiSigner && profile && entries.length > 0) {
-        const { data: lawyerSigResult } = await supabase.functions.invoke("generate-signing-link", {
-          body: {
-            document_id: doc.id,
-            signer_name: variables.lawyer_full_name || "Abogado",
-            signer_email: profile.firma_abogado_correo || "",
-            signer_cedula: variables.lawyer_cedula || null,
-            signer_role: "lawyer",
-            signing_order: entries.length + 1,
-            depends_on: entries[0].signatureId,
-            create_as_waiting: true,
-            send_email: false,
-          },
-        });
-        if (!lawyerSigResult?.ok) {
-          console.warn("Could not create lawyer signature:", lawyerSigResult?.error);
-        }
       }
 
       setSignerEntries(entries);

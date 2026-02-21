@@ -12,6 +12,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { checkWorkItemRetention } from "./document-retention-service";
 
 export interface SoftDeleteResult {
   success: boolean;
@@ -56,7 +57,8 @@ export async function softDeleteWorkItem(
   supabase: SupabaseClient,
   workItemId: string,
   userId: string,
-  reason?: string
+  reason?: string,
+  forceOverrideRetention?: boolean
 ): Promise<SoftDeleteResult> {
   // 1. Load work item (verify it exists and isn't already deleted)
   const { data: item, error: loadError } = await supabase
@@ -72,6 +74,17 @@ export async function softDeleteWorkItem(
   const authorized = await canActOnWorkItem(supabase, userId, item);
   if (!authorized) {
     return { success: false, error: "No tienes permiso para eliminar este asunto" };
+  }
+
+  // 2b. RETENTION CHECK — block deletion if finalized docs are within retention
+  if (!forceOverrideRetention) {
+    const retentionCheck = await checkWorkItemRetention(supabase, workItemId);
+    if (!retentionCheck.canDelete) {
+      return {
+        success: false,
+        error: retentionCheck.reason || "Documentos dentro del periodo de retención legal impiden la eliminación.",
+      };
+    }
   }
 
   const now = new Date();

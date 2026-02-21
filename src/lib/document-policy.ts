@@ -363,3 +363,19 @@ export function getRequiredSigners(
     return s.defaultEnabled ?? false;
   });
 }
+
+/**
+ * Returns the default retention years for a document type.
+ */
+export function getDefaultRetentionYears(docType: DocumentPolicyType): number {
+  return POLICIES[docType]?.retention.defaultYears ?? 10;
+}
+
+/**
+ * Whether a document is within its retention period.
+ * Returns true if the document cannot be deleted yet.
+ */
+export function isWithinRetention(retentionExpiresAt: string | null): boolean {
+  if (!retentionExpiresAt) return false;
+  return new Date(retentionExpiresAt) > new Date();
+}
