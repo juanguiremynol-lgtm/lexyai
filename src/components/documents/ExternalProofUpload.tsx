@@ -93,8 +93,8 @@ export function ExternalProofUpload({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // 4. Insert proof record with hash
-      const { error: insertErr } = await supabase
+      // 4. Insert proof record with client hash
+      const { data: proofRecord, error: insertErr } = await supabase
         .from("document_evidence_proofs")
         .insert({
           organization_id: organizationId,
@@ -111,11 +111,31 @@ export function ExternalProofUpload({
             uploaded_at: new Date().toISOString(),
             original_name: selectedFile.name,
           },
-        });
+        })
+        .select("id")
+        .single();
 
       if (insertErr) throw insertErr;
 
-      toast.success("Prueba de entrega subida y registrada con hash SHA-256.");
+      // 5. Server-side hash verification (dual-hash trust boundary)
+      const { data: verifyResult, error: verifyErr } = await supabase.functions.invoke(
+        "verify-proof-hash",
+        {
+          body: {
+            proof_id: proofRecord.id,
+            client_sha256: fileSha256,
+          },
+        }
+      );
+
+      if (verifyErr || !verifyResult?.ok) {
+        const errorMsg = verifyResult?.error || verifyErr?.message || "Hash verification failed";
+        toast.error(`Verificación de integridad fallida: ${errorMsg}`);
+        // File was already rejected server-side
+        return;
+      }
+
+      toast.success("Prueba subida y verificada (SHA-256 cliente + servidor coinciden).");
       setSelectedFile(null);
       setLabel("");
       onProofUploaded?.();

@@ -344,3 +344,6 @@ verify_jwt = false
 
 [functions.bulk-export-documents]
 verify_jwt = false
+
+[functions.verify-proof-hash]
+verify_jwt = false
