@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -402,6 +403,12 @@ export default function WorkItemDocumentWizard() {
   // Facultades AI assistant
   const [facultadesAIOpen, setFacultadesAIOpen] = useState(false);
 
+  // Attorney acceptance signature toggle (default OFF — POA is unilateral)
+  const [includeAttorneyAcceptance, setIncludeAttorneyAcceptance] = useState(false);
+
+  // Preview theme toggle
+  const [previewDarkMode, setPreviewDarkMode] = useState(false);
+
   // Super Admin profile gate
   const { isPlatformAdmin } = usePlatformAdmin();
   const [showAdminProfileGate, setShowAdminProfileGate] = useState(false);
@@ -669,10 +676,10 @@ export default function WorkItemDocumentWizard() {
     if (docType === "poder_especial") {
       const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : undefined;
       const courtHtml = courtHeader ? buildCourtHeaderHtml(courtHeader) : undefined;
-      return generatePoderEspecialHtml(poderdanteType, variables, ed || null, courtHtml);
+      return generatePoderEspecialHtml(poderdanteType, variables, ed || null, courtHtml, { includeAttorneyAcceptance });
     }
     return renderLegalTemplate(template.html, variables);
-  }, [template.html, variables, docType, poderdanteType, poderdantes, entityData, courtHeader]);
+  }, [template.html, variables, docType, poderdanteType, poderdantes, entityData, courtHeader, includeAttorneyAcceptance]);
 
   // Determine which variable fields to show based on poderdante type
   const editableVars = useMemo(() => {
@@ -762,7 +769,7 @@ export default function WorkItemDocumentWizard() {
         work_item_id: workItem.id,
         document_type: docType,
         title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
-        content_json: { variables, template_type: docType, poderdante_type: poderdanteType },
+        content_json: { variables, template_type: docType, poderdante_type: poderdanteType, includeAttorneyAcceptance },
         content_html: renderedHtml,
         variables,
         status: "draft",
@@ -955,7 +962,7 @@ export default function WorkItemDocumentWizard() {
           work_item_id: workItem.id,
           document_type: docType,
           title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
-          content_json: { variables, template_type: docType, poderdante_type: poderdanteType },
+          content_json: { variables, template_type: docType, poderdante_type: poderdanteType, includeAttorneyAcceptance },
           content_html: renderedHtml,
           variables,
           status: "finalized",
@@ -1290,7 +1297,22 @@ export default function WorkItemDocumentWizard() {
                     </div>
                   )}
 
-                  {/* Paz y Salvo: Contract data info */}
+                  {/* Attorney acceptance toggle (POA only) */}
+                  {docType === "poder_especial" && (
+                    <>
+                      <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm font-medium">Incluir firma de aceptación del apoderado</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Agrega el bloque "ACEPTO" del abogado. Desactivado por defecto (poder unilateral).
+                          </p>
+                        </div>
+                        <Switch checked={includeAttorneyAcceptance} onCheckedChange={setIncludeAttorneyAcceptance} />
+                      </div>
+                      <Separator />
+                    </>
+                  )}
+
                   {docType === "paz_y_salvo" && (
                     <>
                       {existingContract ? (
@@ -1395,15 +1417,24 @@ export default function WorkItemDocumentWizard() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                Vista Previa
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="h-4 w-4" />
+                  Vista Previa
+                </CardTitle>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>☀️</span>
+                  <Switch checked={previewDarkMode} onCheckedChange={setPreviewDarkMode} />
+                  <span>🌙</span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[600px] border rounded-lg p-4 bg-white">
-                <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-              </ScrollArea>
+              <div className={`border rounded-lg p-4 ${previewDarkMode ? "bg-[#1a1a2e]" : "bg-white"}`}>
+                <ScrollArea className="h-[600px]">
+                  <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+                </ScrollArea>
+              </div>
             </CardContent>
           </Card>
 
@@ -1431,20 +1462,31 @@ export default function WorkItemDocumentWizard() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Eye className="h-5 w-5" />
-                Vista Previa Final — {LEGAL_DOCUMENT_TYPE_LABELS[docType]}
-                {docType === "poder_especial" && poderdanteType !== "natural" && (
-                  <Badge variant="outline" className="ml-2 text-xs">
-                    {poderdanteType === "multiple" ? `${poderdantes.length} poderdantes` : "Persona jurídica"}
-                  </Badge>
-                )}
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <Eye className="h-5 w-5" />
+                    Vista Previa Final — {LEGAL_DOCUMENT_TYPE_LABELS[docType]}
+                    {docType === "poder_especial" && poderdanteType !== "natural" && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        {poderdanteType === "multiple" ? `${poderdantes.length} poderdantes` : "Persona jurídica"}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>☀️</span>
+                  <Switch checked={previewDarkMode} onCheckedChange={setPreviewDarkMode} />
+                  <span>🌙</span>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[600px] border rounded-lg p-8 bg-white">
-                <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-              </ScrollArea>
+              <div className={`border rounded-lg p-8 ${previewDarkMode ? "bg-[#1a1a2e]" : "bg-white"}`}>
+                <ScrollArea className="h-[600px]">
+                  <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+                </ScrollArea>
+              </div>
             </CardContent>
           </Card>
 

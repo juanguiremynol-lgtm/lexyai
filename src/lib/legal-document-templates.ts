@@ -100,6 +100,7 @@ export function generatePoderEspecialHtml(
   variables: Record<string, string>,
   entityData?: EntityData | null,
   courtHeaderHtml?: string,
+  options?: { includeAttorneyAcceptance?: boolean },
 ): string {
   let introText = '';
   let signatureBlock = '';
@@ -207,14 +208,14 @@ export function generatePoderEspecialHtml(
   
   ${signatureBlock}
   
-  <div style="margin-top:32px;">
+  ${options?.includeAttorneyAcceptance ? `<div style="margin-top:32px;">
     <p><strong>ACEPTO:</strong></p>
     <br/><br/>
     <p>___________________________________</p>
     <p><strong>${(variables.lawyer_full_name || "—").toUpperCase()}</strong></p>
     <p>C.C. ${variables.lawyer_cedula || "—"}</p>
     <p>T.P. ${variables.lawyer_tarjeta_profesional || "—"}</p>
-  </div>
+  </div>` : ''}
 </div>`;
 }
 
@@ -275,6 +276,7 @@ export const PODER_ESPECIAL_HTML = `
     <p>C.C. {{client_cedula}}</p>
   </div>
   
+  {{#if include_attorney_acceptance}}
   <div style="margin-top:32px;">
     <p><strong>ACEPTO:</strong></p>
     <br/><br/>
@@ -283,6 +285,7 @@ export const PODER_ESPECIAL_HTML = `
     <p>C.C. {{lawyer_cedula}}</p>
     <p>T.P. {{lawyer_tarjeta_profesional}}</p>
   </div>
+  {{/if}}
 </div>`;
 
 export const PODER_ESPECIAL_VARIABLES: LegalTemplateVariable[] = [
