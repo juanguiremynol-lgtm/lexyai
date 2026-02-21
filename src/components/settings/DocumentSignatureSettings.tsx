@@ -4,7 +4,7 @@
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, FileText, Mail } from "lucide-react";
+import { Image as ImageIcon, FileText, Mail, Ban } from "lucide-react";
 import { DocumentBrandingSettings } from "./DocumentBrandingSettings";
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor";
 import { LitigationEmailSettings } from "./LitigationEmailSettings";
@@ -57,11 +57,41 @@ export function DocumentSignatureSettings() {
         </TabsContent>
 
         <TabsContent value="notificacion-personal">
-          <DocumentTemplateEditor templateType="notificacion_personal" />
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+              <Ban className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  Herramienta de redacción únicamente
+                </p>
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Esta plataforma NO entrega notificaciones judiciales a partes contrarias ni terceros.
+                  El documento finalizado se envía únicamente al correo de litigio del abogado emisor.
+                  La entrega debe realizarse mediante un servicio certificado (ej. Servientrega Digital).
+                </p>
+              </div>
+            </div>
+            <DocumentTemplateEditor templateType="notificacion_personal" />
+          </div>
         </TabsContent>
 
         <TabsContent value="notificacion-aviso">
-          <DocumentTemplateEditor templateType="notificacion_por_aviso" />
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+              <Ban className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  Herramienta de redacción únicamente
+                </p>
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Esta plataforma NO publica ni entrega avisos judiciales a terceros.
+                  El documento finalizado se envía únicamente al correo de litigio del abogado emisor.
+                  La publicación debe realizarse mediante medios certificados.
+                </p>
+              </div>
+            </div>
+            <DocumentTemplateEditor templateType="notificacion_por_aviso" />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

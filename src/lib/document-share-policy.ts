@@ -1,7 +1,14 @@
 /**
- * Document Share Policy — Defines allowed sharing channels per document type.
- * POA supports both EMAIL and LINK (signing link for WhatsApp/messenger sharing).
+ * Document Share Policy — Thin adapter over the central document-policy layer.
+ * Kept for backward-compatibility with existing imports.
+ * New code should import from `@/lib/document-policy` directly.
  */
+
+import {
+  type DocumentPolicyType,
+  getDocumentPolicy,
+  isLinkChannelAllowed,
+} from "@/lib/document-policy";
 
 export type ShareChannel = "email" | "link";
 export type ShareMode = "EMAIL_ONLY" | "EMAIL_AND_LINK";
@@ -13,30 +20,35 @@ export interface DocumentSharePolicy {
   reason?: string;
 }
 
-const POLICY_MAP: Record<string, DocumentSharePolicy> = {
-  // POA supports both email and link initiation
-  poder_especial: {
-    mode: "EMAIL_AND_LINK",
-    allowedChannels: ["email", "link"],
-    reason: "Los poderes especiales pueden compartirse por correo o enlace de firma. La trazabilidad se garantiza en ambos canales.",
-  },
-};
-
-const DEFAULT_POLICY: DocumentSharePolicy = {
-  mode: "EMAIL_AND_LINK",
-  allowedChannels: ["email", "link"],
-};
-
 /**
- * Returns the share policy for a given document type.
+ * Returns the share policy for a given document type,
+ * derived from the central document-policy layer.
  */
 export function getDocumentSharePolicy(docType: string): DocumentSharePolicy {
-  return POLICY_MAP[docType] || DEFAULT_POLICY;
+  try {
+    const policy = getDocumentPolicy(docType as DocumentPolicyType);
+    const linkAllowed = policy.initiationChannels.includes("SIGNING_LINK");
+    return {
+      mode: linkAllowed ? "EMAIL_AND_LINK" : "EMAIL_ONLY",
+      allowedChannels: linkAllowed ? ["email", "link"] : ["email"],
+      reason: policy.distribution.description_es,
+    };
+  } catch {
+    // Unknown doc type — default to email only for safety
+    return {
+      mode: "EMAIL_ONLY",
+      allowedChannels: ["email"],
+    };
+  }
 }
 
 /**
  * Whether link copying/sharing is allowed for the given doc type.
  */
 export function isLinkSharingAllowed(docType: string): boolean {
-  return getDocumentSharePolicy(docType).allowedChannels.includes("link");
+  try {
+    return isLinkChannelAllowed(docType as DocumentPolicyType);
+  } catch {
+    return false;
+  }
 }
