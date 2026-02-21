@@ -81,7 +81,23 @@ export function LawyerSigningFlow({
           confirmed_cedula: confirmedCedula.trim(),
         },
       });
-      if (error) throw error;
+      if (error) {
+        // Extract the actual response body from FunctionsHttpError
+        let errorMessage = "Intente nuevamente.";
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            errorMessage = body?.error || body?.message || errorMessage;
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+        } catch (_) {
+          errorMessage = error.message || errorMessage;
+        }
+        setIdentityError(errorMessage);
+        return;
+      }
       if (data?.ok || data?.verified || data?.already_confirmed) {
         toast.success("Identidad verificada");
         handleSendOtp();
@@ -89,7 +105,8 @@ export function LawyerSigningFlow({
         setIdentityError(data?.message || "Los datos no coinciden con el registro.");
       }
     } catch (err: any) {
-      setIdentityError("Error de verificación: " + (err?.message || "Intente nuevamente."));
+      console.error("[LawyerSigningFlow] Identity verification error:", err);
+      setIdentityError("Error de conexión. Intente nuevamente.");
     } finally {
       setIdentityVerifying(false);
     }
@@ -102,7 +119,18 @@ export function LawyerSigningFlow({
       const { data, error } = await supabase.functions.invoke("send-signing-otp", {
         body: { signing_token: signingToken },
       });
-      if (error) throw error;
+      if (error) {
+        let msg = "Error al enviar código";
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            msg = body?.error || body?.message || msg;
+          }
+        } catch (_) {}
+        toast.error(msg);
+        return;
+      }
       if (data?.ok) {
         setStep("otp");
         toast.success(`Código enviado a ${data.email_masked || lawyerEmail}`);
