@@ -5584,6 +5584,7 @@ export type Database = {
           document_hash_presign: string | null
           document_type: string
           entity_data: Json | null
+          final_pdf_sha256: string | null
           finalized_at: string | null
           finalized_by: string | null
           id: string
@@ -5604,6 +5605,7 @@ export type Database = {
           document_hash_presign?: string | null
           document_type: string
           entity_data?: Json | null
+          final_pdf_sha256?: string | null
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
@@ -5624,6 +5626,7 @@ export type Database = {
           document_hash_presign?: string | null
           document_type?: string
           entity_data?: Json | null
+          final_pdf_sha256?: string | null
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
