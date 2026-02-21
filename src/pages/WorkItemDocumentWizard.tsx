@@ -60,6 +60,7 @@ import type { HonorariosData } from "@/lib/honorarios-utils";
 import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
 import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
 import { isLinkSharingAllowed } from "@/lib/document-share-policy";
+import { getDisclaimers, isIssuerOnly, getDocumentPolicy, type DocumentPolicyType } from "@/lib/document-policy";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -1188,6 +1189,28 @@ export default function WorkItemDocumentWizard() {
             })}
           </div>
 
+          {/* Policy disclaimers for selected doc type */}
+          {getDisclaimers(docType as DocumentPolicyType).length > 0 && (
+            <div className="space-y-2">
+              {getDisclaimers(docType as DocumentPolicyType).map((d, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20">
+                  <Ban className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-800 dark:text-amber-200">{d}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Signer model info */}
+          {isIssuerOnly(docType as DocumentPolicyType) && (
+            <div className="flex items-start gap-3 p-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/20">
+              <FileText className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Este documento será firmado únicamente por el abogado emisor con verificación OTP obligatoria, cadena de auditoría inmutable y sellado SHA-256 del PDF final.
+              </p>
+            </div>
+          )}
+
           <div className="flex justify-end">
             <Button onClick={() => setStep(isNotification ? 2 : 2)}>
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
@@ -1212,6 +1235,20 @@ export default function WorkItemDocumentWizard() {
               />
             </CardContent>
           </Card>
+
+          {/* Notification platform scope disclaimer */}
+          <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+            <Ban className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                Alcance de la plataforma
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                Esta plataforma genera y firma electrónicamente el documento de notificación. <strong>NO realiza la entrega</strong> a demandados ni terceros.
+                Descargue el documento finalizado y envíelo mediante un servicio de entrega certificado (ej. Servientrega Digital).
+              </p>
+            </div>
+          </div>
 
           <div className="flex items-center justify-between">
             <Button variant="outline" onClick={() => setStep(1)}>
