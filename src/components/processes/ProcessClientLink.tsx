@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -43,6 +44,7 @@ export function ProcessClientLink({
   const [open, setOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>(currentClientId || "");
   const [clientTab, setClientTab] = useState<"existing" | "new">("existing");
+  const { organization } = useOrganization();
   const [newClientName, setNewClientName] = useState("");
   const [newClientIdNumber, setNewClientIdNumber] = useState("");
   const [newClientEmail, setNewClientEmail] = useState("");
@@ -70,6 +72,7 @@ export function ProcessClientLink({
         .from("clients")
         .insert({
           owner_id: user.id,
+          organization_id: organization?.id || null,
           name: newClientName.trim(),
           id_number: newClientIdNumber.trim() || null,
           email: newClientEmail.trim() || null,
@@ -90,8 +93,13 @@ export function ProcessClientLink({
       setNewClientEmail("");
       toast.success("Cliente creado exitosamente");
     },
-    onError: (error) => {
-      toast.error("Error al crear cliente: " + error.message);
+    onError: (error: any) => {
+      const msg = error?.message || String(error);
+      if (msg.includes('limit reached') || msg.includes('maximum')) {
+        toast.error("Has alcanzado el límite de clientes para tu plan.");
+      } else {
+        toast.error("Error al crear cliente: " + msg);
+      }
     },
   });
 

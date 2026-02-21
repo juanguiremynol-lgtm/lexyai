@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ export default function Clients() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
 
   const { data: clients, isLoading } = useQuery({
     queryKey: ["clients"],
@@ -62,6 +64,7 @@ export default function Clients() {
 
       const { error } = await supabase.from("clients").insert({
         owner_id: user.id,
+        organization_id: organization?.id || null,
         name: form.get("name") as string,
         id_number: form.get("id_number") as string || null,
         address: form.get("address") as string || null,
@@ -76,8 +79,13 @@ export default function Clients() {
       setOpen(false);
       toast.success("Cliente creado exitosamente");
     },
-    onError: (error) => {
-      toast.error("Error al crear cliente: " + error.message);
+    onError: (error: any) => {
+      const msg = error?.message || String(error);
+      if (msg.includes('limit reached') || msg.includes('maximum')) {
+        toast.error("Has alcanzado el límite de clientes para tu plan. Elimina un cliente existente o mejora tu plan.");
+      } else {
+        toast.error("Error al crear cliente: " + msg);
+      }
     },
   });
 

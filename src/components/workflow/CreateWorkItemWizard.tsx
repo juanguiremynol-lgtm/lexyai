@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { PostCreationDocumentPrompt } from "@/components/documents/PostCreationDocumentPrompt";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -98,6 +99,7 @@ export function CreateWorkItemWizard({
 }: CreateWorkItemWizardProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { organization } = useOrganization();
   
   // Wizard state
   const [step, setStep] = useState<WizardStep>('workflow');
@@ -378,6 +380,7 @@ export function CreateWorkItemWizard({
       .from("clients")
       .insert({
         owner_id: user.id,
+        organization_id: organization?.id || null,
         name: newClientName.trim(),
         id_number: newClientIdNumber.trim() || null,
       })
@@ -399,9 +402,16 @@ export function CreateWorkItemWizard({
     if (clientTab === 'new' && newClientName.trim()) {
       try {
         finalClientId = await handleCreateClient() || '';
-      } catch (e) {
+      } catch (e: any) {
         console.error("Error creating client:", e);
-        toast.error("Error al crear cliente");
+        const msg = e?.message || String(e);
+        if (msg.includes('limit reached') || msg.includes('maximum')) {
+          toast.error("Has alcanzado el límite de clientes para tu plan. Elimina un cliente existente o mejora tu plan.");
+        } else if (msg.includes('row-level security')) {
+          toast.error("No tienes permiso para crear clientes. Contacta al administrador.");
+        } else {
+          toast.error("Error al crear cliente: " + msg);
+        }
         return;
       }
     }
