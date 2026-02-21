@@ -29,6 +29,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { parseCpnuSujetos } from "../_shared/partyNormalization.ts";
+import {
+  fetchFromCpnu as sharedFetchCpnu,
+  fetchFromSamai as sharedFetchSamai,
+  fetchFromPublicaciones as sharedFetchPublicaciones,
+  fetchFromTutelas as sharedFetchTutelas,
+  fetchFromSamaiEstados as sharedFetchSamaiEstados,
+  toDemoResult,
+  type DemoProviderResult,
+} from "../_shared/providerAdapters/index.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -266,450 +275,97 @@ function resolveApiKey(envKeys: string[]): string | null {
 // ═══════════════════════════════════════════
 
 async function fetchCpnu(radicado: string, _baseUrl: string, _apiKey: string): Promise<ProviderResult> {
-  const t0 = Date.now();
-  const provider = "CPNU";
-  const headers: Record<string, string> = {
-    "Accept": "application/json, text/json, text/plain, */*",
-    "Accept-Language": "es-CO,es;q=0.9,en;q=0.8",
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Referer": "https://consultaprocesos.ramajudicial.gov.co/",
-    "Origin": "https://consultaprocesos.ramajudicial.gov.co",
-  };
-
-  const searchCandidates = [
-    { url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`, method: "GET", desc: "v2 standard" },
-    { url: `https://consultaprocesos.ramajudicial.gov.co:443/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`, method: "GET", desc: "v2 port 443" },
-    { url: `https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Procesos/Consulta/NumeroRadicacion?numero=${radicado}&SoloActivos=false&pagina=1`, method: "GET", desc: "v2 port 448" },
-    { url: `https://consultaprocesos.ramajudicial.gov.co/api/v2/Procesos/Consulta/NumeroRadicacion`, method: "POST", body: JSON.stringify({ numero: radicado, SoloActivos: false, pagina: 1 }), desc: "v2 POST" },
-    { url: `https://consultaprocesos.ramajudicial.gov.co/api/v1/Procesos/Consulta/NumeroRadicacion?numero=${radicado}`, method: "GET", desc: "v1 legacy" },
-  ];
-
-  for (const candidate of searchCandidates) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const fetchOpts: RequestInit = { method: candidate.method, headers, signal: controller.signal };
-      if ((candidate as any).body) fetchOpts.body = (candidate as any).body;
-      const resp = await fetch(candidate.url, fetchOpts);
-      clearTimeout(timeoutId);
-
-      const ct = resp.headers.get("content-type") || "";
-      if (!ct.includes("json") && !ct.includes("text/plain")) continue;
-      if (!resp.ok) continue;
-
-      const data = await resp.json();
-      const procesos = data?.procesos || [];
-      if (procesos.length === 0) {
-        return { provider, outcome: "no-data", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null };
-      }
-
-      const p = procesos[0];
-      const idProceso = p.idProceso;
-
-      // Fetch actuaciones
-      let rawActs: any[] = [];
-      if (idProceso) {
-        const actCandidates = [
-          `https://consultaprocesos.ramajudicial.gov.co:448/api/v2/Proceso/Actuaciones/${idProceso}`,
-          `https://consultaprocesos.ramajudicial.gov.co/api/v2/Proceso/Actuaciones/${idProceso}`,
-          `https://consultaprocesos.ramajudicial.gov.co:443/api/v2/Proceso/Actuaciones/${idProceso}`,
-        ];
-        for (const actUrl of actCandidates) {
-          try {
-            const ac = new AbortController();
-            const at = setTimeout(() => ac.abort(), 12000);
-            const actResp = await fetch(actUrl, { headers, signal: ac.signal });
-            clearTimeout(at);
-            if (actResp.ok && (actResp.headers.get("content-type") || "").includes("json")) {
-              const actData = await actResp.json();
-              rawActs = actData?.actuaciones || [];
-              break;
-            }
-          } catch { /* try next */ }
-        }
-      }
-
-      const actuaciones: DemoActuacion[] = rawActs
-        .map((a: any) => ({
-          fecha: normalizeDate(a.fechaActuacion ?? a.fecha),
-          tipo: truncate(String(a.actuacion || ""), 120),
-          descripcion: redactPIIFromText(truncate(String(a.anotacion || a.actuacion || ""), 300) || ""),
-          anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
-          sources: [provider],
-        }))
-        .filter((a: DemoActuacion) => a.fecha)
-        .sort((a: DemoActuacion, b: DemoActuacion) => b.fecha.localeCompare(a.fecha));
-
-      const parsedParties = parseSujetosString(p.sujetosProcesales);
-      const demandante = parsedParties.demandante || (typeof p.demandante === 'string' ? p.demandante.trim().replace(/\.+$/, '') : null);
-      const demandado = parsedParties.demandado || (typeof p.demandado === 'string' ? p.demandado.trim().replace(/\.+$/, '') : null);
-
-      return {
-        provider,
-        outcome: "success",
-        found_status: actuaciones.length > 0 ? "FOUND_COMPLETE" : "FOUND_PARTIAL",
-        latency_ms: Date.now() - t0,
-        actuaciones,
-        estados: [],
-        metadata: {
-          despacho: p.despacho || p.nombreDespacho || null,
-          tipo_proceso: p.tipoProceso || null,
-          fecha_radicacion: p.fechaRadicacion || p.fechaProceso || null,
-        },
-        parties: { demandante, demandado },
-      };
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        return { provider, outcome: "timeout", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Timeout" };
-      }
-      continue;
-    }
+  try {
+    const result = await sharedFetchCpnu({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 12000,
+      includeParties: true,
+      redactPII: true,
+    });
+    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
+    // Map DemoProviderResult back to local ProviderResult (same shape)
+    return demo as unknown as ProviderResult;
+  } catch (err) {
+    return { provider: "CPNU", outcome: "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
   }
-
-  return { provider, outcome: "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: "All candidates exhausted" };
 }
 
 async function fetchSamai(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
-  const t0 = Date.now();
-  const provider = "SAMAI";
+  if (!baseUrl || !apiKey) {
+    return { provider: "SAMAI", outcome: "skipped", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Not configured" };
+  }
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-    const resp = await fetch(`${baseUrl}/buscar?numero_radicacion=${radicado}`, {
-      method: "GET",
-      headers: { "x-api-key": apiKey },
-      signal: controller.signal,
+    const result = await sharedFetchSamai({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 12000,
+      includeParties: true,
+      redactPII: true,
     });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      return { provider, outcome: resp.status === 404 ? "no-data" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: `HTTP ${resp.status}` };
-    }
-
-    const raw = await resp.json();
-    const resultado = raw?.result || raw;
-    if (!resultado?.actuaciones && !resultado?.despacho) {
-      return { provider, outcome: "no-data", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null };
-    }
-
-    const acts = Array.isArray(resultado.actuaciones) ? resultado.actuaciones : [];
-    const actuaciones: DemoActuacion[] = acts
-      .map((a: any) => ({
-        fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
-        tipo: truncate(String(a.actuacion || a.tipo_actuacion || ""), 120),
-        descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
-        anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
-        sources: [provider],
-      }))
-      .filter((a: DemoActuacion) => a.fecha);
-
-    return {
-      provider,
-      outcome: "success",
-      found_status: actuaciones.length > 0 ? "FOUND_COMPLETE" : (resultado.despacho ? "FOUND_PARTIAL" : "NOT_FOUND"),
-      latency_ms: Date.now() - t0,
-      actuaciones,
-      estados: [],
-      metadata: {
-        despacho: resultado.despacho ? redactPIIFromText(truncate(String(resultado.despacho), 100) || "") : null,
-        tipo_proceso: resultado.tipo_proceso ? truncate(String(resultado.tipo_proceso), 80) : null,
-        fecha_radicacion: normalizeDate(resultado.fecha_radicacion ?? resultado.fecha_radicado),
-      },
-      parties: null,
-    };
+    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
+    return demo as unknown as ProviderResult;
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
-    return { provider, outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: isTimeout ? "Timeout" : String(err) };
+    return { provider: "SAMAI", outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
   }
 }
 
 async function fetchPublicaciones(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
-  const t0 = Date.now();
-  const provider = "Publicaciones";
+  if (!baseUrl || !apiKey) {
+    return { provider: "Publicaciones", outcome: "skipped", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Not configured" };
+  }
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000); // Publicaciones API is slow
-    const resp = await fetch(`${baseUrl}/snapshot/${radicado}`, {
-      method: "GET",
-      headers: { "x-api-key": apiKey },
-      signal: controller.signal,
+    const result = await sharedFetchPublicaciones({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 20000,
+      redactPII: true,
     });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      return { provider, outcome: resp.status === 404 ? "no-data" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: `HTTP ${resp.status}` };
-    }
-
-    const rawBody = await resp.json();
-    const pubs = Array.isArray(rawBody?.publicaciones) ? rawBody.publicaciones : (Array.isArray(rawBody) ? rawBody : []);
-
-    const estados: DemoEstado[] = pubs
-      .map((p: any) => {
-        let fecha = normalizeDate(p.fecha_publicacion ?? p.fecha_hora_inicio ?? p.fechaFijacion ?? p.fechaPublicacion ?? p.fecha ?? p.fechaInicio ?? p.fechaRegistro);
-        const tituloStr = String(p.titulo || "");
-        if (!fecha && tituloStr) fecha = extractDateFromSpanishTitle(tituloStr);
-        const pdfUrl = String(p.pdf_url || p.url || "");
-        if (!fecha && pdfUrl) {
-          const m = pdfUrl.match(/(\d{4})(\d{2})(\d{2})\.pdf/i);
-          if (m) fecha = `${m[1]}-${m[2]}-${m[3]}`;
-        }
-        let tipo = String(p.tipo_evento || "");
-        if (!tipo || tipo === "null") {
-          if (/^ESTADOS?\b/i.test(tituloStr)) tipo = "Estado Electrónico";
-          else if (/^EDICTO/i.test(tituloStr)) tipo = "Edicto";
-          else if (/^NOTIFICACI/i.test(tituloStr)) tipo = "Notificación";
-          else if (/^TRASLADO/i.test(tituloStr)) tipo = "Traslado";
-          else tipo = truncate(String(p.tipo || "Estado"), 80) || "Estado";
-        }
-        const cleanTitulo = tituloStr.replace(/\.pdf$/i, "").trim();
-
-        // Extract PDF attachments
-        const attachments: DemoEstadoAttachment[] = [];
-        const seenUrls = new Set<string>();
-        const candidateUrlKeys = ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url'];
-        for (const key of candidateUrlKeys) {
-          const val = p[key];
-          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
-            seenUrls.add(val);
-            attachments.push({
-              type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link',
-              url: val,
-              label: val.toLowerCase().includes('.pdf') ? 'Ver PDF' : 'Ver documento',
-              provider,
-            });
-          }
-        }
-        // Check for URLs in arrays (e.g., documentos: [{url: ...}])
-        if (Array.isArray(p.documentos)) {
-          for (const doc of p.documentos) {
-            const docUrl = doc?.url || doc?.pdf_url || doc?.enlace;
-            if (docUrl && typeof docUrl === 'string' && docUrl.startsWith('https') && !seenUrls.has(docUrl)) {
-              seenUrls.add(docUrl);
-              attachments.push({
-                type: docUrl.toLowerCase().includes('.pdf') ? 'pdf' : 'link',
-                url: docUrl,
-                label: doc?.titulo || doc?.label || 'Ver documento',
-                provider,
-              });
-            }
-          }
-        }
-
-        return {
-          tipo,
-          fecha: fecha || "",
-          descripcion: cleanTitulo ? redactPIIFromText(truncate(cleanTitulo, 200) || "") : (p.descripcion ? redactPIIFromText(truncate(String(p.descripcion), 200) || "") : null),
-          sources: [provider],
-          attachments: attachments.length > 0 ? attachments : undefined,
-        };
-      })
-      .filter((e: DemoEstado) => e.fecha || e.descripcion);
-
-    let metadata: ProviderMetadata | null = null;
-    if (rawBody?.found && rawBody?.principal) {
-      const pr = rawBody.principal;
-      metadata = {
-        despacho: pr.despacho ? redactPIIFromText(truncate(String(pr.despacho), 100) || "") : null,
-        tipo_proceso: pr.tipoProceso || pr.tipo_proceso || null,
-        fecha_radicacion: normalizeDate(pr.fechaRadicacion ?? pr.fecha_radicacion ?? pr.fecha),
-      };
-    }
-
-    return {
-      provider,
-      outcome: estados.length > 0 ? "success" : "no-data",
-      found_status: estados.length > 0 ? "FOUND_COMPLETE" : "NOT_FOUND",
-      latency_ms: Date.now() - t0,
-      actuaciones: [],
-      estados,
-      metadata,
-      parties: null,
-    };
+    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
+    return demo as unknown as ProviderResult;
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
-    return { provider, outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: isTimeout ? "Timeout" : String(err) };
+    return { provider: "Publicaciones", outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
   }
 }
 
 async function fetchTutelas(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
-  const t0 = Date.now();
-  const provider = "Tutelas";
+  if (!baseUrl || !apiKey) {
+    return { provider: "Tutelas", outcome: "skipped", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Not configured" };
+  }
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000); // longer timeout for async job
-    const resp = await fetch(`${baseUrl}/search`, {
-      method: "POST",
-      headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ radicado }),
-      signal: controller.signal,
+    const result = await sharedFetchTutelas({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 20000,
+      includeParties: true,
+      redactPII: true,
     });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      if (resp.status === 404) {
-        return { provider, outcome: "no-data", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null };
-      }
-      return { provider, outcome: "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: `HTTP ${resp.status}` };
-    }
-
-    let result = await resp.json();
-
-    // Handle async job polling
-    if ((result.status === "pending" || result.status === "processing") && (result.job_id || result.jobId)) {
-      const jobId = result.job_id || result.jobId;
-      console.log(`[demo] Tutelas async job: ${jobId}`);
-      for (let attempt = 0; attempt < 6; attempt++) {
-        await new Promise(r => setTimeout(r, 2500));
-        try {
-          const pollResp = await fetch(`${baseUrl}/job/${jobId}`, {
-            method: "GET",
-            headers: { "x-api-key": apiKey },
-          });
-          if (pollResp.ok) {
-            const pollData = await pollResp.json();
-            if (pollData.status === "completed" || pollData.status === "done" || pollData.data) {
-              result = pollData.data || pollData;
-              break;
-            }
-          }
-        } catch { /* continue polling */ }
-      }
-    }
-
-    // Extract actuaciones
-    const rawActs = Array.isArray(result?.actuaciones) ? result.actuaciones : [];
-    const actuaciones: DemoActuacion[] = rawActs
-      .map((a: any) => ({
-        fecha: normalizeDate(a.fechaActuacion ?? a.fecha_actuacion ?? a.fecha),
-        tipo: truncate(String(a.actuacion || a.tipo || ""), 120),
-        descripcion: redactPIIFromText(truncate(String(a.anotacion || a.descripcion || a.actuacion || ""), 300) || ""),
-        anotacion: a.anotacion ? redactPIIFromText(truncate(String(a.anotacion), 200) || "") : null,
-        sources: [provider],
-      }))
-      .filter((a: DemoActuacion) => a.fecha);
-
-    // Extract estados
-    const rawEstados = Array.isArray(result?.estados) ? result.estados : [];
-    const estados: DemoEstado[] = rawEstados
-      .map((e: any) => {
-        // Extract PDF attachments from Tutelas
-        const attachments: DemoEstadoAttachment[] = [];
-        const seenUrls = new Set<string>();
-        for (const key of ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url']) {
-          const val = e[key];
-          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
-            seenUrls.add(val);
-            attachments.push({ type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link', url: val, label: 'Ver documento', provider });
-          }
-        }
-        return {
-          tipo: truncate(String(e.tipo || e.actuacion || "Estado"), 120) || "Estado",
-          fecha: normalizeDate(e.fecha || e.fechaEstado || e.fechaProvidencia),
-          descripcion: e.descripcion ? redactPIIFromText(truncate(String(e.descripcion), 200) || "") : null,
-          sources: [provider],
-          attachments: attachments.length > 0 ? attachments : undefined,
-        };
-      })
-      .filter((e: DemoEstado) => e.fecha || e.descripcion);
-
-    const hasData = actuaciones.length > 0 || estados.length > 0 || result?.despacho;
-    let metadata: ProviderMetadata | null = null;
-    if (result?.despacho || result?.tipo_proceso) {
-      metadata = {
-        despacho: result.despacho ? redactPIIFromText(truncate(String(result.despacho), 100) || "") : null,
-        tipo_proceso: result.tipo_proceso || null,
-        fecha_radicacion: normalizeDate(result.fecha_radicacion),
-      };
-    }
-
-    // Extract parties if available
-    let parties: { demandante: string | null; demandado: string | null } | null = null;
-    if (result?.demandante || result?.demandado || result?.accionante || result?.accionado) {
-      parties = {
-        demandante: result.demandante || result.accionante || null,
-        demandado: result.demandado || result.accionado || null,
-      };
-    }
-
-    return {
-      provider,
-      outcome: hasData ? "success" : "no-data",
-      found_status: actuaciones.length > 0 || estados.length > 0 ? "FOUND_COMPLETE" : (metadata ? "FOUND_PARTIAL" : "NOT_FOUND"),
-      latency_ms: Date.now() - t0,
-      actuaciones,
-      estados,
-      metadata,
-      parties,
-    };
+    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
+    return demo as unknown as ProviderResult;
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
-    return { provider, outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: isTimeout ? "Timeout" : String(err) };
+    return { provider: "Tutelas", outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
   }
 }
 
 async function fetchSamaiEstados(radicado: string, baseUrl: string, apiKey: string): Promise<ProviderResult> {
-  const t0 = Date.now();
-  const provider = "SAMAI Estados";
+  if (!baseUrl || !apiKey) {
+    return { provider: "SAMAI Estados", outcome: "skipped", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: "Not configured" };
+  }
   try {
-    const formatted = radicado.length === 23
-      ? `${radicado.slice(0, 2)}-${radicado.slice(2, 5)}-${radicado.slice(5, 7)}-${radicado.slice(7, 9)}-${radicado.slice(9, 12)}-${radicado.slice(12, 16)}-${radicado.slice(16, 21)}-${radicado.slice(21, 23)}`
-      : radicado;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-    const resp = await fetch(`${baseUrl}/buscar?radicado=${encodeURIComponent(formatted)}`, {
-      method: "GET",
-      headers: { "x-api-key": apiKey },
-      signal: controller.signal,
+    const result = await sharedFetchSamaiEstados({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 12000,
+      redactPII: true,
     });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      return { provider, outcome: resp.status === 404 ? "no-data" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: `HTTP ${resp.status}` };
-    }
-
-    const raw = await resp.json();
-    const resultado = raw?.result || raw;
-    const rawEstados = Array.isArray(resultado?.estados) ? resultado.estados : [];
-
-    const estados: DemoEstado[] = rawEstados
-      .map((e: any) => {
-        const fecha = normalizeDate(e["Fecha Providencia"] ?? e["Fecha Estado"] ?? e.fechaProvidencia ?? e.fechaEstado ?? e.fecha ?? "");
-        const actuacion = String(e["Actuación"] ?? e.actuacion ?? e.tipo ?? "");
-        const anotacion = String(e["Anotación"] ?? e.anotacion ?? e.descripcion ?? "");
-        // Extract PDF attachments from SAMAI Estados
-        const attachments: DemoEstadoAttachment[] = [];
-        const seenUrls = new Set<string>();
-        for (const key of ['pdf_url', 'pdfUrl', 'url_pdf', 'documento_url', 'documentUrl', 'link', 'enlace', 'archivo', 'adjunto', 'ruta_pdf', 'url', 'Documento']) {
-          const val = e[key];
-          if (val && typeof val === 'string' && val.startsWith('https') && !seenUrls.has(val)) {
-            seenUrls.add(val);
-            attachments.push({ type: val.toLowerCase().includes('.pdf') ? 'pdf' : 'link', url: val, label: 'Ver documento', provider });
-          }
-        }
-        return {
-          tipo: actuacion ? truncate(actuacion, 120) || "Estado SAMAI" : "Estado SAMAI",
-          fecha: fecha || "",
-          descripcion: anotacion ? redactPIIFromText(truncate(anotacion, 200) || "") : (actuacion ? redactPIIFromText(truncate(actuacion, 200) || "") : null),
-          sources: [provider],
-          attachments: attachments.length > 0 ? attachments : undefined,
-        };
-      })
-      .filter((e: DemoEstado) => e.fecha || e.descripcion);
-
-    return {
-      provider,
-      outcome: estados.length > 0 ? "success" : "no-data",
-      found_status: estados.length > 0 ? "FOUND_COMPLETE" : "NOT_FOUND",
-      latency_ms: Date.now() - t0,
-      actuaciones: [],
-      estados,
-      metadata: null,
-      parties: null,
-    };
+    const demo = toDemoResult(result, { redactFn: redactPIIFromText });
+    return demo as unknown as ProviderResult;
   } catch (err) {
     const isTimeout = err instanceof DOMException && err.name === "AbortError";
-    return { provider, outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: Date.now() - t0, actuaciones: [], estados: [], metadata: null, parties: null, error: isTimeout ? "Timeout" : String(err) };
+    return { provider: "SAMAI Estados", outcome: isTimeout ? "timeout" : "error", found_status: "NOT_FOUND", latency_ms: 0, actuaciones: [], estados: [], metadata: null, parties: null, error: String(err) };
   }
 }
 

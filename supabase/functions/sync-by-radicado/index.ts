@@ -14,6 +14,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { getCategoryStrategy, determineFoundStatus, shouldTriggerFallback, type ProviderKey, type FoundStatus } from "../_shared/providerStrategy.ts";
 import { extractPartiesFromProviderResult, canonicalizeRole } from "../_shared/partyNormalization.ts";
+import {
+  fetchFromCpnu as sharedFetchCpnu,
+  fetchFromSamai as sharedFetchSamai,
+  fetchFromTutelas as sharedFetchTutelas,
+  toWizardResult,
+} from "../_shared/providerAdapters/index.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -450,610 +456,81 @@ function parseColombianDate(dateStr: string | undefined): string | null {
   return null;
 }
 
-// ============= PROVIDER FETCH FUNCTIONS =============
+// ============= PROVIDER FETCH FUNCTIONS (via shared adapters) =============
 
 /**
- * Fetch from CPNU via adapter-cpnu Edge Function
+ * Fetch from CPNU via shared adapter (discovery mode).
+ * sync-by-radicado uses the adapter-cpnu edge function as backend,
+ * but the shared adapter handles the same CPNU public API endpoints directly.
  */
 async function fetchFromCpnu(
-  radicado: string, 
-  supabaseUrl: string, 
-  authHeader: string
+  radicado: string,
+  _supabaseUrl: string,
+  _authHeader: string,
 ): Promise<ProviderResult> {
-  const startTime = Date.now();
-  
   try {
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/adapter-cpnu`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          radicado,
-          action: 'search',
-        }),
-      }
-    );
-
-    const result = await response.json();
-    const latency = Date.now() - startTime;
-
-    if (result.ok && result.proceso) {
-      const proceso = result.proceso;
-      // Also read from results[0] — adapter-cpnu puts demandante/demandado/fecha_radicacion there
-      const mainResult = result.results?.[0] || {};
-      
-      // Extract parties from sujetos_procesales
-      // Use shared party normalization for consistent extraction
-      const { demandantes, demandados } = extractPartiesFromProviderResult({
-        sujetos_procesales: proceso.sujetos_procesales,
-        demandante: proceso.demandante || mainResult.demandante,
-        demandado: proceso.demandado || mainResult.demandado,
-      });
-
-      // Map actuaciones — adapter-cpnu returns ProcessEvent objects with event_date/description/detail
-      // so we must handle both naming conventions
-      const actuaciones = (proceso.actuaciones || []).map((act: Record<string, unknown>) => ({
-        fecha: (act.fecha_actuacion || act.fecha || act.event_date || '') as string,
-        actuacion: (act.actuacion || act.title || act.description || '') as string,
-        anotacion: (act.anotacion || act.detail || '') as string,
-      }));
-
-      return {
-        ok: true,
-        found: true,
-        source: 'CPNU',
-        processData: {
-          despacho: proceso.despacho || mainResult.despacho,
-          ciudad: proceso.ciudad,
-          departamento: proceso.departamento,
-          // FIX: Fall back to results[0].demandante/demandado (where adapter-cpnu stores them)
-          demandante: demandantes || mainResult.demandante || proceso.demandante,
-          demandado: demandados || mainResult.demandado || proceso.demandado,
-          tipo_proceso: proceso.tipo || mainResult.tipo_proceso,
-          clase_proceso: proceso.clase || mainResult.clase_proceso,
-          // FIX: Fall back to results[0].fecha_radicacion
-          fecha_radicacion: mainResult.fecha_radicacion || proceso.fecha_radicacion,
-          sujetos_procesales: proceso.sujetos_procesales?.length > 0 
-            ? proceso.sujetos_procesales 
-            : mainResult.sujetos_procesales,
-          actuaciones,
-          total_actuaciones: actuaciones.length,
-        },
-        latency_ms: latency,
-        eventsFound: actuaciones.length,
-      };
-    }
-
-    return {
-      ok: true,
-      found: false,
-      source: 'CPNU',
-      processData: {},
-      latency_ms: latency,
-      error: result.error || result.why_empty || 'No results',
-    };
+    const result = await sharedFetchCpnu({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 15000,
+      includeParties: true,
+    });
+    return toWizardResult(result);
   } catch (err) {
     return {
       ok: false,
       found: false,
       source: 'CPNU',
       processData: {},
-      latency_ms: Date.now() - startTime,
+      latency_ms: 0,
       error: err instanceof Error ? err.message : 'CPNU fetch failed',
     };
   }
 }
 
 /**
- * Helper to build SAMAI result from proceso data
- */
-function buildSamaiResult(
-  proceso: Record<string, unknown>,
-  sujetos: Array<{ tipo: string; nombre: string }>,
-  rawActuaciones: Array<Record<string, unknown>>,
-  latencyMs: number
-): ProviderResult {
-  let demandantes = '';
-  let demandados = '';
-  
-  if (Array.isArray(sujetos) && sujetos.length > 0) {
-    const demandantesList = sujetos
-      .filter((s) => {
-        const tipo = (s.tipo || '').toLowerCase();
-        return tipo.includes('demandante') || 
-               tipo.includes('actor') ||
-               tipo.includes('accionante') ||
-               tipo.includes('ofendido') ||
-               tipo.includes('tutelante');
-      })
-      .map((s) => s.nombre)
-      .filter(Boolean);
-    const demandadosList = sujetos
-      .filter((s) => {
-        const tipo = (s.tipo || '').toLowerCase();
-        return tipo.includes('demandado') ||
-               tipo.includes('accionado') ||
-               tipo.includes('procesado');
-      })
-      .map((s) => s.nombre)
-      .filter(Boolean);
-    
-    if (demandantesList.length) demandantes = demandantesList.join(' | ');
-    if (demandadosList.length) demandados = demandadosList.join(' | ');
-  }
-  
-  const actuaciones = rawActuaciones.map((act) => ({
-    fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
-    actuacion: String(act.actuacion || act.tipo_actuacion || ''),
-    anotacion: String(act.anotacion || act.descripcion || ''),
-  }));
-  
-  return {
-    ok: true,
-    found: true,
-    source: 'SAMAI',
-    processData: {
-      despacho: (proceso.despacho || proceso.corporacion || proceso.corporacionNombre || proceso.despacho_actual) as string,
-      ciudad: (proceso.ciudad || proceso.sede) as string,
-      departamento: proceso.departamento as string,
-      demandante: demandantes || (proceso.demandante as string),
-      demandado: demandados || (proceso.demandado as string),
-      tipo_proceso: (proceso.tipo_proceso || proceso.tipo) as string,
-      clase_proceso: (proceso.clase_proceso || proceso.clase || proceso.subclase_proceso) as string,
-      fecha_radicacion: (proceso.fecha_radicado || proceso.fecha_radicacion) as string,
-      sujetos_procesales: sujetos,
-      actuaciones,
-      total_actuaciones: (proceso.total_actuaciones as number) || actuaciones.length,
-    },
-    latency_ms: latencyMs,
-    eventsFound: actuaciones.length,
-  };
-}
-
-/**
- * Fetch from SAMAI Cloud Run service
+ * Fetch from SAMAI via shared adapter (discovery mode).
  */
 async function fetchFromSamai(radicado: string): Promise<ProviderResult> {
-  const startTime = Date.now();
-  const samaiBaseUrl = Deno.env.get('SAMAI_BASE_URL');
-  const apiKey = Deno.env.get('SAMAI_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-
-  if (!samaiBaseUrl || !apiKey) {
-    return {
-      ok: false,
-      found: false,
-      source: 'SAMAI',
-      processData: {},
-      latency_ms: Date.now() - startTime,
-      error: 'SAMAI not configured (missing BASE_URL or API_KEY)',
-    };
-  }
-
   try {
-    // FIX S2: Call /buscar directly (primary SAMAI endpoint), not /snapshot
-    // /snapshot may not exist for all records; /buscar handles both cached and async scraping
-    const buscarUrl = `${samaiBaseUrl}/buscar?numero_radicacion=${radicado}`;
-    console.log(`[sync-by-radicado] Calling SAMAI: ${buscarUrl}`);
-    
-    const response = await fetch(buscarUrl, {
-      method: 'GET',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
+    const result = await sharedFetchSamai({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 15000,
+      includeParties: true,
     });
-
-    const latency = Date.now() - startTime;
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return {
-          ok: true,
-          found: false,
-          source: 'SAMAI',
-          processData: {},
-          latency_ms: latency,
-          error: 'Record not found in SAMAI',
-        };
-      }
-      return {
-        ok: false,
-        found: false,
-        source: 'SAMAI',
-        processData: {},
-        latency_ms: latency,
-        error: `SAMAI returned ${response.status}`,
-      };
-    }
-
-    const buscarResult = await response.json();
-    
-    // /buscar returns: { success, status, result: {...}, cached: bool } for cached data
-    // or { jobId, status: "pending" } for async scraping
-    // FIX: Poll for result instead of giving up — matches sync-by-work-item behavior
-    if ((buscarResult.jobId || buscarResult.job_id) && !buscarResult.result) {
-      const jobId = buscarResult.jobId || buscarResult.job_id;
-      console.log(`[sync-by-radicado] SAMAI /buscar initiated scraping job: ${jobId}. Polling for result...`);
-      
-      const rawPollUrl = buscarResult.poll_url || buscarResult.pollUrl || buscarResult.resultado_url || '';
-      let pollUrl: string;
-      if (rawPollUrl && (rawPollUrl.startsWith('http://') || rawPollUrl.startsWith('https://'))) {
-        pollUrl = rawPollUrl;
-      } else if (rawPollUrl && rawPollUrl.startsWith('/')) {
-        pollUrl = `${samaiBaseUrl}${rawPollUrl}`;
-      } else {
-        pollUrl = `${samaiBaseUrl}/resultado/${jobId}`;
-      }
-      
-      // Poll with exponential backoff (up to ~60s total)
-      const maxAttempts = 10;
-      const initialInterval = 3000;
-      
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const delayMs = Math.min(initialInterval * Math.pow(1.6, attempt - 1), 15000);
-        console.log(`[sync-by-radicado] SAMAI poll ${attempt}/${maxAttempts}: waiting ${Math.round(delayMs)}ms, url=${pollUrl}`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        
-        try {
-          const pollResponse = await fetch(pollUrl, {
-            method: 'GET',
-            headers: {
-              'x-api-key': apiKey,
-              'Accept': 'application/json',
-            },
-          });
-          
-          if (!pollResponse.ok) {
-            console.log(`[sync-by-radicado] SAMAI poll ${attempt} HTTP ${pollResponse.status}, continuing...`);
-            continue;
-          }
-          
-          const pollData = await pollResponse.json();
-          const pollStatus = String(pollData.status || '').toLowerCase();
-          
-          console.log(`[sync-by-radicado] SAMAI poll ${attempt}: status="${pollStatus}"`);
-          
-          if (['queued', 'processing', 'running', 'pending', 'started'].includes(pollStatus)) {
-            continue;
-          }
-          
-          if (['done', 'completed', 'success', 'finished'].includes(pollStatus)) {
-            console.log(`[sync-by-radicado] SAMAI job completed after ${attempt} polls`);
-            const resultData = pollData.result || pollData.data || pollData;
-            
-            if (resultData && (resultData.actuaciones || resultData.sujetos_procesales || resultData.sujetos)) {
-              // Extract sujetos and actuaciones using the same logic as the direct response path below
-              const sujetos = resultData.sujetos_procesales ?? resultData.sujetos ?? [];
-              const rawActuaciones = resultData.actuaciones ?? [];
-              return buildSamaiResult(resultData, sujetos, rawActuaciones, Date.now() - startTime);
-            }
-          }
-          
-          if (['failed', 'error', 'cancelled'].includes(pollStatus)) {
-            console.log(`[sync-by-radicado] SAMAI job failed: ${pollData.error || 'Unknown'}`);
-            break;
-          }
-        } catch (pollErr) {
-          console.warn(`[sync-by-radicado] SAMAI poll ${attempt} error:`, pollErr);
-        }
-      }
-      
-      // Polling exhausted — return not found
-      console.log(`[sync-by-radicado] SAMAI polling exhausted after ${maxAttempts} attempts`);
-      return {
-        ok: true,
-        found: false,
-        source: 'SAMAI',
-        processData: {},
-        latency_ms: Date.now() - startTime,
-        error: 'SAMAI scraping job did not complete in time',
-      };
-    }
-    
-    // Extract data from the response (handles various SAMAI response shapes)
-    const proceso = buscarResult.result || buscarResult.data || buscarResult.proceso || buscarResult;
-    
-    if (!proceso || (Object.keys(proceso).length === 0)) {
-      return {
-        ok: true,
-        found: false,
-        source: 'SAMAI',
-        processData: {},
-        latency_ms: latency,
-        error: 'No data in SAMAI response',
-      };
-    }
-
-    // Extract parties from sujetos_procesales OR sujetos (SAMAI uses both field names)
-    const sujetos = proceso.sujetos_procesales ?? proceso.sujetos ?? [];
-    let demandantes = '';
-    let demandados = '';
-    
-    if (Array.isArray(sujetos) && sujetos.length > 0) {
-      const demandantesList = sujetos
-        .filter((s: { tipo: string }) => {
-          const tipo = (s.tipo || '').toLowerCase();
-          return tipo.includes('demandante') || 
-                 tipo.includes('actor') ||
-                 tipo.includes('accionante') ||
-                 tipo.includes('ofendido') ||
-                 tipo.includes('tutelante');
-        })
-        .map((s: { nombre: string }) => s.nombre)
-        .filter(Boolean);
-      const demandadosList = sujetos
-        .filter((s: { tipo: string }) => {
-          const tipo = (s.tipo || '').toLowerCase();
-          return tipo.includes('demandado') ||
-                 tipo.includes('accionado') ||
-                 tipo.includes('procesado');
-        })
-        .map((s: { nombre: string }) => s.nombre)
-        .filter(Boolean);
-      
-      if (demandantesList.length) demandantes = demandantesList.join(' | ');
-      if (demandadosList.length) demandados = demandadosList.join(' | ');
-    }
-
-    // Normalize actuaciones from SAMAI format
-    // CRITICAL: SAMAI uses fechaActuacion (not fecha), and actuaciones may have different field names
-    const rawActuaciones = proceso.actuaciones ?? [];
-    const actuaciones = rawActuaciones.map((act: Record<string, unknown>) => ({
-      // SAMAI uses fechaActuacion, fallback to other possible names
-      fecha: String(act.fechaActuacion || act.fecha_actuacion || act.fecha || act.fechaRegistro || ''),
-      actuacion: String(act.actuacion || act.tipo_actuacion || ''),
-      anotacion: String(act.anotacion || act.descripcion || ''),
-    }));
-
-    return {
-      ok: true,
-      found: true,
-      source: 'SAMAI',
-      processData: {
-        despacho: proceso.despacho || proceso.corporacion || proceso.despacho_actual,
-        ciudad: proceso.ciudad || proceso.sede,
-        departamento: proceso.departamento,
-        demandante: demandantes || proceso.demandante,
-        demandado: demandados || proceso.demandado,
-        tipo_proceso: proceso.tipo_proceso || proceso.tipo,
-        clase_proceso: proceso.clase_proceso || proceso.clase || proceso.subclase_proceso,
-        fecha_radicacion: proceso.fecha_radicado || proceso.fecha_radicacion,
-        sujetos_procesales: proceso.sujetos_procesales,
-        actuaciones,
-        total_actuaciones: proceso.total_actuaciones || actuaciones.length,
-      },
-      latency_ms: latency,
-      eventsFound: actuaciones.length,
-    };
+    return toWizardResult(result);
   } catch (err) {
     return {
       ok: false,
       found: false,
       source: 'SAMAI',
       processData: {},
-      latency_ms: Date.now() - startTime,
+      latency_ms: 0,
       error: err instanceof Error ? err.message : 'SAMAI fetch failed',
     };
   }
 }
 
 /**
- * Helper to build TUTELAS result from proceso data
- */
-function buildTutelasResult(proceso: Record<string, unknown>, latencyMs: number): ProviderResult {
-  const actuaciones = (proceso.actuaciones || proceso.eventos || []) as Array<Record<string, unknown>>;
-  const mappedActuaciones = actuaciones.map((act) => ({
-    fecha: String(act.fecha_actuacion || act.fecha || ''),
-    actuacion: String(act.actuacion || act.descripcion || act.tipo || ''),
-    anotacion: String(act.anotacion || act.detalle || ''),
-  }));
-  
-  return {
-    ok: true,
-    found: true,
-    source: 'TUTELAS',
-    processData: {
-      despacho: (proceso.despacho || proceso.juzgado) as string,
-      ciudad: proceso.ciudad as string,
-      departamento: proceso.departamento as string,
-      demandante: (proceso.accionante || proceso.demandante || proceso.tutelante) as string,
-      demandado: (proceso.accionado || proceso.demandado) as string,
-      tipo_proceso: 'TUTELA',
-      fecha_radicacion: proceso.fecha_radicacion as string,
-      actuaciones: mappedActuaciones,
-      total_actuaciones: mappedActuaciones.length,
-      // TUTELA-specific metadata from Corte Constitucional
-      ponente: (proceso.ponente || proceso.magistrado_ponente) as string,
-      tutela_code: (proceso.tutela_code || proceso.codigo_tutela || proceso.expediente) as string,
-      corte_status: (proceso.corte_status || proceso.estado_seleccion || proceso.estado) as string,
-      sentencia_ref: (proceso.sentencia_ref || proceso.sentencia || proceso.numero_sentencia) as string,
-    },
-    latency_ms: latencyMs,
-    eventsFound: mappedActuaciones.length,
-  };
-}
-
-/**
- * Fetch from TUTELAS Cloud Run service
+ * Fetch from TUTELAS via shared adapter (discovery mode).
  */
 async function fetchFromTutelas(radicado: string): Promise<ProviderResult> {
-  const startTime = Date.now();
-  const tutelasBaseUrl = Deno.env.get('TUTELAS_BASE_URL');
-  const apiKey = Deno.env.get('TUTELAS_X_API_KEY') || Deno.env.get('EXTERNAL_X_API_KEY');
-
-  if (!tutelasBaseUrl || !apiKey) {
-    return {
-      ok: false,
-      found: false,
-      source: 'TUTELAS',
-      processData: {},
-      latency_ms: Date.now() - startTime,
-      error: 'TUTELAS not configured (missing BASE_URL or API_KEY)',
-    };
-  }
-
   try {
-    console.log(`[sync-by-radicado] Calling TUTELAS: POST ${tutelasBaseUrl}/search`);
-    
-    const response = await fetch(
-      `${tutelasBaseUrl}/search`,
-      {
-        method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ radicado }),
-      }
-    );
-
-    const latency = Date.now() - startTime;
-
-    if (!response.ok) {
-      // Handle 422 Unprocessable Entity (usually means malformed body)
-      if (response.status === 422) {
-        const errorBody = await response.text();
-        console.error(`[sync-by-radicado] TUTELAS 422 error - check body format: ${errorBody}`);
-        return {
-          ok: false,
-          found: false,
-          source: 'TUTELAS',
-          processData: {},
-          latency_ms: latency,
-          error: `TUTELAS validation error (422): ${errorBody.slice(0, 200)}`,
-        };
-      }
-      
-      if (response.status === 404) {
-        return {
-          ok: true,
-          found: false,
-          source: 'TUTELAS',
-          processData: {},
-          latency_ms: latency,
-          error: 'Record not found in TUTELAS',
-        };
-      }
-      return {
-        ok: false,
-        found: false,
-        source: 'TUTELAS',
-        processData: {},
-        latency_ms: latency,
-        error: `TUTELAS returned ${response.status}`,
-      };
-    }
-
-    const result = await response.json();
-    
-    // Check if this is an async job response (status: "pending", job_id present)
-    if ((result.status === 'pending' || result.status === 'processing') && (result.job_id || result.jobId)) {
-      const jobId = result.job_id || result.jobId;
-      console.log(`[sync-by-radicado] TUTELAS initiated async job: ${jobId}. Polling for result...`);
-      
-      // Poll for result using GET /job/{job_id}
-      const maxAttempts = 10;
-      const pollInterval = 3000; // 3 seconds
-      
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-        
-        try {
-          const pollUrl = `${tutelasBaseUrl}/job/${jobId}`;
-          console.log(`[sync-by-radicado] TUTELAS poll ${attempt}/${maxAttempts}: ${pollUrl}`);
-          
-          const pollResponse = await fetch(pollUrl, {
-            method: 'GET',
-            headers: {
-              'x-api-key': apiKey,
-              'Accept': 'application/json',
-            },
-          });
-          
-          if (pollResponse.ok) {
-            const pollResult = await pollResponse.json();
-            const pollStatus = String(pollResult.status || '').toLowerCase();
-            
-            if (['done', 'completed', 'success', 'finished'].includes(pollStatus)) {
-              console.log(`[sync-by-radicado] TUTELAS job completed!`);
-              // Extract data and continue processing below
-              const proceso = pollResult.result || pollResult.data || pollResult;
-              if (proceso && (proceso.actuaciones || proceso.eventos)) {
-                return buildTutelasResult(proceso, Date.now() - startTime);
-              }
-            }
-            
-            if (['failed', 'error'].includes(pollStatus)) {
-              console.log(`[sync-by-radicado] TUTELAS job failed: ${pollResult.error || 'Unknown error'}`);
-              break;
-            }
-          }
-        } catch (pollErr) {
-          console.warn(`[sync-by-radicado] TUTELAS poll error:`, pollErr);
-        }
-      }
-      
-      // Timeout or failure
-      return {
-        ok: false,
-        found: false,
-        source: 'TUTELAS',
-        processData: {},
-        latency_ms: Date.now() - startTime,
-        error: 'TUTELAS scraping job did not complete in time',
-      };
-    }
-    
-    // Direct response with data
-    if (!result.data && !result.proceso && !result.tutela && !result.actuaciones) {
-      return {
-        ok: true,
-        found: false,
-        source: 'TUTELAS',
-        processData: {},
-        latency_ms: latency,
-        error: 'No data in TUTELAS response',
-      };
-    }
-
-    const proceso = result.data || result.proceso || result.tutela || result;
-
-    // Normalize actuaciones from TUTELAS format
-    const actuaciones = (proceso.actuaciones || proceso.eventos || []).map((act: Record<string, unknown>) => ({
-      fecha: (act.fecha_actuacion || act.fecha || '') as string,
-      actuacion: (act.actuacion || act.descripcion || act.tipo || '') as string,
-      anotacion: (act.anotacion || act.detalle || '') as string,
-    }));
-
-    return {
-      ok: true,
-      found: true,
-      source: 'TUTELAS',
-      processData: {
-        despacho: proceso.despacho || proceso.juzgado,
-        ciudad: proceso.ciudad,
-        departamento: proceso.departamento,
-        demandante: proceso.accionante || proceso.demandante,
-        demandado: proceso.accionado || proceso.demandado,
-        tipo_proceso: 'TUTELA',
-        fecha_radicacion: proceso.fecha_radicacion,
-        actuaciones,
-        total_actuaciones: actuaciones.length,
-      },
-      latency_ms: latency,
-      eventsFound: actuaciones.length,
-    };
+    const result = await sharedFetchTutelas({
+      radicado,
+      mode: 'discovery',
+      timeoutMs: 20000,
+      includeParties: true,
+    });
+    return toWizardResult(result);
   } catch (err) {
     return {
       ok: false,
       found: false,
       source: 'TUTELAS',
       processData: {},
-      latency_ms: Date.now() - startTime,
+      latency_ms: 0,
       error: err instanceof Error ? err.message : 'TUTELAS fetch failed',
     };
   }
