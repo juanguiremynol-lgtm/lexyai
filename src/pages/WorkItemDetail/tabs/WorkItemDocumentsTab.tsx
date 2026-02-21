@@ -31,6 +31,7 @@ interface Props {
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "warning" | "success" }> = {
   draft: { label: "Borrador", variant: "secondary" },
+  ready_for_signature: { label: "Listo para firma", variant: "outline" },
   finalized: { label: "Finalizado", variant: "outline" },
   generated: { label: "Generado", variant: "outline" },
   delivered_to_lawyer: { label: "Entregado", variant: "success" },
@@ -40,6 +41,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   declined: { label: "Rechazado", variant: "destructive" },
   expired: { label: "Vencido", variant: "destructive" },
   revoked: { label: "Revocado", variant: "destructive" },
+  superseded: { label: "Reemplazado", variant: "secondary" },
 };
 
 const DOC_TYPE_LABELS: Record<string, string> = {

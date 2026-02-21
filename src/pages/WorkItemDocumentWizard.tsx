@@ -494,7 +494,7 @@ export default function WorkItemDocumentWizard() {
         .select("variables, content_json")
         .eq("work_item_id", workItemId!)
         .eq("document_type", "contrato_servicios")
-        .in("status", ["finalized", "signed", "partially_signed", "sent_for_signature"])
+        .in("status", ["finalized", "ready_for_signature", "signed", "partially_signed", "sent_for_signature"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -978,7 +978,9 @@ export default function WorkItemDocumentWizard() {
         return;
       }
 
-      // Save as finalized (signing flow for non-notification documents)
+      // Save as content-locked: bilateral contracts use "ready_for_signature" (content locked, not yet executed)
+      // Unilateral docs use "finalized" directly
+      const initialStatus = isBilateral(docType as DocumentPolicyType) ? "ready_for_signature" : "finalized";
       const { data: doc, error: docErr } = await supabase
         .from("generated_documents")
         .insert({
@@ -989,7 +991,7 @@ export default function WorkItemDocumentWizard() {
           content_json: { variables, template_type: docType, poderdante_type: poderdanteType, includeAttorneyAcceptance },
           content_html: renderedHtml,
           variables,
-          status: "finalized",
+          status: initialStatus,
           created_by: user.id,
           finalized_at: new Date().toISOString(),
           finalized_by: user.id,
