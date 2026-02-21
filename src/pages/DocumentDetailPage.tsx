@@ -23,7 +23,7 @@ import {
   ArrowLeft, FileText, Pencil, Lock, Send, Mail, ExternalLink,
   KeyRound, ShieldCheck, ShieldX, Eye, CheckSquare, PenTool,
   Hash, HardDrive, Award, BellRing, XCircle, Clock, Ban,
-  ScanSearch, Download, RefreshCw, Copy, Check, Loader2,
+  ScanSearch, Download, RefreshCw, Copy, Check, Loader2, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -582,6 +582,62 @@ export default function DocumentDetailPage() {
                       }}
                     >
                       Crear Nueva Versión
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            {/* Delete non-executed documents (draft, ready_for_signature, generated) */}
+            {(doc.status === "draft" || doc.status === "ready_for_signature" || doc.status === "generated") && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm">
+                    <Trash2 className="h-4 w-4 mr-2" /> Eliminar documento
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Eliminar este documento?</AlertDialogTitle>
+                    <AlertDialogDescription className="space-y-2">
+                      <span className="block">
+                        Este documento aún no ha sido firmado por las partes. Si lo eliminas, 
+                        se revocarán los enlaces de firma pendientes y no se conservará historial 
+                        para fines probatorios.
+                      </span>
+                      <span className="block font-medium text-foreground">
+                        Te recomendamos descargar el borrador si lo necesitas antes de eliminarlo.
+                      </span>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground"
+                      onClick={async () => {
+                        try {
+                          // Revoke any pending signing links
+                          const pendingSigs = signatures?.filter(s => s.status !== "signed") || [];
+                          for (const sig of pendingSigs) {
+                            await supabase
+                              .from("document_signatures")
+                              .update({ status: "revoked" } as any)
+                              .eq("id", sig.id);
+                          }
+
+                          // Soft-delete the document
+                          await supabase
+                            .from("generated_documents")
+                            .update({ deleted_at: new Date().toISOString() } as any)
+                            .eq("id", doc.id);
+
+                          toast.success("Documento eliminado");
+                          navigate(`/app/work-items/${workItemId}`);
+                        } catch (err: any) {
+                          toast.error("Error: " + (err?.message || "No se pudo eliminar"));
+                        }
+                      }}
+                    >
+                      Eliminar
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
