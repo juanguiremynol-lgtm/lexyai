@@ -5721,6 +5721,7 @@ export type Database = {
         Row: {
           content_html: string
           content_json: Json
+          content_locked_at: string | null
           created_at: string | null
           created_by: string
           delete_blocked_reason: string | null
@@ -5751,6 +5752,7 @@ export type Database = {
         Insert: {
           content_html: string
           content_json: Json
+          content_locked_at?: string | null
           created_at?: string | null
           created_by: string
           delete_blocked_reason?: string | null
@@ -5781,6 +5783,7 @@ export type Database = {
         Update: {
           content_html?: string
           content_json?: Json
+          content_locked_at?: string | null
           created_at?: string | null
           created_by?: string
           delete_blocked_reason?: string | null

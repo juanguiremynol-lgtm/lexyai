@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, organization_id, document_type, title, content_html, status, final_pdf_sha256, finalized_at, created_by, document_hash_presign, created_at")
+      .select("id, organization_id, document_type, title, content_html, status, final_pdf_sha256, finalized_at, content_locked_at, created_by, document_hash_presign, created_at")
       .eq("id", document_id)
       .single();
 
@@ -103,6 +103,19 @@ Deno.serve(async (req) => {
       .eq("document_id", document_id)
       .order("created_at", { ascending: true });
 
+    // Check if document is superseded — find the superseding doc
+    let supersession: { new_document_id: string; superseded_at: string } | null = null;
+    if (doc.status === "superseded") {
+      const supersededEvent = (events || []).find((e: any) => e.event_type === "document.superseded");
+      if (supersededEvent?.event_data) {
+        const ed = typeof supersededEvent.event_data === "string" ? JSON.parse(supersededEvent.event_data) : supersededEvent.event_data;
+        supersession = {
+          new_document_id: ed.new_document_id || "unknown",
+          superseded_at: supersededEvent.created_at,
+        };
+      }
+    }
+
     // Validate hash chain
     let chainValid = true;
     let chainErrors: string[] = [];
@@ -133,16 +146,22 @@ Deno.serve(async (req) => {
       : null;
 
     const manifest = {
-      schema_version: "1.0",
+      schema_version: "1.1",
       generated_at: new Date().toISOString(),
       document: {
         id: doc.id,
         type: doc.document_type,
         title: doc.title,
         status: doc.status,
-        finalized_at: doc.finalized_at,
+        content_locked_at: doc.content_locked_at || null,
+        executed_at: doc.finalized_at,
         final_pdf_sha256: doc.final_pdf_sha256,
         document_hash_presign: doc.document_hash_presign,
+        ...(supersession ? {
+          superseded: true,
+          superseded_at: supersession.superseded_at,
+          superseded_by_document_id: supersession.new_document_id,
+        } : {}),
       },
       signatures: (signatures || []).map(s => ({
         id: s.id,
@@ -185,14 +204,29 @@ Deno.serve(async (req) => {
     const manifestHash = await sha256Hex(manifestJson);
 
     // Build README
+    const supersessionBlock = supersession
+      ? `
+ESTADO DEL DOCUMENTO: REEMPLAZADO (SUPERSEDED)
+-----------------------------------------------
+Este documento fue sustituido por una nueva versión: ${supersession.new_document_id}
+Fecha de sustitución: ${supersession.superseded_at}
+Motivo: Nueva versión creada por el abogado.
+El presente Evidence Pack preserva el historial completo de auditoría
+del documento original para fines de cadena de custodia.
+`
+      : "";
+
     const readme = `EVIDENCE PACK — ANDROMEDA LEGAL
 ================================
 
 Document: ${doc.title}
 Type: ${doc.document_type}
 Document ID: ${doc.id}
+Status: ${doc.status}
+Content locked at: ${doc.content_locked_at || "N/A"}
+Executed at: ${doc.finalized_at || "N/A (not yet executed)"}
 Generated: ${new Date().toISOString()}
-
+${supersessionBlock}
 CONTENTS
 --------
 1. manifest.json        — Manifest with all file hashes and chain metadata
