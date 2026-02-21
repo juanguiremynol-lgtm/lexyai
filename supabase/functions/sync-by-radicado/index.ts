@@ -1293,28 +1293,139 @@ Deno.serve(async (req) => {
     let foundStatus: FoundStatus = "NOT_FOUND";
     let sourceUsed: string | null = null;
 
+    // ═══ DYNAMIC PROVIDER DISCOVERY ═══
+    // Query provider_coverage_overrides for additional dynamic providers
+    let dynamicProviderKeys: string[] = [];
+    let dynamicProviderMap = new Map<string, { connector_id: string; timeout_ms: number | null }>();
+    try {
+      const { data: overrides } = await supabase
+        .from("provider_coverage_overrides")
+        .select("provider_key, connector_id, timeout_ms, data_kind, provider_role")
+        .eq("enabled", true)
+        .eq("workflow_type", workflowType)
+        .eq("data_kind", "ACTUACIONES");
+
+      if (overrides && overrides.length > 0) {
+        const builtinKeys = new Set(["CPNU", "SAMAI", "TUTELAS", "PUBLICACIONES", "SAMAI_ESTADOS"]);
+        for (const o of overrides) {
+          if (!builtinKeys.has(o.provider_key.toUpperCase())) {
+            dynamicProviderKeys.push(o.provider_key);
+            dynamicProviderMap.set(o.provider_key, {
+              connector_id: o.connector_id,
+              timeout_ms: o.timeout_ms,
+            });
+          }
+        }
+        if (dynamicProviderKeys.length > 0) {
+          console.log(`[sync-by-radicado] Discovered ${dynamicProviderKeys.length} dynamic provider(s): ${dynamicProviderKeys.join(", ")}`);
+        }
+      }
+    } catch (dynErr) {
+      console.warn("[sync-by-radicado] Dynamic provider discovery failed (non-blocking):", dynErr);
+    }
+
     console.log(`[sync-by-radicado] Strategy for ${workflowType}:`, {
       alwaysMergeAll: strategy.alwaysMergeAll,
       primaryActs: strategy.primaryActuaciones,
       fallbackActs: strategy.fallbackActuaciones,
+      dynamicProviders: dynamicProviderKeys,
     });
 
     // ============= Helper: invoke providers in parallel and collect results =============
-    async function invokeProviders(keys: ProviderKey[]): Promise<{ results: ProviderResult[]; found: ProviderResult[] }> {
+    async function invokeProviders(keys: ProviderKey[], includeDynamic = false): Promise<{ results: ProviderResult[]; found: ProviderResult[] }> {
       // Only invoke actuaciones-capable providers (CPNU, SAMAI, TUTELAS)
       const actuacionesKeys = keys.filter(k => ["CPNU", "SAMAI", "TUTELAS"].includes(k));
-      if (actuacionesKeys.length === 0) return { results: [], found: [] };
 
-      const settled = await Promise.allSettled(
-        actuacionesKeys.map(k => invokeProvider(k, radicado, supabaseUrl, authHeader))
-      );
+      // Built-in provider promises
+      const builtinPromises = actuacionesKeys.map(k => invokeProvider(k, radicado, supabaseUrl, authHeader));
+
+      // Dynamic provider promises (invoked via provider-sync-external-provider)
+      const dynamicPromises = (includeDynamic && dynamicProviderKeys.length > 0)
+        ? dynamicProviderKeys.map(async (providerKey): Promise<ProviderResult> => {
+            const config = dynamicProviderMap.get(providerKey)!;
+            const t0 = Date.now();
+            try {
+              const functionUrl = `${supabaseUrl}/functions/v1/provider-sync-external-provider`;
+              const controller = new AbortController();
+              const timeoutMs = config.timeout_ms || 30000;
+              const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+              const resp = await fetch(functionUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": authHeader,
+                },
+                body: JSON.stringify({
+                  radicado,
+                  connector_id: config.connector_id,
+                  mode: "WIZARD_LOOKUP",
+                }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeoutId);
+
+              const latency = Date.now() - t0;
+              if (!resp.ok) {
+                return { ok: false, found: false, source: providerKey, processData: {}, latency_ms: latency, error: `HTTP ${resp.status}` };
+              }
+
+              const result = await resp.json();
+              const actuaciones = (result.actuaciones || []).map((a: any) => ({
+                fecha: String(a.fecha || a.event_date || a.fechaActuacion || ""),
+                actuacion: String(a.actuacion || a.title || a.description || ""),
+                anotacion: String(a.anotacion || a.detail || ""),
+              }));
+
+              if (actuaciones.length > 0 || result.despacho) {
+                return {
+                  ok: true,
+                  found: true,
+                  source: providerKey,
+                  processData: {
+                    despacho: result.despacho,
+                    ciudad: result.ciudad,
+                    departamento: result.departamento,
+                    demandante: result.demandante,
+                    demandado: result.demandado,
+                    tipo_proceso: result.tipo_proceso,
+                    fecha_radicacion: result.fecha_radicacion,
+                    actuaciones,
+                    total_actuaciones: actuaciones.length,
+                  },
+                  latency_ms: latency,
+                  eventsFound: actuaciones.length,
+                };
+              }
+
+              return { ok: true, found: false, source: providerKey, processData: {}, latency_ms: latency, error: "No data" };
+            } catch (err) {
+              const isTimeout = err instanceof DOMException && err.name === "AbortError";
+              return {
+                ok: false,
+                found: false,
+                source: providerKey,
+                processData: {},
+                latency_ms: Date.now() - t0,
+                error: isTimeout ? "Timeout" : String(err),
+              };
+            }
+          })
+        : [];
+
+      const allPromises = [...builtinPromises, ...dynamicPromises.map(p => p)];
+      const allKeys = [...actuacionesKeys, ...(includeDynamic ? dynamicProviderKeys : [])];
+
+      if (allKeys.length === 0) return { results: [], found: [] };
+
+      const settled = await Promise.allSettled(allPromises);
 
       const results: ProviderResult[] = [];
       const found: ProviderResult[] = [];
 
       for (let i = 0; i < settled.length; i++) {
         const s = settled[i];
-        const key = actuacionesKeys[i];
+        const key = allKeys[i];
         sourcesChecked.push(key);
 
         if (s.status === "rejected") {
@@ -1384,7 +1495,7 @@ Deno.serve(async (req) => {
     if (strategy.alwaysMergeAll) {
       console.log(`[sync-by-radicado] TUTELA: Launching parallel providers (ALL actuaciones providers)`);
       
-      const { found: allFound } = await invokeProviders(strategy.primaryActuaciones);
+      const { found: allFound } = await invokeProviders(strategy.primaryActuaciones, true);
       
       // Build provider_summary for the frontend
       const providerSummary: Record<string, { ok: boolean; found: boolean; actuaciones_count?: number; error?: string }> = {};
@@ -1435,7 +1546,7 @@ Deno.serve(async (req) => {
     // ============= NON-TUTELA: PRIMARY → FALLBACK =============
     else {
       // Query primary providers (usually just one)
-      const { found: primaryFound } = await invokeProviders(strategy.primaryActuaciones);
+      const { found: primaryFound } = await invokeProviders(strategy.primaryActuaciones, true);
 
       if (primaryFound.length > 0) {
         // Primary found — merge if multiple primaries

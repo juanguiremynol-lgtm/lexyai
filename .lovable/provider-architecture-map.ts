@@ -17,7 +17,7 @@
  * │  provider_instance_secrets: AES-256 encrypted (cipher+nonce)          │
  * │  provider_category_routes_global: workflow→connector routing          │
  * │  provider_category_routes_org_override: per-org overrides             │
- * │  provider_coverage_overrides: ← NEW — orchestrator discovery layer    │
+ * │  provider_coverage_overrides: orchestrator + demo + wizard discovery   │
  * └───────────────────────┬─────────────────────────────────────────────────┘
  *                         │ Consumed by:
  *                         ▼
@@ -26,15 +26,25 @@
  * │                                                                        │
  * │  providerCoverageMatrix.ts:                                           │
  * │    HARDCODED: COVERAGE_MAP + COMPATIBLE_CONNECTORS                    │
- * │    NEW: getProviderCoverageWithOverrides() merges DB overrides        │
+ * │    getProviderCoverageWithOverrides() merges DB overrides             │
  * │                                                                        │
  * │  syncOrchestrator.ts:                                                 │
  * │    orchestrateSync() → loadCoverageOverrides() → merge dynamic        │
  * │    providers into fetchFnRegistry via genericRemoteAdapter.ts         │
  * │                                                                        │
- * │  genericRemoteAdapter.ts: ← NEW                                      │
+ * │  genericRemoteAdapter.ts:                                             │
  * │    ProviderFetchFn that invokes provider-sync-external-provider       │
  * │    Bridges wizard-registered providers into orchestrator pipeline     │
+ * │                                                                        │
+ * │  demo-radicado-lookup (edge fn): ✅ INTEGRATED                        │
+ * │    Queries provider_coverage_overrides for dynamic providers          │
+ * │    Invokes them via provider-sync-external-provider in parallel       │
+ * │    Results merged into fanout alongside 5 canonical providers         │
+ * │                                                                        │
+ * │  sync-by-radicado (edge fn): ✅ INTEGRATED                            │
+ * │    Queries provider_coverage_overrides per workflow_type              │
+ * │    Dynamic providers invoked in parallel with built-in providers      │
+ * │    Results merged via same dedup pipeline as canonical providers      │
  * │                                                                        │
  * │  provider-sync-external-provider (edge fn):                           │
  * │    Handles: secret resolution, SSRF-safe fetch, snapshot parsing,     │
@@ -48,7 +58,7 @@
  * │  Precedence: ORG_OVERRIDE > GLOBAL > BUILTIN > coverage_overrides    │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
- * KEY CHANGE: With provider_coverage_overrides + genericRemoteAdapter,
- * new providers added via wizard are automatically discovered and used
- * by the orchestrator WITHOUT code changes.
+ * All 3 surfaces (Orchestrator, Demo Modal, Creation Wizard) now discover
+ * and invoke dynamic providers from provider_coverage_overrides.
+ * New providers added via wizard are automatically used WITHOUT code changes.
  */
