@@ -1,11 +1,16 @@
 /**
  * AteniaProviderHealthDashboard — Shows provider health with active mitigations.
+ *
+ * Provider data is fetched via shared adapters (_shared/providerAdapters/):
+ *   cpnuAdapter, samaiAdapter, publicacionesAdapter, samaiEstadosAdapter, tutelasAdapter
+ * Routing per category is defined in providerRegistry.ts (getProvidersForCategory).
  */
 
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Activity, Loader2 } from "lucide-react";
 
 interface Props {
@@ -68,6 +73,15 @@ export function AteniaProviderHealthDashboard({ organizationId }: Props) {
     refetchInterval: 120_000,
   });
 
+  // Map provider keys to adapter info for tooltip
+  const adapterInfo: Record<string, { adapter: string; scope: string; table: string }> = {
+    cpnu: { adapter: "cpnuAdapter.ts", scope: "ACTUACIONES", table: "work_item_acts" },
+    samai: { adapter: "samaiAdapter.ts", scope: "ACTUACIONES", table: "work_item_acts" },
+    tutelas: { adapter: "tutelasAdapter.ts", scope: "ACTUACIONES", table: "work_item_acts" },
+    publicaciones: { adapter: "publicacionesAdapter.ts", scope: "ESTADOS", table: "work_item_publicaciones" },
+    samai_estados: { adapter: "samaiEstadosAdapter.ts", scope: "ESTADOS", table: "work_item_publicaciones" },
+  };
+
   const healthColor = (errorRate: number) => {
     if (errorRate >= 50) return "text-red-500";
     if (errorRate >= 20) return "text-amber-500";
@@ -96,17 +110,33 @@ export function AteniaProviderHealthDashboard({ organizationId }: Props) {
         ) : !data?.stats.length ? (
           <p className="text-sm text-muted-foreground">Sin datos de proveedores recientes.</p>
         ) : (
+          <TooltipProvider>
           <div className="space-y-3">
             {data.stats.map((s) => {
               const activeMitigations = (data.mitigations || []).filter(
                 (m: any) => m.provider === s.provider && !m.expired,
               );
+              const info = adapterInfo[s.provider.toLowerCase()];
               return (
                 <div key={s.provider} className="space-y-1">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span>{healthDot(s.errorRate)}</span>
-                      <span className="text-sm font-medium">{s.provider}</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-sm font-medium cursor-help">{s.provider}</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-xs">
+                          {info ? (
+                            <div className="space-y-0.5">
+                              <div>Adapter: <span className="font-mono">{info.adapter}</span></div>
+                              <div>Scope: {info.scope} → {info.table}</div>
+                            </div>
+                          ) : (
+                            <span>Proveedor externo</span>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className={healthColor(s.errorRate)}>Errores: {s.errorRate}%</span>
@@ -129,6 +159,7 @@ export function AteniaProviderHealthDashboard({ organizationId }: Props) {
               );
             })}
           </div>
+          </TooltipProvider>
         )}
       </CardContent>
     </Card>
