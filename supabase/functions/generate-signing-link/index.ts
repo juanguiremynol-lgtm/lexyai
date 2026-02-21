@@ -97,8 +97,10 @@ Deno.serve(async (req) => {
       .single();
 
     if (docErr || !doc) return json({ error: "Document not found" }, 404);
-    if (doc.status !== "finalized" && doc.status !== "draft") {
-      return json({ error: `Document status is '${doc.status}', must be 'finalized' or 'draft'` }, 400);
+    // Allow finalized, draft, and sent_for_signature (bilateral docs need multiple signing links)
+    const allowedStatuses = ["finalized", "draft", "sent_for_signature"];
+    if (!allowedStatuses.includes(doc.status)) {
+      return json({ error: `Document status is '${doc.status}', must be one of: ${allowedStatuses.join(", ")}` }, 400);
     }
 
     // Determine delivery method for audit trail
