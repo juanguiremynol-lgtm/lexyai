@@ -73,15 +73,31 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
       const { data, error } = await supabase.functions.invoke("delete-generated-document", {
         body: { document_id: docId },
       });
-      if (error) throw error;
+      if (error) {
+        // Extract actual error from FunctionsHttpError context
+        let detail = "Error al eliminar";
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            detail = body?.error || detail;
+          } else {
+            detail = error.message || detail;
+          }
+        } catch (_) {
+          detail = error.message || detail;
+        }
+        throw new Error(detail);
+      }
       if (!data?.ok) throw new Error(data?.error || "Error al eliminar");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work-item-generated-docs", workItem.id] });
-      toast.success("Documento eliminado");
+      toast.success("Documento eliminado y firmas revocadas");
       setDeleteDocId(null);
     },
     onError: (err) => {
+      console.error("Delete document error:", err);
       toast.error("Error al eliminar: " + (err as Error).message);
     },
   });

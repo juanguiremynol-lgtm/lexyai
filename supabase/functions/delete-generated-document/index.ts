@@ -23,6 +23,7 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
+    console.log("[delete-doc] Request received, auth present:", !!authHeader);
     if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -34,9 +35,12 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user }, error: authErr } = await userClient.auth.getUser();
+    console.log("[delete-doc] Auth result:", user?.id, authErr?.message);
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
-    const { document_id } = await req.json();
+    const body = await req.json();
+    const document_id = body?.document_id;
+    console.log("[delete-doc] document_id:", document_id);
     if (!document_id) return json({ error: "document_id is required" }, 400);
 
     const admin = createClient(supabaseUrl, serviceKey);
