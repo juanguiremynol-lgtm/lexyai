@@ -21,7 +21,7 @@ import {
 import {
   FileText, ArrowLeft, ArrowRight, Send, Save, Loader2,
   CheckCircle2, AlertCircle, Eye, Mail, Link2, Copy, Check, Clock,
-  User, Users, Building2, Trash2, Plus, Ban,
+  User, Users, Building2, Trash2, Plus, Ban, Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -57,6 +57,7 @@ import { HonorariosSection } from "@/components/documents/HonorariosSection";
 import { ServiceObjectSection } from "@/components/documents/ServiceObjectSection";
 import type { HonorariosData } from "@/lib/honorarios-utils";
 import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
+import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -397,6 +398,9 @@ export default function WorkItemDocumentWizard() {
   const [autoAdmisorioInferred, setAutoAdmisorioInferred] = useState(false);
   const [currentDefendantIdx, setCurrentDefendantIdx] = useState(0);
   const [generatingNotifs, setGeneratingNotifs] = useState(false);
+
+  // Facultades AI assistant
+  const [facultadesAIOpen, setFacultadesAIOpen] = useState(false);
 
   // Super Admin profile gate
   const { isPlatformAdmin } = usePlatformAdmin();
@@ -1348,11 +1352,25 @@ export default function WorkItemDocumentWizard() {
                         {v.required && <Badge variant="outline" className="text-[10px] h-4">Requerido</Badge>}
                       </div>
                       {v.key === "faculties" ? (
-                        <Textarea
-                          value={variables[v.key] || ""}
-                          onChange={(e) => setVariables((p) => ({ ...p, [v.key]: e.target.value }))}
-                          rows={4}
-                        />
+                        <div className="space-y-2">
+                          <Textarea
+                            value={variables[v.key] || ""}
+                            onChange={(e) => setVariables((p) => ({ ...p, [v.key]: e.target.value }))}
+                            rows={4}
+                          />
+                          {docType === "poder_especial" && workItemId && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2 text-xs"
+                              onClick={() => setFacultadesAIOpen(true)}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Ask Andro IA
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         <Input
                           value={variables[v.key] || ""}
@@ -1509,6 +1527,17 @@ export default function WorkItemDocumentWizard() {
         missingFields={missingProfileFields}
         currentProfile={profile}
       />
+
+      {/* Facultades AI Panel */}
+      {workItemId && (
+        <FacultadesAIPanel
+          open={facultadesAIOpen}
+          onOpenChange={setFacultadesAIOpen}
+          workItemId={workItemId}
+          wizardState={variables}
+          onApply={(text) => setVariables((p) => ({ ...p, faculties: text }))}
+        />
+      )}
     </div>
   );
 }
