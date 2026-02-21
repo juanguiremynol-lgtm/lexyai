@@ -128,12 +128,43 @@ Deno.serve(async (req) => {
 
     // ── Cascade delete in correct FK order ──
     // 1. Delete signature events (FK → document_signatures & generated_documents)
-    await admin.from("document_signature_events").delete().eq("document_id", document_id);
+    const { error: evtDelErr } = await admin
+      .from("document_signature_events")
+      .delete()
+      .eq("document_id", document_id);
+    if (evtDelErr) {
+      console.error("[delete-doc] Failed to delete signature events:", evtDelErr.message);
+    }
 
     // 2. Delete signatures (FK → generated_documents)
-    await admin.from("document_signatures").delete().eq("document_id", document_id);
+    const { error: sigDelErr } = await admin
+      .from("document_signatures")
+      .delete()
+      .eq("document_id", document_id);
+    if (sigDelErr) {
+      console.error("[delete-doc] Failed to delete signatures:", sigDelErr.message);
+      return json({ error: "Error al eliminar firmas: " + sigDelErr.message }, 500);
+    }
 
-    // 3. Delete the document itself
+    // 3. Delete evidence proofs (FK → generated_documents)
+    const { error: proofDelErr } = await admin
+      .from("document_evidence_proofs")
+      .delete()
+      .eq("document_id", document_id);
+    if (proofDelErr) {
+      console.error("[delete-doc] Failed to delete evidence proofs:", proofDelErr.message);
+    }
+
+    // 4. Delete any document variables (FK → generated_documents)
+    const { error: varsDelErr } = await admin
+      .from("generated_document_variables")
+      .delete()
+      .eq("document_id", document_id);
+    if (varsDelErr) {
+      console.error("[delete-doc] Failed to delete variables:", varsDelErr.message);
+    }
+
+    // 4. Delete the document itself
     const { error: delErr } = await admin
       .from("generated_documents")
       .delete()
