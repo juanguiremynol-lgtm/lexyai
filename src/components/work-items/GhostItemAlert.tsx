@@ -3,28 +3,29 @@
  * when a ghost verification has been completed.
  *
  * Adapts messaging and available actions based on user tier:
- * - Basic tier: simple explanation + retry/edit radicado
+ * - Basic tier: simple explanation + edit radicado
  * - Business org admin: full diagnostics + admin actions
  * - Business org member: limited view + "contact admin"
+ *
+ * NOTE: Manual per-item sync buttons have been removed.
+ * All sync calls must originate from:
+ *   1. SuperAdmin Toolbar (admin's own items)
+ *   2. Sincronización Maestra (Debug) — Platform Console
+ *   3. Sincronización Global (Override Manual) — Platform Console
  */
 
-import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   AlertTriangle,
   Bot,
-  RefreshCw,
   Pencil,
   ShieldAlert,
-  CheckCircle2,
-  Loader2,
   MessageSquare,
   Info,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 
 interface GhostItemAlertProps {
   workItem: {
@@ -46,11 +47,8 @@ interface GhostItemAlertProps {
 export function GhostItemAlert({
   workItem,
   userRole,
-  onRetry,
   onEditRadicado,
-  onUpdate,
 }: GhostItemAlertProps) {
-  const [isLoading, setIsLoading] = useState(false);
   const status = workItem.ghost_verification_status;
 
   if (!status || status === "RESOLVED") return null;
@@ -122,6 +120,10 @@ export function GhostItemAlert({
                 </ul>
               </div>
 
+              <p className="text-xs text-muted-foreground mt-2 italic">
+                La sincronización se ejecutará automáticamente en el próximo ciclo programado.
+              </p>
+
               {userRole === "org_admin" && (
                 <div className="mt-2 p-2 rounded bg-muted/50 text-xs space-y-1">
                   <p className="font-medium">Evidencia de verificación (solo admin):</p>
@@ -132,44 +134,18 @@ export function GhostItemAlert({
             </div>
           </div>
 
-          {/* Actions based on role */}
+          {/* Actions based on role — sync buttons removed, only radicado edit */}
           <div className="flex gap-2 ml-6 flex-wrap">
             {(userRole === "basic" || userRole === "org_admin") && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    setIsLoading(true);
-                    try {
-                      const { error } = await supabase.functions.invoke("sync-by-work-item", {
-                        body: { work_item_id: workItem.id, _scheduled: true, force_refresh: true },
-                      });
-                      if (error) throw error;
-                      toast.success("Reintento de sincronización iniciado");
-                      onRetry?.();
-                    } catch {
-                      toast.error("Error al reintentar");
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  }}
-                  disabled={isLoading}
-                  className="gap-1"
-                >
-                  {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  Reintentar Sync
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onEditRadicado}
-                  className="gap-1"
-                >
-                  <Pencil className="h-3 w-3" />
-                  Verificar Radicado
-                </Button>
-              </>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onEditRadicado}
+                className="gap-1"
+              >
+                <Pencil className="h-3 w-3" />
+                Verificar Radicado
+              </Button>
             )}
 
             {userRole === "org_member" && (
@@ -200,31 +176,9 @@ export function GhostItemAlert({
               <p className="text-sm text-muted-foreground">
                 No se pudo determinar la causa del fallo de sincronización (no hay radicados de control configurados para {workItem.workflow_type}).
               </p>
-              {(userRole === "basic" || userRole === "org_admin") && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    setIsLoading(true);
-                    try {
-                      const { error } = await supabase.functions.invoke("sync-by-work-item", {
-                        body: { work_item_id: workItem.id, _scheduled: true },
-                      });
-                      if (error) throw error;
-                      toast.success("Reintento iniciado");
-                    } catch {
-                      toast.error("Error");
-                    } finally {
-                      setIsLoading(false);
-                    }
-                  }}
-                  disabled={isLoading}
-                  className="gap-1 mt-1"
-                >
-                  <RefreshCw className="h-3 w-3" />
-                  Reintentar
-                </Button>
-              )}
+              <p className="text-xs text-muted-foreground italic">
+                La sincronización se reintentará automáticamente en el próximo ciclo programado.
+              </p>
             </div>
           </div>
         </CardContent>
