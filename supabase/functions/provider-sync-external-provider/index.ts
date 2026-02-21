@@ -31,6 +31,7 @@ import {
   reclassifyWithContext,
 } from "../_shared/syncPolicy.ts";
 import { normalizeActuaciones, normalizePublicaciones, translateSamaiFormat } from "../_shared/providerNormalize.ts";
+import { validateProviderResult } from "../_shared/providerAdapters/contractValidator.ts";
 import {
   validateSnapshotAgainstContract,
   applyMappingSpec,
@@ -494,6 +495,52 @@ Deno.serve(async (req) => {
     // If this is an estados provider, use estados data; otherwise use actuaciones
     const acts = isEstadosProvider && rawEstados.length > 0 ? rawEstados : rawActuaciones;
     const pubs = (effectiveData as any).publicaciones || [];
+
+    // ── Contract validation: enforce same shape as built-in adapters ──
+    const dataKind: 'ACTUACIONES' | 'ESTADOS' = isEstadosProvider ? 'ESTADOS' : 'ACTUACIONES';
+    if (acts.length > 0 || pubs.length > 0) {
+      const contractResult = {
+        status: 'SUCCESS' as const,
+        durationMs: snapLatency,
+        ...(dataKind === 'ACTUACIONES'
+          ? { actuaciones: acts.map((a: any) => ({
+              hash_fingerprint: a.hash_fingerprint || a.hashFingerprint || 'missing',
+              source_platform: a.source_platform || connector?.key || 'external',
+              sources: Array.isArray(a.sources) ? a.sources : (a.sources ? [a.sources] : [connector?.key || 'external']),
+              fecha_actuacion: a.fecha_actuacion || a.act_date || a.date || '',
+              actuacion: a.actuacion || a.description || a.type || '',
+            })) }
+          : { publicaciones: pubs.map((p: any) => ({
+              hash_fingerprint: p.hash_fingerprint || p.hashFingerprint || 'missing',
+              source_platform: p.source_platform || connector?.key || 'external',
+              sources: Array.isArray(p.sources) ? p.sources : (p.sources ? [p.sources] : [connector?.key || 'external']),
+              title: p.title || '',
+            })) }
+        ),
+      };
+      const contractCheck = validateProviderResult(contractResult, dataKind);
+      if (!contractCheck.valid) {
+        console.error(`[DYNAMIC_ADAPTER_CONTRACT_VIOLATION] ${connector?.key}: ${contractCheck.errors.join(', ')}`);
+        await writeTrace(db, runId, source, instance, "CONTRACT_VIOLATION", "ERROR", false, 0, {
+          errors: contractCheck.errors,
+          warnings: contractCheck.warnings,
+          provider_key: connector?.key,
+          data_kind: dataKind,
+          sample_count: acts.length + pubs.length,
+        });
+        // Write to trigger_error_log for watchdog observability
+        await db.from("trigger_error_log").insert({
+          trigger_name: "dynamic_adapter_contract",
+          table_name: dataKind === "ACTUACIONES" ? "work_item_acts" : "work_item_publicaciones",
+          error_message: `Contract violation: ${contractCheck.errors.join('; ')}`.slice(0, 500),
+          work_item_id: workItem.id,
+        }).catch(() => {});
+      }
+      if (contractCheck.warnings.length > 0) {
+        console.warn(`[DYNAMIC_ADAPTER_CONTRACT_WARN] ${connector?.key}: ${contractCheck.warnings.join(', ')}`);
+      }
+    }
+
     if (snapRes.ok && (snapData.ok === true || parsedResult.ok) && acts.length === 0 && pubs.length === 0) rawStatus = "EMPTY";
     if (isStrict404Code(normalizedCode)) rawStatus = "ERROR";
 
