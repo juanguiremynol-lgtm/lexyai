@@ -294,11 +294,9 @@ function MultiSignerSharingModal({
             Enviar documento para firma
           </DialogTitle>
           <DialogDescription>
-            {!isLinkSharingAllowed(documentType)
-              ? "Este documento solo puede compartirse por correo electrónico para garantizar la trazabilidad."
-              : signers.length > 1
-                ? `Este poder debe ser firmado por ${signers.length} poderdantes. Cada uno recibirá un enlace individual.`
-                : "Comparta el enlace de firma con el firmante."}
+            {signers.length > 1
+              ? `Este documento debe ser firmado por ${signers.length} poderdantes. Envíe por correo o copie el enlace de firma.`
+              : "Envíe la invitación por correo o copie el enlace de firma para compartir por WhatsApp u otro medio."}
           </DialogDescription>
         </DialogHeader>
 
@@ -324,11 +322,9 @@ function MultiSignerSharingModal({
                       Enviar por correo
                     </Button>
                   )}
-                   {isLinkSharingAllowed(documentType) && (
-                     <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
-                       <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
-                     </Button>
-                   )}
+                   <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
+                     <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace de firma
+                   </Button>
                 </div>
               </CardContent>
             </Card>
@@ -988,8 +984,6 @@ export default function WorkItemDocumentWizard() {
 
       for (let i = 0; i < signers.length; i++) {
         const s = signers[i];
-        // For EMAIL_ONLY doc types (e.g. poder_especial), auto-send email on finalize
-        const autoSendEmail = !isLinkSharingAllowed(docType);
         const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
           body: {
             document_id: doc.id,
@@ -998,7 +992,7 @@ export default function WorkItemDocumentWizard() {
             signer_cedula: s.cedula || null,
             signer_role: s.role,
             signing_order: i + 1,
-            send_email: autoSendEmail,
+            send_email: false,
           },
         });
 
@@ -1011,7 +1005,7 @@ export default function WorkItemDocumentWizard() {
           email: s.email,
           signingUrl: sigResult.signing_url || "",
           signatureId: sigResult.signature_id,
-          emailSent: autoSendEmail && sigResult.email_sent,
+          emailSent: false,
         });
       }
 
@@ -1063,7 +1057,7 @@ export default function WorkItemDocumentWizard() {
 
   const handleCopyLink = (url: string) => {
     navigator.clipboard.writeText(url);
-    toast.success("Enlace copiado al portapapeles");
+    toast.success("Enlace de firma copiado. Válido por 72 horas.");
   };
 
   const handleCloseModal = () => {

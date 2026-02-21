@@ -54,7 +54,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 };
 
 const NOTIFICATION_DOC_TYPES = ["notificacion_personal", "notificacion_por_aviso"];
-const EMAIL_ONLY_DOC_TYPES = ["poder_especial"];
+
 
 // ─── Event config ────────────────────────────────────────
 
@@ -347,7 +347,7 @@ export default function DocumentDetailPage() {
   const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified", "sent_for_signature"].includes(s.status));
   const isNotification = NOTIFICATION_DOC_TYPES.includes(doc.document_type);
   const docVars = (doc.variables || {}) as Record<string, string>;
-  const isEmailOnlyDoc = EMAIL_ONLY_DOC_TYPES.includes(doc.document_type);
+  
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -432,14 +432,12 @@ export default function DocumentDetailPage() {
             )}
             {doc.status === "sent_for_signature" && activeSig && (
               <>
-                {!isEmailOnlyDoc && (
-                  <div className="flex gap-2 items-center w-full sm:w-auto">
-                    <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
-                    <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
-                      {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                )}
+                <div className="flex gap-2 items-center w-full sm:w-auto">
+                  <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
+                  <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
+                    {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
                 <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
                   {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
                   Reenviar por correo
