@@ -83,6 +83,7 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: typeof
   PUBLICACIONES_API: { label: "Rama Judicial", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   "publicaciones-procesales": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   "publicaciones-api": { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
+  publicaciones: { label: "Publicaciones", color: "text-emerald-600 bg-emerald-500/10", icon: Newspaper },
   SAMAI_ESTADOS: { label: "SAMAI Estados", color: "text-blue-600 bg-blue-500/10", icon: Scale },
   DEFAULT: { label: "Sistema", color: "text-muted-foreground bg-muted/50", icon: Newspaper },
 };
@@ -537,7 +538,7 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                         )}
                         
                         {/* PDF link */}
-                        {estado.pdf_url && (
+                        {estado.pdf_url ? (
                           <a 
                             href={estado.pdf_url} 
                             target="_blank" 
@@ -547,7 +548,18 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
                             <ExternalLink className="h-3 w-3" />
                             Ver PDF
                           </a>
-                        )}
+                        ) : estado.description?.toLowerCase().includes('.pdf') && workItem.radicado ? (
+                          <a 
+                            href={`https://publicacionesprocesales.ramajudicial.gov.co/web/publicaciones-procesales/search?q=${workItem.radicado}&type=com.liferay.document.library.kernel.model.DLFileEntry`}
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-amber-600 hover:underline"
+                            title="PDF no disponible directamente — buscar en el portal"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Buscar PDF
+                          </a>
+                        ) : null}
                         
                         {/* Warning if no fecha_desfijacion */}
                         {!fechaDesfijacion && (
