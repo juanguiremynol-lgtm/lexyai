@@ -993,8 +993,11 @@ export default function WorkItemDocumentWizard() {
           variables,
           status: initialStatus,
           created_by: user.id,
-          finalized_at: new Date().toISOString(),
-          finalized_by: user.id,
+          // For bilateral contracts: set content_locked_at (content frozen, not yet executed)
+          // finalized_at is set ONLY when all signatures complete (by complete-signature edge fn)
+          ...(isBilateral(docType as DocumentPolicyType)
+            ? { content_locked_at: new Date().toISOString() }
+            : { finalized_at: new Date().toISOString(), finalized_by: user.id }),
           poderdante_type: poderdanteType,
           entity_data: ed,
         } as any)

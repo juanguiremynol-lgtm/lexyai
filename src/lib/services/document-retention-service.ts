@@ -92,7 +92,7 @@ export async function checkDocumentRetention(
 
   if (error || !doc) return { canDelete: true };
   if (doc.deleted_at) return { canDelete: false, reason: "Este documento ya fue eliminado." };
-  if (!doc.finalized_at) return { canDelete: true }; // drafts can always be deleted
+  if (!doc.finalized_at) return { canDelete: true }; // not yet executed — drafts and content-locked docs can be deleted
 
   if (doc.retention_expires_at && new Date(doc.retention_expires_at) > new Date()) {
     return {

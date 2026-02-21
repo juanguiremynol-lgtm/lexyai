@@ -663,7 +663,13 @@ ${evidenceAppendix}
       }).eq("id", s.id);
     }
 
-    await adminClient.from("generated_documents").update({ status: "signed", final_pdf_sha256: documentHash }).eq("id", sig.document_id);
+    // Set finalized_at NOW (execution timestamp) — this triggers retention computation via DB trigger
+    await adminClient.from("generated_documents").update({
+      status: "signed",
+      final_pdf_sha256: documentHash,
+      finalized_at: new Date().toISOString(),
+      finalized_by: sig.signer_name,
+    }).eq("id", sig.document_id);
 
     await insertChainedEvent(adminClient, {
       organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
