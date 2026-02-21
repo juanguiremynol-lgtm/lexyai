@@ -2,14 +2,7 @@
  * providerAdapters/index.ts — Re-exports all provider adapters and shared types.
  *
  * Usage:
- *   import { type NormalizedActuacion, type ProviderAdapterResult } from '../_shared/providerAdapters/index.ts';
- *
- * Individual adapters will be added here as they are extracted:
- *   export { fetchFromCpnu } from './cpnuAdapter.ts';
- *   export { fetchFromSamai } from './samaiAdapter.ts';
- *   export { fetchFromPublicaciones } from './publicacionesAdapter.ts';
- *   export { fetchFromSamaiEstados } from './samaiEstadosAdapter.ts';
- *   export { fetchFromTutelas } from './tutelasAdapter.ts';
+ *   import { type NormalizedActuacion, fetchFromCpnu } from '../_shared/providerAdapters/index.ts';
  */
 
 // Re-export all types
@@ -31,3 +24,12 @@ export { fetchFromCpnu, normalizeCpnuActuaciones, extractCpnuParties, computeCpn
 
 // Re-export SAMAI adapter
 export { fetchFromSamai, normalizeSamaiActuaciones, extractSamaiParties, extractSamaiMetadata, computeSamaiFingerprint } from './samaiAdapter.ts';
+
+// Re-export Publicaciones adapter
+export { fetchFromPublicaciones, normalizePublicacionesResponse, computePublicacionFingerprint, extractDateFromTitle } from './publicacionesAdapter.ts';
+
+// Re-export SAMAI Estados adapter
+export { fetchFromSamaiEstados, normalizeSamaiEstadosResponse, formatRadicadoForSamai, computeSamaiEstadosFingerprint } from './samaiEstadosAdapter.ts';
+
+// Re-export Tutelas adapter
+export { fetchFromTutelas, normalizeTutelasActuaciones, normalizeTutelasEstados, extractTutelasMetadata, extractTutelasParties, computeTutelasFingerprint, mapCorteStatus } from './tutelasAdapter.ts';
