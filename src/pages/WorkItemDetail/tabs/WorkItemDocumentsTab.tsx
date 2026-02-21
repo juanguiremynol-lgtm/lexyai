@@ -1,9 +1,10 @@
 /**
  * WorkItemDocumentsTab — Lists generated documents for a work item
- * with create buttons, status badges, and navigation to detail/wizard.
+ * with create buttons, status badges, delete, and navigation to detail/wizard.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,9 +14,15 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { toast } from "sonner";
 import type { WorkItem } from "@/types/work-item";
 
 interface Props {
@@ -45,6 +52,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 export function WorkItemDocumentsTab({ workItem }: Props) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
 
   const { data: documents, isLoading } = useQuery({
     queryKey: ["work-item-generated-docs", workItem.id],
@@ -56,6 +65,26 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (docId: string) => {
+      // Delete related signatures first
+      await supabase.from("document_signatures").delete().eq("document_id", docId);
+      // Delete related events
+      await supabase.from("document_signature_events").delete().eq("document_id", docId);
+      // Delete the document
+      const { error } = await supabase.from("generated_documents").delete().eq("id", docId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["work-item-generated-docs", workItem.id] });
+      toast.success("Documento eliminado");
+      setDeleteDocId(null);
+    },
+    onError: (err) => {
+      toast.error("Error al eliminar: " + (err as Error).message);
     },
   });
 
@@ -160,13 +189,48 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteDocId(doc.id);
+                      }}
+                      title="Eliminar documento"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 </div>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <AlertDialog open={!!deleteDocId} onOpenChange={() => setDeleteDocId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar documento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción eliminará el documento, sus firmas y registros de auditoría asociados. No se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteDocId && deleteMutation.mutate(deleteDocId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

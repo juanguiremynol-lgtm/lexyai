@@ -236,12 +236,16 @@ export default function DocumentDetailPage() {
     onError: (err) => toast.error("Error: " + (err as Error).message),
   });
 
+  // Find next client signer (skip lawyer for bilateral resend)
+  const clientSig = signatures?.find((s) => s.signer_role === "client" && ["pending", "viewed", "otp_verified", "waiting"].includes(s.status));
+
   // Resend signing link (generates NEW link)
   const resendMutation = useMutation({
     mutationFn: async () => {
-      const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified"].includes(s.status));
-      const signerName = activeSig?.signer_name || "Cliente";
-      const signerEmail = activeSig?.signer_email;
+      // For bilateral docs, prefer the client signer for resend
+      const targetSig = clientSig || signatures?.find((s) => ["pending", "viewed", "otp_verified"].includes(s.status));
+      const signerName = targetSig?.signer_name || "Cliente";
+      const signerEmail = targetSig?.signer_email;
       if (!signerEmail) throw new Error("No hay email del firmante");
 
       const { data, error } = await supabase.functions.invoke("generate-signing-link", {
@@ -264,18 +268,18 @@ export default function DocumentDetailPage() {
     onError: (err) => toast.error("Error: " + (err as Error).message),
   });
 
-  // Resend email for existing signature (no new link)
+  // Resend email for existing signature (no new link) — targets client signer for bilateral
   const handleResendEmail = async () => {
-    const sig = activeSig;
-    if (!sig) return;
+    const targetSig = clientSig || activeSig;
+    if (!targetSig) return;
     setSendingEmail(true);
     try {
       const { data, error } = await supabase.functions.invoke("send-signing-email", {
-        body: { signature_id: sig.id },
+        body: { signature_id: targetSig.id },
       });
       if (error) throw error;
       if (!data.ok) throw new Error(data.error);
-      toast.success(`Email reenviado a ${sig.signer_email}`);
+      toast.success(`Email reenviado a ${targetSig.signer_email}`);
       queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
     } catch (err) {
       toast.error("Error: " + (err as Error).message);
@@ -288,7 +292,7 @@ export default function DocumentDetailPage() {
   const getSigningUrl = () => {
     if (!activeSig?.signing_token || !activeSig?.hmac_signature || !activeSig?.expires_at) return "";
     const expiresTimestamp = Math.floor(new Date(activeSig.expires_at).getTime() / 1000);
-    return `https://lexyai.lovable.app/sign/${activeSig.signing_token}?expires=${expiresTimestamp}&signature=${activeSig.hmac_signature}`;
+    return `https://andromeda.legal/sign/${activeSig.signing_token}?expires=${expiresTimestamp}&signature=${activeSig.hmac_signature}`;
   };
 
   const handleCopyLink = () => {
@@ -536,8 +540,8 @@ export default function DocumentDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="max-h-[600px] border rounded-lg p-6 bg-white dark:bg-card">
-                <div dangerouslySetInnerHTML={{ __html: doc.content_html }} />
+              <ScrollArea className="max-h-[600px] border rounded-lg p-6" style={{ backgroundColor: "#FFFFFF" }}>
+                <div style={{ color: "#000000" }} dangerouslySetInnerHTML={{ __html: doc.content_html }} />
               </ScrollArea>
             </CardContent>
           </Card>
