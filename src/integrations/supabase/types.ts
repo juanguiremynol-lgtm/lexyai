@@ -4454,11 +4454,14 @@ export type Database = {
           actor_type: string
           actor_user_agent: string | null
           created_at: string
+          device_fingerprint_hash: string | null
           document_id: string | null
           event_data: Json
+          event_hash: string | null
           event_type: string
           id: string
           organization_id: string
+          previous_event_hash: string | null
           signature_id: string | null
         }
         Insert: {
@@ -4467,11 +4470,14 @@ export type Database = {
           actor_type: string
           actor_user_agent?: string | null
           created_at?: string
+          device_fingerprint_hash?: string | null
           document_id?: string | null
           event_data?: Json
+          event_hash?: string | null
           event_type: string
           id?: string
           organization_id: string
+          previous_event_hash?: string | null
           signature_id?: string | null
         }
         Update: {
@@ -4480,11 +4486,14 @@ export type Database = {
           actor_type?: string
           actor_user_agent?: string | null
           created_at?: string
+          device_fingerprint_hash?: string | null
           document_id?: string | null
           event_data?: Json
+          event_hash?: string | null
           event_type?: string
           id?: string
           organization_id?: string
+          previous_event_hash?: string | null
           signature_id?: string | null
         }
         Relationships: [
@@ -4513,15 +4522,20 @@ export type Database = {
       }
       document_signatures: {
         Row: {
+          certificate_id: string | null
           certificate_path: string | null
           combined_pdf_hash: string | null
+          consumed_at: string | null
           created_at: string | null
           created_by: string
           depends_on: string | null
+          device_fingerprint_hash: string | null
           document_id: string
           expires_at: string
           hmac_signature: string
           id: string
+          identity_confirmation_data: Json | null
+          identity_confirmed_at: string | null
           organization_id: string
           otp_attempts: number | null
           otp_code_hash: string | null
@@ -4548,15 +4562,20 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          certificate_id?: string | null
           certificate_path?: string | null
           combined_pdf_hash?: string | null
+          consumed_at?: string | null
           created_at?: string | null
           created_by: string
           depends_on?: string | null
+          device_fingerprint_hash?: string | null
           document_id: string
           expires_at: string
           hmac_signature: string
           id?: string
+          identity_confirmation_data?: Json | null
+          identity_confirmed_at?: string | null
           organization_id: string
           otp_attempts?: number | null
           otp_code_hash?: string | null
@@ -4583,15 +4602,20 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          certificate_id?: string | null
           certificate_path?: string | null
           combined_pdf_hash?: string | null
+          consumed_at?: string | null
           created_at?: string | null
           created_by?: string
           depends_on?: string | null
+          device_fingerprint_hash?: string | null
           document_id?: string
           expires_at?: string
           hmac_signature?: string
           id?: string
+          identity_confirmation_data?: Json | null
+          identity_confirmed_at?: string | null
           organization_id?: string
           otp_attempts?: number | null
           otp_code_hash?: string | null
