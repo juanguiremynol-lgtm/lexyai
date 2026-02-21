@@ -91,8 +91,11 @@ export default function Clients() {
     },
     onError: (error: any) => {
       const msg = error?.message || String(error);
-      if (msg.includes('limit reached') || msg.includes('maximum')) {
-        toast.error("Has alcanzado el límite de clientes para tu plan. Elimina un cliente existente o mejora tu plan.");
+      if (msg.includes('limit reached') || msg.includes('maximum') || msg.includes('Client limit')) {
+        // Extract count/limit from message like "Client limit reached: 25/25 clients..."
+        const match = msg.match(/(\d+)\/(\d+)/);
+        const detail = match ? ` (${match[1]}/${match[2]})` : '';
+        toast.error(`Has alcanzado el límite de clientes para tu plan${detail}. Elimina un cliente existente o mejora tu plan.`);
       } else {
         toast.error("Error al crear cliente: " + msg);
       }
