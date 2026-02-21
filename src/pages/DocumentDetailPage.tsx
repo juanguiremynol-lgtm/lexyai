@@ -478,6 +478,75 @@ export default function DocumentDetailPage() {
                 </AlertDialog>
               </>
             )}
+            {/* Recovery: Create new version for stuck contracts */}
+            {(doc.status === "sent_for_signature" || doc.status === "partially_signed") && 
+             (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial") && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline">
+                    <RefreshCw className="h-4 w-4 mr-2" /> Crear nueva versión
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Crear nueva versión del documento?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se creará un nuevo borrador con los mismos datos del contrato actual. 
+                      El documento actual será marcado como "Reemplazado" y sus firmas pendientes serán revocadas.
+                      El historial de auditoría se preserva.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => {
+                        try {
+                          // Clone variables into new draft
+                          const { data: newDoc, error: insertErr } = await supabase
+                            .from("generated_documents")
+                            .insert({
+                              organization_id: (doc as any).organization_id,
+                              work_item_id: (doc as any).work_item_id,
+                              document_type: doc.document_type,
+                              title: doc.title + " (v2)",
+                              content_json: doc.content_json,
+                              content_html: doc.content_html,
+                              variables: doc.variables,
+                              status: "draft",
+                              created_by: (doc as any).created_by,
+                              poderdante_type: (doc as any).poderdante_type,
+                              entity_data: (doc as any).entity_data,
+                            } as any)
+                            .select("id")
+                            .single();
+                          if (insertErr) throw insertErr;
+
+                          // Mark old document as superseded
+                          await supabase
+                            .from("generated_documents")
+                            .update({ status: "revoked" } as any)
+                            .eq("id", doc.id);
+
+                          // Revoke pending signatures on the old document
+                          await supabase
+                            .from("document_signatures")
+                            .update({ status: "revoked" } as any)
+                            .eq("document_id", doc.id)
+                            .neq("status", "signed");
+
+                          toast.success("Nueva versión creada como borrador");
+                          navigate(`/app/work-items/${workItemId}/documents/${newDoc.id}`);
+                        } catch (err: any) {
+                          toast.error("Error: " + (err?.message || "No se pudo crear nueva versión"));
+                        }
+                      }}
+                    >
+                      Crear Nueva Versión
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             {doc.status === "signed" && signedSig && (
               <>
                 {signedSig.signed_document_path && (
