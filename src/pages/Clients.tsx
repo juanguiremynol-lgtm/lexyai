@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useDisabledDocTypes } from "@/hooks/useDisabledDocTypes";
 import { PostClientCreationPrompt } from "@/components/clients/PostClientCreationPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,7 @@ export default function Clients() {
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
+  const disabledDocTypes = useDisabledDocTypes();
 
   const { data: clients, isLoading } = useQuery({
     queryKey: ["clients"],
@@ -324,6 +326,7 @@ export default function Clients() {
       onOpenChange={setShowContractPrompt}
       clientId={createdClientId}
       clientName={createdClientName}
+      disabledDocTypes={disabledDocTypes}
     />
     </>
   );
