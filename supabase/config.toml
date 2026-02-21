@@ -347,3 +347,6 @@ verify_jwt = false
 
 [functions.verify-proof-hash]
 verify_jwt = false
+
+[functions.delete-generated-document]
+verify_jwt = false
