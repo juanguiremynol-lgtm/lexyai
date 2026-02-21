@@ -6,7 +6,7 @@
  * Auth: requires JWT (authenticated user must own the document or be in the same org).
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -4,7 +4,7 @@
  * Inserts inbound emails into system_email_messages.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -1020,7 +1020,22 @@ export default function WorkItemDocumentWizard() {
         });
 
         if (sigErr || !sigResult?.ok) {
-          throw new Error(sigResult?.error || sigErr?.message || "Error generando enlace de firma");
+          // Extract detailed error from edge function response
+          let errorDetail = sigResult?.error || "Error generando enlace de firma";
+          if (sigErr) {
+            // Try to get the actual response body from the FunctionsHttpError
+            try {
+              const ctx = (sigErr as any)?.context;
+              if (ctx && typeof ctx.json === "function") {
+                const body = await ctx.json();
+                errorDetail = body?.error || errorDetail;
+              }
+            } catch (_) { /* fallback to generic */ }
+            if (errorDetail === "Error generando enlace de firma") {
+              errorDetail = sigErr.message || errorDetail;
+            }
+          }
+          throw new Error(errorDetail);
         }
 
         entries.push({
