@@ -4447,6 +4447,69 @@ export type Database = {
           },
         ]
       }
+      document_evidence_proofs: {
+        Row: {
+          created_at: string
+          document_id: string
+          file_name: string
+          file_path: string
+          file_sha256: string
+          file_size_bytes: number | null
+          id: string
+          label: string
+          metadata: Json | null
+          mime_type: string | null
+          organization_id: string
+          proof_type: string
+          uploaded_by: string
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          file_name: string
+          file_path: string
+          file_sha256: string
+          file_size_bytes?: number | null
+          id?: string
+          label: string
+          metadata?: Json | null
+          mime_type?: string | null
+          organization_id: string
+          proof_type?: string
+          uploaded_by: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          file_name?: string
+          file_path?: string
+          file_sha256?: string
+          file_size_bytes?: number | null
+          id?: string
+          label?: string
+          metadata?: Json | null
+          mime_type?: string | null
+          organization_id?: string
+          proof_type?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_evidence_proofs_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "generated_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_evidence_proofs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_signature_events: {
         Row: {
           actor_id: string | null
