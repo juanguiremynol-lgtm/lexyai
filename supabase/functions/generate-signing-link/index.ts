@@ -89,9 +89,6 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // Email-only document types — signing URL must not be exposed for copy/share
-    const EMAIL_ONLY_DOC_TYPES = ["poder_especial"];
-
     // Verify document exists and is finalized
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
@@ -104,7 +101,8 @@ Deno.serve(async (req) => {
       return json({ error: `Document status is '${doc.status}', must be 'finalized' or 'draft'` }, 400);
     }
 
-    const isEmailOnly = EMAIL_ONLY_DOC_TYPES.includes(doc.document_type || "");
+    // Determine delivery method for audit trail
+    const deliveryMethod = send_email ? "EMAIL" : "LINK";
 
     // Generate signing token and HMAC
     const signingToken = crypto.randomUUID();
@@ -157,7 +155,7 @@ Deno.serve(async (req) => {
         signer_name,
         expires_at: expiresAt.toISOString(),
         expires_hours: hoursToExpire,
-        share_mode: isEmailOnly ? "EMAIL_ONLY" : "EMAIL_AND_LINK",
+        delivery_method: deliveryMethod,
         sender: "info@andromeda.legal",
         generated_for: { user_id: user.id },
       },
@@ -259,10 +257,10 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       signature_id: sig.id,
-      signing_url: isEmailOnly ? null : signingUrl,
+      signing_url: signingUrl,
       expires_at: expiresAt.toISOString(),
       email_sent: emailSent,
-      share_mode: isEmailOnly ? "EMAIL_ONLY" : "EMAIL_AND_LINK",
+      delivery_method: deliveryMethod,
     });
   } catch (err) {
     console.error("generate-signing-link error:", err);

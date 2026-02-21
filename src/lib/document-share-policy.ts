@@ -1,10 +1,11 @@
 /**
  * Document Share Policy — Defines allowed sharing channels per document type.
- * POAs are EMAIL_ONLY (no public links / WhatsApp sharing).
+ * POA supports both EMAIL and LINK (signing link for WhatsApp/messenger sharing).
  */
 
 export type ShareChannel = "email" | "link";
 export type ShareMode = "EMAIL_ONLY" | "EMAIL_AND_LINK";
+export type DeliveryMethod = "EMAIL" | "LINK";
 
 export interface DocumentSharePolicy {
   mode: ShareMode;
@@ -13,10 +14,11 @@ export interface DocumentSharePolicy {
 }
 
 const POLICY_MAP: Record<string, DocumentSharePolicy> = {
+  // POA supports both email and link initiation
   poder_especial: {
-    mode: "EMAIL_ONLY",
-    allowedChannels: ["email"],
-    reason: "Los poderes especiales requieren trazabilidad completa y solo pueden compartirse por correo electrónico.",
+    mode: "EMAIL_AND_LINK",
+    allowedChannels: ["email", "link"],
+    reason: "Los poderes especiales pueden compartirse por correo o enlace de firma. La trazabilidad se garantiza en ambos canales.",
   },
 };
 
