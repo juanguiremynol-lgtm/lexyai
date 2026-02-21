@@ -10837,6 +10837,36 @@ export type Database = {
           },
         ]
       }
+      trigger_error_log: {
+        Row: {
+          created_at: string | null
+          error_message: string
+          id: string
+          sqlstate: string | null
+          table_name: string
+          trigger_name: string
+          work_item_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          error_message: string
+          id?: string
+          sqlstate?: string | null
+          table_name: string
+          trigger_name: string
+          work_item_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          error_message?: string
+          id?: string
+          sqlstate?: string | null
+          table_name?: string
+          trigger_name?: string
+          work_item_id?: string | null
+        }
+        Relationships: []
+      }
       user_data_alerts: {
         Row: {
           alert_type: string
@@ -13040,6 +13070,7 @@ export type Database = {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
       }
+      cleanup_trigger_error_log: { Args: never; Returns: undefined }
       daily_sync_health_snapshot: {
         Args: { p_days?: number; p_target_date?: string }
         Returns: Json
