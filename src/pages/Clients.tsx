@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { PostClientCreationPrompt } from "@/components/clients/PostClientCreationPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,27 +58,36 @@ export default function Clients() {
     },
   });
 
+  // Post-creation prompt state
+  const [showContractPrompt, setShowContractPrompt] = useState(false);
+  const [createdClientId, setCreatedClientId] = useState<string>("");
+  const [createdClientName, setCreatedClientName] = useState<string>("");
+
   const createClient = useMutation({
     mutationFn: async (form: FormData) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No autenticado");
 
-      const { error } = await supabase.from("clients").insert({
+      const name = form.get("name") as string;
+      const { data, error } = await supabase.from("clients").insert({
         owner_id: user.id,
         organization_id: organization?.id || null,
-        name: form.get("name") as string,
+        name,
         id_number: form.get("id_number") as string || null,
         address: form.get("address") as string || null,
         city: form.get("city") as string || null,
         email: form.get("email") as string || null,
         notes: form.get("notes") as string || null,
-      });
+      }).select("id, name").single();
       if (error) throw error;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["clients"] });
       setOpen(false);
-      toast.success("Cliente creado exitosamente");
+      setCreatedClientId(data.id);
+      setCreatedClientName(data.name);
+      setShowContractPrompt(true);
     },
     onError: (error: any) => {
       const msg = error?.message || String(error);
@@ -120,6 +130,7 @@ export default function Clients() {
   });
 
   return (
+    <>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -304,5 +315,13 @@ export default function Clients() {
         </CardContent>
       </Card>
     </div>
+
+    <PostClientCreationPrompt
+      open={showContractPrompt}
+      onOpenChange={setShowContractPrompt}
+      clientId={createdClientId}
+      clientName={createdClientName}
+    />
+    </>
   );
 }
