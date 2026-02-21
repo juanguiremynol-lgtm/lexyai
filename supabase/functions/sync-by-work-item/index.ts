@@ -2689,7 +2689,8 @@ async function executeViaOrchestrator(
     providerAttempts.push({
       provider: attempt.provider.toLowerCase(),
       status: attempt.status === "success" ? "success"
-        : attempt.status === "not_found" || attempt.status === "empty" ? "not_found"
+        : attempt.status === "empty" ? "empty"
+        : attempt.status === "not_found" ? "not_found"
         : attempt.status === "timeout" ? "timeout"
         : attempt.status === "skipped" ? "skipped"
         : "error",
@@ -4322,7 +4323,7 @@ Deno.serve(async (req) => {
 
     // Validate sync integrity before setting last_synced_at
     const anyProviderSucceeded = result.provider_attempts.some(a => a.status === 'success' || a.status === 'empty');
-    const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout' || a.status === 'not_found');
+    const allProvidersFailed = result.provider_attempts.length > 0 && result.provider_attempts.every(a => a.status === 'error' || a.status === 'timeout');
 
     const syncOk = anyProviderSucceeded && !allProvidersFailed;
     const nowIso = new Date().toISOString();
