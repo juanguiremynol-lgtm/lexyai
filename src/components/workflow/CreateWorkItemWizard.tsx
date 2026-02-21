@@ -3,6 +3,7 @@ import { PostCreationDocumentPrompt } from "@/components/documents/PostCreationD
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useDisabledDocTypes } from "@/hooks/useDisabledDocTypes";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -100,6 +101,7 @@ export function CreateWorkItemWizard({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { organization } = useOrganization();
+  const disabledDocTypes = useDisabledDocTypes();
   
   // Wizard state
   const [step, setStep] = useState<WizardStep>('workflow');
@@ -1276,6 +1278,7 @@ export function CreateWorkItemWizard({
       workflowType={createdWorkItem?.workflow_type || ""}
       radicado={createdWorkItem?.radicado || ""}
       clientName={createdWorkItem?.demandantes || ""}
+      disabledDocTypes={disabledDocTypes}
     />
     </>
   );
