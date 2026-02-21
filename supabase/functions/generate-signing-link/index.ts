@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
     });
 
     // Build signing URL
-    const appUrl = "https://lexyai.lovable.app";
+    const appUrl = "https://andromeda.legal";
     const signingUrl = `${appUrl}/sign/${signingToken}?expires=${expiresTimestamp}&signature=${hmacSignature}`;
 
     // Optionally send email

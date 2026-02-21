@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
 
     // Rebuild signing URL from existing token
     const expiresTimestamp = Math.floor(new Date(sig.expires_at).getTime() / 1000);
-    const appUrl = "https://lexyai.lovable.app";
+    const appUrl = "https://andromeda.legal";
     const signingUrl = `${appUrl}/sign/${sig.signing_token}?expires=${expiresTimestamp}&signature=${sig.hmac_signature}`;
 
     // Fetch lawyer info

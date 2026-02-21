@@ -1485,7 +1485,7 @@ export default function WorkItemDocumentWizard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className={`border rounded-lg p-4 ${previewDarkMode ? "bg-[#1a1a2e]" : "bg-white"}`}>
+              <div className="border rounded-lg p-4" style={{ backgroundColor: previewDarkMode ? "#1a1a2e" : "#FFFFFF" }}>
                 <ScrollArea className="h-[600px]">
                   <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
                 </ScrollArea>
@@ -1537,7 +1537,7 @@ export default function WorkItemDocumentWizard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className={`border rounded-lg p-8 ${previewDarkMode ? "bg-[#1a1a2e]" : "bg-white"}`}>
+              <div className="border rounded-lg p-8" style={{ backgroundColor: previewDarkMode ? "#1a1a2e" : "#FFFFFF" }}>
                 <ScrollArea className="h-[600px]">
                   <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
                 </ScrollArea>
