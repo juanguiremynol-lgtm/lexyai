@@ -68,9 +68,10 @@ Deno.test("TUTELA ACTUACIONES: CPNU primary, SAMAI + tutelas-api fallback", () =
   assertEquals(result.providers[2].role, "FALLBACK");
 });
 
-Deno.test("TUTELA ESTADOS: no providers", () => {
+Deno.test("TUTELA ESTADOS: has publicaciones provider", () => {
   const result = getProviderCoverage("TUTELA", "ESTADOS");
-  assertEquals(result.compatible, false);
+  // Per canonical policy: TUTELA estados uses publicaciones
+  assertEquals(result.compatible, true);
 });
 
 // ── 4. Compatibility gating ──
