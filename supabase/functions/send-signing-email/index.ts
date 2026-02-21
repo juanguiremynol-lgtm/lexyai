@@ -153,6 +153,14 @@ Deno.serve(async (req) => {
       </div>
     `;
 
+    // Fetch lawyer's litigation email for Reply-To
+    const { data: lawyerFullProfile } = await adminClient
+      .from("profiles")
+      .select("litigation_email")
+      .eq("id", doc.created_by)
+      .single();
+    const replyToEmail = lawyerFullProfile?.litigation_email || lawyerProfile?.email || null;
+
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -162,6 +170,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         from: `${branding.firm_name} <info@andromeda.legal>`,
         to: [sig.signer_email],
+        ...(replyToEmail ? { reply_to: replyToEmail } : {}),
         subject: `Documento pendiente de firma — ${doc.title}`,
         html: emailHtml,
       }),

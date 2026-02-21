@@ -30,6 +30,14 @@ export function DocumentSignatureSettings() {
             <FileText className="h-4 w-4 mr-1" />
             Contrato de Servicios
           </TabsTrigger>
+          <TabsTrigger value="notificacion-personal">
+            <FileText className="h-4 w-4 mr-1" />
+            Notificación Personal
+          </TabsTrigger>
+          <TabsTrigger value="notificacion-aviso">
+            <FileText className="h-4 w-4 mr-1" />
+            Notificación por Aviso
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="litigation-email">
@@ -46,6 +54,14 @@ export function DocumentSignatureSettings() {
 
         <TabsContent value="contrato">
           <DocumentTemplateEditor templateType="contrato_servicios" />
+        </TabsContent>
+
+        <TabsContent value="notificacion-personal">
+          <DocumentTemplateEditor templateType="notificacion_personal" />
+        </TabsContent>
+
+        <TabsContent value="notificacion-aviso">
+          <DocumentTemplateEditor templateType="notificacion_por_aviso" />
         </TabsContent>
       </Tabs>
     </div>

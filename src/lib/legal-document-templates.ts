@@ -4,7 +4,7 @@
  * Phase 3.8: Multi-party & legal entity support with conditional blocks.
  */
 
-export type LegalDocumentType = "poder_especial" | "contrato_servicios" | "paz_y_salvo";
+export type LegalDocumentType = "poder_especial" | "contrato_servicios" | "paz_y_salvo" | "notificacion_personal" | "notificacion_por_aviso";
 export type PoderdanteType = "natural" | "multiple" | "juridica";
 
 export interface LegalTemplateVariable {
@@ -494,12 +494,175 @@ export const PAZ_Y_SALVO_VARIABLES: LegalTemplateVariable[] = [
   { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
 ];
 
+// ─── Notificación Personal Template (Art. 291 CGP) ──────
+
+export const NOTIFICACION_PERSONAL_HTML = `
+<div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
+  {{#if court_header_html}}{{court_header_html}}{{/if}}
+
+  <p><strong>Ref: Notificación Personal</strong><br/>
+  Radicado: <strong>{{radicado}}</strong><br/>
+  Demandante: {{plaintiff_names}}<br/>
+  Demandado: {{defendant_names}}</p>
+
+  <p><strong>{{city}}</strong>, {{date}}</p>
+
+  <p>Señor(a)<br/>
+  <strong>{{defendant_name}}</strong><br/>
+  {{#if defendant_address}}{{defendant_address}}<br/>{{/if}}
+  {{#if defendant_email}}{{defendant_email}}{{/if}}</p>
+
+  <p style="text-align:justify;">
+  <strong>ASUNTO: NOTIFICACIÓN PERSONAL</strong> — Auto admisorio de la demanda de fecha <strong>{{auto_admisorio_date}}</strong>
+  </p>
+
+  <p style="text-align:justify;">
+  Respetado(a) señor(a):
+  </p>
+
+  <p style="text-align:justify;">
+  De manera atenta me permito comunicarle que en mi calidad de apoderado(a) judicial de <strong>{{plaintiff_names_full}}</strong>, se ha presentado demanda <strong>{{process_type}}</strong> en su contra, la cual fue admitida mediante auto de fecha <strong>{{auto_admisorio_date}}</strong>, proferido por <strong>{{court_name_full}}</strong>.
+  </p>
+
+  <p style="text-align:justify;">
+  El proceso se tramita bajo el radicado No. <strong>{{radicado}}</strong>.
+  </p>
+
+  <p style="text-align:justify;">
+  De conformidad con lo establecido en los artículos 290 y 291 del Código General del Proceso, le notifico para que dentro del término legal correspondiente, se sirva comparecer a la Secretaría de <strong>{{court_name_full}}</strong>{{#if court_address}}, ubicado en <strong>{{court_address}}</strong>{{/if}}, con el fin de ser notificado(a) personalmente del auto admisorio de la demanda, o si lo prefiere, podrá notificarse electrónicamente enviando comunicación al correo electrónico del despacho: <strong>{{court_email}}</strong>.
+  </p>
+
+  {{#if court_email}}
+  <p style="text-align:justify;">
+  Para efectos de notificaciones electrónicas, el correo del despacho judicial es: <strong>{{court_email}}</strong>
+  </p>
+  {{/if}}
+
+  <p style="text-align:justify;">
+  Atentamente,
+  </p>
+
+  <div style="margin-top:48px;">
+    <p><strong>{{lawyer_full_name}}</strong></p>
+    <p>C.C. {{lawyer_cedula}}</p>
+    <p>T.P. {{lawyer_tarjeta_profesional}}</p>
+    <p>{{lawyer_litigation_email}}</p>
+    {{#if lawyer_phone}}<p>Tel. {{lawyer_phone}}</p>{{/if}}
+    <p>Apoderado(a) judicial de la parte demandante</p>
+  </div>
+</div>`;
+
+export const NOTIFICACION_PERSONAL_VARIABLES: LegalTemplateVariable[] = [
+  { key: "radicado", label: "Radicado", required: true, source: "work_item", editable: false },
+  { key: "court_name_full", label: "Nombre completo del juzgado", required: true, source: "work_item", editable: true },
+  { key: "court_email", label: "Email del juzgado", required: false, source: "manual", editable: true },
+  { key: "court_address", label: "Dirección del juzgado", required: false, source: "manual", editable: true },
+  { key: "court_header_html", label: "(auto) Encabezado judicial", required: false, source: "computed", editable: false },
+  { key: "plaintiff_names", label: "Demandante(s)", required: true, source: "work_item", editable: true },
+  { key: "plaintiff_names_full", label: "Nombre(s) completo(s) con cédula", required: true, source: "manual", editable: true },
+  { key: "defendant_names", label: "Demandado(s)", required: true, source: "work_item", editable: true },
+  { key: "defendant_name", label: "Nombre del demandado notificado", required: true, source: "manual", editable: true },
+  { key: "defendant_address", label: "Dirección del demandado", required: false, source: "manual", editable: true },
+  { key: "defendant_email", label: "Email del demandado", required: false, source: "manual", editable: true },
+  { key: "auto_admisorio_date", label: "Fecha del auto admisorio", required: true, source: "manual", editable: true },
+  { key: "process_type", label: "Tipo de proceso", required: true, source: "work_item", editable: true },
+  { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
+  { key: "lawyer_litigation_email", label: "Email de litigio del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_phone", label: "Teléfono del abogado", required: false, source: "profile", editable: true },
+  { key: "city", label: "Ciudad", required: true, source: "computed", editable: true, defaultValue: "Medellín" },
+  { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
+];
+
+// ─── Notificación por Aviso Template (Art. 292 CGP) ──────
+
+export const NOTIFICACION_POR_AVISO_HTML = `
+<div style="font-family:Georgia,serif;line-height:1.8;max-width:700px;margin:0 auto;">
+  {{#if court_header_html}}{{court_header_html}}{{/if}}
+
+  <p><strong>Ref: AVISO DE NOTIFICACIÓN (Art. 292 C.G.P.)</strong><br/>
+  Radicado: <strong>{{radicado}}</strong><br/>
+  Demandante: {{plaintiff_names}}<br/>
+  Demandado: {{defendant_names}}</p>
+
+  <h2 style="text-align:center;text-transform:uppercase;margin:32px 0;">Aviso</h2>
+
+  <p style="text-align:justify;">
+  De conformidad con lo establecido en el artículo 292 del Código General del Proceso, y habiéndose agotado sin éxito el trámite de notificación personal previsto en el artículo 291 ibídem, por medio del presente aviso se le notifica a:
+  </p>
+
+  <p><strong>{{defendant_name}}</strong><br/>
+  {{#if defendant_identification}}{{defendant_identification}}<br/>{{/if}}
+  {{#if defendant_address}}{{defendant_address}}{{/if}}</p>
+
+  <p style="text-align:justify;">
+  De la existencia del proceso <strong>{{process_type}}</strong> radicado bajo el No. <strong>{{radicado}}</strong>, que cursa ante <strong>{{court_name_full}}</strong>, en el cual <strong>{{plaintiff_names_full}}</strong> demanda a <strong>{{defendant_names_full}}</strong>.
+  </p>
+
+  <div style="margin:16px 0;padding:12px 16px;border-left:3px solid #1a1a2e;">
+    <p><strong>AUTO NOTIFICADO:</strong></p>
+    <p>Naturaleza: Auto admisorio de la demanda</p>
+    <p>Fecha: <strong>{{auto_admisorio_date}}</strong></p>
+    <p>Proferido por: <strong>{{court_name_full}}</strong></p>
+  </div>
+
+  <p style="text-align:justify;">
+  Se le informa que dispone del término legal establecido en el Código General del Proceso para comparecer al proceso y ejercer su derecho de defensa, contado a partir de la fecha en que se entienda surtida la presente notificación por aviso.
+  </p>
+
+  <p style="text-align:justify;">
+  Para efectos de notificaciones:<br/>
+  {{#if court_email}}Correo electrónico del despacho: <strong>{{court_email}}</strong><br/>{{/if}}
+  {{#if court_address}}Dirección del despacho: <strong>{{court_address}}</strong>{{/if}}
+  </p>
+
+  <p style="text-align:justify;">
+  El presente aviso se envía de conformidad con el artículo 292 del Código General del Proceso, acompañado de copia de la demanda y del auto admisorio.
+  </p>
+
+  <p><strong>{{city}}</strong>, {{date}}</p>
+
+  <div style="margin-top:48px;">
+    <p><strong>{{lawyer_full_name}}</strong></p>
+    <p>C.C. {{lawyer_cedula}}</p>
+    <p>T.P. {{lawyer_tarjeta_profesional}}</p>
+    <p>{{lawyer_litigation_email}}</p>
+    <p>Apoderado(a) judicial de la parte demandante</p>
+  </div>
+</div>`;
+
+export const NOTIFICACION_POR_AVISO_VARIABLES: LegalTemplateVariable[] = [
+  { key: "radicado", label: "Radicado", required: true, source: "work_item", editable: false },
+  { key: "court_name_full", label: "Nombre completo del juzgado", required: true, source: "work_item", editable: true },
+  { key: "court_email", label: "Email del juzgado", required: false, source: "manual", editable: true },
+  { key: "court_address", label: "Dirección del juzgado", required: false, source: "manual", editable: true },
+  { key: "court_header_html", label: "(auto) Encabezado judicial", required: false, source: "computed", editable: false },
+  { key: "plaintiff_names", label: "Demandante(s)", required: true, source: "work_item", editable: true },
+  { key: "plaintiff_names_full", label: "Nombre(s) completo(s) demandantes con cédula", required: true, source: "manual", editable: true },
+  { key: "defendant_names", label: "Demandado(s)", required: true, source: "work_item", editable: true },
+  { key: "defendant_names_full", label: "Nombre(s) completo(s) demandados", required: true, source: "manual", editable: true },
+  { key: "defendant_name", label: "Nombre del demandado notificado", required: true, source: "manual", editable: true },
+  { key: "defendant_identification", label: "Identificación del demandado", required: false, source: "manual", editable: true },
+  { key: "defendant_address", label: "Dirección del demandado", required: false, source: "manual", editable: true },
+  { key: "auto_admisorio_date", label: "Fecha del auto admisorio", required: true, source: "manual", editable: true },
+  { key: "process_type", label: "Tipo de proceso", required: true, source: "work_item", editable: true },
+  { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
+  { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
+  { key: "lawyer_litigation_email", label: "Email de litigio del abogado", required: true, source: "profile", editable: false },
+  { key: "city", label: "Ciudad", required: true, source: "computed", editable: true, defaultValue: "Medellín" },
+  { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
+];
+
 // ─── Labels ──────────────────────────────────────────────
 
 export const LEGAL_DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
   poder_especial: "Poder Especial",
   contrato_servicios: "Contrato de Prestación de Servicios",
   paz_y_salvo: "Paz y Salvo",
+  notificacion_personal: "Notificación Personal",
+  notificacion_por_aviso: "Notificación por Aviso",
 };
 
 // ─── Template Registry ───────────────────────────────────
@@ -508,7 +671,30 @@ export const LEGAL_TEMPLATES: Record<LegalDocumentType, { html: string; variable
   poder_especial: { html: PODER_ESPECIAL_HTML, variables: PODER_ESPECIAL_VARIABLES },
   contrato_servicios: { html: CONTRATO_SERVICIOS_HTML, variables: CONTRATO_SERVICIOS_VARIABLES },
   paz_y_salvo: { html: PAZ_Y_SALVO_HTML, variables: PAZ_Y_SALVO_VARIABLES },
+  notificacion_personal: { html: NOTIFICACION_PERSONAL_HTML, variables: NOTIFICACION_PERSONAL_VARIABLES },
+  notificacion_por_aviso: { html: NOTIFICACION_POR_AVISO_HTML, variables: NOTIFICACION_POR_AVISO_VARIABLES },
 };
+
+// ─── Notification helpers ────────────────────────────────
+
+export const NOTIFICATION_DOC_TYPES: LegalDocumentType[] = ["notificacion_personal", "notificacion_por_aviso"];
+
+export function isNotificationDocType(type: string): boolean {
+  return NOTIFICATION_DOC_TYPES.includes(type as LegalDocumentType);
+}
+
+/** Infer auto admisorio date from actuaciones text */
+export function inferAutoAdmisorioDate(actuaciones: { anotacion?: string | null; descripcion?: string | null; fecha_actuacion?: string | null; act_date?: string | null; raw_text?: string | null }[]): string | null {
+  const keywords = [
+    'auto admisorio', 'admite demanda', 'admítese la demanda',
+    'admisión de la demanda', 'auto que admite', 'avoca conocimiento',
+  ];
+  const match = actuaciones.find(act => {
+    const text = (act.anotacion || act.descripcion || act.raw_text || '').toLowerCase();
+    return keywords.some(kw => text.includes(kw));
+  });
+  return match ? (match.fecha_actuacion || match.act_date || null) : null;
+}
 
 // ─── Utilities ───────────────────────────────────────────
 
