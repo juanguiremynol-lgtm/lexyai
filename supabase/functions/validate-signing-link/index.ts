@@ -1,7 +1,7 @@
 /**
  * validate-signing-link — Validates HMAC signature and expiration of a signing URL.
  * Public endpoint (no auth). Returns document data + branding if valid.
- * Phase 3.6: Returns custom branding (logo + firm name) for the signing page.
+ * Phase 4: Returns identity confirmation requirements + enforces consumed tokens.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -38,21 +38,21 @@ async function computeHMAC(secret: string, data: string): Promise<Uint8Array> {
 function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a[i] ^ b[i];
-  }
+  for (let i = 0; i < a.length; i++) result |= a[i] ^ b[i];
   return result === 0;
 }
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
+  for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
   return bytes;
 }
 
-/** Resolve branding: org custom > creator custom > Andromeda default */
+async function sha256Hex(data: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 function resolveBranding(
   supabaseUrl: string,
   org: { custom_branding_enabled?: boolean; custom_logo_path?: string; custom_firm_name?: string; name?: string } | null,
@@ -75,6 +75,61 @@ function resolveBranding(
   return { logo_url: null, firm_name: "Andromeda Legal", is_custom: false };
 }
 
+/** Compute hash-chained event hash */
+async function computeEventHash(previousHash: string | null, eventData: Record<string, unknown>): Promise<string> {
+  const canonical = JSON.stringify(eventData, Object.keys(eventData).sort());
+  const input = (previousHash || "GENESIS") + canonical;
+  return sha256Hex(input);
+}
+
+/** Get the last event hash for a document */
+async function getLastEventHash(adminClient: any, documentId: string): Promise<string | null> {
+  const { data } = await adminClient
+    .from("document_signature_events")
+    .select("event_hash")
+    .eq("document_id", documentId)
+    .not("event_hash", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.event_hash || null;
+}
+
+/** Insert an event with hash chaining */
+async function insertChainedEvent(
+  adminClient: any,
+  event: Record<string, unknown>,
+  documentId: string,
+): Promise<void> {
+  const previousHash = await getLastEventHash(adminClient, documentId);
+  const eventHash = await computeEventHash(previousHash, {
+    event_type: event.event_type,
+    event_data: event.event_data,
+    actor_type: event.actor_type,
+    actor_id: event.actor_id,
+    timestamp: new Date().toISOString(),
+  });
+  await adminClient.from("document_signature_events").insert({
+    ...event,
+    previous_event_hash: previousHash,
+    event_hash: eventHash,
+  });
+}
+
+/** Compute a privacy-preserving device fingerprint hash */
+function computeDeviceFingerprint(ip: string, ua: string): string {
+  // We'll compute this synchronously with a simple hash approach
+  // The actual crypto hash is async so we build a deterministic string
+  const raw = `${ip}|${ua}`;
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash).toString(16).padStart(8, "0");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -93,6 +148,7 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
     const clientIp = getClientIp(req);
+    const clientUA = req.headers.get("user-agent") || "unknown";
 
     // Rate limiting: 20 req/min per IP
     const oneMinAgo = new Date(Date.now() - 60000).toISOString();
@@ -137,12 +193,17 @@ Deno.serve(async (req) => {
     // Fetch signature record
     const { data: sig, error: sigErr } = await adminClient
       .from("document_signatures")
-      .select("id, document_id, signer_name, signer_email, signer_cedula, status, otp_verified_at, organization_id, created_by")
+      .select("id, document_id, signer_name, signer_email, signer_cedula, status, otp_verified_at, organization_id, created_by, consumed_at, identity_confirmed_at")
       .eq("signing_token", signing_token)
       .single();
 
     if (sigErr || !sig) {
       return json({ error: "not_found", message: "Documento no encontrado. Este enlace puede haber sido revocado." }, 404);
+    }
+
+    // Check if token was already consumed (one-time use after signing)
+    if (sig.consumed_at) {
+      return json({ error: "consumed", message: "Este enlace ya fue utilizado. El documento ya fue firmado." }, 409);
     }
 
     if (sig.status === "signed") {
@@ -177,7 +238,7 @@ Deno.serve(async (req) => {
       return json({ error: "document_not_found", message: "Documento no encontrado." }, 404);
     }
 
-    // Resolve branding: fetch org + creator profile
+    // Resolve branding
     let branding = { logo_url: null as string | null, firm_name: "Andromeda Legal", is_custom: false };
     try {
       const [orgResult, profileResult] = await Promise.all([
@@ -201,23 +262,30 @@ Deno.serve(async (req) => {
         .eq("id", sig.id);
     }
 
-    // Log link opened event
-    await adminClient.from("document_signature_events").insert({
+    // Device fingerprint
+    const deviceFingerprintHash = computeDeviceFingerprint(clientIp, clientUA);
+
+    // Log link opened event with hash chaining
+    await insertChainedEvent(adminClient, {
       organization_id: sig.organization_id,
       document_id: sig.document_id,
       signature_id: sig.id,
       event_type: "signature.link_opened",
-      event_data: { timestamp: new Date().toISOString() },
+      event_data: { timestamp: new Date().toISOString(), device_fingerprint_hash: deviceFingerprintHash },
       actor_type: "signer",
       actor_id: sig.signer_email,
       actor_ip: clientIp,
-      actor_user_agent: req.headers.get("user-agent") || null,
-    });
+      actor_user_agent: clientUA,
+      device_fingerprint_hash: deviceFingerprintHash,
+    }, sig.document_id);
 
     // Mask cedula for display
     const maskedCedula = sig.signer_cedula
       ? sig.signer_cedula.replace(/^(.{2})(.*)(.{3})$/, (_, start, mid, end) => start + "*".repeat(mid.length) + end)
       : null;
+
+    // Determine if identity confirmation is required (not yet confirmed)
+    const requiresIdentityConfirmation = !sig.identity_confirmed_at;
 
     return json({
       ok: true,
@@ -226,6 +294,9 @@ Deno.serve(async (req) => {
       signer_email_masked: sig.signer_email.replace(/^(.{2})(.*)(@.*)$/, (_, s, m, e) => s + "*".repeat(m.length) + e),
       signer_cedula_masked: maskedCedula,
       otp_verified: !!sig.otp_verified_at,
+      identity_confirmed: !!sig.identity_confirmed_at,
+      requires_identity_confirmation: requiresIdentityConfirmation,
+      has_cedula: !!sig.signer_cedula,
       status: sig.status,
       branding,
       document: {

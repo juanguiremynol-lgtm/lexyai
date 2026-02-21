@@ -1,7 +1,9 @@
 /**
- * Public Signing Page — Multi-step signing flow.
+ * Public Signing Page — Multi-step signing flow with identity hardening.
  * No auth required. Validated by HMAC token.
- * Phase 3.6: Dynamic branding from validate-signing-link response.
+ * Phase 4: Identity confirmation (name + cédula match) before OTP.
+ *          Privacy notice for metadata collection.
+ *          Device fingerprint hash captured.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -9,7 +11,9 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, Download } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, Download, UserCheck, Info } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import { toast } from "sonner";
@@ -58,6 +62,12 @@ export default function SigningPage() {
   const docRef = useRef<HTMLDivElement>(null);
   const reviewStartRef = useRef<number>(0);
 
+  // Identity confirmation state
+  const [confirmedName, setConfirmedName] = useState("");
+  const [confirmedCedula, setConfirmedCedula] = useState("");
+  const [identityVerifying, setIdentityVerifying] = useState(false);
+  const [identityError, setIdentityError] = useState("");
+
   // Step 1: Validate link
   useEffect(() => {
     if (!token || !expires || !signature) {
@@ -73,6 +83,7 @@ export default function SigningPage() {
           setErrorMsg(
             data.error === "expired" ? "El enlace de firma ha expirado. Solicite uno nuevo a su abogado."
             : data.error === "already_signed" ? "Este documento ya fue firmado."
+            : data.error === "consumed" ? "Este enlace ya fue utilizado. El documento ya fue firmado."
             : data.message || "Enlace inválido."
           );
         } else {
@@ -82,6 +93,9 @@ export default function SigningPage() {
             setDocumentHtml(data.document?.content_html || "");
             setStep("review");
             reviewStartRef.current = Date.now();
+          } else if (data.identity_confirmed) {
+            // Identity already confirmed, go to OTP
+            setStep("identity"); // will auto-advance due to identity_confirmed flag
           } else {
             setStep("identity");
           }
@@ -92,6 +106,36 @@ export default function SigningPage() {
         setErrorMsg("Error al validar el enlace.");
       });
   }, [token, expires, signature]);
+
+  // Identity confirmation handler
+  const handleConfirmIdentity = useCallback(async () => {
+    if (!confirmedName.trim() || !confirmedCedula.trim()) {
+      setIdentityError("Debe ingresar su nombre completo y número de cédula.");
+      return;
+    }
+    setIdentityVerifying(true);
+    setIdentityError("");
+    try {
+      const data = await callEdgeFunction("verify-signing-identity", {
+        signing_token: token,
+        confirmed_name: confirmedName.trim(),
+        confirmed_cedula: confirmedCedula.trim(),
+      });
+      if (data.ok || data.verified || data.already_confirmed) {
+        // Identity confirmed — proceed to OTP
+        setSigData((prev: any) => ({ ...prev, identity_confirmed: true }));
+        toast.success("Identidad verificada correctamente");
+        // Send OTP automatically
+        handleSendOtp();
+      } else {
+        setIdentityError(data.message || "Los datos no coinciden. Verifique e intente nuevamente.");
+      }
+    } catch {
+      setIdentityError("Error de conexión. Intente nuevamente.");
+    } finally {
+      setIdentityVerifying(false);
+    }
+  }, [token, confirmedName, confirmedCedula]);
 
   const handleSendOtp = useCallback(async () => {
     setOtpSending(true);
@@ -266,6 +310,10 @@ export default function SigningPage() {
     );
   }
 
+  // Determine step progress index
+  const stepLabels = ["Identidad", "Verificación", "Revisión", "Firma"];
+  const stepIndex = { identity: 0, otp: 1, review: 2, sign: 2, done: 3 }[step] ?? 0;
+
   return (
     <div className="min-h-screen bg-white">
       <Header />
@@ -273,8 +321,7 @@ export default function SigningPage() {
       <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-6">
         {/* Progress */}
         <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm text-muted-foreground overflow-x-auto">
-          {["Identidad", "Verificación", "Revisión", "Firma"].map((label, i) => {
-            const stepIndex = { identity: 0, otp: 1, review: 2, sign: 2, done: 3 }[step] ?? 0;
+          {stepLabels.map((label, i) => {
             const isActive = i <= stepIndex;
             return (
               <div key={label} className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -293,34 +340,95 @@ export default function SigningPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
+                <UserCheck className="h-5 w-5" />
                 Confirme su identidad
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <p className="text-lg">
-                Hola, <strong>{sigData.signer_name}</strong>. Tiene un documento pendiente de firma.
-              </p>
-              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                {sigData.signer_cedula_masked && (
-                  <>
-                    <p className="text-sm text-muted-foreground">Cédula</p>
-                    <p className="font-mono text-lg">{sigData.signer_cedula_masked}</p>
-                  </>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Para verificar su identidad, le enviaremos un código de 6 dígitos a su correo electrónico ({sigData.signer_email_masked}).
-              </p>
-              <Button
-                onClick={handleSendOtp}
-                disabled={otpSending}
-                className="w-full h-12 text-base"
-                style={{ backgroundColor: brandColor }}
-              >
-                {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Soy yo, continuar
-              </Button>
+              {!sigData.identity_confirmed ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Para su seguridad, debe confirmar su identidad ingresando sus datos tal como aparecen en su documento de identificación.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="confirmed-name">Nombre completo (como aparece en su cédula)</Label>
+                      <Input
+                        id="confirmed-name"
+                        placeholder="Ej: Juan Carlos Pérez López"
+                        value={confirmedName}
+                        onChange={(e) => setConfirmedName(e.target.value)}
+                        maxLength={200}
+                        autoComplete="name"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="confirmed-cedula">Número de cédula</Label>
+                      <Input
+                        id="confirmed-cedula"
+                        placeholder="Ej: 1234567890"
+                        value={confirmedCedula}
+                        onChange={(e) => setConfirmedCedula(e.target.value.replace(/[^\d.-]/g, ""))}
+                        maxLength={20}
+                        inputMode="numeric"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+
+                  {identityError && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 flex items-start gap-2">
+                      <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      <p className="text-sm text-destructive">{identityError}</p>
+                    </div>
+                  )}
+
+                  {/* Privacy notice */}
+                  <div className="bg-muted/50 rounded-lg p-3 flex items-start gap-2">
+                    <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <p className="text-xs text-muted-foreground">
+                      Para garantizar la validez legal de su firma, se registra información técnica 
+                      (dirección IP, tipo de dispositivo y navegador) como parte del certificado de auditoría. 
+                      Estos datos se utilizan exclusivamente para la trazabilidad de la firma electrónica.
+                    </p>
+                  </div>
+
+                  <Button
+                    onClick={handleConfirmIdentity}
+                    disabled={identityVerifying || !confirmedName.trim() || !confirmedCedula.trim()}
+                    className="w-full h-12 text-base"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {identityVerifying ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                    Verificar identidad
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* Identity already confirmed, show OTP trigger */}
+                  <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                    <div>
+                      <p className="font-medium text-green-800">Identidad verificada</p>
+                      <p className="text-sm text-green-700">Sus datos han sido confirmados correctamente.</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Para continuar, le enviaremos un código de verificación a su correo electrónico ({sigData.signer_email_masked}).
+                  </p>
+                  <Button
+                    onClick={handleSendOtp}
+                    disabled={otpSending}
+                    className="w-full h-12 text-base"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Enviar código de verificación
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
         )}

@@ -338,3 +338,6 @@ verify_jwt = false
 
 [functions.dispatch-update-emails]
 verify_jwt = false
+
+[functions.verify-signing-identity]
+verify_jwt = false
