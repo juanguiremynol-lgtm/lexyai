@@ -42,6 +42,8 @@ import {
   inferAutoAdmisorioDate,
 } from "@/lib/legal-document-templates";
 import { CourtHeaderSection } from "@/components/documents/CourtHeaderSection";
+import { SuperAdminProfileGate, getMissingDocGenFields } from "@/components/documents/SuperAdminProfileGate";
+import { usePlatformAdmin } from "@/hooks/use-platform-admin";
 import { LitigationEmailBanner } from "@/components/settings/LitigationEmailSettings";
 import { NotificationDefendantSelector, type SelectedDefendant } from "@/components/documents/NotificationDefendantSelector";
 import {
@@ -395,6 +397,10 @@ export default function WorkItemDocumentWizard() {
   const [autoAdmisorioInferred, setAutoAdmisorioInferred] = useState(false);
   const [currentDefendantIdx, setCurrentDefendantIdx] = useState(0);
   const [generatingNotifs, setGeneratingNotifs] = useState(false);
+
+  // Super Admin profile gate
+  const { isPlatformAdmin } = usePlatformAdmin();
+  const [showAdminProfileGate, setShowAdminProfileGate] = useState(false);
 
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
@@ -808,14 +814,22 @@ export default function WorkItemDocumentWizard() {
     lawyer_email: "Email del abogado",
   };
 
-  // Check if litigation email is missing (hard gate for poder_especial)
-  const missingLitigationEmail = docType === "poder_especial" && !(profile as any)?.litigation_email;
+  // Check if required profile fields are missing (hard gate for poder_especial)
+  const missingProfileFields = useMemo(() => {
+    if (docType !== "poder_especial") return [];
+    return getMissingDocGenFields(profile);
+  }, [docType, profile]);
+  const missingLitigationEmail = missingProfileFields.length > 0;
 
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
     if (finalizing) return;
 
     if (missingLitigationEmail) {
+      if (isPlatformAdmin) {
+        setShowAdminProfileGate(true);
+        return;
+      }
       toast.error("Debe configurar su email profesional de litigio antes de finalizar un Poder Especial.");
       return;
     }
@@ -1481,6 +1495,19 @@ export default function WorkItemDocumentWizard() {
         onCopyLink={handleCopyLink}
         expiresAt={expiresAt}
         documentType={docType}
+      />
+
+      {/* Super Admin Profile Completion Gate */}
+      <SuperAdminProfileGate
+        open={showAdminProfileGate}
+        onComplete={() => {
+          setShowAdminProfileGate(false);
+          // Refetch profile to pick up new values
+          window.location.reload();
+        }}
+        onCancel={() => setShowAdminProfileGate(false)}
+        missingFields={missingProfileFields}
+        currentProfile={profile}
       />
     </div>
   );
