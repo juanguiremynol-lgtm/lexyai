@@ -43,6 +43,7 @@ import {
 } from "@/lib/legal-document-templates";
 import { CourtHeaderSection } from "@/components/documents/CourtHeaderSection";
 import { LitigationEmailBanner } from "@/components/settings/LitigationEmailSettings";
+import { NotificationDefendantSelector, type SelectedDefendant } from "@/components/documents/NotificationDefendantSelector";
 import {
   CourtHeaderData,
   autoSelectCourtMode,
@@ -400,6 +401,13 @@ export default function WorkItemDocumentWizard() {
   const [honorariosData, setHonorariosData] = useState<HonorariosData>(createDefaultHonorariosData());
   const [serviceObject, setServiceObject] = useState('');
 
+  // Phase 3.12: Notification defendant selection
+  const [selectedDefendants, setSelectedDefendants] = useState<SelectedDefendant[]>([]);
+  const [autoAdmisorioDate, setAutoAdmisorioDate] = useState('');
+  const [autoAdmisorioInferred, setAutoAdmisorioInferred] = useState(false);
+  const [currentDefendantIdx, setCurrentDefendantIdx] = useState(0);
+  const [generatingNotifs, setGeneratingNotifs] = useState(false);
+
   // Fetch work item
   const { data: workItem, isLoading: wiLoading } = useQuery({
     queryKey: ["work-item-doc-gen", workItemId],
@@ -575,11 +583,17 @@ export default function WorkItemDocumentWizard() {
         vars.defendant_name = workItem.demandados || "";
         vars.process_type = getWorkflowTypeLabel(workItem.workflow_type || "");
 
-        // Infer auto admisorio date
-        if (actuaciones && actuaciones.length > 0) {
+        // Infer auto admisorio date from state (managed by defendant selector)
+        if (autoAdmisorioDate) {
+          vars.auto_admisorio_date = autoAdmisorioDate;
+        } else if (actuaciones && actuaciones.length > 0) {
           const inferred = inferAutoAdmisorioDate(actuaciones as any);
           if (inferred) {
             vars.auto_admisorio_date = inferred;
+            if (!autoAdmisorioDate) {
+              setAutoAdmisorioDate(inferred);
+              setAutoAdmisorioInferred(true);
+            }
           }
         }
       }
@@ -829,28 +843,69 @@ export default function WorkItemDocumentWizard() {
 
       const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : null;
 
-      // For notifications: save as "generated" and navigate back (no signing flow)
+      // For notifications: generate one document per selected defendant
       if (isNotification) {
-        const { data: doc, error: docErr } = await supabase
-          .from("generated_documents")
-          .insert({
-            organization_id: workItem.organization_id!,
-            work_item_id: workItem.id,
-            document_type: docType,
-            title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${variables.defendant_name || workItem.demandados || ""}`,
-            content_json: { variables, template_type: docType },
-            content_html: renderedHtml,
-            variables,
-            status: "generated",
-            created_by: user.id,
-            finalized_at: new Date().toISOString(),
-            finalized_by: user.id,
-          } as any)
-          .select("id")
-          .single();
+        setGeneratingNotifs(true);
+        const selected = selectedDefendants.filter(d => d.selected);
+        if (selected.length === 0) {
+          toast.error("Seleccione al menos un demandado");
+          setFinalizing(false);
+          setGeneratingNotifs(false);
+          return;
+        }
 
-        if (docErr) throw docErr;
-        toast.success("Documento de notificación generado exitosamente");
+        const generatedDocs: string[] = [];
+        for (const def of selected) {
+          const isJuridica = def.party.party_type === "juridica" || !!def.party.company_name;
+          const contactEmail = isJuridica ? (def.party.rep_legal_email || def.party.email) : def.party.email;
+          const defName = isJuridica
+            ? (def.party.company_name || def.party.name)
+            : def.party.name;
+          const defDisplayName = isJuridica && def.party.rep_legal_name
+            ? `${def.party.rep_legal_name}\nRepresentante Legal de ${defName}`
+            : defName;
+
+          // Build per-defendant variables
+          const defVars = {
+            ...variables,
+            defendant_name: defDisplayName,
+            defendant_party_id: def.party.id,
+            defendant_email: contactEmail || "",
+            defendant_address: def.party.address || "",
+            defendant_identification: def.party.cedula ? `C.C. ${def.party.cedula}` : (def.party.company_nit ? `NIT ${def.party.company_nit}` : ""),
+            auto_admisorio_date: autoAdmisorioDate,
+          };
+
+          // Render HTML for this defendant
+          const defHtml = renderLegalTemplate(template.html, defVars);
+
+          const { data: doc, error: docErr } = await supabase
+            .from("generated_documents")
+            .insert({
+              organization_id: workItem.organization_id!,
+              work_item_id: workItem.id,
+              document_type: docType,
+              title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${defName}`,
+              content_json: { variables: defVars, template_type: docType, defendant_party_id: def.party.id },
+              content_html: defHtml,
+              variables: defVars,
+              status: "generated",
+              created_by: user.id,
+              finalized_at: new Date().toISOString(),
+              finalized_by: user.id,
+            } as any)
+            .select("id")
+            .single();
+
+          if (docErr) {
+            console.error("Error generating notification for", defName, docErr);
+            continue;
+          }
+          if (doc) generatedDocs.push(doc.id);
+        }
+
+        setGeneratingNotifs(false);
+        toast.success(`${generatedDocs.length} notificación(es) generada(s) exitosamente`);
         navigate(`/app/work-items/${workItem.id}`);
         return;
       }
@@ -992,20 +1047,23 @@ export default function WorkItemDocumentWizard() {
 
       {/* Step Indicator */}
       <div className="flex items-center gap-4">
-        {["Tipo", "Variables", "Vista Previa"].map((label, i) => (
-          <button
-            key={label}
-            onClick={() => setStep(i + 1)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              step === i + 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            <span className="h-5 w-5 rounded-full bg-background/20 flex items-center justify-center text-xs">
-              {i + 1}
-            </span>
-            {label}
-          </button>
-        ))}
+        {(isNotification ? ["Tipo", "Demandados", "Variables", "Vista Previa"] : ["Tipo", "Variables", "Vista Previa"]).map((label, i) => {
+          const stepNum = i + 1;
+          return (
+            <button
+              key={label}
+              onClick={() => setStep(stepNum)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                step === stepNum ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              <span className="h-5 w-5 rounded-full bg-background/20 flex items-center justify-center text-xs">
+                {stepNum}
+              </span>
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Step 1: Select Template */}
@@ -1086,15 +1144,46 @@ export default function WorkItemDocumentWizard() {
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={() => setStep(2)}>
+            <Button onClick={() => setStep(isNotification ? 2 : 2)}>
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           </div>
         </div>
       )}
 
-      {/* Step 2: Variables */}
-      {step === 2 && (
+      {/* Step 2 for notifications: Defendant Selection */}
+      {step === 2 && isNotification && (
+        <div className="space-y-6">
+          <Card>
+            <CardContent className="pt-6">
+              <NotificationDefendantSelector
+                workItemId={workItemId!}
+                documentType={docType as "notificacion_personal" | "notificacion_por_aviso"}
+                selectedDefendants={selectedDefendants}
+                onSelectionChange={setSelectedDefendants}
+                autoAdmisorioDate={autoAdmisorioDate}
+                onAutoAdmisorioDateChange={setAutoAdmisorioDate}
+                autoAdmisorioInferred={autoAdmisorioInferred}
+              />
+            </CardContent>
+          </Card>
+
+          <div className="flex items-center justify-between">
+            <Button variant="outline" onClick={() => setStep(1)}>
+              <ArrowLeft className="h-4 w-4 mr-2" /> Anterior
+            </Button>
+            <Button
+              onClick={() => setStep(3)}
+              disabled={selectedDefendants.filter(d => d.selected).length === 0 || !autoAdmisorioDate}
+            >
+              Siguiente <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2 (non-notification) or Step 3 (notification): Variables */}
+      {step === (isNotification ? 3 : 2) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Litigation email hard gate for poder_especial */}
           {missingLitigationEmail && (
@@ -1268,7 +1357,7 @@ export default function WorkItemDocumentWizard() {
           </Card>
 
           <div className="col-span-full flex items-center justify-between">
-            <Button variant="outline" onClick={() => setStep(1)}>
+            <Button variant="outline" onClick={() => setStep(isNotification ? 2 : 1)}>
               <ArrowLeft className="h-4 w-4 mr-2" /> Anterior
             </Button>
             <div className="flex items-center gap-2">
@@ -1278,7 +1367,7 @@ export default function WorkItemDocumentWizard() {
                   {missingRequired.length} campo(s) requerido(s) faltante(s)
                 </span>
               )}
-              <Button onClick={() => setStep(3)}>
+              <Button onClick={() => setStep(isNotification ? 4 : 3)}>
                 Vista Previa Final <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>
@@ -1286,8 +1375,8 @@ export default function WorkItemDocumentWizard() {
         </div>
       )}
 
-      {/* Step 3: Final Preview & Actions */}
-      {step === 3 && (
+      {/* Step 3 (non-notification) or Step 4 (notification): Final Preview & Actions */}
+      {step === (isNotification ? 4 : 3) && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -1309,32 +1398,31 @@ export default function WorkItemDocumentWizard() {
           </Card>
 
           <div className="flex items-center justify-between">
-            <Button variant="outline" onClick={() => setStep(2)}>
+            <Button variant="outline" onClick={() => setStep(isNotification ? 3 : 2)}>
               <ArrowLeft className="h-4 w-4 mr-2" /> Editar Variables
             </Button>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={handleSaveDraft} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                Guardar Borrador
-              </Button>
+              {!isNotification && (
+                <Button variant="outline" onClick={handleSaveDraft} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Guardar Borrador
+                </Button>
+              )}
               <Button
                 onClick={handleFinalize}
-                disabled={finalizing || missingRequired.length > 0}
+                disabled={finalizing || generatingNotifs || missingRequired.length > 0}
               >
-                {isNotification ? (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Generar Documento
-                  </>
-                ) : finalizing ? (
+                {(finalizing || generatingNotifs) ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : isNotification ? (
+                  <Mail className="h-4 w-4 mr-2" />
                 ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Finalizar Documento
-                  </>
+                  <Send className="h-4 w-4 mr-2" />
                 )}
-                Finalizar Documento
+                {isNotification
+                  ? `Generar ${selectedDefendants.filter(d => d.selected).length} Notificación(es)`
+                  : "Finalizar Documento"
+                }
               </Button>
             </div>
           </div>
