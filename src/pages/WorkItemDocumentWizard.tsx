@@ -402,7 +402,7 @@ export default function WorkItemDocumentWizard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("work_items")
-        .select("id, radicado, workflow_type, authority_name, authority_city, demandantes, demandados, title, description, organization_id, client_id")
+        .select("id, radicado, workflow_type, authority_name, authority_city, demandantes, demandados, title, description, organization_id, client_id, courthouse_email_confirmed, courthouse_email_suggested, courthouse_email_status, courthouse_directory_id")
         .eq("id", workItemId!)
         .single();
       if (error) throw error;
@@ -504,16 +504,29 @@ export default function WorkItemDocumentWizard() {
         court_type_reparto: "Civil del Circuito",
       });
 
-      // Infer court email
-      inferCourtEmail({
-        radicado: workItem.radicado,
-        authority_name: workItem.authority_name,
-      }).then((result) => {
-        if (result.email) {
-          setInferredCourtEmail(result.email);
-          setCourtHeader(prev => ({ ...prev, court_email: result.email || undefined, judge_name: result.judgeName || prev.judge_name }));
-        }
-      });
+      // Resolve court email: prefer confirmed > suggested > infer from DB
+      const existingEmail = workItem.courthouse_email_confirmed || workItem.courthouse_email_suggested;
+      if (existingEmail) {
+        console.log("[CourtEmail] Using work item email:", { email: existingEmail, status: workItem.courthouse_email_status, source: workItem.courthouse_email_confirmed ? "confirmed" : "suggested" });
+        setInferredCourtEmail(existingEmail);
+        setCourtHeader(prev => ({ ...prev, court_email: existingEmail }));
+      } else {
+        // Fallback: infer from courthouse_directory / court_emails tables
+        console.log("[CourtEmail] No email on work item, attempting inference:", { radicado: workItem.radicado, authority_name: workItem.authority_name, courthouse_directory_id: workItem.courthouse_directory_id });
+        inferCourtEmail({
+          radicado: workItem.radicado,
+          authority_name: workItem.authority_name,
+          courthouse_directory_id: workItem.courthouse_directory_id,
+        }).then((result) => {
+          console.log("[CourtEmail] Inference result:", { email: result.email, courtName: result.courtName, judgeName: result.judgeName });
+          if (result.email) {
+            setInferredCourtEmail(result.email);
+            setCourtHeader(prev => ({ ...prev, court_email: result.email || undefined, judge_name: result.judgeName || prev.judge_name }));
+          } else {
+            console.warn("[CourtEmail] No email found for:", { radicado: workItem.radicado, authority_name: workItem.authority_name });
+          }
+        });
+      }
     }
   }, [workItem, clientData, docType]);
 

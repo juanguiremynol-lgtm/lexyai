@@ -83,26 +83,51 @@ export async function inferCourtEmail(workItem: {
   radicado?: string | null;
   authority_name?: string | null;
   juzgado_nombre?: string | null;
+  courthouse_directory_id?: number | null;
 }): Promise<{ email: string | null; courtName?: string; judgeName?: string }> {
-  // Strategy 1: Look up in courthouse_directory by name match
-  const courtName = workItem.juzgado_nombre || workItem.authority_name;
-  if (courtName) {
+  // Strategy 0: Direct lookup by courthouse_directory_id (most reliable)
+  if (workItem.courthouse_directory_id) {
     const { data } = await supabase
       .from("courthouse_directory")
       .select("email, nombre_raw")
-      .ilike("nombre_raw", `%${courtName}%`)
-      .limit(1)
+      .eq("id", workItem.courthouse_directory_id)
       .maybeSingle();
     const row = data as { email: string; nombre_raw: string } | null;
     if (row?.email) {
+      console.log("[inferCourtEmail] Resolved via directory ID:", workItem.courthouse_directory_id);
       return { email: row.email, courtName: row.nombre_raw };
     }
   }
 
-  // Strategy 2: Look up in court_emails by code
+  // Strategy 1: Look up in courthouse_directory by normalized name match
+  const courtName = workItem.juzgado_nombre || workItem.authority_name;
+  if (courtName) {
+    // Normalize: remove accents, collapse whitespace, strip punctuation for better ilike matching
+    const normalized = courtName
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[.,'"""''()\-–—]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    console.log("[inferCourtEmail] Trying name match:", { original: courtName, normalized });
+
+    const { data } = await supabase
+      .from("courthouse_directory")
+      .select("email, nombre_raw")
+      .ilike("nombre_raw", `%${normalized}%`)
+      .limit(1)
+      .maybeSingle();
+    const row = data as { email: string; nombre_raw: string } | null;
+    if (row?.email) {
+      console.log("[inferCourtEmail] Resolved via name ilike:", row.nombre_raw);
+      return { email: row.email, courtName: row.nombre_raw };
+    }
+  }
+
+  // Strategy 2: Look up in court_emails by code extracted from radicado
   if (workItem.radicado) {
     const code = extractCourtCode(workItem.radicado);
     if (code) {
+      console.log("[inferCourtEmail] Trying radicado code:", code);
       const { data } = await (supabase as any)
         .from("court_emails")
         .select("court_email, court_name, judge_name")
@@ -115,7 +140,7 @@ export async function inferCourtEmail(workItem: {
     }
   }
 
-  // Strategy 3: Fuzzy match in court_emails
+  // Strategy 3: Fuzzy match in court_emails by name
   if (courtName) {
     const { data } = await (supabase as any)
       .from("court_emails")
@@ -129,6 +154,7 @@ export async function inferCourtEmail(workItem: {
     }
   }
 
+  console.warn("[inferCourtEmail] No match found for:", { authority_name: courtName, radicado: workItem.radicado, directory_id: workItem.courthouse_directory_id });
   return { email: null };
 }
 
