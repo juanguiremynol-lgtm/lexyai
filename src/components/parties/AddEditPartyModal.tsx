@@ -156,15 +156,9 @@ export function AddEditPartyModal({ open, onClose, onSave, party, side, sideLabe
                   <Label className="text-xs">Nombre completo *</Label>
                   <Input value={form.name || ""} onChange={(e) => update("name", e.target.value)} placeholder="Nombre completo" />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Cédula de ciudadanía</Label>
-                    <Input value={form.cedula || ""} onChange={(e) => update("cedula", e.target.value)} placeholder="1.234.567.890" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Ciudad de expedición</Label>
-                    <Input value={form.cedula_city || ""} onChange={(e) => update("cedula_city", e.target.value)} placeholder="Medellín" />
-                  </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Cédula de ciudadanía</Label>
+                  <Input value={form.cedula || ""} onChange={(e) => update("cedula", e.target.value)} placeholder="1.234.567.890" />
                 </div>
               </div>
 
@@ -179,15 +173,9 @@ export function AddEditPartyModal({ open, onClose, onSave, party, side, sideLabe
                     <Info className="h-3 w-3" /> Necesario para enviar documentos de firma
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Teléfono</Label>
-                    <Input value={form.phone || ""} onChange={(e) => update("phone", e.target.value)} placeholder="300 123 4567" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Dirección</Label>
-                    <Input value={form.address || ""} onChange={(e) => update("address", e.target.value)} placeholder="Calle 10 #20-30" />
-                  </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Dirección</Label>
+                  <Input value={form.address || ""} onChange={(e) => update("address", e.target.value)} placeholder="Calle 10 #20-30" />
                 </div>
               </div>
             </>
@@ -227,10 +215,6 @@ export function AddEditPartyModal({ open, onClose, onSave, party, side, sideLabe
                   <div className="space-y-1">
                     <Label className="text-xs">Cédula</Label>
                     <Input value={form.rep_legal_cedula || ""} onChange={(e) => update("rep_legal_cedula", e.target.value)} placeholder="1.111.222.333" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Ciudad exp. cédula</Label>
-                    <Input value={form.rep_legal_cedula_city || ""} onChange={(e) => update("rep_legal_cedula_city", e.target.value)} placeholder="Envigado" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Cargo</Label>

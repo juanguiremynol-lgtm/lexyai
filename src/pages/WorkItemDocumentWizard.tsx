@@ -113,7 +113,7 @@ function MultiplePoderdantesForm({
 
   const addPoderdante = () => {
     if (poderdantes.length >= 10) return;
-    onChange([...poderdantes, { name: "", cedula: "", cedula_city: "", email: "" }]);
+    onChange([...poderdantes, { name: "", cedula: "", email: "" }]);
   };
 
   const removePoderdante = (idx: number) => {
@@ -147,10 +147,6 @@ function MultiplePoderdantesForm({
               <div className="space-y-1">
                 <Label className="text-xs">Cédula *</Label>
                 <Input value={p.cedula} onChange={(e) => updateField(idx, "cedula", e.target.value)} placeholder="1.234.567.890" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Ciudad expedición</Label>
-                <Input value={p.cedula_city} onChange={(e) => updateField(idx, "cedula_city", e.target.value)} placeholder="Medellín" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Email *</Label>
@@ -228,20 +224,12 @@ function JuridicaEntityForm({
             <Input value={entity.rep_legal_cedula || ""} onChange={(e) => update("rep_legal_cedula", e.target.value)} placeholder="1.111.222.333" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Ciudad expedición</Label>
-            <Input value={entity.rep_legal_cedula_city || ""} onChange={(e) => update("rep_legal_cedula_city", e.target.value)} placeholder="Envigado" />
-          </div>
-          <div className="space-y-1">
             <Label className="text-xs">Cargo *</Label>
             <Input value={entity.rep_legal_cargo || ""} onChange={(e) => update("rep_legal_cargo", e.target.value)} placeholder="Gerente General" />
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Email *</Label>
             <Input type="email" value={entity.rep_legal_email || ""} onChange={(e) => update("rep_legal_email", e.target.value)} placeholder="correo@empresa.com" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Teléfono</Label>
-            <Input value={entity.rep_legal_phone || ""} onChange={(e) => update("rep_legal_phone", e.target.value)} placeholder="604 123 4567" />
           </div>
         </div>
       </div>
@@ -382,8 +370,8 @@ export default function WorkItemDocumentWizard() {
   // Phase 3.8: Poderdante type state
   const [poderdanteType, setPoderdanteType] = useState<PoderdanteType>("natural");
   const [poderdantes, setPoderdantes] = useState<PoderdanteData[]>([
-    { name: "", cedula: "", cedula_city: "", email: "" },
-    { name: "", cedula: "", cedula_city: "", email: "" },
+    { name: "", cedula: "", email: "" },
+    { name: "", cedula: "", email: "" },
   ]);
   const [entityData, setEntityData] = useState<EntityData>({});
 
@@ -571,7 +559,7 @@ export default function WorkItemDocumentWizard() {
       vars.client_full_name = clientName;
       vars.client_cedula = clientData?.id_number || "";
       vars.client_email = clientData?.email || "";
-      vars.client_phone = (clientData as any)?.phone || "";
+      // phone removed — obsolete in Colombia
 
       // Notification-specific variables
       if (isNotificationDocType(docType)) {
@@ -605,7 +593,7 @@ export default function WorkItemDocumentWizard() {
       vars.lawyer_tarjeta_profesional = profile.firma_abogado_tp || "";
       vars.lawyer_litigation_email = (profile as any).litigation_email || "";
       vars.lawyer_professional_address = (profile as any).professional_address || "";
-      vars.lawyer_phone = (profile as any)?.phone || "";
+      // lawyer_phone removed — obsolete
     }
 
     if (org) {
@@ -669,8 +657,8 @@ export default function WorkItemDocumentWizard() {
       (v) => v.editable && !v.key.startsWith("(auto)") && v.source !== "computed"
     );
     if (docType === "poder_especial" && poderdanteType !== "natural") {
-      // Hide client_full_name, client_cedula, client_cedula_city for multi/juridica
-      return base.filter(v => !["client_full_name", "client_cedula", "client_cedula_city", "client_email", "client_phone"].includes(v.key));
+      // Hide client fields for multi/juridica (handled by sub-forms)
+      return base.filter(v => !["client_full_name", "client_cedula", "client_email"].includes(v.key));
     }
     return base;
   }, [template.variables, docType, poderdanteType]);
@@ -783,9 +771,7 @@ export default function WorkItemDocumentWizard() {
   const VARIABLE_LABELS: Record<string, string> = {
     client_full_name: "Nombre completo del cliente",
     client_cedula: "Cédula del cliente",
-    client_cedula_city: "Ciudad de expedición cédula",
     client_email: "Correo del cliente",
-    client_phone: "Teléfono del cliente",
     lawyer_full_name: "Nombre del abogado",
     lawyer_cedula: "Cédula del abogado",
     lawyer_tarjeta_profesional: "Tarjeta profesional del abogado",

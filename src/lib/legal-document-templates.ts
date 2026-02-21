@@ -20,9 +20,9 @@ export interface LegalTemplateVariable {
 export interface PoderdanteData {
   name: string;
   cedula: string;
-  cedula_city: string;
+  cedula_city?: string; // deprecated — kept for backward compat, never displayed
   email: string;
-  phone?: string;
+  phone?: string; // deprecated — kept for backward compat, never displayed
 }
 
 export interface EntityData {
@@ -32,10 +32,10 @@ export interface EntityData {
   company_city?: string;
   rep_legal_name?: string;
   rep_legal_cedula?: string;
-  rep_legal_cedula_city?: string;
+  rep_legal_cedula_city?: string; // deprecated
   rep_legal_cargo?: string;
   rep_legal_email?: string;
-  rep_legal_phone?: string;
+  rep_legal_phone?: string; // deprecated
   // For 'multiple'
   poderdantes?: PoderdanteData[];
 }
@@ -57,7 +57,7 @@ export function buildPoderdanteListText(poderdantes: PoderdanteData[]): string {
   return poderdantes.map((p, i) => {
     const separator = i === poderdantes.length - 1 && i > 0 ? "y " : "";
     const ending = i < poderdantes.length - 2 ? "; " : i === poderdantes.length - 2 ? "; " : "";
-    return `${separator}<strong>${p.name.toUpperCase()}</strong>, identificado(a) con cédula de ciudadanía No. <strong>${p.cedula}</strong> expedida en <strong>${p.cedula_city || "—"}</strong>${ending}`;
+    return `${separator}<strong>${p.name.toUpperCase()}</strong>, identificado(a) con cédula de ciudadanía No. <strong>${p.cedula}</strong>${ending}`;
   }).join("");
 }
 
@@ -68,14 +68,14 @@ export function buildPoderdanteSignatureBlocks(poderdantes: PoderdanteData[]): s
       <br/><br/>
       <p>___________________________________</p>
       <p><strong>${p.name.toUpperCase()}</strong></p>
-      <p>C.C. ${p.cedula}${p.cedula_city ? ` de ${p.cedula_city}` : ''}</p>
+      <p>C.C. ${p.cedula}</p>
     </div>
   `);
   return blocks.join("");
 }
 
 export function buildJuridicaIntroText(entity: EntityData, variables: Record<string, string>): string {
-  return `<strong>${entity.company_name || "—"}</strong>, sociedad comercial identificada con NIT <strong>${entity.company_nit || "—"}</strong>, con domicilio principal en <strong>${entity.company_city || "—"}</strong>, debidamente representada por su representante legal, <strong>${entity.rep_legal_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${entity.rep_legal_cedula || "—"}</strong> expedida en <strong>${entity.rep_legal_cedula_city || "—"}</strong>, quien obra en calidad de <strong>${entity.rep_legal_cargo || "Representante Legal"}</strong>`;
+  return `<strong>${entity.company_name || "—"}</strong>, sociedad comercial identificada con NIT <strong>${entity.company_nit || "—"}</strong>, con domicilio principal en <strong>${entity.company_city || "—"}</strong>, debidamente representada por su representante legal, <strong>${entity.rep_legal_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${entity.rep_legal_cedula || "—"}</strong>, quien obra en calidad de <strong>${entity.rep_legal_cargo || "Representante Legal"}</strong>`;
 }
 
 export function buildJuridicaSignatureBlock(entity: EntityData): string {
@@ -85,7 +85,7 @@ export function buildJuridicaSignatureBlock(entity: EntityData): string {
       <br/><br/>
       <p>___________________________________</p>
       <p><strong>${(entity.rep_legal_name || "—").toUpperCase()}</strong></p>
-      <p>C.C. ${entity.rep_legal_cedula || "N/A"}${entity.rep_legal_cedula_city ? ` de ${entity.rep_legal_cedula_city}` : ''}</p>
+      <p>C.C. ${entity.rep_legal_cedula || "N/A"}</p>
       <p>${entity.rep_legal_cargo || "Representante Legal"}</p>
       <p>En representación de <strong>${entity.company_name || "—"}</strong></p>
       <p>NIT ${entity.company_nit || "N/A"}</p>
@@ -105,14 +105,14 @@ export function generatePoderEspecialHtml(
   let signatureBlock = '';
 
   if (poderdanteType === 'natural') {
-    introText = `Yo, <strong>${variables.client_full_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${variables.client_cedula || "—"}</strong> de <strong>${variables.client_cedula_city || "—"}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero`;
+    introText = `Yo, <strong>${variables.client_full_name || "—"}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>${variables.client_cedula || "—"}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero`;
     signatureBlock = `
       <div style="margin-top:48px;">
         <p><strong>PODERDANTE:</strong></p>
         <br/><br/>
         <p>___________________________________</p>
         <p><strong>${(variables.client_full_name || "—").toUpperCase()}</strong></p>
-        <p>C.C. ${variables.client_cedula || "—"} de ${variables.client_cedula_city || "—"}</p>
+        <p>C.C. ${variables.client_cedula || "—"}</p>
       </div>`;
   } else if (poderdanteType === 'multiple' && entityData?.poderdantes?.length) {
     const listText = buildPoderdanteListText(entityData.poderdantes);
@@ -233,7 +233,7 @@ export const PODER_ESPECIAL_HTML = `
   {{/if}}
   
   <p style="text-align:justify;">
-  Yo, <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong> de <strong>{{client_cedula_city}}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero <strong>PODER ESPECIAL</strong> amplio y suficiente al abogado(a):
+  Yo, <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong>, de manera libre y voluntaria, por medio del presente escrito confiero <strong>PODER ESPECIAL</strong> amplio y suficiente al abogado(a):
   </p>
   
   <p style="text-align:center;font-size:1.1em;">
@@ -272,7 +272,7 @@ export const PODER_ESPECIAL_HTML = `
     <br/><br/>
     <p>___________________________________</p>
     <p><strong>{{client_full_name}}</strong></p>
-    <p>C.C. {{client_cedula}} de {{client_cedula_city}}</p>
+    <p>C.C. {{client_cedula}}</p>
   </div>
   
   <div style="margin-top:32px;">
@@ -288,9 +288,7 @@ export const PODER_ESPECIAL_HTML = `
 export const PODER_ESPECIAL_VARIABLES: LegalTemplateVariable[] = [
   { key: "client_full_name", label: "Nombre completo del cliente", required: true, source: "work_item", editable: true },
   { key: "client_cedula", label: "Cédula del cliente", required: true, source: "work_item", editable: true },
-  { key: "client_cedula_city", label: "Ciudad de expedición cédula", required: false, source: "manual", editable: true, defaultValue: "" },
   { key: "client_email", label: "Correo del cliente (notificación judicial)", required: true, source: "work_item", editable: true, description: "Requerido — será la dirección de notificación judicial electrónica del poderdante" },
-  { key: "client_phone", label: "Teléfono del cliente", required: false, source: "manual", editable: true },
   { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
@@ -319,7 +317,7 @@ export const CONTRATO_SERVICIOS_HTML = `
   <h2 style="text-align:center;text-transform:uppercase;margin-bottom:32px;">Contrato de Prestación de Servicios Profesionales de Abogado</h2>
   
   <p style="text-align:justify;">
-  Entre los suscritos, a saber: <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong>, domiciliado(a) en <strong>{{client_address}}</strong>, con correo electrónico <strong>{{client_email}}</strong> y teléfono <strong>{{client_phone}}</strong>, quien para efectos del presente contrato se denominará <strong>EL MANDANTE</strong>; y de otra parte, <strong>{{lawyer_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{lawyer_cedula}}</strong>, portador(a) de la Tarjeta Profesional No. <strong>{{lawyer_tarjeta_profesional}}</strong>{{firm_clause}}, quien para efectos del presente contrato se denominará <strong>EL MANDATARIO</strong>, hemos convenido celebrar el presente contrato de mandato que se regirá por las siguientes cláusulas:
+  Entre los suscritos, a saber: <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong>, domiciliado(a) en <strong>{{client_address}}</strong>, con correo electrónico <strong>{{client_email}}</strong>, quien para efectos del presente contrato se denominará <strong>EL MANDANTE</strong>; y de otra parte, <strong>{{lawyer_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{lawyer_cedula}}</strong>, portador(a) de la Tarjeta Profesional No. <strong>{{lawyer_tarjeta_profesional}}</strong>{{firm_clause}}, quien para efectos del presente contrato se denominará <strong>EL MANDATARIO</strong>, hemos convenido celebrar el presente contrato de mandato que se regirá por las siguientes cláusulas:
   </p>
   
   <h3>CLÁUSULA PRIMERA — OBJETO</h3>
@@ -395,7 +393,6 @@ export const CONTRATO_SERVICIOS_VARIABLES: LegalTemplateVariable[] = [
   { key: "client_cedula", label: "Cédula del cliente", required: true, source: "work_item", editable: true },
   { key: "client_address", label: "Dirección del cliente", required: true, source: "manual", editable: true },
   { key: "client_email", label: "Correo del cliente", required: true, source: "work_item", editable: true },
-  { key: "client_phone", label: "Teléfono del cliente", required: true, source: "manual", editable: true },
   { key: "lawyer_full_name", label: "Nombre del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
@@ -547,7 +544,6 @@ export const NOTIFICACION_PERSONAL_HTML = `
     <p>C.C. {{lawyer_cedula}}</p>
     <p>T.P. {{lawyer_tarjeta_profesional}}</p>
     <p>{{lawyer_litigation_email}}</p>
-    {{#if lawyer_phone}}<p>Tel. {{lawyer_phone}}</p>{{/if}}
     <p>Apoderado(a) judicial de la parte demandante</p>
   </div>
 </div>`;
@@ -570,7 +566,6 @@ export const NOTIFICACION_PERSONAL_VARIABLES: LegalTemplateVariable[] = [
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
   { key: "lawyer_litigation_email", label: "Email de litigio del abogado", required: true, source: "profile", editable: false },
-  { key: "lawyer_phone", label: "Teléfono del abogado", required: false, source: "profile", editable: true },
   { key: "city", label: "Ciudad", required: true, source: "computed", editable: true, defaultValue: "Medellín" },
   { key: "date", label: "Fecha", required: true, source: "computed", editable: false },
 ];
