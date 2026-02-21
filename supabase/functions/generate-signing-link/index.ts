@@ -89,10 +89,13 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, serviceKey);
 
+    // Email-only document types — signing URL must not be exposed for copy/share
+    const EMAIL_ONLY_DOC_TYPES = ["poder_especial"];
+
     // Verify document exists and is finalized
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, organization_id, status, title")
+      .select("id, organization_id, status, title, document_type, created_by")
       .eq("id", document_id)
       .single();
 
@@ -100,6 +103,8 @@ Deno.serve(async (req) => {
     if (doc.status !== "finalized" && doc.status !== "draft") {
       return json({ error: `Document status is '${doc.status}', must be 'finalized' or 'draft'` }, 400);
     }
+
+    const isEmailOnly = EMAIL_ONLY_DOC_TYPES.includes(doc.document_type || "");
 
     // Generate signing token and HMAC
     const signingToken = crypto.randomUUID();
@@ -152,6 +157,9 @@ Deno.serve(async (req) => {
         signer_name,
         expires_at: expiresAt.toISOString(),
         expires_hours: hoursToExpire,
+        share_mode: isEmailOnly ? "EMAIL_ONLY" : "EMAIL_AND_LINK",
+        sender: "info@andromeda.legal",
+        generated_for: { user_id: user.id },
       },
       actor_type: "lawyer",
       actor_id: user.id,
@@ -171,7 +179,7 @@ Deno.serve(async (req) => {
         try {
           const { data: lawyerProfile } = await adminClient
             .from("profiles")
-            .select("full_name, email, custom_branding_enabled, custom_logo_path, custom_firm_name")
+            .select("full_name, email, litigation_email, custom_branding_enabled, custom_logo_path, custom_firm_name")
             .eq("id", user.id)
             .single();
 
@@ -219,6 +227,7 @@ Deno.serve(async (req) => {
             body: JSON.stringify({
               from: `${branding.firm_name} <info@andromeda.legal>`,
               to: [signer_email],
+              ...(lawyerProfile?.litigation_email ? { reply_to: lawyerProfile.litigation_email } : {}),
               subject: `Documento pendiente de firma — ${doc.title}`,
               html: emailHtml,
             }),
@@ -250,9 +259,10 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       signature_id: sig.id,
-      signing_url: signingUrl,
+      signing_url: isEmailOnly ? null : signingUrl,
       expires_at: expiresAt.toISOString(),
       email_sent: emailSent,
+      share_mode: isEmailOnly ? "EMAIL_ONLY" : "EMAIL_AND_LINK",
     });
   } catch (err) {
     console.error("generate-signing-link error:", err);

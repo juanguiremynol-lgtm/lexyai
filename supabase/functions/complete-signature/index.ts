@@ -352,9 +352,9 @@ Deno.serve(async (req) => {
     let lawyerEmail = "";
     let lawyerProfile: any = null;
     if (doc.created_by) {
-      const { data: prof } = await adminClient.from("profiles").select("full_name, email, custom_branding_enabled, custom_logo_path, custom_firm_name").eq("id", doc.created_by).single();
+      const { data: prof } = await adminClient.from("profiles").select("full_name, email, litigation_email, custom_branding_enabled, custom_logo_path, custom_firm_name").eq("id", doc.created_by).single();
       lawyerName = prof?.full_name || "";
-      lawyerEmail = prof?.email || "";
+      lawyerEmail = prof?.litigation_email || prof?.email || "";
       lawyerProfile = prof;
     }
 
@@ -846,7 +846,18 @@ ${evidenceAppendix}
         document_id: sig.document_id,
         signature_id: sig.id,
         event_type: "notification.sent",
-        event_data: { recipients: Array.from(recipients), type: "signature_confirmation", total_signers: totalSigners },
+        event_data: {
+          recipients: Array.from(recipients),
+          type: "signature_confirmation",
+          total_signers: totalSigners,
+          sender: "info@andromeda.legal",
+          generated_for: {
+            user_id: doc.created_by,
+            lawyer_name: lawyerName,
+            litigation_email: lawyerEmail,
+          },
+          event_timeline: "CREATED → SENT_TO_SIGNER → VIEWED → SIGNED → DISTRIBUTED",
+        },
         actor_type: "system",
         actor_id: "system",
       });
