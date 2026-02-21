@@ -86,6 +86,34 @@ export function StepRouting({ mode, connector, organizationId, onRoutingConfigur
 
       // PLATFORM mode: also create coverage overrides for orchestrator discovery
       if (isPlatform && coverageWorkflows.length > 0 && coverageDataKinds.length > 0) {
+        // ── Quota enforcement: MAX_DYNAMIC_PROVIDERS_TOTAL / PER_CATEGORY ──
+        const IMMUTABLE_BUILT_IN_KEYS = ['cpnu', 'samai', 'publicaciones', 'samai_estados', 'tutelas'];
+        const MAX_DYNAMIC_PROVIDERS_TOTAL = 10;
+        const MAX_DYNAMIC_PROVIDERS_PER_CATEGORY = 3;
+
+        const { count: totalActive } = await supabase
+          .from("provider_coverage_overrides")
+          .select("*", { count: "exact", head: true })
+          .eq("enabled", true)
+          .not("provider_key", "in", `(${IMMUTABLE_BUILT_IN_KEYS.join(",")})`);
+
+        if ((totalActive ?? 0) >= MAX_DYNAMIC_PROVIDERS_TOTAL) {
+          throw new Error(`Límite alcanzado: máximo ${MAX_DYNAMIC_PROVIDERS_TOTAL} proveedores dinámicos activos. Actualmente: ${totalActive}.`);
+        }
+
+        for (const cw of coverageWorkflows) {
+          const { count: perCategory } = await supabase
+            .from("provider_coverage_overrides")
+            .select("*", { count: "exact", head: true })
+            .eq("enabled", true)
+            .eq("workflow_type", cw)
+            .not("provider_key", "in", `(${IMMUTABLE_BUILT_IN_KEYS.join(",")})`);
+
+          if ((perCategory ?? 0) >= MAX_DYNAMIC_PROVIDERS_PER_CATEGORY) {
+            throw new Error(`Límite alcanzado: máximo ${MAX_DYNAMIC_PROVIDERS_PER_CATEGORY} proveedores dinámicos por categoría. ${cw} tiene ${perCategory}.`);
+          }
+        }
+
         for (const cw of coverageWorkflows) {
           for (const dk of coverageDataKinds) {
             await supabase.from("provider_coverage_overrides").upsert({
