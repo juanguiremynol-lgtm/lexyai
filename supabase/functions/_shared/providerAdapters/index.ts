@@ -33,3 +33,11 @@ export { fetchFromSamaiEstados, normalizeSamaiEstadosResponse, formatRadicadoFor
 
 // Re-export Tutelas adapter
 export { fetchFromTutelas, normalizeTutelasActuaciones, normalizeTutelasEstados, extractTutelasMetadata, extractTutelasParties, computeTutelasFingerprint, mapCorteStatus } from './tutelasAdapter.ts';
+
+// Re-export bridge converters
+export { toDemoResult, toWizardResult, toOrchestratorResult } from './bridge.ts';
+export type {
+  DemoProviderResult, DemoActuacion, DemoEstado, DemoEstadoAttachment, DemoProviderMetadata, DemoProviderOutcome, DemoFoundStatus,
+  WizardProviderResult, WizardProcessData,
+  OrchestratorFetchResult, OrchestratorActuacionRaw,
+} from './bridge.ts';
