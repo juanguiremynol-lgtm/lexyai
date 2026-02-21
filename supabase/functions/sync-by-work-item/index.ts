@@ -344,7 +344,7 @@ async function logTrace(
 type WorkflowType = 'CGP' | 'LABORAL' | 'CPACA' | 'TUTELA' | 'PENAL_906' | 'PETICION' | 'GOV_PROCEDURE';
 
 interface ProviderOrderConfig {
-  primary: 'cpnu' | 'samai' | 'tutelas-api' | 'publicaciones';
+  primary: 'cpnu' | 'samai' | 'tutelas' | 'publicaciones';
   fallback?: 'cpnu' | 'samai' | null;
   fallbackEnabled: boolean;
   usePublicacionesAsPrimary?: boolean; // For PENAL_906: Publicaciones is the PRIMARY sync source
@@ -362,10 +362,10 @@ function getProviderOrder(workflowType: string): ProviderOrderConfig {
   const fallbackProvider = actCoverage.providers.find(p => p.role === "FALLBACK");
   
   // Map uppercase matrix keys to lowercase provider keys used by inline fetch functions
-  const keyMap: Record<string, 'cpnu' | 'samai' | 'tutelas-api' | 'publicaciones'> = {
+  const keyMap: Record<string, 'cpnu' | 'samai' | 'tutelas' | 'publicaciones'> = {
     'CPNU': 'cpnu',
     'SAMAI': 'samai',
-    'TUTELAS': 'tutelas-api',
+    'TUTELAS': 'tutelas',
     'PUBLICACIONES': 'publicaciones',
     'SAMAI_ESTADOS': 'samai',
   };
@@ -444,7 +444,7 @@ function classifyActuacionType(description: string): string {
  * Lower court actuaciones: CPNU > SAMAI
  * Corte Constitucional: TUTELAS is authoritative
  */
-const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai', 'tutelas-api'];
+const TUTELA_SOURCE_PRIORITY: string[] = ['cpnu', 'samai', 'tutelas'];
 
 /**
  * Merge TUTELA metadata from multiple providers using "best available" strategy.
@@ -479,7 +479,7 @@ function mergeTutelaMetadata(
   }
 
   // Stage: TUTELAS (Corte Constitucional) always overrides
-  if (source === 'tutelas-api' && incoming.stage) {
+  if ((source === 'tutelas' || source === 'tutelas-api') && incoming.stage) {
     merged.stage = incoming.stage;
   } else if (!merged.stage && incoming.stage) {
     merged.stage = incoming.stage;
@@ -2414,7 +2414,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
       ok: false, 
       actuaciones: [], 
       error: 'TUTELAS API not configured (missing TUTELAS_BASE_URL). Contact administrator.', 
-      provider: 'tutelas-api',
+      provider: 'tutelas',
       latencyMs: Date.now() - startTime,
     };
   }
@@ -2452,7 +2452,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
           ok: false, 
           actuaciones: [], 
           error: scrapingResult.error || 'TUTELAS search failed', 
-          provider: 'tutelas-api',
+          provider: 'tutelas',
           isEmpty: true,
           latencyMs: Date.now() - startTime,
           httpStatus: 404,
@@ -2467,7 +2467,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
         ok: false, 
         actuaciones: [], 
         error: 'SCRAPING_INITIATED', 
-        provider: 'tutelas-api',
+        provider: 'tutelas',
         isEmpty: true,
         latencyMs: Date.now() - startTime,
         httpStatus: 202,
@@ -2493,7 +2493,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
             ok: false, 
             actuaciones: [], 
             error: 'SCRAPING_INITIATED', 
-            provider: 'tutelas-api',
+            provider: 'tutelas',
             isEmpty: true,
             latencyMs: Date.now() - startTime,
             httpStatus: 202,
@@ -2508,7 +2508,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
             ok: false, 
             actuaciones: [], 
             error: 'Tutela not found', 
-            provider: 'tutelas-api',
+            provider: 'tutelas',
             isEmpty: true,
             latencyMs: Date.now() - startTime,
             httpStatus: 404,
@@ -2519,7 +2519,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
         ok: false, 
         actuaciones: [], 
         error: `HTTP ${response!.status}`, 
-        provider: 'tutelas-api',
+        provider: 'tutelas',
         latencyMs: Date.now() - startTime,
         httpStatus: response!.status,
       };
@@ -2555,7 +2555,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
       actuaciones: normalized.actuaciones,
       expedienteUrl: normalized.expedienteUrl,
       caseMetadata: enrichedMetadata as FetchResult['caseMetadata'],
-      provider: 'tutelas-api',
+      provider: 'tutelas',
       latencyMs: Date.now() - startTime,
       httpStatus: 200,
     };
@@ -2565,7 +2565,7 @@ async function fetchFromTutelasApi(identifier: string, identifierType: 'tutela_c
       ok: false, 
       actuaciones: [], 
       error: err instanceof Error ? err.message : 'TUTELAS API failed', 
-      provider: 'tutelas-api',
+      provider: 'tutelas',
       latencyMs: Date.now() - startTime,
     };
   }
@@ -3177,11 +3177,11 @@ Deno.serve(async (req) => {
       if (hasTutelaCode) {
         // T-code available: use direct /expediente lookup
         providerPromises.push(fetchFromTutelasApi(workItem.tutela_code!, 'tutela_code'));
-        providerLabels.push('tutelas-api');
+        providerLabels.push('tutelas');
       } else if (hasRadicado) {
         // No T-code: try TUTELAS with radicado-based /search
         providerPromises.push(fetchFromTutelasApi(normalizedRadicado, 'radicado'));
-        providerLabels.push('tutelas-api');
+        providerLabels.push('tutelas');
       }
       
       const settledResults = await Promise.allSettled(providerPromises);
@@ -3291,7 +3291,7 @@ Deno.serve(async (req) => {
           radicado: workItem.radicado || '',
           workflowType: workItem.workflow_type,
           stage: (workItem as any).stage || null,
-          provider: scrapingResult.provider || 'tutelas-api',
+          provider: scrapingResult.provider === 'tutelas-api' ? 'tutelas' : (scrapingResult.provider || 'tutelas'),
           kind: 'ACT_SCRAPE_RETRY',
           scrapingJobId: scrapingResult.scrapingJobId,
           errorCode: 'SCRAPING_TIMEOUT',
@@ -4140,7 +4140,7 @@ Deno.serve(async (req) => {
 
       // Determine source_platform from the actual source of the best record
       const sourcePlatformMap: Record<string, string> = {
-        'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas-api': 'TUTELAS',
+        'cpnu': 'CPNU', 'samai': 'SAMAI', 'tutelas': 'TUTELAS', 'tutelas-api': 'TUTELAS',
       };
 
       // ── Upsert via RPC with explicit sources[] array merge ──
@@ -4473,8 +4473,9 @@ Deno.serve(async (req) => {
       
       // If TUTELAS returned corte_status, include it in provider_sources
       const meta = fetchResult.caseMetadata || {};
-      if (meta.corte_status && providerSources['tutelas-api']) {
-        (providerSources['tutelas-api'] as Record<string, unknown>).corte_status = meta.corte_status;
+      if (meta.corte_status && (providerSources['tutelas'] || providerSources['tutelas-api'])) {
+        const tutelaSources = (providerSources['tutelas'] || providerSources['tutelas-api']) as Record<string, unknown>;
+        tutelaSources.corte_status = meta.corte_status;
       }
       
       updatePayload.provider_sources = providerSources;

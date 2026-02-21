@@ -523,7 +523,7 @@ Deno.serve(async (req) => {
         act_date: eventDate,
         description: summary,
         act_type: "ACTUACION",
-        source: "RAMA_JUDICIAL",
+        source: "cpnu",
         hash_fingerprint: fingerprint,
         phase_inferred: classification.phase,
         keywords_matched: classification.keywords,
@@ -532,7 +532,7 @@ Deno.serve(async (req) => {
         despacho: fetchResult.proceso?.["Despacho"] || null,
         event_summary: summary,
         source_url: `${EXTERNAL_API_BASE}/buscar?numero_radicacion=${cleanRadicado}`,
-        source_platform: "Rama Judicial",
+        source_platform: "CPNU",
       });
 
       if (!insertError) {

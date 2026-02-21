@@ -212,9 +212,9 @@ describe("Metadata Invariants", () => {
     const builtinsMap: Record<string, { acts: string[]; pubs: string[] }> = {
       CGP: { acts: ["cpnu"], pubs: ["publicaciones"] },
       LABORAL: { acts: ["cpnu"], pubs: ["publicaciones"] },
-      CPACA: { acts: ["samai"], pubs: ["publicaciones"] },
-      TUTELA: { acts: ["cpnu", "tutelas-api"], pubs: [] },
-      PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+      CPACA: { acts: ["samai"], pubs: ["publicaciones", "samai_estados"] },
+      TUTELA: { acts: ["cpnu", "tutelas", "samai"], pubs: ["publicaciones"] },
+      PENAL_906: { acts: ["cpnu"], pubs: ["publicaciones"] },
     };
     const syncWorkflows = ["CGP", "LABORAL", "CPACA", "TUTELA", "PENAL_906"];
     for (const wf of syncWorkflows) {
@@ -224,13 +224,13 @@ describe("Metadata Invariants", () => {
   });
 
   it("every builtin provider is a known source", () => {
-    const knownSources = new Set(["cpnu", "samai", "publicaciones", "tutelas-api"]);
+    const knownSources = new Set(["cpnu", "samai", "publicaciones", "samai_estados", "tutelas"]);
     const builtinsMap: Record<string, { acts: string[]; pubs: string[] }> = {
       CGP: { acts: ["cpnu"], pubs: ["publicaciones"] },
       LABORAL: { acts: ["cpnu"], pubs: ["publicaciones"] },
-      CPACA: { acts: ["samai"], pubs: ["publicaciones"] },
-      TUTELA: { acts: ["cpnu", "tutelas-api"], pubs: [] },
-      PENAL_906: { acts: ["cpnu", "samai"], pubs: ["publicaciones"] },
+      CPACA: { acts: ["samai"], pubs: ["publicaciones", "samai_estados"] },
+      TUTELA: { acts: ["cpnu", "tutelas", "samai"], pubs: ["publicaciones"] },
+      PENAL_906: { acts: ["cpnu"], pubs: ["publicaciones"] },
     };
     for (const wf of Object.values(builtinsMap)) {
       for (const src of [...wf.acts, ...wf.pubs]) {
