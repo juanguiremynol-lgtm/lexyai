@@ -189,20 +189,35 @@ export function EstadosTab({ workItem }: EstadosTabProps) {
       }
 
       // Map work_item_publicaciones to display format
-      const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => ({
-        id: pub.id,
-        hash_fingerprint: pub.hash_fingerprint || null,
-        date: pub.published_at,
-        date_raw: pub.published_at,
-        description: pub.title + (pub.annotation ? ` - ${pub.annotation}` : ''),
-        type: pub.tipo_publicacion || 'ESTADO',
-        source: pub.source || "PUBLICACIONES_API",
-        pdf_url: pub.pdf_url,
-        created_at: pub.created_at,
-        fecha_fijacion: pub.fecha_fijacion || pub.raw_data?.fecha_fijacion || null,
-        fecha_desfijacion: pub.fecha_desfijacion || pub.raw_data?.fecha_desfijacion || null,
-        despacho: pub.despacho || pub.raw_data?.despacho || null,
-      }));
+      const fromPubs: PublicacionEstado[] = (pubsResult.data || []).map((pub: any) => {
+        // Extract pdf_url: direct field → raw_data attachments → raw_data fields
+        let pdfUrl = pub.pdf_url || pub.entry_url || null;
+        if (!pdfUrl && pub.raw_data) {
+          const rd = pub.raw_data;
+          // Check attachments array (SAMAI Estados format)
+          if (Array.isArray(rd.attachments) && rd.attachments.length > 0) {
+            pdfUrl = rd.attachments[0]?.url || null;
+          }
+          // Check common URL fields in raw_data
+          if (!pdfUrl) {
+            pdfUrl = rd.pdf_url || rd.url_descarga || rd.documento_url || rd.url || null;
+          }
+        }
+        return {
+          id: pub.id,
+          hash_fingerprint: pub.hash_fingerprint || null,
+          date: pub.published_at,
+          date_raw: pub.published_at,
+          description: pub.title + (pub.annotation ? ` - ${pub.annotation}` : ''),
+          type: pub.tipo_publicacion || 'ESTADO',
+          source: pub.source || "PUBLICACIONES_API",
+          pdf_url: pdfUrl,
+          created_at: pub.created_at,
+          fecha_fijacion: pub.fecha_fijacion || pub.raw_data?.fecha_fijacion || null,
+          fecha_desfijacion: pub.fecha_desfijacion || pub.raw_data?.fecha_desfijacion || null,
+          despacho: pub.despacho || pub.raw_data?.despacho || null,
+        };
+      });
 
       // Map directly tagged SAMAI_ESTADOS acts
       const samaiDirectIds = new Set<string>();

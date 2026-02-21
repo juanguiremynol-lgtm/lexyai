@@ -276,6 +276,12 @@ function normalizeOneEstado(
   // Extract attachments
   const attachments = extractSamaiEstadosAttachments(e, PROVIDER_KEY);
 
+  // Extract pdf_url from first attachment or known fields
+  const pdfUrl = attachments.find(a => a.type === 'pdf')?.url
+    || attachments[0]?.url
+    || e.pdf_url || e.pdfUrl || e.url_descarga || e.url_pdf
+    || e.documento_url || e.documentUrl || e.url || undefined;
+
   // Fingerprint
   const fingerprint = computeSamaiEstadosFingerprint(
     fecha || '',
@@ -294,6 +300,7 @@ function normalizeOneEstado(
     hash_fingerprint: fingerprint,
     source_platform: PROVIDER_KEY,
     sources: [PROVIDER_KEY],
+    pdf_url: pdfUrl,
     attachments: attachments.length > 0 ? attachments : undefined,
     raw_data: e,
   };
