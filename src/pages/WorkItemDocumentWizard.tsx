@@ -695,6 +695,9 @@ export default function WorkItemDocumentWizard() {
     return base;
   }, [template.variables, docType, poderdanteType]);
 
+  // Fields handled by dedicated sections in contrato_servicios (not in variables state)
+  const CONTRATO_DEDICATED_FIELDS = ["honorarios_amount", "honorarios_type", "honorarios_percentage", "payment_schedule", "case_description"];
+
   // Required fields validation
   const missingRequired = useMemo(() => {
     const baseMissing = template.variables
@@ -703,6 +706,10 @@ export default function WorkItemDocumentWizard() {
         // Skip client fields for multi/juridica poder_especial
         if (docType === "poder_especial" && poderdanteType !== "natural" &&
             ["client_full_name", "client_cedula", "client_email"].includes(v.key)) {
+          return false;
+        }
+        // Skip fields handled by dedicated sections in contrato_servicios
+        if (docType === "contrato_servicios" && CONTRATO_DEDICATED_FIELDS.includes(v.key)) {
           return false;
         }
         return !variables[v.key]?.trim();
@@ -1523,6 +1530,20 @@ export default function WorkItemDocumentWizard() {
             </CardContent>
           </Card>
 
+          {missingRequired.length > 0 && (
+            <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  No se puede finalizar — {missingRequired.length} campo(s) requerido(s) faltante(s)
+                </p>
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Regrese al paso anterior y complete: {missingRequired.map((v) => v.label).join(", ")}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <Button variant="outline" onClick={() => setStep(isNotification ? 3 : 2)}>
               <ArrowLeft className="h-4 w-4 mr-2" /> Editar Variables
@@ -1537,6 +1558,7 @@ export default function WorkItemDocumentWizard() {
               <Button
                 onClick={handleFinalize}
                 disabled={finalizing || generatingNotifs || missingRequired.length > 0}
+                title={missingRequired.length > 0 ? `Faltan: ${missingRequired.map(v => v.label).join(", ")}` : undefined}
               >
                 {(finalizing || generatingNotifs) ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -1552,13 +1574,6 @@ export default function WorkItemDocumentWizard() {
               </Button>
             </div>
           </div>
-
-          {missingRequired.length > 0 && (
-            <div className="flex items-center gap-2 text-amber-600 text-sm">
-              <AlertCircle className="h-4 w-4" />
-              Complete los campos requeridos antes de enviar: {missingRequired.map((v) => v.label).join(", ")}
-            </div>
-          )}
 
           {unpopulatedVars.length > 0 && (
             <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4 space-y-2">
