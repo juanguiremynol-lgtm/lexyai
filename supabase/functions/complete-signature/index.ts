@@ -110,8 +110,20 @@ async function getLastEventHash(adminClient: any, documentId: string): Promise<s
   return data?.event_hash || null;
 }
 
+/** Recursive canonical JSON: sorts keys at all depths, normalizes null/undefined */
+function canonicalStringify(obj: unknown): string {
+  if (obj === null || obj === undefined) return "null";
+  if (typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return "[" + obj.map(canonicalStringify).join(",") + "]";
+  if (typeof obj === "object") {
+    const sorted = Object.keys(obj as Record<string, unknown>).sort();
+    return "{" + sorted.map(k => JSON.stringify(k) + ":" + canonicalStringify((obj as Record<string, unknown>)[k])).join(",") + "}";
+  }
+  return JSON.stringify(obj);
+}
+
 async function computeEventHash(previousHash: string | null, eventData: Record<string, unknown>): Promise<string> {
-  const canonical = JSON.stringify(eventData, Object.keys(eventData).sort());
+  const canonical = canonicalStringify(eventData);
   return sha256Hex((previousHash || "GENESIS") + canonical);
 }
 
