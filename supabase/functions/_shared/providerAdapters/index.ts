@@ -28,3 +28,6 @@ export type {
 
 // Re-export CPNU adapter
 export { fetchFromCpnu, normalizeCpnuActuaciones, extractCpnuParties, computeCpnuFingerprint } from './cpnuAdapter.ts';
+
+// Re-export SAMAI adapter
+export { fetchFromSamai, normalizeSamaiActuaciones, extractSamaiParties, extractSamaiMetadata, computeSamaiFingerprint } from './samaiAdapter.ts';
