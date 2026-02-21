@@ -3,7 +3,7 @@
  * Phase 3.10: Court header, litigation email, email-only sharing for Poder Especial.
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +22,7 @@ import {
 import {
   FileText, ArrowLeft, ArrowRight, Send, Save, Loader2,
   CheckCircle2, AlertCircle, Eye, Mail, Link2, Copy, Check, Clock,
-  User, Users, Building2, Trash2, Plus, Ban, Sparkles,
+  User, Users, Building2, Trash2, Plus, Ban, Sparkles, Shield,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -60,7 +60,8 @@ import type { HonorariosData } from "@/lib/honorarios-utils";
 import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
 import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
 import { isLinkSharingAllowed } from "@/lib/document-share-policy";
-import { getDisclaimers, isIssuerOnly, getDocumentPolicy, type DocumentPolicyType } from "@/lib/document-policy";
+import { getDisclaimers, isIssuerOnly, getDocumentPolicy, isBilateral, type DocumentPolicyType } from "@/lib/document-policy";
+import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -410,6 +411,14 @@ export default function WorkItemDocumentWizard() {
 
   // Preview theme toggle
   const [previewDarkMode, setPreviewDarkMode] = useState(false);
+
+  // Lawyer in-app signing flow state (bilateral contracts)
+  const [lawyerSigningActive, setLawyerSigningActive] = useState(false);
+  const [lawyerSigningData, setLawyerSigningData] = useState<{
+    documentId: string;
+    signatureId: string;
+    signingToken: string;
+  } | null>(null);
 
   // Super Admin profile gate
   const { isPlatformAdmin } = usePlatformAdmin();
@@ -993,14 +1002,54 @@ export default function WorkItemDocumentWizard() {
       if (docErr) throw docErr;
       setSavedDocId(doc.id);
 
-      // Generate signing links for ALL signers
-      // For bilateral (contrato), signers are ordered: [lawyer, client].
-      // The second signer depends on the first (sequential signing).
+      // BILATERAL CONTRACT: Lawyer signs first in-app, then client gets invitation
+      if (isBilateral(docType as DocumentPolicyType)) {
+        const lawyerSigner = signers.find(s => s.role === "lawyer");
+        if (!lawyerSigner) throw new Error("No lawyer signer found");
+
+        // Create only the lawyer's signing link (for in-app signing)
+        const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
+          body: {
+            document_id: doc.id,
+            signer_name: lawyerSigner.name,
+            signer_email: lawyerSigner.email,
+            signer_cedula: lawyerSigner.cedula || null,
+            signer_role: "lawyer",
+            signing_order: 1,
+            send_email: false,
+          },
+        });
+
+        if (sigErr || !sigResult?.ok) {
+          let errorDetail = sigResult?.error || "Error creando firma del abogado";
+          if (sigErr) {
+            try {
+              const ctx = (sigErr as any)?.context;
+              if (ctx && typeof ctx.json === "function") {
+                const body = await ctx.json();
+                errorDetail = body?.error || errorDetail;
+              }
+            } catch (_) { /* fallback */ }
+          }
+          throw new Error(errorDetail);
+        }
+
+        // Show the in-app lawyer signing flow
+        setLawyerSigningData({
+          documentId: doc.id,
+          signatureId: sigResult.signature_id,
+          signingToken: sigResult.signing_token,
+        });
+        setLawyerSigningActive(true);
+        setFinalizing(false);
+        return; // Don't open sharing modal yet — wait for lawyer to sign
+      }
+
+      // NON-BILATERAL (unilateral): Generate signing links for all signers as before
       const entries: typeof signerEntries = [];
 
       for (let i = 0; i < signers.length; i++) {
         const s = signers[i];
-        const isSequentialFollower = isMultiSigner && i > 0 && entries.length > 0;
 
         const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
           body: {
@@ -1011,26 +1060,19 @@ export default function WorkItemDocumentWizard() {
             signer_role: s.role,
             signing_order: i + 1,
             send_email: false,
-            // Sequential bilateral: subsequent signers wait for the previous one
-            ...(isSequentialFollower ? {
-              depends_on: entries[i - 1].signatureId,
-              create_as_waiting: true,
-            } : {}),
           },
         });
 
         if (sigErr || !sigResult?.ok) {
-          // Extract detailed error from edge function response
           let errorDetail = sigResult?.error || "Error generando enlace de firma";
           if (sigErr) {
-            // Try to get the actual response body from the FunctionsHttpError
             try {
               const ctx = (sigErr as any)?.context;
               if (ctx && typeof ctx.json === "function") {
                 const body = await ctx.json();
                 errorDetail = body?.error || errorDetail;
               }
-            } catch (_) { /* fallback to generic */ }
+            } catch (_) { /* fallback */ }
             if (errorDetail === "Error generando enlace de firma") {
               errorDetail = sigErr.message || errorDetail;
             }
@@ -1054,6 +1096,65 @@ export default function WorkItemDocumentWizard() {
       toast.error("Error: " + (err as Error).message);
     } finally {
       setFinalizing(false);
+    }
+  };
+
+  // Handler: After lawyer completes in-app signing, create client signing link
+  const handleLawyerSigningComplete = async () => {
+    if (!savedDocId || !workItem) return;
+    try {
+      const signers = getSigners();
+      const clientSigner = signers.find(s => s.role === "client");
+      if (!clientSigner) {
+        toast.error("No se encontró firmante del cliente");
+        return;
+      }
+
+      // Get the lawyer's signature ID to set as dependency
+      const lawyerSigId = lawyerSigningData?.signatureId;
+
+      const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
+        body: {
+          document_id: savedDocId,
+          signer_name: clientSigner.name,
+          signer_email: clientSigner.email,
+          signer_cedula: clientSigner.cedula || null,
+          signer_role: "client",
+          signing_order: 2,
+          send_email: false,
+          depends_on: lawyerSigId || null,
+          create_as_waiting: false, // Lawyer already signed, client can sign now
+        },
+      });
+
+      if (sigErr || !sigResult?.ok) {
+        let errorDetail = sigResult?.error || "Error creando enlace para cliente";
+        if (sigErr) {
+          try {
+            const ctx = (sigErr as any)?.context;
+            if (ctx && typeof ctx.json === "function") {
+              const body = await ctx.json();
+              errorDetail = body?.error || errorDetail;
+            }
+          } catch (_) { /* fallback */ }
+        }
+        toast.error(errorDetail);
+        return;
+      }
+
+      // Show client sharing modal
+      setSignerEntries([{
+        name: clientSigner.name,
+        email: clientSigner.email,
+        signingUrl: sigResult.signing_url || "",
+        signatureId: sigResult.signature_id,
+        emailSent: false,
+      }]);
+      setExpiresAt(new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString());
+      setLawyerSigningActive(false);
+      setSharingModalOpen(true);
+    } catch (err) {
+      toast.error("Error: " + (err as Error).message);
     }
   };
 
@@ -1584,7 +1685,9 @@ export default function WorkItemDocumentWizard() {
                 )}
                 {isNotification
                   ? `Generar ${selectedDefendants.filter(d => d.selected).length} Notificación(es)`
-                  : "Finalizar Documento"
+                  : isBilateral(docType as DocumentPolicyType)
+                    ? "Finalizar y Firmar (Abogado)"
+                    : "Finalizar Documento"
                 }
               </Button>
             </div>
@@ -1607,6 +1710,41 @@ export default function WorkItemDocumentWizard() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Lawyer In-App Signing Flow (bilateral contracts) */}
+      {lawyerSigningActive && lawyerSigningData && (
+        <Dialog open={lawyerSigningActive} onOpenChange={() => {}}>
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Firma del Abogado — Contrato Bilateral
+              </DialogTitle>
+              <DialogDescription>
+                Como primer firmante, complete la verificación de identidad, OTP y firma electrónica.
+              </DialogDescription>
+            </DialogHeader>
+            <LawyerSigningFlow
+              documentId={lawyerSigningData.documentId}
+              signatureId={lawyerSigningData.signatureId}
+              signingToken={lawyerSigningData.signingToken}
+              lawyerName={variables.lawyer_full_name || ""}
+              lawyerCedula={variables.lawyer_cedula || ""}
+              lawyerEmail={variables.lawyer_email || (profile as any)?.litigation_email || profile?.firma_abogado_correo || ""}
+              documentHtml={renderedHtml}
+              onComplete={() => handleLawyerSigningComplete()}
+              onCancel={() => {
+                setLawyerSigningActive(false);
+                setLawyerSigningData(null);
+                // Navigate to document detail since doc is already created
+                if (savedDocId && workItem) {
+                  navigate(`/app/work-items/${workItem.id}/documents/${savedDocId}`);
+                }
+              }}
+            />
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Multi-Signer Sharing Modal */}
