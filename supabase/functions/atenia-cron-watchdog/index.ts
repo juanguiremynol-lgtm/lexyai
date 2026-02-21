@@ -1037,6 +1037,48 @@ Deno.serve(async (req) => {
       console.warn("[watchdog] Missed heartbeat detection error:", e);
     }
 
+    // ================================================================
+    // 5k) LAYER 3: Trigger Health — check trigger_error_log for recent failures
+    // ================================================================
+    try {
+      const triggerCheckCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // last hour
+      const { data: triggerErrors } = await admin
+        .from("trigger_error_log")
+        .select("id, trigger_name, table_name, error_message, work_item_id, created_at")
+        .gte("created_at", triggerCheckCutoff)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      const triggerErrorCount = triggerErrors?.length ?? 0;
+      results.trigger_health = { errors_last_hour: triggerErrorCount };
+
+      if (triggerErrorCount > 0) {
+        const uniqueTriggers = [...new Set(triggerErrors!.map((e: any) => e.trigger_name))];
+        const severity = triggerErrorCount > 10 ? "CRITICAL" : "WARNING";
+
+        // Check if any are DATA_LOSS_DETECTED (from post-insert verification)
+        const dataLossCount = triggerErrors!.filter((e: any) => 
+          e.trigger_name === 'POST_INSERT_VERIFY'
+        ).length;
+
+        if (dataLossCount > 0) {
+          alerts.push({
+            title: "🚨 DATA LOSS: Trigger silently blocking inserts",
+            message: `${dataLossCount} post-insert verification failure(s) detected — new data is NOT persisting to ${uniqueTriggers.join(", ")}. Immediate investigation required.`,
+            severity: "CRITICAL",
+          });
+        } else {
+          alerts.push({
+            title: `⚠️ ${triggerErrorCount} trigger error(s) in last hour`,
+            message: `Triggers failing: ${uniqueTriggers.join(", ")}. Latest: ${triggerErrors![0]?.error_message?.slice(0, 150)}`,
+            severity,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[watchdog] Trigger health check error:", e);
+    }
+
     for (const alert of alerts) {
       try {
         await admin.from("atenia_ai_actions").insert({

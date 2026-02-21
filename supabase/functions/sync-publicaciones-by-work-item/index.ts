@@ -842,6 +842,7 @@ Deno.serve(async (req) => {
 
     // ============= INGEST PUBLICATIONS WITH DEDUPLICATION =============
     let newestDate: string | null = null;
+    const attemptedPubFingerprints: string[] = []; // Track fingerprints for post-insert verification
 
     for (const pub of fetchResult.publicaciones) {
       // Extract date from title if fecha_publicacion is null
@@ -917,6 +918,7 @@ Deno.serve(async (req) => {
         if (counts.inserted_count > 0) {
           console.log(`[sync-pub] ✅ Inserted: ${pub.titulo} (fecha: ${fechaPublicacion})`);
           result.inserted_count++;
+          attemptedPubFingerprints.push(fingerprint);
           
           if (parsedFecha && (!newestDate || parsedFecha > newestDate)) {
             newestDate = parsedFecha;
@@ -1001,6 +1003,42 @@ Deno.serve(async (req) => {
       }
     }
     
+    // ── LAYER 2: POST-INSERT VERIFICATION ──
+    if (result.inserted_count > 0 && attemptedPubFingerprints.length > 0) {
+      try {
+        const { data: persistedPubs, error: verifyErr } = await supabase
+          .from('work_item_publicaciones')
+          .select('hash_fingerprint')
+          .eq('work_item_id', work_item_id)
+          .in('hash_fingerprint', attemptedPubFingerprints);
+
+        if (!verifyErr && persistedPubs) {
+          const persistedSet = new Set(persistedPubs.map((r: any) => r.hash_fingerprint));
+          const missingFps = attemptedPubFingerprints.filter(fp => !persistedSet.has(fp));
+
+          if (missingFps.length > 0) {
+            const msg = `[DATA_LOSS_DETECTED] ${missingFps.length}/${attemptedPubFingerprints.length} pub inserts did NOT persist for ${work_item_id} (likely trigger bug)`;
+            console.error(msg);
+            result.warnings.push(msg);
+            result.inserted_count = persistedSet.size;
+
+            try {
+              await supabase.from('trigger_error_log').insert({
+                trigger_name: 'POST_INSERT_VERIFY',
+                table_name: 'work_item_publicaciones',
+                error_message: `${missingFps.length} inserts silently failed for work_item ${work_item_id}`,
+                work_item_id,
+              });
+            } catch { /* best-effort */ }
+          } else {
+            console.log(`[VERIFY_OK] All ${attemptedPubFingerprints.length} pub inserts verified persisted`);
+          }
+        }
+      } catch (verifyError: any) {
+        console.warn(`[VERIFY_INSERTS] Pub verification query failed: ${verifyError?.message}`);
+      }
+    }
+
     result.ok = true;
     result.status = 'SUCCESS';
 

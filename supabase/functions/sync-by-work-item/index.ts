@@ -4033,6 +4033,7 @@ Deno.serve(async (req) => {
     // FIX: Calculate latestDate from ALL fetched data, not just inserted rows
     // This ensures latest_event_date reflects the provider's actual newest event
     let latestDate: string | null = null;
+    const attemptedFingerprints: string[] = []; // Track fingerprints for post-insert verification
 
     // ============= SEMANTIC DEDUP: Load existing (date+description) pairs ONCE =============
     // This prevents SAMAI duplicates where the same court event produces slightly different
@@ -4177,6 +4178,7 @@ Deno.serve(async (req) => {
         const counts = rpcResult as { inserted_count: number; updated_count: number; skipped_count: number; errors: string[] };
         if (counts.inserted_count > 0) {
           result.inserted_count++;
+          attemptedFingerprints.push(fingerprint);
         } else if (counts.updated_count > 0) {
           // Provenance was merged (sources[] updated) — count as "updated" not "inserted"
           result.skipped_count++;
@@ -4828,6 +4830,63 @@ Deno.serve(async (req) => {
     }
 
     result.ok = true;
+
+    // ── LAYER 2: POST-INSERT VERIFICATION ──
+    // Detect silent trigger failures that roll back inserts without errors
+    if (result.inserted_count > 0 && attemptedFingerprints.length > 0) {
+      try {
+        const { data: persistedRows, error: verifyErr } = await supabase
+          .from('work_item_acts')
+          .select('hash_fingerprint')
+          .eq('work_item_id', work_item_id)
+          .in('hash_fingerprint', attemptedFingerprints);
+
+        if (!verifyErr && persistedRows) {
+          const persistedSet = new Set(persistedRows.map((r: any) => r.hash_fingerprint));
+          const missingFps = attemptedFingerprints.filter(fp => !persistedSet.has(fp));
+
+          if (missingFps.length > 0) {
+            const msg = `[DATA_LOSS_DETECTED] ${missingFps.length}/${attemptedFingerprints.length} act inserts did NOT persist for ${work_item_id} (likely trigger bug)`;
+            console.error(msg);
+            result.warnings.push(msg);
+            result.inserted_count = persistedSet.size; // correct the count
+
+            // Write trace for forensics
+            try {
+              await logTrace(supabase, {
+                trace_id: traceId,
+                work_item_id,
+                organization_id: workItem.organization_id,
+                workflow_type: workItem.workflow_type,
+                step: 'DATA_LOSS_DETECTED',
+                success: false,
+                error_code: 'TRIGGER_SILENT_FAILURE',
+                message: msg,
+                meta: {
+                  attempted: attemptedFingerprints.length,
+                  persisted: persistedSet.size,
+                  missing_fingerprints: missingFps.slice(0, 10),
+                },
+              });
+            } catch { /* trace is best-effort */ }
+
+            // Write to trigger_error_log for watchdog visibility
+            try {
+              await supabase.from('trigger_error_log').insert({
+                trigger_name: 'POST_INSERT_VERIFY',
+                table_name: 'work_item_acts',
+                error_message: `${missingFps.length} inserts silently failed for work_item ${work_item_id}`,
+                work_item_id,
+              });
+            } catch { /* best-effort */ }
+          } else {
+            console.log(`[VERIFY_OK] All ${attemptedFingerprints.length} act inserts verified persisted`);
+          }
+        }
+      } catch (verifyError: any) {
+        console.warn(`[VERIFY_INSERTS] Verification query failed: ${verifyError?.message}`);
+      }
+    }
 
     // ── STRUCTURED SYNC LOG ──
     const syncDurationMs = Date.now() - syncStartTime;
