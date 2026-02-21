@@ -67,23 +67,23 @@ interface ConnectorInfo {
 
 // All workflow types supported by the platform
 const ALL_WORKFLOW_OPTIONS: { value: WorkflowType; label: string; description: string }[] = [
-  { value: "CGP", label: "CGP (Civil/Familia)", description: "CPNU primario, sin fallback SAMAI" },
-  { value: "LABORAL", label: "Laboral", description: "CPNU primario" },
-  { value: "CPACA", label: "CPACA (Administrativo)", description: "SAMAI primario + SAMAI Estados" },
-  { value: "TUTELA", label: "Tutela", description: "CPNU + Tutelas API" },
-  { value: "PENAL_906", label: "Penal 906", description: "CPNU + Publicaciones" },
-  { value: "PROCESO_ADMINISTRATIVO", label: "Proceso Administrativo", description: "SAMAI primario" },
-  { value: "PETICIONES", label: "Peticiones", description: "CPNU primario" },
+  { value: "CGP", label: "CGP (Civil/Familia)", description: "cpnuAdapter (primario) + publicacionesAdapter" },
+  { value: "LABORAL", label: "Laboral", description: "cpnuAdapter (primario) + publicacionesAdapter" },
+  { value: "CPACA", label: "CPACA (Administrativo)", description: "samaiAdapter + publicacionesAdapter + samaiEstadosAdapter" },
+  { value: "TUTELA", label: "Tutela", description: "cpnuAdapter + tutelasAdapter + samaiAdapter + publicacionesAdapter" },
+  { value: "PENAL_906", label: "Penal 906", description: "cpnuAdapter + publicacionesAdapter" },
+  { value: "PROCESO_ADMINISTRATIVO", label: "Proceso Administrativo", description: "samaiAdapter + publicacionesAdapter" },
+  { value: "PETICIONES", label: "Peticiones", description: "cpnuAdapter (primario)" },
 ];
 
 // Built-in provider config per workflow
 const BUILTIN_PROVIDERS: Record<WorkflowType, { primary: string; secondary?: string; publicaciones: boolean }> = {
   CGP: { primary: "cpnu", publicaciones: true },
   LABORAL: { primary: "cpnu", publicaciones: true },
-  CPACA: { primary: "samai", publicaciones: true },
-  TUTELA: { primary: "cpnu", secondary: "tutelas", publicaciones: false },
-  PENAL_906: { primary: "cpnu", secondary: "samai", publicaciones: true },
-  PROCESO_ADMINISTRATIVO: { primary: "samai", publicaciones: true },
+  CPACA: { primary: "samai", secondary: "samai_estados", publicaciones: true },
+  TUTELA: { primary: "cpnu", secondary: "tutelas", publicaciones: true },
+  PENAL_906: { primary: "cpnu", publicaciones: true },
+  PROCESO_ADMINISTRATIVO: { primary: "samai", secondary: "samai_estados", publicaciones: true },
   PETICIONES: { primary: "cpnu", publicaciones: false },
 };
 
@@ -174,12 +174,12 @@ function resolveConnectorsForWorkflow(
 ): ConnectorInfo[] {
   // Map workflow types to known connector keys that serve them
   const WORKFLOW_CONNECTOR_MAP: Record<WorkflowType, string[]> = {
-    CGP: ["cpnu"],
-    LABORAL: ["cpnu"],
-    CPACA: ["samai", "samai_estados", "samai-estados"],
-    TUTELA: ["cpnu", "tutelas", "tutelas-api"],
-    PENAL_906: ["cpnu", "samai"],
-    PROCESO_ADMINISTRATIVO: ["samai", "samai_estados", "samai-estados"],
+    CGP: ["cpnu", "publicaciones"],
+    LABORAL: ["cpnu", "publicaciones"],
+    CPACA: ["samai", "samai_estados", "samai-estados", "publicaciones"],
+    TUTELA: ["cpnu", "tutelas", "tutelas-api", "samai", "publicaciones"],
+    PENAL_906: ["cpnu", "publicaciones"],
+    PROCESO_ADMINISTRATIVO: ["samai", "samai_estados", "samai-estados", "publicaciones"],
     PETICIONES: ["cpnu"],
   };
 
@@ -997,7 +997,7 @@ export function MasterDebugPanel() {
           Consola de Debug Unificada — Atenia AI
         </CardTitle>
         <CardDescription>
-          Diagnóstico multi-proveedor: built-in (CPNU, SAMAI, Tutelas, Publicaciones) + proveedores externos registrados vía Wizard
+          Diagnóstico multi-proveedor vía adaptadores compartidos (_shared/providerAdapters/) — 5 canónicos + proveedores externos vía Wizard
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

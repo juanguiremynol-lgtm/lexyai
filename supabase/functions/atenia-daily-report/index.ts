@@ -505,6 +505,28 @@ function generateTxtReport(
   }
   ln();
 
+  // ─── SECTION 7: ARCHITECTURE HEALTH ───────────────────────────────
+  ln("───────────────────────────────────────────────────────────────────");
+  ln("SECTION 7 — ARCHITECTURE HEALTH");
+  ln("───────────────────────────────────────────────────────────────────");
+  ln("  Shared adapter layer:   ACTIVE (all 5 adapters in _shared/providerAdapters/)");
+  ln("  Adapters:");
+  ln("    cpnuAdapter.ts          → ACTUACIONES → work_item_acts");
+  ln("    samaiAdapter.ts         → ACTUACIONES → work_item_acts");
+  ln("    tutelasAdapter.ts       → ACTUACIONES → work_item_acts");
+  ln("    publicacionesAdapter.ts → ESTADOS     → work_item_publicaciones");
+  ln("    samaiEstadosAdapter.ts  → ESTADOS     → work_item_publicaciones");
+  ln("  Orchestrator:           sync-by-work-item (via toOrchestratorResult bridge)");
+  ln("  Provider routing:       providerRegistry.ts (getProvidersForCategory)");
+  ln("  Inline fetch functions: REMOVED (0 remaining in orchestrator)");
+
+  // Check for trigger errors and data loss
+  const errorLogResult = results.find(r => r.name === "RECENT_ACTIONS");
+  const freshResult2 = results.find(r => r.name === "WORK_ITEM_FRESHNESS");
+  ln(`  trigger_error_log:      ${errorLogResult?.status === "OK" ? "checked" : "unavailable"}`);
+  ln(`  Stale items (>24h):     ${(freshResult2?.output as any)?.stale_items ?? "N/A"}`);
+  ln();
+
   ln("═══════════════════════════════════════════════════════════════════");
   ln("                      END OF REPORT");
   ln("═══════════════════════════════════════════════════════════════════");

@@ -119,8 +119,9 @@ function providerName(provider: string | null): string {
   const names: Record<string, string> = {
     cpnu: "la Rama Judicial (CPNU)",
     samai: "el Consejo de Estado (SAMAI)",
-    tutelas: "la Corte Constitucional",
+    tutelas: "la Corte Constitucional (Tutelas API)",
     publicaciones: "el sistema de Publicaciones Procesales",
+    samai_estados: "SAMAI Estados",
   };
   return names[provider.toLowerCase()] || provider;
 }
@@ -833,6 +834,16 @@ REGLAS DE FORMATO OBLIGATORIAS:
 - No incluyas payloads crudos ni JSON extenso.
 
 Tu audiencia es un administrador de plataforma legal, no un desarrollador.
+
+## Arquitectura de proveedores (5 canónicos):
+Los 5 proveedores externos se ejecutan mediante adaptadores compartidos (_shared/providerAdapters/):
+- cpnuAdapter → CPNU (Rama Judicial) — Actuaciones — primario para CGP, LABORAL, PENAL_906
+- samaiAdapter → SAMAI (Consejo de Estado) — Actuaciones — primario para CPACA
+- publicacionesAdapter → Publicaciones Procesales — Estados — primario para todas las categorías
+- samaiEstadosAdapter → SAMAI Estados — Estados — primario para CPACA
+- tutelasAdapter → Tutelas API — Actuaciones — primario para TUTELA
+El orquestador (sync-by-work-item) llama a estos adaptadores vía bridge (toOrchestratorResult). 
+El enrutamiento por categoría se define en providerRegistry.ts (getProvidersForCategory).
 
 ## Estado de proveedores hoy:
 ${JSON.stringify(context.providerStatus, null, 2)}
@@ -1864,7 +1875,7 @@ Deno.serve(async (req) => {
 
     // ─── HEALTH_CHECK mode ───
     if (input.mode === "HEALTH_CHECK") {
-      const providers = ["cpnu", "samai", "tutelas", "publicaciones"];
+      const providers = ["cpnu", "samai", "tutelas", "publicaciones", "samai_estados"];
       const checks: Record<string, boolean> = {};
       for (const p of providers) {
         checks[p] = await quickHealthCheck(p);
