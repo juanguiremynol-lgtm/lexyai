@@ -13094,6 +13094,18 @@ export type Database = {
           terms_version: string
         }[]
       }
+      get_adapter_performance_comparison: {
+        Args: never
+        Returns: {
+          baseline_count: number
+          baseline_error_rate: number
+          baseline_p50_ms: number
+          provider: string
+          recent_count: number
+          recent_error_rate: number
+          recent_p50_ms: number
+        }[]
+      }
       get_chain_org_history: {
         Args: { p_chain_id: string; p_org_id: string }
         Returns: {
