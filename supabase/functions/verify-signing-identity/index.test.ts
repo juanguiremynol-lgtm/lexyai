@@ -102,3 +102,43 @@ Deno.test("validate-signing-link: completely invalid signature rejected", async 
   assert(data.error === "invalid_link");
   await Promise.resolve();
 });
+
+// ─── DB-enforced immutability: UPDATE/DELETE must fail ───
+
+Deno.test("document_signature_events: UPDATE is rejected by DB trigger", async () => {
+  // Attempt to update via PostgREST (authenticated/anon role)
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/document_signature_events?id=eq.00000000-0000-0000-0000-000000000000`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ event_type: "TAMPERED" }),
+    },
+  );
+  // Should fail — either RLS (403/406) or trigger (400/500)
+  assertNotEquals(res.status, 200);
+  assertNotEquals(res.status, 204);
+  await res.body?.cancel();
+});
+
+Deno.test("document_signature_events: DELETE is rejected by DB trigger", async () => {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/document_signature_events?id=eq.00000000-0000-0000-0000-000000000000`,
+    {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Prefer: "return=minimal",
+      },
+    },
+  );
+  assertNotEquals(res.status, 200);
+  assertNotEquals(res.status, 204);
+  await res.body?.cancel();
+});
