@@ -68,6 +68,8 @@ const ACTION_ALLOWLIST = new Set([
   // Member support tab grant actions (org admin only)
   "GRANT_MEMBER_SUPPORT_TAB",
   "REVOKE_MEMBER_SUPPORT_TAB",
+  // Document lifecycle actions
+  "BULK_EXPORT_DOCUMENTS",
 ]);
 
 // ---- Risk classification ----
@@ -86,6 +88,7 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "GENERATE_SUPPORT_BUNDLE":
     case "RUN_DIAGNOSTIC_PLAYBOOK":
     case "CREATE_SYNC_WATCH":
+    case "BULK_EXPORT_DOCUMENTS":
       return "SAFE";
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
@@ -253,6 +256,19 @@ ALLOWLISTED ACTIONS (NO SYNC ACTIONS — DAILY CRON ONLY):
 - UPDATE_ORG_ANALYTICS: Update analytics settings for the user's organization (CONFIRM_REQUIRED). Params: { analytics_enabled?: boolean | null, session_replay_enabled?: boolean | null, notes?: string }
    RBAC: Only org_admin (OWNER or ADMIN role). Regular members should be told: "Solo los administradores de tu organización pueden cambiar la configuración de analíticas."
    When toggling, explain: "Esto cambiará la configuración de analíticas para toda la organización [nombre]. Si se establece en null, se heredará la configuración global."
+- BULK_EXPORT_DOCUMENTS: Generate a full ZIP export of all org documents + evidence packs for account deactivation or archival (SAFE). No params needed.
+  When the user asks about deactivation, closing their account, or exporting everything, propose this action FIRST.
+  Explain: "Antes de proceder, le generaré un archivo completo con todos sus documentos, paquetes de evidencia y metadatos. Esto puede tomar varios minutos dependiendo del volumen."
+
+DOCUMENT LIFECYCLE POLICY (EVIDENCE PACKS, RETENTION, PROOFS):
+When a user asks about documents, evidence packs, retention, proof uploads, or document integrity:
+1. **Evidence Packs**: Finalized documents have an Evidence Pack (ZIP) containing: signed PDFs, audit certificates, raw event log (JSONL), manifest with SHA-256 hashes, and a README. Users can download it from the document detail page. Evidence Packs can be verified at /verify without authentication — designed for court submissions.
+2. **Retention Policies**: Each document type has a retention period (default 10 years). Once finalized, documents cannot be deleted until the retention period expires. Org admins can configure custom retention periods per document type from Settings. The retention_expires_at is auto-calculated when a document is finalized.
+3. **External Proofs**: For notifications (notificaciones), the platform does NOT deliver to third parties. Instead, lawyers upload proof of external delivery (Servientrega receipts, publication certificates). Each uploaded proof is SHA-256 hashed and included in the Evidence Pack manifest for tamper-detection.
+4. **Bilateral Signing (Contracts)**: Contracts use sequential bilateral signing: lawyer signs first, then client. The client's signing link is only activated after the lawyer completes their signature.
+5. **Hash Chain Integrity**: All document events form a hash chain (each event_hash includes the previous_event_hash). The /verify page replays and validates this chain.
+6. **Soft-Delete Enforcement**: Work items with finalized documents within their retention period CANNOT be soft-deleted. The system blocks deletion and shows the furthest retention expiration date.
+7. If a user asks "can I delete this document?", check the document_context in CONTEXT_JSON for retention_expires_at. If it's in the future, explain the retention policy and when deletion will be possible.
 
 ANALYTICS INQUIRY POLICY:
 When a user asks about analytics, telemetry, data collection, tracking, or observability:
@@ -446,6 +462,51 @@ async function buildContext(
       ctx.provider_instances_summary = (provInstances ?? []).map((p: any) => ({
         id: p.id, connector_id: p.connector_id, scope: p.scope, status: p.status,
       }));
+
+      // Document lifecycle context (retention, evidence packs, proofs)
+      const { data: docs } = await userClient
+        .from("generated_documents")
+        .select("id, title, document_type, status, finalized_at, retention_expires_at, retention_years, deleted_at, created_at")
+        .eq("work_item_id", workItemId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (docs && docs.length > 0) {
+        ctx.document_context = {
+          total_documents: docs.length,
+          finalized: docs.filter((d: any) => d.finalized_at).length,
+          drafts: docs.filter((d: any) => !d.finalized_at).length,
+          within_retention: docs.filter((d: any) => d.retention_expires_at && new Date(d.retention_expires_at) > new Date()).length,
+          documents: docs.map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            type: d.document_type,
+            status: d.status,
+            finalized: !!d.finalized_at,
+            retention_expires_at: d.retention_expires_at,
+            retention_years: d.retention_years,
+          })),
+        };
+
+        // External proofs for this work item's documents
+        const docIds = docs.map((d: any) => d.id);
+        const { data: proofs } = await userClient
+          .from("document_evidence_proofs")
+          .select("id, document_id, file_name, proof_type, sha256_hash, created_at")
+          .in("document_id", docIds)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (proofs && proofs.length > 0) {
+          ctx.external_proofs = proofs.map((p: any) => ({
+            id: p.id,
+            document_id: p.document_id,
+            file_name: p.file_name,
+            proof_type: p.proof_type,
+            has_hash: !!p.sha256_hash,
+            created_at: p.created_at,
+          }));
+        }
+      }
     }
   }
 
@@ -1260,6 +1321,57 @@ async function executeAction(
         message: data && data.length > 0
           ? "Acceso al tab de Soporte revocado para el miembro."
           : "El miembro no tenía acceso activo al tab de Soporte.",
+      };
+    }
+
+    case "BULK_EXPORT_DOCUMENTS": {
+      const orgId = ctx.orgId;
+      if (!orgId) throw new Error("Se requiere una organización para la exportación masiva.");
+
+      // Gather all finalized documents for the org
+      const { data: docs, error: docsErr } = await adminClient
+        .from("generated_documents")
+        .select("id, title, document_type, status, finalized_at, retention_expires_at, work_item_id, created_at")
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
+
+      if (docsErr) throw new Error(docsErr.message);
+
+      const totalDocs = docs?.length ?? 0;
+      const finalizedDocs = docs?.filter((d: any) => d.finalized_at) ?? [];
+
+      // Get evidence proof counts
+      const docIds = (docs ?? []).map((d: any) => d.id);
+      let proofCount = 0;
+      if (docIds.length > 0) {
+        const { count } = await adminClient
+          .from("document_evidence_proofs")
+          .select("id", { count: "exact", head: true })
+          .in("document_id", docIds);
+        proofCount = count ?? 0;
+      }
+
+      // Return manifest for client-side bulk download
+      return {
+        ok: true,
+        export_manifest: {
+          organization_id: orgId,
+          generated_at: new Date().toISOString(),
+          total_documents: totalDocs,
+          finalized_documents: finalizedDocs.length,
+          external_proofs: proofCount,
+          documents: (docs ?? []).map((d: any) => ({
+            id: d.id,
+            title: d.title,
+            type: d.document_type,
+            status: d.status,
+            finalized: !!d.finalized_at,
+            retention_expires_at: d.retention_expires_at,
+            work_item_id: d.work_item_id,
+          })),
+        },
+        message: `Exportación lista: ${totalDocs} documentos (${finalizedDocs.length} finalizados), ${proofCount} pruebas externas. Use el botón de descarga en Configuración > Exportar para generar el archivo ZIP completo.`,
       };
     }
 
