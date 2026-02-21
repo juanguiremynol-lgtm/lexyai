@@ -88,8 +88,8 @@ function classifyRisk(actionType: string): "SAFE" | "CONFIRM_REQUIRED" {
     case "GENERATE_SUPPORT_BUNDLE":
     case "RUN_DIAGNOSTIC_PLAYBOOK":
     case "CREATE_SYNC_WATCH":
-    case "BULK_EXPORT_DOCUMENTS":
-      return "SAFE";
+     case "BULK_EXPORT_DOCUMENTS":
+      return "CONFIRM_REQUIRED";
     case "INVITE_USER_TO_ORG":
     case "TOGGLE_TICKER":
     case "GRANT_SUPPORT_ACCESS":
@@ -1328,50 +1328,45 @@ async function executeAction(
       const orgId = ctx.orgId;
       if (!orgId) throw new Error("Se requiere una organización para la exportación masiva.");
 
-      // Gather all finalized documents for the org
-      const { data: docs, error: docsErr } = await adminClient
-        .from("generated_documents")
-        .select("id, title, document_type, status, finalized_at, retention_expires_at, work_item_id, created_at")
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false });
+      // RBAC: admin-only
+      const isOrgAdmin = !!(ctx.user as any)?.is_org_admin;
+      if (!isOrgAdmin) throw new Error("Solo los administradores de la organización pueden ejecutar exportaciones masivas.");
 
-      if (docsErr) throw new Error(docsErr.message);
+      // Feature flag check
+      const { data: orgFlags } = await adminClient
+        .from("organizations")
+        .select("bulk_export_enabled")
+        .eq("id", orgId)
+        .maybeSingle();
 
-      const totalDocs = docs?.length ?? 0;
-      const finalizedDocs = docs?.filter((d: any) => d.finalized_at) ?? [];
-
-      // Get evidence proof counts
-      const docIds = (docs ?? []).map((d: any) => d.id);
-      let proofCount = 0;
-      if (docIds.length > 0) {
-        const { count } = await adminClient
-          .from("document_evidence_proofs")
-          .select("id", { count: "exact", head: true })
-          .in("document_id", docIds);
-        proofCount = count ?? 0;
+      if (!orgFlags?.bulk_export_enabled) {
+        return {
+          ok: false,
+          message: "La exportación masiva no está habilitada para esta organización. Un administrador de plataforma puede activarla.",
+        };
       }
 
-      // Return manifest for client-side bulk download
+      // Return metadata only — NO signed URLs
+      const { count: docCount } = await adminClient
+        .from("generated_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .is("deleted_at", null);
+
+      const { count: finalizedCount } = await adminClient
+        .from("generated_documents")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .not("finalized_at", "is", null);
+
       return {
         ok: true,
-        export_manifest: {
-          organization_id: orgId,
-          generated_at: new Date().toISOString(),
-          total_documents: totalDocs,
-          finalized_documents: finalizedDocs.length,
-          external_proofs: proofCount,
-          documents: (docs ?? []).map((d: any) => ({
-            id: d.id,
-            title: d.title,
-            type: d.document_type,
-            status: d.status,
-            finalized: !!d.finalized_at,
-            retention_expires_at: d.retention_expires_at,
-            work_item_id: d.work_item_id,
-          })),
+        export_summary: {
+          total_documents: docCount ?? 0,
+          finalized_documents: finalizedCount ?? 0,
         },
-        message: `Exportación lista: ${totalDocs} documentos (${finalizedDocs.length} finalizados), ${proofCount} pruebas externas. Use el botón de descarga en Configuración > Exportar para generar el archivo ZIP completo.`,
+        message: `Exportación disponible: ${docCount ?? 0} documentos (${finalizedCount ?? 0} finalizados). Use el botón "Exportar Todo" en Configuración > Exportación para iniciar la descarga. La exportación requiere confirmación adicional.`,
       };
     }
 

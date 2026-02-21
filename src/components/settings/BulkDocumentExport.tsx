@@ -1,6 +1,8 @@
 /**
- * BulkDocumentExport — Settings panel component for bulk-exporting all
- * org documents, evidence packs, and external proofs before deactivation.
+ * BulkDocumentExport — Settings panel for bulk-exporting all org documents.
+ * 
+ * AUTHORIZATION: Admin-only (enforced on UI + backend).
+ * FEATURES: Confirmation modal, bounded concurrency, audit logging.
  */
 
 import { useState } from "react";
@@ -8,14 +10,107 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Download, Package, AlertTriangle, Loader2, CheckCircle2, FileArchive } from "lucide-react";
+import { Download, AlertTriangle, Loader2, CheckCircle2, FileArchive, ShieldAlert } from "lucide-react";
 
-export function BulkDocumentExport() {
+const MAX_CONCURRENCY = 5;
+
+interface BulkDocumentExportProps {
+  isOrgAdmin: boolean;
+  bulkExportEnabled: boolean;
+}
+
+async function downloadWithConcurrency(
+  entries: [string, string][],
+  concurrency: number,
+  onProgress: (done: number) => void,
+): Promise<Map<string, Blob>> {
+  const results = new Map<string, Blob>();
+  let idx = 0;
+  let done = 0;
+
+  async function next(): Promise<void> {
+    while (idx < entries.length) {
+      const current = idx++;
+      const [id, url] = entries[current];
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          results.set(id, await res.blob());
+        }
+      } catch (e) {
+        console.warn(`Download failed for ${id}:`, e);
+      }
+      done++;
+      onProgress(done);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, entries.length) }, () => next());
+  await Promise.all(workers);
+  return results;
+}
+
+export function BulkDocumentExport({ isOrgAdmin, bulkExportEnabled }: BulkDocumentExportProps) {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
+
+  if (!isOrgAdmin) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileArchive className="h-5 w-5" />
+            Exportación Masiva de Documentos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <ShieldAlert className="h-4 w-4" />
+            <AlertTitle>Acceso restringido</AlertTitle>
+            <AlertDescription>
+              Solo los administradores de la organización pueden ejecutar exportaciones masivas.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!bulkExportEnabled) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileArchive className="h-5 w-5" />
+            Exportación Masiva de Documentos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Función deshabilitada</AlertTitle>
+            <AlertDescription>
+              La exportación masiva no está habilitada para esta organización. Contacte al soporte para activarla.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const handleBulkExport = async () => {
     setLoading(true);
@@ -30,98 +125,131 @@ export function BulkDocumentExport() {
         throw new Error(data?.error || error?.message || "Error al generar exportación");
       }
 
-      const { manifest, download_urls, proof_urls } = data;
+      const { manifest, manifest_sha256, download_urls, proof_urls, audit } = data;
       setProgress(15);
-      setStatusText(`Descargando ${manifest.total_documents} documentos...`);
+
+      const totalFiles = Object.keys(download_urls).length + Object.keys(proof_urls || {}).length;
+      setStatusText(`Descargando ${totalFiles} archivos (concurrencia: ${MAX_CONCURRENCY})...`);
 
       // 2. Dynamically import JSZip
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
 
       // 3. Add manifest
-      zip.file("export_manifest.json", JSON.stringify(manifest, null, 2));
+      const manifestJson = JSON.stringify(manifest, null, 2);
+      zip.file("export_manifest.json", manifestJson);
 
       // 4. Add README
       const readme = [
         "═══════════════════════════════════════════════",
         "  ATENIA — EXPORTACIÓN MASIVA DE DOCUMENTOS",
         `  Fecha: ${new Date().toISOString()}`,
+        `  Manifest SHA-256: ${manifest_sha256}`,
         "═══════════════════════════════════════════════",
         "",
         `Total documentos: ${manifest.total_documents}`,
         `Documentos finalizados: ${manifest.finalized_documents}`,
         `Pruebas externas: ${manifest.total_external_proofs}`,
+        `Alcance: ${manifest.export_scope}`,
         "",
         "ESTRUCTURA DEL ARCHIVO:",
-        "├── export_manifest.json  — Manifiesto completo con metadatos",
+        "├── export_manifest.json  — Manifiesto con hashes SHA-256 por archivo",
         "├── README.txt            — Este archivo",
         "├── documents/            — PDFs de documentos",
         "└── external_proofs/      — Pruebas de entrega externa",
         "",
+        "VERIFICACIÓN:",
+        "1. Cada documento tiene final_pdf_sha256 en el manifiesto",
+        "2. Cada prueba externa tiene client_sha256 y server_sha256",
+        "3. chain_validated indica si la cadena de hash de eventos es íntegra",
+        "4. Use /verify para verificar Evidence Packs individuales",
+        "",
         "RETENCIÓN LEGAL:",
         "Los documentos finalizados están sujetos a periodos de retención",
         "legal. Consulte retention_expires_at en el manifiesto.",
+        "Documentos con legal_hold=true no pueden ser eliminados.",
         "",
-        "VERIFICACIÓN:",
-        "Los Evidence Packs individuales pueden verificarse en /verify",
-        "sin necesidad de autenticación.",
+        "AUDITORÍA:",
+        `Export requested hash: ${audit?.requested_hash ?? "N/A"}`,
+        `Export ready hash: ${audit?.ready_hash ?? "N/A"}`,
+        "",
+        "MARCO LEGAL:",
+        "- Ley 527 de 1999 (Comercio Electrónico, Colombia)",
+        "- Decreto 2364 de 2012 (Firma Electrónica)",
+        "- Decreto 806 de 2020 (Virtualidad Procesal)",
+        "",
+        "© Andromeda Legal — LEX ET LITTERAE S.A.S.",
       ].join("\n");
       zip.file("README.txt", readme);
 
-      // 5. Download documents
+      // 5. Download documents with bounded concurrency
       const docsFolder = zip.folder("documents");
-      const totalFiles = Object.keys(download_urls).length + Object.keys(proof_urls || {}).length;
-      let downloaded = 0;
+      const docEntries = Object.entries(download_urls) as [string, string][];
+      let totalDownloaded = 0;
 
-      for (const [docId, url] of Object.entries(download_urls)) {
-        try {
-          const res = await fetch(url as string);
-          if (res.ok) {
-            const blob = await res.blob();
-            const docMeta = manifest.documents.find((d: { id: string }) => d.id === docId);
-            const safeName = (docMeta?.title || docId)
-              .replace(/[^a-zA-Z0-9_\-áéíóúñÁÉÍÓÚÑ ]/g, "")
-              .replace(/\s+/g, "_")
-              .substring(0, 60);
-            docsFolder?.file(`${safeName}_${docId.slice(0, 8)}.pdf`, blob);
-          }
-        } catch (e) {
-          console.warn(`Could not download doc ${docId}:`, e);
-        }
-        downloaded++;
-        setProgress(15 + Math.round((downloaded / totalFiles) * 70));
-        setStatusText(`Descargando archivo ${downloaded}/${totalFiles}...`);
+      const docBlobs = await downloadWithConcurrency(docEntries, MAX_CONCURRENCY, (done) => {
+        totalDownloaded = done;
+        setProgress(15 + Math.round((done / Math.max(totalFiles, 1)) * 65));
+        setStatusText(`Descargando archivo ${done}/${totalFiles}...`);
+      });
+
+      for (const [docId, blob] of docBlobs) {
+        const docMeta = manifest.documents.find((d: { id: string }) => d.id === docId);
+        const safeName = (docMeta?.title || docId)
+          .replace(/[^a-zA-Z0-9_\-áéíóúñÁÉÍÓÚÑ ]/g, "")
+          .replace(/\s+/g, "_")
+          .substring(0, 60);
+        docsFolder?.file(`${safeName}_${docId.slice(0, 8)}.pdf`, blob);
       }
 
-      // 6. Download external proofs
+      // 6. Download external proofs with bounded concurrency
       if (proof_urls && Object.keys(proof_urls).length > 0) {
         const proofsFolder = zip.folder("external_proofs");
-        for (const [proofId, url] of Object.entries(proof_urls)) {
-          try {
-            const res = await fetch(url as string);
-            if (res.ok) {
-              const blob = await res.blob();
-              const proofMeta = manifest.external_proofs.find(
-                (p: { id: string }) => p.id === proofId
-              );
-              const fileName = proofMeta?.file_name || `proof_${proofId}`;
-              proofsFolder?.file(fileName, blob);
-            }
-          } catch (e) {
-            console.warn(`Could not download proof ${proofId}:`, e);
-          }
-          downloaded++;
-          setProgress(15 + Math.round((downloaded / totalFiles) * 70));
-          setStatusText(`Descargando archivo ${downloaded}/${totalFiles}...`);
+        const proofEntries = Object.entries(proof_urls) as [string, string][];
+
+        const proofBlobs = await downloadWithConcurrency(proofEntries, MAX_CONCURRENCY, (done) => {
+          const total = totalDownloaded + done;
+          setProgress(15 + Math.round((total / Math.max(totalFiles, 1)) * 65));
+          setStatusText(`Descargando archivo ${total}/${totalFiles}...`);
+        });
+
+        for (const [proofId, blob] of proofBlobs) {
+          const allProofs = manifest.documents.flatMap((d: any) => d.external_proofs || []);
+          const proofMeta = allProofs.find((p: { id: string }) => p.id === proofId);
+          const fileName = proofMeta?.file_name || `proof_${proofId}`;
+          proofsFolder?.file(fileName, blob);
         }
       }
 
       // 7. Generate ZIP
-      setProgress(90);
+      setProgress(85);
       setStatusText("Generando archivo ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
 
-      // 8. Trigger download
+      // 8. Log DOWNLOADED audit event
+      setStatusText("Registrando evento de auditoría...");
+      try {
+        await supabase.functions.invoke("log-audit", {
+          body: {
+            organizationId: manifest.organization_id,
+            action: "DATA_EXPORTED",
+            entityType: "organization",
+            entityId: manifest.organization_id,
+            metadata: {
+              export_type: "BULK_ARCHIVE",
+              manifest_sha256: manifest_sha256,
+              total_documents: manifest.total_documents,
+              total_proofs: manifest.total_external_proofs,
+              zip_size_bytes: blob.size,
+            },
+          },
+        });
+      } catch (e) {
+        console.warn("Audit log for download failed:", e);
+      }
+
+      // 9. Trigger download
+      setProgress(95);
       const fileName = `ATENIA_Export_${new Date().toISOString().split("T")[0]}.zip`;
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -150,8 +278,8 @@ export function BulkDocumentExport() {
           Exportación Masiva de Documentos
         </CardTitle>
         <CardDescription>
-          Descargue todos los documentos, paquetes de evidencia y pruebas externas de su organización
-          en un único archivo ZIP. Recomendado antes de desactivar su cuenta.
+          Descargue todos los documentos finalizados, paquetes de evidencia y pruebas externas
+          en un único archivo ZIP verificable. Incluye manifiesto con hashes SHA-256.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -159,9 +287,9 @@ export function BulkDocumentExport() {
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Importante</AlertTitle>
           <AlertDescription>
-            La exportación incluye todos los documentos PDF, pruebas de entrega externa, 
-            y metadatos con hashes SHA-256 para verificación posterior. Los documentos 
-            finalizados están sujetos a periodos de retención legal (por defecto 10 años).
+            La exportación incluye todos los PDFs, pruebas de entrega externa,
+            y un manifiesto con hashes SHA-256 por documento y estado de validación de cadena.
+            Los documentos con retención legal activa o "legal hold" están incluidos pero no pueden eliminarse.
           </AlertDescription>
         </Alert>
 
@@ -180,18 +308,36 @@ export function BulkDocumentExport() {
         )}
 
         <div className="flex gap-3">
-          <Button
-            onClick={handleBulkExport}
-            disabled={loading}
-            className="gap-2"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-            {loading ? "Exportando..." : "Exportar Todo"}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button disabled={loading} className="gap-2">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {loading ? "Exportando..." : "Exportar Todo"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirmar Exportación Masiva</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta acción descargará todos los documentos de su organización en un archivo ZIP.
+                  La exportación será registrada en el log de auditoría inmutable con hashes criptográficos.
+                  <br /><br />
+                  <strong>Este proceso puede tomar varios minutos</strong> dependiendo del volumen de documentos.
+                  No cierre la pestaña durante la descarga.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={handleBulkExport}>
+                  Confirmar y Exportar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </CardContent>
     </Card>

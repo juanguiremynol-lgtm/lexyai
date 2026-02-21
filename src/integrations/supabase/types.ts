@@ -4461,6 +4461,7 @@ export type Database = {
           mime_type: string | null
           organization_id: string
           proof_type: string
+          server_sha256: string | null
           uploaded_by: string
         }
         Insert: {
@@ -4476,6 +4477,7 @@ export type Database = {
           mime_type?: string | null
           organization_id: string
           proof_type?: string
+          server_sha256?: string | null
           uploaded_by: string
         }
         Update: {
@@ -4491,6 +4493,7 @@ export type Database = {
           mime_type?: string | null
           organization_id?: string
           proof_type?: string
+          server_sha256?: string | null
           uploaded_by?: string
         }
         Relationships: [
@@ -5489,6 +5492,47 @@ export type Database = {
           },
         ]
       }
+      export_audit_events: {
+        Row: {
+          actor_user_id: string
+          created_at: string
+          event_hash: string
+          event_type: string
+          id: string
+          metadata: Json
+          organization_id: string
+          previous_event_hash: string | null
+        }
+        Insert: {
+          actor_user_id: string
+          created_at?: string
+          event_hash: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          organization_id: string
+          previous_event_hash?: string | null
+        }
+        Update: {
+          actor_user_id?: string
+          created_at?: string
+          event_hash?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          organization_id?: string
+          previous_event_hash?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "export_audit_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_sync_run_attempts: {
         Row: {
           data_kind: string
@@ -5689,6 +5733,10 @@ export type Database = {
           finalized_at: string | null
           finalized_by: string | null
           id: string
+          legal_hold: boolean
+          legal_hold_reason: string | null
+          legal_hold_set_at: string | null
+          legal_hold_set_by: string | null
           organization_id: string
           poderdante_type: string | null
           retention_expires_at: string | null
@@ -5715,6 +5763,10 @@ export type Database = {
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
+          legal_hold?: boolean
+          legal_hold_reason?: string | null
+          legal_hold_set_at?: string | null
+          legal_hold_set_by?: string | null
           organization_id: string
           poderdante_type?: string | null
           retention_expires_at?: string | null
@@ -5741,6 +5793,10 @@ export type Database = {
           finalized_at?: string | null
           finalized_by?: string | null
           id?: string
+          legal_hold?: boolean
+          legal_hold_reason?: string | null
+          legal_hold_set_at?: string | null
+          legal_hold_set_by?: string | null
           organization_id?: string
           poderdante_type?: string | null
           retention_expires_at?: string | null
@@ -7517,6 +7573,8 @@ export type Database = {
           brand_logo_url: string | null
           brand_primary_color: string | null
           brand_tagline: string | null
+          bulk_export_enabled: boolean
+          bulk_export_scope: string
           created_at: string
           created_by: string | null
           custom_branding_enabled: boolean | null
@@ -7543,6 +7601,8 @@ export type Database = {
           brand_logo_url?: string | null
           brand_primary_color?: string | null
           brand_tagline?: string | null
+          bulk_export_enabled?: boolean
+          bulk_export_scope?: string
           created_at?: string
           created_by?: string | null
           custom_branding_enabled?: boolean | null
@@ -7569,6 +7629,8 @@ export type Database = {
           brand_logo_url?: string | null
           brand_primary_color?: string | null
           brand_tagline?: string | null
+          bulk_export_enabled?: boolean
+          bulk_export_scope?: string
           created_at?: string
           created_by?: string | null
           custom_branding_enabled?: boolean | null

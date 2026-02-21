@@ -29,7 +29,7 @@ export async function checkWorkItemRetention(
 ): Promise<RetentionCheckResult> {
   const { data: docs, error } = await supabase
     .from("generated_documents")
-    .select("id, title, retention_expires_at, retention_years, status, deleted_at")
+    .select("id, title, retention_expires_at, retention_years, status, deleted_at, legal_hold, legal_hold_reason")
     .eq("work_item_id", workItemId)
     .is("deleted_at", null)
     .not("finalized_at", "is", null);
@@ -41,9 +41,24 @@ export async function checkWorkItemRetention(
 
   if (!docs || docs.length === 0) return { canDelete: true };
 
+  // Check legal holds first (absolute block)
+  const held = docs.filter((d: any) => d.legal_hold);
+  if (held.length > 0) {
+    return {
+      canDelete: false,
+      blockedDocuments: held.map((d: any) => ({
+        id: d.id,
+        title: d.title,
+        retention_expires_at: d.retention_expires_at ?? "N/A",
+        retention_years: d.retention_years ?? 10,
+      })),
+      reason: `${held.length} documento(s) bajo "legal hold" (retención indefinida). Motivo: ${held[0].legal_hold_reason || "No especificado"}. Contacte al administrador para levantar el hold antes de eliminar.`,
+    };
+  }
+
   const now = new Date();
   const blocked = docs.filter(
-    (d) => d.retention_expires_at && new Date(d.retention_expires_at) > now
+    (d: any) => d.retention_expires_at && new Date(d.retention_expires_at) > now
   );
 
   if (blocked.length === 0) return { canDelete: true };
@@ -58,7 +73,7 @@ export async function checkWorkItemRetention(
     })),
     reason: `${blocked.length} documento(s) finalizado(s) aún dentro del periodo de retención legal. El más lejano vence el ${new Date(
       Math.max(...blocked.map((d) => new Date(d.retention_expires_at!).getTime()))
-    ).toLocaleDateString("es-CO")}.`,
+    ).toLocaleDateString("es-CO")}. Puede archivar el asunto pero no eliminarlo definitivamente.`,
   };
 }
 
