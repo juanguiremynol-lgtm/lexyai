@@ -59,6 +59,7 @@ import { ServiceObjectSection } from "@/components/documents/ServiceObjectSectio
 import type { HonorariosData } from "@/lib/honorarios-utils";
 import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
 import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
+import { isLinkSharingAllowed } from "@/lib/document-share-policy";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -293,9 +294,11 @@ function MultiSignerSharingModal({
             Enviar documento para firma
           </DialogTitle>
           <DialogDescription>
-            {signers.length > 1
-              ? `Este poder debe ser firmado por ${signers.length} poderdantes. Cada uno recibirá un enlace individual.`
-              : "Comparta el enlace de firma con el firmante."}
+            {!isLinkSharingAllowed(documentType)
+              ? "Este documento solo puede compartirse por correo electrónico para garantizar la trazabilidad."
+              : signers.length > 1
+                ? `Este poder debe ser firmado por ${signers.length} poderdantes. Cada uno recibirá un enlace individual.`
+                : "Comparta el enlace de firma con el firmante."}
           </DialogDescription>
         </DialogHeader>
 
@@ -321,9 +324,11 @@ function MultiSignerSharingModal({
                       Enviar por correo
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
-                      <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
-                    </Button>
+                   {isLinkSharingAllowed(documentType) && (
+                     <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
+                       <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
+                     </Button>
+                   )}
                 </div>
               </CardContent>
             </Card>
@@ -983,6 +988,8 @@ export default function WorkItemDocumentWizard() {
 
       for (let i = 0; i < signers.length; i++) {
         const s = signers[i];
+        // For EMAIL_ONLY doc types (e.g. poder_especial), auto-send email on finalize
+        const autoSendEmail = !isLinkSharingAllowed(docType);
         const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
           body: {
             document_id: doc.id,
@@ -991,7 +998,7 @@ export default function WorkItemDocumentWizard() {
             signer_cedula: s.cedula || null,
             signer_role: s.role,
             signing_order: i + 1,
-            send_email: false,
+            send_email: autoSendEmail,
           },
         });
 
@@ -1002,9 +1009,9 @@ export default function WorkItemDocumentWizard() {
         entries.push({
           name: s.name,
           email: s.email,
-          signingUrl: sigResult.signing_url,
+          signingUrl: sigResult.signing_url || "",
           signatureId: sigResult.signature_id,
-          emailSent: false,
+          emailSent: autoSendEmail && sigResult.email_sent,
         });
       }
 
