@@ -13262,6 +13262,7 @@ export type Database = {
         Args: { records: Json }
         Returns: Json
       }
+      safe_jsonb_to_text_array: { Args: { val: Json }; Returns: string[] }
       try_claim_daily_welcome: { Args: { p_user_id: string }; Returns: Json }
       update_daily_sync_ledger: {
         Args: {
