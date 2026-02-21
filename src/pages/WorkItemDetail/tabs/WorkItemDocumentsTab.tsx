@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { WorkItem } from "@/types/work-item";
@@ -24,6 +25,8 @@ interface Props {
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "warning" | "success" }> = {
   draft: { label: "Borrador", variant: "secondary" },
   finalized: { label: "Finalizado", variant: "outline" },
+  generated: { label: "Generado", variant: "outline" },
+  delivered_to_lawyer: { label: "Entregado", variant: "success" },
   sent_for_signature: { label: "Pendiente de firma", variant: "warning" },
   partially_signed: { label: "Parcialmente firmado", variant: "warning" },
   signed: { label: "Firmado", variant: "success" },
@@ -36,6 +39,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   poder_especial: "Poder Especial",
   contrato_servicios: "Contrato de Servicios",
   paz_y_salvo: "Paz y Salvo",
+  notificacion_personal: "Notificación Personal",
+  notificacion_por_aviso: "Notificación por Aviso",
 };
 
 export function WorkItemDocumentsTab({ workItem }: Props) {
@@ -96,6 +101,18 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
                 <Plus className="h-4 w-4 mr-2" />
                 Generar Paz y Salvo
               </Button>
+              {workItem.radicado && (
+                <>
+                  <Button variant="outline" onClick={() => goToWizard("notificacion_personal")}>
+                    <Mail className="h-4 w-4 mr-2" />
+                    Notificación Personal
+                  </Button>
+                  <Button variant="outline" onClick={() => goToWizard("notificacion_por_aviso")}>
+                    <Mail className="h-4 w-4 mr-2" />
+                    Notificación por Aviso
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </CardContent>
@@ -107,7 +124,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
     <div className="space-y-4">
       {/* Header with create button */}
       <div className="flex items-center justify-between">
-        <NewDocumentDropdown onSelect={goToWizard} />
+        <NewDocumentDropdown onSelect={goToWizard} hasRadicado={!!workItem.radicado?.trim()} />
       </div>
 
       {/* Document list */}
@@ -116,6 +133,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
           const status = STATUS_CONFIG[doc.status] || STATUS_CONFIG.draft;
           const vars = (doc.variables || {}) as Record<string, string>;
           const typeLabel = DOC_TYPE_LABELS[doc.document_type] || doc.document_type;
+          const isNotif = doc.document_type === 'notificacion_personal' || doc.document_type === 'notificacion_por_aviso';
 
           return (
             <Card
@@ -125,8 +143,8 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
             >
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <FileText className="h-5 w-5 text-primary" />
+                  <div className={`h-10 w-10 rounded-lg ${isNotif ? 'bg-blue-100 dark:bg-blue-950' : 'bg-primary/10'} flex items-center justify-center shrink-0`}>
+                    {isNotif ? <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" /> : <FileText className="h-5 w-5 text-primary" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -154,9 +172,10 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
 }
 
 /** Reusable dropdown for creating new documents */
-export function NewDocumentDropdown({ onSelect, variant = "default" }: {
+export function NewDocumentDropdown({ onSelect, variant = "default", hasRadicado = false }: {
   onSelect: (type: string) => void;
   variant?: "default" | "outline" | "ghost";
+  hasRadicado?: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -169,13 +188,25 @@ export function NewDocumentDropdown({ onSelect, variant = "default" }: {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => onSelect("poder_especial")}>
+          <FileText className="h-4 w-4 mr-2" />
           Poder Especial
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onSelect("contrato_servicios")}>
+          <FileText className="h-4 w-4 mr-2" />
           Contrato de Servicios
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => onSelect("paz_y_salvo")}>
+          <FileText className="h-4 w-4 mr-2" />
           Paz y Salvo
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => onSelect("notificacion_personal")} disabled={!hasRadicado}>
+          <Mail className="h-4 w-4 mr-2" />
+          Notificación Personal (Art. 291)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onSelect("notificacion_por_aviso")} disabled={!hasRadicado}>
+          <Mail className="h-4 w-4 mr-2" />
+          Notificación por Aviso (Art. 292)
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

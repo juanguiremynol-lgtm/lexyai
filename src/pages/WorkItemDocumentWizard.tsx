@@ -38,6 +38,8 @@ import {
   getWorkflowTypeLabel,
   generatePoderEspecialHtml,
   detectPoderdanteType,
+  isNotificationDocType,
+  inferAutoAdmisorioDate,
 } from "@/lib/legal-document-templates";
 import { CourtHeaderSection } from "@/components/documents/CourtHeaderSection";
 import { LitigationEmailBanner } from "@/components/settings/LitigationEmailSettings";
@@ -326,15 +328,9 @@ function MultiSignerSharingModal({
                       Enviar por correo
                     </Button>
                   )}
-                  {documentType !== 'poder_especial' ? (
-                    <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
+                  <Button size="sm" variant="ghost" onClick={() => onCopyLink(s.signingUrl)}>
                       <Copy className="h-3.5 w-3.5 mr-1" /> Copiar enlace
                     </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Ban className="h-3 w-3" /> Enlace solo por email
-                    </span>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -525,6 +521,24 @@ export default function WorkItemDocumentWizard() {
     }
   }, [workItem, clientData, docType]);
 
+  // Fetch actuaciones for auto admisorio date inference
+  const { data: actuaciones } = useQuery({
+    queryKey: ["work-item-actuaciones-for-doc", workItemId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("work_item_acts")
+        .select("description, act_date")
+        .eq("work_item_id", workItemId!)
+        .order("act_date", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!workItemId && isNotificationDocType(docType),
+  });
+
+  const isNotification = isNotificationDocType(docType);
+
   // Auto-populate variables when data loads or doc type changes
   useEffect(() => {
     const now = new Date();
@@ -550,6 +564,25 @@ export default function WorkItemDocumentWizard() {
       vars.client_cedula = clientData?.id_number || "";
       vars.client_email = clientData?.email || "";
       vars.client_phone = (clientData as any)?.phone || "";
+
+      // Notification-specific variables
+      if (isNotificationDocType(docType)) {
+        vars.court_name_full = workItem.authority_name || "";
+        vars.plaintiff_names = workItem.demandantes || "";
+        vars.plaintiff_names_full = workItem.demandantes || "";
+        vars.defendant_names = workItem.demandados || "";
+        vars.defendant_names_full = workItem.demandados || "";
+        vars.defendant_name = workItem.demandados || "";
+        vars.process_type = getWorkflowTypeLabel(workItem.workflow_type || "");
+
+        // Infer auto admisorio date
+        if (actuaciones && actuaciones.length > 0) {
+          const inferred = inferAutoAdmisorioDate(actuaciones as any);
+          if (inferred) {
+            vars.auto_admisorio_date = inferred;
+          }
+        }
+      }
     }
 
     if (profile) {
@@ -558,6 +591,7 @@ export default function WorkItemDocumentWizard() {
       vars.lawyer_tarjeta_profesional = profile.firma_abogado_tp || "";
       vars.lawyer_litigation_email = (profile as any).litigation_email || "";
       vars.lawyer_professional_address = (profile as any).professional_address || "";
+      vars.lawyer_phone = (profile as any)?.phone || "";
     }
 
     if (org) {
@@ -601,7 +635,7 @@ export default function WorkItemDocumentWizard() {
     }
 
     setVariables(vars);
-  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject, existingContract]);
+  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject, existingContract, actuaciones]);
 
   const template = LEGAL_TEMPLATES[docType];
 
@@ -795,7 +829,33 @@ export default function WorkItemDocumentWizard() {
 
       const ed = poderdanteType === "multiple" ? { poderdantes } : poderdanteType === "juridica" ? entityData : null;
 
-      // Save as finalized
+      // For notifications: save as "generated" and navigate back (no signing flow)
+      if (isNotification) {
+        const { data: doc, error: docErr } = await supabase
+          .from("generated_documents")
+          .insert({
+            organization_id: workItem.organization_id!,
+            work_item_id: workItem.id,
+            document_type: docType,
+            title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${variables.defendant_name || workItem.demandados || ""}`,
+            content_json: { variables, template_type: docType },
+            content_html: renderedHtml,
+            variables,
+            status: "generated",
+            created_by: user.id,
+            finalized_at: new Date().toISOString(),
+            finalized_by: user.id,
+          } as any)
+          .select("id")
+          .single();
+
+        if (docErr) throw docErr;
+        toast.success("Documento de notificación generado exitosamente");
+        navigate(`/app/work-items/${workItem.id}`);
+        return;
+      }
+
+      // Save as finalized (signing flow for non-notification documents)
       const { data: doc, error: docErr } = await supabase
         .from("generated_documents")
         .insert({
@@ -950,37 +1010,82 @@ export default function WorkItemDocumentWizard() {
 
       {/* Step 1: Select Template */}
       {step === 1 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {(Object.keys(LEGAL_TEMPLATES) as LegalDocumentType[]).map((type) => {
-            const descriptions: Record<LegalDocumentType, string> = {
-              poder_especial: "Poder especial para representación judicial — Art. 74 CGP",
-              contrato_servicios: "Contrato de mandato por servicios profesionales — Art. 2142 C.C.",
-              paz_y_salvo: "Certificado de paz y salvo por servicios legales prestados y pagados",
-            };
-            return (
-              <Card
-                key={type}
-                className={`cursor-pointer transition-all hover:shadow-md ${
-                  docType === type ? "ring-2 ring-primary" : ""
-                }`}
-                onClick={() => setDocType(type)}
-              >
-                <CardContent className="pt-6 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-8 w-8 text-primary" />
-                    <div>
-                      <h3 className="font-bold text-lg">{LEGAL_DOCUMENT_TYPE_LABELS[type]}</h3>
-                      <p className="text-sm text-muted-foreground">{descriptions[type]}</p>
+        <div className="space-y-6">
+          {/* Document type cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(["poder_especial", "contrato_servicios", "paz_y_salvo"] as LegalDocumentType[]).map((type) => {
+              const descriptions: Record<string, string> = {
+                poder_especial: "Poder especial para representación judicial — Art. 74 CGP",
+                contrato_servicios: "Contrato de mandato por servicios profesionales — Art. 2142 C.C.",
+                paz_y_salvo: "Certificado de paz y salvo por servicios legales prestados y pagados",
+              };
+              return (
+                <Card
+                  key={type}
+                  className={`cursor-pointer transition-all hover:shadow-md ${
+                    docType === type ? "ring-2 ring-primary" : ""
+                  }`}
+                  onClick={() => setDocType(type)}
+                >
+                  <CardContent className="pt-6 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-8 w-8 text-primary" />
+                      <div>
+                        <h3 className="font-bold text-lg">{LEGAL_DOCUMENT_TYPE_LABELS[type]}</h3>
+                        <p className="text-sm text-muted-foreground">{descriptions[type]}</p>
+                      </div>
                     </div>
-                  </div>
-                  {docType === type && (
-                    <Badge className="bg-primary/10 text-primary">Seleccionado</Badge>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-          <div className="col-span-full flex justify-end">
+                    {docType === type && (
+                      <Badge className="bg-primary/10 text-primary">Seleccionado</Badge>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Separator + Notification types */}
+          <Separator />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(["notificacion_personal", "notificacion_por_aviso"] as LegalDocumentType[]).map((type) => {
+              const descriptions: Record<string, string> = {
+                notificacion_personal: "Comunicación al demandado para notificación personal del auto admisorio (Art. 291 CGP)",
+                notificacion_por_aviso: "Aviso de notificación cuando la personal no fue exitosa (Art. 292 CGP)",
+              };
+              const hasRadicado = !!workItem?.radicado?.trim();
+              const disabled = !hasRadicado;
+              return (
+                <Card
+                  key={type}
+                  className={`transition-all ${disabled
+                    ? "opacity-50 cursor-not-allowed"
+                    : `cursor-pointer hover:shadow-md ${docType === type ? "ring-2 ring-primary" : ""}`
+                  }`}
+                  onClick={() => !disabled && setDocType(type)}
+                >
+                  <CardContent className="pt-6 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Mail className="h-8 w-8 text-primary" />
+                      <div>
+                        <h3 className="font-bold text-lg">{LEGAL_DOCUMENT_TYPE_LABELS[type]}</h3>
+                        <p className="text-sm text-muted-foreground">{descriptions[type]}</p>
+                      </div>
+                    </div>
+                    {disabled && (
+                      <Badge variant="outline" className="text-amber-600 border-amber-300">
+                        <AlertCircle className="h-3 w-3 mr-1" /> Requiere radicado
+                      </Badge>
+                    )}
+                    {!disabled && docType === type && (
+                      <Badge className="bg-primary/10 text-primary">Seleccionado</Badge>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          <div className="flex justify-end">
             <Button onClick={() => setStep(2)}>
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
@@ -1216,10 +1321,18 @@ export default function WorkItemDocumentWizard() {
                 onClick={handleFinalize}
                 disabled={finalizing || missingRequired.length > 0}
               >
-                {finalizing ? (
+                {isNotification ? (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Generar Documento
+                  </>
+                ) : finalizing ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
-                  <Send className="h-4 w-4 mr-2" />
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Finalizar Documento
+                  </>
                 )}
                 Finalizar Documento
               </Button>
