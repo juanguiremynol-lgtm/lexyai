@@ -14,11 +14,11 @@ const SYNC_WORKFLOWS: WorkflowType[] = ["CGP", "LABORAL", "CPACA", "TUTELA", "PE
 
 // Built-in provider order per workflow (matches getProviderOrder in sync-by-work-item)
 const BUILTIN_CHAIN: Record<string, { acts: string[]; pubs: string[] }> = {
-  CGP: { acts: ["CPNU"], pubs: ["Publicaciones API"] },
-  LABORAL: { acts: ["CPNU"], pubs: ["Publicaciones API"] },
-  CPACA: { acts: ["SAMAI"], pubs: ["Publicaciones API"] },
-  TUTELA: { acts: ["CPNU", "TUTELAS API"], pubs: [] },
-  PENAL_906: { acts: ["CPNU", "SAMAI"], pubs: ["Publicaciones API"] },
+  CGP: { acts: ["CPNU"], pubs: ["Publicaciones Procesales"] },
+  LABORAL: { acts: ["CPNU"], pubs: ["Publicaciones Procesales"] },
+  CPACA: { acts: ["SAMAI"], pubs: ["Publicaciones Procesales", "SAMAI Estados"] },
+  TUTELA: { acts: ["CPNU", "Tutelas API", "SAMAI"], pubs: ["Publicaciones Procesales"] },
+  PENAL_906: { acts: ["CPNU"], pubs: ["Publicaciones Procesales"] },
 };
 
 interface RouteRow {
