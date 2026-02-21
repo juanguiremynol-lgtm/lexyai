@@ -1,18 +1,20 @@
 /**
- * delete-generated-document — Deletes a generated document with nuanced policy:
+ * delete-generated-document — Soft-deletes a generated document.
  *
- * DELETABLE (always):
- *   - Notificaciones (personal/aviso), Paz y Salvo → unilateral, lawyer-only
- *   - Any document NOT yet fully signed by the counterparty
+ * STRATEGY: Soft-delete (NOT hard delete) because document_signature_events
+ * is append-only with immutability triggers (ENABLE ALWAYS). Hard-deleting
+ * signatures is impossible when events reference them via FK.
  *
- * NOT DELETABLE:
- *   - Documents where ALL signers have completed signing (status = "signed")
+ * On "deletion":
+ *   1. Validates deletion policy (blocks fully-signed bilateral docs)
+ *   2. Revokes active signatures (status → "revoked")
+ *   3. Logs a "document.soft_deleted" audit event
+ *   4. Sets generated_documents.deleted_at + status = "deleted"
+ *   5. Returns success with count of revoked signatures
  *
- * On deletion of pending-signature documents:
- *   - Active signatures are revoked
- *   - Revocation audit events are logged
- *   - All related signature_events and signatures are cleaned up
- *   - The document record is removed
+ * DELETABLE (always): Notificaciones, Paz y Salvo (unilateral, lawyer-only)
+ * DELETABLE if unsigned: Poderes, Contratos where counterparty hasn't signed
+ * BLOCKED: Fully signed bilateral documents (status = "signed" / "signed_finalized")
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -64,21 +66,31 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc, error: docErr } = await admin
       .from("generated_documents")
-      .select("id, organization_id, created_by, status, document_type")
+      .select("id, organization_id, created_by, status, document_type, deleted_at, finalized_at")
       .eq("id", document_id)
       .single();
 
     if (docErr || !doc) return json({ error: "Document not found" }, 404);
     if (doc.created_by !== user.id) return json({ error: "No tiene permiso para eliminar este documento" }, 403);
+    if (doc.deleted_at) return json({ error: "Este documento ya fue eliminado" }, 409);
 
     // ── Deletion policy ──
-    // If the document is fully signed, block deletion
-    if (doc.status === "signed") {
-      // Check if it's an always-deletable type (unilateral docs)
-      if (!ALWAYS_DELETABLE_TYPES.includes(doc.document_type)) {
+    const isAlwaysDeletable = ALWAYS_DELETABLE_TYPES.includes(doc.document_type);
+
+    if (!isAlwaysDeletable) {
+      // Block deletion of fully signed/executed bilateral documents
+      if (["signed", "signed_finalized"].includes(doc.status)) {
         return json({
           error: "Este documento ya fue firmado por todas las partes y no puede eliminarse. Los documentos firmados son inmutables por integridad legal.",
           code: "DOCUMENT_SIGNED",
+        }, 409);
+      }
+
+      // Block if finalized_at is set (fully executed)
+      if (doc.finalized_at) {
+        return json({
+          error: "Este documento fue ejecutado y está protegido por la política de retención legal (10 años).",
+          code: "DOCUMENT_EXECUTED",
         }, 409);
       }
     }
@@ -93,90 +105,51 @@ Deno.serve(async (req) => {
       ["pending", "waiting", "viewed", "otp_verified"].includes(s.status)
     );
 
-    // Revoke active signatures and log events
+    // Revoke active signatures (update status, don't delete)
     for (const sig of activeSigs) {
       await admin
         .from("document_signatures")
         .update({ status: "revoked" })
         .eq("id", sig.id);
-
-      await admin.from("document_signature_events").insert({
-        organization_id: doc.organization_id,
-        document_id,
-        signature_id: sig.id,
-        event_type: "signature.revoked",
-        event_data: { reason: "Documento eliminado por el abogado creador", signer_email: sig.signer_email },
-        actor_type: "lawyer",
-        actor_id: user.id,
-      });
     }
 
-    // Log deletion audit event
+    // Log a soft-delete audit event (append-only, never deleted)
     await admin.from("document_signature_events").insert({
       organization_id: doc.organization_id,
       document_id,
-      event_type: "document.deleted" as any,
+      event_type: "document.soft_deleted" as any,
       event_data: {
         previous_status: doc.status,
         document_type: doc.document_type,
         deleted_by: user.id,
         revoked_signatures: activeSigs.length,
+        revoked_signers: activeSigs.map((s) => ({
+          email: s.signer_email,
+          name: s.signer_name,
+          role: s.signer_role,
+        })),
       },
       actor_type: "lawyer",
       actor_id: user.id,
     });
 
-    // ── Cascade delete in correct FK order ──
-    // 1. Delete signature events (FK → document_signatures & generated_documents)
-    const { error: evtDelErr } = await admin
-      .from("document_signature_events")
-      .delete()
-      .eq("document_id", document_id);
-    if (evtDelErr) {
-      console.error("[delete-doc] Failed to delete signature events:", evtDelErr.message);
-    }
-
-    // 2. Delete signatures (FK → generated_documents)
-    const { error: sigDelErr } = await admin
-      .from("document_signatures")
-      .delete()
-      .eq("document_id", document_id);
-    if (sigDelErr) {
-      console.error("[delete-doc] Failed to delete signatures:", sigDelErr.message);
-      return json({ error: "Error al eliminar firmas: " + sigDelErr.message }, 500);
-    }
-
-    // 3. Delete evidence proofs (FK → generated_documents)
-    const { error: proofDelErr } = await admin
-      .from("document_evidence_proofs")
-      .delete()
-      .eq("document_id", document_id);
-    if (proofDelErr) {
-      console.error("[delete-doc] Failed to delete evidence proofs:", proofDelErr.message);
-    }
-
-    // 4. Delete any document variables (FK → generated_documents)
-    const { error: varsDelErr } = await admin
-      .from("generated_document_variables")
-      .delete()
-      .eq("document_id", document_id);
-    if (varsDelErr) {
-      console.error("[delete-doc] Failed to delete variables:", varsDelErr.message);
-    }
-
-    // 4. Delete the document itself
-    const { error: delErr } = await admin
+    // Soft-delete: set deleted_at and status
+    const { error: updateErr } = await admin
       .from("generated_documents")
-      .delete()
+      .update({
+        deleted_at: new Date().toISOString(),
+        status: "deleted",
+      })
       .eq("id", document_id);
 
-    if (delErr) {
-      console.error("[delete-doc] Final delete failed:", delErr.message);
-      return json({ error: "Error al eliminar: " + delErr.message }, 500);
+    if (updateErr) {
+      console.error("[delete-doc] Soft-delete update failed:", updateErr.message);
+      return json({ error: "Error al archivar el documento: " + updateErr.message }, 500);
     }
 
     return json({
       ok: true,
+      soft_deleted: true,
       revoked_signatures: activeSigs.length,
       signers_to_notify: activeSigs.map((s) => ({ email: s.signer_email, name: s.signer_name })),
     });
