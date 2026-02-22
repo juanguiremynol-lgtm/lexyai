@@ -4447,6 +4447,56 @@ export type Database = {
           },
         ]
       }
+      document_configurations: {
+        Row: {
+          created_at: string
+          default_client_id_type: string
+          default_lawyer_id_type: string
+          default_values: Json
+          document_type: string
+          enabled_sections: Json
+          field_overrides: Json
+          id: string
+          organization_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          default_client_id_type?: string
+          default_lawyer_id_type?: string
+          default_values?: Json
+          document_type: string
+          enabled_sections?: Json
+          field_overrides?: Json
+          id?: string
+          organization_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          default_client_id_type?: string
+          default_lawyer_id_type?: string
+          default_values?: Json
+          document_type?: string
+          enabled_sections?: Json
+          field_overrides?: Json
+          id?: string
+          organization_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_configurations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_evidence_proofs: {
         Row: {
           created_at: string

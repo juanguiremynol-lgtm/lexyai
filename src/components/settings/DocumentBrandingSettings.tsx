@@ -245,23 +245,40 @@ export function DocumentBrandingSettings() {
 
           <Separator />
 
-          {/* Preview */}
+          {/* Preview — shows how branding will appear in generated documents */}
           <div className="space-y-2">
-            <Label>Vista previa</Label>
+            <Label>Vista previa en documentos generados</Label>
             <div className="border rounded-lg p-6 bg-white">
-              <div className="text-center space-y-2">
+              {/* Document header with branding */}
+              <div className="text-center space-y-2 border-b pb-4 mb-4">
                 {logoUrl ? (
                   <img src={logoUrl} alt="Logo" className="max-h-[60px] mx-auto object-contain" />
                 ) : (
                   <p className="font-bold text-xl tracking-tight" style={{ color: "#1a1a2e" }}>ANDROMEDA LEGAL</p>
                 )}
                 <p className="text-sm text-muted-foreground">{firmName || "Plataforma de Gestión Legal"}</p>
+              </div>
+              {/* Simulated document body */}
+              <div className="space-y-3 text-sm" style={{ color: "#000", fontFamily: "Georgia, serif" }}>
+                <h3 className="text-center font-bold uppercase text-base">Contrato de Prestación de Servicios</h3>
+                <p className="text-justify leading-relaxed" style={{ color: "#666" }}>
+                  [Contenido del documento aparecerá aquí con sus datos y variables...]
+                </p>
+              </div>
+              {/* Document footer with branding */}
+              <div className="border-t mt-4 pt-3 text-center space-y-1">
                 <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
                   <Lock className="h-3 w-3" />
-                  <span className="text-xs">Firma electrónica segura</span>
+                  <span className="text-xs">Documento generado y firmado electrónicamente</span>
                 </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {firmName ? `${firmName} · ` : ""}Plataforma Andromeda Legal · info@andromeda.legal
+                </p>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              El certificado de auditoría siempre indicará que el documento fue generado por la plataforma Andromeda Legal, independientemente de la marca personalizada.
+            </p>
           </div>
         </CardContent>
       </Card>
