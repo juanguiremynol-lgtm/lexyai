@@ -267,11 +267,14 @@ Deno.serve(async (req) => {
       .catch((e: unknown) => console.warn("HTML debug upload warning:", e));
 
     // Update last_success_at in settings
-    await adminClient
-      .from("platform_pdf_settings")
-      .update({ last_success_at: new Date().toISOString() })
-      .not("id", "is", null)
-      .catch(() => {});
+    try {
+      await adminClient
+        .from("platform_pdf_settings")
+        .update({ last_success_at: new Date().toISOString() })
+        .not("id", "is", null);
+    } catch (_e) {
+      // Non-fatal: settings table may not exist
+    }
 
     return json({
       ok: true,
