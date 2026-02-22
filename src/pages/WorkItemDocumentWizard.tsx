@@ -2086,7 +2086,7 @@ export default function WorkItemDocumentWizard() {
       {/* Lawyer In-App Signing Flow (bilateral contracts) */}
       {lawyerSigningActive && lawyerSigningData && (
         <Dialog open={lawyerSigningActive} onOpenChange={() => {}}>
-          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-2xl max-h-[100dvh] sm:max-h-[90vh] overflow-y-auto w-full h-full sm:h-auto sm:w-auto fixed inset-0 sm:inset-auto sm:relative p-4 sm:p-6">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Shield className="h-5 w-5" />
