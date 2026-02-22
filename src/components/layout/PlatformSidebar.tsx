@@ -27,6 +27,7 @@ import {
   Calendar,
   UserPlus,
   Printer,
+  PenTool,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -77,6 +78,7 @@ const platformNavItems = [
   { title: "Cobertura", url: "/platform/coverage-gaps", icon: ShieldCheck },
   { title: "Lista de Espera", url: "/platform/waitlist", icon: UserPlus },
   { title: "PDF / Gotenberg", url: "/platform/pdf-settings", icon: Printer },
+  { title: "Firma PDF Genérica", url: "/platform/generic-signing", icon: PenTool },
 ];
 
 export function PlatformSidebar() {
