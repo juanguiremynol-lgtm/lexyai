@@ -2096,3 +2096,34 @@
 [data-radix-dialog-overlay][data-state] {
   z-index: 65 !important;
 }
+
+/* ============================================
+   RESPONSIVE UTILITIES
+   ============================================ */
+
+/* Hide scrollbar but allow scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Platform console mobile overflow prevention */
+.platform-console-root {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Full-screen dialog on mobile for signing flows */
+@media (max-width: 639px) {
+  [data-radix-dialog-content].sm\:max-w-2xl {
+    max-width: 100vw !important;
+    max-height: 100dvh !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+}

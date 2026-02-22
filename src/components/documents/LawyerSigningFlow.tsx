@@ -281,25 +281,25 @@ export function LawyerSigningFlow({
   const currentIdx = stepIndicators.findIndex(s => s.key === step);
 
   return (
-    <div className="space-y-6">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 justify-center">
+    <div className="space-y-4 sm:space-y-6 max-w-full overflow-x-hidden">
+      {/* Step indicator — scrollable on mobile */}
+      <div className="flex items-center gap-1.5 sm:gap-2 justify-start sm:justify-center overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
         {stepIndicators.map((s, i) => {
           const Icon = s.icon;
           const isActive = s.key === step;
           const isDone = i < currentIdx || step === "done";
           return (
-            <div key={s.key} className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+            <div key={s.key} className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <div className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-medium transition-colors ${
                 isActive ? "bg-primary text-primary-foreground" :
                 isDone ? "bg-primary/20 text-primary" :
                 "bg-muted text-muted-foreground"
               }`}>
-                {isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
-                {s.label}
+                {isDone ? <CheckCircle2 className="h-3 sm:h-3.5 w-3 sm:w-3.5" /> : <Icon className="h-3 sm:h-3.5 w-3 sm:w-3.5" />}
+                <span className="hidden xs:inline sm:inline">{s.label}</span>
               </div>
               {i < stepIndicators.length - 1 && (
-                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                <ArrowRight className="h-2.5 sm:h-3 w-2.5 sm:w-3 text-muted-foreground shrink-0" />
               )}
             </div>
           );
@@ -541,16 +541,19 @@ export function LawyerSigningFlow({
               </div>
             )}
 
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={() => setStep("review")}>
-                Volver a revisión
+            <div className={`flex justify-between gap-2 ${
+              isMobile ? "sticky bottom-0 z-10 bg-background/95 backdrop-blur-sm border-t -mx-6 px-4 py-3 mt-4" : ""
+            }`}>
+              <Button variant="outline" onClick={() => setStep("review")} size={isMobile ? "sm" : "default"}>
+                Volver
               </Button>
               <Button
                 onClick={handleSign}
                 disabled={signing || !consentChecked || !drawnSignature}
+                size={isMobile ? "sm" : "default"}
               >
                 {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-                Firmar como Abogado
+                Firmar
               </Button>
             </div>
           </CardContent>
