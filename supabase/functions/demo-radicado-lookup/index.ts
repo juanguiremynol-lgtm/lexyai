@@ -1262,11 +1262,10 @@ Deno.serve(async (req: Request) => {
         last_refresh_at: new Date().toISOString(),
         content_hash: contentHash,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "radicado_normalized" })
-      .then(({ error }) => {
-        if (error) console.warn("[demo] Cache write failed:", error.message);
-        else console.log("[demo] Cache updated for radicado", maskRadicado(radicado));
-      });
+      }, { onConflict: "radicado_normalized" });
+    const { error: cacheWriteErr } = await cacheUpsert;
+    if (cacheWriteErr) console.warn("[demo] Cache write failed:", cacheWriteErr.message);
+    else console.log("[demo] Cache updated for radicado", maskRadicado(radicado));
 
     // 9. Determine estados completeness status
     const estadosCriticalProviders = results.filter(r => ESTADOS_CRITICAL_PROVIDERS.has(r.provider));
@@ -1315,7 +1314,9 @@ Deno.serve(async (req: Request) => {
     };
 
     // 10. Telemetry (non-blocking)
-    logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip, sourcesWithData.map(r => r.provider), providerOutcomes).catch(() => {});
+    try {
+      await logTelemetry(radicado, actuaciones.length, estados.length, Date.now() - t0, ip, sourcesWithData.map(r => r.provider), providerOutcomes);
+    } catch { /* telemetry failure is non-fatal */ }
 
     return json(response, 200);
 

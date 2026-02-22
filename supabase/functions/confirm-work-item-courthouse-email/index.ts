@@ -112,8 +112,8 @@ Deno.serve(async (req: Request) => {
           metadata: {
             confirmed_email: email,
           },
-        })
-        .then(() => {});
+        });
+      // Fire-and-forget audit log — error is non-fatal
     }
 
     return new Response(

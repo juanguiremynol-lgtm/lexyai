@@ -121,17 +121,17 @@ Deno.serve(async (req) => {
   );
 
   // Fetch tenant sizes for baseline scaling
-  const { data: orgSizes } = await supabaseAdmin
+  const { data: membershipData } = await supabaseAdmin
     .from("organization_memberships")
-    .select("organization_id")
-    .then(({ data }) => {
-      if (!data) return { data: new Map<string, number>() };
-      const counts = new Map<string, number>();
-      for (const row of data) {
-        counts.set(row.organization_id, (counts.get(row.organization_id) || 0) + 1);
-      }
-      return { data: counts };
-    });
+    .select("organization_id");
+  const orgSizes = (() => {
+    if (!membershipData) return new Map<string, number>();
+    const counts = new Map<string, number>();
+    for (const row of membershipData) {
+      counts.set(row.organization_id, (counts.get(row.organization_id) || 0) + 1);
+    }
+    return counts;
+  })();
 
   const getThreshold = (rule: AlertRule, orgId?: string): number => {
     if (!rule.scaleByTenant || !orgId) return rule.baseThreshold;

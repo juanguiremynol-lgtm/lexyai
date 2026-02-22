@@ -31,7 +31,7 @@ function verifyWompiSignature(body: string, signature: string, secret: string): 
     // Use WebCrypto API available in Deno
     return crypto.subtle
       .sign("HMAC", new Uint8Array(Buffer.from(secret, "utf-8")), data)
-      .then((signature) => {
+      .then((signature) => { // lint-allow-then: WebCrypto API chaining in HMAC verification
         const computed = Array.from(new Uint8Array(signature))
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");

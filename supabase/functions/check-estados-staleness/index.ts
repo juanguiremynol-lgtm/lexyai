@@ -268,8 +268,8 @@ const handler = async (req: Request): Promise<Response> => {
         started_at: now.toISOString(),
         completed_at: new Date().toISOString(),
         metadata: { orgs_checked: orgsChecked, alerts_created: alertsCreated, alerts_resolved: alertsResolved, emails_queued: emailsQueued },
-      })
-      .then(({ error }) => { if (error) console.warn("Failed to create audit trail:", error); });
+      });
+    if (auditResult.error) console.warn("Failed to create audit trail:", auditResult.error);
 
     const result = {
       success: true,

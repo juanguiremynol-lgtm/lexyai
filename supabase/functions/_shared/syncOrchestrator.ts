@@ -590,7 +590,7 @@ async function runWithConcurrency<T>(
   const executing = new Set<Promise<void>>();
 
   for (const task of tasks) {
-    const p = task().then((r) => {
+    const p = task().then((r) => { // lint-allow-then: concurrency pool pattern requires .then for tracking
       results.push(r);
       executing.delete(p);
     });
