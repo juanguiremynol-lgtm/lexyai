@@ -349,6 +349,20 @@ Deno.serve(async (req) => {
     // IMPORTANT: final_pdf_sha256 is NOT set here. It is set ONLY by process-pdf-job
     // after the actual PDF bytes are generated. This prevents hash mismatches.
     const finalStatus = isBilateral ? "signed_finalized" : "signed";
+    
+    // Handle status transitions through allowed paths (the DB trigger enforces valid transitions)
+    // ready_for_signature cannot go directly to signed_finalized; must go through partially_signed first
+    const currentStatus = doc.status;
+    if (finalStatus === "signed_finalized" && currentStatus === "ready_for_signature") {
+      await adminClient.from("generated_documents").update({ status: "partially_signed" }).eq("id", sig.document_id);
+    } else if (finalStatus === "signed" && currentStatus === "ready_for_signature") {
+      // For unilateral: ready_for_signature → sent_for_signature → signed
+      await adminClient.from("generated_documents").update({ status: "sent_for_signature" }).eq("id", sig.document_id);
+    } else if (finalStatus === "signed" && currentStatus === "finalized") {
+      // For unilateral via finalized: finalized → sent_for_signature → signed
+      await adminClient.from("generated_documents").update({ status: "sent_for_signature" }).eq("id", sig.document_id);
+    }
+    
     await adminClient.from("generated_documents").update({
       status: finalStatus,
       finalized_at: new Date().toISOString(),
