@@ -515,6 +515,29 @@ export default function DocumentDetailPage() {
               </>
             )}
 
+            {/* ── RECONCILIATION: executed but missing distribution ── */}
+            {isExecuted && (
+              <Button
+                variant="outline"
+                className="border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
+                onClick={async () => {
+                  try {
+                    toast.info("Ejecutando reconciliación de distribución…");
+                    const { error } = await supabase.functions.invoke("process-pdf-job", {
+                      body: { document_id: doc.id, force_distribution: true },
+                    });
+                    if (error) toast.error("Error: " + error.message);
+                    else toast.success("Reconciliación completada — verificando distribución");
+                    queryClient.invalidateQueries({ queryKey: ["doc-events", resolvedDocId] });
+                  } catch {
+                    toast.error("Error de conexión");
+                  }
+                }}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" /> Reintentar distribución
+              </Button>
+            )}
+
             {/* ── PRE-EXECUTION STATES ── */}
             {!isExecuted && (
               <>
