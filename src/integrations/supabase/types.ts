@@ -6254,6 +6254,426 @@ export type Database = {
           },
         ]
       }
+      hearing_ai_insights: {
+        Row: {
+          authorized_by: string
+          created_at: string | null
+          follow_up_questions: Json
+          gaps_to_verify: Json
+          id: string
+          input_summary: Json
+          is_deleted: boolean | null
+          model_id: string
+          organization_id: string
+          points_of_interest: Json
+          raw_response: Json | null
+          suggested_prompt_template: string | null
+          work_item_hearing_id: string
+        }
+        Insert: {
+          authorized_by: string
+          created_at?: string | null
+          follow_up_questions?: Json
+          gaps_to_verify?: Json
+          id?: string
+          input_summary: Json
+          is_deleted?: boolean | null
+          model_id: string
+          organization_id: string
+          points_of_interest?: Json
+          raw_response?: Json | null
+          suggested_prompt_template?: string | null
+          work_item_hearing_id: string
+        }
+        Update: {
+          authorized_by?: string
+          created_at?: string | null
+          follow_up_questions?: Json
+          gaps_to_verify?: Json
+          id?: string
+          input_summary?: Json
+          is_deleted?: boolean | null
+          model_id?: string
+          organization_id?: string
+          points_of_interest?: Json
+          raw_response?: Json | null
+          suggested_prompt_template?: string | null
+          work_item_hearing_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_ai_insights_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearing_ai_insights_work_item_hearing_id_fkey"
+            columns: ["work_item_hearing_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_hearings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearing_artifacts: {
+        Row: {
+          access_policy: string
+          created_at: string | null
+          external_provider: string | null
+          external_url: string | null
+          extracted_text: string | null
+          file_hash: string | null
+          filename: string | null
+          id: string
+          kind: string
+          mime_type: string | null
+          organization_id: string
+          shareable_link_expiry: string | null
+          size_bytes: number | null
+          storage_path: string | null
+          storage_type: string
+          title: string | null
+          uploaded_by: string | null
+          work_item_hearing_id: string
+        }
+        Insert: {
+          access_policy?: string
+          created_at?: string | null
+          external_provider?: string | null
+          external_url?: string | null
+          extracted_text?: string | null
+          file_hash?: string | null
+          filename?: string | null
+          id?: string
+          kind: string
+          mime_type?: string | null
+          organization_id: string
+          shareable_link_expiry?: string | null
+          size_bytes?: number | null
+          storage_path?: string | null
+          storage_type: string
+          title?: string | null
+          uploaded_by?: string | null
+          work_item_hearing_id: string
+        }
+        Update: {
+          access_policy?: string
+          created_at?: string | null
+          external_provider?: string | null
+          external_url?: string | null
+          extracted_text?: string | null
+          file_hash?: string | null
+          filename?: string | null
+          id?: string
+          kind?: string
+          mime_type?: string | null
+          organization_id?: string
+          shareable_link_expiry?: string | null
+          size_bytes?: number | null
+          storage_path?: string | null
+          storage_type?: string
+          title?: string | null
+          uploaded_by?: string | null
+          work_item_hearing_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_artifacts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearing_artifacts_work_item_hearing_id_fkey"
+            columns: ["work_item_hearing_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_hearings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearing_audit_log: {
+        Row: {
+          action: string
+          created_at: string | null
+          detail: Json | null
+          hearing_artifact_id: string | null
+          id: string
+          organization_id: string
+          user_id: string | null
+          work_item_hearing_id: string | null
+          work_item_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string | null
+          detail?: Json | null
+          hearing_artifact_id?: string | null
+          id?: string
+          organization_id: string
+          user_id?: string | null
+          work_item_hearing_id?: string | null
+          work_item_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string | null
+          detail?: Json | null
+          hearing_artifact_id?: string | null
+          id?: string
+          organization_id?: string
+          user_id?: string | null
+          work_item_hearing_id?: string | null
+          work_item_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_audit_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearing_flow_template_steps: {
+        Row: {
+          checkpoint_label: string | null
+          created_at: string | null
+          flow_template_id: string
+          hearing_type_id: string
+          id: string
+          is_checkpoint: boolean | null
+          is_optional: boolean | null
+          notes: string | null
+          step_order: number
+        }
+        Insert: {
+          checkpoint_label?: string | null
+          created_at?: string | null
+          flow_template_id: string
+          hearing_type_id: string
+          id?: string
+          is_checkpoint?: boolean | null
+          is_optional?: boolean | null
+          notes?: string | null
+          step_order: number
+        }
+        Update: {
+          checkpoint_label?: string | null
+          created_at?: string | null
+          flow_template_id?: string
+          hearing_type_id?: string
+          id?: string
+          is_checkpoint?: boolean | null
+          is_optional?: boolean | null
+          notes?: string | null
+          step_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_flow_template_steps_flow_template_id_fkey"
+            columns: ["flow_template_id"]
+            isOneToOne: false
+            referencedRelation: "hearing_flow_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearing_flow_template_steps_hearing_type_id_fkey"
+            columns: ["hearing_type_id"]
+            isOneToOne: false
+            referencedRelation: "hearing_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearing_flow_templates: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          is_default: boolean | null
+          jurisdiction: string
+          name: string
+          process_subtype: string | null
+          updated_at: string | null
+          version: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          jurisdiction: string
+          name: string
+          process_subtype?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          jurisdiction?: string
+          name?: string
+          process_subtype?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Relationships: []
+      }
+      hearing_tenant_config: {
+        Row: {
+          ai_insights_enabled: boolean
+          allowed_file_types: string[]
+          auto_generate_hearing_flow: boolean
+          created_at: string | null
+          id: string
+          max_file_size_mb: number
+          max_storage_per_hearing_mb: number
+          organization_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          ai_insights_enabled?: boolean
+          allowed_file_types?: string[]
+          auto_generate_hearing_flow?: boolean
+          created_at?: string | null
+          id?: string
+          max_file_size_mb?: number
+          max_storage_per_hearing_mb?: number
+          organization_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          ai_insights_enabled?: boolean
+          allowed_file_types?: string[]
+          auto_generate_hearing_flow?: boolean
+          created_at?: string | null
+          id?: string
+          max_file_size_mb?: number
+          max_storage_per_hearing_mb?: number
+          organization_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_tenant_config_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearing_types: {
+        Row: {
+          aliases: string[]
+          created_at: string | null
+          created_by: string | null
+          default_stage_order: number
+          description: string | null
+          id: string
+          is_active: boolean | null
+          is_mandatory: boolean | null
+          jurisdiction: string
+          legal_basis: string | null
+          name: string
+          needs_admin_review: boolean | null
+          process_subtype: string | null
+          short_name: string
+          typical_duration_minutes: number | null
+          typical_outputs: string[] | null
+          typical_purpose: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          aliases?: string[]
+          created_at?: string | null
+          created_by?: string | null
+          default_stage_order?: number
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_mandatory?: boolean | null
+          jurisdiction: string
+          legal_basis?: string | null
+          name: string
+          needs_admin_review?: boolean | null
+          process_subtype?: string | null
+          short_name: string
+          typical_duration_minutes?: number | null
+          typical_outputs?: string[] | null
+          typical_purpose?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          aliases?: string[]
+          created_at?: string | null
+          created_by?: string | null
+          default_stage_order?: number
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_mandatory?: boolean | null
+          jurisdiction?: string
+          legal_basis?: string | null
+          name?: string
+          needs_admin_review?: boolean | null
+          process_subtype?: string | null
+          short_name?: string
+          typical_duration_minutes?: number | null
+          typical_outputs?: string[] | null
+          typical_purpose?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      hearing_user_ai_prefs: {
+        Row: {
+          ai_enabled: boolean
+          created_at: string | null
+          id: string
+          organization_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          ai_enabled?: boolean
+          created_at?: string | null
+          id?: string
+          organization_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          ai_enabled?: boolean
+          created_at?: string | null
+          id?: string
+          organization_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearing_user_ai_prefs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hearings: {
         Row: {
           auto_detected: boolean | null
@@ -12151,6 +12571,116 @@ export type Database = {
           },
           {
             foreignKeyName: "work_item_external_links_work_item_id_fkey"
+            columns: ["work_item_id"]
+            isOneToOne: false
+            referencedRelation: "work_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_item_hearings: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          custom_name: string | null
+          decisions_summary: string | null
+          duration_minutes: number | null
+          flow_order: number | null
+          hearing_type_id: string | null
+          id: string
+          key_moments: Json
+          location: string | null
+          meeting_link: string | null
+          modality: string | null
+          notes_plain_text: string | null
+          notes_rich_text: string | null
+          occurred_at: string | null
+          organization_id: string
+          participants: Json
+          postponed_to_id: string | null
+          scheduled_at: string | null
+          status: string
+          tags: string[] | null
+          updated_at: string | null
+          updated_by: string | null
+          work_item_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          custom_name?: string | null
+          decisions_summary?: string | null
+          duration_minutes?: number | null
+          flow_order?: number | null
+          hearing_type_id?: string | null
+          id?: string
+          key_moments?: Json
+          location?: string | null
+          meeting_link?: string | null
+          modality?: string | null
+          notes_plain_text?: string | null
+          notes_rich_text?: string | null
+          occurred_at?: string | null
+          organization_id: string
+          participants?: Json
+          postponed_to_id?: string | null
+          scheduled_at?: string | null
+          status?: string
+          tags?: string[] | null
+          updated_at?: string | null
+          updated_by?: string | null
+          work_item_id: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          custom_name?: string | null
+          decisions_summary?: string | null
+          duration_minutes?: number | null
+          flow_order?: number | null
+          hearing_type_id?: string | null
+          id?: string
+          key_moments?: Json
+          location?: string | null
+          meeting_link?: string | null
+          modality?: string | null
+          notes_plain_text?: string | null
+          notes_rich_text?: string | null
+          occurred_at?: string | null
+          organization_id?: string
+          participants?: Json
+          postponed_to_id?: string | null
+          scheduled_at?: string | null
+          status?: string
+          tags?: string[] | null
+          updated_at?: string | null
+          updated_by?: string | null
+          work_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_item_hearings_hearing_type_id_fkey"
+            columns: ["hearing_type_id"]
+            isOneToOne: false
+            referencedRelation: "hearing_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_postponed_to_id_fkey"
+            columns: ["postponed_to_id"]
+            isOneToOne: false
+            referencedRelation: "work_item_hearings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_item_hearings_work_item_id_fkey"
             columns: ["work_item_id"]
             isOneToOne: false
             referencedRelation: "work_items"
