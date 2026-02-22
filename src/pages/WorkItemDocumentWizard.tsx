@@ -433,6 +433,7 @@ export default function WorkItemDocumentWizard() {
     fileName: string;
     sizeBytes: number;
   } | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   // Lawyer in-app signing flow state (bilateral contracts)
   const [lawyerSigningActive, setLawyerSigningActive] = useState(false);
@@ -603,6 +604,33 @@ export default function WorkItemDocumentWizard() {
   });
 
   const isNotification = isNotificationDocType(docType);
+  const skipVariables = sourceType === "UPLOADED_PDF" && docType === "contrato_servicios";
+
+  // Compute step labels based on current flow
+  const wizardStepLabels = useMemo(() => {
+    if (isNotification) return ["Tipo", "Demandados", "Variables", "Vista Previa"];
+    if (skipVariables) return ["Tipo", "Vista Previa"];
+    return ["Tipo", "Variables", "Vista Previa"];
+  }, [isNotification, skipVariables]);
+
+  // Step mapping: map logical step numbers to wizard sections
+  // For skipVariables: step 1=Type, step 2=Final Preview
+  // For normal: step 1=Type, step 2=Variables, step 3=Final Preview
+  // For notifications: step 1=Type, step 2=Defendants, step 3=Variables, step 4=Final Preview
+  const variablesStep = isNotification ? 3 : 2;
+  const finalPreviewStep = skipVariables ? 2 : (isNotification ? 4 : 3);
+
+  // Generate signed URL for uploaded PDF preview
+  useEffect(() => {
+    if (step === finalPreviewStep && skipVariables && uploadedPdfInfo && !pdfPreviewUrl) {
+      supabase.storage
+        .from("unsigned-documents")
+        .createSignedUrl(uploadedPdfInfo.storagePath, 3600)
+        .then(({ data }) => {
+          if (data?.signedUrl) setPdfPreviewUrl(data.signedUrl);
+        });
+    }
+  }, [step, finalPreviewStep, skipVariables, uploadedPdfInfo, pdfPreviewUrl]);
 
   // Auto-populate variables when data loads or doc type changes
   useEffect(() => {
@@ -746,6 +774,15 @@ export default function WorkItemDocumentWizard() {
 
   // Required fields validation
   const missingRequired = useMemo(() => {
+    // For uploaded PDF, skip all template variable validation — only require signer identity
+    if (skipVariables) {
+      const missing: LegalTemplateVariable[] = [];
+      // Only require client identity fields for signing pipeline
+      if (!variables.client_full_name?.trim()) missing.push({ key: "client_full_name", label: "Nombre completo del cliente", required: true, source: "manual", editable: true } as any);
+      if (!variables.client_email?.trim()) missing.push({ key: "client_email", label: "Correo del cliente", required: true, source: "manual", editable: true } as any);
+      return missing;
+    }
+
     const baseMissing = template.variables
       .filter((v) => v.required && v.editable)
       .filter((v) => {
@@ -779,7 +816,7 @@ export default function WorkItemDocumentWizard() {
     }
 
     return baseMissing;
-  }, [template.variables, variables, docType, poderdanteType, poderdantes, entityData]);
+  }, [template.variables, variables, docType, poderdanteType, poderdantes, entityData, skipVariables]);
 
   // Determine signer configuration
   const isMultiSigner = docType === "contrato_servicios";
@@ -1272,7 +1309,7 @@ export default function WorkItemDocumentWizard() {
 
       {/* Step Indicator */}
       <div className="flex items-center gap-4">
-        {(isNotification ? ["Tipo", "Demandados", "Variables", "Vista Previa"] : ["Tipo", "Variables", "Vista Previa"]).map((label, i) => {
+        {wizardStepLabels.map((label, i) => {
           const stepNum = i + 1;
           return (
             <button
@@ -1403,7 +1440,16 @@ export default function WorkItemDocumentWizard() {
           )}
 
           <div className="flex justify-end">
-            <Button onClick={() => setStep(isNotification ? 2 : 2)}>
+            <Button
+              onClick={() => {
+                if (skipVariables && !uploadedPdfInfo) {
+                  toast.error("Debe subir un archivo PDF antes de continuar");
+                  return;
+                }
+                setStep(skipVariables ? finalPreviewStep : 2);
+              }}
+              disabled={skipVariables && !uploadedPdfInfo}
+            >
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           </div>
@@ -1456,7 +1502,7 @@ export default function WorkItemDocumentWizard() {
       )}
 
       {/* Step 2 (non-notification) or Step 3 (notification): Variables */}
-      {step === (isNotification ? 3 : 2) && (
+      {step === variablesStep && !skipVariables && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Litigation email hard gate for poder_especial */}
           {missingLitigationEmail && (
@@ -1746,7 +1792,7 @@ export default function WorkItemDocumentWizard() {
                   {missingRequired.length} campo(s) requerido(s) faltante(s)
                 </span>
               )}
-              <Button onClick={() => setStep(isNotification ? 4 : 3)}>
+              <Button onClick={() => setStep(finalPreviewStep)}>
                 Vista Previa Final <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </div>
@@ -1755,7 +1801,7 @@ export default function WorkItemDocumentWizard() {
       )}
 
       {/* Step 3 (non-notification) or Step 4 (notification): Final Preview & Actions */}
-      {step === (isNotification ? 4 : 3) && (
+      {step === finalPreviewStep && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -1779,13 +1825,71 @@ export default function WorkItemDocumentWizard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="border rounded-lg p-8" style={{ backgroundColor: previewDarkMode ? "#1a1a2e" : "#FFFFFF" }}>
-                <ScrollArea className="h-[600px]">
-                  <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
-                </ScrollArea>
-              </div>
+              {skipVariables && uploadedPdfInfo ? (
+                pdfPreviewUrl ? (
+                  <div className="border rounded-lg overflow-hidden" style={{ height: 600 }}>
+                    <iframe
+                      src={`${pdfPreviewUrl}#toolbar=0`}
+                      className="w-full h-full"
+                      title="Vista previa del PDF subido"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-[600px]">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                )
+              ) : (
+                <div className="border rounded-lg p-8" style={{ backgroundColor: previewDarkMode ? "#1a1a2e" : "#FFFFFF" }}>
+                  <ScrollArea className="h-[600px]">
+                    <div style={{ color: previewDarkMode ? "#e0e0e0" : "#000000" }} dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+                  </ScrollArea>
+                </div>
+              )}
             </CardContent>
           </Card>
+
+          {/* Signer identity fields for UPLOADED_PDF (since variables step is skipped) */}
+          {skipVariables && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Datos de los firmantes</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Nombre completo del cliente *</Label>
+                    <Input
+                      value={variables.client_full_name || ""}
+                      onChange={(e) => setVariables(p => ({ ...p, client_full_name: e.target.value }))}
+                      placeholder="Nombre completo"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Correo del cliente *</Label>
+                    <Input
+                      type="email"
+                      value={variables.client_email || ""}
+                      onChange={(e) => setVariables(p => ({ ...p, client_email: e.target.value }))}
+                      placeholder="correo@email.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Cédula del cliente</Label>
+                    <Input
+                      value={variables.client_cedula || ""}
+                      onChange={(e) => setVariables(p => ({ ...p, client_cedula: e.target.value }))}
+                      placeholder="1.234.567.890"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>Estos datos son necesarios para generar los bloques de firma y el certificado de auditoría del documento.</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {missingRequired.length > 0 && (
             <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-400 bg-amber-50 dark:bg-amber-950/30">
@@ -1802,8 +1906,8 @@ export default function WorkItemDocumentWizard() {
           )}
 
           <div className="flex items-center justify-between">
-            <Button variant="outline" onClick={() => setStep(isNotification ? 3 : 2)}>
-              <ArrowLeft className="h-4 w-4 mr-2" /> Editar Variables
+            <Button variant="outline" onClick={() => setStep(skipVariables ? 1 : (isNotification ? 3 : 2))}>
+              <ArrowLeft className="h-4 w-4 mr-2" /> {skipVariables ? "Anterior" : "Editar Variables"}
             </Button>
             <div className="flex items-center gap-3">
               {!isNotification && (
