@@ -652,15 +652,28 @@ export default function DocumentDetailPage() {
                 </AlertDialogContent>
               </AlertDialog>
             )}
-            {doc.status === "signed" && signedSig && (
+            {(doc.status === "signed" || doc.status === "signed_finalized") && signedSig && (
               <>
                 {signedSig.signed_document_path && (
                   <Button variant="outline" onClick={async () => {
-                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
-                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                    else toast.error("Error al obtener enlace de descarga");
+                    // Try PDF first, fall back to HTML
+                    const pdfPath = signedSig.signed_document_path!.replace(/\.html$/, '.pdf');
+                    const { data: pdfData } = await supabase.storage.from("signed-documents").createSignedUrl(pdfPath, 3600);
+                    if (pdfData?.signedUrl) {
+                      window.open(pdfData.signedUrl, "_blank");
+                    } else {
+                      // Fallback to original path (HTML or whatever is stored)
+                      const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
+                      if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                      else toast.error("Error al obtener enlace de descarga");
+                    }
                   }}>
-                    <Download className="h-4 w-4 mr-2" /> Descargar Firmado
+                    <Download className="h-4 w-4 mr-2" /> Descargar PDF Firmado
+                  </Button>
+                )}
+                {!signedSig.signed_document_path && (
+                  <Button variant="outline" disabled>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generando PDF…
                   </Button>
                 )}
                 {signedSig.certificate_path && (

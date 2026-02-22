@@ -669,17 +669,15 @@ ${evidenceAppendix}
     const combinedBytes = new TextEncoder().encode(combinedHtml);
     const combinedHash = await sha256Hex(combinedBytes);
 
-    const storagePath = `${sig.organization_id}/${sig.document_id}/signed.html`;
-    const { error: uploadErr } = await adminClient.storage.from("signed-documents").upload(storagePath, combinedBytes, { contentType: "text/html; charset=utf-8", upsert: true });
-    if (uploadErr) {
-      console.error("Storage upload error:", uploadErr);
-      return json({ error: "Hubo un error al generar el documento. Por favor intente nuevamente." }, 500);
-    }
+    // Store HTML for debug only (not the deliverable)
+    const htmlStoragePath = `${sig.organization_id}/${sig.document_id}/signed.html`;
+    await adminClient.storage.from("signed-documents").upload(htmlStoragePath, combinedBytes, { contentType: "text/html; charset=utf-8", upsert: true })
+      .catch((e: unknown) => console.warn("HTML debug upload warning:", e));
 
-    // Update ALL signed signatures with hash + storage path
+    // Update ALL signed signatures with hash + certificate
     for (const s of signedSigs) {
       await adminClient.from("document_signatures").update({
-        signed_document_path: storagePath, signed_document_hash: documentHash,
+        signed_document_path: htmlStoragePath, signed_document_hash: documentHash,
         combined_pdf_hash: combinedHash, certificate_id: certificateId,
       }).eq("id", s.id);
     }
@@ -696,11 +694,33 @@ ${evidenceAppendix}
     await insertChainedEvent(adminClient, {
       organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
       event_type: "document.stored",
-      event_data: { storage_path: storagePath, includes_evidence_appendix: true, combined_hash: combinedHash, total_signers: totalSigners, final_pdf_sha256: documentHash },
+      event_data: { storage_path: htmlStoragePath, includes_evidence_appendix: true, combined_hash: combinedHash, total_signers: totalSigners, final_pdf_sha256: documentHash },
       actor_type: "system", actor_id: "system",
     }, sig.document_id);
 
-    const { data: signedUrlData } = await adminClient.storage.from("signed-documents").createSignedUrl(storagePath, 30 * 24 * 60 * 60);
+    // ── Enqueue async PDF generation job ──
+    const { error: jobErr } = await adminClient.from("document_pdf_jobs").insert({
+      document_id: sig.document_id,
+      organization_id: sig.organization_id,
+      status: "queued",
+    });
+    if (jobErr) {
+      console.error("PDF job enqueue error:", jobErr);
+      // Non-fatal: document is still finalized with HTML fallback
+    } else {
+      // Fire-and-forget: invoke process-pdf-job asynchronously
+      fetch(`${supabaseUrl}/functions/v1/process-pdf-job`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ document_id: sig.document_id }),
+      }).catch((e: unknown) => console.warn("Async PDF job trigger warning:", e));
+    }
+
+    // For the immediate response, use HTML signed URL (PDF will be available shortly)
+    const { data: signedUrlData } = await adminClient.storage.from("signed-documents").createSignedUrl(htmlStoragePath, 30 * 24 * 60 * 60);
     const downloadUrl = signedUrlData?.signedUrl || "";
 
     // Send notification emails

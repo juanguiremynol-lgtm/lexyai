@@ -353,3 +353,9 @@ verify_jwt = false
 
 [functions.generate-contract-draft]
 verify_jwt = false
+
+[functions.html-to-pdf]
+verify_jwt = false
+
+[functions.process-pdf-job]
+verify_jwt = false
