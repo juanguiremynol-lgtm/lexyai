@@ -13,6 +13,7 @@ import {
   Newspaper,
   Mail,
   FileSignature,
+  PenTool,
 } from "lucide-react";
 import logo from "@/assets/andromeda-logo.png";
 import { NavLink, useLocation } from "react-router-dom";
@@ -153,6 +154,32 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarNavItemsList items={navItems} currentPath={location.pathname} />
+              {/* Generic PDF Signing - Super Admin only, after Enlaces */}
+              {isPlatformAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname === "/platform/generic-signing"}
+                    tooltip="Firma PDF Genérica"
+                    className={cn(
+                      "transition-all duration-200",
+                      location.pathname === "/platform/generic-signing" && "bg-primary/15 text-primary border-l-2 border-primary"
+                    )}
+                  >
+                    <NavLink to="/platform/generic-signing" className="flex items-center gap-3">
+                      <PenTool className={cn(
+                        "h-4 w-4 transition-colors",
+                        location.pathname === "/platform/generic-signing" ? "text-primary" : "text-sidebar-foreground/70"
+                      )} />
+                      <span className={cn(
+                        location.pathname === "/platform/generic-signing" ? "text-primary font-medium" : "text-sidebar-foreground"
+                      )}>
+                        Firma PDF Genérica
+                      </span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
