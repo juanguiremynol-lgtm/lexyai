@@ -699,6 +699,9 @@ ${evidenceAppendix}
     }, sig.document_id);
 
     // ── Enqueue async PDF generation job ──
+    // CRITICAL: Notification emails are deferred to process-pdf-job.
+    // Emails are ONLY sent after signed.pdf exists. This ensures download
+    // links always point to PDF, never HTML.
     const { error: jobErr } = await adminClient.from("document_pdf_jobs").insert({
       document_id: sig.document_id,
       organization_id: sig.organization_id,
@@ -706,7 +709,6 @@ ${evidenceAppendix}
     });
     if (jobErr) {
       console.error("PDF job enqueue error:", jobErr);
-      // Non-fatal: document is still finalized with HTML fallback
     } else {
       // Fire-and-forget: invoke process-pdf-job asynchronously
       fetch(`${supabaseUrl}/functions/v1/process-pdf-job`, {
@@ -719,82 +721,11 @@ ${evidenceAppendix}
       }).catch((e: unknown) => console.warn("Async PDF job trigger warning:", e));
     }
 
-    // For the immediate response, use HTML signed URL (PDF will be available shortly)
-    const { data: signedUrlData } = await adminClient.storage.from("signed-documents").createSignedUrl(htmlStoragePath, 30 * 24 * 60 * 60);
-    const downloadUrl = signedUrlData?.signedUrl || "";
-
-    // Send notification emails
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    if (resendKey) {
-      const confirmHtml = `
-        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-          ${buildEmailHeader(branding)}
-          <div style="padding:24px 0;">
-            <h2 style="color:#1a1a2e;">✅ Documento Firmado${isBilateral ? " por Todas las Partes" : ""}</h2>
-            <p>Hola <strong>{RECIPIENT_NAME}</strong>,</p>
-            <p>El siguiente documento ha sido firmado electrónicamente${totalSigners > 1 ? " por todas las partes" : ""}:</p>
-            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-              <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Documento</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold;">${doc.title}</td></tr>
-              ${signedSigs.map(s => `<tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Firmado por</td><td style="padding:8px;border-bottom:1px solid #eee;">${s.signer_name} — ${s.signed_at ? formatCOT(s.signed_at) : ""}</td></tr>`).join("")}
-              <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Hash SHA-256</td><td style="padding:8px;border-bottom:1px solid #eee;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
-            </table>
-            ${downloadUrl ? `<div style="text-align:center;margin:24px 0;">
-              <a href="${downloadUrl}" style="background:#1a1a2e;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Descargar documento firmado</a>
-            </div>
-            <p style="color:#666;font-size:13px;text-align:center;">El documento incluye el certificado de evidencia con el registro completo de auditoría.</p>` : ""}
-            <p style="color:#666;font-size:13px;">Para verificar la integridad: <a href="https://lexyai.lovable.app/verify" style="color:#1a1a2e;">https://lexyai.lovable.app/verify</a></p>
-          </div>
-          <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
-          <p style="color:#999;font-size:12px;text-align:center;">${branding.firm_name}<br/>Firma electrónica conforme a la Ley 527 de 1999 y Decreto 2364 de 2012.</p>
-        </div>`;
-
-      const recipients = new Set<string>();
-      for (const s of signedSigs) { if (s.signer_email) recipients.add(s.signer_email); }
-      if (lawyerEmail) recipients.add(lawyerEmail);
-
-      for (const email of recipients) {
-        try {
-          const recipientName = signedSigs.find(s => s.signer_email === email)?.signer_name || lawyerName || "Usuario";
-          const html = confirmHtml.replace("{RECIPIENT_NAME}", recipientName);
-          await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              from: `${branding.firm_name} <info@andromeda.legal>`, to: [email],
-              subject: `✅ Documento firmado${isBilateral ? " por todas las partes" : ""} — ${doc.title}`, html,
-            }),
-          });
-        } catch (e) {
-          console.error(`Notification error for ${email}:`, e);
-          await adminClient.from("document_signature_events").insert({
-            organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
-            event_type: "notification.failed", event_data: { recipient: email, error: String(e) },
-            actor_type: "system", actor_id: "system",
-          }).catch(() => {});
-        }
-      }
-
-      await insertChainedEvent(adminClient, {
-        organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
-        event_type: "notification.sent",
-        event_data: {
-          recipients: Array.from(recipients), type: "signature_confirmation",
-          total_signers: totalSigners, sender: "info@andromeda.legal",
-          delivery_method: deliveryMethod,
-          generated_for: { user_id: doc.created_by, lawyer_name: lawyerName, litigation_email: lawyerEmail },
-          event_timeline: deliveryMethod === "LINK"
-            ? "CREATED → LINK_GENERATED → IDENTITY_CONFIRMED → OTP_VERIFIED → VIEWED → SIGNED → DISTRIBUTED"
-            : "CREATED → SENT_EMAIL_TO_SIGNER → IDENTITY_CONFIRMED → OTP_VERIFIED → VIEWED → SIGNED → DISTRIBUTED",
-          final_pdf_sha256: documentHash,
-        },
-        actor_type: "system", actor_id: "system",
-      }, sig.document_id);
-    }
-
     return json({
       ok: true, signature_id: sig.id, document_hash: documentHash,
-      signed_at: signedAt, download_url: downloadUrl,
-      message: "Documento firmado exitosamente",
+      signed_at: signedAt, download_url: null,
+      pdf_pending: true,
+      message: "Documento firmado exitosamente. El PDF se está generando y recibirá una notificación por correo electrónico cuando esté listo.",
     });
   } catch (err) {
     console.error("complete-signature error:", err);

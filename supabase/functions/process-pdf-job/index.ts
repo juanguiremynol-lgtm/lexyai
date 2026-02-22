@@ -2,13 +2,12 @@
  * process-pdf-job — Async worker that processes queued PDF generation jobs.
  * Called via cron, webhook, or fire-and-forget from complete-signature.
  *
- * Hardening:
- * - Per-org concurrency limit (1 running at a time)
- * - 429 awareness via html-to-pdf retryable errors
- * - Exponential backoff with jitter
- * - Gotenberg health check before processing
- * - Detailed error storage for debugging
- * - Wall-clock deadline guard (142s)
+ * Responsibilities (Phase 1 — policy-driven pipeline):
+ * 1. Idempotency: skip if signed.pdf already exists with matching sha256
+ * 2. Embed signatures as base64 data URIs (no network fetches by Gotenberg)
+ * 3. Call html-to-pdf → store signed.pdf → compute SHA-256
+ * 4. Send finalization emails ONLY after PDF succeeds (policy-driven distribution)
+ * 5. Per-org concurrency limit, 429 backoff, wall-clock deadline guard
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -46,9 +45,31 @@ function formatCOT(dateStr: string): string {
   }
 }
 
+// ─── Document Policy (server-side mirror) ──────────────────
+// Distribution rules per doc type — mirrors src/lib/document-policy.ts
+type DistributionRecipient = "lawyer" | "client" | "both";
+interface DocTypePolicy {
+  label_es: string;
+  signerModel: "UNILATERAL" | "BILATERAL";
+  distribution: DistributionRecipient;
+  finalizedEvent: "SIGNED_FINALIZED" | "ISSUED_FINALIZED";
+}
+
+const DOC_TYPE_POLICIES: Record<string, DocTypePolicy> = {
+  poder_especial: { label_es: "Poder Especial", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED" },
+  contrato_servicios: { label_es: "Contrato de Prestación de Servicios", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED" },
+  paz_y_salvo: { label_es: "Paz y Salvo", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "ISSUED_FINALIZED" },
+  notificacion_personal: { label_es: "Notificación Personal", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED" },
+  notificacion_por_aviso: { label_es: "Notificación por Aviso", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED" },
+};
+
+function getPolicy(docType: string): DocTypePolicy {
+  return DOC_TYPE_POLICIES[docType] || { label_es: docType, signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED" };
+}
+
 const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 5000;
-const ORG_CONCURRENCY_LIMIT = 1; // max running jobs per org
+const ORG_CONCURRENCY_LIMIT = 1;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -61,6 +82,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
+    const specificDocId = body?.document_id;
     const specificJobId = body?.job_id;
 
     // ── Resolve Gotenberg config from DB → env → fallback ──
@@ -72,7 +94,7 @@ Deno.serve(async (req) => {
         .select("gotenberg_url, mode, enabled")
         .limit(1)
         .single();
-      
+
       if (settings) {
         if (!settings.enabled) {
           return json({ error: "PDF generation disabled by platform administrator", retryable: false }, 503);
@@ -89,7 +111,6 @@ Deno.serve(async (req) => {
       console.warn("[process-pdf-job] Could not read platform_pdf_settings:", e);
     }
 
-    // Fallback to env secret
     if (!gotenbergUrl) {
       gotenbergUrl = Deno.env.get("GOTENBERG_URL") || "";
       if (gotenbergUrl) providerMode = gotenbergUrl.includes("demo.gotenberg.dev") ? "DEMO" : "DIRECT";
@@ -106,14 +127,11 @@ Deno.serve(async (req) => {
       const healthRes = await fetch(`${gotenbergUrl}/health`, { signal: AbortSignal.timeout(5000) });
       if (!healthRes.ok) {
         await healthRes.text();
-        console.warn("[process-pdf-job] Gotenberg health check failed, marking jobs retryable");
-        // Update failure timestamp
         await adminClient.from("platform_pdf_settings").update({ last_failure_at: new Date().toISOString() }).not("id", "is", null).catch(() => {});
         return json({ error: "Gotenberg unavailable, will retry later", retryable: true }, 502);
       }
       await healthRes.text();
     } catch (healthErr) {
-      console.warn("[process-pdf-job] Gotenberg unreachable:", healthErr);
       await adminClient.from("platform_pdf_settings").update({ last_failure_at: new Date().toISOString() }).not("id", "is", null).catch(() => {});
       return json({ error: `Gotenberg unreachable: ${healthErr}`, retryable: true }, 502);
     }
@@ -123,34 +141,51 @@ Deno.serve(async (req) => {
 
     if (specificJobId) {
       jobQuery = jobQuery.eq("id", specificJobId);
+    } else if (specificDocId) {
+      jobQuery = jobQuery.eq("document_id", specificDocId).in("status", ["queued", "running"]).order("created_at", { ascending: false }).limit(1);
     } else {
-      jobQuery = jobQuery
-        .eq("status", "queued")
-        .order("created_at", { ascending: true })
-        .limit(1);
+      jobQuery = jobQuery.eq("status", "queued").order("created_at", { ascending: true }).limit(1);
     }
 
     const { data: jobs, error: jobErr } = await jobQuery;
-    if (jobErr) {
-      console.error("Job fetch error:", jobErr);
-      return json({ error: "Failed to fetch jobs" }, 500);
-    }
-
-    if (!jobs || jobs.length === 0) {
-      return json({ ok: true, message: "No jobs to process" });
-    }
+    if (jobErr) return json({ error: "Failed to fetch jobs" }, 500);
+    if (!jobs || jobs.length === 0) return json({ ok: true, message: "No jobs to process" });
 
     const job = jobs[0];
+
+    // ── Idempotency: check if signed.pdf already exists ──
+    const { data: existingDoc } = await adminClient
+      .from("generated_documents")
+      .select("final_pdf_sha256")
+      .eq("id", job.document_id)
+      .single();
+
+    if (existingDoc?.final_pdf_sha256) {
+      // Check if the PDF file actually exists in storage
+      const checkPath = `${job.organization_id}/${job.document_id}/signed.pdf`;
+      const { data: existingFile } = await adminClient.storage.from("signed-documents").list(
+        `${job.organization_id}/${job.document_id}`,
+        { limit: 10, search: "signed.pdf" }
+      );
+      if (existingFile && existingFile.some(f => f.name === "signed.pdf")) {
+        console.log(`[process-pdf-job] Idempotency: signed.pdf already exists for ${job.document_id}, skipping regeneration`);
+        await adminClient.from("document_pdf_jobs").update({
+          status: "succeeded", finished_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          result_path: checkPath, pdf_sha256: existingDoc.final_pdf_sha256,
+        }).eq("id", job.id);
+        return json({ ok: true, idempotent: true, message: "PDF already exists" });
+      }
+    }
 
     // ── Per-org concurrency check ──
     const { count: runningCount } = await adminClient
       .from("document_pdf_jobs")
       .select("*", { count: "exact", head: true })
       .eq("organization_id", job.organization_id)
-      .eq("status", "running");
+      .eq("status", "running")
+      .neq("id", job.id);
 
     if ((runningCount || 0) >= ORG_CONCURRENCY_LIMIT) {
-      console.log(`[process-pdf-job] Org ${job.organization_id} already has ${runningCount} running jobs, skipping`);
       return json({ ok: true, message: "Org concurrency limit reached, will retry later", skipped: true });
     }
 
@@ -161,15 +196,11 @@ Deno.serve(async (req) => {
       .eq("id", job.id)
       .eq("status", job.status);
 
-    if (lockErr) {
-      console.error("Job lock error:", lockErr);
-      return json({ error: "Failed to lock job" }, 409);
-    }
+    if (lockErr) return json({ error: "Failed to lock job" }, 409);
 
     console.log(`[process-pdf-job] Processing job ${job.id} for document ${job.document_id} (attempt ${job.attempts + 1})`);
 
     try {
-      // ── Check deadline ──
       if (Date.now() > DEADLINE) throw new Error("Wall-clock deadline exceeded before processing");
 
       // ── Fetch document ──
@@ -181,6 +212,8 @@ Deno.serve(async (req) => {
 
       if (docErr || !doc) throw new Error(`Document not found: ${job.document_id}`);
 
+      const policy = getPolicy(doc.document_type);
+
       // ── Fetch all signed signatures ──
       const { data: allSignatures } = await adminClient
         .from("document_signatures").select("*")
@@ -189,6 +222,18 @@ Deno.serve(async (req) => {
 
       const signedSigs = allSignatures || [];
       if (signedSigs.length === 0) throw new Error("No signed signatures found for document");
+
+      // ── Validate signature payloads (HARD INVARIANT) ──
+      for (const s of signedSigs) {
+        const hasStrokes = s.signature_stroke_data && Array.isArray(s.signature_stroke_data) && s.signature_stroke_data.length > 0;
+        const hasImage = !!s.signature_image_path;
+        if (!hasStrokes && !hasImage) {
+          throw Object.assign(
+            new Error(`Empty signature payload for signer ${s.signer_name} (${s.signer_email}). Cannot generate PDF.`),
+            { isRetryable: false }
+          );
+        }
+      }
 
       // ── Fetch branding ──
       let lawyerProfile: any = null;
@@ -206,14 +251,31 @@ Deno.serve(async (req) => {
         orgData = org;
       }
 
-      // ── Build combined HTML ──
+      // ── Embed signature images as base64 data URIs ──
+      const signatureBase64Map: Record<string, string> = {};
+      for (const s of signedSigs) {
+        if (s.signature_image_path) {
+          try {
+            const { data: imgData, error: imgErr } = await adminClient.storage
+              .from("signed-documents")
+              .download(s.signature_image_path);
+            if (!imgErr && imgData) {
+              const arrayBuf = await imgData.arrayBuffer();
+              const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
+              signatureBase64Map[s.id] = `data:image/png;base64,${base64}`;
+            }
+          } catch (e) {
+            console.warn(`[process-pdf-job] Could not download signature image for ${s.id}:`, e);
+          }
+        }
+      }
+
+      // ── Build combined HTML with base64 signatures ──
       const totalSigners = signedSigs.length;
 
       const allSignatureBlocks = signedSigs.map((s) => {
         const roleLabel = s.signer_role === "lawyer" ? "EL MANDATARIO" : "EL MANDANTE";
-        const sigImgSrc = s.signature_image_path
-          ? `${supabaseUrl}/storage/v1/object/public/signed-documents/${s.signature_image_path}`
-          : null;
+        const sigImgSrc = signatureBase64Map[s.id] || null;
         return `<div style="margin-top:30px;border-top:2px solid #333;padding-top:16px;display:inline-block;width:${totalSigners > 1 ? "48%" : "100%"};vertical-align:top;">
           ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Firma" style="max-width:250px;max-height:80px;" />` : '<p style="color:#999;">[Firma registrada]</p>'}
           <p><strong>${s.signer_name}</strong></p><p>C.C. ${s.signer_cedula || "N/A"}</p>
@@ -227,6 +289,7 @@ Deno.serve(async (req) => {
 </head><body>${doc.content_html}<div style="margin-top:40px;">${allSignatureBlocks}</div></body></html>`;
       const documentHash = await sha256Hex(documentPagesHtml);
 
+      // ── Build audit evidence appendix ──
       const { data: allDocEvents } = await adminClient
         .from("document_signature_events").select("*")
         .eq("document_id", doc.id).order("created_at", { ascending: true });
@@ -268,6 +331,7 @@ Deno.serve(async (req) => {
   <table style="width:100%;border-collapse:collapse;margin:16px 0;">
     <tr><td style="padding:6px 0;color:#666;width:40%;">Documento:</td><td style="padding:6px 0;font-weight:bold;">${doc.title}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">ID:</td><td style="padding:6px 0;font-family:monospace;font-size:11px;">${doc.id}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Tipo:</td><td style="padding:6px 0;">${policy.label_es}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Hash SHA-256:</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Verificar:</td><td style="padding:6px 0;"><a href="${verifyUrl}">${verifyUrl}</a></td></tr>
   </table>
@@ -339,6 +403,7 @@ ${evidenceAppendix}
           gotenberg_response: (pdfResult.details || pdfResult.error || "").substring(0, 500),
           attempt: job.attempts + 1,
           retryable: isRetryable,
+          provider_mode: providerMode,
         };
         throw Object.assign(new Error(`html-to-pdf failed: ${pdfResult.error}`), { errorDetail, isRetryable });
       }
@@ -354,7 +419,7 @@ ${evidenceAppendix}
         updated_at: new Date().toISOString(),
       }).eq("id", job.id);
 
-      // ── Update document ──
+      // ── Update document with final PDF hash ──
       await adminClient.from("generated_documents").update({
         final_pdf_sha256: pdfResult.pdf_sha256,
       }).eq("id", doc.id);
@@ -373,20 +438,150 @@ ${evidenceAppendix}
         event_type: "document.pdf_generated",
         event_data: {
           storage_path: pdfResult.storage_path, pdf_sha256: pdfResult.pdf_sha256,
-          size_bytes: pdfResult.size_bytes, job_id: job.id,
+          size_bytes: pdfResult.size_bytes, job_id: job.id, provider_mode: providerMode,
         },
         actor_type: "system", actor_id: "process-pdf-job",
       });
 
-      console.log(`[process-pdf-job] Job ${job.id} succeeded: ${pdfResult.storage_path}`);
+      console.log(`[process-pdf-job] Job ${job.id} succeeded: ${pdfResult.storage_path}, mode=${providerMode}`);
+
+      // ── Update platform_pdf_settings with last success ──
+      await adminClient.from("platform_pdf_settings")
+        .update({ last_success_at: new Date().toISOString() })
+        .not("id", "is", null).catch(() => {});
+
+      // ══════════════════════════════════════════════════════════
+      // ── POLICY-DRIVEN EMAIL DISPATCH (only after PDF exists) ──
+      // ══════════════════════════════════════════════════════════
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      if (resendKey) {
+        try {
+          // Generate signed URL for PDF download (30 days)
+          const { data: signedUrlData } = await adminClient.storage
+            .from("signed-documents")
+            .createSignedUrl(pdfResult.storage_path, 30 * 24 * 60 * 60);
+          const downloadUrl = signedUrlData?.signedUrl || "";
+
+          const lawyerName = lawyerProfile?.full_name || "";
+          const lawyerEmail = lawyerProfile?.litigation_email || lawyerProfile?.email || "";
+          const isBilateral = policy.signerModel === "BILATERAL";
+
+          // Build email HTML
+          const emailHeaderHtml = logoUrl
+            ? `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+                <img src="${logoUrl}" alt="${firmName}" style="max-height:50px;max-width:200px;" />
+                <p style="color:#666;margin:8px 0 0;font-size:13px;">${firmName}</p>
+              </div>`
+            : `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+                <h1 style="color:#1a1a2e;font-size:24px;margin:0;">${firmName.toUpperCase()}</h1>
+                <p style="color:#666;margin:4px 0 0;">Plataforma de Gestión Legal</p>
+              </div>`;
+
+          const confirmHtmlTemplate = `
+            <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+              ${emailHeaderHtml}
+              <div style="padding:24px 0;">
+                <h2 style="color:#1a1a2e;">✅ Documento Firmado${isBilateral ? " por Todas las Partes" : ""}</h2>
+                <p>Hola <strong>{RECIPIENT_NAME}</strong>,</p>
+                <p>El siguiente documento ha sido firmado electrónicamente${totalSigners > 1 ? " por todas las partes" : ""}:</p>
+                <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+                  <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Documento</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold;">${doc.title}</td></tr>
+                  <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Tipo</td><td style="padding:8px;border-bottom:1px solid #eee;">${policy.label_es}</td></tr>
+                  ${signedSigs.map(s => `<tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Firmado por</td><td style="padding:8px;border-bottom:1px solid #eee;">${s.signer_name} — ${s.signed_at ? formatCOT(s.signed_at) : ""}</td></tr>`).join("")}
+                  <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Hash SHA-256</td><td style="padding:8px;border-bottom:1px solid #eee;font-family:monospace;font-size:10px;word-break:break-all;">${pdfResult.pdf_sha256}</td></tr>
+                </table>
+                ${downloadUrl ? `<div style="text-align:center;margin:24px 0;">
+                  <a href="${downloadUrl}" style="background:#1a1a2e;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Descargar documento firmado (PDF)</a>
+                </div>
+                <p style="color:#666;font-size:13px;text-align:center;">El documento incluye el certificado de evidencia con el registro completo de auditoría.</p>` : ""}
+                <p style="color:#666;font-size:13px;">Para verificar la integridad: <a href="https://lexyai.lovable.app/verify" style="color:#1a1a2e;">https://lexyai.lovable.app/verify</a></p>
+              </div>
+              <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+              <p style="color:#999;font-size:12px;text-align:center;">${firmName}<br/>Firma electrónica conforme a la Ley 527 de 1999 y Decreto 2364 de 2012.</p>
+            </div>`;
+
+          // ── Determine recipients based on policy distribution ──
+          const recipients = new Set<string>();
+
+          if (policy.distribution === "lawyer") {
+            // Notificaciones: only lawyer
+            if (lawyerEmail) recipients.add(lawyerEmail);
+          } else if (policy.distribution === "both") {
+            // POA, Contract, Paz y Salvo: both lawyer and client/signers
+            if (lawyerEmail) recipients.add(lawyerEmail);
+            for (const s of signedSigs) {
+              if (s.signer_email) recipients.add(s.signer_email);
+            }
+          } else if (policy.distribution === "client") {
+            for (const s of signedSigs) {
+              if (s.signer_email && s.signer_role !== "lawyer") recipients.add(s.signer_email);
+            }
+          }
+
+          // ── Subject line semantics per doc type ──
+          let subject: string;
+          if (isBilateral) {
+            subject = `✅ Documento firmado por todas las partes — ${doc.title}`;
+          } else {
+            subject = `✅ Documento firmado — ${doc.title}`;
+          }
+
+          for (const email of recipients) {
+            try {
+              const recipientName = signedSigs.find(s => s.signer_email === email)?.signer_name || lawyerName || "Usuario";
+              const html = confirmHtmlTemplate.replace("{RECIPIENT_NAME}", recipientName);
+              await fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  from: `${firmName} <info@andromeda.legal>`,
+                  reply_to: lawyerEmail || undefined,
+                  to: [email],
+                  subject, html,
+                }),
+              });
+              console.log(`[process-pdf-job] Notification sent to ${email}`);
+            } catch (e) {
+              console.error(`[process-pdf-job] Notification error for ${email}:`, e);
+              await adminClient.from("document_signature_events").insert({
+                organization_id: doc.organization_id, document_id: doc.id,
+                event_type: "notification.failed", event_data: { recipient: email, error: String(e) },
+                actor_type: "system", actor_id: "process-pdf-job",
+              }).catch(() => {});
+            }
+          }
+
+          // Log notification event
+          await adminClient.from("document_signature_events").insert({
+            organization_id: doc.organization_id, document_id: doc.id,
+            event_type: "notification.sent",
+            event_data: {
+              recipients: Array.from(recipients),
+              type: "signature_confirmation_with_pdf",
+              total_signers: totalSigners,
+              sender: "info@andromeda.legal",
+              reply_to: lawyerEmail,
+              distribution_policy: policy.distribution,
+              doc_type: doc.document_type,
+              pdf_sha256: pdfResult.pdf_sha256,
+              download_url_type: "signed.pdf",
+            },
+            actor_type: "system", actor_id: "process-pdf-job",
+          });
+        } catch (emailErr) {
+          // Email failures are non-fatal — PDF is already generated
+          console.error("[process-pdf-job] Email dispatch error (non-fatal):", emailErr);
+        }
+      }
+
       return json({ ok: true, job_id: job.id, storage_path: pdfResult.storage_path, pdf_sha256: pdfResult.pdf_sha256 });
 
     } catch (processErr: any) {
       console.error(`[process-pdf-job] Job ${job.id} failed:`, processErr);
 
       const newAttempts = job.attempts + 1;
-      const isRetryable = processErr.isRetryable !== false; // default retryable
-      const newStatus = newAttempts >= MAX_ATTEMPTS && !isRetryable ? "failed" : newAttempts >= MAX_ATTEMPTS ? "failed" : "queued";
+      const isRetryable = processErr.isRetryable !== false;
+      const newStatus = newAttempts >= MAX_ATTEMPTS ? "failed" : "queued";
 
       const errorInfo = processErr.errorDetail || {
         message: String(processErr),
