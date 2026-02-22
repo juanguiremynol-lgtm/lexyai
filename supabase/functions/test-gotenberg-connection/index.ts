@@ -1,6 +1,7 @@
 /**
- * test-gotenberg-connection — Lightweight health + render test for Gotenberg.
- * Platform admin only. Tests /health and converts a small HTML sample.
+ * test-gotenberg-connection — Health + render test for Gotenberg.
+ * Platform admin only. Tests /health, converts a sample HTML to PDF,
+ * stores it in storage for download, and returns pass/fail + metrics.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -18,11 +19,17 @@ function json(data: unknown, status = 200) {
   });
 }
 
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth: require authenticated platform admin
     const authHeader = req.headers.get("authorization") || "";
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -35,7 +42,6 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
 
-    // Check platform admin
     const adminClient = createClient(supabaseUrl, serviceKey);
     const { data: adminRecord } = await adminClient
       .from("platform_admins")
@@ -45,12 +51,10 @@ Deno.serve(async (req) => {
 
     if (!adminRecord) return json({ error: "Platform admin access required" }, 403);
 
-    // Get the URL to test from request body or from DB settings
     const body = await req.json().catch(() => ({}));
     let testUrl = body?.gotenberg_url;
 
     if (!testUrl) {
-      // Read from platform_pdf_settings
       const { data: settings } = await adminClient
         .from("platform_pdf_settings")
         .select("gotenberg_url, mode")
@@ -86,18 +90,53 @@ Deno.serve(async (req) => {
       return json({ ok: false, ...results }, 502);
     }
 
-    // Step 2: Render test with accented characters
-    const testHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Test</title></head>
-<body><h1>Prueba de conexión Gotenberg</h1>
-<p>Caracteres acentuados: á é í ó ú ñ Ñ ü Ü</p>
-<p>Fecha: ${new Date().toISOString()}</p></body></html>`;
+    // Step 2: Render test with accented characters + em dash
+    const now = new Date();
+    const testHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Test PDF — Andromeda Legal</title>
+<style>
+  body { font-family: 'Georgia', serif; max-width: 700px; margin: 40px auto; padding: 20px; color: #1a1a2e; }
+  h1 { color: #1a1a2e; border-bottom: 3px solid #1a1a2e; padding-bottom: 12px; }
+  .meta { color: #666; font-size: 12px; margin-top: 24px; border-top: 1px solid #ddd; padding-top: 12px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  td { padding: 8px; border: 1px solid #ddd; }
+  th { padding: 8px; border: 1px solid #ddd; background: #f5f5f5; text-align: left; }
+</style>
+</head><body>
+<h1>Prueba de Generación PDF — Andromeda Legal</h1>
+<p>Este documento fue generado automáticamente para validar el pipeline de PDF.</p>
+
+<h2>Verificación de caracteres</h2>
+<table>
+  <tr><th>Tipo</th><th>Caracteres</th><th>Estado</th></tr>
+  <tr><td>Acentos</td><td>á é í ó ú Á É Í Ó Ú</td><td>✓</td></tr>
+  <tr><td>Eñe</td><td>ñ Ñ</td><td>✓</td></tr>
+  <tr><td>Diéresis</td><td>ü Ü</td><td>✓</td></tr>
+  <tr><td>Em dash</td><td>—</td><td>✓</td></tr>
+  <tr><td>Signos</td><td>¿ ¡ § © ® ™</td><td>✓</td></tr>
+  <tr><td>Moneda</td><td>$ € £ ¥</td><td>✓</td></tr>
+</table>
+
+<h2>Datos de la prueba</h2>
+<p><strong>Fecha/Hora:</strong> ${now.toLocaleString("es-CO", { timeZone: "America/Bogota" })} COT</p>
+<p><strong>ISO:</strong> ${now.toISOString()}</p>
+<p><strong>Endpoint:</strong> ${testUrl.includes("demo") ? "Demo (demo.gotenberg.dev)" : "Directo"}</p>
+
+<p class="meta">Documento de prueba generado por Andromeda Legal Platform — No contiene datos reales de clientes.</p>
+</body></html>`;
 
     const t1 = Date.now();
+    let pdfBytes: Uint8Array | null = null;
     try {
       const fd = new FormData();
       fd.append("files", new Blob([testHtml], { type: "text/html; charset=utf-8" }), "index.html");
       fd.append("paperWidth", "8.27");
       fd.append("paperHeight", "11.7");
+      fd.append("marginTop", "10mm");
+      fd.append("marginBottom", "10mm");
+      fd.append("marginLeft", "10mm");
+      fd.append("marginRight", "10mm");
+      fd.append("printBackground", "true");
 
       const renderRes = await fetch(`${testUrl}/forms/chromium/convert/html`, {
         method: "POST",
@@ -106,11 +145,13 @@ Deno.serve(async (req) => {
       });
 
       if (renderRes.ok) {
-        const pdfBytes = await renderRes.arrayBuffer();
+        pdfBytes = new Uint8Array(await renderRes.arrayBuffer());
+        const pdfHash = await sha256Hex(pdfBytes);
         results.render = {
           ok: true,
           latency_ms: Date.now() - t1,
           pdf_size_bytes: pdfBytes.byteLength,
+          pdf_sha256: pdfHash,
         };
       } else {
         const errText = await renderRes.text();
@@ -125,19 +166,37 @@ Deno.serve(async (req) => {
       results.render = { ok: false, error: String(err), latency_ms: Date.now() - t1 };
     }
 
-    // Update health check timestamp in settings
-    const healthOk = (results.health as any)?.ok && (results.render as any)?.ok;
+    // Step 3: Store PDF in storage for download (test path, not client data)
+    let downloadUrl: string | null = null;
+    if (pdfBytes && (results.render as any)?.ok) {
+      const testPath = `_platform_tests/pdf-test-${now.getTime()}.pdf`;
+      const { error: uploadErr } = await adminClient.storage
+        .from("signed-documents")
+        .upload(testPath, pdfBytes, { contentType: "application/pdf", upsert: true });
+
+      if (!uploadErr) {
+        const { data: urlData } = await adminClient.storage
+          .from("signed-documents")
+          .createSignedUrl(testPath, 3600); // 1 hour
+        downloadUrl = urlData?.signedUrl || null;
+        (results.render as any).storage_path = testPath;
+      } else {
+        console.warn("Test PDF upload warning:", uploadErr);
+      }
+    }
+
+    // Update health check timestamp
+    const allOk = (results.health as any)?.ok && (results.render as any)?.ok;
     await adminClient
       .from("platform_pdf_settings")
       .update({
         last_health_check_at: new Date().toISOString(),
-        last_health_status: healthOk ? "healthy" : "unhealthy",
+        last_health_status: allOk ? "healthy" : "unhealthy",
         updated_at: new Date().toISOString(),
       })
-      .not("id", "is", null); // update all rows (single row table)
+      .not("id", "is", null);
 
-    const allOk = (results.health as any)?.ok && (results.render as any)?.ok;
-    return json({ ok: allOk, ...results });
+    return json({ ok: allOk, download_url: downloadUrl, ...results });
   } catch (err) {
     console.error("test-gotenberg-connection error:", err);
     return json({ error: `Internal error: ${err}` }, 500);

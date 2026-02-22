@@ -1,6 +1,7 @@
 /**
  * Platform PDF Settings Tab
  * Super Admin UI for managing Gotenberg PDF provider configuration
+ * Includes "Test PDF Generation" harness for validating the full pipeline
  */
 
 import { useState, useEffect } from "react";
@@ -22,6 +23,8 @@ import {
   Loader2,
   AlertTriangle,
   Info,
+  Download,
+  FlaskConical,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -41,9 +44,17 @@ interface PdfSettings {
   updated_at: string;
 }
 
+interface TestResult {
+  ok: boolean;
+  download_url?: string | null;
+  health?: { ok: boolean; latency_ms: number; error?: string };
+  render?: { ok: boolean; latency_ms: number; pdf_size_bytes: number; pdf_sha256: string; error?: string };
+  error?: string;
+}
+
 export function PlatformPdfSettingsTab() {
   const queryClient = useQueryClient();
-  const [testResult, setTestResult] = useState<any>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [editUrl, setEditUrl] = useState("");
   const [editTimeout, setEditTimeout] = useState(30);
@@ -62,7 +73,6 @@ export function PlatformPdfSettingsTab() {
     },
   });
 
-  // Sync form state when settings load
   useEffect(() => {
     if (settings) {
       setEditUrl(settings.gotenberg_url || "");
@@ -94,7 +104,7 @@ export function PlatformPdfSettingsTab() {
     },
   });
 
-  const handleTestConnection = async (url?: string) => {
+  const handleTestPdfGeneration = async (url?: string) => {
     setIsTesting(true);
     setTestResult(null);
     try {
@@ -103,11 +113,12 @@ export function PlatformPdfSettingsTab() {
 
       const { data, error } = await supabase.functions.invoke("test-gotenberg-connection", { body });
       if (error) throw error;
-      setTestResult(data);
+      setTestResult(data as TestResult);
+      queryClient.invalidateQueries({ queryKey: ["platform-pdf-settings"] });
       if (data?.ok) {
-        toast({ title: "Conexión exitosa", description: `Latencia: ${data.render?.latency_ms}ms` });
+        toast({ title: "✓ Test PDF exitoso", description: `PDF generado en ${data.render?.latency_ms}ms (${data.render?.pdf_size_bytes} bytes)` });
       } else {
-        toast({ title: "Conexión fallida", description: data?.health?.error || data?.render?.error || "Error desconocido", variant: "destructive" });
+        toast({ title: "✗ Test PDF fallido", description: data?.health?.error || data?.render?.error || "Error desconocido", variant: "destructive" });
       }
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message });
@@ -170,6 +181,104 @@ export function PlatformPdfSettingsTab() {
         </CardContent>
       </Card>
 
+      {/* ══════════ Test PDF Generation Harness ══════════ */}
+      <Card className="border-primary/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FlaskConical className="h-5 w-5" />
+            Test PDF Generation
+          </CardTitle>
+          <CardDescription>
+            Genera un PDF de prueba con caracteres acentuados, almacena en storage, y verifica el pipeline completo.
+            No toca datos reales de clientes.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              onClick={() => handleTestPdfGeneration(isDemo ? "https://demo.gotenberg.dev" : editUrl || undefined)}
+              disabled={isTesting}
+              className="gap-2"
+            >
+              {isTesting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Generando PDF de prueba…</>
+              ) : (
+                <><FlaskConical className="h-4 w-4" /> Ejecutar test completo</>
+              )}
+            </Button>
+
+            {testResult?.ok && testResult.download_url && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => window.open(testResult.download_url!, "_blank")}
+              >
+                <Download className="h-4 w-4" />
+                Descargar PDF de prueba
+              </Button>
+            )}
+          </div>
+
+          {testResult && (
+            <div className={`rounded-lg border p-4 space-y-3 ${testResult.ok ? "border-primary/30 bg-primary/5" : "border-destructive/30 bg-destructive/5"}`}>
+              <div className="flex items-center gap-2">
+                {testResult.ok ? (
+                  <CheckCircle2 className="h-5 w-5 text-primary" />
+                ) : (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                )}
+                <span className="font-semibold">
+                  {testResult.ok ? "Pipeline OK — PDF generado correctamente" : "Pipeline FALLIDO"}
+                </span>
+              </div>
+
+              {testResult.health && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground block">Health Check</span>
+                    <span className={testResult.health.ok ? "text-primary font-medium" : "text-destructive font-medium"}>
+                      {testResult.health.ok ? "✓ OK" : "✗ FALLO"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block">Health Latency</span>
+                    <span className="font-medium">{testResult.health.latency_ms}ms</span>
+                  </div>
+                  {testResult.render && (
+                    <>
+                      <div>
+                        <span className="text-muted-foreground block">Render Latency</span>
+                        <span className="font-medium">{testResult.render.latency_ms}ms</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground block">PDF Size</span>
+                        <span className="font-medium">
+                          {testResult.render.pdf_size_bytes
+                            ? `${(testResult.render.pdf_size_bytes / 1024).toFixed(1)} KB`
+                            : "N/A"}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {testResult.render?.pdf_sha256 && (
+                <div className="text-xs font-mono text-muted-foreground break-all">
+                  SHA-256: {testResult.render.pdf_sha256}
+                </div>
+              )}
+
+              {(testResult.health?.error || testResult.render?.error || testResult.error) && (
+                <div className="text-sm text-destructive bg-destructive/10 rounded p-2">
+                  {testResult.health?.error || testResult.render?.error || testResult.error}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Status Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -218,7 +327,7 @@ export function PlatformPdfSettingsTab() {
         </Card>
       </div>
 
-      {/* Main Configuration */}
+      {/* Provider Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -230,7 +339,6 @@ export function PlatformPdfSettingsTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Enable/Disable */}
           <div className="flex items-center justify-between">
             <div>
               <Label>Generación de PDF habilitada</Label>
@@ -242,7 +350,6 @@ export function PlatformPdfSettingsTab() {
             />
           </div>
 
-          {/* Demo Toggle */}
           <div className="flex items-center justify-between">
             <div>
               <Label>Usar Gotenberg Demo</Label>
@@ -266,7 +373,6 @@ export function PlatformPdfSettingsTab() {
             />
           </div>
 
-          {/* Direct URL */}
           <div className={isDemo ? "opacity-50 pointer-events-none" : ""}>
             <Label>Gotenberg URL (Directo)</Label>
             <p className="text-sm text-muted-foreground mb-2">
@@ -305,31 +411,6 @@ export function PlatformPdfSettingsTab() {
                 Se recomienda HTTPS para endpoints de producción
               </p>
             )}
-          </div>
-
-          {/* Test Connection */}
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <Button
-                variant="outline"
-                onClick={() => handleTestConnection(isDemo ? "https://demo.gotenberg.dev" : editUrl || undefined)}
-                disabled={isTesting || (!isDemo && !editUrl && !settings.gotenberg_url)}
-              >
-                {isTesting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Probando…</>
-                ) : (
-                  <><Activity className="h-4 w-4 mr-2" /> Probar conexión</>
-                )}
-              </Button>
-              {testResult && (
-                <span className={`text-sm flex items-center gap-1 ${testResult.ok ? "text-primary" : "text-destructive"}`}>
-                  {testResult.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                  {testResult.ok
-                    ? `Éxito — Health: ${testResult.health?.latency_ms}ms, Render: ${testResult.render?.latency_ms}ms, PDF: ${testResult.render?.pdf_size_bytes} bytes`
-                    : testResult.health?.error || testResult.render?.error || testResult.error || "Error"}
-                </span>
-              )}
-            </div>
           </div>
         </CardContent>
       </Card>
