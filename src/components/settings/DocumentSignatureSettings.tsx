@@ -1,15 +1,53 @@
 /**
  * DocumentSignatureSettings — Combined settings page for Documents & Digital Signature.
- * Contains: Litigation Email, Branding, Templates, DOCX Upload, Config.
+ * Contains: Litigation Email, Branding, Templates, DOCX Upload, PDF Upload, Config.
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, FileText, Mail, Ban, Settings2, Upload } from "lucide-react";
+import { Image as ImageIcon, FileText, Mail, Ban, Settings2, Upload, FileUp } from "lucide-react";
 import { DocumentBrandingSettings } from "./DocumentBrandingSettings";
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor";
 import { LitigationEmailSettings } from "./LitigationEmailSettings";
 import { DocumentConfigSettings } from "./DocumentConfigSettings";
 import { DocxTemplateUpload } from "@/components/documents/DocxTemplateUpload";
+import { PdfTemplateUpload } from "@/components/documents/PdfTemplateUpload";
+
+function DocumentSourceTabs({ documentType, showPdfUpload = false }: { documentType: string; showPdfUpload?: boolean }) {
+  return (
+    <Tabs defaultValue="system" className="space-y-4">
+      <TabsList className="h-auto gap-1">
+        <TabsTrigger value="system" className="text-xs">
+          <FileText className="h-3.5 w-3.5 mr-1" />
+          Plantilla del Sistema
+        </TabsTrigger>
+        <TabsTrigger value="docx" className="text-xs">
+          <Upload className="h-3.5 w-3.5 mr-1" />
+          Plantilla DOCX
+        </TabsTrigger>
+        {showPdfUpload && (
+          <TabsTrigger value="pdf" className="text-xs">
+            <FileUp className="h-3.5 w-3.5 mr-1" />
+            Plantilla PDF
+          </TabsTrigger>
+        )}
+      </TabsList>
+
+      <TabsContent value="system">
+        <DocumentTemplateEditor templateType={documentType as any} />
+      </TabsContent>
+
+      <TabsContent value="docx">
+        <DocxTemplateUpload documentType={documentType as any} />
+      </TabsContent>
+
+      {showPdfUpload && (
+        <TabsContent value="pdf">
+          <PdfTemplateUpload documentType={documentType} />
+        </TabsContent>
+      )}
+    </Tabs>
+  );
+}
 
 export function DocumentSignatureSettings() {
   return (
@@ -55,17 +93,11 @@ export function DocumentSignatureSettings() {
         </TabsContent>
 
         <TabsContent value="poder">
-          <div className="space-y-6">
-            <DocxTemplateUpload documentType="poder_especial" />
-            <DocumentTemplateEditor templateType="poder_especial" />
-          </div>
+          <DocumentSourceTabs documentType="poder_especial" />
         </TabsContent>
 
         <TabsContent value="contrato">
-          <div className="space-y-6">
-            <DocxTemplateUpload documentType="contrato_servicios" />
-            <DocumentTemplateEditor templateType="contrato_servicios" />
-          </div>
+          <DocumentSourceTabs documentType="contrato_servicios" showPdfUpload />
         </TabsContent>
 
         <TabsContent value="notificacion-personal">
