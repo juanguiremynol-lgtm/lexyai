@@ -2,9 +2,16 @@
  * generate-signing-link — Creates a secure HMAC-signed URL for document signing.
  * Requires authenticated lawyer. Creates document_signatures record + audit event.
  * Phase 3.6: Custom branding in signing invitation emails.
+ * Phase 3.7: Server-side RBAC + quota enforcement for UPLOADED_PDF contracts.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  validateUploadedPdfEligibility,
+  checkContractQuota,
+  validateLawyerProfile,
+  isPlatformAdmin,
+} from "../_shared/contract-eligibility.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,11 +99,76 @@ Deno.serve(async (req) => {
     // Verify document exists and is finalized
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, organization_id, status, title, document_type, created_by")
+      .select("id, organization_id, status, title, document_type, created_by, source_type, work_item_id")
       .eq("id", document_id)
       .single();
 
     if (docErr || !doc) return json({ error: "Document not found" }, 404);
+
+    // ═══ Phase 3.7: Server-side RBAC + quota enforcement for UPLOADED_PDF ═══
+    if (doc.source_type === "UPLOADED_PDF") {
+      // 1. Validate lawyer profile completeness
+      const lawyerCheck = await validateLawyerProfile(adminClient, user.id);
+      if (!lawyerCheck.allowed) {
+        return json({ error: lawyerCheck.error, code: lawyerCheck.error_code }, 403);
+      }
+
+      // 2. Validate UPLOADED_PDF eligibility (RBAC + client match)
+      const eligibility = await validateUploadedPdfEligibility(adminClient, user.id, {
+        source_type: "UPLOADED_PDF",
+        doc_type: doc.document_type,
+        work_item_id: doc.work_item_id,
+        signer_email,
+        signer_name,
+        organization_id: doc.organization_id,
+        is_generic_mode: body.is_generic_mode || false,
+      });
+
+      if (!eligibility.allowed) {
+        return json({ error: eligibility.error, code: eligibility.error_code }, 403);
+      }
+
+      // 3. Per-client contract quota (only for non-admins)
+      if (!eligibility.is_platform_admin && doc.work_item_id) {
+        // Get client_id from work item
+        const { data: wi } = await adminClient
+          .from("work_items")
+          .select("client_id")
+          .eq("id", doc.work_item_id)
+          .single();
+
+        if (wi?.client_id) {
+          const quota = await checkContractQuota(adminClient, doc.organization_id, wi.client_id);
+          if (!quota.allowed) {
+            return json({
+              error: quota.error,
+              code: "CONTRACT_QUOTA_EXCEEDED",
+              current_count: quota.current_count,
+              effective_limit: quota.effective_limit,
+            }, 429);
+          }
+        }
+      }
+
+      // 4. Log enforcement audit event for UPLOADED_PDF
+      const isAdmin = await isPlatformAdmin(adminClient, user.id);
+      await adminClient.from("audit_logs").insert({
+        organization_id: doc.organization_id,
+        actor_user_id: user.id,
+        actor_type: isAdmin ? "PLATFORM_ADMIN" : "USER",
+        entity_type: "DOCUMENT",
+        entity_id: document_id,
+        action: "UPLOADED_PDF_SIGNING_LINK_CREATED",
+        metadata: {
+          is_platform_admin: isAdmin,
+          is_generic_mode: isAdmin && (body.is_generic_mode || false),
+          work_item_id: doc.work_item_id,
+          signer_email,
+        },
+      });
+    }
+    // ═══ End Phase 3.7 ═══
+
     // Allow finalized, draft, ready_for_signature, and sent_for_signature (bilateral docs need multiple signing links)
     const allowedStatuses = ["finalized", "draft", "ready_for_signature", "sent_for_signature"];
     if (!allowedStatuses.includes(doc.status)) {
