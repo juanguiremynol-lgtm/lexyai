@@ -793,9 +793,13 @@ ${evidenceAppendix}
       console.log(`[process-pdf-job] Job ${job.id} succeeded: ${pdfResult.storage_path}, sha256=${pdfResult.pdf_sha256?.substring(0, 16)}…`);
 
       // ── Update platform_pdf_settings ──
-      await adminClient.from("platform_pdf_settings")
-        .update({ last_success_at: new Date().toISOString() })
-        .not("id", "is", null).catch(() => {});
+      try {
+        await adminClient.from("platform_pdf_settings")
+          .update({ last_success_at: new Date().toISOString() })
+          .not("id", "is", null);
+      } catch (_e) {
+        // Non-fatal: settings table may not exist
+      }
 
       // ══════════════════════════════════════════════════════════
       // ── POLICY-DRIVEN EMAIL DISPATCH (only after PDF exists) ──
