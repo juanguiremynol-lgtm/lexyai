@@ -66,6 +66,7 @@ import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
 import { IdentityTypeSelector, getIdTypeLabel } from "@/components/documents/IdentityTypeSelector";
 import { DocumentSourceSelector, type DocumentSourceType } from "@/components/documents/DocumentSourceSelector";
 import type { IdType } from "@/hooks/use-document-configuration";
+import { useClientContractQuota } from "@/hooks/use-client-contract-quota";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -527,6 +528,39 @@ export default function WorkItemDocumentWizard() {
     enabled: !!workItemId && docType === "paz_y_salvo",
   });
 
+  // Per-client contract quota check (anti-abuse)
+  const { quota: contractQuota, isLoading: quotaLoading } = useClientContractQuota(
+    workItem?.organization_id,
+    workItem?.client_id,
+    docType === "contrato_servicios" && !!workItem?.client_id
+  );
+
+  // Eligibility: for UPLOADED_PDF, require work item + client (unless platform admin)
+  const uploadPdfEligible = useMemo(() => {
+    if (isPlatformAdmin) return { eligible: true, reason: "" };
+    if (!workItem?.client_id) return { eligible: false, reason: "Este expediente no tiene un cliente vinculado. Vincule un cliente antes de usar esta opción." };
+    if (!clientData) return { eligible: false, reason: "Cargando datos del cliente..." };
+    if (!clientData.name?.trim()) return { eligible: false, reason: "El cliente debe tener nombre completo registrado." };
+    if (!clientData.email?.trim()) return { eligible: false, reason: "El cliente debe tener correo electrónico registrado." };
+    if (!clientData.id_number?.trim()) return { eligible: false, reason: "El cliente debe tener número de identificación registrado." };
+    // Check lawyer profile completeness
+    if (!profile?.firma_abogado_nombre_completo?.trim() || !profile?.firma_abogado_cc?.trim() || !profile?.firma_abogado_tp?.trim()) {
+      return { eligible: false, reason: "Complete su perfil de abogado (nombre, cédula, T.P.) antes de usar la firma de documentos." };
+    }
+    if (!(profile as any)?.litigation_email?.trim()) {
+      return { eligible: false, reason: "Configure su email profesional de litigio en su perfil." };
+    }
+    return { eligible: true, reason: "" };
+  }, [isPlatformAdmin, workItem, clientData, profile]);
+
+  // Quota blocked?
+  const quotaBlocked = useMemo(() => {
+    if (isPlatformAdmin) return false;
+    if (docType !== "contrato_servicios") return false;
+    if (!contractQuota) return false;
+    return !contractQuota.allowed;
+  }, [isPlatformAdmin, docType, contractQuota]);
+
   // Auto-detect poderdante type and court header from work item
   useEffect(() => {
     if (workItem && docType === "poder_especial") {
@@ -938,6 +972,18 @@ export default function WorkItemDocumentWizard() {
   const handleFinalize = async () => {
     if (!workItem || missingRequired.length > 0) return;
     if (finalizing) return;
+
+    // Anti-abuse: block UPLOADED_PDF for non-admins without eligibility
+    if (sourceType === "UPLOADED_PDF" && !isPlatformAdmin) {
+      if (!uploadPdfEligible.eligible) {
+        toast.error(uploadPdfEligible.reason);
+        return;
+      }
+      if (quotaBlocked) {
+        toast.error(`Límite de contratos alcanzado para este cliente (${contractQuota?.current_count}/${contractQuota?.effective_limit}).`);
+        return;
+      }
+    }
 
     if (missingLitigationEmail) {
       if (isPlatformAdmin) {
@@ -1407,14 +1453,60 @@ export default function WorkItemDocumentWizard() {
 
           {/* Document source selector (only for contrato_servicios) */}
           {docType === "contrato_servicios" && (
-            <DocumentSourceSelector
-              sourceType={sourceType}
-              onSourceTypeChange={setSourceType}
-              organizationId={workItem?.organization_id || ""}
-              onPdfUploaded={setUploadedPdfInfo}
-              uploadedPdfInfo={uploadedPdfInfo}
-              onClearUpload={() => setUploadedPdfInfo(null)}
-            />
+            <div className="space-y-3">
+              <DocumentSourceSelector
+                sourceType={sourceType}
+                onSourceTypeChange={(type) => {
+                  if (type === "UPLOADED_PDF" && !uploadPdfEligible.eligible) {
+                    toast.error(uploadPdfEligible.reason);
+                    return;
+                  }
+                  setSourceType(type);
+                }}
+                organizationId={workItem?.organization_id || ""}
+                onPdfUploaded={setUploadedPdfInfo}
+                uploadedPdfInfo={uploadedPdfInfo}
+                onClearUpload={() => setUploadedPdfInfo(null)}
+              />
+
+              {/* Eligibility gate warning for UPLOADED_PDF */}
+              {sourceType === "UPLOADED_PDF" && !uploadPdfEligible.eligible && !isPlatformAdmin && (
+                <div className="flex items-start gap-3 p-3 rounded-lg border border-destructive/30 bg-destructive/5">
+                  <Shield className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-sm text-destructive">{uploadPdfEligible.reason}</p>
+                </div>
+              )}
+
+              {/* Per-client contract quota indicator */}
+              {sourceType === "UPLOADED_PDF" && contractQuota && !isPlatformAdmin && (
+                <div className={`flex items-center gap-3 p-3 rounded-lg border ${
+                  quotaBlocked
+                    ? "border-destructive/30 bg-destructive/5"
+                    : "border-border bg-muted/30"
+                }`}>
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">
+                      Contratos para este cliente: {contractQuota.current_count}/{contractQuota.effective_limit}
+                    </p>
+                    {quotaBlocked && (
+                      <p className="text-xs text-destructive mt-1">
+                        Límite alcanzado.{" "}
+                        {contractQuota.can_request_extra
+                          ? "Puede solicitar 2 contratos adicionales a Andro IA."
+                          : "Contacte soporte para ampliar el límite."}
+                      </p>
+                    )}
+                  </div>
+                  {quotaBlocked && contractQuota.can_request_extra && (
+                    <Badge variant="outline" className="text-xs border-primary/30 text-primary cursor-pointer hover:bg-primary/5">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Pedir a Andro IA
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Policy disclaimers for selected doc type */}
@@ -1446,9 +1538,17 @@ export default function WorkItemDocumentWizard() {
                   toast.error("Debe subir un archivo PDF antes de continuar");
                   return;
                 }
+                if (skipVariables && quotaBlocked) {
+                  toast.error(`Límite de contratos alcanzado para este cliente (${contractQuota?.current_count}/${contractQuota?.effective_limit}).`);
+                  return;
+                }
+                if (skipVariables && !uploadPdfEligible.eligible) {
+                  toast.error(uploadPdfEligible.reason);
+                  return;
+                }
                 setStep(skipVariables ? finalPreviewStep : 2);
               }}
-              disabled={skipVariables && !uploadedPdfInfo}
+              disabled={(skipVariables && !uploadedPdfInfo) || (skipVariables && quotaBlocked) || (skipVariables && !uploadPdfEligible.eligible)}
             >
               Siguiente <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
@@ -1853,40 +1953,66 @@ export default function WorkItemDocumentWizard() {
           {skipVariables && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Datos de los firmantes</CardTitle>
+                <CardTitle className="text-lg">Datos del firmante (Cliente)</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Nombre completo del cliente *</Label>
-                    <Input
-                      value={variables.client_full_name || ""}
-                      onChange={(e) => setVariables(p => ({ ...p, client_full_name: e.target.value }))}
-                      placeholder="Nombre completo"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Correo del cliente *</Label>
-                    <Input
-                      type="email"
-                      value={variables.client_email || ""}
-                      onChange={(e) => setVariables(p => ({ ...p, client_email: e.target.value }))}
-                      placeholder="correo@email.com"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Cédula del cliente</Label>
-                    <Input
-                      value={variables.client_cedula || ""}
-                      onChange={(e) => setVariables(p => ({ ...p, client_cedula: e.target.value }))}
-                      placeholder="1.234.567.890"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
-                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>Estos datos son necesarios para generar los bloques de firma y el certificado de auditoría del documento.</span>
-                </div>
+                {/* For non-admin UPLOADED_PDF: fields are read-only, pulled from work item client */}
+                {!isPlatformAdmin && clientData ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Nombre completo del cliente *</Label>
+                        <Input value={clientData.name || ""} disabled className="bg-muted" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Correo del cliente *</Label>
+                        <Input value={clientData.email || ""} disabled className="bg-muted" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Identificación del cliente</Label>
+                        <Input value={clientData.id_number || ""} disabled className="bg-muted" />
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                      <Shield className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>Los datos del destinatario están vinculados al cliente del expediente y no pueden editarse aquí. Para modificarlos, edite el perfil del cliente.</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Nombre completo del cliente *</Label>
+                        <Input
+                          value={variables.client_full_name || ""}
+                          onChange={(e) => setVariables(p => ({ ...p, client_full_name: e.target.value }))}
+                          placeholder="Nombre completo"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Correo del cliente *</Label>
+                        <Input
+                          type="email"
+                          value={variables.client_email || ""}
+                          onChange={(e) => setVariables(p => ({ ...p, client_email: e.target.value }))}
+                          placeholder="correo@email.com"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Cédula del cliente</Label>
+                        <Input
+                          value={variables.client_cedula || ""}
+                          onChange={(e) => setVariables(p => ({ ...p, client_cedula: e.target.value }))}
+                          placeholder="1.234.567.890"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded-lg p-3">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>Estos datos son necesarios para generar los bloques de firma y el certificado de auditoría del documento.</span>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           )}
