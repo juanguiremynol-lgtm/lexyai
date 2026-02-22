@@ -4643,6 +4643,72 @@ export type Database = {
           },
         ]
       }
+      document_pdf_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          document_id: string
+          finished_at: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          organization_id: string
+          pdf_sha256: string | null
+          result_path: string | null
+          size_bytes: number | null
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          document_id: string
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          organization_id: string
+          pdf_sha256?: string | null
+          result_path?: string | null
+          size_bytes?: number | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          document_id?: string
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          organization_id?: string
+          pdf_sha256?: string | null
+          result_path?: string | null
+          size_bytes?: number | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_pdf_jobs_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "generated_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_pdf_jobs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_retention_policies: {
         Row: {
           created_at: string
