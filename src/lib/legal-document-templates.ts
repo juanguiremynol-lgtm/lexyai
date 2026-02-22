@@ -400,7 +400,6 @@ export const CONTRATO_SERVICIOS_VARIABLES: LegalTemplateVariable[] = [
   { key: "lawyer_cedula", label: "Cédula del abogado", required: true, source: "profile", editable: false },
   { key: "lawyer_tarjeta_profesional", label: "Tarjeta Profesional", required: true, source: "profile", editable: false },
   { key: "firm_name", label: "Nombre de la firma", required: false, source: "organization", editable: true },
-  { key: "firm_nit", label: "NIT de la firma", required: false, source: "manual", editable: true },
   { key: "case_description", label: "Descripción del asunto", required: true, source: "work_item", editable: true },
   { key: "radicado", label: "Radicado (si existe)", required: false, source: "work_item", editable: false },
   { key: "honorarios_amount", label: "Monto de honorarios (COP)", required: true, source: "manual", editable: true },
