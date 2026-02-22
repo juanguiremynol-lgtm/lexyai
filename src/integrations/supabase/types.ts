@@ -3263,6 +3263,60 @@ export type Database = {
           },
         ]
       }
+      client_contract_allowances: {
+        Row: {
+          base_limit: number
+          client_id: string
+          created_at: string
+          expires_at: string | null
+          extra_limit_granted: number
+          granted_at: string
+          granted_by: string
+          granted_by_user_id: string | null
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          base_limit?: number
+          client_id: string
+          created_at?: string
+          expires_at?: string | null
+          extra_limit_granted?: number
+          granted_at?: string
+          granted_by?: string
+          granted_by_user_id?: string | null
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          base_limit?: number
+          client_id?: string
+          created_at?: string
+          expires_at?: string | null
+          extra_limit_granted?: number
+          granted_at?: string
+          granted_by?: string
+          granted_by_user_id?: string | null
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_contract_allowances_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_contract_allowances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_documents: {
         Row: {
           client_id: string
@@ -13539,6 +13593,10 @@ export type Database = {
         }
         Returns: Json
       }
+      check_client_contract_quota: {
+        Args: { p_client_id: string; p_organization_id: string }
+        Returns: Json
+      }
       check_inference_rate_limit: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
@@ -13662,6 +13720,17 @@ export type Database = {
         Returns: {
           recipient_id: string
         }[]
+      }
+      grant_client_contract_extra: {
+        Args: {
+          p_client_id: string
+          p_expires_in_days?: number
+          p_extra_amount: number
+          p_granted_by: string
+          p_granted_by_user_id: string
+          p_organization_id: string
+        }
+        Returns: Json
       }
       has_active_org_support_grant: {
         Args: { p_admin_id: string; p_org_id: string }
