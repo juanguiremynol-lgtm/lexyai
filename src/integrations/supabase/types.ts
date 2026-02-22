@@ -5972,7 +5972,7 @@ export type Database = {
       }
       generated_documents: {
         Row: {
-          content_html: string
+          content_html: string | null
           content_json: Json
           content_locked_at: string | null
           created_at: string | null
@@ -6008,7 +6008,7 @@ export type Database = {
           work_item_id: string | null
         }
         Insert: {
-          content_html: string
+          content_html?: string | null
           content_json: Json
           content_locked_at?: string | null
           created_at?: string | null
@@ -6044,7 +6044,7 @@ export type Database = {
           work_item_id?: string | null
         }
         Update: {
-          content_html?: string
+          content_html?: string | null
           content_json?: Json
           content_locked_at?: string | null
           created_at?: string | null
