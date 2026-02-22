@@ -64,6 +64,7 @@ import { isLinkSharingAllowed } from "@/lib/document-share-policy";
 import { getDisclaimers, isIssuerOnly, getDocumentPolicy, isBilateral, type DocumentPolicyType } from "@/lib/document-policy";
 import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
 import { IdentityTypeSelector, getIdTypeLabel } from "@/components/documents/IdentityTypeSelector";
+import { DocumentSourceSelector, type DocumentSourceType } from "@/components/documents/DocumentSourceSelector";
 import type { IdType } from "@/hooks/use-document-configuration";
 
 // ─── Poderdante Type Selector ────────────────────────────
@@ -423,6 +424,15 @@ export default function WorkItemDocumentWizard() {
   // Radicado toggle
   const [showRadicado, setShowRadicado] = useState(false);
   const [previewDarkMode, setPreviewDarkMode] = useState(false);
+
+  // Document source type (Phase 1: Uploaded PDF support)
+  const [sourceType, setSourceType] = useState<DocumentSourceType>("SYSTEM_TEMPLATE");
+  const [uploadedPdfInfo, setUploadedPdfInfo] = useState<{
+    storagePath: string;
+    sha256: string;
+    fileName: string;
+    sizeBytes: number;
+  } | null>(null);
 
   // Lawyer in-app signing flow state (bilateral contracts)
   const [lawyerSigningActive, setLawyerSigningActive] = useState(false);
@@ -821,12 +831,17 @@ export default function WorkItemDocumentWizard() {
         document_type: docType,
         title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
         content_json: { variables, template_type: docType, poderdante_type: poderdanteType, includeAttorneyAcceptance },
-        content_html: renderedHtml,
+        content_html: sourceType === "UPLOADED_PDF" ? null : renderedHtml,
         variables,
         status: "draft",
         created_by: user.id,
         poderdante_type: poderdanteType,
         entity_data: ed,
+        source_type: sourceType,
+        ...(sourceType === "UPLOADED_PDF" && uploadedPdfInfo ? {
+          source_pdf_path: uploadedPdfInfo.storagePath,
+          source_pdf_sha256: uploadedPdfInfo.sha256,
+        } : {}),
       } as any);
 
       if (error) throw error;
@@ -903,13 +918,22 @@ export default function WorkItemDocumentWizard() {
       return;
     }
 
-    const unpopulated = findUnpopulatedVariables(renderedHtml);
-    if (unpopulated.length > 0) {
-      setUnpopulatedVars(unpopulated);
-      toast.error("El documento contiene campos sin completar");
+    // For uploaded PDF, skip unpopulated variable check (no template variables)
+    if (sourceType !== "UPLOADED_PDF") {
+      const unpopulated = findUnpopulatedVariables(renderedHtml);
+      if (unpopulated.length > 0) {
+        setUnpopulatedVars(unpopulated);
+        toast.error("El documento contiene campos sin completar");
+        return;
+      }
+      setUnpopulatedVars([]);
+    }
+
+    // For uploaded PDF, validate file was uploaded
+    if (sourceType === "UPLOADED_PDF" && !uploadedPdfInfo) {
+      toast.error("Debe subir un archivo PDF antes de continuar");
       return;
     }
-    setUnpopulatedVars([]);
 
     setFinalizing(true);
     try {
@@ -1016,7 +1040,7 @@ export default function WorkItemDocumentWizard() {
           document_type: docType,
           title: `${LEGAL_DOCUMENT_TYPE_LABELS[docType]} — ${workItem.radicado || workItem.title || ""}`,
           content_json: { variables, template_type: docType, poderdante_type: poderdanteType, includeAttorneyAcceptance },
-          content_html: renderedHtml,
+          content_html: sourceType === "UPLOADED_PDF" ? null : renderedHtml,
           variables,
           status: initialStatus,
           created_by: user.id,
@@ -1027,6 +1051,11 @@ export default function WorkItemDocumentWizard() {
             : { finalized_at: new Date().toISOString(), finalized_by: user.id }),
           poderdante_type: poderdanteType,
           entity_data: ed,
+          source_type: sourceType,
+          ...(sourceType === "UPLOADED_PDF" && uploadedPdfInfo ? {
+            source_pdf_path: uploadedPdfInfo.storagePath,
+            source_pdf_sha256: uploadedPdfInfo.sha256,
+          } : {}),
         } as any)
         .select("id")
         .single();
@@ -1338,6 +1367,18 @@ export default function WorkItemDocumentWizard() {
               );
             })}
           </div>
+
+          {/* Document source selector (only for contrato_servicios) */}
+          {docType === "contrato_servicios" && (
+            <DocumentSourceSelector
+              sourceType={sourceType}
+              onSourceTypeChange={setSourceType}
+              organizationId={workItem?.organization_id || ""}
+              onPdfUploaded={setUploadedPdfInfo}
+              uploadedPdfInfo={uploadedPdfInfo}
+              onClearUpload={() => setUploadedPdfInfo(null)}
+            />
+          )}
 
           {/* Policy disclaimers for selected doc type */}
           {getDisclaimers(docType as DocumentPolicyType).length > 0 && (

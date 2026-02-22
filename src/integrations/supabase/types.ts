@@ -5941,6 +5941,11 @@ export type Database = {
           poderdante_type: string | null
           retention_expires_at: string | null
           retention_years: number | null
+          signature_placement_mode: string
+          signature_positions_json: Json | null
+          source_pdf_path: string | null
+          source_pdf_sha256: string | null
+          source_type: string
           status: string
           template_id: string | null
           title: string
@@ -5972,6 +5977,11 @@ export type Database = {
           poderdante_type?: string | null
           retention_expires_at?: string | null
           retention_years?: number | null
+          signature_placement_mode?: string
+          signature_positions_json?: Json | null
+          source_pdf_path?: string | null
+          source_pdf_sha256?: string | null
+          source_type?: string
           status?: string
           template_id?: string | null
           title: string
@@ -6003,6 +6013,11 @@ export type Database = {
           poderdante_type?: string | null
           retention_expires_at?: string | null
           retention_years?: number | null
+          signature_placement_mode?: string
+          signature_positions_json?: Json | null
+          source_pdf_path?: string | null
+          source_pdf_sha256?: string | null
+          source_type?: string
           status?: string
           template_id?: string | null
           title?: string
