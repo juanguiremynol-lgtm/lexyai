@@ -79,6 +79,7 @@ interface DocTypePolicy {
 const DOC_TYPE_POLICIES: Record<string, DocTypePolicy> = {
   poder_especial: { label_es: "Poder Especial", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo/teléfono del firmante + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente." },
   contrato_servicios: { label_es: "Contrato de Prestación de Servicios", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante." },
+  generic_pdf_signing: { label_es: "Firma PDF Genérica", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante (firma genérica bilateral)." },
   paz_y_salvo: { label_es: "Paz y Salvo", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
   notificacion_personal: { label_es: "Notificación Personal", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
   notificacion_por_aviso: { label_es: "Notificación por Aviso", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
@@ -272,6 +273,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const specificDocId = body?.document_id;
     const specificJobId = body?.job_id;
+    const forceDistribution = body?.force_distribution === true;
 
     // ── Resolve Gotenberg config ──
     let gotenbergUrl = "";
@@ -303,49 +305,192 @@ Deno.serve(async (req) => {
       return json({ error: `Gotenberg unreachable: ${healthErr}`, retryable: true }, 502);
     }
 
-    // ── Pick a job ──
+    // ── Pick a job (or create one for reconciliation) ──
     let jobQuery = adminClient.from("document_pdf_jobs").select("*");
     if (specificJobId) jobQuery = jobQuery.eq("id", specificJobId);
-    else if (specificDocId) jobQuery = jobQuery.eq("document_id", specificDocId).in("status", ["queued", "running"]).order("created_at", { ascending: false }).limit(1);
-    else jobQuery = jobQuery.eq("status", "queued").order("created_at", { ascending: true }).limit(1);
+    else if (specificDocId && forceDistribution) {
+      // Reconciliation: find any job for this doc, or create one
+      jobQuery = jobQuery.eq("document_id", specificDocId).order("created_at", { ascending: false }).limit(1);
+    } else if (specificDocId) {
+      jobQuery = jobQuery.eq("document_id", specificDocId).in("status", ["queued", "running"]).order("created_at", { ascending: false }).limit(1);
+    } else {
+      jobQuery = jobQuery.eq("status", "queued").order("created_at", { ascending: true }).limit(1);
+    }
 
-    const { data: jobs, error: jobErr } = await jobQuery;
+    let { data: jobs, error: jobErr } = await jobQuery;
     if (jobErr) return json({ error: "Failed to fetch jobs" }, 500);
+
+    // For reconciliation: if no job found, create one
+    if ((!jobs || jobs.length === 0) && specificDocId && forceDistribution) {
+      const { data: reconDoc } = await adminClient.from("generated_documents")
+        .select("organization_id").eq("id", specificDocId).single();
+      if (reconDoc) {
+        const { data: newJob } = await adminClient.from("document_pdf_jobs").insert({
+          document_id: specificDocId, organization_id: reconDoc.organization_id, status: "queued",
+        }).select("*").single();
+        if (newJob) jobs = [newJob];
+      }
+    }
+
     if (!jobs || jobs.length === 0) return json({ ok: true, message: "No jobs to process" });
 
     const job = jobs[0];
 
     // ── Idempotency: check if signed.pdf already exists ──
-    const { data: existingDoc } = await adminClient.from("generated_documents").select("final_pdf_sha256").eq("id", job.document_id).single();
-    if (existingDoc?.final_pdf_sha256) {
+    const { data: existingDoc } = await adminClient.from("generated_documents")
+      .select("final_pdf_sha256, document_type").eq("id", job.document_id).single();
+    if (existingDoc?.final_pdf_sha256 && !forceDistribution) {
       const { data: existingFile } = await adminClient.storage.from("signed-documents").list(
         `${job.organization_id}/${job.document_id}`, { limit: 10, search: "signed.pdf" }
       );
       if (existingFile && existingFile.some(f => f.name === "signed.pdf")) {
         console.log(`[process-pdf-job] Idempotency: signed.pdf already exists for ${job.document_id}`);
         
-        // Check if this is a second job that needs distribution (e.g., after bilateral completion)
-        const { data: anyJobWithDist } = await adminClient.from("document_pdf_jobs")
-          .select("id, distribution_sent_at")
-          .eq("document_id", job.document_id)
-          .not("distribution_sent_at", "is", null)
-          .limit(1);
-        
-        const distributionAlreadySent = anyJobWithDist && anyJobWithDist.length > 0;
-        
         await adminClient.from("document_pdf_jobs").update({
           status: "succeeded", finished_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           result_path: `${job.organization_id}/${job.document_id}/signed.pdf`, pdf_sha256: existingDoc.final_pdf_sha256,
         }).eq("id", job.id);
         
-        if (!distributionAlreadySent) {
-          // PDF exists but no distribution sent yet — this can happen in edge cases.
-          // Log it so admins can manually trigger distribution if needed.
-          console.warn(`[process-pdf-job] PDF exists for ${job.document_id} but no distribution was ever sent. Manual retry may be needed.`);
-        }
-        
         return json({ ok: true, idempotent: true, message: "PDF already exists" });
       }
+    }
+
+    // ── Force distribution path: PDF exists, just re-send emails ──
+    if (forceDistribution && existingDoc?.final_pdf_sha256) {
+      console.log(`[process-pdf-job] Force distribution for ${job.document_id}`);
+      // Skip to distribution — set job as succeeded and let distribution run below
+      const storagePath = `${job.organization_id}/${job.document_id}/signed.pdf`;
+      await adminClient.from("document_pdf_jobs").update({
+        status: "succeeded", result_path: storagePath,
+        pdf_sha256: existingDoc.final_pdf_sha256,
+        started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", job.id);
+
+      // Jump directly to distribution
+      const pdfResult = { storage_path: storagePath, pdf_sha256: existingDoc.final_pdf_sha256, size_bytes: 0 };
+      const policy = getPolicy(existingDoc.document_type);
+      
+      // Fetch needed data for distribution
+      const { data: doc } = await adminClient.from("generated_documents")
+        .select("id, title, document_type, organization_id, created_by")
+        .eq("id", job.document_id).single();
+      if (!doc) return json({ error: "Document not found for distribution" }, 404);
+
+      const { data: signedSigs } = await adminClient.from("document_signatures").select("*")
+        .eq("document_id", job.document_id).eq("status", "signed");
+
+      let lawyerProfile: any = null;
+      if (doc.created_by) {
+        const { data: prof } = await adminClient.from("profiles")
+          .select("full_name, email, litigation_email, custom_branding_enabled, custom_logo_path, custom_firm_name")
+          .eq("id", doc.created_by).single();
+        lawyerProfile = prof;
+      }
+      let orgData: any = null;
+      if (doc.organization_id) {
+        const { data: org } = await adminClient.from("organizations")
+          .select("name, custom_branding_enabled, custom_logo_path, custom_firm_name")
+          .eq("id", doc.organization_id).single();
+        orgData = org;
+      }
+
+      const firmName = orgData?.custom_firm_name || orgData?.name || lawyerProfile?.custom_firm_name || "Andromeda Legal";
+      const lawyerEmail = lawyerProfile?.litigation_email || lawyerProfile?.email || "";
+      const lawyerName = lawyerProfile?.full_name || "";
+      const totalSigners = signedSigs?.length || 0;
+      const isBilateral = policy.signerModel === "BILATERAL";
+
+      const resendKey = Deno.env.get("RESEND_API_KEY");
+      if (!resendKey) return json({ ok: true, message: "No RESEND_API_KEY — skipping distribution" });
+
+      // Mark distribution
+      await adminClient.from("document_pdf_jobs").update({
+        distribution_sent_at: new Date().toISOString(),
+      }).eq("id", job.id);
+
+      const { data: signedUrlData } = await adminClient.storage
+        .from("signed-documents").createSignedUrl(pdfResult.storage_path, 30 * 24 * 60 * 60);
+      const downloadUrl = signedUrlData?.signedUrl || "";
+
+      const emailLogoUrl = orgData?.custom_branding_enabled && orgData?.custom_logo_path
+        ? `${supabaseUrl}/storage/v1/object/public/branding/${orgData.custom_logo_path}` : null;
+      const emailHeaderHtml = emailLogoUrl
+        ? `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+            <img src="${emailLogoUrl}" alt="${firmName}" style="max-height:50px;max-width:200px;" />
+            <p style="color:#666;margin:8px 0 0;font-size:13px;">${firmName}</p>
+          </div>`
+        : `<div style="text-align:center;padding:24px 0;border-bottom:2px solid #1a1a2e;">
+            <h1 style="color:#1a1a2e;font-size:24px;margin:0;">${firmName.toUpperCase()}</h1>
+          </div>`;
+
+      const confirmHtmlTemplate = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+        ${emailHeaderHtml}
+        <div style="padding:24px 0;">
+          <h2 style="color:#1a1a2e;">✅ Documento Firmado${isBilateral ? " por Todas las Partes" : ""}</h2>
+          <p>Hola <strong>{RECIPIENT_NAME}</strong>,</p>
+          <p>El siguiente documento ha sido firmado electrónicamente${totalSigners > 1 ? " por todas las partes" : ""}:</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Documento</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold;">${doc.title}</td></tr>
+            <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Hash SHA-256</td><td style="padding:8px;border-bottom:1px solid #eee;font-family:monospace;font-size:10px;word-break:break-all;">${pdfResult.pdf_sha256}</td></tr>
+          </table>
+          ${downloadUrl ? `<div style="text-align:center;margin:24px 0;"><a href="${downloadUrl}" style="background:#1a1a2e;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Descargar documento firmado (PDF)</a></div>` : ""}
+        </div>
+        <p style="color:#999;font-size:12px;text-align:center;">${firmName}</p>
+      </div>`;
+
+      const recipients = new Set<string>();
+      if (policy.distribution === "lawyer" || policy.distribution === "both") {
+        if (lawyerEmail) recipients.add(lawyerEmail);
+      }
+      if (policy.distribution === "both" || policy.distribution === "client") {
+        for (const s of (signedSigs || [])) { if (s.signer_email) recipients.add(s.signer_email); }
+      }
+
+      const distributedRecipients: Array<{ email: string; name: string; role: string; status: string }> = [];
+      for (const email of recipients) {
+        const recipientSig = signedSigs?.find((s: any) => s.signer_email === email);
+        const recipientName = recipientSig?.signer_name || lawyerName || "Usuario";
+        const recipientRole = email === lawyerEmail ? "lawyer" : "client";
+        let sendStatus = "sent";
+        try {
+          const html = confirmHtmlTemplate.replace("{RECIPIENT_NAME}", recipientName);
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ from: `${firmName} <info@andromeda.legal>`, reply_to: lawyerEmail || undefined, to: [email], subject: `✅ Documento firmado${isBilateral ? " por todas las partes" : ""} — ${doc.title}`, html }),
+          });
+          console.log(`[process-pdf-job] Reconciliation email sent to ${email}`);
+        } catch (e) {
+          console.error(`[process-pdf-job] Reconciliation email error for ${email}:`, e);
+          sendStatus = "failed";
+        }
+        // Log immutable event
+        const prevHash = await getLastEventHash(adminClient, doc.id);
+        const evHash = await computeEventHash(prevHash, { event_type: "document.distributed_to", recipient_email: email, timestamp: new Date().toISOString() });
+        await adminClient.from("document_signature_events").insert({
+          organization_id: doc.organization_id, document_id: doc.id,
+          event_type: "document.distributed_to",
+          event_data: { recipient_email: email, recipient_name: recipientName, recipient_role: recipientRole, delivery_channel: "email", delivery_status: sendStatus, sender: "info@andromeda.legal", pdf_sha256: pdfResult.pdf_sha256, job_id: job.id, reconciliation: true },
+          actor_type: "system", actor_id: "process-pdf-job-reconciliation",
+          previous_event_hash: prevHash, event_hash: evHash,
+        });
+        distributedRecipients.push({ email, name: recipientName, role: recipientRole, status: sendStatus });
+      }
+
+      // Log distribution summary event
+      const distPrevHash = await getLastEventHash(adminClient, doc.id);
+      const distEvHash = await computeEventHash(distPrevHash, { event_type: "document.distributed", reconciliation: true, timestamp: new Date().toISOString() });
+      await adminClient.from("document_signature_events").insert({
+        organization_id: doc.organization_id, document_id: doc.id,
+        event_type: "document.distributed",
+        event_data: { recipients: distributedRecipients, total_recipients: distributedRecipients.length, distribution_policy: policy.distribution, doc_type: doc.document_type, pdf_sha256: pdfResult.pdf_sha256, signer_model: policy.signerModel, reconciliation: true, job_id: job.id, distributed_at: new Date().toISOString() },
+        actor_type: "system", actor_id: "process-pdf-job-reconciliation",
+        previous_event_hash: distPrevHash, event_hash: distEvHash,
+      });
+
+      console.log(`[process-pdf-job] Reconciliation distribution complete: ${distributedRecipients.length} recipients`);
+      return json({ ok: true, reconciliation: true, recipients: distributedRecipients.length });
     }
 
     // ── Concurrency check ──
