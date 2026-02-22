@@ -261,10 +261,13 @@ Deno.serve(async (req) => {
 
     // Store HTML for debug only
     const htmlStoragePath = `${organization_id}/${document_id}/signed.html`;
-    await adminClient.storage
-      .from("signed-documents")
-      .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true })
-      .catch((e: unknown) => console.warn("HTML debug upload warning:", e));
+    try {
+      await adminClient.storage
+        .from("signed-documents")
+        .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true });
+    } catch (e: unknown) {
+      console.warn("HTML debug upload warning:", e);
+    }
 
     // Update last_success_at in settings
     try {
