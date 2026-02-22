@@ -11,12 +11,17 @@ import { useWorkItemHearingsV2 } from "@/hooks/use-work-item-hearings-v2";
 import { HearingTimeline } from "./HearingTimeline";
 import { HearingDetailEditor } from "./HearingDetailEditor";
 import { AddHearingDialog } from "./AddHearingDialog";
+import { HearingSearchDialog } from "./HearingSearchDialog";
+import { HearingDigestExport } from "./HearingDigestExport";
 
 interface Props {
   workItem: {
     id: string;
     organization_id?: string;
     workflow_type?: string;
+    numero_radicado?: string;
+    parties_summary?: string;
+    despacho?: string;
   };
 }
 
@@ -24,6 +29,8 @@ export function HearingsTab({ workItem }: Props) {
   const { data: hearings = [], isLoading } = useWorkItemHearingsV2(workItem.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Auto-select first hearing if none selected
@@ -60,15 +67,29 @@ export function HearingsTab({ workItem }: Props) {
           <div className="relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar en audiencias..."
+              placeholder="Filtrar audiencias..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 h-9 w-64"
             />
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSearchDialogOpen(true)}
+            disabled={hearings.length === 0}
+          >
+            <Search className="h-4 w-4 mr-1" />
+            Buscar en contenido
+          </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExportDialogOpen(true)}
+            disabled={hearings.length === 0}
+          >
             <FileDown className="h-4 w-4 mr-1" />
             Exportar resumen
           </Button>
@@ -112,13 +133,27 @@ export function HearingsTab({ workItem }: Props) {
         </div>
       )}
 
-      {/* Add Dialog */}
+      {/* Dialogs */}
       <AddHearingDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
         workItemId={workItem.id}
         organizationId={workItem.organization_id || ""}
         jurisdiction={workItem.workflow_type || "CGP"}
+      />
+
+      <HearingSearchDialog
+        open={searchDialogOpen}
+        onOpenChange={setSearchDialogOpen}
+        workItemId={workItem.id}
+        onSelectHearing={(id) => setSelectedId(id)}
+      />
+
+      <HearingDigestExport
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        hearings={hearings}
+        workItem={workItem}
       />
     </div>
   );

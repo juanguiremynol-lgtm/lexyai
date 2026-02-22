@@ -21,6 +21,7 @@ import type { WorkItemHearing } from "@/hooks/use-work-item-hearings-v2";
 import { useUpdateWorkItemHearing, useDeleteWorkItemHearing, HEARING_STATUS_LABELS } from "@/hooks/use-work-item-hearings-v2";
 import { HearingKeyMoments } from "./HearingKeyMoments";
 import { HearingArtifactsSection } from "./HearingArtifactsSection";
+import { HearingAIInsights } from "./HearingAIInsights";
 
 interface Props {
   hearing: WorkItemHearing;
@@ -241,6 +242,13 @@ export function HearingDetailEditor({ hearing }: Props) {
         hearingId={hearing.id}
         organizationId={hearing.organization_id}
         workItemId={hearing.work_item_id}
+      />
+
+      {/* AI Insights */}
+      <HearingAIInsights
+        hearingId={hearing.id}
+        organizationId={hearing.organization_id}
+        hasContent={!!(hearing.notes_plain_text || hearing.decisions_summary)}
       />
 
       {/* Delete Dialog */}
