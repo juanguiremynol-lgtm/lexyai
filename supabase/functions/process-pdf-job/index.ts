@@ -724,9 +724,12 @@ ${evidenceAppendix}
       // ── Store debug HTML ──
       const htmlBytes = new TextEncoder().encode(combinedHtml);
       const htmlStoragePath = `${doc.organization_id}/${doc.id}/signed.html`;
-      await adminClient.storage.from("signed-documents")
-        .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true })
-        .catch((e: unknown) => console.warn("[process-pdf-job] HTML debug upload:", e));
+      try {
+        await adminClient.storage.from("signed-documents")
+          .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true });
+      } catch (e: unknown) {
+        console.warn("[process-pdf-job] HTML debug upload:", e);
+      }
 
       // ── Check deadline ──
       if (Date.now() > DEADLINE) throw new Error("Wall-clock deadline exceeded before PDF generation");
