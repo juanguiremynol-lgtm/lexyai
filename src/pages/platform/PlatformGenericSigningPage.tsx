@@ -288,8 +288,9 @@ export default function PlatformGenericSigningPage() {
       });
 
       if (counterpartySigErr) {
-        console.warn("Failed to pre-create counterparty signature:", counterpartySigErr);
-        // Non-blocking — we'll create it later in handleSendToCounterparty as fallback
+        console.error("Failed to pre-create counterparty signature:", counterpartySigErr);
+        toast.error("Error al preparar la firma del firmante 2. Por favor intente nuevamente.");
+        throw new Error("No se pudo preparar la firma bilateral. El firmante 2 debe existir antes de continuar.");
       }
 
       setLawyerSigningData({

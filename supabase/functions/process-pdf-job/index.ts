@@ -323,10 +323,27 @@ Deno.serve(async (req) => {
       );
       if (existingFile && existingFile.some(f => f.name === "signed.pdf")) {
         console.log(`[process-pdf-job] Idempotency: signed.pdf already exists for ${job.document_id}`);
+        
+        // Check if this is a second job that needs distribution (e.g., after bilateral completion)
+        const { data: anyJobWithDist } = await adminClient.from("document_pdf_jobs")
+          .select("id, distribution_sent_at")
+          .eq("document_id", job.document_id)
+          .not("distribution_sent_at", "is", null)
+          .limit(1);
+        
+        const distributionAlreadySent = anyJobWithDist && anyJobWithDist.length > 0;
+        
         await adminClient.from("document_pdf_jobs").update({
           status: "succeeded", finished_at: new Date().toISOString(), updated_at: new Date().toISOString(),
           result_path: `${job.organization_id}/${job.document_id}/signed.pdf`, pdf_sha256: existingDoc.final_pdf_sha256,
         }).eq("id", job.id);
+        
+        if (!distributionAlreadySent) {
+          // PDF exists but no distribution sent yet — this can happen in edge cases.
+          // Log it so admins can manually trigger distribution if needed.
+          console.warn(`[process-pdf-job] PDF exists for ${job.document_id} but no distribution was ever sent. Manual retry may be needed.`);
+        }
+        
         return json({ ok: true, idempotent: true, message: "PDF already exists" });
       }
     }

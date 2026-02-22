@@ -500,20 +500,15 @@ export default function SigningPage() {
                           variant="outline"
                           onClick={async () => {
                             try {
-                              const res = await fetch(
-                                `${SUPABASE_URL}/storage/v1/object/sign/unsigned-documents/${sigData.document.source_pdf_path}`,
-                                {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-                                  body: JSON.stringify({ expiresIn: 3600 }),
-                                }
-                              );
-                              const data = await res.json();
-                              if (data?.signedURL) {
-                                window.open(`${SUPABASE_URL}/storage/v1${data.signedURL}`, "_blank");
+                              const res = await callEdgeFunction("get-source-pdf-view-url", {
+                                signing_token: token,
+                                document_id: sigData?.document?.id,
+                              });
+                              if (res?.url) {
+                                window.open(res.url, "_blank");
                                 setPdfOpened(true);
                               } else {
-                                toast.error("No se pudo generar el enlace del PDF");
+                                toast.error(res?.error || "No se pudo generar el enlace del PDF");
                               }
                             } catch {
                               toast.error("Error al abrir el PDF");

@@ -176,8 +176,9 @@ Deno.serve(async (req) => {
     }
 
     // BILATERAL INVARIANT: For bilateral docs, client signing link requires lawyer signature completion
-    const bilateralTypes = ["contrato_servicios"];
-    if (bilateralTypes.includes(doc.document_type) && (signer_role === "client" || signing_order > 1)) {
+    // Exception: create_as_waiting=true bypasses this check (pre-creating waiting signature before lawyer signs)
+    const bilateralTypes = ["contrato_servicios", "generic_pdf_signing"];
+    if (!create_as_waiting && bilateralTypes.includes(doc.document_type) && (signer_role === "client" || signing_order > 1)) {
       // Check if signer with signing_order=1 (lawyer) has completed signing
       const { data: lawyerSigs } = await adminClient
         .from("document_signatures")
