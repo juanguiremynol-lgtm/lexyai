@@ -93,6 +93,7 @@ import {
   PlatformWaitlistPage,
   PlatformPdfSettingsPage,
   PlatformGenericSigningPage,
+  PlatformGenericSigningDocsPage,
   PlatformHearingsCatalogPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
@@ -235,6 +236,7 @@ const App = () => (
             <Route path="work-items/:id/documents/new" element={<ErrorBoundary><WorkItemDocumentWizard /></ErrorBoundary>} />
             <Route path="work-items/:id/documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
             <Route path="documentos-legales" element={<ErrorBoundary><DocumentsDashboard /></ErrorBoundary>} />
+            <Route path="documents/:docId" element={<ErrorBoundary><DocumentDetailPage /></ErrorBoundary>} />
             <Route path="billing" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
             <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
           </Route>
@@ -284,6 +286,7 @@ const App = () => (
             <Route path="waitlist" element={<ErrorBoundary><PlatformWaitlistPage /></ErrorBoundary>} />
             <Route path="pdf-settings" element={<ErrorBoundary><PlatformPdfSettingsPage /></ErrorBoundary>} />
             <Route path="generic-signing" element={<ErrorBoundary><PlatformGenericSigningPage /></ErrorBoundary>} />
+            <Route path="generic-signing-docs" element={<ErrorBoundary><PlatformGenericSigningDocsPage /></ErrorBoundary>} />
             <Route path="hearings-catalog" element={<ErrorBoundary><PlatformHearingsCatalogPage /></ErrorBoundary>} />
 
             <Route path="auth-providers" element={<ErrorBoundary><PlatformAuthProvidersPage /></ErrorBoundary>} />
