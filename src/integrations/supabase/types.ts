@@ -4647,6 +4647,7 @@ export type Database = {
         Row: {
           attempts: number
           created_at: string
+          distribution_sent_at: string | null
           document_id: string
           finished_at: string | null
           id: string
@@ -4663,6 +4664,7 @@ export type Database = {
         Insert: {
           attempts?: number
           created_at?: string
+          distribution_sent_at?: string | null
           document_id: string
           finished_at?: string | null
           id?: string
@@ -4679,6 +4681,7 @@ export type Database = {
         Update: {
           attempts?: number
           created_at?: string
+          distribution_sent_at?: string | null
           document_id?: string
           finished_at?: string | null
           id?: string

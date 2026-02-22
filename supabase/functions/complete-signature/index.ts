@@ -2,13 +2,17 @@
  * complete-signature — Finalizes the digital signature process.
  * Public endpoint. Captures DRAWN signature only (typed rejected).
  * Stores signature PNG + raw stroke data for forensic evidence.
- * Computes SHA-256 for document pages + combined PDF.
- * Generates combined HTML (document + evidence appendix) as ONE file.
- * Emails both parties.
- * 
- * Phase 4: Hash-chained audit events, consumed_at token marking,
- *          device fingerprint, enhanced "Identity Verification Method" section,
- *          delivery method tracking in audit report.
+ *
+ * Phase 5 (Execution ≠ Artifact):
+ *   - This function handles EXECUTION: validating invariants and marking
+ *     the document as executed (signed_finalized).
+ *   - It does NOT generate the final PDF or audit certificate.
+ *   - It enqueues a PDF job; process-pdf-job handles artifact generation
+ *     and email distribution.
+ *   - final_pdf_sha256 is set ONLY by process-pdf-job from actual PDF bytes.
+ *
+ * Hash-chained audit events, consumed_at token marking,
+ * device fingerprint, identity verification.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -39,17 +43,6 @@ function formatCOT(dateStr: string): string {
       + " " + d.toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit", second: "2-digit" })
       + " COT";
   } catch { return dateStr; }
-}
-
-function parseUserAgent(ua: string): { browser: string; os: string; device: string } {
-  if (!ua || ua === "unknown") return { browser: "Desconocido", os: "Desconocido", device: "Desconocido" };
-  const chrome = ua.match(/Chrome\/(\d+)/);
-  const firefox = ua.match(/Firefox\/(\d+)/);
-  const safari = ua.match(/Version\/(\d+).*Safari/);
-  const os = ua.includes("Windows") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") ? "iOS" : "Desconocido";
-  const device = ua.includes("Mobile") || ua.includes("Android") || ua.includes("iPhone") ? "Móvil" : "Escritorio";
-  const browser = chrome ? `Chrome ${chrome[1]}` : firefox ? `Firefox ${firefox[1]}` : safari ? `Safari ${safari[1]}` : "Desconocido";
-  return { browser, os, device };
 }
 
 function getSignerIp(req: Request): string {
@@ -88,19 +81,6 @@ function buildEmailHeader(branding: { logo_url: string | null; firm_name: string
   </div>`;
 }
 
-function buildCertificateHeader(branding: { logo_url: string | null; firm_name: string }): string {
-  if (branding.logo_url) {
-    return `<div style="text-align:center;border-bottom:3px solid #1a1a2e;padding-bottom:16px;margin-bottom:24px;">
-      <img src="${branding.logo_url}" alt="${branding.firm_name}" style="max-height:60px;max-width:250px;" />
-      <p style="color:#666;margin:8px 0 0;font-size:13px;">${branding.firm_name}</p>
-    </div>`;
-  }
-  return `<div style="text-align:center;border-bottom:3px solid #1a1a2e;padding-bottom:16px;margin-bottom:24px;">
-    <h1 style="color:#1a1a2e;font-size:22px;margin:0;">${branding.firm_name.toUpperCase()}</h1>
-    <p style="color:#666;margin:4px 0 0;font-size:13px;">Plataforma de Gestión Legal</p>
-  </div>`;
-}
-
 /** Hash chaining helpers */
 async function getLastEventHash(adminClient: any, documentId: string): Promise<string | null> {
   const { data } = await adminClient
@@ -110,7 +90,6 @@ async function getLastEventHash(adminClient: any, documentId: string): Promise<s
   return data?.event_hash || null;
 }
 
-/** Recursive canonical JSON: sorts keys at all depths, normalizes null/undefined */
 function canonicalStringify(obj: unknown): string {
   if (obj === null || obj === undefined) return "null";
   if (typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean") return JSON.stringify(obj);
@@ -137,132 +116,6 @@ async function insertChainedEvent(adminClient: any, event: Record<string, unknow
   await adminClient.from("document_signature_events").insert({
     ...event, previous_event_hash: previousHash, event_hash: eventHash,
   });
-}
-
-const EVENT_LABELS: Record<string, string> = {
-  "document.created": "Documento creado",
-  "document.edited": "Documento editado",
-  "document.finalized": "Documento finalizado",
-  "signature.requested": "Enlace de firma generado",
-  "signature.email_sent": "Email de firma enviado",
-  "signature.link_opened": "Enlace de firma abierto",
-  "signature.identity_confirmed": "Identidad confirmada (nombre + cédula)",
-  "signature.identity_failed": "Verificación de identidad fallida",
-  "signature.otp_sent": "Código OTP enviado",
-  "signature.otp_verified": "Identidad verificada (OTP)",
-  "signature.otp_failed": "Verificación OTP fallida",
-  "signature.document_viewed": "Documento revisado",
-  "signature.consent_given": "Consentimiento otorgado",
-  "signature.signed": "★ FIRMA ELECTRÓNICA",
-  "document.hash_generated": "Hash SHA-256 generado",
-  "document.stored": "Documento almacenado",
-  "notification.sent": "Notificación enviada",
-  "notification.failed": "Error al enviar notificación",
-  "notification.reminder_sent": "Recordatorio enviado",
-};
-
-function buildSignerEvidenceSection(
-  signerData: any, signerEvents: any[], signerIndex: number, totalSigners: number, roleLabel: string,
-): string {
-  const parsedUA = parseUserAgent(signerData.signer_user_agent || "");
-  const strokeCount = signerData.signature_stroke_data?.length || 0;
-  const totalPoints = signerData.signature_stroke_data?.reduce((s: number, st: any) => s + (st.points?.length || 0), 0) || 0;
-  const sectionTitle = totalSigners > 1 ? `FIRMA ${signerIndex} DE ${totalSigners}: ${roleLabel}` : "FIRMANTE";
-  const deviceFP = signerData.device_fingerprint_hash || "N/A";
-
-  // Canonical identity verification method statement (locked text — do not paraphrase)
-  const identityData = signerData.identity_confirmation_data;
-  const maskedEmail = signerData.signer_email.replace(/^(.{1,2})(.*)(@.*)$/, (_: string, s: string, m: string, e: string) => s + "***" + e);
-  const maskedPhone = signerData.signer_phone
-    ? signerData.signer_phone.replace(/^(.{4})(.*)(.{4})$/, (_: string, s: string, m: string, e: string) => s + " *** *** " + e)
-    : null;
-  const otpTarget = maskedPhone ? maskedPhone : maskedEmail;
-  // CANONICAL TEXT — DO NOT MODIFY without updating acceptance criteria
-  const identityMethodText = identityData
-    ? `Método de verificación de identidad: OTP a ${otpTarget} + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente.`
-    : `Método de verificación de identidad: OTP a ${otpTarget} + verificación de identidad vía enlace seguro.`;
-
-  const auditRows = signerEvents.map((ev, i) => {
-    const label = EVENT_LABELS[ev.event_type] || ev.event_type;
-    const actor = ev.actor_type === "lawyer" ? "Abogado" : ev.actor_type === "signer" ? "Firmante" : "Sistema";
-    const ip = ev.actor_ip || "Sistema";
-    const eventFP = ev.device_fingerprint_hash || "";
-    const isSignatureEvent = ev.event_type === "signature.signed";
-    const hashInfo = ev.event_hash ? `<br/><span style="font-size:9px;color:#888;">Hash: ${ev.event_hash.substring(0, 16)}…</span>` : "";
-
-    if (isSignatureEvent) {
-      return `<tr style="background:#fffde7;border:2px solid #f9a825;">
-        <td style="padding:8px;border:1px solid #f9a825;font-size:11px;font-weight:bold;">${i + 1}</td>
-        <td style="padding:8px;border:1px solid #f9a825;font-size:11px;font-weight:bold;">${formatCOT(ev.created_at)}</td>
-        <td style="padding:8px;border:1px solid #f9a825;font-size:11px;font-weight:bold;">
-          ${label}<br/>
-          <span style="font-weight:normal;font-size:10px;color:#555;">
-            Método: Manuscrita digital | Trazos: ${strokeCount} | Puntos: ${totalPoints}<br/>
-            Dispositivo: ${parsedUA.device} / ${parsedUA.browser} / ${parsedUA.os}
-          </span>${hashInfo}
-        </td>
-        <td style="padding:8px;border:1px solid #f9a825;font-size:11px;font-weight:bold;">${actor}</td>
-        <td style="padding:8px;border:1px solid #f9a825;font-size:11px;font-weight:bold;">${ip}</td>
-      </tr>`;
-    }
-    return `<tr>
-      <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${i + 1}</td>
-      <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${formatCOT(ev.created_at)}</td>
-      <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${label}${hashInfo}</td>
-      <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${actor}</td>
-      <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${ip}</td>
-    </tr>`;
-  }).join("\n");
-
-  return `
-  <h3 style="color:#1a1a2e;background:#f0f0f5;padding:10px 12px;margin-top:32px;font-size:14px;letter-spacing:1px;border-left:4px solid #1a1a2e;">
-    ${sectionTitle}
-  </h3>
-
-  <table style="width:100%;border-collapse:collapse;margin:8px 0;">
-    <tr><td style="padding:6px 0;color:#666;width:40%;">Nombre completo:</td><td style="padding:6px 0;font-weight:bold;">${signerData.signer_name}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Cédula:</td><td style="padding:6px 0;">${signerData.signer_cedula || "N/A"}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Correo electrónico:</td><td style="padding:6px 0;">${signerData.signer_email}</td></tr>
-  </table>
-
-  <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">MÉTODO DE VERIFICACIÓN DE IDENTIDAD</h4>
-  <div style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:4px;padding:12px;margin:8px 0;font-size:12px;">
-    <p style="margin:0;"><strong>${identityMethodText}</strong></p>
-    <p style="margin:4px 0 0;color:#888;font-size:10px;">Nota: "Indicador de sesión/dispositivo (hash)" es un hash derivado de IP y User-Agent. No identifica unívocamente al dispositivo.</p>
-    ${identityData?.confirmed_at ? `<p style="margin:4px 0 0;color:#666;">Identidad confirmada: ${formatCOT(identityData.confirmed_at)}</p>` : ""}
-  </div>
-  <table style="width:100%;border-collapse:collapse;">
-    ${signerData.otp_sent_at ? `<tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">OTP enviado:</td><td style="padding:4px 0;font-size:12px;">${formatCOT(signerData.otp_sent_at)}</td></tr>` : ""}
-    ${signerData.otp_verified_at ? `<tr><td style="padding:4px 0;color:#666;font-size:12px;">OTP verificado:</td><td style="padding:4px 0;font-size:12px;">${formatCOT(signerData.otp_verified_at)}</td></tr>` : ""}
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Intentos OTP:</td><td style="padding:4px 0;font-size:12px;">${signerData.otp_attempts || 0} de 3</td></tr>
-  </table>
-
-  <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">DATOS DE LA FIRMA</h4>
-  <table style="width:100%;border-collapse:collapse;">
-    <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Fecha y hora:</td><td style="padding:4px 0;font-weight:bold;font-size:12px;">${signerData.signed_at ? formatCOT(signerData.signed_at) : "Pendiente"}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dirección IP:</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${signerData.signer_ip || "N/A"}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Navegador:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.browser}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Sistema operativo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.os}</td></tr>
-     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dispositivo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.device}</td></tr>
-     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Indicador de sesión/dispositivo (hash):</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${deviceFP}</td></tr>
-     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Firma manuscrita digital:</td><td style="padding:4px 0;font-size:12px;">${strokeCount} trazos, ${totalPoints} puntos</td></tr>
-  </table>
-
-  <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">REGISTRO DE AUDITORÍA — Firmante ${signerIndex}</h4>
-  <table style="width:100%;border-collapse:collapse;margin:8px 0;">
-    <thead>
-      <tr style="background:#f5f5f5;">
-        <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">#</th>
-        <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Fecha/Hora COT</th>
-        <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Evento</th>
-        <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Actor</th>
-        <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">IP</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${auditRows}
-    </tbody>
-  </table>`;
 }
 
 Deno.serve(async (req) => {
@@ -326,7 +179,6 @@ Deno.serve(async (req) => {
     }
 
     const signedAt = new Date().toISOString();
-    const parsedUA = parseUserAgent(signerUA);
     let strokeCount = 0, totalPoints = 0;
     if (signature_stroke_data && Array.isArray(signature_stroke_data)) {
       strokeCount = signature_stroke_data.length;
@@ -349,18 +201,11 @@ Deno.serve(async (req) => {
       .eq("id", sig.document_id).single();
     if (!doc) return json({ error: "Documento no encontrado." }, 404);
 
-    // Fetch work item radicado
-    let radicado = "";
-    if (doc.work_item_id) {
-      const { data: wi } = await adminClient.from("work_items").select("radicado").eq("id", doc.work_item_id).single();
-      radicado = wi?.radicado || "";
-    }
-
-    // Fetch lawyer info + branding
-    let lawyerName = "", lawyerEmail = "", lawyerProfile: any = null;
+    // Fetch lawyer info + branding (for next-signer email)
+    let lawyerProfile: any = null;
     if (doc.created_by) {
       const { data: prof } = await adminClient.from("profiles").select("full_name, email, litigation_email, custom_branding_enabled, custom_logo_path, custom_firm_name").eq("id", doc.created_by).single();
-      lawyerName = prof?.full_name || ""; lawyerEmail = prof?.litigation_email || prof?.email || ""; lawyerProfile = prof;
+      lawyerProfile = prof;
     }
     let orgData: any = null;
     if (sig.organization_id) {
@@ -378,15 +223,6 @@ Deno.serve(async (req) => {
       signatureImagePath = `${sig.organization_id}/${sig.document_id}/signature-${sig.id}.png`;
       await adminClient.storage.from("signed-documents").upload(signatureImagePath, bytes, { contentType: "image/png", upsert: true });
     } catch (uploadErr) { console.error("Signature image upload error:", uploadErr); }
-
-    // Build signature block
-    const signatureBlock = `<div style="margin-top:40px;border-top:2px solid #333;padding-top:20px;">
-      <img src="${signature_data}" alt="Firma manuscrita digital" style="max-width:300px;max-height:100px;" />
-      <p><strong>${sig.signer_name}</strong></p>
-      <p>C.C. ${sig.signer_cedula || "N/A"}</p>
-      <p style="font-size:12px;color:#666;">Firmado electrónicamente el ${formatCOT(signedAt)}</p>
-      <p style="font-size:11px;color:#999;">Firma manuscrita digital válida conforme a Ley 527 de 1999 y Decreto 2364 de 2012</p>
-    </div>`;
 
     // Log signed event with hash chaining
     await insertChainedEvent(adminClient, {
@@ -407,16 +243,17 @@ Deno.serve(async (req) => {
       signature_image_path: signatureImagePath, signature_stroke_data: signature_stroke_data || null,
       signed_at: signedAt, signer_ip: signerIp, signer_user_agent: signerUA,
       signer_geolocation: geolocation || null,
-      consumed_at: signedAt, // One-time use: mark token as consumed
+      consumed_at: signedAt,
       device_fingerprint_hash: deviceFingerprintHash,
     }).eq("id", sig.id);
 
-    // Check for dependent signers (multi-signer flow)
+    // ─── Check for dependent signers (multi-signer sequential flow) ───
     const { data: waitingSigners } = await adminClient
       .from("document_signatures").select("*")
       .eq("document_id", sig.document_id).eq("depends_on", sig.id).eq("status", "waiting");
 
     if (waitingSigners && waitingSigners.length > 0) {
+      // NOT all signers done — set partially_signed, activate next signers
       await adminClient.from("generated_documents").update({ status: "partially_signed" }).eq("id", sig.document_id);
       for (const nextSig of waitingSigners) {
         await adminClient.from("document_signatures").update({ status: "pending" }).eq("id", nextSig.id);
@@ -426,6 +263,8 @@ Deno.serve(async (req) => {
           event_data: { signer_email: nextSig.signer_email, signer_name: nextSig.signer_name, triggered_by: sig.id },
           actor_type: "system", actor_id: "system",
         }, sig.document_id);
+
+        // Send "your turn to sign" email to next signer
         const resendKeyNotify = Deno.env.get("RESEND_API_KEY");
         if (resendKeyNotify && nextSig.signer_email) {
           const expiresTs = Math.floor(new Date(nextSig.expires_at).getTime() / 1000);
@@ -454,275 +293,103 @@ Deno.serve(async (req) => {
           } catch (emailErr) { console.error("Next signer notification error:", emailErr); }
         }
       }
-      return json({ ok: true, signature_id: sig.id, document_hash: null, signed_at: signedAt, download_url: null, is_partial: true, message: "Su firma ha sido registrada. El documento requiere firmas adicionales." });
+      return json({
+        ok: true, signature_id: sig.id, document_hash: null, signed_at: signedAt,
+        download_url: null, is_partial: true, pdf_pending: false,
+        message: "Su firma ha sido registrada. El documento requiere firmas adicionales.",
+      });
     }
 
-    // ─── ALL signers complete — generate final combined artifact ───
+    // ═══════════════════════════════════════════════════════════════
+    // ALL SIGNERS COMPLETE — EXECUTION MOMENT
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── Fetch all signatures for invariant validation ──
     const { data: allSignatures } = await adminClient
-      .from("document_signatures").select("*").eq("document_id", sig.document_id).order("signing_order", { ascending: true });
+      .from("document_signatures").select("*").eq("document_id", sig.document_id)
+      .order("signing_order", { ascending: true });
     const signedSigs = allSignatures?.filter(s => s.status === "signed") || [];
-    const totalSigners = signedSigs.length;
-
-    // ── HARD INVARIANT: For bilateral contracts, ALL signers must have valid signature data ──
-    const isBilateral = doc.document_type === "contrato_servicios";
     const totalExpectedSigners = allSignatures?.length || 0;
-    if (isBilateral && signedSigs.length < totalExpectedSigners) {
-      console.error(`Bilateral invariant violation: ${signedSigs.length}/${totalExpectedSigners} signed for doc ${sig.document_id}`);
-      return json({ error: "No se puede finalizar: faltan firmas de una o más partes.", error_code: "BILATERAL_INCOMPLETE" }, 409);
+
+    // ── EXECUTION INVARIANTS ──
+    // 1. All required signers must have signed
+    const isBilateral = doc.document_type === "contrato_servicios";
+    if (signedSigs.length < totalExpectedSigners) {
+      console.error(`[complete-signature] Execution invariant violation: ${signedSigs.length}/${totalExpectedSigners} signed for doc ${sig.document_id}`);
+      return json({ error: "No se puede finalizar: faltan firmas de una o más partes.", error_code: "EXECUTION_INCOMPLETE" }, 409);
     }
+
+    // 2. Each signer must have non-empty signature payload
     for (const s of signedSigs) {
       const hasStrokes = s.signature_stroke_data && Array.isArray(s.signature_stroke_data) && s.signature_stroke_data.length > 0;
       const hasImage = !!s.signature_image_path;
       if (!hasStrokes && !hasImage) {
-        console.error(`Empty signature payload for signer ${s.id} (${s.signer_email}) on doc ${sig.document_id}`);
-        return json({ error: `La firma de ${s.signer_name} está vacía. No se puede ejecutar el documento.`, error_code: "EMPTY_SIGNATURE" }, 422);
+        console.error(`[complete-signature] Empty signature for signer ${s.id} (${s.signer_email})`);
+        return json({
+          error: `La firma de ${s.signer_name} está vacía. No se puede ejecutar el documento.`,
+          error_code: "EMPTY_SIGNATURE",
+        }, 422);
       }
     }
 
-    const allSignatureBlocks = signedSigs.map(s => {
-      const roleLabel = s.signer_role === "lawyer" ? "EL MANDATARIO" : "EL MANDANTE";
-      return `<div style="margin-top:30px;border-top:2px solid #333;padding-top:16px;display:inline-block;width:${totalSigners > 1 ? '48%' : '100%'};vertical-align:top;">
-        ${s.signature_image_path ? `<img src="${supabaseUrl}/storage/v1/object/public/signed-documents/${s.signature_image_path}" alt="Firma" style="max-width:250px;max-height:80px;" />` : '<p style="color:#999;">[Firma registrada]</p>'}
-        <p><strong>${s.signer_name}</strong></p><p>C.C. ${s.signer_cedula || "N/A"}</p>
-        ${totalSigners > 1 ? `<p style="font-size:12px;font-weight:bold;">${roleLabel}</p>` : ""}
-        <p style="font-size:11px;color:#666;">Firmado: ${s.signed_at ? formatCOT(s.signed_at) : "N/A"}</p>
-      </div>`;
-    }).join(totalSigners > 1 ? '&nbsp;&nbsp;' : '');
-
-    // Build DOCUMENT PAGES HTML (for hash)
-    const documentPagesHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title>
-<style>body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }</style>
-</head><body>${doc.content_html}<div style="margin-top:40px;">${allSignatureBlocks}</div></body></html>`;
-
-    const documentBytes = new TextEncoder().encode(documentPagesHtml);
-    const documentHash = await sha256Hex(documentBytes);
-
-    // Log hash event
-    await insertChainedEvent(adminClient, {
-      organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
-      event_type: "document.hash_generated",
-      event_data: { hash: documentHash, algorithm: "SHA-256", scope: "document_pages_all_signatures" },
-      actor_type: "system", actor_id: "system",
-    }, sig.document_id);
-
-    // Fetch ALL audit trail events
-    const { data: allDocEvents } = await adminClient
-      .from("document_signature_events").select("*").eq("document_id", sig.document_id)
-      .in("event_type", ["document.created", "document.edited", "document.finalized"])
-      .order("created_at", { ascending: true });
-
-    const certificateId = crypto.randomUUID();
-    const docTypeLabel = doc.document_type === "poder_especial" ? "Poder Especial" : doc.document_type === "contrato_servicios" ? "Contrato de Servicios Profesionales" : doc.document_type;
-    const verifyUrl = `https://lexyai.lovable.app/verify?hash=${documentHash}`;
-
-    // Determine delivery method from initial signature.requested event
-    const { data: requestedEvent } = await adminClient
-      .from("document_signature_events").select("event_data")
-      .eq("document_id", sig.document_id).eq("event_type", "signature.requested")
-      .order("created_at", { ascending: true }).limit(1).maybeSingle();
-    const deliveryMethod = requestedEvent?.event_data?.delivery_method || "EMAIL";
-
-    const docAuditRows = (allDocEvents || []).map((ev, i) => {
-      const label = EVENT_LABELS[ev.event_type] || ev.event_type;
-      const actor = ev.actor_type === "lawyer" ? "Abogado" : ev.actor_type === "signer" ? "Firmante" : "Sistema";
-      const ip = ev.actor_ip || "Sistema";
-      return `<tr>
-        <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${i + 1}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${formatCOT(ev.created_at)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${label}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${actor}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${ip}</td>
-      </tr>`;
-    }).join("\n");
-
-    // Build per-signer evidence sections
-    const poderdanteType = (doc as any).poderdante_type || "natural";
-    const entityInfo = (doc as any).entity_data || null;
-    const signerSections: string[] = [];
-    for (let idx = 0; idx < signedSigs.length; idx++) {
-      const s = signedSigs[idx];
-      let roleLabel: string;
-      if (s.signer_role === "lawyer") roleLabel = "EL MANDATARIO (ABOGADO)";
-      else if (poderdanteType === "juridica" && entityInfo) roleLabel = `PODERDANTE (PERSONA JURÍDICA)`;
-      else if (poderdanteType === "multiple") roleLabel = `PODERDANTE ${idx + 1}`;
-      else roleLabel = "EL MANDANTE (CLIENTE)";
-
-      const { data: signerEvents } = await adminClient
-        .from("document_signature_events").select("*").eq("signature_id", s.id).order("created_at", { ascending: true });
-
-      let extraInfo = "";
-      if (poderdanteType === "juridica" && s.signer_role !== "lawyer" && entityInfo) {
-        extraInfo = `<table style="width:100%;border-collapse:collapse;margin:8px 0 16px;">
-          <tr><td style="padding:6px 0;color:#666;width:40%;">Sociedad:</td><td style="padding:6px 0;font-weight:bold;">${entityInfo.company_name || "N/A"}</td></tr>
-          <tr><td style="padding:6px 0;color:#666;">NIT:</td><td style="padding:6px 0;">${entityInfo.company_nit || "N/A"}</td></tr>
-          <tr><td style="padding:6px 0;color:#666;">Domicilio:</td><td style="padding:6px 0;">${entityInfo.company_city || "N/A"}</td></tr>
-          ${entityInfo.rep_legal_cargo ? `<tr><td style="padding:6px 0;color:#666;">Cargo del firmante:</td><td style="padding:6px 0;">${entityInfo.rep_legal_cargo}</td></tr>` : ""}
-        </table><h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;font-size:12px;">REPRESENTANTE LEGAL</h4>`;
-      }
-      const section = buildSignerEvidenceSection(s, signerEvents || [], idx + 1, totalSigners, roleLabel);
-      if (extraInfo) {
-        const insertPoint = section.indexOf('</h3>') + 5;
-        signerSections.push(section.slice(0, insertPoint) + extraInfo + section.slice(insertPoint));
-      } else {
-        signerSections.push(section);
-      }
-    }
-
-    let statusLabel: string;
-    if (poderdanteType === "multiple") statusLabel = `Firmado por todos los poderdantes (${totalSigners}/${totalSigners})`;
-    else if (totalSigners > 1) statusLabel = "Firmado por ambas partes";
-    else statusLabel = "Firmado";
-
-    // Delivery method label for audit report
-    const deliveryMethodLabel = deliveryMethod === "LINK"
-      ? "Enlace de firma (compartido por el abogado)"
-      : "Correo electrónico (info@andromeda.legal)";
-
-    // Token info
-    const tokenIssuedAt = sig.created_at ? formatCOT(sig.created_at) : "N/A";
-    const tokenExpiresAt = sig.expires_at ? formatCOT(sig.expires_at) : "N/A";
-    const tokenConsumedAt = formatCOT(signedAt);
-
-    const evidenceAppendix = `
-<div style="page-break-before:always;padding:40px;font-family:sans-serif;max-width:800px;margin:0 auto;">
-  ${buildCertificateHeader(branding)}
-  
-  <h2 style="text-align:center;color:#1a1a2e;border-top:2px solid #1a1a2e;border-bottom:2px solid #1a1a2e;padding:12px 0;letter-spacing:2px;font-size:16px;">
-    CERTIFICADO DE FIRMA ELECTRÓNICA
-  </h2>
-
-  <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-    <tr><td style="padding:6px 0;color:#666;width:40%;">Documento:</td><td style="padding:6px 0;font-weight:bold;">${doc.title}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">ID del documento:</td><td style="padding:6px 0;font-family:monospace;font-size:11px;">${doc.id}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Tipo:</td><td style="padding:6px 0;">${docTypeLabel}</td></tr>
-    ${radicado ? `<tr><td style="padding:6px 0;color:#666;">Expediente:</td><td style="padding:6px 0;">${radicado}</td></tr>` : ""}
-    <tr><td style="padding:6px 0;color:#666;">Estado:</td><td style="padding:6px 0;font-weight:bold;">${statusLabel}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Creado:</td><td style="padding:6px 0;">${formatCOT(doc.created_at)}</td></tr>
-    ${lawyerName ? `<tr><td style="padding:6px 0;color:#666;">Generado para:</td><td style="padding:6px 0;">${lawyerName} (${lawyerEmail})</td></tr>` : ""}
-    ${doc.created_by ? `<tr><td style="padding:6px 0;color:#666;">ID de usuario abogado:</td><td style="padding:6px 0;font-family:monospace;font-size:11px;">${doc.created_by}</td></tr>` : ""}
-    <tr><td style="padding:6px 0;color:#666;">Método de entrega:</td><td style="padding:6px 0;">${deliveryMethodLabel}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Remitente del sistema:</td><td style="padding:6px 0;">info@andromeda.legal</td></tr>
-  </table>
-
-  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">INFORMACIÓN DEL TOKEN DE FIRMA</h3>
-  <table style="width:100%;border-collapse:collapse;margin:8px 0;">
-    <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Token emitido:</td><td style="padding:4px 0;font-size:12px;">${tokenIssuedAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token expira:</td><td style="padding:4px 0;font-size:12px;">${tokenExpiresAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token consumido:</td><td style="padding:4px 0;font-size:12px;">${tokenConsumedAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Estado del token:</td><td style="padding:4px 0;font-weight:bold;font-size:12px;">CONSUMIDO (uso único)</td></tr>
-  </table>
-
-  ${docAuditRows.length > 0 ? `
-  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">HISTORIAL DEL DOCUMENTO</h3>
-  <table style="width:100%;border-collapse:collapse;margin:8px 0;">
-    <thead><tr style="background:#f5f5f5;">
-      <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">#</th>
-      <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Fecha/Hora COT</th>
-      <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Evento</th>
-      <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">Actor</th>
-      <th style="padding:6px 8px;border:1px solid #ddd;font-size:11px;text-align:left;">IP</th>
-    </tr></thead>
-    <tbody>${docAuditRows}</tbody>
-  </table>` : ""}
-
-  ${signerSections.join("")}
-
-  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:32px;">INTEGRIDAD DEL DOCUMENTO</h3>
-  <table style="width:100%;border-collapse:collapse;">
-     <tr><td style="padding:6px 0;color:#666;width:40%;">Algoritmo:</td><td style="padding:6px 0;">SHA-256</td></tr>
-     <tr><td style="padding:6px 0;color:#666;">Hash del documento firmado (final_pdf_sha256):</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
-     <tr><td style="padding:6px 0;color:#666;">Nota:</td><td style="padding:6px 0;font-size:11px;">Este hash corresponde al artefacto PDF firmado adjunto a este certificado.</td></tr>
-     <tr><td style="padding:6px 0;color:#666;">Cadena de hash de eventos:</td><td style="padding:6px 0;font-size:11px;">Habilitada (SHA-256 encadenado)</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Verificar en:</td><td style="padding:6px 0;"><a href="${verifyUrl}" style="color:#1a1a2e;">${verifyUrl}</a></td></tr>
-  </table>
-
-  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">MARCO LEGAL</h3>
-  <div style="font-size:12px;color:#444;line-height:1.6;">
-    <p>Esta firma electrónica se emite de conformidad con:</p>
-    <ul style="margin:8px 0;">
-      <li>Ley 527 de 1999 — Comercio electrónico y firmas digitales</li>
-      <li>Decreto 2364 de 2012 — Reglamentación de la firma electrónica</li>
-      <li>Decreto 806 de 2020 — Firma electrónica en actuaciones judiciales</li>
-    </ul>
-    <p>La firma cumple los requisitos del Art. 4° Decreto 2364/2012: (1) datos de creación vinculados exclusivamente al firmante (verificación de identidad por nombre y cédula + OTP + email personal + firma manuscrita digital con datos biométricos), (2) cualquier alteración posterior es detectable (hash SHA-256 con cadena de eventos inmutable).</p>
-  </div>
-
-  <div style="margin-top:32px;padding-top:16px;border-top:2px solid #1a1a2e;text-align:center;font-size:11px;color:#999;">
-    <p>Generado por ${branding.firm_name}</p>
-    <p>Certificado ID: ${certificateId} | Documento ID: ${doc.id}</p>
-    <p>Este documento fue generado automáticamente y no requiere firma adicional.</p>
-  </div>
-</div>`;
-
-    const combinedHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title>
-<style>body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }
-@media print { div[style*="page-break-before"] { page-break-before: always; } }</style>
-</head><body>
-${doc.content_html}
-<div style="margin-top:40px;">${allSignatureBlocks}</div>
-<footer style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;text-align:center;">
-  Documento firmado electrónicamente — ID: ${doc.id.substring(0, 8)}
-</footer>
-${evidenceAppendix}
-</body></html>`;
-
-    const combinedBytes = new TextEncoder().encode(combinedHtml);
-    const combinedHash = await sha256Hex(combinedBytes);
-
-    // Store HTML for debug only (not the deliverable)
-    const htmlStoragePath = `${sig.organization_id}/${sig.document_id}/signed.html`;
-    await adminClient.storage.from("signed-documents").upload(htmlStoragePath, combinedBytes, { contentType: "text/html; charset=utf-8", upsert: true })
-      .catch((e: unknown) => console.warn("HTML debug upload warning:", e));
-
-    // Update ALL signed signatures with hash + certificate
+    // 3. Each signer must have OTP verified (check audit events)
     for (const s of signedSigs) {
-      await adminClient.from("document_signatures").update({
-        signed_document_path: htmlStoragePath, signed_document_hash: documentHash,
-        combined_pdf_hash: combinedHash, certificate_id: certificateId,
-      }).eq("id", s.id);
+      if (!s.otp_verified_at) {
+        console.error(`[complete-signature] OTP not verified for signer ${s.id} (${s.signer_email})`);
+        return json({
+          error: `El firmante ${s.signer_name} no completó la verificación OTP.`,
+          error_code: "OTP_NOT_VERIFIED",
+        }, 422);
+      }
     }
 
-    // Set finalized_at NOW (execution timestamp) — this triggers retention computation via DB trigger
+    console.log(`[complete-signature] Execution invariants passed: ${signedSigs.length}/${totalExpectedSigners} signers, doc ${sig.document_id}`);
+
+    // ── Mark document as executed ──
+    // IMPORTANT: final_pdf_sha256 is NOT set here. It is set ONLY by process-pdf-job
+    // after the actual PDF bytes are generated. This prevents hash mismatches.
     const finalStatus = isBilateral ? "signed_finalized" : "signed";
     await adminClient.from("generated_documents").update({
       status: finalStatus,
-      final_pdf_sha256: documentHash,
       finalized_at: new Date().toISOString(),
       finalized_by: sig.signer_name,
     }).eq("id", sig.document_id);
 
+    // Log execution event
     await insertChainedEvent(adminClient, {
       organization_id: sig.organization_id, document_id: sig.document_id, signature_id: sig.id,
-      event_type: "document.stored",
-      event_data: { storage_path: htmlStoragePath, includes_evidence_appendix: true, combined_hash: combinedHash, total_signers: totalSigners, final_pdf_sha256: documentHash },
+      event_type: "document.executed",
+      event_data: {
+        total_signers: signedSigs.length,
+        signer_model: isBilateral ? "BILATERAL" : "UNILATERAL",
+        all_otp_verified: true,
+        all_signatures_non_empty: true,
+        execution_timestamp: new Date().toISOString(),
+      },
       actor_type: "system", actor_id: "system",
     }, sig.document_id);
 
     // ── Enqueue async PDF generation job ──
     // CRITICAL: Notification emails are deferred to process-pdf-job.
-    // Emails are ONLY sent after signed.pdf exists. This ensures download
-    // links always point to PDF, never HTML.
+    // Emails are ONLY sent after signed.pdf exists and final_pdf_sha256 is set.
     const { error: jobErr } = await adminClient.from("document_pdf_jobs").insert({
       document_id: sig.document_id,
       organization_id: sig.organization_id,
       status: "queued",
     });
     if (jobErr) {
-      console.error("PDF job enqueue error:", jobErr);
+      console.error("[complete-signature] PDF job enqueue error:", jobErr);
     } else {
       // Fire-and-forget: invoke process-pdf-job asynchronously
       fetch(`${supabaseUrl}/functions/v1/process-pdf-job`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ document_id: sig.document_id }),
-      }).catch((e: unknown) => console.warn("Async PDF job trigger warning:", e));
+      }).catch((e: unknown) => console.warn("[complete-signature] Async PDF job trigger warning:", e));
     }
 
     return json({
-      ok: true, signature_id: sig.id, document_hash: documentHash,
+      ok: true, signature_id: sig.id,
       signed_at: signedAt, download_url: null,
       pdf_pending: true,
       message: "Documento firmado exitosamente. El PDF se está generando y recibirá una notificación por correo electrónico cuando esté listo.",
