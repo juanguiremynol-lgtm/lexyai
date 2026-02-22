@@ -576,7 +576,9 @@ export default function PlatformGenericSigningPage() {
               lawyerName={profile?.full_name || ""}
               lawyerCedula={profile?.firma_abogado_cc || ""}
               lawyerEmail={profile?.litigation_email || profile?.firma_abogado_correo || ""}
-              documentHtml={`<div style="padding:2rem;text-align:center;color:#666;"><p>El documento es un PDF subido externamente.</p><p>Puede revisarlo usando el visor de PDF antes de firmar.</p><p style="font-size:0.85em;color:#999;">Archivo: ${uploadedPdf?.fileName || "source.pdf"}</p></div>`}
+              documentHtml=""
+              sourceType="UPLOADED_PDF"
+              sourcePdfPath={uploadedPdf?.storagePath}
               onComplete={handleLawyerSigningComplete}
               onCancel={() => {
                 setLawyerSigningActive(false);
