@@ -20,7 +20,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { validateAuditData, AUDIT_CERTIFICATE_SECTIONS } from "./auditCertificateRequirements.ts";
+import { validateAuditData, getCriticalErrors, getWarningErrors, AUDIT_CERTIFICATE_SECTIONS } from "./auditCertificateRequirements.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -467,9 +467,15 @@ Deno.serve(async (req) => {
         events: (allDocEvents || []).map(e => ({ event_type: e.event_type, event_hash: e.event_hash })),
         signerModel: policy.signerModel,
       });
-      if (validationErrors.length > 0) {
-        console.warn(`[process-pdf-job] Audit validation warnings (${validationErrors.length}):`, validationErrors);
-        // Log warnings but don't block — data may be partially available
+      const criticalErrors = getCriticalErrors(validationErrors);
+      const warnings = getWarningErrors(validationErrors);
+      if (warnings.length > 0) {
+        console.warn(`[process-pdf-job] Audit validation warnings (${warnings.length}):`, warnings);
+      }
+      if (criticalErrors.length > 0) {
+        const msg = `Critical audit validation failed: ${criticalErrors.map(e => `${e.field}: ${e.message}`).join("; ")}`;
+        console.error(`[process-pdf-job] ${msg}`);
+        throw new Error(msg);
       }
 
       // ── Build per-signer evidence sections ──
@@ -518,6 +524,16 @@ Deno.serve(async (req) => {
 
       // ── Token info — per signer with computed status ──
       const tokenSections = signedSigs.map((s, idx) => {
+        const signerLabel = totalSigners > 1 ? ` — Firmante ${idx + 1} (${s.signer_name})` : "";
+        // Detect in-app JWT signing (lawyer signs in-app without external token)
+        const isInAppSigning = s.signer_role === "lawyer" && !s.token_hash && !s.expires_at;
+        if (isInAppSigning) {
+          return `
+          <tr><td colspan="2" style="padding:8px 0 2px;font-weight:bold;font-size:12px;border-bottom:1px solid #eee;">${signerLabel ? `Token${signerLabel}` : ""}</td></tr>
+          <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Método de autenticación:</td><td style="padding:4px 0;font-size:12px;font-weight:bold;">Sesión autenticada (JWT) — firma en aplicación</td></tr>
+          <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token externo:</td><td style="padding:4px 0;font-size:12px;">N/A (firma en aplicación con sesión JWT verificada)</td></tr>
+          <tr><td style="padding:4px 0;color:#666;font-size:12px;">Estado:</td><td style="padding:4px 0;font-weight:bold;font-size:12px;">AUTENTICADO VÍA JWT</td></tr>`;
+        }
         const issuedAt = s.created_at ? formatCOT(s.created_at) : "N/A";
         const expiresAt = s.expires_at ? formatCOT(s.expires_at) : "N/A";
         const consumedAt = s.consumed_at ? formatCOT(s.consumed_at) : (s.signed_at ? formatCOT(s.signed_at) : "N/A");
@@ -525,7 +541,6 @@ Deno.serve(async (req) => {
         if (s.consumed_at || s.signed_at) tokenStatus = "CONSUMIDO";
         else if (s.revoked_at) tokenStatus = "REVOCADO";
         else if (s.expires_at && new Date(s.expires_at) < new Date()) tokenStatus = "EXPIRADO";
-        const signerLabel = totalSigners > 1 ? ` — Firmante ${idx + 1} (${s.signer_name})` : "";
         return `
         <tr><td colspan="2" style="padding:8px 0 2px;font-weight:bold;font-size:12px;border-bottom:1px solid #eee;">${signerLabel ? `Token${signerLabel}` : ""}</td></tr>
         <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Token emitido:</td><td style="padding:4px 0;font-size:12px;">${issuedAt}</td></tr>
