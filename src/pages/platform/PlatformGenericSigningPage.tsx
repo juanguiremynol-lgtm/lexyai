@@ -90,6 +90,7 @@ export default function PlatformGenericSigningPage() {
     documentId: string;
     signatureId: string;
     signingToken: string;
+    counterpartySignatureId?: string | null;
   } | null>(null);
   const [lawyerSigned, setLawyerSigned] = useState(false);
 
@@ -268,10 +269,34 @@ export default function PlatformGenericSigningPage() {
         throw new Error(msg);
       }
 
+      // 4. Create counterparty signature upfront as "waiting" so complete-signature
+      //    knows this is bilateral and won't trigger "all signers done" after lawyer signs.
+      const { data: counterpartySigResult, error: counterpartySigErr } = await supabase.functions.invoke("generate-signing-link", {
+        body: {
+          document_id: doc.id,
+          signer_name: counterparty.full_name,
+          signer_email: counterparty.email,
+          signer_cedula: counterparty.id_number,
+          signer_role: "client",
+          signing_order: 2,
+          depends_on: sigResult.signature_id,
+          create_as_waiting: true,
+          expires_hours: 72,
+          send_email: false,
+          is_generic_mode: true,
+        },
+      });
+
+      if (counterpartySigErr) {
+        console.warn("Failed to pre-create counterparty signature:", counterpartySigErr);
+        // Non-blocking — we'll create it later in handleSendToCounterparty as fallback
+      }
+
       setLawyerSigningData({
         documentId: doc.id,
         signatureId: sigResult.signature_id,
         signingToken: sigResult.signing_token,
+        counterpartySignatureId: counterpartySigResult?.signature_id || null,
       });
       setLawyerSigningActive(true);
     } catch (err: any) {
@@ -288,7 +313,37 @@ export default function PlatformGenericSigningPage() {
 
     try {
       const lawyerSigId = lawyerSigningData?.signatureId;
+      const existingCounterpartySigId = lawyerSigningData?.counterpartySignatureId;
 
+      // If counterparty signature was pre-created as "waiting", just send the email
+      if (existingCounterpartySigId && deliveryMethod === "email") {
+        const { error: emailErr } = await supabase.functions.invoke("send-signing-email", {
+          body: { signature_id: existingCounterpartySigId },
+        });
+        if (emailErr) {
+          console.warn("send-signing-email failed, falling back to generate-signing-link");
+        } else {
+          // Fetch the signing URL for display
+          const { data: sigRecord } = await (supabase as any)
+            .from("document_signatures")
+            .select("signing_token, hmac_signature, expires_at")
+            .eq("id", existingCounterpartySigId)
+            .single();
+          if (sigRecord) {
+            const expiresTs = Math.floor(new Date(sigRecord.expires_at).getTime() / 1000);
+            setSigningLinks({
+              signingUrl: `https://lexyai.lovable.app/sign/${sigRecord.signing_token}?expires=${expiresTs}&signature=${sigRecord.hmac_signature}`,
+              emailSent: true,
+              expiresAt: sigRecord.expires_at,
+            });
+          }
+          setStep(5);
+          toast.success("Invitación enviada por email");
+          return;
+        }
+      }
+
+      // Fallback: create new signing link (handles case where pre-creation failed)
       const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
         body: {
           document_id: savedDocId,
