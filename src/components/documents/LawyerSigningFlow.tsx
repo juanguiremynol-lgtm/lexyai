@@ -74,12 +74,21 @@ export function LawyerSigningFlow({
     setIdentityVerifying(true);
     setIdentityError("");
     try {
+      const requestBody = signingToken
+        ? {
+            signing_token: signingToken,
+            confirmed_name: confirmedName.trim(),
+            confirmed_cedula: confirmedCedula.trim(),
+          }
+        : {
+            document_id: documentId,
+            signing_order: 1,
+            confirmed_name: confirmedName.trim(),
+            confirmed_cedula: confirmedCedula.trim(),
+          };
+
       const { data, error } = await supabase.functions.invoke("verify-signing-identity", {
-        body: {
-          signing_token: signingToken,
-          confirmed_name: confirmedName.trim(),
-          confirmed_cedula: confirmedCedula.trim(),
-        },
+        body: requestBody,
       });
       if (error) {
         // Extract the actual response body from FunctionsHttpError

@@ -278,6 +278,7 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       signature_id: sig.id,
+      signing_token: signingToken,
       signing_url: signingUrl,
       expires_at: expiresAt.toISOString(),
       email_sent: emailSent,
