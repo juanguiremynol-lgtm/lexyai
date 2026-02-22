@@ -352,7 +352,7 @@ Deno.serve(async (req) => {
 
       // ── Fetch document ──
       const { data: doc, error: docErr } = await adminClient.from("generated_documents")
-        .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at, poderdante_type, entity_data")
+        .select("id, title, content_html, organization_id, document_type, work_item_id, created_by, created_at, poderdante_type, entity_data, source_type, source_pdf_path, source_pdf_sha256")
         .eq("id", job.document_id).single();
       if (docErr || !doc) throw new Error(`Document not found: ${job.document_id}`);
 
@@ -429,8 +429,17 @@ Deno.serve(async (req) => {
       }).join(totalSigners > 1 ? "&nbsp;&nbsp;" : "");
 
       // ── Hash document content for integrity ──
-      const documentPagesHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title></head><body>${doc.content_html}<div>${allSignatureBlocks}</div></body></html>`;
-      const documentHash = await sha256Hex(documentPagesHtml);
+      const isUploadedPdf = doc.source_type === "UPLOADED_PDF";
+      let documentPagesHtml = "";
+      let documentHash: string;
+      if (isUploadedPdf && doc.source_pdf_sha256) {
+        // For uploaded PDFs, use the pre-computed source PDF hash
+        documentHash = doc.source_pdf_sha256;
+        documentPagesHtml = `[UPLOADED_PDF: hash=${documentHash}]`;
+      } else {
+        documentPagesHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title></head><body>${doc.content_html}<div>${allSignatureBlocks}</div></body></html>`;
+        documentHash = await sha256Hex(documentPagesHtml);
+      }
 
       // ── Fetch radicado ──
       let radicado = "";
@@ -708,8 +717,78 @@ Deno.serve(async (req) => {
   </div>
 </div>`;
 
-      // ── Build final combined HTML package ──
-      const combinedHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title>
+      // ── Build and execute PDF generation ──
+      let pdfResult: any;
+
+      if (isUploadedPdf && doc.source_pdf_path) {
+        // ═══ UPLOADED_PDF path: merge source PDF + signature block + audit via merge-signed-pdf ═══
+        console.log(`[process-pdf-job] UPLOADED_PDF detected — using merge pipeline for ${doc.id}`);
+
+        // Build signature block HTML (full page)
+        const signatureBlockHtml = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Firmas</title></head>
+<body style="font-family:'Georgia',serif;max-width:800px;margin:0 auto;padding:40px;">
+  <h2 style="color:#1a1a2e;border-bottom:2px solid #1a1a2e;padding-bottom:8px;margin-bottom:24px;">FIRMAS ELECTRÓNICAS</h2>
+  <div>${allSignatureBlocks}</div>
+  <footer style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;text-align:center;">
+    Firmas electrónicas — Documento original proporcionado por el abogado
+  </footer>
+</body></html>`;
+
+        // Build audit certificate HTML (full page)
+        const auditCertificateHtml = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Certificado de Auditoría</title>
+<style>body { font-family: sans-serif; } @media print { div[style*="page-break-before"] { page-break-before: always; } }</style>
+</head><body>
+${evidenceAppendix}
+</body></html>`;
+
+        // Store debug HTML artifacts
+        try {
+          const sigBlockBytes = new TextEncoder().encode(signatureBlockHtml);
+          await adminClient.storage.from("signed-documents")
+            .upload(`${doc.organization_id}/${doc.id}/signature_block.html`, sigBlockBytes, { contentType: "text/html; charset=utf-8", upsert: true });
+          const auditBytes = new TextEncoder().encode(auditCertificateHtml);
+          await adminClient.storage.from("signed-documents")
+            .upload(`${doc.organization_id}/${doc.id}/audit_certificate.html`, auditBytes, { contentType: "text/html; charset=utf-8", upsert: true });
+        } catch (e: unknown) {
+          console.warn("[process-pdf-job] Debug HTML upload:", e);
+        }
+
+        if (Date.now() > DEADLINE) throw new Error("Wall-clock deadline exceeded before PDF merge");
+
+        // Call merge-signed-pdf
+        const mergeUrl = `${supabaseUrl}/functions/v1/merge-signed-pdf`;
+        const mergeRes = await fetch(mergeUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            document_id: doc.id,
+            organization_id: doc.organization_id,
+            source_pdf_path: doc.source_pdf_path,
+            signature_block_html: signatureBlockHtml,
+            audit_certificate_html: auditCertificateHtml,
+            filename: "signed.pdf",
+          }),
+          signal: AbortSignal.timeout(120_000),
+        });
+
+        const mergeResBody = await mergeRes.text();
+        try { pdfResult = JSON.parse(mergeResBody); } catch { throw new Error(`merge-signed-pdf returned non-JSON: ${mergeResBody.substring(0, 200)}`); }
+
+        if (!mergeRes.ok || !pdfResult.ok) {
+          const isRetryable = pdfResult.retryable === true;
+          throw Object.assign(new Error(`merge-signed-pdf failed: ${pdfResult.error}`), {
+            errorDetail: { http_status: mergeRes.status, details: (pdfResult.error || "").substring(0, 500), attempt: job.attempts + 1, pipeline: "merge" },
+            isRetryable,
+          });
+        }
+
+        console.log(`[process-pdf-job] Merge pipeline succeeded: ${pdfResult.storage_path}, pages=${pdfResult.page_count} (source=${pdfResult.source_pages}, sig=${pdfResult.signature_block_pages}, audit=${pdfResult.audit_pages})`);
+
+      } else {
+        // ═══ Standard HTML path: combine HTML + signatures + audit → html-to-pdf ═══
+        const combinedHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${doc.title}</title>
 <style>body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px; }
 @media print { div[style*="page-break-before"] { page-break-before: always; } }</style>
 </head><body>
@@ -721,43 +800,42 @@ ${doc.content_html}
 ${evidenceAppendix}
 </body></html>`;
 
-      // ── Store debug HTML ──
-      const htmlBytes = new TextEncoder().encode(combinedHtml);
-      const htmlStoragePath = `${doc.organization_id}/${doc.id}/signed.html`;
-      try {
-        await adminClient.storage.from("signed-documents")
-          .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true });
-      } catch (e: unknown) {
-        console.warn("[process-pdf-job] HTML debug upload:", e);
-      }
+        // Store debug HTML
+        const htmlBytes = new TextEncoder().encode(combinedHtml);
+        const htmlStoragePath = `${doc.organization_id}/${doc.id}/signed.html`;
+        try {
+          await adminClient.storage.from("signed-documents")
+            .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true });
+        } catch (e: unknown) {
+          console.warn("[process-pdf-job] HTML debug upload:", e);
+        }
 
-      // ── Check deadline ──
-      if (Date.now() > DEADLINE) throw new Error("Wall-clock deadline exceeded before PDF generation");
+        if (Date.now() > DEADLINE) throw new Error("Wall-clock deadline exceeded before PDF generation");
 
-      // ── Call html-to-pdf ──
-      const htmlToPdfUrl = `${supabaseUrl}/functions/v1/html-to-pdf`;
-      const pdfRes = await fetch(htmlToPdfUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          document_id: doc.id, html: combinedHtml, filename: "signed.pdf",
-          organization_id: doc.organization_id,
-          paper: { format: "A4", margin_top: "10mm", margin_bottom: "10mm", margin_left: "10mm", margin_right: "10mm", print_background: true },
-        }),
-        signal: AbortSignal.timeout(90000),
-      });
-
-      const pdfResBody = await pdfRes.text();
-      let pdfResult: any;
-      try { pdfResult = JSON.parse(pdfResBody); } catch { throw new Error(`html-to-pdf returned non-JSON: ${pdfResBody.substring(0, 200)}`); }
-
-      if (!pdfRes.ok || !pdfResult.ok) {
-        const isRetryable = pdfResult.retryable === true;
-        throw Object.assign(new Error(`html-to-pdf failed: ${pdfResult.error}`), {
-          errorDetail: { http_status: pdfRes.status, details: (pdfResult.details || pdfResult.error || "").substring(0, 500), attempt: job.attempts + 1 },
-          isRetryable,
+        // Call html-to-pdf
+        const htmlToPdfUrl = `${supabaseUrl}/functions/v1/html-to-pdf`;
+        const pdfRes = await fetch(htmlToPdfUrl, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            document_id: doc.id, html: combinedHtml, filename: "signed.pdf",
+            organization_id: doc.organization_id,
+            paper: { format: "A4", margin_top: "10mm", margin_bottom: "10mm", margin_left: "10mm", margin_right: "10mm", print_background: true },
+          }),
+          signal: AbortSignal.timeout(90000),
         });
-      }
+
+        const pdfResBody = await pdfRes.text();
+        try { pdfResult = JSON.parse(pdfResBody); } catch { throw new Error(`html-to-pdf returned non-JSON: ${pdfResBody.substring(0, 200)}`); }
+
+        if (!pdfRes.ok || !pdfResult.ok) {
+          const isRetryable = pdfResult.retryable === true;
+          throw Object.assign(new Error(`html-to-pdf failed: ${pdfResult.error}`), {
+            errorDetail: { http_status: pdfRes.status, details: (pdfResult.details || pdfResult.error || "").substring(0, 500), attempt: job.attempts + 1 },
+            isRetryable,
+          });
+        }
+      } // end else (standard HTML path)
 
       // ── Update job as succeeded ──
       await adminClient.from("document_pdf_jobs").update({
