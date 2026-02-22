@@ -615,25 +615,34 @@ export default function DocumentDetailPage() {
                       className="bg-destructive text-destructive-foreground"
                       onClick={async () => {
                         try {
-                          // Revoke any pending signing links
-                          const pendingSigs = signatures?.filter(s => s.status !== "signed") || [];
-                          for (const sig of pendingSigs) {
-                            await supabase
-                              .from("document_signatures")
-                              .update({ status: "revoked" } as any)
-                              .eq("id", sig.id);
+                          const { data: delData, error: delError } = await supabase.functions.invoke("delete-generated-document", {
+                            body: { document_id: doc.id },
+                          });
+
+                          if (delError) {
+                            let msg = "No se pudo eliminar";
+                            try {
+                              const ctx = (delError as any)?.context;
+                              if (ctx && typeof ctx.json === "function") {
+                                const body = await ctx.json();
+                                msg = body?.error || body?.message || msg;
+                              }
+                            } catch (_) {}
+                            toast.error(msg);
+                            return;
                           }
 
-                          // Soft-delete the document
-                          await supabase
-                            .from("generated_documents")
-                            .update({ deleted_at: new Date().toISOString() } as any)
-                            .eq("id", doc.id);
-
-                          toast.success("Documento eliminado");
-                          navigate(`/app/work-items/${workItemId}`);
+                          if (delData?.ok) {
+                            const revokedMsg = delData.revoked_signatures > 0
+                              ? ` Se revocaron ${delData.revoked_signatures} invitación(es) de firma.`
+                              : "";
+                            toast.success(`Documento archivado exitosamente.${revokedMsg}`);
+                            navigate(`/app/work-items/${workItemId}`);
+                          } else {
+                            toast.error(delData?.error || "No se pudo eliminar");
+                          }
                         } catch (err: any) {
-                          toast.error("Error: " + (err?.message || "No se pudo eliminar"));
+                          toast.error("Error de conexión. Intente nuevamente.");
                         }
                       }}
                     >

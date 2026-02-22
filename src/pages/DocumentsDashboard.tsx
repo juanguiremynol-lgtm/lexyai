@@ -63,6 +63,7 @@ export default function DocumentsDashboard() {
         .from("generated_documents")
         .select("id, title, document_type, status, created_at, work_item_id, created_by")
         .eq("organization_id", orgId!)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;

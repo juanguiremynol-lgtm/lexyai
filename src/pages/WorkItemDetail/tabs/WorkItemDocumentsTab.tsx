@@ -64,6 +64,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
         .from("generated_documents")
         .select("id, title, document_type, status, created_at, finalized_at, variables")
         .eq("work_item_id", workItem.id)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data || [];
