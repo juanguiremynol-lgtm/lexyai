@@ -108,11 +108,38 @@ const EVENT_LABELS: Record<string, string> = {
   "signature.signed": "★ FIRMA ELECTRÓNICA",
   "notification.sent": "Notificación enviada",
   "notification.failed": "Error al enviar notificación",
+  "document.distributed": "Documento distribuido",
+  "document.distributed_to": "Documento entregado a destinatario",
 };
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 5000;
 const ORG_CONCURRENCY_LIMIT = 1;
+
+// ─── Hash chaining helpers (for immutable audit events) ──
+function canonicalStringify(obj: unknown): string {
+  if (obj === null || obj === undefined) return "null";
+  if (typeof obj === "string" || typeof obj === "number" || typeof obj === "boolean") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return "[" + obj.map(canonicalStringify).join(",") + "]";
+  if (typeof obj === "object") {
+    const sorted = Object.keys(obj as Record<string, unknown>).sort();
+    return "{" + sorted.map(k => JSON.stringify(k) + ":" + canonicalStringify((obj as Record<string, unknown>)[k])).join(",") + "}";
+  }
+  return JSON.stringify(obj);
+}
+
+async function getLastEventHash(adminClient: any, documentId: string): Promise<string | null> {
+  const { data } = await adminClient
+    .from("document_signature_events").select("event_hash")
+    .eq("document_id", documentId).not("event_hash", "is", null)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  return data?.event_hash || null;
+}
+
+async function computeEventHash(previousHash: string | null, eventData: Record<string, unknown>): Promise<string> {
+  const canonical = canonicalStringify(eventData);
+  return sha256Hex((previousHash || "GENESIS") + canonical);
+}
 
 // ─── Per-signer audit evidence section builder ───────────
 function buildSignerEvidenceSection(
@@ -733,9 +760,15 @@ ${evidenceAppendix}
             ? `✅ Documento firmado por todas las partes — ${doc.title}`
             : `✅ Documento firmado — ${doc.title}`;
 
+          const distributedRecipients: Array<{ email: string; name: string; role: string; status: string }> = [];
+
           for (const email of recipients) {
+            const recipientSig = signedSigs.find(s => s.signer_email === email);
+            const recipientName = recipientSig?.signer_name || lawyerName || "Usuario";
+            const recipientRole = email === lawyerEmail ? "lawyer" : "client";
+            let sendStatus = "sent";
+
             try {
-              const recipientName = signedSigs.find(s => s.signer_email === email)?.signer_name || lawyerName || "Usuario";
               const html = confirmHtmlTemplate.replace("{RECIPIENT_NAME}", recipientName);
               await fetch("https://api.resend.com/emails", {
                 method: "POST",
@@ -749,27 +782,68 @@ ${evidenceAppendix}
               console.log(`[process-pdf-job] Email sent to ${email}`);
             } catch (e) {
               console.error(`[process-pdf-job] Email error for ${email}:`, e);
-              await adminClient.from("document_signature_events").insert({
-                organization_id: doc.organization_id, document_id: doc.id,
-                event_type: "notification.failed", event_data: { recipient: email, error: String(e) },
-                actor_type: "system", actor_id: "process-pdf-job",
-              }).catch(() => {});
+              sendStatus = "failed";
             }
+
+            // ── Immutable per-recipient document.distributed_to event (hash-chained) ──
+            const prevHash = await getLastEventHash(adminClient, doc.id);
+            const eventPayload = {
+              event_type: "document.distributed_to" as const,
+              event_data: {
+                recipient_email: email, recipient_name: recipientName, recipient_role: recipientRole,
+                delivery_channel: "email", delivery_status: sendStatus,
+                sender: "info@andromeda.legal", subject,
+                pdf_sha256: pdfResult.pdf_sha256, download_url_type: "signed.pdf", job_id: job.id,
+              },
+              actor_type: "system" as const, actor_id: "process-pdf-job",
+            };
+            const evHash = await computeEventHash(prevHash, {
+              event_type: eventPayload.event_type, event_data: eventPayload.event_data,
+              actor_type: eventPayload.actor_type, actor_id: eventPayload.actor_id,
+              timestamp: new Date().toISOString(),
+            });
+            await adminClient.from("document_signature_events").insert({
+              organization_id: doc.organization_id, document_id: doc.id,
+              ...eventPayload,
+              previous_event_hash: prevHash, event_hash: evHash,
+            });
+
+            distributedRecipients.push({ email, name: recipientName, role: recipientRole, status: sendStatus });
           }
 
-          // Log notification event
+          // ── Immutable document.distributed summary event (legal timeline anchor) ──
+          const distPrevHash = await getLastEventHash(adminClient, doc.id);
+          const distEventPayload = {
+            event_type: "document.distributed",
+            event_data: {
+              recipients: distributedRecipients,
+              total_recipients: distributedRecipients.length,
+              distribution_policy: policy.distribution,
+              doc_type: doc.document_type,
+              pdf_sha256: pdfResult.pdf_sha256,
+              pdf_storage_path: pdfResult.storage_path,
+              total_signers: totalSigners,
+              signer_model: policy.signerModel,
+              sender: "info@andromeda.legal",
+              reply_to: lawyerEmail,
+              download_url_type: "signed.pdf",
+              job_id: job.id,
+              distributed_at: new Date().toISOString(),
+            },
+            actor_type: "system" as const, actor_id: "process-pdf-job",
+          };
+          const distEvHash = await computeEventHash(distPrevHash, {
+            event_type: distEventPayload.event_type, event_data: distEventPayload.event_data,
+            actor_type: distEventPayload.actor_type, actor_id: distEventPayload.actor_id,
+            timestamp: new Date().toISOString(),
+          });
           await adminClient.from("document_signature_events").insert({
             organization_id: doc.organization_id, document_id: doc.id,
-            event_type: "notification.sent",
-            event_data: {
-              recipients: Array.from(recipients), type: "signature_confirmation_with_pdf",
-              total_signers: totalSigners, sender: "info@andromeda.legal",
-              reply_to: lawyerEmail, distribution_policy: policy.distribution,
-              doc_type: doc.document_type, pdf_sha256: pdfResult.pdf_sha256,
-              download_url_type: "signed.pdf",
-            },
-            actor_type: "system", actor_id: "process-pdf-job",
+            ...distEventPayload,
+            previous_event_hash: distPrevHash, event_hash: distEvHash,
           });
+
+          console.log(`[process-pdf-job] Distribution complete: ${distributedRecipients.length} recipients, document.distributed event logged`);
         } catch (emailErr) {
           console.error("[process-pdf-job] Email dispatch error (non-fatal):", emailErr);
         }
