@@ -29,6 +29,7 @@ const routeTitles: Record<string, string> = {
   "/platform/suspensions": "Suspensiones Judiciales",
   "/platform/waitlist": "Lista de Espera",
   "/platform/pdf-settings": "PDF / Gotenberg",
+  "/platform/hearings-catalog": "Catálogo de Audiencias",
 };
 
 export function PlatformLayout() {
