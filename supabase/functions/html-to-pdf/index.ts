@@ -3,15 +3,16 @@
  * Service-role only. Stores result in Supabase Storage.
  * Returns storage_path, pdf_sha256, size_bytes.
  *
- * Demo constraints hardening:
- * - Payload size check (4MB HTML, 5MB multipart)
- * - 429 rate limit backoff with jitter
- * - Configurable timeout (30s demo, 60s self-hosted)
- * - Health check before conversion
+ * Runtime URL resolution (priority order):
+ * 1. platform_pdf_settings DB config (mode DEMO/DIRECT)
+ * 2. GOTENBERG_URL env secret (fallback)
+ * 3. Demo URL (dev only final fallback)
  *
- * Migration: demo → self-hosted is config-only (GOTENBERG_URL secret).
- *   demo:    https://demo.gotenberg.dev
- *   compose: http://gotenberg:3000
+ * Demo constraints hardening:
+ * - Payload size check (configurable via DB, default 4MB HTML)
+ * - 429 rate limit backoff with jitter
+ * - Configurable timeout via DB
+ * - Health check before conversion
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -22,13 +23,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Size limits ──
-const MAX_HTML_BYTES = 4 * 1024 * 1024;  // 4MB
-const MAX_MULTIPART_BYTES = 5 * 1024 * 1024; // 5MB (demo limit)
-
-// ── Retry config for 429 ──
+const MAX_MULTIPART_BYTES = 5 * 1024 * 1024;
 const MAX_GOTENBERG_RETRIES = 3;
-const BACKOFF_BASE_MS = 1000; // 1s, 2s, 4s
+const BACKOFF_BASE_MS = 1000;
+const DEMO_URL = "https://demo.gotenberg.dev";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -48,16 +46,74 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Determine if this is the demo instance (affects timeouts, size limits) */
-function isDemo(url: string): boolean {
-  return url.includes("demo.gotenberg.dev");
+interface ResolvedConfig {
+  url: string;
+  mode: string;
+  enabled: boolean;
+  timeoutMs: number;
+  maxHtmlBytes: number;
+}
+
+/** Resolve effective Gotenberg URL and config from DB, then env, then fallback */
+async function resolveGotenbergConfig(adminClient: any): Promise<ResolvedConfig> {
+  // Try DB settings first
+  try {
+    const { data: settings } = await adminClient
+      .from("platform_pdf_settings")
+      .select("gotenberg_url, mode, enabled, timeout_seconds, max_html_bytes")
+      .limit(1)
+      .single();
+
+    if (settings) {
+      if (!settings.enabled) {
+        return { url: "", mode: "DISABLED", enabled: false, timeoutMs: 30000, maxHtmlBytes: 4_000_000 };
+      }
+
+      let url: string;
+      if (settings.mode === "DEMO") {
+        url = DEMO_URL;
+      } else if (settings.mode === "DIRECT" && settings.gotenberg_url) {
+        url = settings.gotenberg_url;
+      } else {
+        // DIRECT but no URL — fall through to env
+        url = Deno.env.get("GOTENBERG_URL") || "";
+      }
+
+      if (url) {
+        return {
+          url,
+          mode: settings.mode,
+          enabled: true,
+          timeoutMs: (settings.timeout_seconds || 30) * 1000,
+          maxHtmlBytes: settings.max_html_bytes || 4_000_000,
+        };
+      }
+    }
+  } catch (e) {
+    console.warn("[html-to-pdf] Could not read platform_pdf_settings, falling back to env:", e);
+  }
+
+  // Fallback to env secret
+  const envUrl = Deno.env.get("GOTENBERG_URL");
+  if (envUrl) {
+    const isDemo = envUrl.includes("demo.gotenberg.dev");
+    return {
+      url: envUrl,
+      mode: isDemo ? "DEMO" : "DIRECT",
+      enabled: true,
+      timeoutMs: isDemo ? 30_000 : 60_000,
+      maxHtmlBytes: 4_000_000,
+    };
+  }
+
+  return { url: "", mode: "UNCONFIGURED", enabled: false, timeoutMs: 30_000, maxHtmlBytes: 4_000_000 };
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // ── Auth: service_role only ──
+    // Auth: service_role only
     const authHeader = req.headers.get("authorization") || "";
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const token = authHeader.replace("Bearer ", "");
@@ -73,56 +129,50 @@ Deno.serve(async (req) => {
       return json({ error: "Missing required fields: document_id, html, organization_id" }, 400);
     }
 
-    const GOTENBERG_URL = Deno.env.get("GOTENBERG_URL");
-    if (!GOTENBERG_URL) {
-      return json({ error: "GOTENBERG_URL secret not configured. Set it to https://demo.gotenberg.dev (testing) or http://gotenberg:3000 (self-hosted)." }, 500);
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const adminClient = createClient(supabaseUrl, serviceKey);
+
+    // Resolve config from DB → env → fallback
+    const config = await resolveGotenbergConfig(adminClient);
+
+    if (!config.enabled || !config.url) {
+      return json({
+        error: config.mode === "DISABLED"
+          ? "PDF generation is currently disabled by platform administrator."
+          : "Gotenberg URL not configured. Configure it in Platform Console → PDF Generation.",
+        error_code: "PDF_PROVIDER_UNCONFIGURED",
+      }, 500);
     }
 
-    const demo = isDemo(GOTENBERG_URL);
-    const timeoutMs = demo ? 30_000 : 60_000;
+    console.log(`[html-to-pdf] Using provider mode=${config.mode}, timeout=${config.timeoutMs}ms`);
 
-    // ── Payload size check ──
+    // Payload size check (configurable via DB)
     const htmlBytes = new TextEncoder().encode(html);
-    if (htmlBytes.length > MAX_HTML_BYTES) {
+    if (htmlBytes.length > config.maxHtmlBytes) {
       return json({
-        error: `HTML payload too large (${(htmlBytes.length / 1024 / 1024).toFixed(1)}MB). Maximum is 4MB. Reduce embedded assets or use a self-hosted Gotenberg instance.`,
+        error: `HTML payload too large (${(htmlBytes.length / 1024 / 1024).toFixed(1)}MB). Maximum is ${(config.maxHtmlBytes / 1024 / 1024).toFixed(0)}MB. Reduce embedded assets or use a self-hosted Gotenberg instance.`,
         error_code: "PAYLOAD_TOO_LARGE",
       }, 413);
     }
 
-    // ── Health check ──
+    // Health check
     try {
-      const healthRes = await fetch(`${GOTENBERG_URL}/health`, { signal: AbortSignal.timeout(5000) });
+      const healthRes = await fetch(`${config.url}/health`, { signal: AbortSignal.timeout(5000) });
       if (!healthRes.ok) {
-        const body = await healthRes.text();
-        console.error(`Gotenberg health check failed (${healthRes.status}):`, body);
+        const hBody = await healthRes.text();
+        console.error(`Gotenberg health check failed (${healthRes.status}):`, hBody);
         return json({ error: "Gotenberg health check failed", status: healthRes.status, retryable: true }, 502);
       }
-      await healthRes.text(); // consume body
+      await healthRes.text();
     } catch (healthErr) {
       console.error("Gotenberg health check error:", healthErr);
       return json({ error: `Gotenberg unreachable: ${healthErr}`, retryable: true }, 502);
     }
 
-    // ── Build multipart/form-data ──
-    const formData = new FormData();
-    const htmlBlob = new Blob([html], { type: "text/html; charset=utf-8" });
-    formData.append("files", htmlBlob, "index.html");
-
+    // Build paper settings
     const paperSettings = paper || {};
-    formData.append("marginTop", paperSettings.margin_top || "10mm");
-    formData.append("marginBottom", paperSettings.margin_bottom || "10mm");
-    formData.append("marginLeft", paperSettings.margin_left || "10mm");
-    formData.append("marginRight", paperSettings.margin_right || "10mm");
-    formData.append("printBackground", paperSettings.print_background !== false ? "true" : "false");
-    formData.append("preferCssPageSize", "true");
 
-    if (paperSettings.format === "A4" || !paperSettings.format) {
-      formData.append("paperWidth", "8.27");
-      formData.append("paperHeight", "11.7");
-    }
-
-    // ── Call Gotenberg with retry on 429 ──
+    // Call Gotenberg with retry on 429
     let gotenbergRes: Response | null = null;
     let lastError = "";
 
@@ -130,7 +180,6 @@ Deno.serve(async (req) => {
       console.log(`[html-to-pdf] Attempt ${attempt + 1}/${MAX_GOTENBERG_RETRIES} for document ${document_id}`);
 
       try {
-        // Re-create FormData each attempt (streams consumed)
         const fd = new FormData();
         fd.append("files", new Blob([html], { type: "text/html; charset=utf-8" }), "index.html");
         fd.append("marginTop", paperSettings.margin_top || "10mm");
@@ -145,8 +194,8 @@ Deno.serve(async (req) => {
         }
 
         gotenbergRes = await fetch(
-          `${GOTENBERG_URL}/forms/chromium/convert/html`,
-          { method: "POST", body: fd, signal: AbortSignal.timeout(timeoutMs) }
+          `${config.url}/forms/chromium/convert/html`,
+          { method: "POST", body: fd, signal: AbortSignal.timeout(config.timeoutMs) }
         );
 
         if (gotenbergRes.status === 429) {
@@ -155,21 +204,20 @@ Deno.serve(async (req) => {
             ? parseInt(retryAfter) * 1000
             : BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
           console.warn(`[html-to-pdf] 429 rate limited. Backing off ${waitMs}ms`);
-          await gotenbergRes.text(); // consume body
+          await gotenbergRes.text();
           await sleep(waitMs);
           lastError = `429 Too Many Requests (attempt ${attempt + 1})`;
           gotenbergRes = null;
           continue;
         }
 
-        if (gotenbergRes.ok) break; // success
+        if (gotenbergRes.ok) break;
 
-        // Non-retryable error
         const errText = await gotenbergRes.text();
         lastError = `Gotenberg ${gotenbergRes.status}: ${errText.substring(0, 500)}`;
         console.error(`[html-to-pdf] ${lastError}`);
         return json({
-          error: `Gotenberg conversion failed`,
+          error: "Gotenberg conversion failed",
           gotenberg_status: gotenbergRes.status,
           details: errText.substring(0, 500),
           retryable: false,
@@ -196,12 +244,9 @@ Deno.serve(async (req) => {
     const pdfSha256 = await sha256Hex(pdfBytes);
     const sizeBytes = pdfBytes.length;
 
-    console.log(`[html-to-pdf] PDF generated: ${sizeBytes} bytes, sha256=${pdfSha256.substring(0, 16)}…`);
+    console.log(`[html-to-pdf] PDF generated: ${sizeBytes} bytes, sha256=${pdfSha256.substring(0, 16)}…, provider_mode=${config.mode}`);
 
-    // ── Store PDF in Supabase Storage ──
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const adminClient = createClient(supabaseUrl, serviceKey);
-
+    // Store PDF in Supabase Storage
     const pdfFilename = filename || "signed.pdf";
     const storagePath = `${organization_id}/${document_id}/${pdfFilename}`;
 
@@ -214,12 +259,19 @@ Deno.serve(async (req) => {
       return json({ error: `Storage upload failed: ${uploadErr.message}` }, 500);
     }
 
-    // ── Store HTML for debug only ──
+    // Store HTML for debug only
     const htmlStoragePath = `${organization_id}/${document_id}/signed.html`;
     await adminClient.storage
       .from("signed-documents")
       .upload(htmlStoragePath, htmlBytes, { contentType: "text/html; charset=utf-8", upsert: true })
       .catch((e: unknown) => console.warn("HTML debug upload warning:", e));
+
+    // Update last_success_at in settings
+    await adminClient
+      .from("platform_pdf_settings")
+      .update({ last_success_at: new Date().toISOString() })
+      .not("id", "is", null)
+      .catch(() => {});
 
     return json({
       ok: true,
@@ -227,6 +279,7 @@ Deno.serve(async (req) => {
       pdf_sha256: pdfSha256,
       size_bytes: sizeBytes,
       html_debug_path: htmlStoragePath,
+      provider_mode: config.mode,
     });
   } catch (err) {
     console.error("html-to-pdf error:", err);
