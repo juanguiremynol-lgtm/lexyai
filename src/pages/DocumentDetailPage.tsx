@@ -40,6 +40,7 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   sent_for_signature: { label: "Enviado para firma", variant: "default", className: "bg-amber-500/15 text-amber-600 border-amber-500/30" },
   partially_signed: { label: "Parcialmente firmado", variant: "default", className: "bg-orange-500/15 text-orange-600 border-orange-500/30" },
   signed: { label: "Firmado", variant: "default", className: "bg-green-500/15 text-green-600 border-green-500/30" },
+  signed_finalized: { label: "Firmado / Ejecutado", variant: "default", className: "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" },
   declined: { label: "Rechazado", variant: "destructive", className: "bg-destructive/15 text-destructive" },
   expired: { label: "Vencido", variant: "secondary", className: "bg-muted text-muted-foreground line-through" },
   revoked: { label: "Revocado", variant: "outline", className: "border-destructive text-destructive" },
@@ -368,6 +369,9 @@ export default function DocumentDetailPage() {
   const activeSig = signatures?.find((s) => ["pending", "viewed", "otp_verified", "sent_for_signature"].includes(s.status));
   const isNotification = NOTIFICATION_DOC_TYPES.includes(doc.document_type);
   const docVars = (doc.variables || {}) as Record<string, string>;
+  const isExecuted = doc.status === "signed" || doc.status === "signed_finalized";
+  const hasSignedPdf = !!signedSig?.signed_document_path;
+  const hasFinalPdfHash = !!(doc as any).final_pdf_sha256;
   
 
   return (
@@ -440,256 +444,29 @@ export default function DocumentDetailPage() {
           </>
         ) : (
           <>
-            {doc.status === "draft" && (
-              <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
-                <Pencil className="h-4 w-4 mr-2" /> Editar Documento
-              </Button>
-            )}
-            {(doc.status === "finalized" || doc.status === "ready_for_signature" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
-              <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
-                {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                {(doc.status === "finalized" || doc.status === "ready_for_signature") ? "Enviar para Firma" : "Reenviar para Firma"}
-              </Button>
-            )}
-            {doc.status === "sent_for_signature" && activeSig && (
+            {/* ── EXECUTED STATE: Download PDF + Evidence Pack only ── */}
+            {isExecuted && (
               <>
-                <div className="flex gap-2 items-center w-full sm:w-auto">
-                  <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
-                  <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
-                    {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
-                  {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
-                  Reenviar por correo
-                </Button>
-                <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
-                  <RefreshCw className="h-4 w-4 mr-2" /> Generar nuevo enlace
-                </Button>
-                <span className="text-xs text-amber-600 flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> {getExpirationCountdown()}
-                </span>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive">
-                      <Ban className="h-4 w-4 mr-2" /> Revocar Solicitud
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>¿Revocar solicitud de firma?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        El enlace de firma actual quedará invalidado y el firmante no podrá completar el proceso.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => activeSig && revokeMutation.mutate(activeSig.id)}
-                        className="bg-destructive text-destructive-foreground"
-                      >
-                        Revocar
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </>
-            )}
-            {/* Recovery: Create new version for stuck contracts */}
-            {(doc.status === "sent_for_signature" || doc.status === "partially_signed" || doc.status === "ready_for_signature") && 
-             (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial") && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline">
-                    <RefreshCw className="h-4 w-4 mr-2" /> Crear nueva versión
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Crear nueva versión del documento?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Se creará un nuevo borrador con los mismos datos del contrato actual. 
-                      El documento actual será marcado como "Reemplazado" y sus firmas pendientes serán revocadas.
-                      El historial de auditoría se preserva.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={async () => {
-                        try {
-                          // Check legal hold FIRST — absolute block
-                          if ((doc as any).legal_hold) {
-                            toast.error("Este documento está bajo retención legal (legal hold) y no puede ser reemplazado. Contacte al administrador.");
-                            return;
-                          }
-
-                          // Clone variables into new draft
-                          const { data: newDoc, error: insertErr } = await supabase
-                            .from("generated_documents")
-                            .insert({
-                              organization_id: (doc as any).organization_id,
-                              work_item_id: (doc as any).work_item_id,
-                              document_type: doc.document_type,
-                              title: doc.title + " (v2)",
-                              content_json: doc.content_json,
-                              content_html: doc.content_html,
-                              variables: doc.variables,
-                              status: "draft",
-                              created_by: (doc as any).created_by,
-                              poderdante_type: (doc as any).poderdante_type,
-                              entity_data: (doc as any).entity_data,
-                            } as any)
-                            .select("id")
-                            .single();
-                          if (insertErr) throw insertErr;
-
-                          // Mark old document as SUPERSEDED (terminal, append-only — NOT "revoked")
-                          await supabase
-                            .from("generated_documents")
-                            .update({ status: "superseded" } as any)
-                            .eq("id", doc.id);
-
-                          // Log DOCUMENT_SUPERSEDED event (append-only, immutable)
-                          await supabase.from("document_signature_events").insert({
-                            organization_id: (doc as any).organization_id,
-                            document_id: doc.id,
-                            event_type: "document.superseded" as any,
-                            event_data: {
-                              new_document_id: newDoc.id,
-                              reason: "Nueva versión creada por el abogado",
-                              previous_status: doc.status,
-                            },
-                            actor_type: "lawyer",
-                            actor_id: (doc as any).created_by,
-                          });
-
-                          // Revoke pending signatures and log individual revocation events
-                          const pendingSigs = signatures?.filter(s => s.status !== "signed") || [];
-                          for (const sig of pendingSigs) {
-                            await supabase
-                              .from("document_signatures")
-                              .update({ status: "revoked" } as any)
-                              .eq("id", sig.id);
-
-                            await supabase.from("document_signature_events").insert({
-                              organization_id: (doc as any).organization_id,
-                              document_id: doc.id,
-                              signature_id: sig.id,
-                              event_type: "signature.revoked",
-                              event_data: {
-                                reason: "Documento reemplazado por nueva versión",
-                                new_document_id: newDoc.id,
-                              },
-                              actor_type: "lawyer",
-                              actor_id: (doc as any).created_by,
-                            });
-                          }
-
-                          toast.success("Nueva versión creada como borrador");
-                          navigate(`/app/work-items/${workItemId}/documents/${newDoc.id}`);
-                        } catch (err: any) {
-                          toast.error("Error: " + (err?.message || "No se pudo crear nueva versión"));
-                        }
-                      }}
-                    >
-                      Crear Nueva Versión
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-            {/* Delete non-executed documents (draft, ready_for_signature, generated) */}
-            {(doc.status === "draft" || doc.status === "ready_for_signature" || doc.status === "generated") && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm">
-                    <Trash2 className="h-4 w-4 mr-2" /> Eliminar documento
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Eliminar este documento?</AlertDialogTitle>
-                    <AlertDialogDescription className="space-y-2">
-                      <span className="block">
-                        Este documento aún no ha sido firmado por las partes. Si lo eliminas, 
-                        se revocarán los enlaces de firma pendientes y no se conservará historial 
-                        para fines probatorios.
-                      </span>
-                      <span className="block font-medium text-foreground">
-                        Te recomendamos descargar el borrador si lo necesitas antes de eliminarlo.
-                      </span>
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-destructive text-destructive-foreground"
-                      onClick={async () => {
-                        try {
-                          const { data: delData, error: delError } = await supabase.functions.invoke("delete-generated-document", {
-                            body: { document_id: doc.id },
-                          });
-
-                          if (delError) {
-                            let msg = "No se pudo eliminar";
-                            try {
-                              const ctx = (delError as any)?.context;
-                              if (ctx && typeof ctx.json === "function") {
-                                const body = await ctx.json();
-                                msg = body?.error || body?.message || msg;
-                              }
-                            } catch (_) {}
-                            toast.error(msg);
-                            return;
-                          }
-
-                          if (delData?.ok) {
-                            const revokedMsg = delData.revoked_signatures > 0
-                              ? ` Se revocaron ${delData.revoked_signatures} invitación(es) de firma.`
-                              : "";
-                            toast.success(`Documento archivado exitosamente.${revokedMsg}`);
-                            navigate(`/app/work-items/${workItemId}`);
-                          } else {
-                            toast.error(delData?.error || "No se pudo eliminar");
-                          }
-                        } catch (err: any) {
-                          toast.error("Error de conexión. Intente nuevamente.");
-                        }
-                      }}
-                    >
-                      Eliminar
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-            {(doc.status === "signed" || doc.status === "signed_finalized") && signedSig && (
-              <>
-                {signedSig.signed_document_path && (
-                  <Button variant="outline" onClick={async () => {
-                    // Always try PDF first
-                    const pdfPath = signedSig.signed_document_path!.replace(/\.html$/, '.pdf');
+                {hasSignedPdf ? (
+                  <Button onClick={async () => {
+                    const pdfPath = signedSig!.signed_document_path!.replace(/\.html$/, '.pdf');
                     const { data: pdfData } = await supabase.storage.from("signed-documents").createSignedUrl(pdfPath, 3600);
                     if (pdfData?.signedUrl) {
                       window.open(pdfData.signedUrl, "_blank");
                       return;
                     }
-                    // In production: never offer HTML download
                     const allowHtmlFallback = import.meta.env.DEV || import.meta.env.VITE_ALLOW_HTML_FALLBACK === "true";
                     if (!allowHtmlFallback) {
                       toast.info("El PDF aún se está generando. Intente de nuevo en unos segundos.");
                       return;
                     }
-                    // Dev/staging fallback to HTML
-                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
+                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig!.signed_document_path!, 3600);
                     if (data?.signedUrl) window.open(data.signedUrl, "_blank");
                     else toast.error("Error al obtener enlace de descarga");
                   }}>
                     <Download className="h-4 w-4 mr-2" /> Descargar PDF Firmado
                   </Button>
-                )}
-                {!signedSig.signed_document_path && (
+                ) : (
                   <div className="flex items-center gap-2">
                     <Button variant="outline" disabled>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generando PDF…
@@ -709,7 +486,7 @@ export default function DocumentDetailPage() {
                     </Button>
                   </div>
                 )}
-                {signedSig.certificate_path && (
+                {signedSig?.certificate_path && (
                   <Button variant="outline" onClick={async () => {
                     const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.certificate_path!, 3600);
                     if (data?.signedUrl) window.open(data.signedUrl, "_blank");
@@ -717,6 +494,223 @@ export default function DocumentDetailPage() {
                   }}>
                     <Award className="h-4 w-4 mr-2" /> Descargar Certificado
                   </Button>
+                )}
+              </>
+            )}
+
+            {/* ── PRE-EXECUTION STATES ── */}
+            {!isExecuted && (
+              <>
+                {doc.status === "draft" && (
+                  <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
+                    <Pencil className="h-4 w-4 mr-2" /> Editar Documento
+                  </Button>
+                )}
+                {(doc.status === "finalized" || doc.status === "ready_for_signature" || doc.status === "declined" || doc.status === "expired" || doc.status === "revoked") && (
+                  <Button onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+                    {resendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                    {(doc.status === "finalized" || doc.status === "ready_for_signature") ? "Enviar para Firma" : "Reenviar para Firma"}
+                  </Button>
+                )}
+                {doc.status === "sent_for_signature" && activeSig && (
+                  <>
+                    <div className="flex gap-2 items-center w-full sm:w-auto">
+                      <Input value={getSigningUrl()} readOnly className="font-mono text-xs max-w-xs" />
+                      <Button variant="outline" size="icon" onClick={handleCopyLink} className="shrink-0">
+                        {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    <Button variant="outline" onClick={handleResendEmail} disabled={sendingEmail}>
+                      {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Mail className="h-4 w-4 mr-2" />}
+                      Reenviar por correo
+                    </Button>
+                    <Button variant="outline" onClick={() => resendMutation.mutate()} disabled={resendMutation.isPending}>
+                      <RefreshCw className="h-4 w-4 mr-2" /> Generar nuevo enlace
+                    </Button>
+                    <span className="text-xs text-amber-600 flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> {getExpirationCountdown()}
+                    </span>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive">
+                          <Ban className="h-4 w-4 mr-2" /> Revocar Solicitud
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>¿Revocar solicitud de firma?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            El enlace de firma actual quedará invalidado y el firmante no podrá completar el proceso.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => activeSig && revokeMutation.mutate(activeSig.id)}
+                            className="bg-destructive text-destructive-foreground"
+                          >
+                            Revocar
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
+                )}
+                {/* Recovery: Create new version for stuck contracts */}
+                {(doc.status === "sent_for_signature" || doc.status === "partially_signed" || doc.status === "ready_for_signature") && 
+                 (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial") && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline">
+                        <RefreshCw className="h-4 w-4 mr-2" /> Crear nueva versión
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Crear nueva versión del documento?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Se creará un nuevo borrador con los mismos datos del contrato actual. 
+                          El documento actual será marcado como "Reemplazado" y sus firmas pendientes serán revocadas.
+                          El historial de auditoría se preserva.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={async () => {
+                            try {
+                              if ((doc as any).legal_hold) {
+                                toast.error("Este documento está bajo retención legal (legal hold) y no puede ser reemplazado. Contacte al administrador.");
+                                return;
+                              }
+                              const { data: newDoc, error: insertErr } = await supabase
+                                .from("generated_documents")
+                                .insert({
+                                  organization_id: (doc as any).organization_id,
+                                  work_item_id: (doc as any).work_item_id,
+                                  document_type: doc.document_type,
+                                  title: doc.title + " (v2)",
+                                  content_json: doc.content_json,
+                                  content_html: doc.content_html,
+                                  variables: doc.variables,
+                                  status: "draft",
+                                  created_by: (doc as any).created_by,
+                                  poderdante_type: (doc as any).poderdante_type,
+                                  entity_data: (doc as any).entity_data,
+                                } as any)
+                                .select("id")
+                                .single();
+                              if (insertErr) throw insertErr;
+                              await supabase
+                                .from("generated_documents")
+                                .update({ status: "superseded" } as any)
+                                .eq("id", doc.id);
+                              await supabase.from("document_signature_events").insert({
+                                organization_id: (doc as any).organization_id,
+                                document_id: doc.id,
+                                event_type: "document.superseded" as any,
+                                event_data: {
+                                  new_document_id: newDoc.id,
+                                  reason: "Nueva versión creada por el abogado",
+                                  previous_status: doc.status,
+                                },
+                                actor_type: "lawyer",
+                                actor_id: (doc as any).created_by,
+                              });
+                              const pendingSigs = signatures?.filter(s => s.status !== "signed") || [];
+                              for (const sig of pendingSigs) {
+                                await supabase
+                                  .from("document_signatures")
+                                  .update({ status: "revoked" } as any)
+                                  .eq("id", sig.id);
+                                await supabase.from("document_signature_events").insert({
+                                  organization_id: (doc as any).organization_id,
+                                  document_id: doc.id,
+                                  signature_id: sig.id,
+                                  event_type: "signature.revoked",
+                                  event_data: {
+                                    reason: "Documento reemplazado por nueva versión",
+                                    new_document_id: newDoc.id,
+                                  },
+                                  actor_type: "lawyer",
+                                  actor_id: (doc as any).created_by,
+                                });
+                              }
+                              toast.success("Nueva versión creada como borrador");
+                              navigate(`/app/work-items/${workItemId}/documents/${newDoc.id}`);
+                            } catch (err: any) {
+                              toast.error("Error: " + (err?.message || "No se pudo crear nueva versión"));
+                            }
+                          }}
+                        >
+                          Crear Nueva Versión
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                {/* Delete non-executed documents only */}
+                {(doc.status === "draft" || doc.status === "ready_for_signature" || doc.status === "generated") && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm">
+                        <Trash2 className="h-4 w-4 mr-2" /> Eliminar documento
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar este documento?</AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-2">
+                          <span className="block">
+                            Este documento aún no ha sido firmado por las partes. Si lo eliminas, 
+                            se revocarán los enlaces de firma pendientes y no se conservará historial 
+                            para fines probatorios.
+                          </span>
+                          <span className="block font-medium text-foreground">
+                            Te recomendamos descargar el borrador si lo necesitas antes de eliminarlo.
+                          </span>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground"
+                          onClick={async () => {
+                            try {
+                              const { data: delData, error: delError } = await supabase.functions.invoke("delete-generated-document", {
+                                body: { document_id: doc.id },
+                              });
+                              if (delError) {
+                                let msg = "No se pudo eliminar";
+                                try {
+                                  const ctx = (delError as any)?.context;
+                                  if (ctx && typeof ctx.json === "function") {
+                                    const body = await ctx.json();
+                                    msg = body?.error || body?.message || msg;
+                                  }
+                                } catch (_) {}
+                                toast.error(msg);
+                                return;
+                              }
+                              if (delData?.ok) {
+                                const revokedMsg = delData.revoked_signatures > 0
+                                  ? ` Se revocaron ${delData.revoked_signatures} invitación(es) de firma.`
+                                  : "";
+                                toast.success(`Documento archivado exitosamente.${revokedMsg}`);
+                                navigate(`/app/work-items/${workItemId}`);
+                              } else {
+                                toast.error(delData?.error || "No se pudo eliminar");
+                              }
+                            } catch (err: any) {
+                              toast.error("Error de conexión. Intente nuevamente.");
+                            }
+                          }}
+                        >
+                          Eliminar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </>
             )}
@@ -767,7 +761,7 @@ export default function DocumentDetailPage() {
           </Card>
 
           {/* Signature Details Card (only when signed, not for notifications) */}
-          {!isNotification && doc.status === "signed" && signedSig && (
+          {!isNotification && isExecuted && signedSig && (
             <Card className="border-green-500/30">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg text-green-600">
