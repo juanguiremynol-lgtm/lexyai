@@ -32,6 +32,7 @@ import { NotesTab } from "./tabs/NotesTab";
 import { AlertsTasksTab } from "./tabs/AlertsTasksTab";
 import { WorkItemDocumentsTab, NewDocumentDropdown } from "./tabs/WorkItemDocumentsTab";
 import { PartiesTab } from "./tabs/PartiesTab";
+import { HearingsTab } from "@/components/hearings/HearingsTab";
 
 // Import work item components
 import { MilestonesChecklist } from "@/components/work-items/MilestonesChecklist";
@@ -345,6 +346,10 @@ export default function WorkItemDetail() {
               <TabsTrigger value="notas" className="gap-2">
                 <StickyNote className="h-4 w-4" />
                 Notas
+               </TabsTrigger>
+              <TabsTrigger value="audiencias" className="gap-2">
+                <Scale className="h-4 w-4" />
+                Audiencias
               </TabsTrigger>
               <TabsTrigger value="documentos" className="gap-2">
                 <FileText className="h-4 w-4" />
@@ -374,6 +379,10 @@ export default function WorkItemDetail() {
 
             <TabsContent value="documentos" className="mt-4">
               <WorkItemDocumentsTab workItem={extendedWorkItem} />
+            </TabsContent>
+
+            <TabsContent value="audiencias" className="mt-4">
+              <HearingsTab workItem={extendedWorkItem} />
             </TabsContent>
           </Tabs>
         </div>
