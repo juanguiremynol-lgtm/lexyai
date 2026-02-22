@@ -362,3 +362,6 @@ verify_jwt = false
 
 [functions.test-gotenberg-connection]
 verify_jwt = false
+
+[functions.merge-signed-pdf]
+verify_jwt = false
