@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, title, content_html, document_type, status, created_by")
+      .select("id, title, content_html, document_type, status, created_by, source_type, source_pdf_path")
       .eq("id", sig.document_id)
       .single();
 
@@ -322,6 +322,8 @@ Deno.serve(async (req) => {
         title: doc.title,
         content_html: sig.otp_verified_at ? doc.content_html : null,
         document_type: doc.document_type,
+        source_type: doc.source_type || null,
+        source_pdf_path: doc.source_pdf_path || null,
       },
     });
   } catch (err) {

@@ -313,7 +313,7 @@ Deno.serve(async (req) => {
 
     // ── EXECUTION INVARIANTS ──
     // 1. All required signers must have signed
-    const isBilateral = doc.document_type === "contrato_servicios";
+    const isBilateral = doc.document_type === "contrato_servicios" || doc.document_type === "generic_pdf_signing";
     if (signedSigs.length < totalExpectedSigners) {
       console.error(`[complete-signature] Execution invariant violation: ${signedSigs.length}/${totalExpectedSigners} signed for doc ${sig.document_id}`);
       return json({ error: "No se puede finalizar: faltan firmas de una o más partes.", error_code: "EXECUTION_INCOMPLETE" }, 409);

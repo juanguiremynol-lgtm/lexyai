@@ -56,6 +56,8 @@ export default function SigningPage() {
   const [documentHtml, setDocumentHtml] = useState("");
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [pdfReviewAcknowledged, setPdfReviewAcknowledged] = useState(false);
+  const [pdfOpened, setPdfOpened] = useState(false);
   const [drawnSignature, setDrawnSignature] = useState<{ dataUrl: string; strokeData: any[] } | null>(null);
   const [signing, setSigning] = useState(false);
   const [signResult, setSignResult] = useState<any>(null);
@@ -472,101 +474,164 @@ export default function SigningPage() {
         )}
 
         {/* Review & Sign Step */}
-        {(step === "review" || step === "sign") && (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  {sigData?.document?.title || "Documento"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div
-                  ref={docRef}
-                  onScroll={handleDocScroll}
-                  className="max-h-[60vh] overflow-y-auto border rounded-lg p-4 sm:p-6 bg-white text-sm sm:text-base"
-                  dangerouslySetInnerHTML={{ __html: documentHtml }}
-                />
-                {!hasScrolledToBottom && (
-                  <div className="flex items-center gap-2 text-amber-600 text-sm mt-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    Desplácese hasta el final del documento para continuar
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {hasScrolledToBottom && (
+        {(step === "review" || step === "sign") && (() => {
+          const isUploadedPdf = sigData?.document?.source_type === "UPLOADED_PDF";
+          const canProceed = isUploadedPdf ? pdfReviewAcknowledged : hasScrolledToBottom;
+          
+          return (
+            <>
               <Card>
                 <CardHeader>
-                  <CardTitle>Firme el documento</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    {sigData?.document?.title || "Documento"}
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <SignatureCanvas onSignatureChange={setDrawnSignature} />
-
-                  {drawnSignature && (
-                    <div className="border rounded-lg p-4 bg-white text-center">
-                      <img src={drawnSignature.dataUrl} alt="Firma" className="max-h-[80px] mx-auto" />
-                      <p className="text-xs text-muted-foreground mt-2">Firma capturada ✓</p>
+                <CardContent>
+                  {isUploadedPdf ? (
+                    // UPLOADED_PDF: Show "View PDF" + acknowledgement checkbox
+                    <div className="space-y-4">
+                      <div className="border rounded-lg p-6 bg-muted/30 text-center space-y-4">
+                        <FileText className="h-12 w-12 mx-auto text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">
+                          Este documento es un PDF que debe revisar antes de firmar.
+                        </p>
+                        <Button
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(
+                                `${SUPABASE_URL}/storage/v1/object/sign/unsigned-documents/${sigData.document.source_pdf_path}`,
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+                                  body: JSON.stringify({ expiresIn: 3600 }),
+                                }
+                              );
+                              const data = await res.json();
+                              if (data?.signedURL) {
+                                window.open(`${SUPABASE_URL}/storage/v1${data.signedURL}`, "_blank");
+                                setPdfOpened(true);
+                              } else {
+                                toast.error("No se pudo generar el enlace del PDF");
+                              }
+                            } catch {
+                              toast.error("Error al abrir el PDF");
+                            }
+                          }}
+                          className="gap-2"
+                        >
+                          <FileText className="h-4 w-4" />
+                          Ver PDF del documento
+                        </Button>
+                        {pdfOpened && (
+                          <p className="text-xs text-green-600 flex items-center justify-center gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> PDF abierto
+                          </p>
+                        )}
+                      </div>
+                      <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 cursor-pointer transition-colors">
+                        <Checkbox
+                          checked={pdfReviewAcknowledged}
+                          onCheckedChange={(v) => setPdfReviewAcknowledged(!!v)}
+                          className="mt-0.5"
+                        />
+                        <span className="text-sm">
+                          He abierto, leído y revisado el documento PDF en su totalidad y confirmo que entiendo su contenido.
+                        </span>
+                      </label>
                     </div>
-                  )}
-
-                  <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
-                    <Checkbox
-                      id="consent"
-                      checked={consentChecked}
-                      onCheckedChange={(v) => setConsentChecked(v === true)}
-                      className="mt-0.5"
-                    />
-                    <label htmlFor="consent" className="text-sm leading-relaxed cursor-pointer">
-                      He leído y comprendido este documento en su totalidad y acepto firmarlo
-                      electrónicamente de conformidad con la Ley 527 de 1999.
-                    </label>
-                  </div>
-
-                  {signing && signingProgress.length > 0 && (
-                    <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                      <p className="text-sm font-medium text-muted-foreground">
-                        Procesando su firma. Por favor espere...
-                      </p>
-                      {signingProgress.map((msg, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm">
-                          {i < signingProgress.length - 1 ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                          ) : (
-                            <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-                          )}
-                          <span>{msg}</span>
+                  ) : (
+                    // System template: HTML scroll-to-bottom gate
+                    <>
+                      <div
+                        ref={docRef}
+                        onScroll={handleDocScroll}
+                        className="max-h-[60vh] overflow-y-auto border rounded-lg p-4 sm:p-6 bg-white text-sm sm:text-base"
+                        dangerouslySetInnerHTML={{ __html: documentHtml }}
+                      />
+                      {!hasScrolledToBottom && (
+                        <div className="flex items-center gap-2 text-amber-600 text-sm mt-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0" />
+                          Desplácese hasta el final del documento para continuar
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
-
-                  <p className="text-xs text-center text-muted-foreground">
-                    Al firmar, acepta que su firma electrónica tiene la misma validez legal que una firma manuscrita,
-                    conforme a la legislación colombiana vigente.
-                  </p>
                 </CardContent>
               </Card>
-            )}
 
-            {/* Sticky sign button — always visible on mobile without scrolling */}
-            {hasScrolledToBottom && (
-              <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur-sm border-t p-4 -mx-4 sm:mx-0 sm:border sm:rounded-lg sm:relative sm:bg-transparent sm:backdrop-blur-none sm:border-t-0 sm:p-0">
-                <Button
-                  onClick={handleSign}
-                  disabled={signing || !consentChecked || !drawnSignature}
-                  className="w-full h-12 text-base"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-                  {signing ? "Procesando..." : "Firmar Documento"}
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+              {canProceed && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Firme el documento</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <SignatureCanvas onSignatureChange={setDrawnSignature} />
+
+                    {drawnSignature && (
+                      <div className="border rounded-lg p-4 bg-white text-center">
+                        <img src={drawnSignature.dataUrl} alt="Firma" className="max-h-[80px] mx-auto" />
+                        <p className="text-xs text-muted-foreground mt-2">Firma capturada ✓</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-start gap-3 p-4 bg-muted/50 rounded-lg">
+                      <Checkbox
+                        id="consent"
+                        checked={consentChecked}
+                        onCheckedChange={(v) => setConsentChecked(v === true)}
+                        className="mt-0.5"
+                      />
+                      <label htmlFor="consent" className="text-sm leading-relaxed cursor-pointer">
+                        He leído y comprendido este documento en su totalidad y acepto firmarlo
+                        electrónicamente de conformidad con la Ley 527 de 1999.
+                      </label>
+                    </div>
+
+                    {signing && signingProgress.length > 0 && (
+                      <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground">
+                          Procesando su firma. Por favor espere...
+                        </p>
+                        {signingProgress.map((msg, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            {i < signingProgress.length - 1 ? (
+                              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            ) : (
+                              <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                            )}
+                            <span>{msg}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-center text-muted-foreground">
+                      Al firmar, acepta que su firma electrónica tiene la misma validez legal que una firma manuscrita,
+                      conforme a la legislación colombiana vigente.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Sticky sign button — always visible on mobile without scrolling */}
+              {canProceed && (
+                <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur-sm border-t p-4 -mx-4 sm:mx-0 sm:border sm:rounded-lg sm:relative sm:bg-transparent sm:backdrop-blur-none sm:border-t-0 sm:p-0">
+                  <Button
+                    onClick={handleSign}
+                    disabled={signing || !consentChecked || !drawnSignature}
+                    className="w-full h-12 text-base"
+                    style={{ backgroundColor: brandColor }}
+                  >
+                    {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                    {signing ? "Procesando..." : "Firmar Documento"}
+                  </Button>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* Done Step */}
         {step === "done" && signResult && (
