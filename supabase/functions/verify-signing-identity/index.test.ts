@@ -103,10 +103,57 @@ Deno.test("validate-signing-link: completely invalid signature rejected", async 
   await Promise.resolve();
 });
 
+// ─── In-app path: no auth header → 401 ───
+
+Deno.test("verify-signing-identity: in-app path without auth header returns 401", async () => {
+  const { status, data } = await callFunction("verify-signing-identity", {
+    document_id: "00000000-0000-0000-0000-000000000099",
+    signing_order: 1,
+    confirmed_name: "Juan Pérez",
+    confirmed_cedula: "1234567890",
+  });
+  assertEquals(status, 401);
+  assertEquals(data.error_code, "AUTH_REQUIRED");
+  await Promise.resolve();
+});
+
+// ─── In-app path: anon key (no real user) → 401 ───
+
+Deno.test("verify-signing-identity: in-app path with anon key only returns 401", async () => {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/verify-signing-identity`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({
+      document_id: "00000000-0000-0000-0000-000000000099",
+      signing_order: 1,
+      confirmed_name: "Juan Pérez",
+      confirmed_cedula: "1234567890",
+    }),
+  });
+  const data = await res.json();
+  assertEquals(res.status, 401);
+  await Promise.resolve();
+});
+
+// ─── Token path: client cannot use in-app fallback ───
+
+Deno.test("verify-signing-identity: missing both token and document_id returns 400", async () => {
+  const { status, data } = await callFunction("verify-signing-identity", {
+    confirmed_name: "Juan Pérez",
+    confirmed_cedula: "1234567890",
+  });
+  assertEquals(status, 400);
+  assertEquals(data.error_code, "MISSING_IDENTIFIER");
+  await Promise.resolve();
+});
+
 // ─── DB-enforced immutability: UPDATE/DELETE must fail ───
 
 Deno.test("document_signature_events: UPDATE is rejected by DB trigger", async () => {
-  // Attempt to update via PostgREST (authenticated/anon role)
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/document_signature_events?id=eq.00000000-0000-0000-0000-000000000000`,
     {
@@ -120,7 +167,6 @@ Deno.test("document_signature_events: UPDATE is rejected by DB trigger", async (
       body: JSON.stringify({ event_type: "TAMPERED" }),
     },
   );
-  // Should fail — either RLS (403/406) or trigger (400/500)
   assertNotEquals(res.status, 200);
   assertNotEquals(res.status, 204);
   await res.body?.cancel();

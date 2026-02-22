@@ -176,14 +176,14 @@ Deno.serve(async (req) => {
       // ── Path 2: In-app lawyer flow (JWT + document_id + signing_order) ──
       const authHeader = req.headers.get("Authorization");
       if (!authHeader?.startsWith("Bearer ")) {
-        return json({ error: "Autenticación requerida para verificación en la app." }, 401);
+        return json({ error: "Autenticación requerida para verificación en la app.", error_code: "AUTH_REQUIRED" }, 401);
       }
 
       const userClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: authHeader } },
       });
       const { data: { user }, error: authErr } = await userClient.auth.getUser();
-      if (authErr || !user) return json({ error: "No autorizado." }, 401);
+      if (authErr || !user) return json({ error: "No autorizado.", error_code: "AUTH_FAILED" }, 401);
 
       // Rate limiting by user + document
       const rateLimitKey = `identity:inapp:${user.id}:${document_id}`;
@@ -196,7 +196,7 @@ Deno.serve(async (req) => {
         .gte("window_start", oneHourAgo);
 
       if ((count || 0) >= 10) {
-        return json({ error: "Demasiados intentos de verificación. Intente nuevamente más tarde." }, 429);
+        return json({ error: "Demasiados intentos de verificación. Intente nuevamente más tarde.", error_code: "RATE_LIMITED" }, 429);
       }
 
       await adminClient.from("rate_limits").insert({
@@ -205,22 +205,44 @@ Deno.serve(async (req) => {
         window_start: new Date().toISOString(),
       });
 
-      // Fetch the lawyer's signature record for this document
+      // Fetch the signer record for this document + signing_order
       const order = signing_order || 1;
       const { data: sigData, error: sigErr } = await adminClient
         .from("document_signatures")
-        .select("id, document_id, signer_name, signer_email, signer_cedula, status, organization_id, identity_confirmed_at, created_by")
+        .select("id, document_id, signer_name, signer_email, signer_cedula, status, organization_id, identity_confirmed_at, created_by, signer_role, signing_order")
         .eq("document_id", document_id)
         .eq("signing_order", order)
         .single();
 
       if (sigErr || !sigData) {
-        return json({ error: "No se encontró registro de firma para este documento." }, 404);
+        return json({ error: "No se encontró registro de firma para este documento.", error_code: "SIG_NOT_FOUND" }, 404);
       }
 
-      // Verify the authenticated user is the one who created this signature (the lawyer)
+      // ── Authorization checks (three-layer) ──
+
+      // 1. Verify the authenticated user belongs to the same organization as the document
+      const { data: membership, error: memErr } = await adminClient
+        .from("organization_memberships")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("organization_id", sigData.organization_id)
+        .maybeSingle();
+
+      if (memErr || !membership) {
+        console.warn(`[verify-signing-identity] Org mismatch: user=${user.id} org=${sigData.organization_id}`);
+        return json({ error: "No tiene permiso para firmar este documento.", error_code: "ORG_MISMATCH" }, 403);
+      }
+
+      // 2. Verify the authenticated user is the assigned signer (created_by matches)
+      //    This ensures a different lawyer in the same org can't sign someone else's document
       if (sigData.created_by !== user.id) {
-        return json({ error: "No tiene permiso para firmar este documento." }, 403);
+        console.warn(`[verify-signing-identity] Signer mismatch: user=${user.id} created_by=${sigData.created_by}`);
+        return json({ error: "No es el firmante asignado para este documento.", error_code: "SIGNER_MISMATCH" }, 403);
+      }
+
+      // 3. Verify the signature is in a signable state (not already completed/revoked)
+      if (sigData.status !== "waiting" && sigData.status !== "pending" && sigData.status !== "identity_confirmed") {
+        return json({ error: `La firma tiene un estado no válido para verificación: ${sigData.status}.`, error_code: "INVALID_SIG_STATUS" }, 409);
       }
 
       sig = sigData;
