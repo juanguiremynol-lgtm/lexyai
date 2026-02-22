@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import {
-  Loader2, Shield, CheckCircle2, UserCheck, Mail, FileText, ArrowRight, AlertCircle, Sun, Moon,
+  Loader2, Shield, CheckCircle2, UserCheck, Mail, FileText, ArrowRight, AlertCircle, Sun, Moon, ExternalLink,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -31,6 +31,10 @@ interface LawyerSigningFlowProps {
   lawyerCedula: string;
   lawyerEmail: string;
   documentHtml: string;
+  /** For UPLOADED_PDF, use acknowledgement gate instead of scroll-to-bottom */
+  sourceType?: "SYSTEM_TEMPLATE" | "DOCX_TEMPLATE" | "UPLOADED_PDF";
+  /** Storage path to the uploaded PDF (for "View PDF" button) */
+  sourcePdfPath?: string;
   onComplete: (result: {
     signedDocumentPath?: string;
     certificatePath?: string;
@@ -46,6 +50,8 @@ export function LawyerSigningFlow({
   lawyerCedula,
   lawyerEmail,
   documentHtml,
+  sourceType,
+  sourcePdfPath,
   onComplete,
   onCancel,
 }: LawyerSigningFlowProps) {
@@ -64,7 +70,11 @@ export function LawyerSigningFlow({
   const [drawnSignature, setDrawnSignature] = useState<{ dataUrl: string; strokeData: any[] } | null>(null);
   const [signing, setSigning] = useState(false);
   const [reviewDarkMode, setReviewDarkMode] = useState(false);
+  const [pdfReviewAcknowledged, setPdfReviewAcknowledged] = useState(false);
+  const [pdfOpened, setPdfOpened] = useState(false);
   const isMobile = useIsMobile();
+
+  const isUploadedPdf = sourceType === "UPLOADED_PDF";
 
   const docRef = useRef<HTMLDivElement>(null);
 
@@ -187,6 +197,27 @@ export function LawyerSigningFlow({
       setHasScrolledToBottom(true);
     }
   }, []);
+
+  // Open uploaded PDF in new tab
+  const handleViewPdf = useCallback(async () => {
+    if (!sourcePdfPath) {
+      toast.error("No se encontró la ruta del PDF");
+      return;
+    }
+    try {
+      const { data } = await supabase.storage
+        .from("unsigned-documents")
+        .createSignedUrl(sourcePdfPath, 600);
+      if (data?.signedUrl) {
+        window.open(data.signedUrl, "_blank");
+        setPdfOpened(true);
+      } else {
+        toast.error("No se pudo generar el enlace del PDF");
+      }
+    } catch {
+      toast.error("Error al abrir el PDF");
+    }
+  }, [sourcePdfPath]);
 
   // Complete signature
   const handleSign = useCallback(async () => {
@@ -367,57 +398,96 @@ export function LawyerSigningFlow({
                 <FileText className="h-5 w-5" />
                 Revise el Documento
               </CardTitle>
-              {/* Light/Dark toggle */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setReviewDarkMode(!reviewDarkMode)}
-                className="gap-1.5 text-xs"
-              >
-                {reviewDarkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-                {reviewDarkMode ? "Claro" : "Oscuro"}
-              </Button>
+              {/* Light/Dark toggle — only for HTML preview */}
+              {!isUploadedPdf && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReviewDarkMode(!reviewDarkMode)}
+                  className="gap-1.5 text-xs"
+                >
+                  {reviewDarkMode ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                  {reviewDarkMode ? "Claro" : "Oscuro"}
+                </Button>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              Lea el documento completo antes de proceder a firmar. Desplácese hasta el final.
+              {isUploadedPdf
+                ? "Abra y revise el PDF subido antes de proceder a firmar."
+                : "Lea el documento completo antes de proceder a firmar. Desplácese hasta el final."}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Document preview area — paper always stays white with black text */}
-            <div
-              className={`rounded-lg transition-colors ${
-                reviewDarkMode ? "bg-neutral-800 p-2 sm:p-4" : "bg-muted/30 p-0 sm:p-2"
-              }`}
-            >
-              <div
-                ref={docRef}
-                onScroll={handleDocScroll}
-                className="border rounded-lg overflow-y-auto overflow-x-hidden"
-                style={{
-                  maxHeight: isMobile ? "calc(100vh - 280px)" : "60vh",
-                  backgroundColor: "#FFFFFF",
-                }}
-              >
-                <div
-                  className="p-4 sm:p-6 md:p-8 lg:p-10 max-w-full"
-                  style={{
-                    color: "#000000",
-                    fontFamily: "'Georgia', 'Times New Roman', serif",
-                    fontSize: isMobile ? "14px" : "15px",
-                    lineHeight: "1.7",
-                    wordBreak: "break-word",
-                    overflowWrap: "break-word",
-                  }}
-                  dangerouslySetInnerHTML={{ __html: documentHtml }}
-                />
-              </div>
-            </div>
+            {isUploadedPdf ? (
+              /* ── Uploaded PDF: View + Acknowledge gate ── */
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border bg-muted/30 p-6 text-center space-y-4">
+                  <FileText className="h-12 w-12 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Este documento es un PDF subido externamente. Ábralo para revisarlo antes de firmar.
+                  </p>
+                  <Button onClick={handleViewPdf} variant="outline" className="gap-2">
+                    <ExternalLink className="h-4 w-4" />
+                    Abrir PDF en nueva pestaña
+                  </Button>
+                  {pdfOpened && (
+                    <Badge variant="secondary" className="text-xs">
+                      <CheckCircle2 className="h-3 w-3 mr-1" /> PDF abierto
+                    </Badge>
+                  )}
+                </div>
 
-            {!hasScrolledToBottom && (
-              <div className="flex items-center gap-2 text-amber-600 text-xs">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                Desplácese hasta el final del documento para continuar
+                <label className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 cursor-pointer transition-colors">
+                  <Checkbox
+                    checked={pdfReviewAcknowledged}
+                    onCheckedChange={(v) => setPdfReviewAcknowledged(!!v)}
+                    className="mt-0.5"
+                  />
+                  <span className="text-sm text-foreground">
+                    He revisado el documento PDF y confirmo que deseo proceder con la firma.{" "}
+                    <span className="text-destructive">*</span>
+                  </span>
+                </label>
               </div>
+            ) : (
+              /* ── System template: HTML preview with scroll-to-bottom gate ── */
+              <>
+                <div
+                  className={`rounded-lg transition-colors ${
+                    reviewDarkMode ? "bg-neutral-800 p-2 sm:p-4" : "bg-muted/30 p-0 sm:p-2"
+                  }`}
+                >
+                  <div
+                    ref={docRef}
+                    onScroll={handleDocScroll}
+                    className="border rounded-lg overflow-y-auto overflow-x-hidden"
+                    style={{
+                      maxHeight: isMobile ? "calc(100vh - 280px)" : "60vh",
+                      backgroundColor: "#FFFFFF",
+                    }}
+                  >
+                    <div
+                      className="p-4 sm:p-6 md:p-8 lg:p-10 max-w-full"
+                      style={{
+                        color: "#000000",
+                        fontFamily: "'Georgia', 'Times New Roman', serif",
+                        fontSize: isMobile ? "14px" : "15px",
+                        lineHeight: "1.7",
+                        wordBreak: "break-word",
+                        overflowWrap: "break-word",
+                      }}
+                      dangerouslySetInnerHTML={{ __html: documentHtml }}
+                    />
+                  </div>
+                </div>
+
+                {!hasScrolledToBottom && (
+                  <div className="flex items-center gap-2 text-amber-600 text-xs">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    Desplácese hasta el final del documento para continuar
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
 
@@ -429,7 +499,7 @@ export function LawyerSigningFlow({
           }`}>
             <Button
               onClick={() => setStep("sign")}
-              disabled={!hasScrolledToBottom}
+              disabled={isUploadedPdf ? !pdfReviewAcknowledged : !hasScrolledToBottom}
               className="w-full sm:w-auto sm:ml-auto sm:flex"
             >
               Proceder a Firmar <ArrowRight className="h-4 w-4 ml-2" />
