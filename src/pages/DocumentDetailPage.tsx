@@ -1,7 +1,7 @@
 /**
  * Document Detail Page — Shows document content, audit trail timeline, 
  * signature details, and contextual actions.
- * Route: /app/work-items/:id/documents/:docId
+ * Route: /app/work-items/:id/documents/:docId  OR  /app/documents/:docId (standalone)
  */
 
 import { useState } from "react";
@@ -24,10 +24,12 @@ import {
   KeyRound, ShieldCheck, ShieldX, Eye, CheckSquare, PenTool,
   Hash, HardDrive, Award, BellRing, XCircle, Clock, Ban,
   ScanSearch, Download, RefreshCw, Copy, Check, Loader2, Trash2,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { EvidencePackButton } from "@/components/documents/EvidencePackButton";
 
 // ─── Status config ───────────────────────────────────────
 
@@ -54,6 +56,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   paz_y_salvo: "Paz y Salvo",
   notificacion_personal: "Notificación Personal",
   notificacion_por_aviso: "Notificación por Aviso",
+  generic_pdf_signing: "Firma PDF Genérica",
 };
 
 const NOTIFICATION_DOC_TYPES = ["notificacion_personal", "notificacion_por_aviso"];
@@ -151,7 +154,8 @@ function parseUserAgent(ua: string): string {
 }
 
 export default function DocumentDetailPage() {
-  const { id: workItemId, docId } = useParams<{ id: string; docId: string }>();
+  const { id: workItemId, docId, docId: standaloneDocId } = useParams<{ id?: string; docId: string }>();
+  const resolvedDocId = docId || standaloneDocId;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
@@ -161,17 +165,17 @@ export default function DocumentDetailPage() {
 
   // Fetch document
   const { data: doc, isLoading: docLoading } = useQuery({
-    queryKey: ["document-detail", docId],
+    queryKey: ["document-detail", resolvedDocId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("generated_documents")
         .select("*")
-        .eq("id", docId!)
+        .eq("id", resolvedDocId!)
         .single();
       if (error) throw error;
       return data;
     },
-    enabled: !!docId,
+    enabled: !!resolvedDocId,
   });
 
   // Fetch creator profile
@@ -190,32 +194,32 @@ export default function DocumentDetailPage() {
 
   // Fetch signatures for this document
   const { data: signatures } = useQuery({
-    queryKey: ["doc-signatures", docId],
+    queryKey: ["doc-signatures", resolvedDocId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("document_signatures")
         .select("*")
-        .eq("document_id", docId!)
+        .eq("document_id", resolvedDocId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data;
     },
-    enabled: !!docId,
+    enabled: !!resolvedDocId,
   });
 
   // Fetch audit trail events
   const { data: events, isLoading: eventsLoading } = useQuery({
-    queryKey: ["doc-events", docId],
+    queryKey: ["doc-events", resolvedDocId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("document_signature_events")
         .select("*")
-        .eq("document_id", docId!)
+        .eq("document_id", resolvedDocId!)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data;
     },
-    enabled: !!docId,
+    enabled: !!resolvedDocId,
   });
 
   // Revoke signature mutation
@@ -239,16 +243,16 @@ export default function DocumentDetailPage() {
       });
 
       // Update document status back to ready_for_signature or finalized depending on doc type
-      const revertStatus = (doc!.document_type === "contrato_servicios" || doc!.document_type === "poder_especial") ? "ready_for_signature" : "finalized";
+      const revertStatus = (doc!.document_type === "contrato_servicios" || doc!.document_type === "poder_especial" || doc!.document_type === "generic_pdf_signing") ? "ready_for_signature" : "finalized";
       await supabase
         .from("generated_documents")
         .update({ status: revertStatus } as any)
         .eq("id", doc!.id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["document-detail", docId] });
-      queryClient.invalidateQueries({ queryKey: ["doc-signatures", docId] });
-      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+      queryClient.invalidateQueries({ queryKey: ["document-detail", resolvedDocId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-signatures", resolvedDocId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-events", resolvedDocId] });
       toast.success("Solicitud de firma revocada");
     },
     onError: (err) => toast.error("Error: " + (err as Error).message),
@@ -279,8 +283,8 @@ export default function DocumentDetailPage() {
       if (!data.ok) throw new Error(data.error);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["doc-signatures", docId] });
-      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-signatures", resolvedDocId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-events", resolvedDocId] });
       toast.success("Nuevo enlace de firma enviado");
     },
     onError: (err) => toast.error("Error: " + (err as Error).message),
@@ -298,7 +302,7 @@ export default function DocumentDetailPage() {
       if (error) throw error;
       if (!data.ok) throw new Error(data.error);
       toast.success(`Email reenviado a ${targetSig.signer_email}`);
-      queryClient.invalidateQueries({ queryKey: ["doc-events", docId] });
+      queryClient.invalidateQueries({ queryKey: ["doc-events", resolvedDocId] });
     } catch (err) {
       toast.error("Error: " + (err as Error).message);
     } finally {
@@ -372,13 +376,15 @@ export default function DocumentDetailPage() {
   const isExecuted = doc.status === "signed" || doc.status === "signed_finalized";
   const hasSignedPdf = !!signedSig?.signed_document_path;
   const hasFinalPdfHash = !!(doc as any).final_pdf_sha256;
-  
+  const isUploadedPdf = (doc as any).source_type === "UPLOADED_PDF";
+  const resolvedWorkItemId = workItemId || (doc as any).work_item_id;
+  const backPath = resolvedWorkItemId ? `/app/work-items/${resolvedWorkItemId}` : "/platform/generic-signing-docs";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate(`/app/work-items/${workItemId}`)}>
+        <Button variant="ghost" size="icon" onClick={() => navigate(backPath)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -392,9 +398,14 @@ export default function DocumentDetailPage() {
             </Badge>
           </div>
           <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
-            {workItemId && (
-              <Link to={`/app/work-items/${workItemId}`} className="hover:text-primary transition-colors">
+            {resolvedWorkItemId && (
+              <Link to={`/app/work-items/${resolvedWorkItemId}`} className="hover:text-primary transition-colors">
                 ← Expediente
+              </Link>
+            )}
+            {!resolvedWorkItemId && (
+              <Link to="/platform/generic-signing-docs" className="hover:text-primary transition-colors">
+                ← Documentos Genéricos
               </Link>
             )}
             <span>Creado {formatCOT(doc.created_at)}</span>
@@ -495,14 +506,20 @@ export default function DocumentDetailPage() {
                     <Award className="h-4 w-4 mr-2" /> Descargar Certificado
                   </Button>
                 )}
+                <EvidencePackButton
+                  documentId={doc.id}
+                  documentTitle={doc.title}
+                  variant="outline"
+                  size="default"
+                />
               </>
             )}
 
             {/* ── PRE-EXECUTION STATES ── */}
             {!isExecuted && (
               <>
-                {doc.status === "draft" && (
-                  <Button variant="outline" onClick={() => navigate(`/app/work-items/${workItemId}/documents/new`)}>
+                {doc.status === "draft" && resolvedWorkItemId && (
+                  <Button variant="outline" onClick={() => navigate(`/app/work-items/${resolvedWorkItemId}/documents/new`)}>
                     <Pencil className="h-4 w-4 mr-2" /> Editar Documento
                   </Button>
                 )}
@@ -558,7 +575,7 @@ export default function DocumentDetailPage() {
                 )}
                 {/* Recovery: Create new version for stuck contracts */}
                 {(doc.status === "sent_for_signature" || doc.status === "partially_signed" || doc.status === "ready_for_signature") && 
-                 (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial") && (
+                 (doc.document_type === "contrato_servicios" || doc.document_type === "poder_especial" || doc.document_type === "generic_pdf_signing") && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="outline">
@@ -637,7 +654,7 @@ export default function DocumentDetailPage() {
                                 });
                               }
                               toast.success("Nueva versión creada como borrador");
-                              navigate(`/app/work-items/${workItemId}/documents/${newDoc.id}`);
+                              navigate(resolvedWorkItemId ? `/app/work-items/${resolvedWorkItemId}/documents/${newDoc.id}` : `/app/documents/${newDoc.id}`);
                             } catch (err: any) {
                               toast.error("Error: " + (err?.message || "No se pudo crear nueva versión"));
                             }
@@ -697,7 +714,7 @@ export default function DocumentDetailPage() {
                                   ? ` Se revocaron ${delData.revoked_signatures} invitación(es) de firma.`
                                   : "";
                                 toast.success(`Documento archivado exitosamente.${revokedMsg}`);
-                                navigate(`/app/work-items/${workItemId}`);
+                                navigate(backPath);
                               } else {
                                 toast.error(delData?.error || "No se pudo eliminar");
                               }
@@ -754,9 +771,31 @@ export default function DocumentDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="max-h-[600px] border rounded-lg p-6" style={{ backgroundColor: "#FFFFFF" }}>
-                <div style={{ color: "#000000" }} dangerouslySetInnerHTML={{ __html: doc.content_html }} />
-              </ScrollArea>
+              {isUploadedPdf ? (
+                <div className="border rounded-lg p-6 text-center space-y-3" style={{ backgroundColor: "#FFFFFF" }}>
+                  <FileText className="h-12 w-12 mx-auto" style={{ color: "#6b7280" }} />
+                  <p style={{ color: "#374151" }} className="font-medium">Documento PDF subido externamente</p>
+                  <p style={{ color: "#9ca3af" }} className="text-sm">
+                    El contenido es un PDF aportado por el abogado. Haga clic para visualizarlo.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      const sourcePath = (doc as any).source_pdf_path;
+                      if (!sourcePath) { toast.error("Ruta del PDF no disponible"); return; }
+                      const { data } = await supabase.storage.from("unsigned-documents").createSignedUrl(sourcePath, 3600);
+                      if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                      else toast.error("Error al obtener el PDF");
+                    }}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-2" /> Ver PDF Original
+                  </Button>
+                </div>
+              ) : (
+                <ScrollArea className="max-h-[600px] border rounded-lg p-6" style={{ backgroundColor: "#FFFFFF" }}>
+                  <div style={{ color: "#000000" }} dangerouslySetInnerHTML={{ __html: doc.content_html }} />
+                </ScrollArea>
+              )}
             </CardContent>
           </Card>
 
