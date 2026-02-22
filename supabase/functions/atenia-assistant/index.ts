@@ -70,6 +70,8 @@ const ACTION_ALLOWLIST = new Set([
   "REVOKE_MEMBER_SUPPORT_TAB",
   // Document lifecycle actions
   "BULK_EXPORT_DOCUMENTS",
+  // Contract quota override (Andro IA grants up to +2 per client)
+  "GRANT_CONTRACT_EXTRA",
 ]);
 
 // ---- Risk classification ----
@@ -1367,6 +1369,47 @@ async function executeAction(
           finalized_documents: finalizedCount ?? 0,
         },
         message: `Exportación disponible: ${docCount ?? 0} documentos (${finalizedCount ?? 0} finalizados). Use el botón "Exportar Todo" en Configuración > Exportación para iniciar la descarga. La exportación requiere confirmación adicional.`,
+      };
+    }
+
+    case "GRANT_CONTRACT_EXTRA": {
+      const orgId = ctx.orgId;
+      if (!orgId) throw new Error("Se requiere una organización.");
+      const clientId = action.params?.client_id;
+      if (!clientId) throw new Error("Se requiere client_id.");
+      const userId = (ctx.user as any)?.id;
+      if (!userId) throw new Error("Se requiere usuario autenticado.");
+
+      // Call the DB function to grant extra allowance
+      const { data, error } = await adminClient.rpc("grant_client_contract_extra", {
+        p_organization_id: orgId,
+        p_client_id: clientId,
+        p_granted_by: "ANDRO_IA",
+        p_granted_by_user_id: userId,
+        p_extra_amount: action.params?.extra_amount ?? 2,
+      });
+
+      if (error) throw new Error(error.message);
+
+      // Log immutable audit event
+      await adminClient.from("audit_logs").insert({
+        organization_id: orgId,
+        actor_user_id: userId,
+        actor_type: "AI_ASSISTANT",
+        entity_type: "CLIENT",
+        entity_id: clientId,
+        action: "CLIENT_CONTRACT_LIMIT_OVERRIDE_GRANTED",
+        metadata: {
+          granted_by: "ANDRO_IA",
+          extra_amount: action.params?.extra_amount ?? 2,
+          result: data,
+        },
+      });
+
+      return {
+        ok: true,
+        message: `Se autorizaron ${action.params?.extra_amount ?? 2} contratos adicionales para este cliente.`,
+        result: data,
       };
     }
 
