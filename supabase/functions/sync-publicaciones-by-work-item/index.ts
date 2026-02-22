@@ -671,9 +671,13 @@ Deno.serve(async (req) => {
           next_run_at: new Date(Date.now() + 30_000 + Math.floor(Math.random() * 30_000)).toISOString(),
           last_error_code: 'PUB_SAFETY_TIMEOUT',
           last_error_message: `Timed out after ${elapsed}ms, retry enqueued`,
-        }, { onConflict: 'work_item_id,kind' })
-        .then(() => console.log(`[sync-pub] PUB_RETRY enqueued for ${work_item_id}`))
-        .catch((e: any) => console.warn(`[sync-pub] Failed to enqueue PUB_RETRY:`, e));
+        }, { onConflict: 'work_item_id,kind' });
+      try {
+        await upsertResult;
+        console.log(`[sync-pub] PUB_RETRY enqueued for ${work_item_id}`);
+      } catch (e: unknown) {
+        console.warn(`[sync-pub] Failed to enqueue PUB_RETRY:`, e);
+      }
 
       return {
         ok: false,

@@ -475,7 +475,7 @@ Deno.serve(async (req) => {
           entity_type: "work_item",
           entity_id: work_item_id,
           metadata: { input_name: inputName, input_city: inputCity, input_dept: inputDept, radicado_valid: radParsed.valid },
-        }).then(() => {});
+        });
       }
 
       return new Response(
@@ -832,7 +832,7 @@ Deno.serve(async (req) => {
       confidence,
       source: method,
       evidence: evidence,
-    }).then(() => {});
+    });
 
     // Audit log (legacy, kept for backward compat)
     if (workItem.organization_id) {
@@ -856,7 +856,7 @@ Deno.serve(async (req) => {
           radicado_gating_passed: hasRadicado ? radicadoGatingPassed : null,
           radicado_gating_reasons: radicadoGatingReasons.length > 0 ? radicadoGatingReasons : null,
         },
-      }).then(() => {});
+      });
     }
 
     return new Response(
