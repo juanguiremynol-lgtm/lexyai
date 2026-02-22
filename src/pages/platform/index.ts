@@ -32,3 +32,4 @@ export { default as PlatformCoverageGapsPage } from "./PlatformCoverageGapsPage"
 export { default as PlatformWaitlistPage } from "./PlatformWaitlistPage";
 export { default as PlatformPdfSettingsPage } from "./PlatformPdfSettingsPage";
 export { default as PlatformGenericSigningPage } from "./PlatformGenericSigningPage";
+export { default as PlatformHearingsCatalogPage } from "./PlatformHearingsCatalogPage";
