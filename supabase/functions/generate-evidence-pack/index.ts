@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
     // Fetch document
     const { data: doc, error: docErr } = await adminClient
       .from("generated_documents")
-      .select("id, organization_id, document_type, title, content_html, status, final_pdf_sha256, finalized_at, content_locked_at, created_by, document_hash_presign, created_at")
+      .select("id, organization_id, document_type, title, content_html, status, final_pdf_sha256, finalized_at, content_locked_at, created_by, document_hash_presign, created_at, source_type, source_pdf_path, source_pdf_sha256")
       .eq("id", document_id)
       .single();
 
@@ -146,17 +146,22 @@ Deno.serve(async (req) => {
       : null;
 
     const manifest = {
-      schema_version: "1.1",
+      schema_version: "1.2",
       generated_at: new Date().toISOString(),
       document: {
         id: doc.id,
         type: doc.document_type,
         title: doc.title,
         status: doc.status,
+        source_type: doc.source_type || "HTML",
         content_locked_at: doc.content_locked_at || null,
         executed_at: doc.finalized_at,
         final_pdf_sha256: doc.final_pdf_sha256,
         document_hash_presign: doc.document_hash_presign,
+        ...(doc.source_type === "UPLOADED_PDF" ? {
+          source_pdf_sha256: doc.source_pdf_sha256,
+          source_pdf_path: doc.source_pdf_path,
+        } : {}),
         ...(supersession ? {
           superseded: true,
           superseded_at: supersession.superseded_at,
@@ -190,6 +195,9 @@ Deno.serve(async (req) => {
       })),
       artifacts: {
         final_document_pdf: doc.final_pdf_sha256 ? { sha256: doc.final_pdf_sha256 } : null,
+        ...(doc.source_type === "UPLOADED_PDF" && doc.source_pdf_sha256 ? {
+          source_document_pdf: { sha256: doc.source_pdf_sha256 },
+        } : {}),
         raw_events_jsonl: { sha256: eventsHash, event_count: events?.length || 0 },
         manifest_json: "this_file",
       },
@@ -316,6 +324,17 @@ Chain head: ${chainHeadHash || "N/A"}
       }
     }
 
+    // Source PDF URL for UPLOADED_PDF documents
+    let sourcePdfUrl: string | null = null;
+    if (doc.source_type === "UPLOADED_PDF" && doc.source_pdf_path) {
+      const { data: srcUrl } = await adminClient.storage
+        .from("unsigned-documents")
+        .createSignedUrl(doc.source_pdf_path, 3600);
+      if (srcUrl?.signedUrl) {
+        sourcePdfUrl = srcUrl.signedUrl;
+      }
+    }
+
     return json({
       ok: true,
       manifest: manifest,
@@ -326,6 +345,7 @@ Chain head: ${chainHeadHash || "N/A"}
       readme_txt: readme,
       download_urls: signedDocUrls,
       proof_urls: proofUrls,
+      ...(sourcePdfUrl ? { source_pdf_url: sourcePdfUrl } : {}),
     });
   } catch (err) {
     console.error("generate-evidence-pack error:", err);

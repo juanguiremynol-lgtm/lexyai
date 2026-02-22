@@ -69,6 +69,19 @@ export function EvidencePackButton({
         }
       }
 
+      // Download and add source PDF (UPLOADED_PDF documents)
+      if (data.source_pdf_url) {
+        try {
+          const res = await fetch(data.source_pdf_url as string);
+          if (res.ok) {
+            const blob = await res.blob();
+            zip.file("source_document.pdf", blob);
+          }
+        } catch (e) {
+          console.warn("Could not download source PDF:", e);
+        }
+      }
+
       // Download and add external proofs
       if (data.proof_urls) {
         const proofFolder = zip.folder("external_proofs");
@@ -77,7 +90,6 @@ export function EvidencePackButton({
             const res = await fetch(url as string);
             if (res.ok) {
               const blob = await res.blob();
-              // Find proof metadata from manifest
               const proofMeta = data.manifest?.external_proofs?.find(
                 (p: { id: string }) => p.id === proofId
               );
