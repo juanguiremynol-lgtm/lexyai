@@ -59,6 +59,7 @@ import { ServiceObjectSection } from "@/components/documents/ServiceObjectSectio
 import type { HonorariosData } from "@/lib/honorarios-utils";
 import { createDefaultHonorariosData, generateHonorariosClause, generatePaymentScheduleText } from "@/lib/honorarios-utils";
 import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
+import { ContractDraftAIPanel } from "@/components/documents/ContractDraftAIPanel";
 import { isLinkSharingAllowed } from "@/lib/document-share-policy";
 import { getDisclaimers, isIssuerOnly, getDocumentPolicy, isBilateral, type DocumentPolicyType } from "@/lib/document-policy";
 import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
@@ -407,6 +408,10 @@ export default function WorkItemDocumentWizard() {
 
   // Facultades AI assistant
   const [facultadesAIOpen, setFacultadesAIOpen] = useState(false);
+
+  // Contract drafting AI panels (Objeto + Honorarios)
+  const [objetoAIOpen, setObjetoAIOpen] = useState(false);
+  const [honorariosAIOpen, setHonorariosAIOpen] = useState(false);
 
    // Attorney acceptance signature toggle (default OFF — POA is unilateral)
   const [includeAttorneyAcceptance, setIncludeAttorneyAcceptance] = useState(false);
@@ -1574,8 +1579,32 @@ export default function WorkItemDocumentWizard() {
                         courtCity={variables.city}
                         workflowType={workItem?.workflow_type}
                       />
+                      {workItemId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-xs"
+                          onClick={() => setObjetoAIOpen(true)}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Ask Andro IA
+                        </Button>
+                      )}
                       <Separator />
                       <HonorariosSection data={honorariosData} onChange={setHonorariosData} />
+                      {workItemId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 text-xs"
+                          onClick={() => setHonorariosAIOpen(true)}
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Ask Andro IA — Honorarios
+                        </Button>
+                      )}
                       <Separator />
                     </>
                   )}
@@ -1850,6 +1879,37 @@ export default function WorkItemDocumentWizard() {
           workItemId={workItemId}
           wizardState={variables}
           onApply={(text) => setVariables((p) => ({ ...p, faculties: text }))}
+        />
+      )}
+
+      {/* Contract Objeto AI Panel */}
+      {workItemId && (
+        <ContractDraftAIPanel
+          open={objetoAIOpen}
+          onOpenChange={setObjetoAIOpen}
+          field="OBJETO"
+          workItemId={workItemId}
+          wizardVariables={variables}
+          serviceObject={serviceObject}
+          onApply={(text) => {
+            setServiceObject(text);
+            setVariables((p) => ({ ...p, case_description: text }));
+          }}
+        />
+      )}
+
+      {/* Contract Honorarios AI Panel */}
+      {workItemId && (
+        <ContractDraftAIPanel
+          open={honorariosAIOpen}
+          onOpenChange={setHonorariosAIOpen}
+          field="HONORARIOS"
+          workItemId={workItemId}
+          wizardVariables={variables}
+          honorariosData={honorariosData}
+          onApply={(text) => {
+            setHonorariosData(prev => ({ ...prev, honorarios_type: 'personalizado', custom_text_html: text }));
+          }}
         />
       )}
     </div>
