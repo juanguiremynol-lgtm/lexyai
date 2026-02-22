@@ -64,12 +64,17 @@ const EVENT_ICONS: Record<string, { icon: typeof FileText; color: string }> = {
   "document.created": { icon: FileText, color: "text-blue-500" },
   "document.edited": { icon: Pencil, color: "text-amber-500" },
   "document.finalized": { icon: Lock, color: "text-blue-600" },
+  "document.executed": { icon: ShieldCheck, color: "text-green-600" },
+  "document.pdf_generated": { icon: HardDrive, color: "text-green-500" },
+  "document.distributed": { icon: Mail, color: "text-primary" },
+  "document.distributed_to": { icon: Send, color: "text-primary" },
   "signature.requested": { icon: Send, color: "text-primary" },
   "signature.email_sent": { icon: Mail, color: "text-primary" },
   "signature.link_opened": { icon: ExternalLink, color: "text-blue-500" },
   "signature.otp_sent": { icon: KeyRound, color: "text-amber-500" },
   "signature.otp_verified": { icon: ShieldCheck, color: "text-green-500" },
   "signature.otp_failed": { icon: ShieldX, color: "text-destructive" },
+  "signature.identity_confirmed": { icon: ShieldCheck, color: "text-green-500" },
   "signature.document_viewed": { icon: Eye, color: "text-blue-400" },
   "signature.consent_given": { icon: CheckSquare, color: "text-green-500" },
   "signature.signed": { icon: PenTool, color: "text-green-600" },
@@ -78,6 +83,7 @@ const EVENT_ICONS: Record<string, { icon: typeof FileText; color: string }> = {
   "certificate.generated": { icon: Award, color: "text-amber-500" },
   "notification.sent": { icon: BellRing, color: "text-primary" },
   "notification.reminder_sent": { icon: BellRing, color: "text-amber-500" },
+  "notification.failed": { icon: XCircle, color: "text-destructive" },
   "signature.declined": { icon: XCircle, color: "text-destructive" },
   "signature.expired": { icon: Clock, color: "text-muted-foreground" },
   "signature.revoked": { icon: Ban, color: "text-destructive" },
@@ -89,6 +95,10 @@ const EVENT_LABELS: Record<string, (data?: any) => string> = {
   "document.created": () => "Documento creado",
   "document.edited": () => "Documento editado",
   "document.finalized": () => "Documento finalizado (contenido bloqueado)",
+  "document.executed": () => "Documento ejecutado (invariantes validados)",
+  "document.pdf_generated": (d) => `PDF generado${d?.pdf_sha256 ? ` (SHA: ${d.pdf_sha256.substring(0, 12)}…)` : ""}`,
+  "document.distributed": (d) => `Documento distribuido a ${d?.total_recipients || "?"} destinatario(s)`,
+  "document.distributed_to": (d) => `Entregado a ${d?.recipient_name || d?.recipient_email || "destinatario"}${d?.delivery_status === "failed" ? " (FALLIDO)" : ""}`,
   "document.superseded": (d) => `Documento reemplazado${d?.new_document_id ? " por nueva versión" : ""}`,
   "signature.requested": (d) => `Solicitud de firma enviada${d?.signer_email ? ` a ${d.signer_email}` : ""}`,
   "signature.email_sent": (d) => `Correo enviado${d?.recipient ? ` a ${d.recipient}` : ""}`,
@@ -96,6 +106,7 @@ const EVENT_LABELS: Record<string, (data?: any) => string> = {
   "signature.otp_sent": () => "Código OTP enviado",
   "signature.otp_verified": () => "Identidad verificada por OTP",
   "signature.otp_failed": (d) => `Verificación OTP fallida${d?.attempt ? ` (intento ${d.attempt})` : ""}`,
+  "signature.identity_confirmed": () => "Identidad confirmada (nombre + cédula)",
   "signature.document_viewed": () => "Documento revisado por firmante",
   "signature.consent_given": () => "Consentimiento otorgado",
   "signature.signed": (d) => `Documento firmado${d?.signer_name ? ` por ${d.signer_name}` : ""}`,
@@ -103,6 +114,7 @@ const EVENT_LABELS: Record<string, (data?: any) => string> = {
   "document.stored": () => "Documento almacenado",
   "certificate.generated": () => "Certificado de evidencia generado",
   "notification.sent": (d) => `Notificación enviada${d?.type === "signature_confirmation" ? " (confirmación)" : ""}`,
+  "notification.failed": (d) => `Error al enviar notificación${d?.recipient ? ` a ${d.recipient}` : ""}`,
   "notification.reminder_sent": () => "Recordatorio de firma enviado",
   "signature.declined": () => "Firma rechazada",
   "signature.expired": () => "Enlace de firma vencido",
@@ -852,6 +864,102 @@ export default function DocumentDetailPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Distribution Timeline — shows document.distributed_to events + final_pdf_sha256 */}
+          {(() => {
+            const distributionEvents = events?.filter(e => e.event_type === "document.distributed_to") || [];
+            const distributedSummary = events?.find(e => e.event_type === "document.distributed");
+            const pdfGeneratedEvent = events?.find(e => e.event_type === "document.pdf_generated");
+            const pdfSha256 = (doc as any).final_pdf_sha256 || (pdfGeneratedEvent?.event_data as any)?.pdf_sha256;
+
+            if (distributionEvents.length === 0 && !pdfSha256) return null;
+
+            return (
+              <Card className="border-primary/20">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Send className="h-5 w-5 text-primary" /> Distribución del Documento
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* PDF SHA-256 */}
+                  {pdfSha256 && (
+                    <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                          <Hash className="h-3 w-3" /> final_pdf_sha256
+                        </span>
+                        <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => handleCopyHash(pdfSha256)}>
+                          {copiedHash ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                      <p className="font-mono text-[10px] break-all text-foreground/80">{pdfSha256}</p>
+                    </div>
+                  )}
+
+                  {/* PDF generation info */}
+                  {pdfGeneratedEvent && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <HardDrive className="h-4 w-4 text-green-500 shrink-0" />
+                      <span className="text-muted-foreground">PDF generado:</span>
+                      <span className="font-medium">{formatCOT(pdfGeneratedEvent.created_at)}</span>
+                    </div>
+                  )}
+
+                  {/* Per-recipient delivery events */}
+                  {distributionEvents.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium text-muted-foreground">Destinatarios</h4>
+                      {distributionEvents.map((ev) => {
+                        const d = ev.event_data as any;
+                        const isFailed = d?.delivery_status === "failed";
+                        return (
+                          <div key={ev.id} className={`flex items-center gap-3 text-sm rounded-md p-2 ${isFailed ? "bg-destructive/10" : "bg-green-500/5"}`}>
+                            {isFailed ? (
+                              <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                            ) : (
+                              <CheckSquare className="h-4 w-4 text-green-500 shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium truncate">{d?.recipient_name || "—"}</span>
+                                <Badge variant="outline" className="text-[10px] h-4 px-1 capitalize">
+                                  {d?.recipient_role === "lawyer" ? "Abogado" : "Cliente"}
+                                </Badge>
+                                {isFailed && <Badge variant="destructive" className="text-[10px] h-4 px-1">Fallido</Badge>}
+                              </div>
+                              <p className="text-xs text-muted-foreground truncate">{d?.recipient_email}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {formatCOT(ev.created_at)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Distribution summary */}
+                  {distributedSummary && (
+                    <div className="border-t pt-3 mt-2">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Mail className="h-3 w-3" />
+                        <span>
+                          Distribución completada: {(distributedSummary.event_data as any)?.total_recipients} destinatario(s) —{" "}
+                          {formatCOT(distributedSummary.created_at)}
+                        </span>
+                      </div>
+                      {(distributedSummary.event_data as any)?.distribution_policy && (
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Política: {(distributedSummary.event_data as any).distribution_policy} | Modelo: {(distributedSummary.event_data as any).signer_model}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
 
         {/* Audit Trail Timeline */}
