@@ -656,25 +656,46 @@ export default function DocumentDetailPage() {
               <>
                 {signedSig.signed_document_path && (
                   <Button variant="outline" onClick={async () => {
-                    // Try PDF first, fall back to HTML
+                    // Always try PDF first
                     const pdfPath = signedSig.signed_document_path!.replace(/\.html$/, '.pdf');
                     const { data: pdfData } = await supabase.storage.from("signed-documents").createSignedUrl(pdfPath, 3600);
                     if (pdfData?.signedUrl) {
                       window.open(pdfData.signedUrl, "_blank");
-                    } else {
-                      // Fallback to original path (HTML or whatever is stored)
-                      const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
-                      if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                      else toast.error("Error al obtener enlace de descarga");
+                      return;
                     }
+                    // In production: never offer HTML download
+                    const allowHtmlFallback = import.meta.env.DEV || import.meta.env.VITE_ALLOW_HTML_FALLBACK === "true";
+                    if (!allowHtmlFallback) {
+                      toast.info("El PDF aún se está generando. Intente de nuevo en unos segundos.");
+                      return;
+                    }
+                    // Dev/staging fallback to HTML
+                    const { data } = await supabase.storage.from("signed-documents").createSignedUrl(signedSig.signed_document_path!, 3600);
+                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                    else toast.error("Error al obtener enlace de descarga");
                   }}>
                     <Download className="h-4 w-4 mr-2" /> Descargar PDF Firmado
                   </Button>
                 )}
                 {!signedSig.signed_document_path && (
-                  <Button variant="outline" disabled>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generando PDF…
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" disabled>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generando PDF…
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={async () => {
+                      try {
+                        const { error } = await supabase.functions.invoke("process-pdf-job", {
+                          body: { document_id: doc.id },
+                        });
+                        if (error) toast.error("Error al reintentar generación de PDF");
+                        else toast.success("Reintento de generación de PDF iniciado");
+                      } catch {
+                        toast.error("Error de conexión");
+                      }
+                    }}>
+                      <RefreshCw className="h-4 w-4 mr-1" /> Reintentar
+                    </Button>
+                  </div>
                 )}
                 {signedSig.certificate_path && (
                   <Button variant="outline" onClick={async () => {
