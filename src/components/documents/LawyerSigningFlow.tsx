@@ -203,7 +203,23 @@ export function LawyerSigningFlow({
           geolocation: null,
         },
       });
-      if (error) throw error;
+      if (error) {
+        // Extract detailed error message from FunctionsHttpError
+        let errorMessage = "Intente nuevamente.";
+        try {
+          const ctx = (error as any)?.context;
+          if (ctx && typeof ctx.json === "function") {
+            const body = await ctx.json();
+            errorMessage = body?.error || body?.message || errorMessage;
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+        } catch (_) {
+          errorMessage = error.message || errorMessage;
+        }
+        toast.error(errorMessage);
+        return;
+      }
       if (data?.ok) {
         setStep("done");
         toast.success("Firma del abogado completada");
