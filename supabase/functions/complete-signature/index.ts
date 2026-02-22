@@ -285,11 +285,16 @@ Deno.serve(async (req) => {
     if (base64Part.length > 700000) {
       return json({ error: "La imagen de la firma es demasiado grande." }, 400);
     }
-    if (signature_stroke_data) {
-      if (!Array.isArray(signature_stroke_data)) return json({ error: "Datos de trazos inválidos." }, 400);
-      for (const stroke of signature_stroke_data) {
-        if (!stroke.points || !Array.isArray(stroke.points)) return json({ error: "Estructura de datos de trazos inválida." }, 400);
-      }
+    if (!signature_stroke_data || !Array.isArray(signature_stroke_data) || signature_stroke_data.length === 0) {
+      return json({ error: "Se requieren datos de trazos de la firma manuscrita." }, 400);
+    }
+    let payloadTotalPoints = 0;
+    for (const stroke of signature_stroke_data) {
+      if (!stroke.points || !Array.isArray(stroke.points)) return json({ error: "Estructura de datos de trazos inválida." }, 400);
+      payloadTotalPoints += stroke.points.length;
+    }
+    if (payloadTotalPoints < 15) {
+      return json({ error: "La firma debe ser más elaborada (mínimo 15 puntos). Por favor dibújela nuevamente." }, 422);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -649,7 +654,7 @@ ${evidenceAppendix}
     const combinedHash = await sha256Hex(combinedBytes);
 
     const storagePath = `${sig.organization_id}/${sig.document_id}/signed.html`;
-    const { error: uploadErr } = await adminClient.storage.from("signed-documents").upload(storagePath, combinedBytes, { contentType: "text/html", upsert: true });
+    const { error: uploadErr } = await adminClient.storage.from("signed-documents").upload(storagePath, combinedBytes, { contentType: "text/html; charset=utf-8", upsert: true });
     if (uploadErr) {
       console.error("Storage upload error:", uploadErr);
       return json({ error: "Hubo un error al generar el documento. Por favor intente nuevamente." }, 500);
