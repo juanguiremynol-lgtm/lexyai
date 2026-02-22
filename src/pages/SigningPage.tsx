@@ -525,16 +525,6 @@ export default function SigningPage() {
                     </label>
                   </div>
 
-                  <Button
-                    onClick={handleSign}
-                    disabled={signing || !consentChecked || !drawnSignature}
-                    className="w-full h-12 text-base"
-                    style={{ backgroundColor: brandColor }}
-                  >
-                    {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-                    {signing ? "Procesando..." : "Firmar Documento"}
-                  </Button>
-
                   {signing && signingProgress.length > 0 && (
                     <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                       <p className="text-sm font-medium text-muted-foreground">
@@ -559,6 +549,21 @@ export default function SigningPage() {
                   </p>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Sticky sign button — always visible on mobile without scrolling */}
+            {hasScrolledToBottom && (
+              <div className="sticky bottom-0 z-20 bg-background/95 backdrop-blur-sm border-t p-4 -mx-4 sm:mx-0 sm:border sm:rounded-lg sm:relative sm:bg-transparent sm:backdrop-blur-none sm:border-t-0 sm:p-0">
+                <Button
+                  onClick={handleSign}
+                  disabled={signing || !consentChecked || !drawnSignature}
+                  className="w-full h-12 text-base"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  {signing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                  {signing ? "Procesando..." : "Firmar Documento"}
+                </Button>
+              </div>
             )}
           </>
         )}
