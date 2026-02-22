@@ -199,10 +199,13 @@ export const UNILATERAL_HTML_MARKERS: string[] = [
   "FIRMANTE",
 ];
 
+export type AuditErrorSeverity = "critical" | "warning";
+
 export interface AuditValidationError {
   section: string;
   field: string;
   message: string;
+  severity: AuditErrorSeverity;
 }
 
 /**
@@ -232,41 +235,65 @@ export function validateAuditData(input: {
 }): AuditValidationError[] {
   const errors: AuditValidationError[] = [];
 
-  // Document metadata
-  if (!input.doc.title) errors.push({ section: "document_metadata", field: "doc_title", message: "Document title missing" });
-  if (!input.doc.id) errors.push({ section: "document_metadata", field: "doc_id", message: "Document ID missing" });
-  if (!input.doc.document_type) errors.push({ section: "document_metadata", field: "doc_type", message: "Document type missing" });
-  if (!input.lawyerName) errors.push({ section: "document_metadata", field: "generated_for", message: "Lawyer name missing" });
-  if (!input.lawyerEmail) errors.push({ section: "document_metadata", field: "generated_for", message: "Lawyer email missing" });
+  // ── CRITICAL: block PDF generation if missing ──
 
-  // Signer count
+  // Document metadata (critical)
+  if (!input.doc.title) errors.push({ section: "document_metadata", field: "doc_title", message: "Document title missing", severity: "critical" });
+  if (!input.doc.id) errors.push({ section: "document_metadata", field: "doc_id", message: "Document ID missing", severity: "critical" });
+  if (!input.doc.document_type) errors.push({ section: "document_metadata", field: "doc_type", message: "Document type missing", severity: "critical" });
+  if (!input.lawyerName) errors.push({ section: "document_metadata", field: "generated_for", message: "Lawyer name missing", severity: "critical" });
+  if (!input.lawyerEmail) errors.push({ section: "document_metadata", field: "generated_for", message: "Lawyer email missing", severity: "critical" });
+
+  // Signer count (critical)
   if (input.signerModel === "BILATERAL" && input.signers.length < 2) {
-    errors.push({ section: "signer_identity", field: "signer_count", message: `Bilateral requires 2 signers, found ${input.signers.length}` });
+    errors.push({ section: "signer_identity", field: "signer_count", message: `Bilateral requires 2 signers, found ${input.signers.length}`, severity: "critical" });
   }
   if (input.signers.length === 0) {
-    errors.push({ section: "signer_identity", field: "signer_count", message: "No signers found" });
+    errors.push({ section: "signer_identity", field: "signer_count", message: "No signers found", severity: "critical" });
   }
 
   // Per-signer validation
   for (let i = 0; i < input.signers.length; i++) {
     const s = input.signers[i];
     const prefix = `signer_${i + 1}`;
-    if (!s.signer_name) errors.push({ section: "signer_identity", field: `${prefix}.name`, message: `Signer ${i + 1} name missing` });
-    if (!s.signer_email) errors.push({ section: "signer_identity", field: `${prefix}.email`, message: `Signer ${i + 1} email missing` });
-    if (!s.signed_at) errors.push({ section: "signer_signature_data", field: `${prefix}.signed_at`, message: `Signer ${i + 1} signing timestamp missing` });
+    // Critical: identity + OTP + signature
+    if (!s.signer_name) errors.push({ section: "signer_identity", field: `${prefix}.name`, message: `Signer ${i + 1} name missing`, severity: "critical" });
+    if (!s.signer_email) errors.push({ section: "signer_identity", field: `${prefix}.email`, message: `Signer ${i + 1} email missing`, severity: "critical" });
+    if (!s.signed_at) errors.push({ section: "signer_signature_data", field: `${prefix}.signed_at`, message: `Signer ${i + 1} signing timestamp missing`, severity: "critical" });
+    if (!s.otp_verified_at) errors.push({ section: "signer_identity_verification", field: `${prefix}.otp_verified_at`, message: `Signer ${i + 1} OTP not verified`, severity: "critical" });
 
-    // Signature payload
+    // Signature payload (critical)
     const hasStrokes = s.signature_stroke_data && s.signature_stroke_data.length > 0;
     const hasImage = !!s.signature_image_path;
     if (!hasStrokes && !hasImage) {
-      errors.push({ section: "signer_signature_data", field: `${prefix}.signature`, message: `Signer ${i + 1} has no signature data` });
+      errors.push({ section: "signer_signature_data", field: `${prefix}.signature`, message: `Signer ${i + 1} has no signature data`, severity: "critical" });
     }
+
+    // ── WARNING: nice-to-have fields ──
+    if (!s.signer_ip) errors.push({ section: "signer_signature_data", field: `${prefix}.ip`, message: `Signer ${i + 1} IP not captured`, severity: "warning" });
+    if (!s.signer_user_agent) errors.push({ section: "signer_signature_data", field: `${prefix}.user_agent`, message: `Signer ${i + 1} user agent not captured`, severity: "warning" });
+    if (!s.device_fingerprint_hash) errors.push({ section: "signer_signature_data", field: `${prefix}.device_hash`, message: `Signer ${i + 1} device fingerprint not captured`, severity: "warning" });
+    if (!s.signer_cedula) errors.push({ section: "signer_identity", field: `${prefix}.cedula`, message: `Signer ${i + 1} cédula not provided`, severity: "warning" });
   }
 
-  // Events — at minimum must have some audit events
+  // Events — at minimum must have some audit events (critical)
   if (!input.events || input.events.length === 0) {
-    errors.push({ section: "full_event_timeline", field: "events", message: "No audit events found" });
+    errors.push({ section: "full_event_timeline", field: "events", message: "No audit events found", severity: "critical" });
   }
 
   return errors;
+}
+
+/**
+ * Filter only critical errors that should block PDF generation.
+ */
+export function getCriticalErrors(errors: AuditValidationError[]): AuditValidationError[] {
+  return errors.filter(e => e.severity === "critical");
+}
+
+/**
+ * Filter only warning-level errors (nice-to-have, non-blocking).
+ */
+export function getWarningErrors(errors: AuditValidationError[]): AuditValidationError[] {
+  return errors.filter(e => e.severity === "warning");
 }

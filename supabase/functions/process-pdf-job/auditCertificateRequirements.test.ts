@@ -12,6 +12,8 @@
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   validateAuditData,
+  getCriticalErrors,
+  getWarningErrors,
   REQUIRED_HTML_MARKERS,
   BILATERAL_HTML_MARKERS,
   UNILATERAL_HTML_MARKERS,
@@ -45,6 +47,7 @@ Deno.test("validateAuditData: catches missing doc title", () => {
     signerModel: "UNILATERAL",
   });
   assertEquals(errors.some(e => e.field === "doc_title"), true, "Should detect missing doc title");
+  assertEquals(errors.every(e => e.field === "doc_title" ? e.severity === "critical" : true), true, "doc_title should be critical");
 });
 
 Deno.test("validateAuditData: catches bilateral with only 1 signer", () => {
@@ -178,3 +181,50 @@ for (const dt of DOC_TYPES) {
     assertEquals(errors.length, 0, `${dt.type}: unexpected errors: ${JSON.stringify(errors)}`);
   });
 }
+
+// ─── Severity level tests ─────────────────────────────────
+
+Deno.test("getCriticalErrors filters only critical severity", () => {
+  const errors = validateAuditData({
+    doc: { id: "d1", title: "", document_type: "", created_by: "u1", created_at: new Date().toISOString() },
+    lawyerName: "", lawyerEmail: "",
+    signers: [{ signer_name: "C", signer_cedula: null, signer_email: "c@t.com", signer_ip: null, signer_user_agent: null, device_fingerprint_hash: null, signed_at: new Date().toISOString(), otp_sent_at: null, otp_verified_at: new Date().toISOString(), otp_attempts: 1, signature_stroke_data: [{ points: [1] }], signature_image_path: "p" }],
+    events: [{ event_type: "document.created", event_hash: "h" }],
+    signerModel: "UNILATERAL",
+  });
+  const critical = getCriticalErrors(errors);
+  const warnings = getWarningErrors(errors);
+  assertEquals(critical.length > 0, true, "Should have critical errors");
+  assertEquals(critical.every(e => e.severity === "critical"), true, "All should be critical");
+  assertEquals(warnings.every(e => e.severity === "warning"), true, "All should be warning");
+  // Missing IP, UA, device hash should be warnings, not critical
+  assertEquals(warnings.some(e => e.field.includes("ip")), true, "IP missing is warning");
+  assertEquals(warnings.some(e => e.field.includes("device_hash")), true, "Device hash missing is warning");
+});
+
+Deno.test("missing OTP verification is critical", () => {
+  const errors = validateAuditData({
+    doc: { id: "d1", title: "T", document_type: "poder_especial", created_by: "u1", created_at: new Date().toISOString() },
+    lawyerName: "L", lawyerEmail: "l@t.com",
+    signers: [{ signer_name: "C", signer_cedula: "1", signer_email: "c@t.com", signer_ip: "1.1.1.1", signer_user_agent: "Chrome", device_fingerprint_hash: "h", signed_at: new Date().toISOString(), otp_sent_at: new Date().toISOString(), otp_verified_at: null, otp_attempts: 0, signature_stroke_data: [{ points: [1] }], signature_image_path: "p" }],
+    events: [{ event_type: "document.created", event_hash: "h" }],
+    signerModel: "UNILATERAL",
+  });
+  const critical = getCriticalErrors(errors);
+  assertEquals(critical.some(e => e.field.includes("otp_verified_at")), true, "Missing OTP verification should be critical");
+});
+
+Deno.test("valid data produces zero critical errors (warnings ok)", () => {
+  const errors = validateAuditData({
+    doc: { id: "d1", title: "T", document_type: "poder_especial", created_by: "u1", created_at: new Date().toISOString() },
+    lawyerName: "L", lawyerEmail: "l@t.com",
+    signers: [{ signer_name: "C", signer_cedula: null, signer_email: "c@t.com", signer_ip: null, signer_user_agent: null, device_fingerprint_hash: null, signed_at: new Date().toISOString(), otp_sent_at: new Date().toISOString(), otp_verified_at: new Date().toISOString(), otp_attempts: 1, signature_stroke_data: [{ points: [1] }], signature_image_path: "p" }],
+    events: [{ event_type: "document.created", event_hash: "h" }],
+    signerModel: "UNILATERAL",
+  });
+  const critical = getCriticalErrors(errors);
+  assertEquals(critical.length, 0, "No critical errors for valid data");
+  // But may have warnings for missing IP/UA/device_hash/cedula
+  const warnings = getWarningErrors(errors);
+  assertEquals(warnings.length > 0, true, "Should have warnings for missing optional fields");
+});
