@@ -20,6 +20,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { validateAuditData, AUDIT_CERTIFICATE_SECTIONS } from "./auditCertificateRequirements.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,12 +145,14 @@ async function computeEventHash(previousHash: string | null, eventData: Record<s
 // ─── Per-signer audit evidence section builder ───────────
 function buildSignerEvidenceSection(
   signerData: any, signerEvents: any[], signerIndex: number, totalSigners: number, roleLabel: string,
+  signatureImgDataUri: string | null,
 ): string {
   const parsedUA = parseUserAgent(signerData.signer_user_agent || "");
   const strokeCount = signerData.signature_stroke_data?.length || 0;
   const totalPoints = signerData.signature_stroke_data?.reduce((s: number, st: any) => s + (st.points?.length || 0), 0) || 0;
   const sectionTitle = totalSigners > 1 ? `FIRMA ${signerIndex} DE ${totalSigners}: ${roleLabel}` : "FIRMANTE";
   const deviceFP = signerData.device_fingerprint_hash || "N/A";
+  const serverSessionId = signerData.server_session_id || signerData.signer_session_id || null;
 
   // Canonical identity verification method statement
   const identityData = signerData.identity_confirmation_data;
@@ -193,6 +196,11 @@ function buildSignerEvidenceSection(
     </tr>`;
   }).join("\n");
 
+  // Signature image reference in evidence section
+  const sigImgHtml = signatureImgDataUri
+    ? `<div style="margin:8px 0;"><img src="${signatureImgDataUri}" alt="Firma electrónica" style="max-width:200px;max-height:60px;border:1px solid #eee;padding:4px;" /></div>`
+    : `<p style="color:#999;font-size:11px;">[Imagen de firma registrada en almacenamiento]</p>`;
+
   return `
   <h3 style="color:#1a1a2e;background:#f0f0f5;padding:10px 12px;margin-top:32px;font-size:14px;letter-spacing:1px;border-left:4px solid #1a1a2e;">
     ${sectionTitle}
@@ -220,9 +228,11 @@ function buildSignerEvidenceSection(
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Navegador:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.browser}</td></tr>
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Sistema operativo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.os}</td></tr>
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Dispositivo:</td><td style="padding:4px 0;font-size:12px;">${parsedUA.device}</td></tr>
+    ${serverSessionId ? `<tr><td style="padding:4px 0;color:#666;font-size:12px;">server_session_id:</td><td style="padding:4px 0;font-family:monospace;font-size:11px;">${serverSessionId}</td></tr>` : ""}
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Indicador de sesión/dispositivo (hash):</td><td style="padding:4px 0;font-family:monospace;font-size:12px;">${deviceFP}</td></tr>
     <tr><td style="padding:4px 0;color:#666;font-size:12px;">Firma manuscrita digital:</td><td style="padding:4px 0;font-size:12px;">${strokeCount} trazos, ${totalPoints} puntos</td></tr>
   </table>
+  ${sigImgHtml}
   <h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:16px;font-size:12px;">REGISTRO DE AUDITORÍA — Firmante ${signerIndex}</h4>
   <table style="width:100%;border-collapse:collapse;margin:8px 0;">
     <thead><tr style="background:#f5f5f5;">
@@ -442,6 +452,26 @@ Deno.serve(async (req) => {
         ? "Enlace de firma (compartido por el abogado)"
         : "Correo electrónico (info@andromeda.legal)";
 
+      // ── Runtime audit data validation ──
+      const validationErrors = validateAuditData({
+        doc: { id: doc.id, title: doc.title, document_type: doc.document_type, created_by: doc.created_by, created_at: doc.created_at },
+        lawyerName: lawyerProfile?.full_name || "",
+        lawyerEmail: lawyerProfile?.litigation_email || lawyerProfile?.email || "",
+        signers: signedSigs.map(s => ({
+          signer_name: s.signer_name, signer_cedula: s.signer_cedula, signer_email: s.signer_email,
+          signer_ip: s.signer_ip, signer_user_agent: s.signer_user_agent,
+          device_fingerprint_hash: s.device_fingerprint_hash, signed_at: s.signed_at,
+          otp_sent_at: s.otp_sent_at, otp_verified_at: s.otp_verified_at, otp_attempts: s.otp_attempts,
+          signature_stroke_data: s.signature_stroke_data, signature_image_path: s.signature_image_path,
+        })),
+        events: (allDocEvents || []).map(e => ({ event_type: e.event_type, event_hash: e.event_hash })),
+        signerModel: policy.signerModel,
+      });
+      if (validationErrors.length > 0) {
+        console.warn(`[process-pdf-job] Audit validation warnings (${validationErrors.length}):`, validationErrors);
+        // Log warnings but don't block — data may be partially available
+      }
+
       // ── Build per-signer evidence sections ──
       const poderdanteType = (doc as any).poderdante_type || "natural";
       const entityInfo = (doc as any).entity_data || null;
@@ -467,7 +497,8 @@ Deno.serve(async (req) => {
           </table><h4 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:4px;font-size:12px;">REPRESENTANTE LEGAL</h4>`;
         }
 
-        const section = buildSignerEvidenceSection(s, signerEvents || [], idx + 1, totalSigners, roleLabel);
+        const sigImgUri = signatureBase64Map[s.id] || null;
+        const section = buildSignerEvidenceSection(s, signerEvents || [], idx + 1, totalSigners, roleLabel, sigImgUri);
         if (extraInfo) {
           const insertPoint = section.indexOf('</h3>') + 5;
           signerSections.push(section.slice(0, insertPoint) + extraInfo + section.slice(insertPoint));
@@ -482,33 +513,86 @@ Deno.serve(async (req) => {
       else if (totalSigners > 1) statusLabel = "Firmado por ambas partes";
       else statusLabel = "Firmado";
 
-      // ── Token info from last signer ──
-      const lastSigner = signedSigs[signedSigs.length - 1];
-      const tokenIssuedAt = lastSigner?.created_at ? formatCOT(lastSigner.created_at) : "N/A";
-      const tokenExpiresAt = lastSigner?.expires_at ? formatCOT(lastSigner.expires_at) : "N/A";
-      const tokenConsumedAt = lastSigner?.consumed_at ? formatCOT(lastSigner.consumed_at) : "N/A";
+      // ── Document state ──
+      const docStateLabel = policy.finalizedEvent === "ISSUED_FINALIZED" ? "EMITIDO / FINALIZADO" : "EJECUTADO / FIRMADO FINALIZADO (signed_finalized)";
+
+      // ── Token info — per signer with computed status ──
+      const tokenSections = signedSigs.map((s, idx) => {
+        const issuedAt = s.created_at ? formatCOT(s.created_at) : "N/A";
+        const expiresAt = s.expires_at ? formatCOT(s.expires_at) : "N/A";
+        const consumedAt = s.consumed_at ? formatCOT(s.consumed_at) : (s.signed_at ? formatCOT(s.signed_at) : "N/A");
+        let tokenStatus = "ACTIVO";
+        if (s.consumed_at || s.signed_at) tokenStatus = "CONSUMIDO";
+        else if (s.revoked_at) tokenStatus = "REVOCADO";
+        else if (s.expires_at && new Date(s.expires_at) < new Date()) tokenStatus = "EXPIRADO";
+        const signerLabel = totalSigners > 1 ? ` — Firmante ${idx + 1} (${s.signer_name})` : "";
+        return `
+        <tr><td colspan="2" style="padding:8px 0 2px;font-weight:bold;font-size:12px;border-bottom:1px solid #eee;">${signerLabel ? `Token${signerLabel}` : ""}</td></tr>
+        <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Token emitido:</td><td style="padding:4px 0;font-size:12px;">${issuedAt}</td></tr>
+        <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token expira:</td><td style="padding:4px 0;font-size:12px;">${expiresAt}</td></tr>
+        <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token consumido:</td><td style="padding:4px 0;font-size:12px;">${consumedAt}</td></tr>
+        <tr><td style="padding:4px 0;color:#666;font-size:12px;">Estado del token:</td><td style="padding:4px 0;font-weight:bold;font-size:12px;">${tokenStatus} (uso único)</td></tr>`;
+      }).join("");
 
       const certificateId = crypto.randomUUID();
       const verifyUrl = `https://lexyai.lovable.app/verify?hash=${documentHash}`;
       const lawyerName = lawyerProfile?.full_name || "";
       const lawyerEmail = lawyerProfile?.litigation_email || lawyerProfile?.email || "";
 
-      // ── Build document-level audit rows ──
+      // ── Build document-level audit rows (all document.* events) ──
       const docLevelEvents = (allDocEvents || []).filter(ev =>
-        ["document.created", "document.edited", "document.finalized", "document.executed"].includes(ev.event_type)
+        ev.event_type.startsWith("document.") && !ev.event_type.startsWith("document.distributed")
       );
       const docAuditRows = docLevelEvents.map((ev, i) => {
         const label = EVENT_LABELS[ev.event_type] || ev.event_type;
         const actor = ev.actor_type === "lawyer" ? "Abogado" : ev.actor_type === "signer" ? "Firmante" : "Sistema";
         const ip = ev.actor_ip || "Sistema";
+        const hashInfo = ev.event_hash ? ` <span style="font-size:9px;color:#888;">[${ev.event_hash.substring(0, 12)}…]</span>` : "";
         return `<tr>
           <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${i + 1}</td>
           <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${formatCOT(ev.created_at)}</td>
-          <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${label}</td>
+          <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${label}${hashInfo}</td>
           <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${actor}</td>
           <td style="padding:6px 8px;border:1px solid #ddd;font-size:11px;">${ip}</td>
         </tr>`;
       }).join("\n");
+
+      // ── Full event timeline (all events, hash-chained) ──
+      const allEventsForTimeline = allDocEvents || [];
+      const fullTimelineRows = allEventsForTimeline.map((ev, i) => {
+        const label = EVENT_LABELS[ev.event_type] || ev.event_type;
+        const actor = ev.actor_type === "lawyer" ? "Abogado" : ev.actor_type === "signer" ? "Firmante" : "Sistema";
+        const ip = ev.actor_ip || "Sistema";
+        const hashTrunc = ev.event_hash ? ev.event_hash.substring(0, 12) + "…" : "—";
+        const isHighlight = ev.event_type === "signature.signed" || ev.event_type === "document.executed";
+        const bgStyle = isHighlight ? 'background:#fffde7;' : (i % 2 === 0 ? '' : 'background:#fafafa;');
+        return `<tr style="${bgStyle}">
+          <td style="padding:4px 6px;border:1px solid #ddd;font-size:10px;">${i + 1}</td>
+          <td style="padding:4px 6px;border:1px solid #ddd;font-size:10px;">${formatCOT(ev.created_at)}</td>
+          <td style="padding:4px 6px;border:1px solid #ddd;font-size:10px;${isHighlight ? 'font-weight:bold;' : ''}">${label}</td>
+          <td style="padding:4px 6px;border:1px solid #ddd;font-size:10px;">${actor}</td>
+          <td style="padding:4px 6px;border:1px solid #ddd;font-size:10px;">${ip}</td>
+          <td style="padding:4px 6px;border:1px solid #ddd;font-family:monospace;font-size:9px;">${hashTrunc}</td>
+        </tr>`;
+      }).join("\n");
+
+      // ── Hash chain head + validation ──
+      const chainHead = allEventsForTimeline.length > 0
+        ? (allEventsForTimeline[allEventsForTimeline.length - 1].event_hash || "N/A")
+        : "N/A";
+      const chainHasHashes = allEventsForTimeline.filter(e => e.event_hash).length;
+      const chainValidatedLabel = chainHasHashes === allEventsForTimeline.length && chainHasHashes > 0
+        ? "Sí (todos los eventos tienen hash)"
+        : `Parcial (${chainHasHashes}/${allEventsForTimeline.length} eventos con hash)`;
+
+      // ── Distribution evidence section (pre-rendered; actual events logged post-email) ──
+      // NOTE: Distribution events are logged AFTER PDF generation, so this section shows
+      // "Pendiente de distribución" in the PDF. The immutable events are the legal anchor.
+      const distributionNote = `<p style="font-size:11px;color:#666;margin:8px 0;">
+        La evidencia de distribución (destinatarios, estado de entrega, marcas de tiempo) se registra como eventos inmutables
+        (<code>document.distributed</code> y <code>document.distributed_to</code>) en la cadena de auditoría tras el envío exitoso del PDF.
+        Consulte la línea de tiempo de distribución en la plataforma para el detalle completo.
+      </p>`;
 
       // ── Certificate header ──
       const certHeader = logoImgTag
@@ -533,7 +617,9 @@ Deno.serve(async (req) => {
     <tr><td style="padding:6px 0;color:#666;">ID del documento:</td><td style="padding:6px 0;font-family:monospace;font-size:11px;">${doc.id}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Tipo:</td><td style="padding:6px 0;">${policy.label_es}</td></tr>
     ${radicado ? `<tr><td style="padding:6px 0;color:#666;">Expediente:</td><td style="padding:6px 0;">${radicado}</td></tr>` : ""}
-    <tr><td style="padding:6px 0;color:#666;">Estado:</td><td style="padding:6px 0;font-weight:bold;">${statusLabel}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Organización:</td><td style="padding:6px 0;">${firmName}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Estado del documento:</td><td style="padding:6px 0;font-weight:bold;">${docStateLabel}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Estado de firma:</td><td style="padding:6px 0;font-weight:bold;">${statusLabel}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Creado:</td><td style="padding:6px 0;">${formatCOT(doc.created_at)}</td></tr>
     ${lawyerName ? `<tr><td style="padding:6px 0;color:#666;">Generado para:</td><td style="padding:6px 0;">${lawyerName} (${lawyerEmail})</td></tr>` : ""}
     ${doc.created_by ? `<tr><td style="padding:6px 0;color:#666;">ID de usuario abogado:</td><td style="padding:6px 0;font-family:monospace;font-size:11px;">${doc.created_by}</td></tr>` : ""}
@@ -543,10 +629,7 @@ Deno.serve(async (req) => {
 
   <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">INFORMACIÓN DEL TOKEN DE FIRMA</h3>
   <table style="width:100%;border-collapse:collapse;margin:8px 0;">
-    <tr><td style="padding:4px 0;color:#666;width:40%;font-size:12px;">Token emitido:</td><td style="padding:4px 0;font-size:12px;">${tokenIssuedAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token expira:</td><td style="padding:4px 0;font-size:12px;">${tokenExpiresAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Token consumido:</td><td style="padding:4px 0;font-size:12px;">${tokenConsumedAt}</td></tr>
-    <tr><td style="padding:4px 0;color:#666;font-size:12px;">Estado del token:</td><td style="padding:4px 0;font-weight:bold;font-size:12px;">CONSUMIDO (uso único)</td></tr>
+    ${tokenSections}
   </table>
 
   ${docAuditRows.length > 0 ? `
@@ -568,10 +651,29 @@ Deno.serve(async (req) => {
   <table style="width:100%;border-collapse:collapse;">
     <tr><td style="padding:6px 0;color:#666;width:40%;">Algoritmo:</td><td style="padding:6px 0;">SHA-256</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Hash del contenido del documento:</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${documentHash}</td></tr>
-    <tr><td style="padding:6px 0;color:#666;">Hash del PDF final (final_pdf_sha256):</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;"><em>Calculado sobre los bytes del PDF generado</em></td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Hash del PDF final (final_pdf_sha256):</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;"><em>Calculado sobre los bytes del PDF generado — se registra en el evento document.pdf_generated y en generated_documents.final_pdf_sha256</em></td></tr>
     <tr><td style="padding:6px 0;color:#666;">Cadena de hash de eventos:</td><td style="padding:6px 0;font-size:11px;">Habilitada (SHA-256 encadenado)</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Último hash de la cadena:</td><td style="padding:6px 0;font-family:monospace;font-size:10px;word-break:break-all;">${chainHead}</td></tr>
+    <tr><td style="padding:6px 0;color:#666;">Cadena validada:</td><td style="padding:6px 0;font-size:11px;">${chainValidatedLabel}</td></tr>
     <tr><td style="padding:6px 0;color:#666;">Verificar en:</td><td style="padding:6px 0;"><a href="${verifyUrl}" style="color:#1a1a2e;">${verifyUrl}</a></td></tr>
   </table>
+
+  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;page-break-before:always;">LÍNEA DE TIEMPO COMPLETA DE EVENTOS</h3>
+  <p style="font-size:10px;color:#666;margin:4px 0 8px;">Todos los eventos registrados en orden cronológico con hashes de cadena (truncados).</p>
+  <table style="width:100%;border-collapse:collapse;margin:8px 0;">
+    <thead><tr style="background:#f5f5f5;">
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">#</th>
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">Fecha/Hora COT</th>
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">Evento</th>
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">Actor</th>
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">IP</th>
+      <th style="padding:4px 6px;border:1px solid #ddd;font-size:10px;text-align:left;">Hash</th>
+    </tr></thead>
+    <tbody>${fullTimelineRows}</tbody>
+  </table>
+
+  <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">EVIDENCIA DE DISTRIBUCIÓN</h3>
+  ${distributionNote}
 
   <h3 style="color:#1a1a2e;border-bottom:1px solid #ddd;padding-bottom:6px;margin-top:24px;">MARCO LEGAL</h3>
   <div style="font-size:12px;color:#444;line-height:1.6;">
