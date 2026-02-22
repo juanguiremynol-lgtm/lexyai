@@ -457,11 +457,27 @@ Deno.serve(async (req) => {
       return json({ ok: true, signature_id: sig.id, document_hash: null, signed_at: signedAt, download_url: null, is_partial: true, message: "Su firma ha sido registrada. El documento requiere firmas adicionales." });
     }
 
-    // ─── ALL signers complete — generate final combined PDF ───
+    // ─── ALL signers complete — generate final combined artifact ───
     const { data: allSignatures } = await adminClient
       .from("document_signatures").select("*").eq("document_id", sig.document_id).order("signing_order", { ascending: true });
     const signedSigs = allSignatures?.filter(s => s.status === "signed") || [];
     const totalSigners = signedSigs.length;
+
+    // ── HARD INVARIANT: For bilateral contracts, ALL signers must have valid signature data ──
+    const isBilateral = doc.document_type === "contrato_servicios";
+    const totalExpectedSigners = allSignatures?.length || 0;
+    if (isBilateral && signedSigs.length < totalExpectedSigners) {
+      console.error(`Bilateral invariant violation: ${signedSigs.length}/${totalExpectedSigners} signed for doc ${sig.document_id}`);
+      return json({ error: "No se puede finalizar: faltan firmas de una o más partes.", error_code: "BILATERAL_INCOMPLETE" }, 409);
+    }
+    for (const s of signedSigs) {
+      const hasStrokes = s.signature_stroke_data && Array.isArray(s.signature_stroke_data) && s.signature_stroke_data.length > 0;
+      const hasImage = !!s.signature_image_path;
+      if (!hasStrokes && !hasImage) {
+        console.error(`Empty signature payload for signer ${s.id} (${s.signer_email}) on doc ${sig.document_id}`);
+        return json({ error: `La firma de ${s.signer_name} está vacía. No se puede ejecutar el documento.`, error_code: "EMPTY_SIGNATURE" }, 422);
+      }
+    }
 
     const allSignatureBlocks = signedSigs.map(s => {
       const roleLabel = s.signer_role === "lawyer" ? "EL MANDATARIO" : "EL MANDANTE";
@@ -669,8 +685,9 @@ ${evidenceAppendix}
     }
 
     // Set finalized_at NOW (execution timestamp) — this triggers retention computation via DB trigger
+    const finalStatus = isBilateral ? "signed_finalized" : "signed";
     await adminClient.from("generated_documents").update({
-      status: "signed",
+      status: finalStatus,
       final_pdf_sha256: documentHash,
       finalized_at: new Date().toISOString(),
       finalized_by: sig.signer_name,
@@ -693,7 +710,7 @@ ${evidenceAppendix}
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
           ${buildEmailHeader(branding)}
           <div style="padding:24px 0;">
-            <h2 style="color:#1a1a2e;">✅ Documento Firmado</h2>
+            <h2 style="color:#1a1a2e;">✅ Documento Firmado${isBilateral ? " por Todas las Partes" : ""}</h2>
             <p>Hola <strong>{RECIPIENT_NAME}</strong>,</p>
             <p>El siguiente documento ha sido firmado electrónicamente${totalSigners > 1 ? " por todas las partes" : ""}:</p>
             <table style="width:100%;border-collapse:collapse;margin:16px 0;">
@@ -724,7 +741,7 @@ ${evidenceAppendix}
             headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
               from: `${branding.firm_name} <info@andromeda.legal>`, to: [email],
-              subject: `✅ Documento firmado — ${doc.title}`, html,
+              subject: `✅ Documento firmado${isBilateral ? " por todas las partes" : ""} — ${doc.title}`, html,
             }),
           });
         } catch (e) {
