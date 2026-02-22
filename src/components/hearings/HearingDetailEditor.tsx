@@ -22,6 +22,8 @@ import { useUpdateWorkItemHearing, useDeleteWorkItemHearing, HEARING_STATUS_LABE
 import { HearingKeyMoments } from "./HearingKeyMoments";
 import { HearingArtifactsSection } from "./HearingArtifactsSection";
 import { HearingAIInsights } from "./HearingAIInsights";
+import { HearingAuditLogViewer } from "./HearingAuditLogViewer";
+import { HearingDiagnosticsPanel } from "./HearingDiagnosticsPanel";
 
 interface Props {
   hearing: WorkItemHearing;
@@ -249,6 +251,19 @@ export function HearingDetailEditor({ hearing }: Props) {
         hearingId={hearing.id}
         organizationId={hearing.organization_id}
         hasContent={!!(hearing.notes_plain_text || hearing.decisions_summary)}
+      />
+
+      {/* Diagnostics */}
+      <HearingDiagnosticsPanel
+        workItemId={hearing.work_item_id}
+        organizationId={hearing.organization_id}
+        jurisdiction="CGP"
+      />
+
+      {/* Audit Log */}
+      <HearingAuditLogViewer
+        workItemId={hearing.work_item_id}
+        organizationId={hearing.organization_id}
       />
 
       {/* Delete Dialog */}
