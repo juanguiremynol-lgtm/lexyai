@@ -114,10 +114,14 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { signing_token, confirmed_name, confirmed_cedula } = body;
+    const { signing_token, confirmed_name, confirmed_cedula, document_id, signing_order } = body;
 
-    if (!signing_token || !confirmed_name || !confirmed_cedula) {
-      return json({ error: "signing_token, confirmed_name, and confirmed_cedula are required" }, 400);
+    // Validate required fields
+    if (!confirmed_name || !confirmed_cedula) {
+      return json({ error: "confirmed_name y confirmed_cedula son requeridos.", error_code: "MISSING_FIELDS" }, 400);
+    }
+    if (!signing_token && !document_id) {
+      return json({ error: "Se requiere signing_token o document_id.", error_code: "MISSING_IDENTIFIER" }, 400);
     }
 
     // Basic input validation
@@ -129,39 +133,98 @@ Deno.serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
     const clientIp = getClientIp(req);
     const clientUA = req.headers.get("user-agent") || "unknown";
     const deviceFingerprintHash = computeDeviceFingerprint(clientIp, clientUA);
 
-    // Rate limiting: 10 attempts per token per hour
-    const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
-    const { count } = await adminClient
-      .from("rate_limits")
-      .select("*", { count: "exact", head: true })
-      .eq("key", `identity:${signing_token}`)
-      .eq("endpoint", "verify-signing-identity")
-      .gte("window_start", oneHourAgo);
+    let sig: any = null;
 
-    if ((count || 0) >= 10) {
-      return json({ error: "Demasiados intentos de verificación. Intente nuevamente más tarde." }, 429);
+    if (signing_token) {
+      // ── Path 1: Token-based (external signers / existing flow) ──
+      // Rate limiting: 10 attempts per token per hour
+      const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+      const { count } = await adminClient
+        .from("rate_limits")
+        .select("*", { count: "exact", head: true })
+        .eq("key", `identity:${signing_token}`)
+        .eq("endpoint", "verify-signing-identity")
+        .gte("window_start", oneHourAgo);
+
+      if ((count || 0) >= 10) {
+        return json({ error: "Demasiados intentos de verificación. Intente nuevamente más tarde." }, 429);
+      }
+
+      await adminClient.from("rate_limits").insert({
+        key: `identity:${signing_token}`,
+        endpoint: "verify-signing-identity",
+        window_start: new Date().toISOString(),
+      });
+
+      // Fetch signature record by token
+      const { data: sigData, error: sigErr } = await adminClient
+        .from("document_signatures")
+        .select("id, document_id, signer_name, signer_email, signer_cedula, status, organization_id, identity_confirmed_at")
+        .eq("signing_token", signing_token)
+        .single();
+
+      if (sigErr || !sigData) return json({ error: "Solicitud de firma no encontrada." }, 404);
+      sig = sigData;
+    } else {
+      // ── Path 2: In-app lawyer flow (JWT + document_id + signing_order) ──
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader?.startsWith("Bearer ")) {
+        return json({ error: "Autenticación requerida para verificación en la app." }, 401);
+      }
+
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authErr } = await userClient.auth.getUser();
+      if (authErr || !user) return json({ error: "No autorizado." }, 401);
+
+      // Rate limiting by user + document
+      const rateLimitKey = `identity:inapp:${user.id}:${document_id}`;
+      const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
+      const { count } = await adminClient
+        .from("rate_limits")
+        .select("*", { count: "exact", head: true })
+        .eq("key", rateLimitKey)
+        .eq("endpoint", "verify-signing-identity")
+        .gte("window_start", oneHourAgo);
+
+      if ((count || 0) >= 10) {
+        return json({ error: "Demasiados intentos de verificación. Intente nuevamente más tarde." }, 429);
+      }
+
+      await adminClient.from("rate_limits").insert({
+        key: rateLimitKey,
+        endpoint: "verify-signing-identity",
+        window_start: new Date().toISOString(),
+      });
+
+      // Fetch the lawyer's signature record for this document
+      const order = signing_order || 1;
+      const { data: sigData, error: sigErr } = await adminClient
+        .from("document_signatures")
+        .select("id, document_id, signer_name, signer_email, signer_cedula, status, organization_id, identity_confirmed_at, created_by")
+        .eq("document_id", document_id)
+        .eq("signing_order", order)
+        .single();
+
+      if (sigErr || !sigData) {
+        return json({ error: "No se encontró registro de firma para este documento." }, 404);
+      }
+
+      // Verify the authenticated user is the one who created this signature (the lawyer)
+      if (sigData.created_by !== user.id) {
+        return json({ error: "No tiene permiso para firmar este documento." }, 403);
+      }
+
+      sig = sigData;
     }
-
-    await adminClient.from("rate_limits").insert({
-      key: `identity:${signing_token}`,
-      endpoint: "verify-signing-identity",
-      window_start: new Date().toISOString(),
-    });
-
-    // Fetch signature record
-    const { data: sig, error: sigErr } = await adminClient
-      .from("document_signatures")
-      .select("id, document_id, signer_name, signer_email, signer_cedula, status, organization_id, identity_confirmed_at")
-      .eq("signing_token", signing_token)
-      .single();
-
-    if (sigErr || !sig) return json({ error: "Solicitud de firma no encontrada." }, 404);
     if (sig.status === "signed") return json({ error: "Este documento ya fue firmado." }, 409);
 
     // Already confirmed
