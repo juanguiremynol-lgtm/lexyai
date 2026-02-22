@@ -33,6 +33,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { GenericSigningBrandingPanel, BrandingConfig, DEFAULT_BRANDING } from "@/components/platform/GenericSigningBrandingPanel";
 
 // ── Helpers ──
 
@@ -73,6 +74,7 @@ export default function PlatformGenericSigningPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [confirmUnsigned, setConfirmUnsigned] = useState(false);
   const [documentId] = useState(() => crypto.randomUUID());
+  const [branding, setBranding] = useState<BrandingConfig>({ ...DEFAULT_BRANDING });
 
   // Counterparty
   const [counterparty, setCounterparty] = useState<CounterpartySigner>({
@@ -180,6 +182,17 @@ export default function PlatformGenericSigningPage() {
           content_json: {
             source_file: uploadedPdf.fileName,
             counterparty,
+            branding_override: {
+              logo_path: branding.logoPath,
+              firm_name: branding.firmName || null,
+              firm_address: branding.firmAddress || null,
+              firm_phone: branding.firmPhone || null,
+              firm_email: branding.firmEmail || null,
+              firm_website: branding.firmWebsite || null,
+              firm_tagline: branding.firmTagline || null,
+              show_andromeda_branding: branding.showAndromedaBranding,
+              preset_id: branding.presetId || null,
+            },
           },
           content_html: null,
           variables: {},
@@ -207,8 +220,29 @@ export default function PlatformGenericSigningPage() {
           source_file: uploadedPdf.fileName,
           source_sha256: uploadedPdf.sha256,
           counterparty_email: counterparty.email,
+          branding_applied: !!(branding.logoPath || branding.firmName),
+          branding_preset_id: branding.presetId || null,
+          show_andromeda_branding: branding.showAndromedaBranding,
         },
       });
+
+      // 2b. Log branding event if custom branding applied
+      if (branding.logoPath || branding.firmName) {
+        await (supabase as any).from("audit_logs").insert({
+          organization_id: orgId,
+          actor_user_id: profile.id,
+          actor_type: "PLATFORM_ADMIN",
+          entity_type: "DOCUMENT",
+          entity_id: doc.id,
+          action: "GENERIC_SIGNING_BRANDING_APPLIED",
+          metadata: {
+            logo_path: branding.logoPath || null,
+            firm_name: branding.firmName || null,
+            preset_id: branding.presetId || null,
+            show_andromeda_branding: branding.showAndromedaBranding,
+          },
+        });
+      }
 
       // 3. Create lawyer signing link (order 1)
       const { data: sigResult, error: sigErr } = await supabase.functions.invoke("generate-signing-link", {
@@ -245,7 +279,7 @@ export default function PlatformGenericSigningPage() {
     } finally {
       setFinalizing(false);
     }
-  }, [uploadedPdf, profile, counterparty, finalizing]);
+  }, [uploadedPdf, profile, counterparty, finalizing, branding]);
 
   // ── After lawyer signs, send to counterparty ──
   const handleSendToCounterparty = useCallback(async () => {
@@ -417,6 +451,15 @@ export default function PlatformGenericSigningPage() {
                   </label>
                 </div>
               </div>
+            )}
+
+            {/* Branding panel — only shown after PDF upload */}
+            {uploadedPdf && (
+              <GenericSigningBrandingPanel
+                branding={branding}
+                onChange={setBranding}
+                userId={profile?.id || ""}
+              />
             )}
 
             <div className="flex justify-end pt-2">

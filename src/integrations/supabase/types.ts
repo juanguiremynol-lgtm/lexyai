@@ -6103,6 +6103,57 @@ export type Database = {
           },
         ]
       }
+      generic_signing_branding_presets: {
+        Row: {
+          created_at: string
+          created_by: string
+          firm_address: string | null
+          firm_email: string | null
+          firm_name: string | null
+          firm_phone: string | null
+          firm_tagline: string | null
+          firm_website: string | null
+          id: string
+          is_default: boolean
+          logo_path: string | null
+          name: string
+          show_andromeda_branding: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          firm_address?: string | null
+          firm_email?: string | null
+          firm_name?: string | null
+          firm_phone?: string | null
+          firm_tagline?: string | null
+          firm_website?: string | null
+          id?: string
+          is_default?: boolean
+          logo_path?: string | null
+          name: string
+          show_andromeda_branding?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          firm_address?: string | null
+          firm_email?: string | null
+          firm_name?: string | null
+          firm_phone?: string | null
+          firm_tagline?: string | null
+          firm_website?: string | null
+          id?: string
+          is_default?: boolean
+          logo_path?: string | null
+          name?: string
+          show_andromeda_branding?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ghost_verification_runs: {
         Row: {
           action_taken: string | null
