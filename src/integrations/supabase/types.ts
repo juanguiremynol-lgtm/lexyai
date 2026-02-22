@@ -4079,6 +4079,86 @@ export type Database = {
         }
         Relationships: []
       }
+      custom_docx_templates: {
+        Row: {
+          conditional_blocks_found: string[]
+          created_at: string
+          display_name: string
+          document_type: string
+          file_size_bytes: number | null
+          id: string
+          invalid_tokens: string[]
+          is_active: boolean
+          is_immutable: boolean
+          missing_required_placeholders: string[]
+          organization_id: string | null
+          placeholders_found: string[]
+          schema_version: string
+          storage_path: string
+          unknown_placeholders: string[]
+          updated_at: string
+          upload_sha256: string
+          user_id: string | null
+          validated_at: string | null
+          validation_status: string
+          version: number
+        }
+        Insert: {
+          conditional_blocks_found?: string[]
+          created_at?: string
+          display_name?: string
+          document_type: string
+          file_size_bytes?: number | null
+          id?: string
+          invalid_tokens?: string[]
+          is_active?: boolean
+          is_immutable?: boolean
+          missing_required_placeholders?: string[]
+          organization_id?: string | null
+          placeholders_found?: string[]
+          schema_version?: string
+          storage_path: string
+          unknown_placeholders?: string[]
+          updated_at?: string
+          upload_sha256: string
+          user_id?: string | null
+          validated_at?: string | null
+          validation_status?: string
+          version?: number
+        }
+        Update: {
+          conditional_blocks_found?: string[]
+          created_at?: string
+          display_name?: string
+          document_type?: string
+          file_size_bytes?: number | null
+          id?: string
+          invalid_tokens?: string[]
+          is_active?: boolean
+          is_immutable?: boolean
+          missing_required_placeholders?: string[]
+          organization_id?: string | null
+          placeholders_found?: string[]
+          schema_version?: string
+          storage_path?: string
+          unknown_placeholders?: string[]
+          updated_at?: string
+          upload_sha256?: string
+          user_id?: string | null
+          validated_at?: string | null
+          validation_status?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_docx_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_welcome_log: {
         Row: {
           activity_count: number | null
