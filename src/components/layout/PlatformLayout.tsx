@@ -28,6 +28,7 @@ const routeTitles: Record<string, string> = {
   "/platform/daily-ops-reports": "Reportes Diarios de Operaciones",
   "/platform/suspensions": "Suspensiones Judiciales",
   "/platform/waitlist": "Lista de Espera",
+  "/platform/pdf-settings": "PDF / Gotenberg",
 };
 
 export function PlatformLayout() {
