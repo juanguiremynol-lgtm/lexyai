@@ -1,14 +1,15 @@
 /**
  * DocumentSignatureSettings — Combined settings page for Documents & Digital Signature.
- * Contains: Litigation Email, Branding, Poder Especial template, Contrato de Servicios template.
+ * Contains: Litigation Email, Branding, Templates, DOCX Upload, Config.
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, FileText, Mail, Ban, Settings2 } from "lucide-react";
+import { Image as ImageIcon, FileText, Mail, Ban, Settings2, Upload } from "lucide-react";
 import { DocumentBrandingSettings } from "./DocumentBrandingSettings";
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor";
 import { LitigationEmailSettings } from "./LitigationEmailSettings";
 import { DocumentConfigSettings } from "./DocumentConfigSettings";
+import { DocxTemplateUpload } from "@/components/documents/DocxTemplateUpload";
 
 export function DocumentSignatureSettings() {
   return (
@@ -54,11 +55,17 @@ export function DocumentSignatureSettings() {
         </TabsContent>
 
         <TabsContent value="poder">
-          <DocumentTemplateEditor templateType="poder_especial" />
+          <div className="space-y-6">
+            <DocxTemplateUpload documentType="poder_especial" />
+            <DocumentTemplateEditor templateType="poder_especial" />
+          </div>
         </TabsContent>
 
         <TabsContent value="contrato">
-          <DocumentTemplateEditor templateType="contrato_servicios" />
+          <div className="space-y-6">
+            <DocxTemplateUpload documentType="contrato_servicios" />
+            <DocumentTemplateEditor templateType="contrato_servicios" />
+          </div>
         </TabsContent>
 
         <TabsContent value="notificacion-personal">
