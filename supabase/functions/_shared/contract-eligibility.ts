@@ -186,7 +186,7 @@ export async function validateLawyerProfile(
 ): Promise<EligibilityResult> {
   const { data: profile } = await adminClient
     .from("profiles")
-    .select("full_name, cedula_abogado, tarjeta_profesional, litigation_email")
+    .select("full_name, firma_abogado_cc, firma_abogado_tp, litigation_email, firma_abogado_correo")
     .eq("id", userId)
     .single();
 
@@ -200,9 +200,9 @@ export async function validateLawyerProfile(
 
   const missing: string[] = [];
   if (!profile.full_name) missing.push("nombre completo");
-  if (!profile.cedula_abogado) missing.push("cédula");
-  if (!profile.tarjeta_profesional) missing.push("tarjeta profesional");
-  if (!profile.litigation_email) missing.push("email de litigación");
+  if (!profile.firma_abogado_cc) missing.push("cédula");
+  if (!profile.firma_abogado_tp) missing.push("tarjeta profesional");
+  if (!profile.litigation_email && !profile.firma_abogado_correo) missing.push("email de litigación");
 
   if (missing.length > 0) {
     return {
