@@ -320,7 +320,7 @@ export const CONTRATO_SERVICIOS_HTML = `
   <h2 style="text-align:center;text-transform:uppercase;margin-bottom:32px;">Contrato de Prestación de Servicios Profesionales de Abogado</h2>
   
   <p style="text-align:justify;">
-  Entre los suscritos, a saber: <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{client_cedula}}</strong>, domiciliado(a) en <strong>{{client_address}}</strong>, con correo electrónico <strong>{{client_email}}</strong>, quien para efectos del presente contrato se denominará <strong>EL MANDANTE</strong>; y de otra parte, <strong>{{lawyer_full_name}}</strong>, mayor de edad, identificado(a) con cédula de ciudadanía No. <strong>{{lawyer_cedula}}</strong>, portador(a) de la Tarjeta Profesional No. <strong>{{lawyer_tarjeta_profesional}}</strong>{{firm_clause}}, quien para efectos del presente contrato se denominará <strong>EL MANDATARIO</strong>, hemos convenido celebrar el presente contrato de mandato que se regirá por las siguientes cláusulas:
+  Entre los suscritos, a saber: <strong>{{client_full_name}}</strong>, mayor de edad, identificado(a) con {{client_id_label}} No. <strong>{{client_cedula}}</strong>, domiciliado(a) en <strong>{{client_address}}</strong>, con correo electrónico <strong>{{client_email}}</strong>, quien para efectos del presente contrato se denominará <strong>EL MANDANTE</strong>; y de otra parte, <strong>{{lawyer_full_name}}</strong>, mayor de edad, identificado(a) con {{lawyer_id_label}} No. <strong>{{lawyer_cedula}}</strong>, portador(a) de la Tarjeta Profesional No. <strong>{{lawyer_tarjeta_profesional}}</strong>{{firm_clause}}, quien para efectos del presente contrato se denominará <strong>EL MANDATARIO</strong>, hemos convenido celebrar el presente contrato de mandato que se regirá por las siguientes cláusulas:
   </p>
   
   <h3>CLÁUSULA PRIMERA — OBJETO</h3>
@@ -378,14 +378,14 @@ export const CONTRATO_SERVICIOS_HTML = `
       <br/><br/>
       <p>___________________________________</p>
       <p><strong>{{client_full_name}}</strong></p>
-      <p>C.C. {{client_cedula}}</p>
+      <p>{{client_id_label}} {{client_cedula}}</p>
     </div>
     <div style="flex:1;">
       <p><strong>EL MANDATARIO:</strong></p>
       <br/><br/>
       <p>___________________________________</p>
       <p><strong>{{lawyer_full_name}}</strong></p>
-      <p>C.C. {{lawyer_cedula}}</p>
+      <p>{{lawyer_id_label}} {{lawyer_cedula}}</p>
       <p>T.P. {{lawyer_tarjeta_profesional}}</p>
     </div>
   </div>
@@ -414,6 +414,8 @@ export const CONTRATO_SERVICIOS_VARIABLES: LegalTemplateVariable[] = [
   { key: "firm_clause", label: "(auto) Cláusula firma", required: false, source: "computed", editable: false },
   { key: "radicado_clause", label: "(auto) Cláusula radicado", required: false, source: "computed", editable: false },
   { key: "honorarios_clause", label: "(auto) Cláusula honorarios", required: false, source: "computed", editable: false },
+  { key: "client_id_label", label: "(auto) Tipo ID cliente", required: false, source: "computed", editable: false },
+  { key: "lawyer_id_label", label: "(auto) Tipo ID abogado", required: false, source: "computed", editable: false },
 ];
 
 // ─── Paz y Salvo Template ────────────────────────────────

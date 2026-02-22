@@ -4,10 +4,11 @@
  */
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, FileText, Mail, Ban } from "lucide-react";
+import { Image as ImageIcon, FileText, Mail, Ban, Settings2 } from "lucide-react";
 import { DocumentBrandingSettings } from "./DocumentBrandingSettings";
 import { DocumentTemplateEditor } from "./DocumentTemplateEditor";
 import { LitigationEmailSettings } from "./LitigationEmailSettings";
+import { DocumentConfigSettings } from "./DocumentConfigSettings";
 
 export function DocumentSignatureSettings() {
   return (
@@ -37,6 +38,10 @@ export function DocumentSignatureSettings() {
           <TabsTrigger value="notificacion-aviso">
             <FileText className="h-4 w-4 mr-1" />
             Notificación por Aviso
+          </TabsTrigger>
+          <TabsTrigger value="doc-config">
+            <Settings2 className="h-4 w-4 mr-1" />
+            Configuración
           </TabsTrigger>
         </TabsList>
 
@@ -92,6 +97,10 @@ export function DocumentSignatureSettings() {
             </div>
             <DocumentTemplateEditor templateType="notificacion_por_aviso" />
           </div>
+        </TabsContent>
+
+        <TabsContent value="doc-config">
+          <DocumentConfigSettings />
         </TabsContent>
       </Tabs>
     </div>

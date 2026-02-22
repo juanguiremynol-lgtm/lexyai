@@ -62,6 +62,8 @@ import { FacultadesAIPanel } from "@/components/documents/FacultadesAIPanel";
 import { isLinkSharingAllowed } from "@/lib/document-share-policy";
 import { getDisclaimers, isIssuerOnly, getDocumentPolicy, isBilateral, type DocumentPolicyType } from "@/lib/document-policy";
 import { LawyerSigningFlow } from "@/components/documents/LawyerSigningFlow";
+import { IdentityTypeSelector, getIdTypeLabel } from "@/components/documents/IdentityTypeSelector";
+import type { IdType } from "@/hooks/use-document-configuration";
 
 // ─── Poderdante Type Selector ────────────────────────────
 
@@ -406,10 +408,15 @@ export default function WorkItemDocumentWizard() {
   // Facultades AI assistant
   const [facultadesAIOpen, setFacultadesAIOpen] = useState(false);
 
-  // Attorney acceptance signature toggle (default OFF — POA is unilateral)
+   // Attorney acceptance signature toggle (default OFF — POA is unilateral)
   const [includeAttorneyAcceptance, setIncludeAttorneyAcceptance] = useState(false);
 
-  // Preview theme toggle
+  // CC/NIT identity type selectors (for contrato_servicios)
+  const [clientIdType, setClientIdType] = useState<IdType>("CC");
+  const [lawyerIdType, setLawyerIdType] = useState<IdType>("CC");
+
+  // Radicado toggle
+  const [showRadicado, setShowRadicado] = useState(false);
   const [previewDarkMode, setPreviewDarkMode] = useState(false);
 
   // Lawyer in-app signing flow state (bilateral contracts)
@@ -558,7 +565,13 @@ export default function WorkItemDocumentWizard() {
     }
   }, [workItem, clientData, docType]);
 
-  // Fetch actuaciones for auto admisorio date inference
+  // Auto-initialize radicado toggle from work item
+  useEffect(() => {
+    if (workItem && docType === "contrato_servicios") {
+      setShowRadicado(!!workItem.radicado?.trim());
+    }
+  }, [workItem, docType]);
+
   const { data: actuaciones } = useQuery({
     queryKey: ["work-item-actuaciones-for-doc", workItemId],
     queryFn: async () => {
@@ -644,12 +657,21 @@ export default function WorkItemDocumentWizard() {
     if (docType === "contrato_servicios") {
       vars.firm_clause = vars.firm_name
         ? `, actuando en nombre de <strong>${vars.firm_name}</strong>` : "";
-      vars.radicado_clause = vars.radicado
+      vars.radicado_clause = (showRadicado && vars.radicado)
         ? `, identificado con radicado No. <strong>${vars.radicado}</strong>` : "";
+
+      // Dynamic identity labels based on CC/NIT selection
+      vars.client_id_label = clientIdType === "NIT" ? "NIT" : "cédula de ciudadanía";
+      vars.lawyer_id_label = lawyerIdType === "NIT" ? "NIT" : "cédula de ciudadanía";
 
       // Use service object if available
       if (serviceObject) {
         vars.case_description = serviceObject;
+      }
+
+      // Clear radicado if toggle is off
+      if (!showRadicado) {
+        vars.radicado = "";
       }
 
       // Generate honorarios clause from structured data
@@ -678,7 +700,7 @@ export default function WorkItemDocumentWizard() {
     }
 
     setVariables(vars);
-  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject, existingContract, actuaciones]);
+  }, [docType, workItem, profile, org, clientData, honorariosData, serviceObject, existingContract, actuaciones, clientIdType, lawyerIdType, showRadicado]);
 
   const template = LEGAL_TEMPLATES[docType];
 
@@ -705,7 +727,7 @@ export default function WorkItemDocumentWizard() {
   }, [template.variables, docType, poderdanteType]);
 
   // Fields handled by dedicated sections in contrato_servicios (not in variables state)
-  const CONTRATO_DEDICATED_FIELDS = ["honorarios_amount", "honorarios_type", "honorarios_percentage", "payment_schedule", "case_description"];
+  const CONTRATO_DEDICATED_FIELDS = ["honorarios_amount", "honorarios_type", "honorarios_percentage", "payment_schedule", "case_description", "radicado"];
 
   // Required fields validation
   const missingRequired = useMemo(() => {
@@ -1495,9 +1517,53 @@ export default function WorkItemDocumentWizard() {
                     </>
                   )}
 
-                  {/* Contract-specific: Service Object + Honorarios */}
+                  {/* Contract-specific: Identity types + Radicado toggle + Service Object + Honorarios */}
                   {docType === "contrato_servicios" && (
                     <>
+                      {/* Party identity type selectors */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <IdentityTypeSelector
+                          value={clientIdType}
+                          onChange={setClientIdType}
+                          label="Tipo de identificación del cliente (Mandante)"
+                        />
+                        <IdentityTypeSelector
+                          value={lawyerIdType}
+                          onChange={setLawyerIdType}
+                          label="Tipo de identificación del abogado (Mandatario)"
+                        />
+                      </div>
+                      <Separator />
+
+                      {/* Radicado toggle */}
+                      <div className="flex items-center justify-between rounded-lg border border-border p-3">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm font-medium">Incluir número de radicado</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Active si ya existe un radicado asignado al proceso. Si no, la cláusula se omite del contrato.
+                          </p>
+                        </div>
+                        <Switch checked={showRadicado} onCheckedChange={(checked) => {
+                          setShowRadicado(checked);
+                          if (!checked) {
+                            setVariables(p => ({ ...p, radicado: "" }));
+                          } else if (workItem?.radicado) {
+                            setVariables(p => ({ ...p, radicado: workItem.radicado || "" }));
+                          }
+                        }} />
+                      </div>
+                      {showRadicado && (
+                        <div className="space-y-1 pl-4 border-l-2 border-primary/20">
+                          <Label className="text-xs">Radicado</Label>
+                          <Input
+                            value={variables.radicado || ""}
+                            onChange={(e) => setVariables(p => ({ ...p, radicado: e.target.value }))}
+                            placeholder="05001-31-03-001-2024-00123"
+                          />
+                        </div>
+                      )}
+                      <Separator />
+
                       <ServiceObjectSection
                         value={serviceObject || variables.case_description || ''}
                         onChange={(val) => {
