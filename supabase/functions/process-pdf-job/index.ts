@@ -63,22 +63,58 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const specificJobId = body?.job_id;
 
-    // ── Gotenberg health check ──
-    const GOTENBERG_URL = Deno.env.get("GOTENBERG_URL");
-    if (!GOTENBERG_URL) {
-      return json({ error: "GOTENBERG_URL not configured" }, 500);
+    // ── Resolve Gotenberg config from DB → env → fallback ──
+    let gotenbergUrl = "";
+    let providerMode = "UNKNOWN";
+    try {
+      const { data: settings } = await adminClient
+        .from("platform_pdf_settings")
+        .select("gotenberg_url, mode, enabled")
+        .limit(1)
+        .single();
+      
+      if (settings) {
+        if (!settings.enabled) {
+          return json({ error: "PDF generation disabled by platform administrator", retryable: false }, 503);
+        }
+        if (settings.mode === "DEMO") {
+          gotenbergUrl = "https://demo.gotenberg.dev";
+          providerMode = "DEMO";
+        } else if (settings.mode === "DIRECT" && settings.gotenberg_url) {
+          gotenbergUrl = settings.gotenberg_url;
+          providerMode = "DIRECT";
+        }
+      }
+    } catch (e) {
+      console.warn("[process-pdf-job] Could not read platform_pdf_settings:", e);
     }
 
+    // Fallback to env secret
+    if (!gotenbergUrl) {
+      gotenbergUrl = Deno.env.get("GOTENBERG_URL") || "";
+      if (gotenbergUrl) providerMode = gotenbergUrl.includes("demo.gotenberg.dev") ? "DEMO" : "DIRECT";
+    }
+
+    if (!gotenbergUrl) {
+      return json({ error: "Gotenberg URL not configured. Set it in Platform Console → PDF Generation." }, 500);
+    }
+
+    console.log(`[process-pdf-job] Provider mode: ${providerMode}`);
+
+    // ── Gotenberg health check ──
     try {
-      const healthRes = await fetch(`${GOTENBERG_URL}/health`, { signal: AbortSignal.timeout(5000) });
+      const healthRes = await fetch(`${gotenbergUrl}/health`, { signal: AbortSignal.timeout(5000) });
       if (!healthRes.ok) {
         await healthRes.text();
         console.warn("[process-pdf-job] Gotenberg health check failed, marking jobs retryable");
+        // Update failure timestamp
+        await adminClient.from("platform_pdf_settings").update({ last_failure_at: new Date().toISOString() }).not("id", "is", null).catch(() => {});
         return json({ error: "Gotenberg unavailable, will retry later", retryable: true }, 502);
       }
       await healthRes.text();
     } catch (healthErr) {
       console.warn("[process-pdf-job] Gotenberg unreachable:", healthErr);
+      await adminClient.from("platform_pdf_settings").update({ last_failure_at: new Date().toISOString() }).not("id", "is", null).catch(() => {});
       return json({ error: `Gotenberg unreachable: ${healthErr}`, retryable: true }, 502);
     }
 

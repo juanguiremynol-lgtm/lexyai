@@ -8406,6 +8406,60 @@ export type Database = {
           },
         ]
       }
+      platform_pdf_settings: {
+        Row: {
+          allow_html_fallback: boolean
+          created_at: string
+          enabled: boolean
+          gotenberg_url: string | null
+          id: string
+          last_failure_at: string | null
+          last_health_check_at: string | null
+          last_health_status: string | null
+          last_success_at: string | null
+          max_html_bytes: number
+          mode: Database["public"]["Enums"]["pdf_provider_mode"]
+          provider: string
+          timeout_seconds: number
+          updated_at: string
+          updated_by_user_id: string | null
+        }
+        Insert: {
+          allow_html_fallback?: boolean
+          created_at?: string
+          enabled?: boolean
+          gotenberg_url?: string | null
+          id?: string
+          last_failure_at?: string | null
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          last_success_at?: string | null
+          max_html_bytes?: number
+          mode?: Database["public"]["Enums"]["pdf_provider_mode"]
+          provider?: string
+          timeout_seconds?: number
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Update: {
+          allow_html_fallback?: boolean
+          created_at?: string
+          enabled?: boolean
+          gotenberg_url?: string | null
+          id?: string
+          last_failure_at?: string | null
+          last_health_check_at?: string | null
+          last_health_status?: string | null
+          last_success_at?: string | null
+          max_html_bytes?: number
+          mode?: Database["public"]["Enums"]["pdf_provider_mode"]
+          provider?: string
+          timeout_seconds?: number
+          updated_at?: string
+          updated_by_user_id?: string | null
+        }
+        Relationships: []
+      }
       platform_settings: {
         Row: {
           analytics_allowed_properties: Json
@@ -13556,6 +13610,17 @@ export type Database = {
         }
         Returns: Json
       }
+      get_pdf_provider_settings: {
+        Args: never
+        Returns: {
+          allow_html_fallback: boolean
+          enabled: boolean
+          gotenberg_url: string
+          max_html_bytes: number
+          mode: Database["public"]["Enums"]["pdf_provider_mode"]
+          timeout_seconds: number
+        }[]
+      }
       get_pending_daily_syncs: {
         Args: { p_cutoff_hour?: number; p_max_retries?: number }
         Returns: {
@@ -13899,6 +13964,7 @@ export type Database = {
         | "ADMIN_NOTIFICATION"
         | "DIAGNOSTIC_ESCALATION"
       observation_severity: "INFO" | "WARNING" | "CRITICAL"
+      pdf_provider_mode: "DEMO" | "DIRECT"
       peticion_phase:
         | "PETICION_RADICADA"
         | "CONSTANCIA_RADICACION"
@@ -14290,6 +14356,7 @@ export const Constants = {
         "DIAGNOSTIC_ESCALATION",
       ],
       observation_severity: ["INFO", "WARNING", "CRITICAL"],
+      pdf_provider_mode: ["DEMO", "DIRECT"],
       peticion_phase: [
         "PETICION_RADICADA",
         "CONSTANCIA_RADICACION",
