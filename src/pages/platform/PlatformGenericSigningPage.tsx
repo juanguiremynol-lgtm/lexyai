@@ -13,6 +13,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { getPublicBaseUrl } from "@/lib/urls";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -333,7 +334,7 @@ export default function PlatformGenericSigningPage() {
           if (sigRecord) {
             const expiresTs = Math.floor(new Date(sigRecord.expires_at).getTime() / 1000);
             setSigningLinks({
-              signingUrl: `https://lexyai.lovable.app/sign/${sigRecord.signing_token}?expires=${expiresTs}&signature=${sigRecord.hmac_signature}`,
+              signingUrl: `${getPublicBaseUrl()}/sign/${sigRecord.signing_token}?expires=${expiresTs}&signature=${sigRecord.hmac_signature}`,
               emailSent: true,
               expiresAt: sigRecord.expires_at,
             });

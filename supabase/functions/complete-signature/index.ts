@@ -268,7 +268,8 @@ Deno.serve(async (req) => {
         const resendKeyNotify = Deno.env.get("RESEND_API_KEY");
         if (resendKeyNotify && nextSig.signer_email) {
           const expiresTs = Math.floor(new Date(nextSig.expires_at).getTime() / 1000);
-          const nextSigningUrl = `https://lexyai.lovable.app/sign/${nextSig.signing_token}?expires=${expiresTs}&signature=${nextSig.hmac_signature}`;
+          const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://andromeda.legal";
+          const nextSigningUrl = `${appBaseUrl}/sign/${nextSig.signing_token}?expires=${expiresTs}&signature=${nextSig.hmac_signature}`;
           try {
             await fetch("https://api.resend.com/emails", {
               method: "POST",

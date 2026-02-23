@@ -721,7 +721,8 @@ Deno.serve(async (req) => {
       }).join("");
 
       const certificateId = crypto.randomUUID();
-      const verifyUrl = `https://lexyai.lovable.app/verify?hash=${documentHash}`;
+      const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://andromeda.legal";
+      const verifyUrl = `${appBaseUrl}/verify?hash=${documentHash}`;
       const lawyerName = lawyerProfile?.full_name || "";
       const lawyerEmail = lawyerProfile?.litigation_email || lawyerProfile?.email || "";
 
@@ -1102,7 +1103,7 @@ ${evidenceAppendix}
                   <a href="${downloadUrl}" style="background:#1a1a2e;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">Descargar documento firmado (PDF)</a>
                 </div>
                 <p style="color:#666;font-size:13px;text-align:center;">El documento incluye el certificado de evidencia con el registro completo de auditoría.</p>` : ""}
-                <p style="color:#666;font-size:13px;">Para verificar la integridad: <a href="https://lexyai.lovable.app/verify" style="color:#1a1a2e;">https://lexyai.lovable.app/verify</a></p>
+                <p style="color:#666;font-size:13px;">Para verificar la integridad: <a href="${appBaseUrl}/verify" style="color:#1a1a2e;">${appBaseUrl}/verify</a></p>
               </div>
               <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
               <p style="color:#999;font-size:12px;text-align:center;">${firmName}<br/>Firma electrónica conforme a la Ley 527 de 1999 y Decreto 2364 de 2012.</p>
