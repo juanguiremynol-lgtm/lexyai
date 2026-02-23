@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Shield, CheckCircle2, XCircle, FileText, AlertTriangle, Lock, Download, UserCheck, Info } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
+import { SigningProgressTracker, type SigningStepKey, type SigningStepState } from "@/components/signing/SigningProgressTracker";
 import { toast } from "sonner";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -69,6 +70,7 @@ export default function SigningPage() {
   const [confirmedCedula, setConfirmedCedula] = useState("");
   const [identityVerifying, setIdentityVerifying] = useState(false);
   const [identityError, setIdentityError] = useState("");
+  const [resumeInfo, setResumeInfo] = useState<string | null>(null);
 
   // Step 1: Validate link
   useEffect(() => {
@@ -94,10 +96,11 @@ export default function SigningPage() {
           if (data.otp_verified) {
             setDocumentHtml(data.document?.content_html || "");
             setStep("review");
+            setResumeInfo("Su identidad y código de verificación ya fueron confirmados. Continue con la revisión.");
             reviewStartRef.current = Date.now();
           } else if (data.identity_confirmed) {
-            // Identity already confirmed, go to OTP
             setStep("identity"); // will auto-advance due to identity_confirmed flag
+            setResumeInfo("Su identidad ya fue verificada. Solo necesita ingresar el código OTP.");
           } else {
             setStep("identity");
           }
@@ -312,30 +315,25 @@ export default function SigningPage() {
     );
   }
 
-  // Determine step progress index
-  const stepLabels = ["Identidad", "Verificación", "Revisión", "Firma"];
-  const stepIndex = { identity: 0, otp: 1, review: 2, sign: 2, done: 3 }[step] ?? 0;
-
+  const progressStep: SigningStepKey = (["identity", "otp", "review", "sign", "done"] as string[]).includes(step) ? step as SigningStepKey : "identity";
   return (
     <div className="min-h-screen bg-white">
       <Header />
 
       <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-        {/* Progress */}
-        <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm text-muted-foreground overflow-x-auto">
-          {stepLabels.map((label, i) => {
-            const isActive = i <= stepIndex;
-            return (
-              <div key={label} className="flex items-center gap-1 sm:gap-2 shrink-0">
-                {i > 0 && <div className={`h-px w-4 sm:w-8 ${isActive ? "bg-[#1a1a2e]" : "bg-muted"}`} />}
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium ${isActive ? "bg-[#1a1a2e] text-white" : "bg-muted"}`}>
-                  {i + 1}
-                </div>
-                <span className={`${isActive ? "text-foreground font-medium" : ""}`}>{label}</span>
-              </div>
-            );
-          })}
-        </div>
+        {/* Shared progress tracker */}
+        <SigningProgressTracker currentStep={progressStep} />
+
+        {/* Resume banner */}
+        {resumeInfo && step !== "done" && (
+          <div className="flex items-start gap-2 p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-sm">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-emerald-800">Progreso recuperado</p>
+              <p className="text-emerald-700">{resumeInfo}</p>
+            </div>
+          </div>
+        )}
 
         {/* Identity Step */}
         {step === "identity" && sigData && (

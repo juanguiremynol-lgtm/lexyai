@@ -1,6 +1,6 @@
 /**
  * WorkItemDocumentsTab — Lists generated documents for a work item
- * with create buttons, status badges, delete, and navigation to detail/wizard.
+ * with create buttons, status badges, delete, resume actions, and navigation to detail/wizard.
  */
 
 import { useState } from "react";
@@ -19,10 +19,11 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail, Trash2 } from "lucide-react";
+import { FileText, Plus, ChevronDown, ChevronRight, Loader2, Mail, Trash2, Play } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { SigningProgressTracker } from "@/components/signing/SigningProgressTracker";
 import type { WorkItem } from "@/types/work-item";
 
 interface Props {
@@ -43,6 +44,9 @@ const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secon
   revoked: { label: "Revocado", variant: "destructive" },
   superseded: { label: "Reemplazado", variant: "secondary" },
 };
+
+/** Statuses that indicate signing is in progress */
+const SIGNING_IN_PROGRESS = new Set(["ready_for_signature", "partially_signed", "sent_for_signature"]);
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   poder_especial: "Poder Especial",
@@ -180,6 +184,7 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
           const vars = (doc.variables || {}) as Record<string, string>;
           const typeLabel = DOC_TYPE_LABELS[doc.document_type] || doc.document_type;
           const isNotif = doc.document_type === 'notificacion_personal' || doc.document_type === 'notificacion_por_aviso';
+          const isSigningInProgress = SIGNING_IN_PROGRESS.has(doc.status);
 
           return (
             <Card
@@ -205,8 +210,42 @@ export function WorkItemDocumentsTab({ workItem }: Props) {
                         {format(new Date(doc.created_at), "d MMM yyyy", { locale: es })}
                       </span>
                     </div>
+                    {/* Compact signing progress for in-progress docs */}
+                    {isSigningInProgress && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <SigningProgressTracker
+                          currentStep={
+                            doc.status === "partially_signed" ? "sign" :
+                            doc.status === "sent_for_signature" ? "identity" :
+                            "review"
+                          }
+                          compact
+                        />
+                        <span className="text-[10px] text-muted-foreground">
+                          {doc.status === "partially_signed" ? "Esperando segunda firma" :
+                           doc.status === "sent_for_signature" ? "Pendiente de firma" :
+                           "Listo para firma"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {/* Resume button for signing-in-progress */}
+                    {isSigningInProgress && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          goToDetail(doc.id);
+                        }}
+                        title="Continuar firma"
+                      >
+                        <Play className="h-3 w-3" />
+                        Continuar
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"

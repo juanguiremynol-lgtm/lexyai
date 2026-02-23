@@ -3,6 +3,8 @@
  * Steps: Identity confirmation → OTP → Document review → Drawn signature
  * Reuses existing edge functions and SignatureCanvas component.
  * Review step: print-safe preview with Light/Dark toggle, responsive across devices.
+ * 
+ * RESUME: On mount, queries server-side signature state to skip completed steps.
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -15,13 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { SignatureCanvas } from "@/components/signing/SignatureCanvas";
 import {
-  Loader2, Shield, CheckCircle2, UserCheck, Mail, FileText, ArrowRight, AlertCircle, Sun, Moon, ExternalLink,
+  Loader2, Shield, CheckCircle2, UserCheck, Mail, FileText, ArrowRight, AlertCircle, Sun, Moon, ExternalLink, Info,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { SigningProgressTracker, resolveSigningStep, buildSigningSteps, type SigningStepKey } from "@/components/signing/SigningProgressTracker";
 
-type FlowStep = "identity" | "otp" | "review" | "sign" | "done";
+type FlowStep = "loading" | "identity" | "otp" | "review" | "sign" | "done";
 
 interface LawyerSigningFlowProps {
   documentId: string;
@@ -55,7 +58,7 @@ export function LawyerSigningFlow({
   onComplete,
   onCancel,
 }: LawyerSigningFlowProps) {
-  const [step, setStep] = useState<FlowStep>("identity");
+  const [step, setStep] = useState<FlowStep>("loading");
   const [confirmedName, setConfirmedName] = useState(lawyerName);
   const [confirmedCedula, setConfirmedCedula] = useState(lawyerCedula);
   const [identityVerifying, setIdentityVerifying] = useState(false);
@@ -72,11 +75,54 @@ export function LawyerSigningFlow({
   const [reviewDarkMode, setReviewDarkMode] = useState(false);
   const [pdfReviewAcknowledged, setPdfReviewAcknowledged] = useState(false);
   const [pdfOpened, setPdfOpened] = useState(false);
+  const [resumeInfo, setResumeInfo] = useState<string | null>(null);
+  const [sigSteps, setSigSteps] = useState(buildSigningSteps({}));
   const isMobile = useIsMobile();
 
   const isUploadedPdf = sourceType === "UPLOADED_PDF";
 
   const docRef = useRef<HTMLDivElement>(null);
+
+  // ─── Resume: check server-side signature state on mount ───
+  useEffect(() => {
+    let cancelled = false;
+    async function checkResume() {
+      try {
+        const { data, error } = await supabase
+          .from("document_signatures")
+          .select("identity_confirmed_at, otp_verified_at, signed_at, status")
+          .eq("id", signatureId)
+          .single();
+
+        if (cancelled) return;
+        if (error || !data) {
+          setStep("identity");
+          return;
+        }
+
+        const resolvedStep = resolveSigningStep(data);
+        setSigSteps(buildSigningSteps(data));
+
+        if (resolvedStep === "done") {
+          setStep("done");
+          setResumeInfo("Esta firma ya fue completada.");
+        } else if (resolvedStep === "review") {
+          setStep("review");
+          setResumeInfo("Su identidad y OTP ya fueron verificados. Continue desde la revisión del documento.");
+        } else if (resolvedStep === "otp") {
+          setStep("otp");
+          setResumeInfo("Su identidad ya fue verificada. Ingrese el código OTP para continuar.");
+        } else {
+          setStep("identity");
+        }
+      } catch {
+        if (!cancelled) setStep("identity");
+      }
+    }
+    checkResume();
+    return () => { cancelled = true; };
+  }, [signatureId]);
+
 
   // Identity confirmation
   const handleConfirmIdentity = useCallback(async () => {
@@ -271,40 +317,34 @@ export function LawyerSigningFlow({
     }
   }, [signingToken, consentChecked, drawnSignature, signing, onComplete]);
 
-  const stepIndicators = [
-    { key: "identity", label: "Identidad", icon: UserCheck },
-    { key: "otp", label: "OTP", icon: Mail },
-    { key: "review", label: "Revisión", icon: FileText },
-    { key: "sign", label: "Firma", icon: Shield },
-  ];
-
-  const currentIdx = stepIndicators.findIndex(s => s.key === step);
+  if (step === "loading") {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">Verificando estado de firma...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6 max-w-full overflow-x-hidden">
-      {/* Step indicator — scrollable on mobile */}
-      <div className="flex items-center gap-1.5 sm:gap-2 justify-start sm:justify-center overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
-        {stepIndicators.map((s, i) => {
-          const Icon = s.icon;
-          const isActive = s.key === step;
-          const isDone = i < currentIdx || step === "done";
-          return (
-            <div key={s.key} className="flex items-center gap-1 sm:gap-2 shrink-0">
-              <div className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full text-[10px] sm:text-xs font-medium transition-colors ${
-                isActive ? "bg-primary text-primary-foreground" :
-                isDone ? "bg-primary/20 text-primary" :
-                "bg-muted text-muted-foreground"
-              }`}>
-                {isDone ? <CheckCircle2 className="h-3 sm:h-3.5 w-3 sm:w-3.5" /> : <Icon className="h-3 sm:h-3.5 w-3 sm:w-3.5" />}
-                <span className="hidden xs:inline sm:inline">{s.label}</span>
-              </div>
-              {i < stepIndicators.length - 1 && (
-                <ArrowRight className="h-2.5 sm:h-3 w-2.5 sm:w-3 text-muted-foreground shrink-0" />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* Shared progress tracker */}
+      <SigningProgressTracker
+        currentStep={step === "sign" ? "sign" : step === "review" ? "review" : step === "otp" ? "otp" : step === "done" ? "done" : "identity"}
+        steps={sigSteps}
+        showTimestamps
+      />
+
+      {/* Resume banner */}
+      {resumeInfo && step !== "done" && (
+        <div className="flex items-start gap-2 p-3 rounded-lg border border-primary/20 bg-primary/5 text-sm">
+          <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium text-primary">Proceso retomado</p>
+            <p className="text-muted-foreground">{resumeInfo}</p>
+          </div>
+        </div>
+      )}
 
       {/* Identity Step */}
       {step === "identity" && (
