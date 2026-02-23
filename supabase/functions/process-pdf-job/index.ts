@@ -605,6 +605,16 @@ Deno.serve(async (req) => {
             }
           }
         }
+        // Fallback: find user's default or only preset
+        if (!genericPreset && doc.created_by) {
+          const { data: userPresets } = await adminClient.from("generic_signing_branding_presets")
+            .select("*").eq("created_by", doc.created_by)
+            .order("is_default", { ascending: false }).order("created_at", { ascending: false });
+          if (userPresets && userPresets.length > 0) {
+            genericPreset = userPresets[0]; // default first, or most recent
+            console.log(`[process-pdf-job] Generic signing branding preset loaded (user fallback): "${genericPreset.name}" (${genericPreset.id})`);
+          }
+        }
       }
 
       // Resolve firm name: generic preset > org > profile > default
