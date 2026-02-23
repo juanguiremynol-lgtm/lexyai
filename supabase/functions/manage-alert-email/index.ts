@@ -263,7 +263,7 @@ Deno.serve(async (req) => {
       const { data: org } = await admin.from("organizations").select("name").eq("id", organization_id).maybeSingle();
       const { data: profile } = await admin.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
 
-      const baseUrl = Deno.env.get("APP_BASE_URL") || "https://lexyai.lovable.app";
+      const baseUrl = Deno.env.get("APP_BASE_URL") || "https://andromeda.legal";
       const verifyUrl = `${baseUrl}/verify-alert-email?token=${rawToken}`;
 
       // Enqueue verification email via email_outbox (provider-agnostic)
@@ -405,7 +405,7 @@ Deno.serve(async (req) => {
       const { data: org } = await admin.from("organizations").select("name").eq("id", organization_id).maybeSingle();
       const { data: profile } = await admin.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
 
-      const baseUrl = Deno.env.get("APP_BASE_URL") || "https://lexyai.lovable.app";
+      const baseUrl = Deno.env.get("APP_BASE_URL") || "https://andromeda.legal";
       const verifyUrl = `${baseUrl}/verify-alert-email?token=${rawToken}`;
 
       await admin.from("email_outbox").insert({
