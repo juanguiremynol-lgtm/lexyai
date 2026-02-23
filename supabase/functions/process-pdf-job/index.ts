@@ -248,14 +248,28 @@ function buildSignerEvidenceSection(
 }
 
 // ─── Helper: download and base64-encode a storage file ───
+// Uses chunked conversion to avoid call-stack overflow on large binaries
 async function downloadAsBase64(adminClient: any, bucket: string, path: string): Promise<string | null> {
   try {
     const { data, error } = await adminClient.storage.from(bucket).download(path);
-    if (error || !data) return null;
+    if (error || !data) {
+      console.warn(`[process-pdf-job] downloadAsBase64 failed for ${bucket}/${path}: ${error?.message || "no data"}`);
+      return null;
+    }
     const arrayBuf = await data.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuf)));
+    const bytes = new Uint8Array(arrayBuf);
+    // Chunked base64 conversion — avoids stack overflow from spread operator on large arrays
+    const CHUNK_SIZE = 8192;
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+      const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+      binary += String.fromCharCode(...chunk);
+    }
+    const base64 = btoa(binary);
+    console.log(`[process-pdf-job] downloadAsBase64 OK: ${bucket}/${path} (${bytes.length} bytes)`);
     return base64;
-  } catch {
+  } catch (err) {
+    console.error(`[process-pdf-job] downloadAsBase64 exception for ${bucket}/${path}:`, err);
     return null;
   }
 }
@@ -572,10 +586,19 @@ Deno.serve(async (req) => {
       const signatureBase64Map: Record<string, string> = {};
       for (const s of signedSigs) {
         if (s.signature_image_path) {
+          console.log(`[process-pdf-job] Downloading signature image for signer "${s.signer_name}" (order=${s.signing_order}): ${s.signature_image_path}`);
           const b64 = await downloadAsBase64(adminClient, "signed-documents", s.signature_image_path);
-          if (b64) signatureBase64Map[s.id] = `data:image/png;base64,${b64}`;
+          if (b64) {
+            signatureBase64Map[s.id] = `data:image/png;base64,${b64}`;
+            console.log(`[process-pdf-job] ✓ Signature image embedded for "${s.signer_name}" (${b64.length} chars base64)`);
+          } else {
+            console.error(`[process-pdf-job] ✗ FAILED to download signature image for "${s.signer_name}" at path: ${s.signature_image_path}`);
+          }
+        } else {
+          console.warn(`[process-pdf-job] No signature_image_path for signer "${s.signer_name}" (order=${s.signing_order})`);
         }
       }
+      console.log(`[process-pdf-job] Signature images embedded: ${Object.keys(signatureBase64Map).length}/${signedSigs.length} signers`);
 
       // ── Build signature blocks ──
       const totalSigners = signedSigs.length;
