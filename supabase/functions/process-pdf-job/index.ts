@@ -74,19 +74,22 @@ interface DocTypePolicy {
   distribution: DistributionRecipient;
   finalizedEvent: "SIGNED_FINALIZED" | "ISSUED_FINALIZED";
   auditIdentityLabel_es: string;
+  /** Role labels for signature blocks and audit sections */
+  lawyerRoleLabel: string;
+  clientRoleLabel: string;
 }
 
 const DOC_TYPE_POLICIES: Record<string, DocTypePolicy> = {
-  poder_especial: { label_es: "Poder Especial", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo/teléfono del firmante + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente." },
-  contrato_servicios: { label_es: "Contrato de Prestación de Servicios", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante." },
-  generic_pdf_signing: { label_es: "Firma PDF Genérica", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante (firma genérica bilateral)." },
-  paz_y_salvo: { label_es: "Paz y Salvo", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
-  notificacion_personal: { label_es: "Notificación Personal", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
-  notificacion_por_aviso: { label_es: "Notificación por Aviso", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario." },
+  poder_especial: { label_es: "Poder Especial", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo/teléfono del firmante + campos de identidad asertados (nombre y cédula) verificados contra registro del expediente.", lawyerRoleLabel: "EL MANDATARIO", clientRoleLabel: "EL MANDANTE" },
+  contrato_servicios: { label_es: "Contrato de Prestación de Servicios", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante.", lawyerRoleLabel: "EL MANDATARIO", clientRoleLabel: "EL MANDANTE" },
+  generic_pdf_signing: { label_es: "Firma PDF Genérica", signerModel: "BILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP + campos de identidad asertados (nombre y cédula) verificados para cada firmante (firma genérica bilateral).", lawyerRoleLabel: "CONTRATISTA", clientRoleLabel: "CONTRATANTE" },
+  paz_y_salvo: { label_es: "Paz y Salvo", signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Método de verificación de identidad: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario.", lawyerRoleLabel: "EL ABOGADO", clientRoleLabel: "EL CLIENTE" },
+  notificacion_personal: { label_es: "Notificación Personal", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario.", lawyerRoleLabel: "EL ABOGADO", clientRoleLabel: "EL CLIENTE" },
+  notificacion_por_aviso: { label_es: "Notificación por Aviso", signerModel: "UNILATERAL", distribution: "lawyer", finalizedEvent: "ISSUED_FINALIZED", auditIdentityLabel_es: "Documento de emisor firmado por el abogado. Método de verificación: OTP al correo registrado del abogado emisor + campos de identidad asertados (nombre, cédula y T.P.) verificados contra perfil de usuario.", lawyerRoleLabel: "EL ABOGADO", clientRoleLabel: "EL CLIENTE" },
 };
 
 function getPolicy(docType: string): DocTypePolicy {
-  return DOC_TYPE_POLICIES[docType] || { label_es: docType, signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "" };
+  return DOC_TYPE_POLICIES[docType] || { label_es: docType, signerModel: "UNILATERAL", distribution: "both", finalizedEvent: "SIGNED_FINALIZED", auditIdentityLabel_es: "", lawyerRoleLabel: "EL ABOGADO", clientRoleLabel: "EL CLIENTE" };
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -566,20 +569,76 @@ Deno.serve(async (req) => {
         const { data: org } = await adminClient.from("organizations")
           .select("name, custom_branding_enabled, custom_logo_path, custom_firm_name")
           .eq("id", doc.organization_id).single();
-        orgData = org;
+       orgData = org;
       }
 
-      const firmName = orgData?.custom_firm_name || orgData?.name || lawyerProfile?.custom_firm_name || "Andromeda Legal";
+      // ── Generic signing branding preset override ──
+      let genericPreset: any = null;
+      let firmFooterHtml = "";
+      if (doc.document_type === "generic_pdf_signing" && doc.created_by) {
+        // Find preset ID from audit_logs
+        const { data: auditEntry } = await adminClient.from("audit_logs")
+          .select("metadata")
+          .eq("entity_id", doc.id).eq("action", "GENERIC_SIGNING_BRANDING_APPLIED")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const presetId = auditEntry?.metadata?.preset_id;
+        if (presetId) {
+          const { data: preset } = await adminClient.from("generic_signing_branding_presets")
+            .select("*").eq("id", presetId).single();
+          if (preset) {
+            genericPreset = preset;
+            console.log(`[process-pdf-job] Generic signing branding preset loaded: "${preset.name}" (${preset.id})`);
+          }
+        }
+        // Also check the initiation audit log for branding info if no preset
+        if (!genericPreset) {
+          const { data: initEntry } = await adminClient.from("audit_logs")
+            .select("metadata")
+            .eq("entity_id", doc.id).eq("action", "GENERIC_SIGNING_INITIATED")
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (initEntry?.metadata?.branding_preset_id) {
+            const { data: preset } = await adminClient.from("generic_signing_branding_presets")
+              .select("*").eq("id", initEntry.metadata.branding_preset_id).single();
+            if (preset) {
+              genericPreset = preset;
+              console.log(`[process-pdf-job] Generic signing branding preset loaded (from initiation): "${preset.name}" (${preset.id})`);
+            }
+          }
+        }
+      }
+
+      // Resolve firm name: generic preset > org > profile > default
+      const firmName = genericPreset?.firm_name || orgData?.custom_firm_name || orgData?.name || lawyerProfile?.custom_firm_name || "Andromeda Legal";
+
+      // Build footer HTML for generic signing preset
+      if (genericPreset) {
+        const parts: string[] = [];
+        if (genericPreset.firm_name) parts.push(`<strong>${genericPreset.firm_name}</strong>`);
+        if (genericPreset.firm_address) parts.push(genericPreset.firm_address);
+        const contactParts: string[] = [];
+        if (genericPreset.firm_phone) contactParts.push(`Tel: ${genericPreset.firm_phone}`);
+        if (genericPreset.firm_email) contactParts.push(genericPreset.firm_email);
+        if (genericPreset.firm_website) contactParts.push(genericPreset.firm_website);
+        if (contactParts.length > 0) parts.push(contactParts.join(" · "));
+        if (genericPreset.firm_tagline) parts.push(`<em>${genericPreset.firm_tagline}</em>`);
+        firmFooterHtml = parts.join("<br/>");
+      }
 
       // ── Base64 encode branding logo for Gotenberg (no network fetch) ──
       let logoBase64: string | null = null;
-      if (orgData?.custom_branding_enabled && orgData?.custom_logo_path) {
+      if (genericPreset?.logo_path) {
+        // Generic signing preset logo (stored in branding bucket with generic-signing/ prefix)
+        logoBase64 = await downloadAsBase64(adminClient, "branding", genericPreset.logo_path);
+      } else if (orgData?.custom_branding_enabled && orgData?.custom_logo_path) {
         logoBase64 = await downloadAsBase64(adminClient, "branding", orgData.custom_logo_path);
       } else if (lawyerProfile?.custom_branding_enabled && lawyerProfile?.custom_logo_path) {
         logoBase64 = await downloadAsBase64(adminClient, "branding", lawyerProfile.custom_logo_path);
       }
+      // Detect image type from path for proper MIME type
+      const logoPath = genericPreset?.logo_path || orgData?.custom_logo_path || lawyerProfile?.custom_logo_path || "";
+      const logoMime = logoPath.endsWith(".svg") ? "image/svg+xml" : logoPath.endsWith(".jpg") || logoPath.endsWith(".jpeg") ? "image/jpeg" : "image/png";
       const logoImgTag = logoBase64
-        ? `<img src="data:image/png;base64,${logoBase64}" alt="${firmName}" style="max-height:60px;max-width:250px;" />`
+        ? `<img src="data:${logoMime};base64,${logoBase64}" alt="${firmName}" style="max-height:60px;max-width:250px;" />`
         : null;
 
       // ── Embed signature images as base64 data URIs ──
@@ -603,7 +662,7 @@ Deno.serve(async (req) => {
       // ── Build signature blocks ──
       const totalSigners = signedSigs.length;
       const allSignatureBlocks = signedSigs.map((s) => {
-        const roleLabel = s.signer_role === "lawyer" ? "EL MANDATARIO" : "EL MANDANTE";
+        const roleLabel = s.signer_role === "lawyer" ? policy.lawyerRoleLabel : policy.clientRoleLabel;
         const sigImgSrc = signatureBase64Map[s.id] || null;
         return `<div style="margin-top:30px;border-top:2px solid #333;padding-top:16px;display:inline-block;width:${totalSigners > 1 ? "48%" : "100%"};vertical-align:top;">
           ${sigImgSrc ? `<img src="${sigImgSrc}" alt="Firma" style="max-width:250px;max-height:80px;" />` : '<p style="color:#999;">[Firma registrada]</p>'}
@@ -679,10 +738,10 @@ Deno.serve(async (req) => {
       for (let idx = 0; idx < signedSigs.length; idx++) {
         const s = signedSigs[idx];
         let roleLabel: string;
-        if (s.signer_role === "lawyer") roleLabel = "EL MANDATARIO (ABOGADO)";
+        if (s.signer_role === "lawyer") roleLabel = `${policy.lawyerRoleLabel} (ABOGADO)`;
         else if (poderdanteType === "juridica" && entityInfo) roleLabel = `PODERDANTE (PERSONA JURÍDICA)`;
         else if (poderdanteType === "multiple") roleLabel = `PODERDANTE ${idx + 1}`;
-        else roleLabel = "EL MANDANTE (CLIENTE)";
+        else roleLabel = `${policy.clientRoleLabel} (CLIENTE)`;
 
         const { data: signerEvents } = await adminClient.from("document_signature_events").select("*")
           .eq("signature_id", s.id).order("created_at", { ascending: true });
@@ -897,7 +956,9 @@ Deno.serve(async (req) => {
   </div>
 
   <div style="margin-top:32px;padding-top:16px;border-top:2px solid #1a1a2e;text-align:center;font-size:11px;color:#999;">
+    ${firmFooterHtml ? `<div style="margin-bottom:8px;font-size:11px;color:#666;line-height:1.5;">${firmFooterHtml}</div>` : ""}
     <p>Generado por ${firmName}</p>
+    <p style="font-size:10px;color:#bbb;">Sistema de firma electrónica: Andromeda Legal · info@andromeda.legal</p>
     <p>Certificado ID: ${certificateId} | Documento ID: ${doc.id}</p>
     <p>Este documento fue generado automáticamente y no requiere firma adicional.</p>
   </div>
@@ -914,9 +975,11 @@ Deno.serve(async (req) => {
         const signatureBlockHtml = `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><title>Firmas</title></head>
 <body style="font-family:'Georgia',serif;max-width:800px;margin:0 auto;padding:40px;">
+  ${logoImgTag ? `<div style="text-align:center;margin-bottom:24px;">${logoImgTag}</div>` : ""}
   <h2 style="color:#1a1a2e;border-bottom:2px solid #1a1a2e;padding-bottom:8px;margin-bottom:24px;">FIRMAS ELECTRÓNICAS</h2>
   <div>${allSignatureBlocks}</div>
   <footer style="margin-top:40px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#999;text-align:center;">
+    ${firmFooterHtml ? `<div style="margin-bottom:4px;font-size:10px;color:#666;line-height:1.4;">${firmFooterHtml}</div>` : ""}
     Firmas electrónicas — Documento original proporcionado por el abogado
   </footer>
 </body></html>`;
