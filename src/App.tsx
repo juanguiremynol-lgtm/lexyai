@@ -95,6 +95,7 @@ import {
   PlatformGenericSigningPage,
   PlatformGenericSigningDocsPage,
   PlatformHearingsCatalogPage,
+  PlatformNotificationDispatchPage,
 } from "./pages/platform";
 import PlatformProviderWizardPage from "./pages/platform/PlatformProviderWizardPage";
 import BillingTestConsole from "./pages/platform/BillingTestConsole";
@@ -288,6 +289,7 @@ const App = () => (
             <Route path="generic-signing" element={<ErrorBoundary><PlatformGenericSigningPage /></ErrorBoundary>} />
             <Route path="generic-signing-docs" element={<ErrorBoundary><PlatformGenericSigningDocsPage /></ErrorBoundary>} />
             <Route path="hearings-catalog" element={<ErrorBoundary><PlatformHearingsCatalogPage /></ErrorBoundary>} />
+            <Route path="notification-dispatch" element={<ErrorBoundary><PlatformNotificationDispatchPage /></ErrorBoundary>} />
 
             <Route path="auth-providers" element={<ErrorBoundary><PlatformAuthProvidersPage /></ErrorBoundary>} />
             <Route path="billing-test" element={

@@ -34,3 +34,4 @@ export { default as PlatformPdfSettingsPage } from "./PlatformPdfSettingsPage";
 export { default as PlatformGenericSigningPage } from "./PlatformGenericSigningPage";
 export { default as PlatformGenericSigningDocsPage } from "./PlatformGenericSigningDocsPage";
 export { default as PlatformHearingsCatalogPage } from "./PlatformHearingsCatalogPage";
+export { default as PlatformNotificationDispatchPage } from "./PlatformNotificationDispatchPage";

@@ -7747,6 +7747,57 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_dispatch_runs: {
+        Row: {
+          alerts_found: number
+          alerts_processed: number
+          duration_ms: number | null
+          emails_enqueued: number
+          error_summary: string | null
+          errors: Json | null
+          finished_at: string | null
+          id: string
+          metadata: Json | null
+          recipients_count: number
+          started_at: string
+          status: string
+          trigger_source: string
+          work_items_count: number
+        }
+        Insert: {
+          alerts_found?: number
+          alerts_processed?: number
+          duration_ms?: number | null
+          emails_enqueued?: number
+          error_summary?: string | null
+          errors?: Json | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json | null
+          recipients_count?: number
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          work_items_count?: number
+        }
+        Update: {
+          alerts_found?: number
+          alerts_processed?: number
+          duration_ms?: number | null
+          emails_enqueued?: number
+          error_summary?: string | null
+          errors?: Json | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json | null
+          recipients_count?: number
+          started_at?: string
+          status?: string
+          trigger_source?: string
+          work_items_count?: number
+        }
+        Relationships: []
+      }
       notification_recipients: {
         Row: {
           created_at: string

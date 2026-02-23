@@ -81,6 +81,7 @@ const platformNavItems = [
   { title: "Firma PDF Genérica", url: "/platform/generic-signing", icon: PenTool },
   { title: "Docs Firma Genérica", url: "/platform/generic-signing-docs", icon: FileText },
   { title: "Catálogo Audiencias", url: "/platform/hearings-catalog", icon: Calendar },
+  { title: "Email Dispatch", url: "/platform/notification-dispatch", icon: Mail },
 ];
 
 export function PlatformSidebar() {
