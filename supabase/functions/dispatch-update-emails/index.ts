@@ -53,8 +53,37 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const triggerSource = body?.source || "cron";
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const result = { processed: 0, emailsEnqueued: 0, errors: [] as string[] };
+  const startedAt = new Date();
+  const result = { processed: 0, emailsEnqueued: 0, errors: [] as string[], recipientsCount: 0, workItemsCount: 0 };
+
+  // Create run log entry
+  const { data: runRow } = await supabase
+    .from("notification_dispatch_runs")
+    .insert({ trigger_source: triggerSource, started_at: startedAt.toISOString() })
+    .select("id")
+    .single();
+  const runId = runRow?.id;
+
+  async function finalizeRun(status: string, alertsFound: number) {
+    if (!runId) return;
+    const finishedAt = new Date();
+    await supabase.from("notification_dispatch_runs").update({
+      finished_at: finishedAt.toISOString(),
+      status,
+      alerts_found: alertsFound,
+      alerts_processed: result.processed,
+      emails_enqueued: result.emailsEnqueued,
+      recipients_count: result.recipientsCount,
+      work_items_count: result.workItemsCount,
+      errors: result.errors,
+      error_summary: result.errors.length > 0 ? result.errors.join('; ') : null,
+      duration_ms: finishedAt.getTime() - startedAt.getTime(),
+    }).eq("id", runId);
+  }
 
   try {
     // Fetch unsent alert instances from last 48h (extended window for reliability)
@@ -80,8 +109,9 @@ Deno.serve(async (req) => {
 
     if (!alerts || alerts.length === 0) {
       console.log("[dispatch-update-emails] No unsent alerts found");
+      await finalizeRun("NO_ALERTS", 0);
       return new Response(
-        JSON.stringify({ ...result, message: "No alerts to dispatch" }),
+        JSON.stringify({ ...result, message: "No alerts to dispatch", run_id: runId }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -90,6 +120,7 @@ Deno.serve(async (req) => {
 
     // Collect unique work item IDs and fetch their details
     const workItemIds = [...new Set(alerts.map(a => a.entity_id).filter(Boolean))];
+    result.workItemsCount = workItemIds.length;
     const workItemMap = new Map<string, WorkItemInfo>();
 
     if (workItemIds.length > 0) {
@@ -164,6 +195,7 @@ Deno.serve(async (req) => {
             .from("alert_instances")
             .update({ is_notified_email: true, notified_email_at: new Date().toISOString() })
             .in("id", alertIds);
+          result.processed += ownerAlerts.length;
           continue;
         }
 
@@ -192,7 +224,7 @@ Deno.serve(async (req) => {
           next_attempt_at: new Date().toISOString(),
           trigger_reason: "MOVEMENT_UPDATE_DIGEST",
           trigger_event: "dispatch-update-emails",
-          dedupe_key: `digest-${ownerId}-${new Date().toISOString().split('T')[0]}`,
+          dedupe_key: `digest-${ownerId}-${new Date().toISOString().split('T')[0]}-${runId || 'norun'}`,
         });
 
         if (insertErr) {
@@ -212,6 +244,7 @@ Deno.serve(async (req) => {
           .in("id", alertIds);
 
         result.emailsEnqueued++;
+        result.recipientsCount++;
         result.processed += ownerAlerts.length;
         console.log(`[dispatch-update-emails] Enqueued digest for ${email}: ${ownerAlerts.length} alerts`);
       } catch (ownerErr) {
@@ -234,15 +267,19 @@ Deno.serve(async (req) => {
       console.warn("[dispatch-update-emails] Could not trigger process-email-outbox:", triggerErr);
     }
 
+    const status = result.errors.length > 0 ? "FAILED" : "SUCCESS";
+    await finalizeRun(status, alerts.length);
+
     console.log(`[dispatch-update-emails] Done: ${result.emailsEnqueued} emails enqueued, ${result.processed} alerts processed`);
     return new Response(
-      JSON.stringify({ ok: true, ...result }),
+      JSON.stringify({ ok: true, ...result, run_id: runId }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[dispatch-update-emails] Unhandled error:", err);
+    await finalizeRun("FAILED", 0);
     return new Response(
-      JSON.stringify({ ok: false, error: String(err) }),
+      JSON.stringify({ ok: false, error: String(err), run_id: runId }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

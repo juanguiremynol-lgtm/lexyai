@@ -18,8 +18,8 @@ import { toast } from "sonner";
 import { ALERT_TYPE_LABELS, type UserAlertType } from "@/lib/alerts/create-user-alert";
 
 const DEFAULT_PREFERENCES: Record<string, { enabled: boolean; email: boolean; push: boolean; days_before?: number }> = {
-  ACTUACION_NUEVA: { enabled: true, email: false, push: true },
-  ESTADO_NUEVO: { enabled: true, email: false, push: true },
+  ACTUACION_NUEVA: { enabled: true, email: true, push: true },
+  ESTADO_NUEVO: { enabled: true, email: true, push: true },
   STAGE_CHANGE: { enabled: true, email: false, push: true },
   TAREA_CREADA: { enabled: true, email: false, push: false },
   TAREA_VENCIDA: { enabled: true, email: true, push: true },
@@ -34,6 +34,7 @@ const DEFAULT_PREFERENCES: Record<string, { enabled: boolean; email: boolean; pu
 export function AlertPreferencesSettings() {
   const queryClient = useQueryClient();
   const [prefs, setPrefs] = useState(DEFAULT_PREFERENCES);
+  const [emailEnabled, setEmailEnabled] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
 
   const { data: savedPrefs, isLoading } = useQuery({
@@ -52,6 +53,9 @@ export function AlertPreferencesSettings() {
   useEffect(() => {
     if (savedPrefs) {
       setPrefs({ ...DEFAULT_PREFERENCES, ...savedPrefs });
+      if (typeof savedPrefs.email_enabled === 'boolean') {
+        setEmailEnabled(savedPrefs.email_enabled);
+      }
     }
   }, [savedPrefs]);
 
@@ -63,7 +67,7 @@ export function AlertPreferencesSettings() {
       const { error } = await (supabase.from("alert_preferences") as any)
         .upsert({
           user_id: user.id,
-          preferences: prefs,
+          preferences: { ...prefs, email_enabled: emailEnabled },
           updated_at: new Date().toISOString(),
         }, { onConflict: "user_id" });
       if (error) throw error;
@@ -102,6 +106,22 @@ export function AlertPreferencesSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Global email toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+          <div>
+            <Label className="text-sm font-medium">Notificaciones por email</Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              Recibir emails cuando se detecten nuevas actuaciones y estados en tus procesos
+            </p>
+          </div>
+          <Switch
+            checked={emailEnabled}
+            onCheckedChange={(v) => { setEmailEnabled(v); setHasChanges(true); }}
+          />
+        </div>
+
+        <Separator />
+
         {/* Column headers */}
         <div className="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center text-xs font-medium text-muted-foreground px-1">
           <span>Tipo de alerta</span>
@@ -165,7 +185,9 @@ export function AlertPreferencesSettings() {
 
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            Las preferencias de email se almacenan pero el envío por correo requiere configuración adicional en Recordatorios.
+            {emailEnabled 
+              ? 'Los emails de actuaciones y estados se envían automáticamente cuando se detectan novedades.'
+              : 'Las notificaciones por email están desactivadas. Solo recibirás alertas in-app.'}
           </p>
           <Button
             onClick={() => saveMutation.mutate()}
