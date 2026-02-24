@@ -187,6 +187,10 @@ export interface AdapterOptions {
   redactPII?: boolean;
   /** Force a fresh scrape bypassing cached /snapshot (for manual resync) */
   forceRefresh?: boolean;
+  /** DB's last known max act_date for freshness comparison (YYYY-MM-DD) */
+  dbMaxActDate?: string | null;
+  /** Historical record count for freshness heuristic */
+  historicalRecordCount?: number;
 }
 
 /**
@@ -222,6 +226,13 @@ export interface ProviderAdapterResult {
   // Scraping job fields (for async providers)
   scrapingJobId?: string;
   scrapingPollUrl?: string;
+  /** CPNU ingestion metadata (snapshot freshness, source mode, etc.) */
+  cpnuIngestionMeta?: {
+    source_mode: 'SNAPSHOT' | 'BUSCAR';
+    snapshot_max_act_date: string | null;
+    stale_reason: string | null;
+    force_refresh: boolean;
+  };
 }
 
 /**
