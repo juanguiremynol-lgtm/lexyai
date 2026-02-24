@@ -45,6 +45,8 @@ export interface NormalizedActuacion {
   indice?: string;
   /** Court/despacho name per actuación (CPNU-specific) */
   nombre_despacho?: string;
+  /** Judicial instance (e.g., '00', '01', '02') */
+  instancia?: string;
   /** Document attachments */
   documentos?: Array<{ nombre: string; url: string }>;
   /** Original provider response for debugging */

@@ -106,20 +106,20 @@ Deno.test("normalizeCpnuActuaciones: handles adapter-cpnu ProcessEvent format", 
 // ═══════════════════════════════════════════
 
 Deno.test("computeCpnuFingerprint: deterministic", () => {
-  const fp1 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1");
-  const fp2 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1");
+  const fp1 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, false, "2025-06-01", "", "00");
+  const fp2 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, false, "2025-06-01", "", "00");
   assertEquals(fp1, fp2);
 });
 
 Deno.test("computeCpnuFingerprint: different inputs produce different fingerprints", () => {
-  const fp1 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1");
-  const fp2 = computeCpnuFingerprint("05001400300220250105400", "2025-06-02", "AUTO", "Juzgado 1");
+  const fp1 = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, false, "2025-06-01", "", "00");
+  const fp2 = computeCpnuFingerprint("05001400300220250105400", "2025-06-02", "AUTO", "Juzgado 1", undefined, false, "2025-06-02", "", "00");
   if (fp1 === fp2) throw new Error("Expected different fingerprints");
 });
 
 Deno.test("computeCpnuFingerprint: cross-provider mode uses ACT prefix", () => {
-  const fpDefault = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1");
-  const fpCross = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, true);
+  const fpDefault = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, false, "2025-06-01", "", "00");
+  const fpCross = computeCpnuFingerprint("05001400300220250105400", "2025-06-01", "AUTO", "Juzgado 1", undefined, true, "2025-06-01", "", "00");
   // Different because prefix is 'cpnu' vs 'ACT'
   if (fpDefault === fpCross) throw new Error("Expected different fingerprints for cross-provider mode");
 });
