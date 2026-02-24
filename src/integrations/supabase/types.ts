@@ -5954,12 +5954,51 @@ export type Database = {
           },
         ]
       }
+      external_sync_run_payloads: {
+        Row: {
+          created_at: string
+          id: string
+          payload_json: Json
+          payload_size_bytes: number | null
+          provider_name: string
+          stage: string
+          sync_run_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload_json?: Json
+          payload_size_bytes?: number | null
+          provider_name: string
+          stage: string
+          sync_run_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload_json?: Json
+          payload_size_bytes?: number | null
+          provider_name?: string
+          stage?: string
+          sync_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_sync_run_payloads_sync_run_id_fkey"
+            columns: ["sync_run_id"]
+            isOneToOne: false
+            referencedRelation: "external_sync_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_sync_runs: {
         Row: {
           cpnu_force_refresh: boolean | null
           cpnu_snapshot_max_date: string | null
           cpnu_source_mode: string | null
           created_at: string
+          debug_mode: boolean
           duration_ms: number | null
           error_code: string | null
           error_message: string | null
@@ -5970,6 +6009,7 @@ export type Database = {
           provider_attempts: Json
           response_hash: string | null
           retry_count: number
+          run_mode: string
           started_at: string
           status: string
           total_inserted_acts: number
@@ -5984,6 +6024,7 @@ export type Database = {
           cpnu_snapshot_max_date?: string | null
           cpnu_source_mode?: string | null
           created_at?: string
+          debug_mode?: boolean
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
@@ -5994,6 +6035,7 @@ export type Database = {
           provider_attempts?: Json
           response_hash?: string | null
           retry_count?: number
+          run_mode?: string
           started_at?: string
           status?: string
           total_inserted_acts?: number
@@ -6008,6 +6050,7 @@ export type Database = {
           cpnu_snapshot_max_date?: string | null
           cpnu_source_mode?: string | null
           created_at?: string
+          debug_mode?: boolean
           duration_ms?: number | null
           error_code?: string | null
           error_message?: string | null
@@ -6018,6 +6061,7 @@ export type Database = {
           provider_attempts?: Json
           response_hash?: string | null
           retry_count?: number
+          run_mode?: string
           started_at?: string
           status?: string
           total_inserted_acts?: number
@@ -14582,6 +14626,10 @@ export type Database = {
       check_inference_rate_limit: {
         Args: { p_timezone?: string; p_work_item_id: string }
         Returns: Json
+      }
+      cleanup_old_debug_payloads: {
+        Args: { days_to_keep?: number }
+        Returns: number
       }
       cleanup_trigger_error_log: { Args: never; Returns: undefined }
       daily_sync_health_snapshot: {
