@@ -106,13 +106,53 @@ Deno.serve(async (req) => {
       .eq('work_item_id', work_item_id)
       .eq('is_archived', false);
 
+    const insertedCount = syncResult?.inserted_count || 0;
+    let notificationResult = { dispatched: false, reason: 'no_new_items' as string };
+
+    // If new items were inserted, trigger email dispatch immediately
+    // (DB trigger already created alert_instances with type ACTUACION_NEW on INSERT)
+    if (insertedCount > 0) {
+      try {
+        const dispatchResp = await fetch(
+          `${supabaseUrl}/functions/v1/dispatch-update-emails`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ source: 'resync-actuaciones', work_item_id }),
+          }
+        );
+        const dispatchData = await dispatchResp.json().catch(() => null);
+        notificationResult = {
+          dispatched: true,
+          reason: `dispatch triggered: ${dispatchData?.emailsEnqueued || 0} emails enqueued`,
+        };
+        console.log(`[resync-actuaciones] Dispatch result:`, dispatchData);
+      } catch (dispatchErr) {
+        console.error('[resync-actuaciones] Failed to trigger dispatch:', dispatchErr);
+        notificationResult = {
+          dispatched: false,
+          reason: `dispatch error: ${dispatchErr instanceof Error ? dispatchErr.message : 'unknown'}`,
+        };
+      }
+    } else {
+      console.log('[resync-actuaciones] No new items inserted, skipping dispatch');
+    }
+
     return new Response(JSON.stringify({
       ok: true,
       work_item_id,
       radicado: workItem.radicado,
       sync_result: syncResult,
       total_actuaciones_after: count,
-      message: `Resync completed. ${syncResult?.inserted_count || 0} new, ${syncResult?.skipped_count || 0} existing. Total: ${count}.`,
+      inserted_count: insertedCount,
+      skipped_count: syncResult?.skipped_count || 0,
+      notification: notificationResult,
+      message: insertedCount > 0
+        ? `Resync completado. ${insertedCount} nuevas actuaciones insertadas, ${syncResult?.skipped_count || 0} existentes. Total: ${count}. Notificaciones: ${notificationResult.dispatched ? 'enviadas' : 'no enviadas'}.`
+        : `Resync completado. No se encontraron actuaciones nuevas. ${syncResult?.skipped_count || 0} existentes. Total: ${count}.`,
     }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

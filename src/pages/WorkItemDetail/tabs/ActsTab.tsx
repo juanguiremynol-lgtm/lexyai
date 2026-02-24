@@ -48,7 +48,23 @@ export function ActsTab({ workItem }: ActsTabProps) {
       return data;
     },
     onSuccess: (data) => {
-      toast.success(data.message || "Resync completado");
+      const inserted = data.inserted_count || 0;
+      const skipped = data.skipped_count || 0;
+      const notif = data.notification;
+
+      if (inserted > 0) {
+        toast.success(`${inserted} nueva${inserted > 1 ? 's' : ''} actuaci${inserted > 1 ? 'ones' : 'ón'} insertada${inserted > 1 ? 's' : ''}`, {
+          description: notif?.dispatched
+            ? `Notificaciones enviadas. ${skipped} existentes.`
+            : `${skipped} existentes. Sin notificaciones (${notif?.reason || 'desconocido'}).`,
+          duration: 8000,
+        });
+      } else {
+        toast.info("No se encontraron actuaciones nuevas", {
+          description: `${skipped} existentes ya en el sistema. No se enviaron notificaciones.`,
+          duration: 6000,
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["work-item-actuaciones", workItem.id] });
     },
     onError: (err) => {
