@@ -17,6 +17,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -299,6 +300,28 @@ Deno.serve(async (req) => {
       console.warn('[scheduled-publicaciones-monitor] Failed to log job run:', logErr);
     }
 
+    // ============= TRACE RECORD =============
+    try {
+      const trace = createTraceContext("scheduled-publicaciones-monitor", "CRON", { cron_run_id: runId });
+      const traceStatus = totalErrors === 0 ? "OK" as const : totalErrors < results.length ? "PARTIAL" as const : "ERROR" as const;
+      await writeTraceRecord(supabase, trace, traceStatus, {
+        work_items_scanned: results.length,
+        provider_calls: {
+          publicaciones: {
+            count: results.length,
+            inserted: totalInserted,
+            skipped: successCount - itemsWithNewEstados,
+            errors: totalErrors,
+          },
+        },
+        errors: totalErrors > 0
+          ? [{ code: "PUB_MONITOR_ERR", message: results.filter(r => r.error).slice(0, 3).map(r => r.error).join("; "), count: totalErrors }]
+          : undefined,
+      }, new Date(startTime));
+    } catch (_traceErr) {
+      console.warn('[scheduled-publicaciones-monitor] Trace write failed (non-blocking)');
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -309,7 +332,7 @@ Deno.serve(async (req) => {
         total_inserted: totalInserted,
         total_errors: totalErrors,
         duration_ms: durationMs,
-        results: results.slice(0, 20), // Sample for response
+        results: results.slice(0, 20),
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

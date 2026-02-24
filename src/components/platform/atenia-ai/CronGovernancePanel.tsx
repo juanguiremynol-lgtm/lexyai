@@ -221,11 +221,13 @@ export function CronGovernancePanel() {
     setDryRunResult(null);
     try {
       const { data, error } = await supabase.functions.invoke("scheduled-daily-sync", {
-        body: { health_check: true },
+        body: { dry_run: true },
       });
       if (error) throw error;
       setDryRunResult(data);
-      toast.success("Dry-run completado — función arranca correctamente");
+      const orgs = data?.orgs_found ?? 0;
+      const items = data?.org_summaries?.reduce((s: number, o: any) => s + o.eligible_count, 0) ?? 0;
+      toast.success(`Dry-run OK: ${orgs} orgs, ${items} items elegibles, queue depth: ${data?.queue_depth ?? 0}`);
     } catch (err: any) {
       setDryRunResult({ error: err.message });
       toast.error("Dry-run fallido: " + err.message);
@@ -731,13 +733,71 @@ export function CronGovernancePanel() {
               </div>
 
               {dryRunResult && (
-                <div className={`p-3 rounded-lg border ${dryRunResult.error ? "border-destructive bg-destructive/5" : "border-green-500 bg-green-50 dark:bg-green-950"}`}>
-                  <p className="text-sm font-medium mb-1">
-                    {dryRunResult.error ? "❌ Dry-Run Fallido" : "✅ Dry-Run OK"}
+                <div className={`p-4 rounded-lg border ${dryRunResult.error ? "border-destructive bg-destructive/5" : "border-green-500/50 bg-green-50 dark:bg-green-950/30"}`}>
+                  <p className="text-sm font-medium mb-2">
+                    {dryRunResult.error ? "❌ Dry-Run Fallido" : "✅ Dry-Run Verification OK"}
                   </p>
-                  <pre className="text-xs text-muted-foreground overflow-auto max-h-32">
-                    {JSON.stringify(dryRunResult, null, 2)}
-                  </pre>
+                  {!dryRunResult.error && (
+                    <div className="space-y-2 text-xs">
+                      <div className="flex flex-wrap gap-4">
+                        <span>🏢 Orgs: <strong>{dryRunResult.orgs_found ?? 0}</strong></span>
+                        <span>📋 Items: <strong>{dryRunResult.org_summaries?.reduce((s: number, o: any) => s + o.eligible_count, 0) ?? 0}</strong></span>
+                        <span>📥 Queue: <strong>{dryRunResult.queue_depth ?? 0}</strong></span>
+                        <span>⏱ {dryRunResult.duration_ms}ms</span>
+                      </div>
+                      {/* Preflight */}
+                      {dryRunResult.preflight && (
+                        <div className="flex items-center gap-2">
+                          <span>🛡 Preflight:</span>
+                          <Badge variant={dryRunResult.preflight.overall === "ALL_PASSED" ? "outline" : "destructive"} className="text-xs">
+                            {dryRunResult.preflight.overall ?? dryRunResult.preflight.error ?? "—"}
+                          </Badge>
+                          {dryRunResult.preflight.decision && (
+                            <span className="text-muted-foreground">→ {dryRunResult.preflight.decision}</span>
+                          )}
+                        </div>
+                      )}
+                      {/* Org summaries */}
+                      {dryRunResult.org_summaries?.length > 0 && (
+                        <div>
+                          <p className="font-medium mb-1">Muestra de orgs:</p>
+                          {dryRunResult.org_summaries.map((o: any, i: number) => (
+                            <div key={i} className="flex gap-2 text-muted-foreground">
+                              <span className="font-mono">{o.org_id.slice(0, 8)}</span>
+                              <span>{o.eligible_count} items</span>
+                              {o.sample_radicados?.length > 0 && (
+                                <span className="font-mono">({o.sample_radicados.slice(0, 2).join(", ")})</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Today's ledger */}
+                      {dryRunResult.today_ledger?.length > 0 && (
+                        <div>
+                          <p className="font-medium mb-1">Ledger de hoy ({dryRunResult.today_ledger.length} entries):</p>
+                          {dryRunResult.today_ledger.slice(0, 5).map((l: any) => (
+                            <div key={l.id} className="flex gap-2 text-muted-foreground">
+                              <Badge variant="outline" className="text-xs">{l.status}</Badge>
+                              <span>✅{l.items_succeeded ?? 0} ❌{l.items_failed ?? 0} ⏭{l.items_skipped ?? 0}</span>
+                              {l.failure_reason && <span className="text-destructive">{l.failure_reason}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Config */}
+                      {dryRunResult.config && (
+                        <div className="text-muted-foreground">
+                          Config: budget={dryRunResult.budget_ms}ms, page={dryRunResult.page_size}, max_cont={dryRunResult.max_continuations}, timeout={dryRunResult.config.item_timeout_ms}ms
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {dryRunResult.error && (
+                    <pre className="text-xs text-destructive overflow-auto max-h-32 mt-1">
+                      {JSON.stringify(dryRunResult, null, 2)}
+                    </pre>
+                  )}
                 </div>
               )}
             </div>

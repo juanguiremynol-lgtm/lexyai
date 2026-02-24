@@ -75,6 +75,99 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // ── DRY-RUN MODE: Full verification without writes ──
+    if (maybeBody?.dry_run) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (!supabaseUrl || !supabaseServiceKey) {
+        return new Response(JSON.stringify({ ok: false, error: "Missing Supabase config" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const sb = createClient(supabaseUrl, supabaseServiceKey);
+      const dryRunStart = Date.now();
+
+      // 1. Enumerate eligible orgs
+      const { data: orgRows, error: orgErr } = await sb
+        .from("work_items")
+        .select("organization_id")
+        .eq("monitoring_enabled", true)
+        .not("radicado", "is", null)
+        .not("organization_id", "is", null);
+      const orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
+
+      // 2. Count eligible items per org (limited sample)
+      const orgSummaries: Array<{ org_id: string; eligible_count: number; sample_radicados: string[] }> = [];
+      for (const orgId of orgIds.slice(0, 5)) {
+        const { data: items } = await sb
+          .from("work_items")
+          .select("id, radicado, workflow_type, last_synced_at, consecutive_failures")
+          .eq("organization_id", orgId)
+          .eq("monitoring_enabled", true)
+          .not("radicado", "is", null)
+          .limit(20);
+        const eligible = (items || []).filter((i: any) => i.radicado?.replace(/\D/g, '').length === 23);
+        orgSummaries.push({
+          org_id: orgId,
+          eligible_count: eligible.length,
+          sample_radicados: eligible.slice(0, 3).map((i: any) => i.radicado),
+        });
+      }
+
+      // 3. Pre-flight check
+      let preflightResult: any = null;
+      try {
+        const { data: pfData } = await sb.functions.invoke("atenia-preflight-check", {
+          body: { trigger: "DRY_RUN_VERIFICATION" },
+        });
+        preflightResult = pfData;
+      } catch (pfErr: any) {
+        preflightResult = { error: pfErr.message };
+      }
+
+      // 4. Check today's ledger
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const { data: ledgerRows } = await (sb.from("auto_sync_daily_ledger") as any)
+        .select("id, organization_id, status, items_succeeded, items_failed, items_skipped, chain_id, failure_reason")
+        .eq("run_date", todayStr)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      // 5. Check queue depth
+      const { count: queueDepth } = await (sb.from("atenia_ai_remediation_queue") as any)
+        .select("id", { count: "exact", head: true })
+        .eq("status", "PENDING");
+
+      // 6. Write DRY_RUN trace
+      const trace = createTraceContext("scheduled-daily-sync", "DRY_RUN", { cron_run_id: crypto.randomUUID() });
+      await writeTraceRecord(sb, trace, "OK", {
+        work_items_scanned: orgSummaries.reduce((s, o) => s + o.eligible_count, 0),
+        queue_stats: { depth_before: queueDepth ?? 0 },
+      }, new Date(dryRunStart));
+
+      return new Response(JSON.stringify({
+        ok: true,
+        mode: "DRY_RUN",
+        duration_ms: Date.now() - dryRunStart,
+        cron_run_id: trace.cron_run_id,
+        orgs_found: orgIds.length,
+        org_summaries: orgSummaries,
+        preflight: preflightResult,
+        today_ledger: ledgerRows ?? [],
+        queue_depth: queueDepth ?? 0,
+        budget_ms: HARD_BUDGET_MS,
+        page_size: PAGE_SIZE,
+        max_continuations: MAX_CONTINUATIONS,
+        config: {
+          item_timeout_ms: ITEM_TIMEOUT_MS,
+          dead_letter_threshold: DEAD_LETTER_THRESHOLD,
+          success_threshold: SUCCESS_THRESHOLD,
+        },
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   } catch (_healthErr) { /* not JSON, proceed normally */ }
 
   const startTime = Date.now();

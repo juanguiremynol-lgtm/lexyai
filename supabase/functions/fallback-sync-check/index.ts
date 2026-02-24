@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 import {
   shouldCountAsSuccess,
   shouldRunPublicaciones,
@@ -372,6 +373,24 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Write trace record
+    const trace = createTraceContext("fallback-sync-check", "CRON", { cron_run_id: runId });
+    const traceStatus = retriesSucceeded === retriesAttempted ? "OK" as const : retriesSucceeded > 0 ? "PARTIAL" as const : retriesAttempted > 0 ? "ERROR" as const : "OK" as const;
+    try {
+      await writeTraceRecord(supabase, trace, traceStatus, {
+        work_items_scanned: retriesAttempted,
+        queue_stats: {
+          processed: retriesAttempted,
+          succeeded: retriesSucceeded,
+          failed: retriesAttempted - retriesSucceeded,
+        },
+        errors: retryResults.filter(r => r.error).length > 0
+          ? [{ code: "FALLBACK_RETRY_ERR", message: retryResults.filter(r => r.error).slice(0, 3).map(r => r.error).join("; "), count: retryResults.filter(r => r.error).length }]
+          : undefined,
+        overflow_triggered: overflowTriggered,
+      }, new Date(startTime));
+    } catch (_traceErr) { /* non-blocking */ }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -379,6 +398,8 @@ Deno.serve(async (req) => {
         retries_attempted: retriesAttempted,
         retries_succeeded: retriesSucceeded,
         results: retryResults,
+        overflow_triggered: overflowTriggered,
+        cron_run_id: trace.cron_run_id,
         duration_ms: Date.now() - startTime,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -386,6 +407,18 @@ Deno.serve(async (req) => {
 
   } catch (err: any) {
     console.error("[fallback-sync-check] Fatal error:", err);
+    // Write error trace
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (supabaseUrl && supabaseServiceKey) {
+        const sb = createClient(supabaseUrl, supabaseServiceKey);
+        const trace = createTraceContext("fallback-sync-check", "CRON", { cron_run_id: runId });
+        await writeTraceRecord(sb, trace, "ERROR", {
+          errors: [{ code: "FATAL", message: err.message || String(err), count: 1 }],
+        }, new Date(startTime));
+      }
+    } catch (_te) { /* best-effort */ }
     return new Response(
       JSON.stringify({
         ok: false,
