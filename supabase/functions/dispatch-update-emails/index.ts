@@ -10,6 +10,7 @@
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -58,6 +59,10 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const startedAt = new Date();
+  const runMode = body?.run_mode || "CRON";
+  const trace = createTraceContext("dispatch-update-emails", runMode, {
+    cron_run_id: body?.cron_run_id,
+  });
   const result = { processed: 0, emailsEnqueued: 0, errors: [] as string[], recipientsCount: 0, workItemsCount: 0 };
 
   // Create run log entry
@@ -270,16 +275,32 @@ Deno.serve(async (req) => {
     const status = result.errors.length > 0 ? "FAILED" : "SUCCESS";
     await finalizeRun(status, alerts.length);
 
+    const traceStatus = result.errors.length > 0 ? "PARTIAL" : "OK";
+    await writeTraceRecord(supabase, trace, traceStatus, {
+      work_items_scanned: result.workItemsCount,
+      email_stats: {
+        pending_alerts: alerts.length,
+        emails_sent: result.emailsEnqueued,
+        emails_failed: result.errors.length,
+      },
+      errors: result.errors.length > 0
+        ? [{ code: "DISPATCH_ERR", message: result.errors.slice(0, 5).join("; "), count: result.errors.length }]
+        : undefined,
+    }, startedAt);
+
     console.log(`[dispatch-update-emails] Done: ${result.emailsEnqueued} emails enqueued, ${result.processed} alerts processed`);
     return new Response(
-      JSON.stringify({ ok: true, ...result, run_id: runId }),
+      JSON.stringify({ ok: true, ...result, run_id: runId, cron_run_id: trace.cron_run_id }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[dispatch-update-emails] Unhandled error:", err);
     await finalizeRun("FAILED", 0);
+    await writeTraceRecord(supabase, trace, "ERROR", {
+      errors: [{ code: "FATAL", message: String(err), count: 1 }],
+    }, startedAt);
     return new Response(
-      JSON.stringify({ ok: false, error: String(err), run_id: runId }),
+      JSON.stringify({ ok: false, error: String(err), run_id: runId, cron_run_id: trace.cron_run_id }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
