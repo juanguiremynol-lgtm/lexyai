@@ -3,7 +3,7 @@
  * Includes AI Guide panel for Gemini-powered contextual assistance.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, X, Loader2 } from "lucide-react";
@@ -26,6 +26,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useWizardSession } from "./useWizardSession";
 import { WizardSessionProvider } from "./WizardSessionContext";
+import { useWizardDraft } from "@/hooks/use-wizard-draft";
+import { DraftRestoredBanner, AutosaveIndicator } from "@/components/documents/DraftRestoredBanner";
 
 interface ExternalProviderWizardProps {
   mode: WizardMode;
@@ -50,6 +52,39 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
 
   // Wizard session management
   const { sessionId, isCreating: sessionCreating, error: sessionError, invokeWithSession } = useWizardSession(mode, orgId);
+
+  // ── Draft autosave (localStorage) ──
+  const draftState = useMemo(() => ({
+    step: state.step,
+    templateChoice: state.templateChoice,
+    connector: state.connector,
+    instance: state.instance,
+    preflightPassed: state.preflightPassed,
+    routingConfigured: state.routingConfigured,
+    wildcardAcknowledged: state.wildcardAcknowledged,
+    globalAcknowledged: state.globalAcknowledged,
+    organizationId: state.organizationId,
+  }), [state.step, state.templateChoice, state.connector, state.instance, state.preflightPassed, state.routingConfigured, state.wildcardAcknowledged, state.globalAcknowledged, state.organizationId]);
+
+  const { hasRestoredDraft, clearDraft, discardDraft, lastSavedAt } = useWizardDraft({
+    storageKey: `ext-provider-wizard-${mode}`,
+    currentState: draftState,
+    onRestore: (draft) => {
+      setState((s) => ({
+        ...s,
+        step: draft.step ?? s.step,
+        templateChoice: draft.templateChoice ?? s.templateChoice,
+        connector: draft.connector ?? s.connector,
+        instance: draft.instance ?? s.instance,
+        preflightPassed: draft.preflightPassed ?? s.preflightPassed,
+        routingConfigured: draft.routingConfigured ?? s.routingConfigured,
+        wildcardAcknowledged: draft.wildcardAcknowledged ?? s.wildcardAcknowledged,
+        globalAcknowledged: draft.globalAcknowledged ?? s.globalAcknowledged,
+        organizationId: draft.organizationId ?? s.organizationId,
+      }));
+    },
+    enabled: !sessionCreating,
+  });
 
   const goTo = useCallback((step: number) => {
     setState((s) => ({ ...s, step }));
@@ -245,6 +280,11 @@ export function ExternalProviderWizard({ mode }: ExternalProviderWizardProps) {
             <X className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* Draft restored banner */}
+        {hasRestoredDraft && (
+          <DraftRestoredBanner lastSavedAt={lastSavedAt} onDiscard={discardDraft} />
+        )}
 
         {/* Stepper */}
         <WizardStepper currentStep={state.step} onStepClick={(step) => goTo(step)} />

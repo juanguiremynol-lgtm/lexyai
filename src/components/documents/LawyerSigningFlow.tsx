@@ -23,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SigningProgressTracker, resolveSigningStep, buildSigningSteps, type SigningStepKey } from "@/components/signing/SigningProgressTracker";
+import { NetworkRetryBanner, useNetworkRetry } from "@/components/signing/NetworkRetryBanner";
 
 type FlowStep = "loading" | "identity" | "otp" | "review" | "sign" | "done";
 
@@ -78,6 +79,7 @@ export function LawyerSigningFlow({
   const [resumeInfo, setResumeInfo] = useState<string | null>(null);
   const [sigSteps, setSigSteps] = useState(buildSigningSteps({}));
   const isMobile = useIsMobile();
+  const { networkError, wrapAsync, clearError } = useNetworkRetry();
 
   const isUploadedPdf = sourceType === "UPLOADED_PDF";
 
@@ -344,6 +346,13 @@ export function LawyerSigningFlow({
             <p className="text-muted-foreground">{resumeInfo}</p>
           </div>
         </div>
+      )}
+
+      {/* Network retry banner */}
+      {networkError && (
+        <NetworkRetryBanner
+          onRetry={clearError}
+        />
       )}
 
       {/* Identity Step */}
