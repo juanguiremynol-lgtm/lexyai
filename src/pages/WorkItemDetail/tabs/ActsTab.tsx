@@ -53,9 +53,10 @@ export function ActsTab({ workItem }: ActsTabProps) {
       const notif = data.notification;
 
       if (inserted > 0) {
+        const recipientList = notif?.recipients?.join(', ');
         toast.success(`${inserted} nueva${inserted > 1 ? 's' : ''} actuaci${inserted > 1 ? 'ones' : 'ón'} insertada${inserted > 1 ? 's' : ''}`, {
           description: notif?.dispatched
-            ? `Notificaciones enviadas. ${skipped} existentes.`
+            ? `Notificaciones enviadas${recipientList ? ` a: ${recipientList}` : ''}. ${skipped} existentes.`
             : `${skipped} existentes. Sin notificaciones (${notif?.reason || 'desconocido'}).`,
           duration: 8000,
         });
