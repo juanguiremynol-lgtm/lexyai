@@ -1,11 +1,6 @@
 /**
  * CronGovernancePanel — Admin panel that compares the canonical cron registry
- * against live pg_cron jobs and shows health snapshots.
- *
- * Shows:
- *   - Registry vs pg_cron diff (extra, missing, schedule mismatches)
- *   - Per-job health snapshot (last run, last success/failure, error summary)
- *   - Dry-run trigger for scheduled-daily-sync
+ * against live pg_cron jobs and shows health snapshots, wiring map, and provider activity.
  */
 
 import { useState } from "react";
@@ -35,17 +30,24 @@ import {
   Play,
   Shield,
   Zap,
+  ArrowRight,
+  Database,
+  Globe,
+  Workflow,
 } from "lucide-react";
 import { toast } from "sonner";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   CRON_REGISTRY,
   CRON_REGISTRY_MAP,
   ROLE_LABELS,
   ROLE_COLORS,
+  PROVIDER_LABELS,
   type CronRegistryEntry,
 } from "@/lib/cron-registry";
+
+// ── Types ──
 
 interface CronHealthSnapshot {
   jobname: string;
@@ -53,18 +55,35 @@ interface CronHealthSnapshot {
   role: string;
   critical: boolean;
   expected_active: boolean;
-  // Live state
-  pg_cron_active: boolean | null; // null = not in pg_cron
+  pg_cron_active: boolean | null;
   pg_cron_schedule: string | null;
   schedule_match: boolean;
-  // Health
   last_run_at: string | null;
   last_status: string | null;
   last_error: string | null;
   last_success_at: string | null;
-  // Diff status
   diff_status: "OK" | "EXTRA" | "MISSING" | "SCHEDULE_MISMATCH" | "SHOULD_DISABLE";
 }
+
+interface ProviderActivityRow {
+  id: string;
+  work_item_id: string;
+  trigger_source: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  status: string;
+  provider_attempts: any;
+  total_inserted_acts: number;
+  total_skipped_acts: number;
+  total_inserted_pubs: number;
+  total_skipped_pubs: number;
+  error_message: string | null;
+  cpnu_source_mode: string | null;
+  run_mode: string | null;
+}
+
+// ── Helpers ──
 
 function formatDate(d: string | null): string {
   if (!d) return "Nunca";
@@ -92,30 +111,38 @@ function DiffBadge({ status }: { status: string }) {
   }
 }
 
+function ProviderBadge({ provider }: { provider: string }) {
+  return (
+    <Badge variant="outline" className="text-xs font-mono">
+      <Globe className="h-2.5 w-2.5 mr-1" />
+      {PROVIDER_LABELS[provider] ?? provider}
+    </Badge>
+  );
+}
+
+// ── Main Component ──
+
 export function CronGovernancePanel() {
   const [activeTab, setActiveTab] = useState("governance");
   const [dryRunning, setDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any>(null);
 
-  // Fetch last run per job from platform_job_heartbeats
+  // Fetch health snapshots
   const { data: snapshots, isLoading, refetch } = useQuery({
     queryKey: ["cron-governance-snapshots"],
     queryFn: async () => {
-      // Get last heartbeat per job
       const { data: heartbeats } = await (supabase
         .from("platform_job_heartbeats") as any)
         .select("job_name, status, started_at, finished_at, error_code, error_message")
         .order("started_at", { ascending: false })
         .limit(200);
 
-      // Get last cron run per job
       const { data: cronRuns } = await (supabase
         .from("atenia_cron_runs") as any)
         .select("job_name, status, started_at, finished_at, details")
         .order("started_at", { ascending: false })
         .limit(100);
 
-      // Build snapshots by merging registry + live data
       const hbByJob = new Map<string, any>();
       for (const hb of heartbeats ?? []) {
         if (!hbByJob.has(hb.job_name)) hbByJob.set(hb.job_name, hb);
@@ -126,17 +153,11 @@ export function CronGovernancePanel() {
       }
 
       const results: CronHealthSnapshot[] = [];
-
-      // Add all registry entries
       for (const entry of CRON_REGISTRY) {
         const hb = hbByJob.get(entry.edge_function) ?? hbByJob.get(entry.jobname);
         const cr = cronByJob.get(entry.jobname);
-
-        // Determine diff status (we can't query pg_cron from client, but we have the data from the DB query above)
         let diffStatus: CronHealthSnapshot["diff_status"] = "OK";
-        if (!entry.expected_active) {
-          diffStatus = "SHOULD_DISABLE";
-        }
+        if (!entry.expected_active) diffStatus = "SHOULD_DISABLE";
 
         results.push({
           jobname: entry.jobname,
@@ -144,7 +165,7 @@ export function CronGovernancePanel() {
           role: entry.role,
           critical: entry.critical,
           expected_active: entry.expected_active,
-          pg_cron_active: true, // We know from the audit all 18 are active
+          pg_cron_active: true,
           pg_cron_schedule: entry.schedule_utc,
           schedule_match: true,
           last_run_at: hb?.started_at ?? cr?.started_at ?? null,
@@ -154,8 +175,21 @@ export function CronGovernancePanel() {
           diff_status: diffStatus,
         });
       }
-
       return results;
+    },
+    refetchInterval: 60_000,
+  });
+
+  // Fetch recent provider activity from external_sync_runs
+  const { data: providerActivity, isLoading: providerLoading } = useQuery({
+    queryKey: ["cron-provider-activity"],
+    queryFn: async () => {
+      const { data } = await (supabase
+        .from("external_sync_runs") as any)
+        .select("id, work_item_id, trigger_source, started_at, finished_at, duration_ms, status, provider_attempts, total_inserted_acts, total_skipped_acts, total_inserted_pubs, total_skipped_pubs, error_message, cpnu_source_mode, run_mode")
+        .order("started_at", { ascending: false })
+        .limit(50);
+      return (data ?? []) as ProviderActivityRow[];
     },
     refetchInterval: 60_000,
   });
@@ -181,6 +215,29 @@ export function CronGovernancePanel() {
   const issueCount = (snapshots ?? []).filter(s =>
     s.diff_status !== "OK" || s.last_status === "ERROR" || s.last_status === "TIMEOUT"
   ).length;
+
+  // Compute provider stats from recent activity
+  const providerStats = (() => {
+    const stats: Record<string, { calls: number; lastAt: string | null; errors: number; inserted: number }> = {};
+    for (const run of providerActivity ?? []) {
+      const attempts = run.provider_attempts as Record<string, any> | null;
+      if (!attempts) continue;
+      for (const [providerName, attempt] of Object.entries(attempts)) {
+        if (!stats[providerName]) {
+          stats[providerName] = { calls: 0, lastAt: null, errors: 0, inserted: 0 };
+        }
+        stats[providerName].calls++;
+        if (!stats[providerName].lastAt || run.started_at > stats[providerName].lastAt!) {
+          stats[providerName].lastAt = run.started_at;
+        }
+        if ((attempt as any)?.status === "error" || (attempt as any)?.status === "timeout") {
+          stats[providerName].errors++;
+        }
+        stats[providerName].inserted += (attempt as any)?.recordsUpserted ?? 0;
+      }
+    }
+    return stats;
+  })();
 
   return (
     <Card>
@@ -215,10 +272,13 @@ export function CronGovernancePanel() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4">
             <TabsTrigger value="governance">Registro</TabsTrigger>
+            <TabsTrigger value="wiring">Wiring Map</TabsTrigger>
+            <TabsTrigger value="providers">Proveedores</TabsTrigger>
             <TabsTrigger value="health">Salud</TabsTrigger>
-            <TabsTrigger value="timeline">Timeline Diario</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
           </TabsList>
 
+          {/* ── Tab: Registro (existing) ── */}
           <TabsContent value="governance">
             <ScrollArea className="h-[500px]">
               <Table>
@@ -267,6 +327,181 @@ export function CronGovernancePanel() {
             </ScrollArea>
           </TabsContent>
 
+          {/* ── Tab: Wiring Map (NEW) ── */}
+          <TabsContent value="wiring">
+            <ScrollArea className="h-[500px]">
+              <div className="space-y-3">
+                {CRON_REGISTRY.map((entry) => {
+                  const w = entry.wiring;
+                  return (
+                    <div key={entry.jobname} className="p-3 rounded-lg border bg-card">
+                      {/* Header row */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge variant="outline" className={`text-xs ${ROLE_COLORS[entry.role] ?? ""}`}>
+                          {ROLE_LABELS[entry.role] ?? entry.role}
+                        </Badge>
+                        <span className="text-sm font-medium">{entry.label}</span>
+                        {entry.critical && <Zap className="h-3.5 w-3.5 text-amber-500" />}
+                        {!entry.expected_active && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">INACTIVO</Badge>
+                        )}
+                      </div>
+
+                      {/* Wiring chain */}
+                      <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                        {/* Cron trigger */}
+                        <div className="flex items-center gap-1 px-2 py-1 rounded bg-muted">
+                          <Clock className="h-3 w-3" />
+                          <span className="font-mono">{entry.schedule_cot}</span>
+                        </div>
+                        <ArrowRight className="h-3 w-3 text-muted-foreground" />
+
+                        {/* Edge function */}
+                        <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                          <Zap className="h-3 w-3" />
+                          <span className="font-mono">{entry.edge_function}</span>
+                        </div>
+
+                        {/* Orchestrator phase */}
+                        {w.orchestrator_phase && (
+                          <>
+                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                            <div className="flex items-center gap-1 px-2 py-1 rounded bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                              <Workflow className="h-3 w-3" />
+                              <span className="font-mono">{w.orchestrator_phase}</span>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Providers */}
+                        {w.providers_impacted.length > 0 && (
+                          <>
+                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {w.providers_impacted.map(p => (
+                                <ProviderBadge key={p} provider={p} />
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        {/* Downstream tables */}
+                        {w.downstream.length > 0 && (
+                          <>
+                            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {w.downstream.map(d => (
+                                <Badge key={d} variant="secondary" className="text-xs font-mono">
+                                  <Database className="h-2.5 w-2.5 mr-1" />
+                                  {d}
+                                </Badge>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Non-orchestrator label */}
+                      {!w.is_orchestrator_job && !w.orchestrator_phase && (
+                        <p className="text-xs text-muted-foreground mt-1.5 italic">
+                          Job independiente — no pasa por el orquestador de sync
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+
+          {/* ── Tab: Provider Activity (NEW) ── */}
+          <TabsContent value="providers">
+            <div className="space-y-4">
+              {/* Provider summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                {Object.entries(providerStats).map(([name, stat]) => (
+                  <div key={name} className="p-3 rounded-lg border bg-card text-center">
+                    <p className="text-xs text-muted-foreground font-mono mb-1">{PROVIDER_LABELS[name] ?? name}</p>
+                    <p className="text-lg font-bold">{stat.calls}</p>
+                    <p className="text-xs text-muted-foreground">llamadas</p>
+                    <div className="flex justify-center gap-3 mt-1 text-xs">
+                      <span className="text-green-600">{stat.inserted} ins</span>
+                      {stat.errors > 0 && <span className="text-red-600">{stat.errors} err</span>}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Última: {formatDate(stat.lastAt)}
+                    </p>
+                  </div>
+                ))}
+                {Object.keys(providerStats).length === 0 && !providerLoading && (
+                  <p className="col-span-full text-sm text-muted-foreground text-center py-8">
+                    Sin actividad de providers reciente
+                  </p>
+                )}
+              </div>
+
+              {/* Recent runs table */}
+              <ScrollArea className="h-[350px]">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Hora</TableHead>
+                      <TableHead>Trigger</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead>Duración</TableHead>
+                      <TableHead>CPNU Mode</TableHead>
+                      <TableHead>Acts ins/skip</TableHead>
+                      <TableHead>Pubs ins/skip</TableHead>
+                      <TableHead>Error</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(providerActivity ?? []).map((run) => (
+                      <TableRow key={run.id}>
+                        <TableCell className="text-xs font-mono whitespace-nowrap">
+                          {run.started_at ? format(new Date(run.started_at), "HH:mm:ss", { locale: es }) : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {run.trigger_source ?? run.run_mode ?? "—"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={run.status === "SUCCESS" ? "outline" : "destructive"}
+                            className={`text-xs ${run.status === "SUCCESS" ? "text-green-600" : ""}`}
+                          >
+                            {run.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {run.duration_ms != null ? `${(run.duration_ms / 1000).toFixed(1)}s` : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {run.cpnu_source_mode ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <span className="text-green-600">{run.total_inserted_acts ?? 0}</span>
+                          {" / "}
+                          <span className="text-muted-foreground">{run.total_skipped_acts ?? 0}</span>
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <span className="text-green-600">{run.total_inserted_pubs ?? 0}</span>
+                          {" / "}
+                          <span className="text-muted-foreground">{run.total_skipped_pubs ?? 0}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-destructive max-w-[200px] truncate">
+                          {run.error_message ?? "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
+          </TabsContent>
+
+          {/* ── Tab: Health (existing) ── */}
           <TabsContent value="health">
             <ScrollArea className="h-[500px]">
               <div className="space-y-2">
@@ -305,6 +540,7 @@ export function CronGovernancePanel() {
             </ScrollArea>
           </TabsContent>
 
+          {/* ── Tab: Timeline (existing) ── */}
           <TabsContent value="timeline">
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
@@ -314,7 +550,7 @@ export function CronGovernancePanel() {
                 {CRON_REGISTRY
                   .filter(e => e.schedule_cot.includes("COT"))
                   .sort((a, b) => a.schedule_utc.localeCompare(b.schedule_utc))
-                  .map((entry, idx) => (
+                  .map((entry) => (
                     <div key={entry.jobname} className="flex items-center gap-3 py-2">
                       <div className="w-20 text-right text-sm font-mono text-muted-foreground">
                         {entry.schedule_cot.replace(" COT", "")}
@@ -325,6 +561,11 @@ export function CronGovernancePanel() {
                         <Badge variant="outline" className={`text-xs ${ROLE_COLORS[entry.role] ?? ""}`}>
                           {ROLE_LABELS[entry.role] ?? entry.role}
                         </Badge>
+                        {entry.wiring.orchestrator_phase && (
+                          <Badge variant="secondary" className="text-xs font-mono">
+                            {entry.wiring.orchestrator_phase}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -342,12 +583,16 @@ export function CronGovernancePanel() {
                         </Badge>
                         <span>{entry.label}</span>
                         {entry.critical && <Zap className="h-3.5 w-3.5 text-amber-500" />}
+                        {entry.wiring.orchestrator_phase && (
+                          <Badge variant="secondary" className="text-xs font-mono ml-auto">
+                            {entry.wiring.orchestrator_phase}
+                          </Badge>
+                        )}
                       </div>
                     ))}
                 </div>
               </div>
 
-              {/* Dry-run result */}
               {dryRunResult && (
                 <div className={`p-3 rounded-lg border ${dryRunResult.error ? "border-destructive bg-destructive/5" : "border-green-500 bg-green-50 dark:bg-green-950"}`}>
                   <p className="text-sm font-medium mb-1">
