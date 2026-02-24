@@ -249,7 +249,13 @@ async function fetchMonitoring(options: AdapterOptions): Promise<ProviderAdapter
     headers['x-api-key'] = apiKeyInfo.value;
   }
 
-  console.log(`[cpnuAdapter] monitoring mode: auth=${apiKeyInfo.source}, radicado=${radicado.slice(0,4)}***`);
+  console.log(`[cpnuAdapter] monitoring mode: auth=${apiKeyInfo.source}, radicado=${radicado.slice(0,4)}***, forceRefresh=${!!options.forceRefresh}`);
+
+  // If forceRefresh, skip stale /snapshot cache and go directly to /buscar scraping
+  if (options.forceRefresh) {
+    console.log(`[cpnuAdapter] forceRefresh=true, bypassing /snapshot, triggering /buscar scraping...`);
+    return await handleScrapingFallback(radicado, baseUrl, pathPrefix, apiKeyInfo, headers, options, startTime);
+  }
 
   // STEP 1: Try /snapshot
   const snapshotUrl = joinUrl(baseUrl, pathPrefix, `/snapshot?numero_radicacion=${radicado}`);

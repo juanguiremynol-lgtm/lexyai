@@ -185,6 +185,8 @@ export interface AdapterOptions {
   crossProviderDedup?: boolean;
   /** Whether to redact PII from results (demo mode) */
   redactPII?: boolean;
+  /** Force a fresh scrape bypassing cached /snapshot (for manual resync) */
+  forceRefresh?: boolean;
 }
 
 /**
