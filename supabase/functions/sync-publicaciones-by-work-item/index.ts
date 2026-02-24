@@ -875,8 +875,12 @@ Deno.serve(async (req) => {
 
       // Insert new publication
       // FIX 2.2: Derive date_confidence from date_source
-      const dateSource = parsedFecha ? 'api_explicit' : 'inferred';
-      const dateConfidence = parsedFecha ? 'high' : 'low';
+      // BUG FIX: 'inferred' is NOT a valid value for check_pub_date_source constraint.
+      // Must use 'inferred_sync' (when no date extracted) or 'parsed_filename'/'parsed_title' (when extracted from title).
+      const dateSource = parsedFecha 
+        ? 'api_explicit' 
+        : (fechaFromTitle ? 'parsed_title' : 'inferred_sync');
+      const dateConfidence = parsedFecha ? 'high' : (fechaFromTitle ? 'low' : 'low');
 
       // ── Upsert via RPC with explicit sources[] array merge ──
       const { data: rpcResult, error: insertError } = await supabase.rpc('rpc_upsert_work_item_publicaciones', {
@@ -1043,8 +1047,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    result.ok = true;
-    result.status = 'SUCCESS';
+    // BUG FIX 2.3: If errors[] is non-empty, classify as PARTIAL, not SUCCESS
+    if (result.errors.length > 0) {
+      if (result.inserted_count > 0) {
+        result.ok = true;
+        result.status = 'SUCCESS'; // Some inserted, some errored — still "ok" overall
+        result.warnings.push(`${result.errors.length} RPC error(s) occurred but ${result.inserted_count} publications were inserted`);
+      } else {
+        result.ok = false;
+        result.status = 'ERROR'; // Nothing inserted AND errors present — this is a failure
+      }
+    } else {
+      result.ok = true;
+      result.status = 'SUCCESS';
+    }
 
     // Set initial sync completion marker (idempotent: only on first successful sync)
     try {

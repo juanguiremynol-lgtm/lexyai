@@ -2463,13 +2463,14 @@ Deno.serve(async (req) => {
     result.provider_used = fetchResult.provider;
     console.log(`[sync-by-work-item] Provider ${fetchResult.provider} returned ${fetchResult.actuaciones.length} actuaciones`);
 
-    // Handle empty actuaciones — settled empty, NOT success.
+    // Handle empty actuaciones — settled empty, but NOT an error.
     // Provider responded correctly but returned zero records.
+    // BUG FIX 2.2: This is expected for newly filed cases. Treat as ok=true with status 'empty'.
     // This is non-transient (no retry needed) and non-404 (no demonitor).
     if (fetchResult.actuaciones.length === 0) {
-      result.ok = false;
+      result.ok = true;
       result.code = 'PROVIDER_EMPTY_RESULT';
-      result.warnings.push('Provider returned valid response with zero actuaciones');
+      result.warnings.push('Provider returned valid response with zero actuaciones — case may not yet be indexed');
       
       // Fetch current consecutive_failures for increment
       const { data: currentItemEmpty } = await supabase
@@ -2502,7 +2503,7 @@ Deno.serve(async (req) => {
         provider: fetchResult.provider,
         http_status: fetchResult.httpStatus || 200,
         latency_ms: fetchResult.latencyMs || null,
-        success: false,
+        success: true, // Empty is not a failure — provider responded correctly
         error_code: 'PROVIDER_EMPTY_RESULT',
         message: `Provider ${fetchResult.provider} returned valid response with 0 actuaciones`,
         meta: { radicado_preview: workItem.radicado?.slice(0, 10) + '...' },
