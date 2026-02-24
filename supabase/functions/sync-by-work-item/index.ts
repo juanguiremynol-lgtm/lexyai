@@ -167,6 +167,8 @@ async function enqueueScrapingRetry(
 interface SyncRequest {
   work_item_id: string;
   force_refresh?: boolean;
+  /** When false, CPNU adapter must not call /buscar even if snapshot is stale (cron cap) */
+  allow_buscar?: boolean;
   _scheduled?: boolean; // When true, skip auth + org membership check (cron/fallback callers)
   /** Release-gate payload for deterministic testing (platform admin only) */
   release_gate?: {
@@ -203,6 +205,9 @@ interface SyncResult {
   scraping_poll_url?: string;
   scraping_provider?: string;
   scraping_message?: string;
+  // CPNU freshness cap fields
+  cpnu_buscar_used?: boolean;
+  cpnu_buscar_deferred?: boolean;
 }
 
 interface WorkItem {
@@ -952,12 +957,14 @@ async function fetchFromCpnu(
   radicado: string,
   forceRefresh?: boolean,
   freshnessContext?: { dbMaxActDate?: string | null; historicalRecordCount?: number },
+  allowBuscar?: boolean,
 ): Promise<FetchResult> {
   const result = await sharedFetchFromCpnu({
     radicado,
     mode: 'monitoring',
     includeParties: true,
     forceRefresh,
+    allowBuscar,
     dbMaxActDate: freshnessContext?.dbMaxActDate,
     historicalRecordCount: freshnessContext?.historicalRecordCount,
   });
@@ -968,9 +975,22 @@ async function fetchFromCpnu(
       `snapshot_max=${result.cpnuIngestionMeta.snapshot_max_act_date}`,
       `stale_reason=${result.cpnuIngestionMeta.stale_reason}`,
       `force_refresh=${result.cpnuIngestionMeta.force_refresh}`,
+      `buscar_deferred=${result.cpnuIngestionMeta.buscar_deferred ?? false}`,
     );
   }
-  return sharedResultToFetchResult(result);
+  const fetchResult = sharedResultToFetchResult(result);
+  // Attach cpnuIngestionMeta to FetchResult for caller to inspect
+  (fetchResult as any)._cpnuIngestionMeta = result.cpnuIngestionMeta;
+  return fetchResult;
+}
+
+/** Stamp CPNU buscar metadata from any FetchResult onto the SyncResult */
+function stampCpnuBuscarMeta(syncResult: SyncResult, fetchResult: FetchResult | null): void {
+  if (!fetchResult) return;
+  const meta = (fetchResult as any)?._cpnuIngestionMeta;
+  if (!meta) return;
+  if (meta.source_mode === 'BUSCAR') syncResult.cpnu_buscar_used = true;
+  if (meta.buscar_deferred) syncResult.cpnu_buscar_deferred = true;
 }
 
 async function fetchFromSamai(radicado: string): Promise<FetchResult> {
@@ -1053,6 +1073,7 @@ async function executeViaOrchestrator(
   isScheduled: boolean,
   releaseGate?: { force_empty_provider?: string; force_empty_once?: boolean },
   force_refresh?: boolean,
+  allow_buscar?: boolean,
 ): Promise<OrchestratorExecResult> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1070,7 +1091,7 @@ async function executeViaOrchestrator(
     {
       key: "CPNU",
       fetchFn: createLegacyAdapter(
-        (radicado: string) => fetchFromCpnu(radicado, force_refresh, freshnessContext),
+        (radicado: string) => fetchFromCpnu(radicado, force_refresh, freshnessContext, allow_buscar),
       ),
     },
     {
@@ -1238,7 +1259,7 @@ Deno.serve(async (req) => {
       return errorResponse('INVALID_JSON', 'Could not parse request body', 400, traceId);
     }
 
-    const { work_item_id, _scheduled, release_gate, force_refresh } = payload;
+    const { work_item_id, _scheduled, release_gate, force_refresh, allow_buscar } = payload;
     
     if (!work_item_id) {
       return errorResponse('MISSING_WORK_ITEM_ID', 'work_item_id is required', 400, traceId);
@@ -1444,7 +1465,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh);
+      const orchExec = await executeViaOrchestrator(workItem, supabase, traceId, !!_scheduled, sanitizedReleaseGate, force_refresh, allow_buscar);
 
       // Transfer orchestrator results into SyncResult
       result.provider_attempts = orchExec.providerAttempts;
@@ -1625,7 +1646,7 @@ Deno.serve(async (req) => {
       const providerLabels: string[] = [];
       
       if (hasRadicado) {
-        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx));
+        providerPromises.push(fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar));
         providerLabels.push('cpnu');
         providerPromises.push(fetchFromSamai(normalizedRadicado));
         providerLabels.push('samai');
@@ -1666,6 +1687,9 @@ Deno.serve(async (req) => {
         }
         
         const provResult = settled.value;
+        
+        // Stamp CPNU buscar metadata if this was a CPNU result
+        if (label === 'cpnu') stampCpnuBuscarMeta(result, provResult);
         
         result.provider_attempts.push({
           provider: label,
@@ -1934,7 +1958,8 @@ Deno.serve(async (req) => {
       console.log(`[sync-by-work-item] Note: Publicaciones sync is handled by sync-publicaciones-by-work-item`);
       
       // Fetch from CPNU for actuaciones
-      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
+      fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+      stampCpnuBuscarMeta(result, fetchResult);
       
       result.provider_attempts.push({
         provider: 'cpnu',
@@ -2083,7 +2108,8 @@ Deno.serve(async (req) => {
           console.log(`[sync-by-work-item] SAMAI failed/empty (no scraping), trying CPNU fallback`);
           result.warnings.push(`SAMAI (primary): ${fetchResult.error}`);
           
-          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
+          const cpnuResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+          stampCpnuBuscarMeta(result, cpnuResult);
           
           result.provider_attempts.push({
             provider: 'cpnu',
@@ -2133,7 +2159,8 @@ Deno.serve(async (req) => {
           },
         });
         
-        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx);
+        fetchResult = await fetchFromCpnu(normalizedRadicado, force_refresh, cpnuFreshnessCtx, allow_buscar);
+        stampCpnuBuscarMeta(result, fetchResult);
         
         // Log PROVIDER_RESPONSE trace step
         await logTrace(supabase, {
