@@ -97,21 +97,48 @@ Deno.serve(async (req) => {
         .not("organization_id", "is", null);
       const orgIds = [...new Set((orgRows || []).map((r: any) => r.organization_id).filter(Boolean))];
 
-      // 2. Count eligible items per org (limited sample)
-      const orgSummaries: Array<{ org_id: string; eligible_count: number; sample_radicados: string[] }> = [];
+      // 2. Count eligible items per org with enqueue diagnostics
+      const orgSummaries: Array<{
+        org_id: string;
+        eligible_count: number;
+        would_enqueue_count: number;
+        sample_radicados: string[];
+        exclusion_reasons: Record<string, number>;
+      }> = [];
       for (const orgId of orgIds.slice(0, 5)) {
-        const { data: items } = await sb
+        const { data: allMonitored } = await sb
           .from("work_items")
-          .select("id, radicado, workflow_type, last_synced_at, consecutive_failures")
+          .select("id, radicado, workflow_type, stage, last_synced_at, consecutive_failures, monitoring_enabled, scrape_status")
           .eq("organization_id", orgId)
           .eq("monitoring_enabled", true)
           .not("radicado", "is", null)
-          .limit(20);
-        const eligible = (items || []).filter((i: any) => i.radicado?.replace(/\D/g, '').length === 23);
+          .limit(100);
+
+        const exclusions: Record<string, number> = {};
+        const eligible: any[] = [];
+        for (const item of allMonitored || []) {
+          const rad = item.radicado?.replace(/\D/g, '') ?? '';
+          if (rad.length !== 23) {
+            exclusions["invalid_radicado_format"] = (exclusions["invalid_radicado_format"] || 0) + 1;
+            continue;
+          }
+          if (item.consecutive_failures && item.consecutive_failures >= DEAD_LETTER_THRESHOLD) {
+            exclusions["dead_lettered"] = (exclusions["dead_lettered"] || 0) + 1;
+            continue;
+          }
+          if (item.scrape_status === "SCRAPING") {
+            exclusions["already_scraping"] = (exclusions["already_scraping"] || 0) + 1;
+            continue;
+          }
+          eligible.push(item);
+        }
+
         orgSummaries.push({
           org_id: orgId,
-          eligible_count: eligible.length,
+          eligible_count: (allMonitored || []).length,
+          would_enqueue_count: eligible.length,
           sample_radicados: eligible.slice(0, 3).map((i: any) => i.radicado),
+          exclusion_reasons: exclusions,
         });
       }
 
@@ -134,15 +161,28 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: false })
         .limit(10);
 
-      // 5. Check queue depth
+      // 5. Check queue depth + retry queue
       const { count: queueDepth } = await (sb.from("atenia_ai_remediation_queue") as any)
         .select("id", { count: "exact", head: true })
         .eq("status", "PENDING");
 
-      // 6. Write DRY_RUN trace
+      const { count: retryQueueDepth } = await (sb.from("sync_retry_queue") as any)
+        .select("id", { count: "exact", head: true });
+
+      // 6. Enqueue diagnostics summary
+      const totalEligible = orgSummaries.reduce((s, o) => s + o.eligible_count, 0);
+      const totalWouldEnqueue = orgSummaries.reduce((s, o) => s + o.would_enqueue_count, 0);
+      const aggregatedExclusions: Record<string, number> = {};
+      for (const o of orgSummaries) {
+        for (const [reason, count] of Object.entries(o.exclusion_reasons)) {
+          aggregatedExclusions[reason] = (aggregatedExclusions[reason] || 0) + count;
+        }
+      }
+
+      // 7. Write DRY_RUN trace
       const trace = createTraceContext("scheduled-daily-sync", "DRY_RUN", { cron_run_id: crypto.randomUUID() });
       await writeTraceRecord(sb, trace, "OK", {
-        work_items_scanned: orgSummaries.reduce((s, o) => s + o.eligible_count, 0),
+        work_items_scanned: totalEligible,
         queue_stats: { depth_before: queueDepth ?? 0 },
       }, new Date(dryRunStart));
 
@@ -156,6 +196,13 @@ Deno.serve(async (req) => {
         preflight: preflightResult,
         today_ledger: ledgerRows ?? [],
         queue_depth: queueDepth ?? 0,
+        retry_queue_depth: retryQueueDepth ?? 0,
+        enqueue_diagnostics: {
+          total_monitored: totalEligible,
+          would_enqueue: totalWouldEnqueue,
+          excluded: totalEligible - totalWouldEnqueue,
+          exclusion_reasons: aggregatedExclusions,
+        },
         budget_ms: HARD_BUDGET_MS,
         page_size: PAGE_SIZE,
         max_continuations: MAX_CONTINUATIONS,
