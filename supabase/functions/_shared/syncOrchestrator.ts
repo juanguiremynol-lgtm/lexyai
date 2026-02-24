@@ -181,6 +181,8 @@ const FANOUT_CONCURRENCY = 2;
 async function createSyncRun(
   supabase: any,
   ctx: SyncRunContext,
+  debugMode = false,
+  runMode = "NORMAL",
 ): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -192,6 +194,8 @@ async function createSyncRun(
         trigger_source: ctx.triggerSource,
         started_at: new Date().toISOString(),
         status: "RUNNING",
+        debug_mode: debugMode,
+        run_mode: runMode,
       })
       .select("id")
       .single();
@@ -204,6 +208,81 @@ async function createSyncRun(
     return null;
   }
 }
+
+/**
+ * Record a debug payload for a sync run.
+ * Only called when debugMode=true. Non-blocking, best-effort.
+ * Payloads are size-limited to 100KB to prevent storage bloat.
+ */
+async function recordDebugPayload(
+  supabase: any,
+  syncRunId: string | null,
+  providerName: string,
+  stage: "request" | "response" | "parsed" | "upsert_summary" | "freshness_gate" | "dedupe",
+  payload: unknown,
+): Promise<void> {
+  if (!syncRunId) return;
+  try {
+    // Size-limit: truncate large payloads
+    let payloadJson = typeof payload === "string" ? payload : JSON.stringify(payload ?? {});
+    const MAX_PAYLOAD_BYTES = 100_000;
+    if (payloadJson.length > MAX_PAYLOAD_BYTES) {
+      payloadJson = JSON.stringify({
+        _truncated: true,
+        _original_size: payloadJson.length,
+        _preview: payloadJson.slice(0, MAX_PAYLOAD_BYTES - 200),
+      });
+    }
+    await supabase
+      .from("external_sync_run_payloads")
+      .insert({
+        sync_run_id: syncRunId,
+        provider_name: providerName,
+        stage,
+        payload_json: JSON.parse(payloadJson),
+      });
+  } catch (err) {
+    console.warn(`[syncOrchestrator] Failed to record debug payload: ${err}`);
+  }
+}
+
+/** Sanitize metadata for debug output: remove API keys, limit size */
+function sanitizeForDebug(obj: unknown): unknown {
+  if (!obj || typeof obj !== "object") return obj;
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+    if (key === "_legacyResult") {
+      const legacy = val as any;
+      result[key] = {
+        ok: legacy?.ok,
+        actuaciones_count: legacy?.actuaciones?.length ?? 0,
+        isEmpty: legacy?.isEmpty,
+        error: legacy?.error,
+        provider: legacy?.provider,
+        httpStatus: legacy?.httpStatus,
+        scrapingInitiated: legacy?.scrapingInitiated,
+        actuaciones_sample: (legacy?.actuaciones || []).slice(0, 5).map((a: any) => ({
+          fecha: a.fecha || a.fecha_actuacion,
+          actuacion: (a.actuacion || a.tipo || "").slice(0, 150),
+          anotacion: (a.anotacion || "").slice(0, 150),
+          indice: a.indice,
+          fecha_registro: a.fecha_registro,
+          inicia_termino: a.fecha_inicia_termino || a.inicia_termino,
+        })),
+      };
+      continue;
+    }
+    if (typeof val === "string" && (key.includes("key") || key.includes("secret") || key.includes("token"))) {
+      result[key] = val ? `***${val.slice(-4)}` : null;
+      continue;
+    }
+    result[key] = val;
+  }
+  return result;
+}
+
+/** Export for use by the debug edge function */
+export { recordDebugPayload };
 
 /**
  * Finalize a sync run record with results.
@@ -826,6 +905,12 @@ export async function orchestrateSync(
       forceEmptyProvider?: string;
       forceEmptyOnce?: boolean;
     };
+    /** Debug mode: capture raw payloads per provider into external_sync_run_payloads */
+    debugMode?: boolean;
+    /** Run mode classification for the sync run record */
+    runMode?: "NORMAL" | "CRON" | "MANUAL_DEBUG" | "DRY_RUN";
+    /** Dry run: skip DB writes for actuaciones/publicaciones (still show parsed + dedupe decisions) */
+    dryRun?: boolean;
   },
 ): Promise<SyncRunResult> {
   const startTime = Date.now();
@@ -855,9 +940,11 @@ export async function orchestrateSync(
   }
 
   // Create sync run record
+  const debugMode = options?.debugMode ?? false;
+  const runMode = options?.runMode ?? "NORMAL";
   const syncRunId = options?.skipRunRecord
     ? null
-    : await createSyncRun(supabase, ctx);
+    : await createSyncRun(supabase, ctx, debugMode, runMode);
 
   const allAttempts: ProviderAttemptResult[] = [];
   let totalInsertedActs = 0;
@@ -894,6 +981,32 @@ export async function orchestrateSync(
       if (actResult.foundStatus !== "NOT_FOUND") {
         overallFoundStatus = actResult.foundStatus;
       }
+
+      // Debug mode: record per-provider metadata payloads
+      if (debugMode && syncRunId) {
+        for (const attempt of actResult.attempts) {
+          // Record attempt metadata (contains _legacyResult with raw data)
+          const sanitizedMeta = sanitizeForDebug(attempt.metadata);
+          await recordDebugPayload(supabase, syncRunId, attempt.provider, "response", {
+            data_kind: "ACTUACIONES",
+            status: attempt.status,
+            http_code: attempt.http_code,
+            latency_ms: attempt.latency_ms,
+            inserted_count: attempt.inserted_count,
+            skipped_count: attempt.skipped_count,
+            error_code: attempt.error_code,
+            error_message: attempt.error_message,
+            raw_metadata: sanitizedMeta,
+          });
+        }
+        // Record coverage decision
+        await recordDebugPayload(supabase, syncRunId, "orchestrator", "request", {
+          phase: "ACTUACIONES",
+          execution_mode: actCoverage.executionMode,
+          providers_planned: actCoverage.providers.map(p => ({ key: p.key, role: p.role })),
+          found_status: actResult.foundStatus,
+        });
+      }
     }
 
     // Phase 2: Estados (unless skipped) — use override-aware coverage
@@ -923,6 +1036,28 @@ export async function orchestrateSync(
         totalSkippedPubs = estResult.totalSkipped;
         if (estResult.foundStatus === "FOUND_COMPLETE" && overallFoundStatus !== "FOUND_COMPLETE") {
           overallFoundStatus = estResult.foundStatus;
+        }
+
+        // Debug mode: record per-provider metadata payloads for Estados
+        if (debugMode && syncRunId) {
+          for (const attempt of estResult.attempts) {
+            await recordDebugPayload(supabase, syncRunId, attempt.provider, "response", {
+              data_kind: "ESTADOS",
+              status: attempt.status,
+              http_code: attempt.http_code,
+              latency_ms: attempt.latency_ms,
+              inserted_count: attempt.inserted_count,
+              skipped_count: attempt.skipped_count,
+              error_code: attempt.error_code,
+              error_message: attempt.error_message,
+            });
+          }
+          await recordDebugPayload(supabase, syncRunId, "orchestrator", "request", {
+            phase: "ESTADOS",
+            execution_mode: estCoverage.executionMode,
+            providers_planned: estCoverage.providers.map(p => ({ key: p.key, role: p.role })),
+            found_status: estResult.foundStatus,
+          });
         }
       }
     }
