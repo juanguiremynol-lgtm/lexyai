@@ -15,6 +15,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createTraceContext, writeTraceRecord } from "../_shared/traceContext.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,6 +37,13 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
+
+  const body = await req.json().catch(() => ({}));
+  const runMode = body?.run_mode || "CRON";
+  const trace = createTraceContext("scheduled-alert-evaluator", runMode, {
+    cron_run_id: body?.cron_run_id,
+  });
+  const startedAt = new Date();
 
   const results = {
     hearings_evaluated: 0,
@@ -189,13 +197,33 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, results }), {
+    const traceStatus = results.errors.length > 0 ? "PARTIAL" : "OK";
+    await writeTraceRecord(supabase, trace, traceStatus, {
+      work_items_scanned: results.hearings_evaluated + results.tasks_evaluated,
+      email_stats: {
+        pending_alerts: results.hearings_evaluated + results.tasks_evaluated,
+        emails_sent: results.hearing_alerts_created + results.task_alerts_created,
+        emails_failed: results.errors.length,
+      },
+      errors: results.errors.length > 0
+        ? [{ code: "ALERT_EVAL_ERR", message: results.errors.slice(0, 5).join("; "), count: results.errors.length }]
+        : undefined,
+      hearings_evaluated: results.hearings_evaluated,
+      hearing_alerts_created: results.hearing_alerts_created,
+      tasks_evaluated: results.tasks_evaluated,
+      task_alerts_created: results.task_alerts_created,
+    }, startedAt);
+
+    return new Response(JSON.stringify({ ok: true, results, cron_run_id: trace.cron_run_id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
     console.error("[scheduled-alert-evaluator] Fatal:", err);
+    await writeTraceRecord(supabase, trace, "ERROR", {
+      errors: [{ code: "FATAL", message: err instanceof Error ? err.message : "Unknown", count: 1 }],
+    }, startedAt);
     return new Response(
-      JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "Unknown" }),
+      JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "Unknown", cron_run_id: trace.cron_run_id }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
