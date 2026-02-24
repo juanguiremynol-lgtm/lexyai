@@ -25,13 +25,13 @@ export function useHoyCounts() {
     queryFn: async () => {
       if (!orgId) return 0;
 
-      // Count estados detected or changed today
+      // Count estados whose court date (fecha_fijacion) is today (COT)
       const { count, error } = await supabase
         .from('work_item_publicaciones')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .eq('is_archived', false)
-        .or(`detected_at.gte.${todayBounds.startUTC},changed_at.gte.${todayBounds.startUTC}`);
+        .eq('fecha_fijacion', today);
 
       if (error) console.error('[hoy-counts] estados error:', error);
       return count ?? 0;
@@ -46,13 +46,13 @@ export function useHoyCounts() {
     queryFn: async () => {
       if (!orgId) return 0;
 
-      // Count actuaciones detected or changed today
+      // Count actuaciones whose event date (act_date) is today (COT)
       const { count, error } = await supabase
         .from('work_item_acts')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .eq('is_archived', false)
-        .or(`detected_at.gte.${todayBounds.startUTC},changed_at.gte.${todayBounds.startUTC}`);
+        .eq('act_date', today);
 
       if (error) console.error('[hoy-counts] actuaciones error:', error);
       return count ?? 0;

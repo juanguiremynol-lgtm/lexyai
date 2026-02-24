@@ -117,34 +117,30 @@ export async function getActuacionesHoy(
   let modifiedCount = 0;
 
   if (mode === 'detected') {
-    // MODE: "Detectadas hoy" — items detected_at OR changed_at within window
+    // MODE: "Fecha actuación" — items whose act_date falls within the COT window
+    // This prevents backfilled historical items from appearing as "today"
     const { data, error } = await supabase
       .from('work_item_acts')
       .select(SELECT_FIELDS)
       .eq('work_items.organization_id', organizationId)
       .eq('is_archived', false)
-      .or(`detected_at.gte.${bounds.created_start},changed_at.gte.${bounds.created_start}`)
-      .order('detected_at', { ascending: false })
+      .gte('act_date', bounds.date_start)
+      .lte('act_date', bounds.date_end)
+      .not('act_date', 'is', null)
+      .order('act_date', { ascending: false })
       .limit(500);
 
     if (error) console.error('[actuaciones-hoy] detected query error:', error);
 
     for (const row of data || []) {
+      // Check if this item was also recently discovered (detected_at in window)
       const detectedMs = new Date(row.detected_at || row.created_at).getTime();
-      const changedMs = row.changed_at ? new Date(row.changed_at).getTime() : 0;
       const windowStartMs = new Date(bounds.created_start).getTime();
       const windowEndMs = new Date(bounds.created_end).getTime();
-
       const isDetectedInWindow = detectedMs >= windowStartMs && detectedMs <= windowEndMs;
-      const isChangedInWindow = changedMs >= windowStartMs && changedMs <= windowEndMs;
-
-      if (!isDetectedInWindow && !isChangedInWindow) continue;
 
       let reason: MatchReason;
-      if (isChangedInWindow && !isDetectedInWindow) {
-        reason = 'modified';
-        modifiedCount++;
-      } else if (isDetectedInWindow) {
+      if (isDetectedInWindow) {
         reason = 'discovered';
         discoveredCount++;
       } else {
